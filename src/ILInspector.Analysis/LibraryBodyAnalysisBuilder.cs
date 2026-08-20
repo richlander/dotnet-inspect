@@ -587,10 +587,13 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             methodScope = expanded;
         }
 
-        Dictionary<int, TypeRef>? evidenceSources =
+        Dictionary<int, ImmutableArray<TypeRef>>?
+            evidenceSources =
             plan.TypeScopeEvidenceSources is null
                 ? null
-                : new Dictionary<int, TypeRef>(
+                : new Dictionary<
+                    int,
+                    ImmutableArray<TypeRef>>(
                     plan.TypeScopeEvidenceSources);
         if (plan.TypeScope is not null)
         {
@@ -600,11 +603,21 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 MethodIdentity owner)
                 in ownersByBody)
             {
-                evidenceSources[body.MetadataToken] =
+                TypeRef declaredSourceType =
                     ResolveDeclaredMethod(
                         owner,
                         ownersByBody)
                     .DeclaringType;
+                ImmutableArray<TypeRef> existing =
+                    evidenceSources.GetValueOrDefault(
+                        body.MetadataToken);
+                if (existing.IsDefault)
+                    existing = [];
+                if (!existing.Contains(declaredSourceType))
+                {
+                    evidenceSources[body.MetadataToken] =
+                        existing.Add(declaredSourceType);
+                }
             }
         }
 

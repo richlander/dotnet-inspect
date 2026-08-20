@@ -10109,6 +10109,42 @@ public class LibraryBodyIndexTests
 
     [Fact]
     public void
+        DirectCalls_ClosureTypeScopeRetainsAsyncLambdaMoveNext()
+    {
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        var full = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        DirectCall expected = Assert.Single(
+            full.DirectCalls,
+            call => call.Caller.Name
+                    == "ScopedCapturingAsyncLambdaOwner"
+                && call.EvidenceMethod.Name == "MoveNext"
+                && call.Callee.Name == "GetAwaiter");
+        MethodIdentity kickoff = Assert.Single(
+            full.Methods,
+            method => method.Name.StartsWith(
+                "<ScopedCapturingAsyncLambdaOwner>b__",
+                StringComparison.Ordinal));
+
+        var scoped = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence,
+            bodyTypeScope:
+                type => type.Equals(
+                    kickoff.DeclaringType));
+
+        Assert.Contains(
+            scoped.DirectCalls,
+            call => call.Caller == expected.Caller
+                && call.EvidenceMethod
+                    == expected.EvidenceMethod
+                && call.Callee == expected.Callee);
+    }
+
+    [Fact]
+    public void
         ResolveDeclaredMethod_DirectAsyncLiftedKickoffScopeReturnsOwner()
     {
         string path =

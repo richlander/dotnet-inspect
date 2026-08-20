@@ -23,21 +23,42 @@ public class TypeTargetedDecodeTests
             ? string.Join(";", v.Select(x => x!.ToString()).OrderBy(s => s, StringComparer.Ordinal))
             : "";
 
-    static Analysis.TypeRef LargestType(Analysis.LibraryBodyIndex full)
-        => full.Methods
-            .GroupBy(m => m.DeclaringType)
-            .OrderByDescending(g => g.Count())
-            .First().Key;
+    static Analysis.TypeRef ClosureType(
+        Analysis.LibraryBodyIndex full) =>
+        full.Methods
+            .Select(method => method.DeclaringType)
+            .Distinct()
+            .Single(type =>
+                type.ToQualifiedDisplayString().EndsWith(
+                    "StructuralCloneComparisonDocumentJsonContext.<>c",
+                    StringComparison.Ordinal));
+
+    static Analysis.TypeRef SourceOwnerType(
+        Analysis.LibraryBodyIndex full)
+    {
+        string closureName =
+            ClosureType(full).ToQualifiedDisplayString();
+        string ownerName =
+            closureName[..closureName.LastIndexOf(
+                ".<>c",
+                StringComparison.Ordinal)];
+        return full.Methods
+            .Select(method => method.DeclaringType)
+            .Distinct()
+            .Single(type =>
+                type.ToQualifiedDisplayString() == ownerName);
+    }
 
     static string CallFacts(
         Analysis.LibraryBodyIndex index,
-        int evidenceToken) =>
+        Analysis.TypeRef target) =>
         string.Join(
             ";",
             index.DirectCalls
                 .Where(call =>
-                    call.EvidenceMethod.MetadataToken
-                        == evidenceToken)
+                    call.EvidenceMethod.DeclaringType.Equals(
+                        target)
+                    || call.Caller.DeclaringType.Equals(target))
                 .Select(call => call.ToString())
                 .OrderBy(
                     value => value,
@@ -51,7 +72,7 @@ public class TypeTargetedDecodeTests
         var fullUnsafety = full.GetUnsafetyOccurrences();
         var fullAlloc = full.GetAllocationOccurrences();
 
-        var target = LargestType(full);
+        var target = ClosureType(full);
         var tokens = full.Methods.Where(m => m.DeclaringType.Equals(target)).Select(m => m.MetadataToken).ToArray();
         Assert.NotEmpty(tokens);
 
@@ -67,32 +88,54 @@ public class TypeTargetedDecodeTests
                 && !call.Caller.DeclaringType.Equals(target));
         foreach (var token in tokens)
         {
-            Assert.Equal(
-                CallFacts(full, token),
-                CallFacts(targeted, token));
             Assert.Equal(Facts(fullUnsafe, token), Facts(tUnsafe, token));
             Assert.Equal(Facts(fullUnsafety, token), Facts(tUnsafety, token));
             Assert.Equal(Facts(fullAlloc, token), Facts(tAlloc, token));
         }
+        Assert.Equal(
+            CallFacts(full, target),
+            string.Join(
+                ";",
+                targeted.DirectCalls
+                    .Select(call => call.ToString())
+                    .OrderBy(
+                        value => value,
+                        StringComparer.Ordinal)));
     }
 
     [Fact]
-    public void TypeTargetedBuild_DecodesOnlyTheScopedType()
+    public void
+        TypeTargetedBuild_AnalyzesOnlyPhysicalOrSourceOwnedBodies()
     {
         var full = Analysis.LibraryBodyIndex.Open(SelfPath);
-        var target = LargestType(full);
+        var target = SourceOwnerType(full);
         var inScope = full.Methods.Where(m => m.DeclaringType.Equals(target)).Select(m => m.MetadataToken).ToHashSet();
 
         var targeted = Analysis.LibraryBodyIndex.Open(SelfPath, bodyTypeScope: tr => tr.Equals(target));
 
-        // Every direct-call evidence body belongs to the scoped type; declared callers may
-        // belong to source-owner types outside that physical scope.
+        // Every analyzed call belongs to the selected physical type or to a source method
+        // of that type.
         foreach (var call in targeted.DirectCalls)
-            Assert.Contains(
-                call.EvidenceMethod.MetadataToken,
-                inScope);
+        {
+            Assert.True(
+                inScope.Contains(
+                    call.EvidenceMethod.MetadataToken)
+                || call.Caller.DeclaringType.Equals(target));
+        }
 
-        // At least one method of the target type actually decoded (the type has bodies with calls).
-        Assert.NotEmpty(targeted.DirectCalls);
+        Assert.Contains(
+            targeted.DirectCalls,
+            call => !inScope.Contains(
+                    call.EvidenceMethod.MetadataToken)
+                && call.Caller.DeclaringType.Equals(target));
+        Assert.Equal(
+            CallFacts(full, target),
+            string.Join(
+                ";",
+                targeted.DirectCalls
+                    .Select(call => call.ToString())
+                    .OrderBy(
+                        value => value,
+                        StringComparer.Ordinal)));
     }
 }

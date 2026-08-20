@@ -247,19 +247,17 @@ internal sealed class LibraryMethodAnalysisRunner(
                     == true;
             if (bodyTypeScope is not null)
             {
-                TypeRef? sourceType = null;
+                ImmutableArray<TypeRef> sourceTypes = [];
                 bool mappedEvidence =
                     plan.TypeScopeEvidenceSources
                         ?.TryGetValue(
                             caller.MetadataToken,
-                            out sourceType)
+                            out sourceTypes)
                     == true;
-                TypeRef scopedType =
-                    mappedEvidence
-                        ? sourceType!
-                        : caller.DeclaringType;
                 if (!directlySelectedType
-                    && !bodyTypeScope(scopedType))
+                    && (!mappedEvidence
+                        || !sourceTypes.Any(
+                            bodyTypeScope)))
                     return result;
             }
             try

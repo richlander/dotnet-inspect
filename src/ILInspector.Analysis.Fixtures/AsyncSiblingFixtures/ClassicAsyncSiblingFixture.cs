@@ -27,6 +27,14 @@ public static class ClassicAsyncSiblingFixture
         string marker) =>
         async task => await task;
 
+    internal static Action<Task> ScopedCapturingAsyncLambdaOwner(
+        string marker) =>
+        async task =>
+        {
+            _ = marker;
+            await task;
+        };
+
     public static Task ScopedAsyncLambdaOwner(int marker) =>
         Task.CompletedTask;
 
