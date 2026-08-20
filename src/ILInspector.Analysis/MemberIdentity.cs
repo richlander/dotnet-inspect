@@ -385,6 +385,12 @@ public sealed record DirectCall(
     CallKind Kind,
     bool InLoop = false)
 {
+    /// <summary>
+    /// Method body containing the physical IL instruction. This differs from
+    /// <see cref="Caller"/> when a synthesized body is attributed to its
+    /// declared source method.
+    /// </summary>
+    public MethodIdentity EvidenceMethod { get; init; } = Caller;
     public string Opcode { get; init; } = "";
     public int? ReturnAddress { get; init; }
     public AllocationMultiplicity Multiplicity { get; init; }

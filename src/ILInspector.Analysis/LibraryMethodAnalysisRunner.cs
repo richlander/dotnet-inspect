@@ -84,7 +84,20 @@ internal interface ILibraryMethodAnalysisInfrastructure
         MethodDefinition liftedMethod,
         MethodIdentity liftedIdentity,
         out MethodIdentity? sourceOwner,
-        out bool sourceGenerated);
+        out bool sourceGenerated,
+        IReadOnlySet<int>? ownerMethodScope,
+        Func<TypeRef, bool>? ownerTypeScope,
+        bool directlySelectedBody);
+
+    MethodIdentity? ResolveDeclaredMethod(
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition methodDefinition,
+        MethodIdentity method,
+        bool typeSourceGenerated,
+        IReadOnlySet<int>? ownerMethodScope,
+        Func<TypeRef, bool>? ownerTypeScope,
+        IReadOnlySet<int>? requestedMethodScope,
+        bool directlySelectedBody);
 
     bool DispatchCanTargetOverride(
         TypeDefinition declaringType,
@@ -98,6 +111,7 @@ internal sealed class LibraryMethodAnalysisResult
 {
     public bool HasCaller;
     public MethodIdentity? Caller;
+    public MethodIdentity? DeclaredMethod;
     public int Token;
     public CallerUnsafeMode Mode;
     public bool IsLeverage;
@@ -113,6 +127,7 @@ internal sealed class LibraryMethodAnalysisResult
     public LeakTriageResult? LeakTriage;
     public ArrayPoolOwnershipMethodEvidence? OwnershipFlow;
     public AnalysisDiagnostic? Diagnostic;
+    public MethodIdentity? DeclaredSource;
 }
 
 /// <summary>
@@ -145,6 +160,8 @@ internal sealed class LibraryMethodAnalysisRunner(
             LibraryBodyAnalysisFeatures.OwnershipFlow);
         IReadOnlySet<int>? bodyScope = plan.MethodScope;
         Func<TypeRef, bool>? bodyTypeScope = plan.TypeScope;
+        IReadOnlySet<int>? requestedMethodScope =
+            plan.RequestedMethodScope;
         if (!includeMethodEvidence)
         {
             return includeLeakTriage
@@ -239,6 +256,34 @@ internal sealed class LibraryMethodAnalysisRunner(
                         : caller.DeclaringType;
                 if (!bodyTypeScope(scopedType))
                     return result;
+            }
+            try
+            {
+                MethodIdentity? declaredMethod =
+                    _infrastructure.ResolveDeclaredMethod(
+                        methodHandle,
+                        methodDefinition,
+                        caller,
+                        typeSourceGenerated,
+                        bodyScope,
+                        bodyTypeScope,
+                        requestedMethodScope,
+                        requestedMethodScope?.Contains(
+                            caller.MetadataToken)
+                            == true);
+                result.DeclaredMethod = declaredMethod;
+                result.DeclaredSource = declaredMethod;
+            }
+            catch (Exception ex)
+                when (IsRecoverableMethodFailure(ex))
+            {
+                result.Diagnostic = new AnalysisDiagnostic(
+                    MetadataTokens.GetToken(methodHandle),
+                    MethodLabel(
+                        typeHandle,
+                        methodHandle),
+                    $"{ex.GetType().Name}: {ex.Message}",
+                    DeclaringType: caller.DeclaringType);
             }
             leakFailureKind =
                 LeakTriageFailureKind.BodyAcquisition;
@@ -354,7 +399,12 @@ internal sealed class LibraryMethodAnalysisRunner(
                         methodDefinition,
                         caller,
                         out sourceOwner,
-                        out sourceOwnerGenerated);
+                        out sourceOwnerGenerated,
+                        bodyScope,
+                        bodyTypeScope,
+                        requestedMethodScope?.Contains(
+                            caller.MetadataToken)
+                            == true);
                 bool sourceGenerated =
                     _infrastructure.HasGeneratedCodeAttribute(
                         methodAttributes)
