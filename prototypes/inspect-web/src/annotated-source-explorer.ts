@@ -49,6 +49,7 @@ export interface AnnotatedSourceExplorerOptions extends AnnotatedSourceEntryOpti
 }
 
 const MAX_SELECTION_DETAILS = 50;
+const preparedDocuments = new WeakMap<AnnotatedSourceDocument, PreparedAnnotatedView>();
 
 export function createAnnotatedSourceExplorerState(
   document: AnnotatedSourceDocument,
@@ -61,7 +62,7 @@ export function createAnnotatedSourceExplorerState(
   if (!MEDIA.some(medium => media[medium])) media.CSharp = true;
 
   return {
-    prepared: prepareAnnotatedView(document),
+    prepared: preparedDocument(document),
     media,
     selectedFactId: initial.selectedFactId ?? null,
     selectedNodeIds: [...new Set(initial.selectedNodeIds ?? [])],
@@ -186,7 +187,7 @@ export function renderAnnotatedSourceExplorer(
       const addressable = nodes.length > 0;
       const titleText = nodes.map(node => `#${node.id} ${node.kind}`).join(" · ");
       if (addressable) {
-        return `<button type="button" class="annotated-span addressable${segment.selected ? " selected" : ""}" data-ase-offset="${segment.start}" title="${escapeHtml(titleText)}">${escapeHtml(segment.text)}</button>`;
+        return `<button type="button" tabindex="-1" class="annotated-span addressable${segment.selected ? " selected" : ""}" data-ase-offset="${segment.start}" title="${escapeHtml(titleText)}">${escapeHtml(segment.text)}</button>`;
       }
       return `<span class="annotated-span${segment.selected ? " selected" : ""}">${escapeHtml(segment.text)}</span>`;
     }).join("");
@@ -216,7 +217,7 @@ export function renderAnnotatedSourceExplorer(
             <div><span>Canonical text</span><strong>Finding overlays</strong></div>
             <p>${result.document.nodes.length} nodes · ${result.document.targets.length} targets${view.hiddenLines ? ` · ${view.hiddenLines} hidden lines` : ""}</p>
           </div>
-          <div class="ase-code-scroll">
+          <div class="ase-code-scroll" tabindex="0" aria-label="Annotated source text. Use arrow keys to move between structural spans.">
             <pre class="annotated-text"><code>${lines}</code></pre>
           </div>
         </section>
@@ -239,6 +240,14 @@ export function renderAnnotatedSourceExplorer(
         </aside>
       </div>
     </div>`;
+}
+
+function preparedDocument(document: AnnotatedSourceDocument): PreparedAnnotatedView {
+  const existing = preparedDocuments.get(document);
+  if (existing) return existing;
+  const prepared = prepareAnnotatedView(document);
+  preparedDocuments.set(document, prepared);
+  return prepared;
 }
 
 function limitationHtml(result: AnnotatedSourceResult, escapeHtml: EscapeHtml): string {

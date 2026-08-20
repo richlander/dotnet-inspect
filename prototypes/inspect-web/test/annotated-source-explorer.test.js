@@ -155,7 +155,7 @@ test("invalid portable documents remain visible failures instead of empty explor
   );
 });
 
-test("addressable source and rerendered controls remain keyboard-operable", () => {
+test("addressable source uses one tab stop and roving keyboard navigation", () => {
   const html = renderAnnotatedSourceExplorer({
     result,
     state: createAnnotatedSourceExplorerState(sampleDocument),
@@ -164,10 +164,25 @@ test("addressable source and rerendered controls remain keyboard-operable", () =
     escapeHtml,
   });
 
-  assert.match(html, /<button type="button" class="annotated-span addressable"/);
-  assert.match(appSource, /focusSelector = "#ase-exit"/);
-  assert.match(appSource, /focus\(\{ preventScroll: true \}\)/);
-  assert.match(appSource, /"#ase-node-kind"\);/);
+  assert.match(html, /class="ase-code-scroll" tabindex="0"/);
+  assert.match(html, /<button type="button" tabindex="-1" class="annotated-span addressable"/);
+  assert.match(appSource, /case "ArrowRight":/);
+  assert.match(appSource, /spans\[nextIndex\]\.focus\(\{ preventScroll: true \}\)/);
+});
+
+test("all explorer renders preserve focus and scroll while home invalidates the context", () => {
+  assert.match(appSource, /captureAnnotatedSourceExplorerRenderState\(\)/);
+  assert.match(appSource, /restoreAnnotatedSourceExplorerRenderState\(renderState\)/);
+  assert.match(appSource, /code\.scrollTop = renderState\.codeScroll/);
+  assert.match(appSource, /document\.querySelector\(renderState\.focusSelector\)\?\.focus/);
+  assert.match(appSource, /!state\.annotatedExplorer \|\| state\.home/);
+});
+
+test("reopening an unchanged document reuses its prepared projection", () => {
+  const first = createAnnotatedSourceExplorerState(sampleDocument);
+  const reopened = createAnnotatedSourceExplorerState(sampleDocument);
+
+  assert.equal(reopened.prepared, first.prepared);
 });
 
 test("full-bleed feedback and narrow layouts stay reachable", () => {

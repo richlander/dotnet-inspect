@@ -3145,12 +3145,13 @@ function closeAnnotatedSourceExplorer() {
 
 function renderAnnotatedSourceExplorer() {
   const context = annotatedSourceExplorerContext();
-  if (!context || !state.annotatedExplorer) {
+  if (!context || !state.annotatedExplorer || state.home) {
     state.annotatedExplorer = null;
     render();
     return;
   }
 
+  const renderState = captureAnnotatedSourceExplorerRenderState();
   try {
     app.innerHTML = renderAnnotatedSourceExplorerMarkup({
       ...context,
@@ -3164,22 +3165,17 @@ function renderAnnotatedSourceExplorer() {
     </div>`;
   }
   bindAnnotatedSourceExplorerEvents();
+  restoreAnnotatedSourceExplorerRenderState(renderState);
 }
 
 function updateAnnotatedSourceExplorer(action, revealTarget = false, focusSelector = "#ase-exit") {
   if (!state.annotatedExplorer || !state.memberAnnotated) return;
-  const codeScroll = document.querySelector(".ase-code-scroll")?.scrollTop ?? 0;
-  const inspectorScroll = document.querySelector(".ase-inspector")?.scrollTop ?? 0;
   state.annotatedExplorer = reduceAnnotatedSourceExplorerState(
     state.memberAnnotated.document,
     state.annotatedExplorer,
     action);
   render();
   requestAnimationFrame(() => {
-    const code = document.querySelector(".ase-code-scroll");
-    const inspector = document.querySelector(".ase-inspector");
-    if (code) code.scrollTop = codeScroll;
-    if (inspector) inspector.scrollTop = inspectorScroll;
     document.querySelector(focusSelector)?.focus({ preventScroll: true });
     if (revealTarget) {
       document.querySelector(".annotated-span.selected")?.scrollIntoView({
@@ -3230,6 +3226,71 @@ function bindAnnotatedSourceExplorerEvents() {
   document.querySelector("#ase-clear")?.addEventListener("click", () => {
     updateAnnotatedSourceExplorer({ type: "clear-selection" }, false, "#ase-node-kind");
   });
+  document.querySelector(".ase-code-scroll")?.addEventListener("keydown", event => {
+    const spans = [...event.currentTarget.querySelectorAll("[data-ase-offset]")];
+    if (spans.length === 0) return;
+    const currentIndex = spans.indexOf(document.activeElement);
+    let nextIndex;
+    switch (event.key) {
+      case "ArrowRight":
+      case "ArrowDown":
+        nextIndex = currentIndex < 0 ? 0 : Math.min(currentIndex + 1, spans.length - 1);
+        break;
+      case "ArrowLeft":
+      case "ArrowUp":
+        nextIndex = currentIndex < 0 ? spans.length - 1 : Math.max(currentIndex - 1, 0);
+        break;
+      case "Home":
+        nextIndex = 0;
+        break;
+      case "End":
+        nextIndex = spans.length - 1;
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    spans[nextIndex].focus({ preventScroll: true });
+    spans[nextIndex].scrollIntoView({ block: "nearest", inline: "nearest" });
+  });
+}
+
+function captureAnnotatedSourceExplorerRenderState() {
+  if (!document.querySelector(".annotated-explorer")) return null;
+  return {
+    codeScroll: document.querySelector(".ase-code-scroll")?.scrollTop ?? 0,
+    inspectorScroll: document.querySelector(".ase-inspector")?.scrollTop ?? 0,
+    focusSelector: annotatedSourceExplorerFocusSelector(),
+  };
+}
+
+function restoreAnnotatedSourceExplorerRenderState(renderState) {
+  if (!renderState) return;
+  requestAnimationFrame(() => {
+    const code = document.querySelector(".ase-code-scroll");
+    const inspector = document.querySelector(".ase-inspector");
+    if (code) code.scrollTop = renderState.codeScroll;
+    if (inspector) inspector.scrollTop = renderState.inspectorScroll;
+    if (renderState.focusSelector) {
+      document.querySelector(renderState.focusSelector)?.focus({ preventScroll: true });
+    }
+  });
+}
+
+function annotatedSourceExplorerFocusSelector() {
+  const active = document.activeElement;
+  if (!active?.closest?.(".annotated-explorer")) return "";
+  if (["ase-exit", "ase-node-kind", "ase-copy", "ase-clear"].includes(active.id)) {
+    return `#${active.id}`;
+  }
+  if (active.matches(".ase-code-scroll")) return ".ase-code-scroll";
+  for (const name of ["aseMedium", "aseFact", "aseNode", "aseOffset"]) {
+    if (active.dataset?.[name] !== undefined) {
+      const attribute = name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`);
+      return `[data-${attribute}="${active.dataset[name]}"]`;
+    }
+  }
+  return "";
 }
 
 function renderMemberFacts(type, member, overload, overloadIndex) {

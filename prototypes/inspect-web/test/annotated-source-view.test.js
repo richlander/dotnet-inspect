@@ -7,6 +7,11 @@ import {
   prepareAnnotatedView,
   projectPreparedAnnotatedView,
 } from "../src/annotated-source-view.ts";
+import {
+  buildLines,
+  lineMedium,
+  segmentsForLine,
+} from "../../annotated-source-viewer/src/document-model.js";
 import { sampleDocument } from "../../annotated-source-viewer/src/sample-document.js";
 
 test("an invalid document is refused rather than rendered", () => {
@@ -132,4 +137,44 @@ test("prepared documents preserve projection semantics across interactions", () 
     buildAnnotatedView(sampleDocument, state),
   );
   assert.equal(prepared.document, sampleDocument);
+});
+
+test("indexed preparation preserves the portable model's segmentation", () => {
+  const prepared = prepareAnnotatedView(sampleDocument);
+  const sourceLines = buildLines(sampleDocument.text);
+  const expected = sourceLines.map(line => ({
+    number: line.number,
+    medium: lineMedium(sampleDocument, line),
+    start: line.start,
+    end: line.end,
+    segments: segmentsForLine(sampleDocument, line),
+  }));
+
+  assert.deepEqual(prepared.lines, expected);
+});
+
+test("large line-oriented documents prepare within the interaction budget", () => {
+  const lineCount = 8_000;
+  const text = "x\n".repeat(lineCount);
+  const document = {
+    text,
+    nodes: Array.from({ length: lineCount }, (_, id) => ({
+      id,
+      kind: "Identifier",
+      medium: "CSharp",
+      spans: [{ start: id * 2, length: 1 }],
+      il_offset: null,
+    })),
+    regions: [],
+    facts: [],
+    targets: [],
+  };
+
+  const started = performance.now();
+  const prepared = prepareAnnotatedView(document);
+  const elapsed = performance.now() - started;
+
+  assert.equal(prepared.lines.length, lineCount + 1);
+  assert.equal(prepared.lines.slice(0, lineCount).every(line => line.segments.length === 1), true);
+  assert.ok(elapsed < 2_000, `preparing ${lineCount} lines took ${elapsed.toFixed(1)}ms`);
 });

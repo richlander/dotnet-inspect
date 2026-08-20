@@ -1,9 +1,6 @@
 import {
   buildLines,
-  lineMedium,
   nodesAtOffset,
-  segmentsForLine,
-  unanchoredFacts,
   validateDocument,
 } from "./document-model.js";
 
@@ -78,6 +75,12 @@ interface SourceSegment {
   selected: boolean;
 }
 
+interface LineIntersection {
+  node: AnnotatedSourceNode;
+  start: number;
+  end: number;
+}
+
 export interface AnnotatedViewSegment extends SourceSegment {
   selected: boolean;
 }
@@ -122,23 +125,11 @@ export interface PreparedAnnotatedView {
 }
 
 const getLines = buildLines as (text: string) => SourceLine[];
-const getLineMedium = lineMedium as (
-  document: AnnotatedSourceDocument,
-  line: SourceLine,
-) => LineMedium;
 const getNodesAtOffset = nodesAtOffset as (
   document: AnnotatedSourceDocument,
   offset: number,
   medium?: SourceMedium | null,
 ) => AnnotatedSourceNode[];
-const getSegmentsForLine = segmentsForLine as (
-  document: AnnotatedSourceDocument,
-  line: SourceLine,
-  selectedNodeIds?: readonly number[],
-) => SourceSegment[];
-const getUnanchoredFacts = unanchoredFacts as (
-  document: AnnotatedSourceDocument,
-) => AnnotatedSourceFact[];
 
 export const MEDIA = ["CSharp", "Il"] as const satisfies readonly SourceMedium[];
 
@@ -163,15 +154,13 @@ export function prepareAnnotatedView(
 ): PreparedAnnotatedView {
   validateAnnotatedSourceDocument(document);
   const sourceLines = getLines(document.text);
-  const lines = sourceLines.map(line => ({
+  const intersectionsByLine = indexLineIntersections(sourceLines, document.nodes);
+  const lines = sourceLines.map((line, index) => ({
     number: line.number,
-    medium: getLineMedium(document, line),
+    medium: mediumForIntersections(intersectionsByLine[index]),
     start: line.start,
     end: line.end,
-    segments: getSegmentsForLine(document, line).map(segment => ({
-      ...segment,
-      selected: false,
-    })),
+    segments: segmentsForIntersections(document.text, line, intersectionsByLine[index]),
   }));
   const nodeIdsByFact = document.facts.map((): number[] => []);
   for (const target of document.targets) nodeIdsByFact[target.fact_id].push(target.node_id);
@@ -188,12 +177,13 @@ export function prepareAnnotatedView(
     nodeIds: nodeIdsByFact[fact.id],
     selected: false,
   }));
-  const unanchored = getUnanchoredFacts(document);
   return {
     document,
     lines,
     facts,
-    unanchoredFactIds: unanchored.map(fact => fact.id),
+    unanchoredFactIds: document.facts
+      .filter(fact => !anchored.has(fact.id))
+      .map(fact => fact.id),
     totalLineCount: sourceLines.length,
   };
 }
@@ -277,4 +267,99 @@ function isVisible(
 ): boolean | undefined {
   if (medium === "Mixed") return media.CSharp || media.Il;
   return media[medium] === true;
+}
+
+function indexLineIntersections(
+  lines: readonly SourceLine[],
+  nodes: readonly AnnotatedSourceNode[],
+): LineIntersection[][] {
+  const indexed = lines.map((): LineIntersection[] => []);
+  for (const node of nodes) {
+    for (const span of node.spans) {
+      const spanEnd = span.start + span.length;
+      for (
+        let lineIndex = firstLineEndingAfter(lines, span.start);
+        lineIndex < lines.length && lines[lineIndex].start < spanEnd;
+        lineIndex++
+      ) {
+        const line = lines[lineIndex];
+        const start = Math.max(line.start, span.start);
+        const end = Math.min(line.end, spanEnd);
+        if (start < end) indexed[lineIndex].push({ node, start, end });
+      }
+    }
+  }
+  return indexed;
+}
+
+function firstLineEndingAfter(lines: readonly SourceLine[], offset: number): number {
+  let low = 0;
+  let high = lines.length;
+  while (low < high) {
+    const middle = low + Math.floor((high - low) / 2);
+    if (lines[middle].end <= offset) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
+function mediumForIntersections(intersections: readonly LineIntersection[]): LineMedium {
+  let medium: SourceMedium | null = null;
+  for (const intersection of intersections) {
+    if (medium && medium !== intersection.node.medium) return "Mixed";
+    medium = intersection.node.medium;
+  }
+  return medium === "Il" ? "Il" : "CSharp";
+}
+
+function segmentsForIntersections(
+  text: string,
+  line: SourceLine,
+  intersections: readonly LineIntersection[],
+): SourceSegment[] {
+  const boundaries = new Set([line.start, line.end]);
+  const additions = new Map<number, AnnotatedSourceNode[]>();
+  const removals = new Map<number, AnnotatedSourceNode[]>();
+  for (const intersection of intersections) {
+    boundaries.add(intersection.start);
+    boundaries.add(intersection.end);
+    appendEvent(additions, intersection.start, intersection.node);
+    appendEvent(removals, intersection.end, intersection.node);
+  }
+
+  const ordered = [...boundaries].sort((left, right) => left - right);
+  const active = new Map<number, AnnotatedSourceNode>();
+  const segments: SourceSegment[] = [];
+  for (let index = 0; index < ordered.length - 1; index++) {
+    const start = ordered[index];
+    const end = ordered[index + 1];
+    for (const node of removals.get(start) ?? []) active.delete(node.id);
+    for (const node of additions.get(start) ?? []) active.set(node.id, node);
+    if (start === end) continue;
+    const nodes = [...active.values()]
+      .sort((left, right) => nodeLength(left) - nodeLength(right) || left.id - right.id);
+    segments.push({
+      start,
+      end,
+      text: text.slice(start, end),
+      nodeIds: nodes.map(node => node.id),
+      media: [...new Set(nodes.map(node => node.medium))],
+      selected: false,
+    });
+  }
+  return segments;
+}
+
+function appendEvent(
+  events: Map<number, AnnotatedSourceNode[]>,
+  offset: number,
+  node: AnnotatedSourceNode,
+): void {
+  const nodes = events.get(offset);
+  if (nodes) nodes.push(node);
+  else events.set(offset, [node]);
+}
+
+function nodeLength(node: AnnotatedSourceNode): number {
+  return node.spans.reduce((sum, span) => sum + span.length, 0);
 }
