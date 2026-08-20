@@ -7091,7 +7091,9 @@ public class SectionPipelineTests
             OverloadIndex = 1
         });
 
-        Assert.Equal(32, broad.AllSectionNames.Length);
+        Assert.Equal(
+            type.AllSectionNames.Length + 1,
+            broad.AllSectionNames.Length);
         Assert.Equal(
             [SectionNames.TypeInfo, SectionNames.MemberInfo],
             broad.FixedOverviewSectionNames);
