@@ -785,7 +785,7 @@ Research overlay bridge, and the application layer:
   judgments, and async execution mapping rather than duplicating them. Scoped
   closure failures are retained as analysis diagnostics rather than becoming
   success-shaped partial evidence, and identical expansion/per-method failures
-  are published once.
+  use one metadata-derived method label and are published once.
   `OptimizationOpportunities_DuplicateMemberRefsResolveStructuralIdentityOnce`,
   `OptimizationOpportunities_SharedMemberRefDecodesOnceAcrossOwnerBodies`, and
   `LiftedOwnerMemberIdentity_RetainsExactAssemblyReferenceScope` gate cache
@@ -798,6 +798,7 @@ Research overlay bridge, and the application layer:
   `AsyncMoveNextResolution_UsesExplicitInterfaceImplementation`,
   `DirectCalls_DirectLiftedTypeScopeRetainsDeclaredCaller`,
   `OptimizationOpportunities_MalformedMethodSpecCannotAuthenticateOwner`,
+  `ScopedLiftedResolution_NestedFailurePublishesOneDiagnostic`,
   `TypeTargetedBuild_MatchesFullBuild_ForEveryMethodOfTheType`,
   `OptimizationOpportunities_ClassicAsyncTypeDefinitionsAreIndexedOnce`, and
   the top-level local-function tests gate the lifted-owner caches, closure, and
@@ -807,14 +808,20 @@ Research overlay bridge, and the application layer:
   mapping; generated lifted-source execution mapping; and scoped evidence
   expansion. Authenticated execution-source maps drive acquisition and
   per-method attribution; the scope-independent fallback contains only
-  non-generated declared sources. Generated kickoff intermediates compose
-  through lifted owners when their evidence bodies are acquired, while non-IL
-  or runtime-async kickoff bodies cannot authenticate classic state machines.
+  non-generated declared sources. A rejected classic state-machine mapping is
+  authoritative across attribution, acquisition, and fallback, including when
+  generated-code filtering leaves one otherwise actionable source. Generated
+  kickoff intermediates compose through lifted owners when their evidence
+  bodies are acquired, while non-IL or runtime-async kickoff bodies cannot
+  authenticate classic state machines.
   `DirectCalls_AsyncLiftedMoveNextComposesToDeclaredOwner` gates full,
   owner-method-scoped, and owner-type-scoped call parity plus declared-owner
   resolution. `DirectCalls_AttributeAsyncIteratorBodiesToDeclaredSource`
   preserves existing async-iterator attribution without broadening iterator
   ownership.
+  `DirectCalls_SourceGeneratedAsyncCollisionCannotEscapeRejection` gates the
+  close ambiguity case across caller attribution, public resolution, and
+  method-scoped acquisition.
   `AsyncSource_MethodImplRequiresValidSourceMethodShape` gates the kickoff and
   state-machine body requirements. The resolver reuses primary metadata
   identity and generated-code judgments plus the builder's shared local

@@ -32,6 +32,9 @@ internal sealed class LibraryBodyAsyncSourceResolver
     IReadOnlyDictionary<
         int,
         MethodIdentity>? _executionSourceMethodsByMoveNextToken;
+    IReadOnlyDictionary<
+        int,
+        MethodIdentity>? _declaredSourceMethodsByMoveNextToken;
     IReadOnlySet<int>? _classicAsyncSourceMethodTokens;
     IReadOnlySet<MetadataTypeDefinitionName>?
         _ambiguousAsyncStateMachineTypes;
@@ -341,7 +344,16 @@ internal sealed class LibraryBodyAsyncSourceResolver
         ClassicAsyncExecutionMethods executionMethods =
             _classicAsyncExecutionMethods.Value;
         IReadOnlyDictionary<int, MethodIdentity>
-            actionableSources = AsyncStateMachineSourceMethods();
+            actionableSources =
+                DeclaredSourceMethodsByMoveNextToken();
+        if (executionMethods.RejectedStateMachines.Contains(
+                stateMachineType)
+            || _ambiguousAsyncStateMachineTypes?.Contains(
+                stateMachineType) == true)
+        {
+            throw new BadImageFormatException(
+                "Multiple async source methods name this state-machine type.");
+        }
         if (executionMethods.SourceByMoveNextToken.TryGetValue(
                 physicalMethod.MetadataToken,
                 out MethodIdentity? source))
@@ -359,14 +371,6 @@ internal sealed class LibraryBodyAsyncSourceResolver
                 out source))
         {
             return source;
-        }
-        if (executionMethods.RejectedStateMachines.Contains(
-                stateMachineType)
-            || _ambiguousAsyncStateMachineTypes?.Contains(
-                stateMachineType) == true)
-        {
-            throw new BadImageFormatException(
-                "Multiple async source methods name this state-machine type.");
         }
         return null;
     }
@@ -389,7 +393,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
             return _executionSourceMethodsByMoveNextToken;
 
         var sources = new Dictionary<int, MethodIdentity>(
-            AsyncStateMachineSourceMethods());
+            DeclaredSourceMethodsByMoveNextToken());
         foreach ((
             int moveNextToken,
             MethodIdentity source)
@@ -417,7 +421,67 @@ internal sealed class LibraryBodyAsyncSourceResolver
     /// </summary>
     internal IReadOnlyDictionary<int, MethodIdentity>
         DeclaredSourceMethodsByMoveNextToken()
-        => AsyncStateMachineSourceMethods();
+    {
+        if (_declaredSourceMethodsByMoveNextToken is not null)
+            return _declaredSourceMethodsByMoveNextToken;
+
+        IReadOnlyDictionary<int, MethodIdentity> actionableSources =
+            AsyncStateMachineSourceMethods();
+        IReadOnlySet<MetadataTypeDefinitionName> rejected =
+            _classicAsyncExecutionMethods.Value
+                .RejectedStateMachines;
+        if (rejected.Count == 0)
+        {
+            _declaredSourceMethodsByMoveNextToken =
+                actionableSources;
+            return actionableSources;
+        }
+
+        var filtered =
+            new Dictionary<int, MethodIdentity>();
+        foreach ((
+            int moveNextToken,
+            MethodIdentity source) in actionableSources)
+        {
+            if (!IsRejectedClassicSource(source, rejected))
+                filtered.Add(moveNextToken, source);
+        }
+        _declaredSourceMethodsByMoveNextToken = filtered;
+        return filtered;
+    }
+
+    bool IsRejectedClassicSource(
+        MethodIdentity source,
+        IReadOnlySet<MetadataTypeDefinitionName> rejected)
+    {
+        try
+        {
+            EntityHandle handle =
+                MetadataTokens.EntityHandle(
+                    source.MetadataToken);
+            if (handle.Kind
+                != HandleKind.MethodDefinition)
+            {
+                return true;
+            }
+            MethodDefinition definition =
+                _reader.GetMethodDefinition(
+                    (MethodDefinitionHandle)handle);
+            AsyncStateMachineAttributeInfo attribute =
+                AsyncStateMachineAttribute(
+                    definition.GetCustomAttributes(),
+                    includeAsyncIterator: false);
+            return attribute.SerializedType is { } serialized
+                && StateMachineTypeDefinitionName(serialized)
+                    is { } stateMachineType
+                && rejected.Contains(stateMachineType);
+        }
+        catch (Exception ex)
+            when (IsRecoverableMethodFailure(ex))
+        {
+            return true;
+        }
+    }
 
     internal bool TryResolveClassicStateMachineMoveNext(
         MethodDefinitionHandle sourceHandle,

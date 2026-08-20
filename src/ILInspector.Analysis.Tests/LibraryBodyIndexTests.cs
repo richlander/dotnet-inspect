@@ -2597,6 +2597,59 @@ public class LibraryBodyIndexTests
         }
     }
 
+    [Fact]
+    public void
+        DirectCalls_SourceGeneratedAsyncCollisionCannotEscapeRejection()
+    {
+        byte[] image = BuildMethodImplAsyncSourceAssembly(
+            includeMethodImpl: false,
+            duplicateSourceGeneratedSource: true);
+        LibraryBodyIndex full =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "AmbiguousAsyncSource.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity source = Assert.Single(
+            full.DeclaredMethods,
+            method => method.Name == "AnalyzeAsync");
+        MethodIdentity generatedSource = Assert.Single(
+            full.DeclaredMethods,
+            method => method.Name
+                == "<AnalyzeAsync>g__Generated|0_0");
+        Assert.Equal(
+            "<>c",
+            generatedSource.DeclaringType.Name);
+        MethodIdentity moveNext = Assert.Single(
+            full.DeclaredMethods,
+            method => method.Name == "MoveNext");
+        DirectCall call = Assert.Single(
+            full.DirectCalls,
+            candidate =>
+                candidate.EvidenceMethod == moveNext);
+
+        Assert.Equal(moveNext, call.Caller);
+        Assert.Null(full.ResolveDeclaredMethod(moveNext));
+        Assert.Contains(
+            full.Diagnostics,
+            diagnostic => diagnostic.MethodToken
+                    == moveNext.MetadataToken
+                && diagnostic.Message.Contains(
+                    "Multiple async source methods",
+                    StringComparison.Ordinal));
+
+        LibraryBodyIndex scoped =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "AmbiguousAsyncSource.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyScope:
+                    new HashSet<int> { source.MetadataToken });
+        Assert.DoesNotContain(
+            scoped.DirectCalls,
+            candidate =>
+                candidate.EvidenceMethod == moveNext);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -2800,7 +2853,8 @@ public class LibraryBodyIndexTests
             MethodImplAttributes.IL,
         MethodImplAttributes sourceImplementation =
             MethodImplAttributes.IL,
-        bool stateMachineUsesTasksContract = false)
+        bool stateMachineUsesTasksContract = false,
+        bool duplicateSourceGeneratedSource = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -2863,6 +2917,24 @@ public class LibraryBodyIndexTests
                     "System.Runtime.CompilerServices"),
                 metadata.GetOrAddString(
                     "AsyncStateMachineAttribute"));
+        TypeReferenceHandle compilerGeneratedAttribute =
+            duplicateSourceGeneratedSource
+                ? metadata.AddTypeReference(
+                    systemRuntime,
+                    metadata.GetOrAddString(
+                        "System.Runtime.CompilerServices"),
+                    metadata.GetOrAddString(
+                        "CompilerGeneratedAttribute"))
+                : default;
+        TypeReferenceHandle generatedCodeAttribute =
+            duplicateSourceGeneratedSource
+                ? metadata.AddTypeReference(
+                    systemRuntime,
+                    metadata.GetOrAddString(
+                        "System.CodeDom.Compiler"),
+                    metadata.GetOrAddString(
+                        "GeneratedCodeAttribute"))
+                : default;
         TypeReferenceHandle asyncStateMachine =
             metadata.AddTypeReference(
                 stateMachineUsesTasksContract
@@ -2924,6 +2996,20 @@ public class LibraryBodyIndexTests
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(
                     inheritedMethodImpl ? 4 : 3));
+        int extraSourceMethods =
+            duplicateSourceGeneratedSource ? 1 : 0;
+        TypeDefinitionHandle generatedSourceType =
+            duplicateSourceGeneratedSource
+                ? metadata.AddTypeDefinition(
+                    TypeAttributes.NestedPrivate
+                        | TypeAttributes.Sealed,
+                    default,
+                    metadata.GetOrAddString("<>c"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(
+                        inheritedMethodImpl ? 5 : 4))
+                : default;
         TypeDefinitionHandle stateMachineType =
             metadata.AddTypeDefinition(
                 TypeAttributes.NestedPrivate
@@ -2934,7 +3020,8 @@ public class LibraryBodyIndexTests
                 default,
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(
-                    inheritedMethodImpl ? 5 : 4));
+                    (inheritedMethodImpl ? 5 : 4)
+                        + extraSourceMethods));
         TypeDefinitionHandle otherInterfaceType =
             metadata.AddTypeDefinition(
                 TypeAttributes.Public
@@ -2945,8 +3032,15 @@ public class LibraryBodyIndexTests
                 default,
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(
-                    inheritedMethodImpl ? 6 : 5));
+                    (inheritedMethodImpl ? 6 : 5)
+                        + extraSourceMethods));
         metadata.AddNestedType(stateMachineType, sourceType);
+        if (!generatedSourceType.IsNil)
+        {
+            metadata.AddNestedType(
+                generatedSourceType,
+                sourceType);
+        }
         metadata.AddInterfaceImplementation(
             inheritedMethodImpl
                 ? baseType
@@ -3061,6 +3155,19 @@ public class LibraryBodyIndexTests
                 taskSignature,
                 sourceHasBody ? sourceBody : -1,
                 MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle generatedSource = default;
+        if (duplicateSourceGeneratedSource)
+        {
+            generatedSource = metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | MethodAttributes.HideBySig,
+                sourceImplementation,
+                metadata.GetOrAddString(
+                    $"<{sourceMethodName}>g__Generated|0_0"),
+                taskSignature,
+                sourceBody,
+                MetadataTokens.ParameterHandle(1));
+        }
 
         var moveNextIl = new BlobBuilder();
         moveNextIl.WriteByte((byte)ILOpCode.Ldnull);
@@ -3156,6 +3263,53 @@ public class LibraryBodyIndexTests
             source,
             attributeConstructor,
             "Sample.Reader+<AnalyzeAsync>d__0, MethodImplAsyncSource");
+        if (!generatedSource.IsNil)
+        {
+            MemberReferenceHandle
+                compilerGeneratedConstructor =
+                    metadata.AddMemberReference(
+                        compilerGeneratedAttribute,
+                        metadata.GetOrAddString(".ctor"),
+                        metadata.GetOrAddBlob(
+                            new byte[]
+                            {
+                                0x20, 0x00, 0x01,
+                            }));
+            MemberReferenceHandle generatedCodeConstructor =
+                metadata.AddMemberReference(
+                    generatedCodeAttribute,
+                    metadata.GetOrAddString(".ctor"),
+                    metadata.GetOrAddBlob(
+                        new byte[]
+                        {
+                            0x20, 0x02, 0x01, 0x0E,
+                            0x0E,
+                        }));
+            AddAsyncStateMachineAttribute(
+                metadata,
+                generatedSource,
+                attributeConstructor,
+                "Sample.Reader+<AnalyzeAsync>d__0, MethodImplAsyncSource");
+            metadata.AddCustomAttribute(
+                generatedSource,
+                compilerGeneratedConstructor,
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x01, 0x00, 0x00, 0x00 }));
+            metadata.AddCustomAttribute(
+                generatedSourceType,
+                compilerGeneratedConstructor,
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x01, 0x00, 0x00, 0x00 }));
+            var generatedCodeValue = new BlobBuilder();
+            generatedCodeValue.WriteUInt16(0x0001);
+            generatedCodeValue.WriteSerializedString("test");
+            generatedCodeValue.WriteSerializedString("1.0");
+            generatedCodeValue.WriteUInt16(0);
+            metadata.AddCustomAttribute(
+                generatedSourceType,
+                generatedCodeConstructor,
+                metadata.GetOrAddBlob(generatedCodeValue));
+        }
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
@@ -11230,6 +11384,211 @@ public class LibraryBodyIndexTests
                 diagnostic => diagnostic.Method.Contains(
                     "<GenericObjectEqualsLocalFunction>g__EqualsCore|",
                     StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public void
+        ScopedLiftedResolution_NestedFailurePublishesOneDiagnostic()
+    {
+        byte[] image =
+            BuildNestedLiftedInvalidAsyncSourceAssembly(
+                out int liftedToken);
+
+        LibraryBodyIndex scoped =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "NestedLiftedInvalidAsyncSource.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyScope:
+                    new HashSet<int> { liftedToken });
+
+        AnalysisDiagnostic diagnostic = Assert.Single(
+            scoped.Diagnostics.Where(
+                candidate =>
+                    candidate.MethodToken == liftedToken));
+        Assert.Contains(
+            "<>c::<BadSourceLambda>b__0_0",
+            diagnostic.Method,
+            StringComparison.Ordinal);
+    }
+
+    static byte[]
+        BuildNestedLiftedInvalidAsyncSourceAssembly(
+            out int liftedToken)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(
+                "NestedLiftedInvalidAsyncSource.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(
+                "NestedLiftedInvalidAsyncSource"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        AssemblyReferenceHandle systemRuntime =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(11, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(
+                    new byte[]
+                    {
+                        0xB0, 0x3F, 0x5F, 0x7F,
+                        0x11, 0xD5, 0x0A, 0x3A,
+                    }),
+                default,
+                default);
+        TypeReferenceHandle objectType =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+        TypeReferenceHandle systemType =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Type"));
+        TypeReferenceHandle asyncStateMachineAttribute =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                metadata.GetOrAddString(
+                    "AsyncStateMachineAttribute"));
+        TypeReferenceHandle compilerGeneratedAttribute =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                metadata.GetOrAddString(
+                    "CompilerGeneratedAttribute"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle sourceType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Class,
+                metadata.GetOrAddString("Sample"),
+                metadata.GetOrAddString("Source"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle displayClass =
+            metadata.AddTypeDefinition(
+                TypeAttributes.NestedPrivate
+                    | TypeAttributes.Class
+                    | TypeAttributes.Sealed,
+                default,
+                metadata.GetOrAddString("<>c"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+        TypeDefinitionHandle invalidStateMachine =
+            metadata.AddTypeDefinition(
+                TypeAttributes.NestedPrivate
+                    | TypeAttributes.Class
+                    | TypeAttributes.Sealed,
+                default,
+                metadata.GetOrAddString(
+                    "NotAStateMachine"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(3));
+        metadata.AddNestedType(
+            displayClass,
+            sourceType);
+        metadata.AddNestedType(
+            invalidStateMachine,
+            sourceType);
+
+        BlobHandle signature =
+            metadata.GetOrAddBlob(
+                new byte[] { 0x00, 0x00, 0x01 });
+        var bodies = new BlobBuilder();
+        var bodyEncoder =
+            new MethodBodyStreamEncoder(bodies);
+        MethodDefinitionHandle lifted =
+            MetadataTokens.MethodDefinitionHandle(2);
+        var sourceIl = new BlobBuilder();
+        sourceIl.WriteByte((byte)ILOpCode.Call);
+        sourceIl.WriteInt32(
+            MetadataTokens.GetToken(lifted));
+        sourceIl.WriteByte((byte)ILOpCode.Ret);
+        int sourceBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(sourceIl));
+        var liftedIl = new BlobBuilder();
+        liftedIl.WriteByte((byte)ILOpCode.Ret);
+        int liftedBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(liftedIl));
+        MethodDefinitionHandle source =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(
+                    "BadSourceLambda"),
+                signature,
+                sourceBody,
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle addedLifted =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(
+                    "<BadSourceLambda>b__0_0"),
+                signature,
+                liftedBody,
+                MetadataTokens.ParameterHandle(1));
+        Assert.Equal(lifted, addedLifted);
+        liftedToken =
+            MetadataTokens.GetToken(addedLifted);
+
+        MemberReferenceHandle asyncConstructor =
+            metadata.AddMemberReference(
+                asyncStateMachineAttribute,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(
+                    new byte[]
+                    {
+                        0x20, 0x01, 0x01, 0x12,
+                        (byte)CodedIndex
+                            .TypeDefOrRefOrSpec(
+                                systemType),
+                    }));
+        AddAsyncStateMachineAttribute(
+            metadata,
+            source,
+            asyncConstructor,
+            "Sample.Source+NotAStateMachine, "
+                + "NestedLiftedInvalidAsyncSource");
+        MemberReferenceHandle generatedConstructor =
+            metadata.AddMemberReference(
+                compilerGeneratedAttribute,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x20, 0x00, 0x01 }));
+        metadata.AddCustomAttribute(
+            displayClass,
+            generatedConstructor,
+            metadata.GetOrAddBlob(
+                new byte[] { 0x01, 0x00, 0x00, 0x00 }));
+
+        return SerializeDirectionProbe(
+            metadata,
+            bodies);
     }
 
     [Fact]

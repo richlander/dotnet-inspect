@@ -699,10 +699,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 {
                     diagnostics.Add(new AnalysisDiagnostic(
                         method.MetadataToken,
-                        method.DeclaringType
-                            .ToQualifiedDisplayString()
-                            + "::"
-                            + method.Name,
+                        LibraryMethodAnalysisRunner
+                            .MethodLabel(
+                                _reader,
+                                typeHandle,
+                                methodHandle),
                         $"{ex.GetType().Name}: {ex.Message}",
                         DeclaringType: method.DeclaringType));
                 }
