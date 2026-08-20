@@ -29,18 +29,29 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
+    public void Emit_ProducesInterfacesForBothRecords()
+    {
+        string dts = EmitFixtureDts();
+
+        Assert.Contains("export interface WidgetDto {", dts, StringComparison.Ordinal);
+        Assert.Contains("export interface WidgetOwner {", dts, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Emit_UsesContextNamingPolicyForFixtureProperties()
     {
         string dts = EmitFixtureDts();
+
         Assert.Contains("  name: string;", dts, StringComparison.Ordinal);
         Assert.Contains("  count: number;", dts, StringComparison.Ordinal);
         Assert.Contains("  displayName: string;", dts, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Emit_PreservesPascalCaseForNoPolicyContextEvenWhenAnotherContextUsesCamelCase()
+    public void Emit_PreservesPascalCaseForNoPolicyContextProperties()
     {
         string dts = EmitFixtureDts(includeAll: true);
+
         Assert.Contains("export interface InternalContextPascalWidget {", dts, StringComparison.Ordinal);
         Assert.Contains("  Name: string;", dts, StringComparison.Ordinal);
         Assert.Contains("  Count: number;", dts, StringComparison.Ordinal);
@@ -52,39 +63,174 @@ public sealed class DtsEmitterTests
     public void Emit_MapsArrayAndNullableRecordProperties()
     {
         string dts = EmitFixtureDts();
+
         Assert.Contains("  tags: number[];", dts, StringComparison.Ordinal);
         Assert.Contains("  owner: WidgetOwner | null;", dts, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Emit_UsesVerbatimJsExportFunctionNames()
+    public void Emit_DeclaresFunctionsWithVerbatimNamesAndPromiseReturnTypes()
     {
         string dts = EmitFixtureDts();
-        Assert.Contains("export declare function QueryPackage(packageId: string): string;", dts, StringComparison.Ordinal);
-        Assert.DoesNotContain("export declare function queryPackage", dts, StringComparison.Ordinal);
+
+        Assert.Contains(
+            "export declare function GetWidget(name: string, count: number): string;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function GetWidgetAsync(name: string): Promise<string>;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function Ping(): Promise<void>;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function QueryPackage(packageId: string): string;",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_WithoutWireContracts_ReportsErasedEnvelopeTypesRaw()
+    {
+        string dts = EmitFixtureDts();
+
+        Assert.Contains(
+            "export declare function GetWidget(name: string, count: number): string;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function GetWidgetAsync(name: string): Promise<string>;",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_WithWireContracts_SubstitutesResolvedDtoForSyncStringReturn()
+    {
+        string dts = EmitFixtureDtsWithWireContracts();
+
+        Assert.Contains(
+            "export declare function GetWidget(name: string, count: number): WidgetDto;",
+            dts,
+            StringComparison.Ordinal);
     }
 
     [Fact]
     public void Emit_WithWireContracts_SubstitutesResolvedDtoInsidePromiseForAsyncReturn()
     {
         string dts = EmitFixtureDtsWithWireContracts();
-        Assert.Contains("export declare function GetWidgetAsync(name: string): Promise<WidgetDto>;", dts, StringComparison.Ordinal);
+
+        Assert.Contains(
+            "export declare function GetWidgetAsync(name: string): Promise<WidgetDto>;",
+            dts,
+            StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Emit_HonorsJsonPropertyNameAndQuotesNonIdentifiers()
+    public void Emit_WithWireContracts_LeavesNonEnvelopeReturnUnchanged()
+    {
+        string dts = EmitFixtureDtsWithWireContracts();
+
+        Assert.Contains(
+            "export declare function Ping(): Promise<void>;",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_WithWireContracts_DoesNotGuessParameterAttributionWithMultipleStringParams()
+    {
+        string dts = EmitFixtureDtsWithWireContracts();
+
+        Assert.Contains(
+            "export declare function RenameWidget(widgetJson: string, newName: string): WidgetDto;",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_WithWireContracts_SubstitutesArrayDtoForContainerShapedReturn()
+    {
+        string dts = EmitFixtureDtsWithWireContracts();
+
+        Assert.Contains(
+            "export declare function GetWidgetArray(): WidgetDto[];",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_WithWireContracts_LeavesAmbiguousReturnAsRawEnvelope()
+    {
+        string dts = EmitFixtureDtsWithWireContracts();
+
+        Assert.Contains(
+            "export declare function GetWidgetOrOwner(wantOwner: boolean): string;",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_ProjectsEnumAsStringLiteralUnionNotEmptyInterface()
+    {
+        string dts = EmitFixtureDts();
+
+        Assert.Contains(
+            "export type WidgetStatus = \"Draft\" | \"Published\" | \"Archived\";",
+            dts,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("export interface WidgetStatus", dts, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_WithIncludeAllExcludesCompilerSynthesizedNonPublicRecordMembers()
     {
         string dts = EmitFixtureDts(includeAll: true);
-        Assert.Contains("  wire_name: string;", dts, StringComparison.Ordinal);
-        Assert.Contains("  \"display-name\": string;", dts, StringComparison.Ordinal);
-        Assert.Contains("  \"\": string;", dts, StringComparison.Ordinal);
-        Assert.DoesNotContain("ignoredAtWire", dts, StringComparison.Ordinal);
+
+        Assert.DoesNotContain("equalityContract", dts, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_ProjectsFlagsEnumAsStringNotClosedUnion()
+    {
+        string dts = EmitFixtureDts();
+
+        Assert.Contains(
+            "export type WidgetPermission = string;",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_ProjectsConverterlessEnumAsNumberNotStringUnion()
+    {
+        string dts = EmitFixtureDts();
+
+        Assert.Contains(
+            "export type WidgetPriority = number;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("\"Low\" | \"Medium\" | \"High\"", dts, StringComparison.Ordinal);
     }
 
     [Fact]
     public void Emit_WithIncludeAllKeepsJsonIncludeNonPublicProperty()
     {
         string dts = EmitFixtureDts(includeAll: true);
+
         Assert.Contains("lastEditedBy", dts, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_HonorsJsonPropertyNameAndQuotesNonIdentifierNames()
+    {
+        string dts = EmitFixtureDts(includeAll: true);
+
+        Assert.Contains("  wire_name: string;", dts, StringComparison.Ordinal);
+        Assert.Contains("  \"display-name\": string;", dts, StringComparison.Ordinal);
+        Assert.Contains("  \"\": string;", dts, StringComparison.Ordinal);
+        Assert.DoesNotContain("ignoredAtWire", dts, StringComparison.Ordinal);
     }
 }
