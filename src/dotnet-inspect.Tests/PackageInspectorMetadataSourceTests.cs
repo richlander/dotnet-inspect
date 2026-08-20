@@ -9,6 +9,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
+using DotnetInspector.Services;
 using DotnetInspector.Views;
 
 namespace DotnetInspector.Tests;
@@ -143,6 +144,19 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                     ProducerKey: "wrapper-source")
             ]
         };
+        NuspecData payloadNuspec = Assert.IsType<NuspecData>(
+            NuspecParser.ParseContent(
+                """
+                <package>
+                  <metadata>
+                    <id>Wrapper.Package.any</id>
+                    <version>1.0.0</version>
+                    <packageTypes>
+                      <packageType name="Template" />
+                    </packageTypes>
+                  </metadata>
+                </package>
+                """));
 
         using var client = new HttpClient();
         InspectionResult unverified = await PackageInspector.InspectAsync(
@@ -151,7 +165,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             "1.0.0",
             isLocalFile: true,
             localFilePath: localPackagePath,
-            nuspec: null,
+            nuspec: payloadNuspec,
             client,
             new VerboseLogger(enabled: false));
         Assert.Null(Assert.Single(
@@ -165,6 +179,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             Assert.Single(
                 PackageInspectionJson.Create(unverified).RuntimeIdentifierPackages!,
                 package => package.RuntimeIdentifier == "linux-x64").Available);
+        Assert.Null(unverified.PackageTypes);
 
         InspectionResult result = await PackageInspector.InspectAsync(
             resolution,
@@ -172,7 +187,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             "1.0.0",
             isLocalFile: true,
             localFilePath: localPackagePath,
-            nuspec: null,
+            nuspec: payloadNuspec,
             client,
             new VerboseLogger(enabled: false),
             verifyRidPackageAvailability: true);
@@ -184,6 +199,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         Assert.True(result.IsFrameworkDependent);
         Assert.False(result.HasRidSpecificAssets);
         Assert.Equal(["any"], result.SupportedRids);
+        Assert.Null(result.PackageTypes);
         RidPackageReference anyPackage = Assert.Single(
             result.RuntimeIdentifierPackages!,
             package => package.RuntimeIdentifier == "any"
@@ -1116,6 +1132,47 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             producerOptions.IncludeSections,
             producerOptions.FixedOverview,
             excludeUnbounded: true));
+    }
+
+    [Theory]
+    [InlineData(PackageSections.Statistics)]
+    [InlineData(PackageSections.Vulnerabilities)]
+    public void PackageCommand_SelectedMetadataSectionsAuthorizeTheirProducer(
+        string section)
+    {
+        var pipeline =
+            PackageSectionDescriptors.CreateCatalog().Pipeline;
+        var options = new InspectionOptions
+        {
+            IncludeSections =
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    section,
+                },
+        };
+
+        Assert.True(PackageCommand.RequiresPackageMetadata(
+            options,
+            pipeline));
+        Assert.True(PackageCommand.AllowsVulnerabilityTraffic(
+            options));
+    }
+
+    [Fact]
+    public void PackageCommand_DetailedMetadataProducerAuthorizesVulnerabilityTraffic()
+    {
+        var options = new InspectionOptions
+        {
+            IncludeSections =
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    PackageSections.Manifest,
+                },
+            Verbosity = Verbosity.Detailed,
+        };
+
+        Assert.True(PackageCommand.AllowsVulnerabilityTraffic(
+            options));
     }
 
     [Theory]

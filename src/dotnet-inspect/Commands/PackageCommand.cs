@@ -3486,9 +3486,8 @@ public class PackageCommand
         || section.Equals(PackageSections.Vulnerabilities, StringComparison.OrdinalIgnoreCase);
 
     internal static bool AllowsVulnerabilityTraffic(InspectionOptions options) =>
-        options.IncludeSections is { } sections
-            ? sections.Any(IsNetworkUsingPackageSection)
-            : options.Verbosity >= Verbosity.Detailed;
+        options.Verbosity >= Verbosity.Detailed
+        || options.IncludeSections?.Any(IsNetworkUsingPackageSection) == true;
 
     private static bool ValidatePackageLibraryMode(InspectionOptions options)
     {
@@ -4070,6 +4069,14 @@ public class PackageCommand
                || RequestsSelectedOrDiscoveredSection(
                    options,
                    PackageSections.AuditIdentifierConfusion,
+                   pipeline)
+               || RequestsSelectedOrDiscoveredSection(
+                   options,
+                   PackageSections.Statistics,
+                   pipeline)
+               || RequestsSelectedOrDiscoveredSection(
+                   options,
+                   PackageSections.Vulnerabilities,
                    pipeline);
     }
 

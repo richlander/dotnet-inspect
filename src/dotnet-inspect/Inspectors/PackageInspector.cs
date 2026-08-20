@@ -264,8 +264,7 @@ internal static class PackageInspector
             }
                 ? NuspecParser.ParseContent(wrapperNuspecXml)
                 : null;
-        if (wrapperNuspec?.PackageTypes is { Count: > 0 })
-            result.PackageTypes = wrapperNuspec.PackageTypes;
+        result.PackageTypes = wrapperNuspec?.PackageTypes;
         result.IsToolPackage |= wrapperNuspec?.IsToolPackage == true;
 
         string toolsDir = Path.Combine(wrapper.ExtractPath, "tools");

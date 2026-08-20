@@ -107,6 +107,8 @@ public static class RidPackageVerifier
                         NuspecProbeStatus.Absent);
                     var candidateBudget =
                         new LocalCaseVariantProbeBudget();
+                    var probedPaths =
+                        new HashSet<string>(LocalPathComparer);
                     foreach (string versionSpelling in
                              LocalVersionSpellings(
                                  version,
@@ -121,7 +123,8 @@ public static class RidPackageVerifier
                                 ridPkg.PackageId,
                                 normalizedVersion,
                                 logger.Log,
-                                candidateBudget).ConfigureAwait(false);
+                                candidateBudget,
+                                probedPaths).ConfigureAwait(false);
                         probe = new NuspecProbeResult(
                             spellingProbe.Xml ?? probe.Xml,
                             CombineEvidence(
@@ -170,11 +173,14 @@ public static class RidPackageVerifier
             string packageId,
             string version,
             Action<string>? log,
-            LocalCaseVariantProbeBudget? candidateBudget = null)
+            LocalCaseVariantProbeBudget? candidateBudget = null,
+            HashSet<string>? probedPaths = null)
     {
-            candidateBudget ??= new LocalCaseVariantProbeBudget();
-            string expectedPath =
-                Path.Combine(snapshot.LocalDirectory, expectedFileName);
+        candidateBudget ??= new LocalCaseVariantProbeBudget();
+        probedPaths ??= new HashSet<string>(LocalPathComparer);
+        string expectedPath =
+            Path.Combine(snapshot.LocalDirectory, expectedFileName);
+        probedPaths.Add(expectedPath);
         NuspecProbeResult exact =
             await PackageExtractor.ProbeLocalPackageArchiveAsync(
                 expectedPath,
@@ -189,6 +195,9 @@ public static class RidPackageVerifier
             snapshot.GetCandidates(expectedFileName);
         foreach (string candidatePath in candidates.Paths)
         {
+            if (!probedPaths.Add(candidatePath))
+                continue;
+
             if (!candidateBudget.TryConsume())
             {
                 status = CombineEvidence(
@@ -311,6 +320,11 @@ public static class RidPackageVerifier
             return true;
         }
     }
+
+    private static StringComparer LocalPathComparer { get; } =
+        OperatingSystem.IsWindows()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
 
     private static bool? ToAvailability(NuspecProbeStatus status) =>
         status switch

@@ -504,6 +504,69 @@ public class RidPackageVerifierTests
     }
 
     [Fact]
+    public async Task VerifyAsync_ExactArchiveDoesNotConsumeCaseVariantBudget()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"rid-local-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string exactPath = Path.Combine(
+                directory,
+                "TestPackage.linux-x64.1.0.nupkg");
+            File.WriteAllBytes(exactPath, []);
+            string[] rawVersionVariants =
+            [
+                "testPackage.linux-x64.1.0.nupkg",
+                "tEstPackage.linux-x64.1.0.nupkg",
+                "teStPackage.linux-x64.1.0.nupkg",
+                "tesTPackage.linux-x64.1.0.nupkg",
+                "testPAckage.linux-x64.1.0.nupkg",
+                "testPaCkage.linux-x64.1.0.nupkg",
+                "testPacKage.linux-x64.1.0.nupkg",
+            ];
+            if (File.Exists(Path.Combine(
+                    directory,
+                    rawVersionVariants[0])))
+            {
+                Assert.Skip(
+                    "The filesystem does not support case-distinct sibling files.");
+                return;
+            }
+
+            foreach (string fileName in rawVersionVariants)
+            {
+                File.WriteAllBytes(
+                    Path.Combine(directory, fileName),
+                    []);
+            }
+
+            WritePackageArchive(
+                Path.Combine(
+                    directory,
+                    "testpackage.linux-x64.1.0.0.nupkg"),
+                "testpackage.linux-x64",
+                "1.0.0");
+            InspectionResult result = CreateResult();
+
+            await RidPackageVerifier.VerifyAsync(
+                new HttpClient(),
+                result,
+                "1.0",
+                directory,
+                new VerboseLogger(enabled: false));
+
+            Assert.True(
+                Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task VerifyAsync_DisappearingCaseVariantSiblingIsUnknown()
     {
         string directory = Path.Combine(
