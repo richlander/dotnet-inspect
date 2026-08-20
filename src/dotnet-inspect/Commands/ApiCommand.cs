@@ -2756,13 +2756,7 @@ public class ApiCommand
                 return 1;
             }
             var unsupportedCallerSection =
-                options.IncludeSections?.FirstOrDefault(section =>
-                    section.Equals(
-                        SectionNames.Callers,
-                        StringComparison.OrdinalIgnoreCase)
-                    || section.Equals(
-                        SectionNames.CallGraph,
-                        StringComparison.OrdinalIgnoreCase));
+                GetExplicitCallerAnalysisSection(options);
             if (unsupportedCallerSection is not null)
             {
                 CommandError.Write(
@@ -4229,6 +4223,41 @@ public class ApiCommand
                    || selector.Equals(
                        "Optimization Opportunities",
                        StringComparison.OrdinalIgnoreCase)) == true;
+
+    private static string? GetExplicitCallerAnalysisSection(
+        ApiOptions options)
+    {
+        foreach (var selector in options.Select ?? [])
+        {
+            if (selector.Equals(
+                    SectionNames.Callers,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return SectionNames.Callers;
+            }
+            if (selector.Equals(
+                    SectionNames.CallGraph,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return SectionNames.CallGraph;
+            }
+        }
+
+        if (options is not MemberOptions
+            {
+                MemberSectionsPreResolved: true,
+                IncludeSections: { } sections
+            })
+        {
+            return null;
+        }
+
+        return sections.Contains(SectionNames.Callers)
+            ? SectionNames.Callers
+            : sections.Contains(SectionNames.CallGraph)
+                ? SectionNames.CallGraph
+                : null;
+    }
 
     private static bool ShouldRenderMemberIndex(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.MemberIndex) == true;
