@@ -1,3 +1,5 @@
+import { pdbSourceLimitationHtml } from "./data.js";
+
 // The type selector (the "PUBLIC TYPES" / "MEMBERS" nav pane) and the type viewer (the
 // type heading, metadata, and source sections shown for the "type" scope) as pure,
 // dependency-injected render functions. `app.js` owns the type index, filters, member
@@ -423,4 +425,3 @@ export function renderTypeSource(options: RenderTypeSourceOptions): string {
   }
   return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`;
 }
-import { pdbSourceLimitationHtml } from "./data.js";
