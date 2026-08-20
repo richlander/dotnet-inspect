@@ -22017,6 +22017,37 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
     }
 
+    [Theory]
+    [InlineData("operator<")]
+    [InlineData("operator>")]
+    public async Task Router_ExplicitSourceAngleOperator_StaticSchemaUsesMemberPipeline(
+        string memberSelector)
+    {
+        string[] tail =
+        [
+            "--platform",
+            "System.Runtime",
+            "-D",
+            SectionNames.Signature,
+            "--schema",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            [
+                "member",
+                "System.DateTime",
+                "-m",
+                memberSelector,
+                .. tail
+            ]);
+        var routed = await RunAppAsync(
+            [$"System.DateTime.{memberSelector}", .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+    }
+
     [Fact]
     public async Task Router_ExplicitSourceOperatorPrefixedIdentifierUsesMetadataBoundary()
     {

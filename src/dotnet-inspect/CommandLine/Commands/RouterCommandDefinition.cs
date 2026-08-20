@@ -243,6 +243,22 @@ public static class RouterCommandDefinition
             if (hasVersionQuery || target.Contains('@'))
                 return ["package", .. tokens];
 
+            if (hasExplicitApiSource
+                && TrySplitOperatorMemberTarget(
+                    target,
+                    out var operatorType,
+                    out var operatorMember))
+            {
+                return
+                [
+                    "member",
+                    operatorType,
+                    "-m",
+                    operatorMember,
+                    .. tail
+                ];
+            }
+
             if (hasExplicitGenericNotation
                 && IsStaticSchemaDiscovery(tokens))
             {
@@ -282,22 +298,6 @@ public static class RouterCommandDefinition
             }
 
             var allowPlatformPrefixFallback = PlatformResolver.IsPlatformCandidate(target);
-            if (hasExplicitApiSource
-                && TrySplitOperatorMemberTarget(
-                    target,
-                    out var operatorType,
-                    out var operatorMember))
-            {
-                return
-                [
-                    "member",
-                    operatorType,
-                    "-m",
-                    operatorMember,
-                    .. tail
-                ];
-            }
-
             if (hasExplicitApiSource
                 && hasExplicitGenericNotation)
             {
