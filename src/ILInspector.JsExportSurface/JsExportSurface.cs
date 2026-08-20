@@ -35,8 +35,9 @@ public sealed class JsExportFunction
     /// The DTO type actually serialized by this method's own body onto its return value, resolved
     /// from a <c>JsonSerializer.Serialize</c> call site — not inferred from the assembly's whole
     /// registered shape vocabulary. Null when the body contains no such call (e.g. <see
-    /// cref="ReturnType"/> is already a marshalable type, or the export has no return payload).
-    /// See <see cref="JsonWireContractResolver"/>.
+    /// cref="ReturnType"/> is already a marshalable type, or the export has no return payload), or
+    /// when more than one distinct DTO was found for the return position (an ambiguity this is
+    /// left unresolved rather than guessed — see <see cref="JsonWireContractResolver"/> remarks).
     /// </summary>
     public string? ReturnWireType { get; init; }
 

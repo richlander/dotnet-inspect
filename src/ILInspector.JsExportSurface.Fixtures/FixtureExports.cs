@@ -45,6 +45,29 @@ public static partial class FixtureExports
         return JsonSerializer.Serialize(
             widget with { Name = newName }, FixtureJsonContext.Default.WidgetDto);
     }
+
+    // Exercises the return-position ambiguity guard: two distinct DTOs are Serialize<T>'d for the
+    // return value on different branches. JsonWireContractResolver has no branch/reachability
+    // evidence to decide which one actually flows to the caller, so ReturnWireType must stay
+    // unset rather than arbitrarily pick whichever call site DirectCalls happens to enumerate
+    // first.
+    [JSExport]
+    public static string GetWidgetOrOwner(bool wantOwner) =>
+        wantOwner
+            ? JsonSerializer.Serialize(
+                new WidgetOwner("example"), FixtureJsonContext.Default.WidgetOwner)
+            : JsonSerializer.Serialize(
+                new WidgetDto("widget", 0, [], null), FixtureJsonContext.Default.WidgetDto);
+
+    // Exercises container-shaped DTO resolution: the Serialize<T> type argument is WidgetDto[],
+    // not WidgetDto itself. TypeRef.Name is empty for non-Definition kinds (GenericInstance,
+    // SzArray, Array), so resolution must read ToDisplayString() to recover "WidgetDto[]" rather
+    // than silently collapsing to an empty/unknown type.
+    [JSExport]
+    public static string GetWidgetArray() =>
+        JsonSerializer.Serialize(
+            new WidgetDto[] { new("widget", 0, [], null) },
+            FixtureJsonContext.Default.WidgetDtoArray);
 }
 
 public sealed record WidgetDto(string Name, int Count, int[] Tags, WidgetOwner? Owner);
@@ -57,6 +80,7 @@ public sealed record WidgetOwner(string DisplayName);
 public sealed record WidgetCatalog(Dictionary<string, WidgetOwner> OwnersByKey);
 
 [JsonSerializable(typeof(WidgetDto))]
+[JsonSerializable(typeof(WidgetDto[]))]
 [JsonSerializable(typeof(WidgetCatalog))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 public sealed partial class FixtureJsonContext : JsonSerializerContext;

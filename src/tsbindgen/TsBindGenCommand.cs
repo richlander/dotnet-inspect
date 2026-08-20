@@ -66,7 +66,11 @@ public static class TsBindGenCommand
             global::ILInspector.JsExportSurface.JsExportSurface jsExportSurface;
             try
             {
-                LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(assemblyPath);
+                // Only DirectCalls (MethodEvidence) is needed for wire-contract resolution;
+                // allocation/optimization-opportunity analysis is unrelated work this command
+                // doesn't consume, so it's explicitly left out rather than paid for by default.
+                LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(
+                    assemblyPath, LibraryBodyAnalysisFeatures.MethodEvidence);
                 jsExportSurface = JsExportSurfaceBuilder.Build(apiSurface, bodyIndex);
             }
             catch (Exception ex) when (

@@ -66,6 +66,33 @@ public sealed class JsonWireContractResolverTests
     }
 
     [Fact]
+    public void Build_LeavesReturnWireTypeUnsetWhenBodySerializesMoreThanOneDistinctDto()
+    {
+        // GetWidgetOrOwner Serialize<T>'s WidgetOwner on one branch and WidgetDto on the other.
+        // DirectCall carries no branch/reachability evidence to decide which one actually reaches
+        // the caller, so the ambiguity must be left unresolved rather than guessed.
+        ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurfaceWithWireContracts();
+
+        JsExportFunction fn = Assert.Single(
+            surface.Functions,
+            f => f.Name == "GetWidgetOrOwner");
+        Assert.Null(fn.ReturnWireType);
+    }
+
+    [Fact]
+    public void Build_ResolvesContainerShapedReturnWireType()
+    {
+        // The Serialize<T> type argument is WidgetDto[], not WidgetDto. TypeRef.Name is empty for
+        // non-Definition kinds, so this only resolves correctly via ToDisplayString().
+        ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurfaceWithWireContracts();
+
+        JsExportFunction fn = Assert.Single(
+            surface.Functions,
+            f => f.Name == "GetWidgetArray");
+        Assert.Equal("WidgetDto[]", fn.ReturnWireType);
+    }
+
+    [Fact]
     public void Build_LeavesWireContractUnsetForNonEnvelopeExport()
     {
         // Ping has no JSON envelope at all (returns a non-generic Task), so no

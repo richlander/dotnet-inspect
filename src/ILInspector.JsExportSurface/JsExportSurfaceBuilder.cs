@@ -32,6 +32,14 @@ public static class JsExportSurfaceBuilder
     const string JsonSerializerContextBaseType = "System.Text.Json.Serialization.JsonSerializerContext";
 
     /// <summary>
+    /// Builds a <see cref="JsExportSurface"/> from <paramref name="surface"/>, without wire-contract
+    /// resolution (<see cref="JsExportFunction.ReturnWireType"/>/
+    /// <see cref="JsExportFunction.ParameterWireTypes"/> stay unset). See the
+    /// <see cref="Build(ApiSurface, LibraryBodyIndex)"/> overload to resolve them.
+    /// </summary>
+    public static JsExportSurface Build(ApiSurface surface) => Build(surface, bodyIndex: null);
+
+    /// <summary>
     /// Builds a <see cref="JsExportSurface"/> from <paramref name="surface"/>. When
     /// <paramref name="bodyIndex"/> is supplied (the same assembly's IL-body evidence), each
     /// function's <see cref="JsExportFunction.ReturnWireType"/> and
@@ -39,7 +47,14 @@ public static class JsExportSurfaceBuilder
     /// body's <c>JsonSerializer.Serialize</c>/<c>Deserialize</c> call sites — see
     /// <see cref="JsonWireContractResolver"/>. Without it, both remain unset.
     /// </summary>
-    public static JsExportSurface Build(ApiSurface surface, LibraryBodyIndex? bodyIndex = null)
+    /// <remarks>
+    /// A separate overload rather than an optional parameter: this keeps the two-argument call
+    /// site's arity stable for any binary caller compiled against the single-argument overload
+    /// (default-parameter values are baked into the caller at compile time, not looked up at the
+    /// callee, so adding one to the existing method would have been a breaking change for any
+    /// pre-existing compiled caller).
+    /// </remarks>
+    public static JsExportSurface Build(ApiSurface surface, LibraryBodyIndex? bodyIndex)
     {
         // Keyed by simple (last-dotted-segment) name, since that's what's recoverable from
         // signature text alone (see remarks above). Two distinct types sharing a simple name in
