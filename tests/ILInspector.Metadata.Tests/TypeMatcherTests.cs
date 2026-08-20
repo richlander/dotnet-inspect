@@ -14,6 +14,8 @@ public class TypeMatcherTests
 
     [Theory]
     [InlineData("Option<T>", 1)]
+    [InlineData("Option<>", 1)]
+    [InlineData("Option<  >", 1)]
     [InlineData("Dictionary<K,V>", 2)]
     [InlineData("Action<T1,T2,T3>", 3)]
     [InlineData("Func<T1,T2,T3,TResult>", 4)]
@@ -35,19 +37,16 @@ public class TypeMatcherTests
     public void GetPatternArity_returns_correct_arity_for_clr_backtick_notation(string pattern, int expected)
         => Assert.Equal(expected, TypeMatcher.GetPatternArity(pattern));
 
-    [Theory]
-    [InlineData("Option<>")]
-    [InlineData("Option<  >")]
-    [InlineData("Option<T,>")]
-    public void GetPatternArity_returns_negative_one_for_empty_type_args(string pattern)
-        => Assert.Equal(-1, TypeMatcher.GetPatternArity(pattern));
+    [Fact]
+    public void GetPatternArity_returns_negative_one_for_incomplete_type_args()
+        => Assert.Equal(-1, TypeMatcher.GetPatternArity("Option<T,>"));
 
     [Theory]
     [InlineData("Option<>")]
     [InlineData("Option`0")]
     [InlineData("Option`")]
     [InlineData("Option`999999999999999999999")]
-    public void HasExplicitGenericNotation_includes_zero_and_malformed_arity(
+    public void HasExplicitGenericNotation_includes_unbound_and_malformed_arity(
         string pattern) =>
         Assert.True(TypeMatcher.HasExplicitGenericNotation(pattern));
 
@@ -146,6 +145,17 @@ public class TypeMatcherTests
 
     [Theory]
     [InlineData("Option<>")]
+    [InlineData("Option<  >")]
+    public void Lookup_accepts_unbound_arity_one_notation(string pattern)
+    {
+        var result = TypeMatcher.Lookup(
+            ["MyNamespace.Option`1"],
+            pattern);
+
+        Assert.Equal("MyNamespace.Option`1", result.Match);
+    }
+
+    [Theory]
     [InlineData("Option`0")]
     [InlineData("Option`")]
     [InlineData("Option`999999999999999999999")]
@@ -171,7 +181,6 @@ public class TypeMatcherTests
     [Theory]
     [InlineData("List<T,U>")]
     [InlineData("List`2")]
-    [InlineData("List<>")]
     [InlineData("List`0")]
     public void FindUniquePublicType_does_not_broaden_explicit_arity(
         string pattern) =>
@@ -179,6 +188,14 @@ public class TypeMatcherTests
             AssemblyReader.FindUniquePublicType(
                 typeof(string).Assembly.Location,
                 pattern));
+
+    [Fact]
+    public void FindUniquePublicType_accepts_unbound_arity_one_notation()
+        => Assert.Equal(
+            "System.Collections.Generic.List`1",
+            AssemblyReader.FindUniquePublicType(
+                typeof(string).Assembly.Location,
+                "List<>"));
 
     [Theory]
     [InlineData(
