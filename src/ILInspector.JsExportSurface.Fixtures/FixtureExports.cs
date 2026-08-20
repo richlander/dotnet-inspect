@@ -172,3 +172,24 @@ public sealed record WidgetAudit(string Name)
 [JsonSerializable(typeof(WidgetAudit))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 public sealed partial class FixtureJsonContext : JsonSerializerContext;
+
+// Exercises a JsonSerializerContext declared internal, as InspectWeb.Engine's own
+// BrowserJsonContext is: nothing outside the assembly touches it in C#, since the wasm/JS
+// boundary is its only external consumer. ApiSurfaceExtractor.Extract must run with
+// includeAll: true for JsExportSurfaceBuilder's record/enum discovery (which walks surface.Types
+// for a JsonSerializerContext-derived type) to see this context at all; extracting public-only
+// would silently drop it, and every export using it would collapse to "unknown".
+public sealed record InternalContextWidget(string Name);
+
+[SupportedOSPlatform("browser")]
+public static partial class InternalContextFixtureExports
+{
+    [JSExport]
+    public static string GetInternalContextWidget(string name) =>
+        JsonSerializer.Serialize(
+            new InternalContextWidget(name),
+            InternalContextFixtureJsonContext.Default.InternalContextWidget);
+}
+
+[JsonSerializable(typeof(InternalContextWidget))]
+internal sealed partial class InternalContextFixtureJsonContext : JsonSerializerContext;

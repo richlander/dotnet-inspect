@@ -26,6 +26,31 @@ public sealed class TsBindGenCommandTests
     }
 
     [Fact]
+    public void Invoke_ResolvesRecordFromInternalJsonSerializerContext()
+    {
+        // Regression test: ApiSurfaceExtractor.Extract must run with includeAll: true. An
+        // internal JsonSerializerContext (as InternalContextFixtureJsonContext deliberately is,
+        // matching InspectWeb.Engine's real BrowserJsonContext) would otherwise never appear in
+        // the extracted surface, so JsExportSurfaceBuilder's record discovery would find zero
+        // records and getInternalContextWidget would collapse to "unknown" instead of the real
+        // InternalContextWidget interface.
+        var output = new StringWriter();
+        var error = new StringWriter();
+
+        int exitCode = TsBindGenCommand.Invoke([FixtureAssemblyPath], output, error);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains(
+            "export interface InternalContextWidget {",
+            output.ToString(),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function getInternalContextWidget(name: string): InternalContextWidget;",
+            output.ToString(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Invoke_ResolvesWireContractsFromBodyEvidence()
     {
         // The CLI must open a LibraryBodyIndex and pass it through so the emitted return type is

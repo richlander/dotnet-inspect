@@ -26,7 +26,7 @@ public sealed class JsExportSurfaceBuilderTests
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
         var names = surface.Functions.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(10, surface.Functions.Count);
+        Assert.Equal(11, surface.Functions.Count);
         Assert.Contains("GetWidget", names);
         Assert.Contains("GetWidgetAsync", names);
         Assert.Contains("Ping", names);
@@ -34,6 +34,7 @@ public sealed class JsExportSurfaceBuilderTests
         Assert.Contains("GetWidgetOrOwner", names);
         Assert.Contains("GetWidgetArray", names);
         Assert.Contains("GetWidgetSummary", names);
+        Assert.Contains("GetInternalContextWidget", names);
     }
 
     [Fact]
