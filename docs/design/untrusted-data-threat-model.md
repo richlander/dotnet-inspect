@@ -1390,9 +1390,13 @@ evidence plus NuGet restore-source semantics. It also reports every literal
 path finding. This does not classify the mapping as malicious; the existing
 provenance boundary above remains responsible for canonicalizing resolved URLs
 before attribution. Candidate paths, text files, SourceLink carriers, aggregate embedded-PDB
-inflation, SourceLink map bytes, and mapping inventory are bounded. The PDB
-owner reads the same file pointer as the framework decoder and reserves both
-per-file and shared expansion budgets before decompression; the named gates are
+inflation, PE debug-directory entries, CodeView record bytes, SourceLink map
+bytes, and mapping inventory are bounded. The PDB owner rejects oversized
+debug directories and CodeView records before SRM materializes authored paths,
+reads the same embedded-PDB file pointer as the framework decoder, and reserves
+both per-file and shared expansion budgets before decompression; the named
+gates are
+`PdbContextDescriptorTests.DebugDirectoryAndCodeViewLimits_PrecedePathMaterialization`,
 `PdbContextDescriptorTests.EmbeddedPdbAndSourceLinkLimits_PrecedePayloadMaterialization`,
 `PdbContextDescriptorTests.EmbeddedPdbLimit_ReadsTheFilePointerUsedByTheDecoder`,
 `PdbContextDescriptorTests.EmbeddedPdbLimit_AppliesDataPointerRelativeToPeImageStart`,
@@ -1401,6 +1405,7 @@ per-file and shared expansion budgets before decompression; the named gates are
 `PackageContentAuditTests.CandidatePathLimit_BoundsRepeatedInputBeforeMaterialization`,
 `PackageContentAuditTests.TextFileLimit_BoundsZeroByteReads`,
 `PackageContentAuditTests.SourceLinkCarrierLimit_BoundsZeroByteWork`, and
+`PackageContentAuditTests.OversizedCodeViewRecord_MarksAuditPartialBeforeDecode`,
 `SourceLinkMapConformanceTests.MappingLimit_StopsBeforeRetainingAnOverBudgetInventory`.
 Neither audit section is the scalar-by-scalar refusal
 survey mode described below, and neither changes acceptance policy. Document payloads are

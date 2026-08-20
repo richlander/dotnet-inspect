@@ -92,6 +92,44 @@ public class PdbContextDescriptorTests
     }
 
     [Fact]
+    public void DebugDirectoryAndCodeViewLimits_PrecedePathMaterialization()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(PdbContextDescriptorTests).Assembly.Location);
+        AssemblyReferenceIdentity identity = ReadIdentity(image);
+        using (PdbContext baseline =
+               PdbContext.OpenMetadataOnly(CreateDescriptor(image, identity)))
+        {
+            Assert.NotNull(baseline.CodeViewPdbPath);
+        }
+
+        byte[] oversizedDirectory = SetDebugDirectorySize(
+            image,
+            checked((PdbContext.MaxDebugDirectoryEntries + 1) * 28));
+        PdbResourceLimitException directoryError =
+            Assert.Throws<PdbResourceLimitException>(
+                () => PdbContext.OpenMetadataOnly(
+                    CreateDescriptor(oversizedDirectory, identity)));
+        Assert.Equal(
+            PdbContext.MaxDebugDirectoryEntries * 28,
+            directoryError.LimitBytes);
+
+        byte[] oversizedCodeView = SetCodeViewDataSize(
+            image,
+            PdbContext.MaxCodeViewDataBytes + 1);
+        PdbResourceLimitException codeViewError =
+            Assert.Throws<PdbResourceLimitException>(
+                () => PdbContext.OpenMetadataOnly(
+                    CreateDescriptor(oversizedCodeView, identity)));
+        Assert.Equal(
+            PdbContext.MaxCodeViewDataBytes + 1,
+            codeViewError.ActualBytes);
+        Assert.Equal(
+            PdbContext.MaxCodeViewDataBytes,
+            codeViewError.LimitBytes);
+    }
+
+    [Fact]
     public void EmbeddedPdbLimit_ReadsTheFilePointerUsedByTheDecoder()
     {
         const int Limit = 1024 * 1024;
@@ -532,6 +570,61 @@ public class PdbContextDescriptorTests
             patched.AsSpan(embeddedEntryOffset + DataPointerOffset, sizeof(int)),
             image.Length);
         return patched;
+    }
+
+    static byte[] SetDebugDirectorySize(byte[] image, int size)
+    {
+        byte[] patched = (byte[])image.Clone();
+        using var stream = new MemoryStream(image, writable: false);
+        using var reader = new PEReader(stream);
+        PEHeader peHeader = Assert.IsType<PEHeader>(
+            reader.PEHeaders.PEHeader);
+        int directoryBase =
+            reader.PEHeaders.PEHeaderStartOffset
+            + (peHeader.Magic == PEMagic.PE32Plus ? 112 : 96);
+        const int DebugDirectoryIndex = 6;
+        int sizeOffset =
+            directoryBase
+            + DebugDirectoryIndex * 8
+            + sizeof(int);
+        BinaryPrimitives.WriteInt32LittleEndian(
+            patched.AsSpan(sizeOffset, sizeof(int)),
+            size);
+        return patched;
+    }
+
+    static byte[] SetCodeViewDataSize(byte[] image, int size)
+    {
+        const int DebugDirectoryEntrySize = 28;
+        const int TypeOffset = 12;
+        const int DataSizeOffset = 16;
+
+        byte[] patched = (byte[])image.Clone();
+        using var stream = new MemoryStream(image, writable: false);
+        using var reader = new PEReader(stream);
+        DirectoryEntry directory =
+            reader.PEHeaders.PEHeader!.DebugTableDirectory;
+        int directoryOffset = RvaToFileOffset(
+            reader.PEHeaders,
+            directory.RelativeVirtualAddress);
+        int entryCount = directory.Size / DebugDirectoryEntrySize;
+        for (int index = 0; index < entryCount; index++)
+        {
+            int entryOffset =
+                directoryOffset + index * DebugDirectoryEntrySize;
+            int type = BinaryPrimitives.ReadInt32LittleEndian(
+                image.AsSpan(entryOffset + TypeOffset, sizeof(int)));
+            if (type != (int)DebugDirectoryEntryType.CodeView)
+                continue;
+
+            BinaryPrimitives.WriteInt32LittleEndian(
+                patched.AsSpan(entryOffset + DataSizeOffset, sizeof(int)),
+                size);
+            return patched;
+        }
+
+        throw new InvalidOperationException(
+            "Expected a CodeView debug-directory entry.");
     }
 
     static (byte[] Image, int ImageStart)

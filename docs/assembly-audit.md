@@ -98,9 +98,11 @@ Input work is capped at 16,384 candidate paths and 4,096 text files.
 SourceLink inspection is additionally capped at 256 managed PE candidates and
 256 standalone PDB candidates, 4 MiB per decoded map, 32 MiB of maps per
 package, 16,384 decoded mappings, 64 MiB per decompressed embedded PDB, 256 MiB
-of decompressed embedded PDBs per package, 64 MiB per PE/PDB carrier, and
+of decompressed embedded PDBs per package, 64 debug-directory entries and
+4 KiB per CodeView record in each managed PE, 64 MiB per PE/PDB carrier, and
 256 MiB of carriers per package. Exhausting the managed-carrier count leaves
-the independently bounded standalone-PDB pass available. The
+the independently bounded standalone-PDB pass available. Debug-directory and
+CodeView limits are checked before SRM materializes CodeView paths. The
 embedded-PDB per-file and shared budgets, map-byte limit, and mapping-count
 limit are checked before their respective payloads are decompressed, copied,
 or retained. Reaching any cap adds one `scan limit` row and makes the result
@@ -178,10 +180,12 @@ gate namespace-safe attributes and NuGet-compatible qualified elements.
 gates the active section hierarchy and casing, while
 `PackageContentAuditTests.NuGetConfiguration_DeepXmlReportsScanLimit` gates the
 fail-visible per-file depth bound without suppressing later package findings.
-`PdbContextDescriptorTests.EmbeddedPdbAndSourceLinkLimits_PrecedePayloadMaterialization`
+`PdbContextDescriptorTests.DebugDirectoryAndCodeViewLimits_PrecedePathMaterialization`,
+`PdbContextDescriptorTests.EmbeddedPdbAndSourceLinkLimits_PrecedePayloadMaterialization`,
 and
 `SourceLinkMapConformanceTests.MappingLimit_StopsBeforeRetainingAnOverBudgetInventory`
-gate the pre-allocation PDB, map-byte, and mapping-count boundaries.
+gate the pre-materialization debug-directory, CodeView, PDB, map-byte, and
+mapping-count boundaries.
 `PackageAudit_RendersContentAndSourceLinkFindings` gates the
 three-column Markdown and JSONL contract with a compiler-produced hostile
 SourceLink PDB.
@@ -208,6 +212,8 @@ signature-entry, signer-identity, and timestamp-profile boundaries.
 `VerifyPackage_TruncatedCentralDirectoryReturnsInvalid` and
 `VerifyPackage_RejectsSignatureCmsSuffix` gate typed truncated-directory
 failure and whole-value CMS admission.
+`VerifyPackage_MalformedTimestampCryptoReturnsTypedResult` gates platform
+crypto exception normalization without promoting an untrusted timestamp.
 `PackageContentAuditTests.SourceLinkEvidence_FramesAndBoundsBothOperands`
 gates structurally distinct bounded SourceLink operands.
 `InspectionResultTests.Signed_PreservesUnestablishedVerificationState` gates

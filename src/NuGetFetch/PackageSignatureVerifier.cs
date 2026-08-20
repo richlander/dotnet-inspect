@@ -219,6 +219,21 @@ public static class PackageSignatureVerifier
 
     private static SignatureVerificationResult VerifySignature(byte[] signatureBytes)
     {
+        try
+        {
+            return VerifySignatureCore(signatureBytes);
+        }
+        catch (Exception ex) when (IsMalformedCryptographicPayload(ex))
+        {
+            return new SignatureVerificationResult(
+                SignatureStatus.Invalid,
+                "Package signature cryptographic payload is invalid.");
+        }
+    }
+
+    private static SignatureVerificationResult VerifySignatureCore(
+        byte[] signatureBytes)
+    {
         if (!ContainsExactlyOneCmsValue(signatureBytes))
         {
             return new SignatureVerificationResult(
@@ -1234,23 +1249,17 @@ public static class PackageSignatureVerifier
                 verificationTime: timestamp.UpperBound);
             return tsChain.IsValid ? timestamp : null;
         }
-        catch (CryptographicException)
-        {
-            return null;
-        }
-        catch (AsnContentException)
-        {
-            return null;
-        }
-        catch (OverflowException)
-        {
-            return null;
-        }
-        catch (ArgumentOutOfRangeException)
+        catch (Exception ex) when (IsMalformedCryptographicPayload(ex))
         {
             return null;
         }
     }
+
+    private static bool IsMalformedCryptographicPayload(Exception exception)
+        => exception is CryptographicException
+            or AsnContentException
+            or ArgumentException
+            or OverflowException;
 
     /// <summary>
     /// Extracts the genTime from an RFC 3161 TSTInfo structure.

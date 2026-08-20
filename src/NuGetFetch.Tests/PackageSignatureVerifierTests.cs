@@ -587,6 +587,31 @@ public class PackageSignatureVerifierTests : IDisposable
     }
 
     [Fact]
+    public async Task VerifyPackage_MalformedTimestampCryptoReturnsTypedResult()
+    {
+        const int MalformedTimestampCertificateOffset = 15_336;
+        string nupkgPath = await DownloadPackageAsync(
+            "Newtonsoft.Json",
+            "13.0.4");
+        try
+        {
+            byte[] package = MutateSignatureByte(
+                File.ReadAllBytes(nupkgPath),
+                MalformedTimestampCertificateOffset);
+            File.WriteAllBytes(nupkgPath, package);
+
+            SignatureVerificationResult result =
+                PackageSignatureVerifier.VerifyPackage(nupkgPath);
+
+            Assert.NotEqual(SignatureStatus.Unsigned, result.Status);
+        }
+        finally
+        {
+            File.Delete(nupkgPath);
+        }
+    }
+
+    [Fact]
     public async Task VerifyPackage_RejectsInvalidSignatureEntryProfiles()
     {
         string nupkgPath = await DownloadPackageAsync("Newtonsoft.Json", "13.0.3");
@@ -1173,6 +1198,36 @@ public class PackageSignatureVerifierTests : IDisposable
         BinaryPrimitives.WriteUInt32LittleEndian(
             mutated.AsSpan(shiftedEndRecord + 16),
             checked((uint)(centralDirectoryOffset + suffix.Length)));
+        return mutated;
+    }
+
+    private static byte[] MutateSignatureByte(
+        byte[] package,
+        int signatureRelativeOffset)
+    {
+        (int central, int local) = FindSignatureHeaders(package);
+        uint signatureLength = BinaryPrimitives.ReadUInt32LittleEndian(
+            package.AsSpan(central + 20));
+        Assert.InRange(
+            signatureRelativeOffset,
+            0,
+            checked((int)signatureLength - 1));
+        ushort fileNameLength = BinaryPrimitives.ReadUInt16LittleEndian(
+            package.AsSpan(local + 26));
+        ushort extraLength = BinaryPrimitives.ReadUInt16LittleEndian(
+            package.AsSpan(local + 28));
+        int dataOffset = checked(local + 30 + fileNameLength + extraLength);
+
+        byte[] mutated = (byte[])package.Clone();
+        mutated[dataOffset + signatureRelativeOffset] ^= 0x01;
+        uint crc = CalculateCrc32(
+            mutated.AsSpan(dataOffset, checked((int)signatureLength)));
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            mutated.AsSpan(local + 14),
+            crc);
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            mutated.AsSpan(central + 16),
+            crc);
         return mutated;
     }
 

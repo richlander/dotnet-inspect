@@ -1,5 +1,8 @@
+using System.Buffers.Binary;
+using System.Reflection.PortableExecutable;
 using System.Text;
 using DotnetInspector.Services;
+using ILInspector.Metadata;
 using InertText;
 
 namespace DotnetInspector.Services.Tests;
@@ -354,6 +357,39 @@ public sealed class PackageContentAuditTests
                     finding.Path == "symbols/broken.pdb"
                     && finding.Kind
                     == PackageContentFindingKind.InvalidSourceLinkMap);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void OversizedCodeViewRecord_MarksAuditPartialBeforeDecode()
+    {
+        string root = CreateRoot();
+        try
+        {
+            byte[] image = File.ReadAllBytes(
+                typeof(PackageContentAuditTests).Assembly.Location);
+            byte[] oversized = SetCodeViewDataSize(
+                image,
+                int.MaxValue);
+            WriteBytes(root, "lib/net11.0/oversized.dll", oversized);
+
+            PackageContentAuditResult result = PackageContentAudit.Scan(
+                root,
+                ["lib/net11.0/oversized.dll"]);
+
+            Assert.False(result.Complete);
+            Assert.Equal(0, result.ScannedSourceLinkMaps);
+            PackageContentAuditFinding finding = Assert.Single(
+                result.Findings);
+            Assert.Equal(PackageContentFindingKind.ScanLimit, finding.Kind);
+            Assert.Contains(
+                "CodeView debug record",
+                finding.EncodedText.ToString(),
+                StringComparison.Ordinal);
         }
         finally
         {
@@ -806,6 +842,60 @@ public sealed class PackageContentAuditTests
         string root = Path.Combine(Path.GetTempPath(), $"package-content-audit-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
         return root;
+    }
+
+    static byte[] SetCodeViewDataSize(byte[] image, int size)
+    {
+        const int DebugDirectoryEntrySize = 28;
+        const int TypeOffset = 12;
+        const int DataSizeOffset = 16;
+
+        byte[] patched = (byte[])image.Clone();
+        using var stream = new MemoryStream(image, writable: false);
+        using var reader = new PEReader(stream);
+        DirectoryEntry directory =
+            reader.PEHeaders.PEHeader!.DebugTableDirectory;
+        int directoryOffset = RvaToFileOffset(
+            reader.PEHeaders,
+            directory.RelativeVirtualAddress);
+        int entryCount = directory.Size / DebugDirectoryEntrySize;
+        for (int index = 0; index < entryCount; index++)
+        {
+            int entryOffset =
+                directoryOffset + index * DebugDirectoryEntrySize;
+            int type = BinaryPrimitives.ReadInt32LittleEndian(
+                image.AsSpan(entryOffset + TypeOffset, sizeof(int)));
+            if (type != (int)DebugDirectoryEntryType.CodeView)
+                continue;
+
+            BinaryPrimitives.WriteInt32LittleEndian(
+                patched.AsSpan(entryOffset + DataSizeOffset, sizeof(int)),
+                size);
+            return patched;
+        }
+
+        throw new InvalidOperationException(
+            "Expected a CodeView debug-directory entry.");
+    }
+
+    static int RvaToFileOffset(PEHeaders headers, int rva)
+    {
+        foreach (SectionHeader section in headers.SectionHeaders)
+        {
+            int sectionSize = Math.Max(
+                section.VirtualSize,
+                section.SizeOfRawData);
+            if (rva >= section.VirtualAddress
+                && rva - section.VirtualAddress < sectionSize)
+            {
+                return section.PointerToRawData
+                    + rva
+                    - section.VirtualAddress;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"RVA 0x{rva:X8} is not mapped by a PE section.");
     }
 
     private static void Write(string root, string relativePath, string content)

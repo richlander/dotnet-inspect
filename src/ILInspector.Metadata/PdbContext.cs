@@ -48,7 +48,7 @@ public sealed record PdbCustomDebugInformationResult(
     int ValueLength = 0,
     bool LimitExceeded = false);
 
-/// <summary>A PDB resource exceeded a caller-supplied pre-allocation limit.</summary>
+/// <summary>A PDB resource exceeded a pre-materialization limit.</summary>
 public sealed class PdbResourceLimitException(
     string message,
     int actualBytes,
@@ -208,6 +208,10 @@ public record MethodExceptionRegionInfo(
 /// </summary>
 public class PdbContext : IDisposable
 {
+    private const int DebugDirectoryEntrySize = 28;
+    internal const int MaxDebugDirectoryEntries = 64;
+    internal const int MaxCodeViewDataBytes = 4 * 1024;
+
     private readonly PEReader _peReader;
     private readonly Stream _peStream;
     private readonly long _peImageStart;
@@ -1799,6 +1803,19 @@ public class PdbContext : IDisposable
         int maxEmbeddedPdbBytes,
         PdbExpansionBudget? expansionBudget)
     {
+        int debugDirectorySize =
+            _peReader.PEHeaders.PEHeader?.DebugTableDirectory.Size ?? 0;
+        int maxDebugDirectoryBytes =
+            DebugDirectoryEntrySize * MaxDebugDirectoryEntries;
+        if (debugDirectorySize > maxDebugDirectoryBytes)
+        {
+            throw new PdbResourceLimitException(
+                $"The PE debug directory's {debugDirectorySize} bytes exceed "
+                + $"the {MaxDebugDirectoryEntries}-entry limit.",
+                debugDirectorySize,
+                maxDebugDirectoryBytes);
+        }
+
         CodeViewDebugDirectoryData? portableCodeView = null;
         CodeViewDebugDirectoryData? windowsCodeView = null;
         bool embeddedPdbLoaded = false;
@@ -1812,6 +1829,15 @@ public class PdbContext : IDisposable
 
             if (entry.Type == DebugDirectoryEntryType.CodeView)
             {
+                if (entry.DataSize > MaxCodeViewDataBytes)
+                {
+                    throw new PdbResourceLimitException(
+                        $"A CodeView debug record's {entry.DataSize} bytes exceed "
+                        + $"the {MaxCodeViewDataBytes}-byte limit.",
+                        entry.DataSize,
+                        MaxCodeViewDataBytes);
+                }
+
                 var cvData = _peReader.ReadCodeViewDebugDirectoryData(entry);
                 bool isPortable = entry.MinorVersion == 0x504d;
 
