@@ -405,11 +405,15 @@ Hard constraints:
 The product registry (`ProductInspectionDemos`) stays a static id→metadata
 table plus peer definition records lowered to a `ResolvedScenario`. Listing
 remains metadata-only. **Home demos now bind product section display names**
-through `ProductDemoSections` (today: `Methods` for STJ and platform List`1`,
-`Call Graph` for the extensions member) and `ResolveHomeScenario` fails when a
-home demo omits `View.Section` or names a section outside that allow list
+through `ProductDemoSections` (today: `Methods` for STJ and platform List`1`;
+`Call Graph` primary bind for the extensions member, expanded at run to
+`Call Graph` + `Callers` via `ExpandRunSections` so the closed preset matches
+the multi-package `--caller-package` companion rule rather than under-declaring
+the runtime section set) and `ResolveHomeScenario` fails when a home demo omits
+`View.Section` or names a section outside that allow list
 (`ProductHomeDemos_AllBindKnownProductSections`,
-`ProductDemoSections_AreProductSectionNames`). Full minted view-facet ids
+`ProductDemoSections_AreProductSectionNames`). Formats stay orthogonal on
+`demo` (including `--mermaid` for graph demos). Full minted view-facet ids
 remain open ([Open questions](#open-questions) — view-facet registry binding).
 **CLI run** lowers the resolved plan to `TypeCommand` / `MemberCommand` options
 (`DemoScenarioRunner`) so `dotnet-inspect demo <id>` returns ordinary section
@@ -420,7 +424,9 @@ minted facet ids replacing display-name allow list; (2) realize via
 package/caller encoding; (3) inspect-web home buttons and the imperative
 call-graph path converge on the same registry/sections; TypeScript export of
 the engine surface can land on its own schedule before the web host switches
-buttons over.
+buttons over; (4) Call Graph / Callers structured JSON projection remains the
+shared member-pipeline gap (Markdown/Mermaid are the faithful graph formats
+today).
 
 ### Member coordinates
 
@@ -954,10 +960,12 @@ Definition records and product demos (this slice):
   `ProductDemoSections` binding; JSON remains the portable load path for external
   definitions;
 - `ProductDemoSections` is the closed allow list of product section display names
-  home demos may select until minted view-facet ids land;
+  home demos may select until minted view-facet ids land; `ExpandRunSections`
+  expands Call Graph binds to Call Graph + Callers;
 - CLI `demo list` / `demo <id>` (`DemoCommand` + `DemoScenarioRunner`) lists
   metadata and **runs** the bound section through `TypeCommand` /
-  `MemberCommand` (not a resolve-only plan dump);
+  `MemberCommand` (not a resolve-only plan dump), with orthogonal formats
+  including `--mermaid`;
 - `InspectionDefinitionTests` / `DemoCommandTests` gate round-trip, separation,
   demo-parity, section binding, CLI lowering, and real section output for the
   three homes; and

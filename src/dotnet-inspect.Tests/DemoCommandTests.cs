@@ -90,6 +90,16 @@ public class DemoCommandTests
         Assert.All(ProductDemoSections.Known, id => Assert.Contains(id, sectionNameConstants));
         Assert.Equal(SectionNames.Methods, ProductDemoSections.Methods);
         Assert.Equal(SectionNames.CallGraph, ProductDemoSections.CallGraph);
+        Assert.Equal(SectionNames.Callers, ProductDemoSections.Callers);
+        Assert.Equal(
+            [SectionNames.CallGraph, SectionNames.Callers],
+            ProductDemoSections.ExpandRunSections(ProductDemoSections.CallGraph));
+        Assert.Equal(
+            [SectionNames.CallGraph],
+            ProductDemoSections.ExpandRunSections(ProductDemoSections.CallGraph, standaloneGraphFormat: true));
+        Assert.Equal(
+            [SectionNames.Methods],
+            ProductDemoSections.ExpandRunSections(ProductDemoSections.Methods));
     }
 
     [Fact]
@@ -101,7 +111,9 @@ public class DemoCommandTests
         Assert.Equal("System.Text.Json.JsonSerializer", type.TypeName);
         Assert.Equal("System.Text.Json@10.0.0", type.PackagePath);
         Assert.Equal("net10.0", type.Tfm);
-        Assert.Contains(SectionNames.Methods, type.IncludeSections!);
+        Assert.Equal(
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.Methods },
+            type.IncludeSections);
         Assert.Null(type.PlatformAssembly);
     }
 
@@ -114,7 +126,9 @@ public class DemoCommandTests
         Assert.Equal("System.Collections.Generic.List`1", type.TypeName);
         Assert.Equal("System.Private.CoreLib", type.PlatformAssembly);
         Assert.Equal("runtime@10.0.10", type.PlatformFramework);
-        Assert.Contains(SectionNames.Methods, type.IncludeSections!);
+        Assert.Equal(
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.Methods },
+            type.IncludeSections);
         Assert.Null(type.PackagePath);
     }
 
@@ -133,9 +147,31 @@ public class DemoCommandTests
         Assert.Equal("74b6b4b321", member.MemberDigest);
         Assert.Contains("TryAddEnumerable", member.MemberFilter);
         Assert.Contains("method", member.KindFilter);
-        Assert.Contains(SectionNames.CallGraph, member.IncludeSections!);
+        Assert.Equal(
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.CallGraph,
+                SectionNames.Callers,
+            },
+            member.IncludeSections);
         Assert.Contains("Microsoft.Extensions.Logging@10.0.0", member.CallerScopePackages);
         Assert.Contains("Microsoft.Extensions.Http@10.0.0", member.CallerScopePackages);
+    }
+
+    [Fact]
+    public void Runner_Mermaid_SetsMermaidOutputAndSingleGraphSection()
+    {
+        var resolved = ProductInspectionDemos.ResolveHomeScenario(ProductInspectionDemos.ExtensionsCallGraphScenarioId);
+        Assert.True(
+            DemoScenarioRunner.TryCreateOptions(
+                resolved, OutputFormat.Mermaid, noHeader: false, out var options, out var error),
+            error);
+        var member = Assert.IsType<MemberOptions>(options);
+        Assert.True(member.MermaidOutput);
+        Assert.False(member.EmbeddedMermaid);
+        Assert.Equal(
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.CallGraph },
+            member.IncludeSections);
     }
 
     [Fact]
@@ -161,7 +197,7 @@ public class DemoCommandTests
                 OutputFormat.Markdown));
 
         Assert.True(exitCode == 0, error + "\n" + output);
-        Assert.Contains("## Methods", output, StringComparison.Ordinal);
+        Assert.Equal(["## Methods"], MarkdownSectionHeadings(output));
         Assert.Contains("JsonSerializer", output, StringComparison.Ordinal);
         Assert.DoesNotContain("resolve-only", output, StringComparison.OrdinalIgnoreCase);
     }
@@ -175,12 +211,12 @@ public class DemoCommandTests
                 OutputFormat.Markdown));
 
         Assert.True(exitCode == 0, error + "\n" + output);
-        Assert.Contains("## Methods", output, StringComparison.Ordinal);
+        Assert.Equal(["## Methods"], MarkdownSectionHeadings(output));
         Assert.Contains("List", output, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task ExecuteScenario_CallGraph_ReturnsCallGraphSection()
+    public async Task ExecuteScenario_CallGraph_ReturnsDeclaredSectionSet()
     {
         var (exitCode, output, error) = await ConsoleCapture.RunAsync(
             () => DemoCommand.ExecuteScenarioAsync(
@@ -188,7 +224,28 @@ public class DemoCommandTests
                 OutputFormat.Markdown));
 
         Assert.True(exitCode == 0, error + "\n" + output);
-        Assert.Contains("## Call Graph", output, StringComparison.Ordinal);
+        // Closed preset: Call Graph + Callers (companion under multi-package caller-scope encoding).
+        Assert.Equal(["## Callers", "## Call Graph"], MarkdownSectionHeadings(output));
         Assert.Contains("TryAddEnumerable", output, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task Cli_DemoCallGraph_Mermaid_EmitsGraph()
+    {
+        var (exitCode, output, error) = await RunCliAsync(
+            "demo",
+            ProductInspectionDemos.ExtensionsCallGraphScenarioId,
+            "--mermaid");
+
+        Assert.True(exitCode == 0, error + "\n" + output);
+        Assert.Empty(error);
+        Assert.Contains("graph TD", output, StringComparison.Ordinal);
+        Assert.Contains("TryAddEnumerable", output, StringComparison.Ordinal);
+    }
+
+    private static string[] MarkdownSectionHeadings(string markdown) =>
+        markdown
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+            .Where(line => line.StartsWith("## ", StringComparison.Ordinal))
+            .ToArray();
 }

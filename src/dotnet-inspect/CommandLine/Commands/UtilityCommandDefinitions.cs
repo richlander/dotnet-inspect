@@ -103,6 +103,7 @@ public static class UtilityCommandDefinitions
         demoCommand.Options.Add(opts.Json);
         demoCommand.Options.Add(opts.Markdown);
         demoCommand.Options.Add(opts.PlainText);
+        demoCommand.Options.Add(opts.Mermaid);
         opts.AddTableOptionsTo(demoCommand);
         demoCommand.Options.Add(opts.Limit);
 
@@ -124,11 +125,12 @@ public static class UtilityCommandDefinitions
         {
             var format = opts.ResolveFormat(parseResult);
             var noHeader = parseResult.GetValue(opts.NoHeaders);
+            var embeddedMermaid = opts.IsEmbeddedMermaid(parseResult);
             var scenario = parseResult.GetValue(scenarioArg);
             if (string.IsNullOrWhiteSpace(scenario))
                 return DemoCommand.ExecuteList(format, noHeader);
 
-            return await DemoCommand.ExecuteScenarioAsync(scenario, format, noHeader);
+            return await DemoCommand.ExecuteScenarioAsync(scenario, format, noHeader, embeddedMermaid);
         });
 
         return demoCommand;

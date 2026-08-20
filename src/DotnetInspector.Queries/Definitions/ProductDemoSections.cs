@@ -15,11 +15,38 @@ public static class ProductDemoSections
     /// <summary>Bidirectional member call graph (canonical product id).</summary>
     public const string CallGraph = "Call Graph";
 
+    /// <summary>
+    /// Inbound call-site table. Multi-package call-graph demos include this as a
+    /// companion section: CLI <c>--caller-package</c> / caller-scope encoding
+    /// implies <c>-S Callers</c> (see schema-query), and the closed preset names
+    /// both sections rather than under-declaring the runtime set.
+    /// </summary>
+    public const string Callers = "Callers";
+
     static readonly HashSet<string> s_known = new(StringComparer.Ordinal)
     {
         Methods,
         CallGraph,
+        Callers,
     };
+
+    /// <summary>
+    /// Sections the CLI/engine run must request for a home demo bound to
+    /// <paramref name="boundSection"/>. Call Graph presets expand to Call Graph
+    /// + Callers so the closed preset matches the multi-package CLI companion
+    /// rule instead of silently gaining a second section at run time.
+    /// Standalone graph formats (<c>--mermaid</c> / <c>--tree</c>) keep Call Graph
+    /// alone because those renderers require exactly one selected graph.
+    /// </summary>
+    public static IReadOnlyList<string> ExpandRunSections(
+        string boundSection,
+        bool standaloneGraphFormat = false)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(boundSection);
+        if (string.Equals(boundSection, CallGraph, StringComparison.Ordinal))
+            return standaloneGraphFormat ? [CallGraph] : [CallGraph, Callers];
+        return [boundSection];
+    }
 
     /// <summary>Section ids home demos may bind today.</summary>
     public static IReadOnlyCollection<string> Known { get; } = s_known.ToArray();

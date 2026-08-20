@@ -48,7 +48,8 @@ public static class DemoCommand
     public static Task<int> ExecuteScenarioAsync(
         string scenarioId,
         OutputFormat format = OutputFormat.Markdown,
-        bool noHeader = false)
+        bool noHeader = false,
+        bool embeddedMermaid = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(scenarioId);
 
@@ -67,7 +68,8 @@ public static class DemoCommand
             return Task.FromResult(1);
         }
 
-        if (!DemoScenarioRunner.TryCreateOptions(resolved, format, noHeader, out var options, out var error))
+        if (!DemoScenarioRunner.TryCreateOptions(
+                resolved, format, noHeader, embeddedMermaid, out var options, out var error))
         {
             CommandError.Write(error ?? "Could not lower home demo to a section run.");
             return Task.FromResult(1);
@@ -124,6 +126,15 @@ public static class DemoScenarioRunner
         OutputFormat format,
         bool noHeader,
         out ApiOptions options,
+        out string? error) =>
+        TryCreateOptions(resolved, format, noHeader, embeddedMermaid: false, out options, out error);
+
+    public static bool TryCreateOptions(
+        ResolvedScenario resolved,
+        OutputFormat format,
+        bool noHeader,
+        bool embeddedMermaid,
+        out ApiOptions options,
         out string? error)
     {
         options = null!;
@@ -159,9 +170,13 @@ public static class DemoScenarioRunner
             || view.MemberKey is { Length: > 0 };
 
         if (isMemberDemo)
-            return TryCreateMemberOptions(resolved, view, section, context, format, noHeader, out options, out error);
+        {
+            return TryCreateMemberOptions(
+                resolved, view, section, context, format, noHeader, embeddedMermaid, out options, out error);
+        }
 
-        return TryCreateTypeOptions(resolved, view, section, context, format, noHeader, out options, out error);
+        return TryCreateTypeOptions(
+            resolved, view, section, context, format, noHeader, embeddedMermaid, out options, out error);
     }
 
     private static bool TryCreateTypeOptions(
@@ -171,6 +186,7 @@ public static class DemoScenarioRunner
         ResolvedWorkspaceContext context,
         OutputFormat format,
         bool noHeader,
+        bool embeddedMermaid,
         out ApiOptions options,
         out string? error)
     {
@@ -180,20 +196,22 @@ public static class DemoScenarioRunner
         if (!TryResolveSource(resolved, view, context, out var source, out error))
             return false;
 
+        // Standalone mermaid/tree require a single graph section; Markdown keeps companions.
+        var standaloneGraph = format is OutputFormat.Mermaid && !embeddedMermaid;
         TypeOptions type = new()
         {
             TypeName = view.Type,
-            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { section },
+            IncludeSections = ToIncludeSet(ProductDemoSections.ExpandRunSections(section, standaloneGraph)),
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Minimal,
-            MarkdownExplicitlySet = format == OutputFormat.Markdown,
+            MarkdownExplicitlySet = format == OutputFormat.Markdown || embeddedMermaid,
             PackagePath = source.PackagePath,
             PlatformAssembly = source.PlatformAssembly,
             PlatformFramework = source.PlatformFramework,
             Tfm = source.Tfm,
         };
 
-        options = ApplyFormat(type, format, noHeader);
+        options = ApplyFormat(type, format, noHeader, embeddedMermaid);
         return true;
     }
 
@@ -204,6 +222,7 @@ public static class DemoScenarioRunner
         ResolvedWorkspaceContext context,
         OutputFormat format,
         bool noHeader,
+        bool embeddedMermaid,
         out ApiOptions options,
         out string? error)
     {
@@ -238,13 +257,16 @@ public static class DemoScenarioRunner
         if (!TryCollectCallerPackages(resolved, context, source.PackagePath, out var callers, out error))
             return false;
 
+        // Standalone mermaid/tree require a single graph section; Markdown keeps companions.
+        var standaloneGraph = format is OutputFormat.Mermaid && !embeddedMermaid;
         MemberOptions member = new()
         {
             TypeName = view.Type,
             MemberFilter = memberFilter,
             KindFilter = kindFilter,
             MemberDigest = view.MemberAnchor,
-            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { section },
+            // ExpandRunSections makes Call Graph presets declare Callers too (closed set).
+            IncludeSections = ToIncludeSet(ProductDemoSections.ExpandRunSections(section, standaloneGraph)),
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Normal,
             ShowDocs = false,
@@ -256,9 +278,12 @@ public static class DemoScenarioRunner
             CallerScopePackages = callers,
         };
 
-        options = ApplyFormat(member, format, noHeader);
+        options = ApplyFormat(member, format, noHeader, embeddedMermaid);
         return true;
     }
+
+    private static HashSet<string> ToIncludeSet(IReadOnlyList<string> sections) =>
+        new(sections, StringComparer.OrdinalIgnoreCase);
 
     private readonly record struct DemoSource(
         string? PackagePath,
@@ -396,14 +421,19 @@ public static class DemoScenarioRunner
         return true;
     }
 
-    private static TypeOptions ApplyFormat(TypeOptions options, OutputFormat format, bool noHeader)
+    private static TypeOptions ApplyFormat(
+        TypeOptions options,
+        OutputFormat format,
+        bool noHeader,
+        bool embeddedMermaid)
     {
         options = options with
         {
             NoHeader = noHeader,
             FormatExplicitlySet = true,
-            FormatFlagExplicitlySet = format is not OutputFormat.Markdown,
-            MarkdownExplicitlySet = format == OutputFormat.Markdown || options.MarkdownExplicitlySet,
+            FormatFlagExplicitlySet = format is not OutputFormat.Markdown || embeddedMermaid,
+            MarkdownExplicitlySet = format == OutputFormat.Markdown || embeddedMermaid || options.MarkdownExplicitlySet,
+            EmbeddedMermaid = embeddedMermaid,
         };
         return format switch
         {
@@ -417,13 +447,18 @@ public static class DemoScenarioRunner
         };
     }
 
-    private static MemberOptions ApplyFormat(MemberOptions options, OutputFormat format, bool noHeader)
+    private static MemberOptions ApplyFormat(
+        MemberOptions options,
+        OutputFormat format,
+        bool noHeader,
+        bool embeddedMermaid)
     {
         options = options with
         {
             NoHeader = noHeader,
             FormatExplicitlySet = true,
-            FormatFlagExplicitlySet = format is not OutputFormat.Markdown,
+            FormatFlagExplicitlySet = format is not OutputFormat.Markdown || embeddedMermaid,
+            EmbeddedMermaid = embeddedMermaid,
         };
         return format switch
         {
