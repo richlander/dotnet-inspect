@@ -149,6 +149,14 @@ public static class MetadataDeclarationQuery
         var accessorMethods = ApiSurfaceExtractor.GetAccessorMethods(reader, typeDef);
         var canonicalAccessorMethods =
             ApiSurfaceExtractor.GetCanonicalAccessorMethods(reader, typeDef);
+        var editorHiddenAggregateAccessorMethods =
+            includeNonPublicMembers
+                ? []
+                : ApiSurfaceExtractor
+                    .GetEditorBrowsableNeverAggregateAccessorMethods(
+                        reader,
+                        typeDef,
+                        canonicalAccessorMethods);
         var hiddenAggregateAccessorMethods =
             ApiSurfaceExtractor.GetNonPublicAggregateAccessorMethods(reader, typeDef);
         var extensionPropertyImplementationMethods = isExtensionClass
@@ -175,6 +183,13 @@ public static class MetadataDeclarationQuery
                 declaration.Setter);
             if (!includeNonPublicMembers && declaration.Accessibility != "public")
                 continue;
+            if (!includeNonPublicMembers
+                && AttributeReader.HasEditorBrowsableNeverAttribute(
+                    reader,
+                    property.GetCustomAttributes()))
+            {
+                continue;
+            }
 
             string propertyName = declaration.MetadataName;
             bool isExplicitInterfaceImplementation =
@@ -286,6 +301,13 @@ public static class MetadataDeclarationQuery
             string accessibility = AccessibilityKeyword(bestAccess);
             if (!includeNonPublicMembers && accessibility != "public")
                 continue;
+            if (!includeNonPublicMembers
+                && AttributeReader.HasEditorBrowsableNeverAttribute(
+                    reader,
+                    evt.GetCustomAttributes()))
+            {
+                continue;
+            }
 
             var context = GenericContext.ForType(reader, typeDef);
             string? eventType = ConstraintTypeName(reader, evt.Type, context);
@@ -368,6 +390,8 @@ public static class MetadataDeclarationQuery
             string methodAccessibility = AccessibilityKeyword(methodAccess);
             var methodName = reader.GetString(method.Name);
             if (methodName.StartsWith('<'))
+                continue;
+            if (editorHiddenAggregateAccessorMethods.Contains(methodHandle))
                 continue;
 
             bool isFinalizer = type.Kind == "class"

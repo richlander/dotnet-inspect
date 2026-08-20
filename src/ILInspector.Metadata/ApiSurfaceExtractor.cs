@@ -741,6 +741,13 @@ public static class ApiSurfaceExtractor
             var accessorMethods = GetAccessorMethods(reader, typeDef);
             var canonicalAccessorMethods =
                 GetCanonicalAccessorMethods(reader, typeDef, observeDecodeWork);
+            var editorHiddenAggregateAccessorMethods = !includeAll
+                ? GetEditorBrowsableNeverAggregateAccessorMethods(
+                    reader,
+                    typeDef,
+                    canonicalAccessorMethods,
+                    observeDecodeWork)
+                : [];
             var hiddenAggregateAccessorMethods =
                 GetNonPublicAggregateAccessorMethods(reader, typeDef);
             var extensionPropertyImplementationMethods = isExtensionClass
@@ -773,6 +780,8 @@ public static class ApiSurfaceExtractor
                 }
                 // Skip compiler-generated methods (lambdas, state machines, etc.)
                 if (methodName.StartsWith("<"))
+                    continue;
+                if (editorHiddenAggregateAccessorMethods.Contains(methodHandle))
                     continue;
 
                 var isExplicitInterfaceImplementation =
@@ -1773,6 +1782,11 @@ public static class ApiSurfaceExtractor
             typeContext: typeContext);
         var accessorMethods = GetAccessorMethods(reader, typeDef);
         var canonicalAccessorMethods = GetCanonicalAccessorMethods(reader, typeDef);
+        var editorHiddenAggregateAccessorMethods =
+            GetEditorBrowsableNeverAggregateAccessorMethods(
+                reader,
+                typeDef,
+                canonicalAccessorMethods);
         var hiddenAggregateAccessorMethods =
             GetNonPublicAggregateAccessorMethods(reader, typeDef);
         var extensionPropertyImplementationMethods = isExtensionClass
@@ -1803,6 +1817,8 @@ public static class ApiSurfaceExtractor
             }
             string methodName = reader.GetString(method.Name);
             if (methodName.StartsWith('<'))
+                continue;
+            if (editorHiddenAggregateAccessorMethods.Contains(methodHandle))
                 continue;
 
             bool isExplicitImplementation =
@@ -3930,6 +3946,57 @@ public static class ApiSurfaceExtractor
             {
                 methods.Add(handle);
             }
+        }
+    }
+
+    internal static HashSet<MethodDefinitionHandle>
+        GetEditorBrowsableNeverAggregateAccessorMethods(
+            MetadataReader reader,
+            TypeDefinition type,
+            IReadOnlySet<MethodDefinitionHandle> canonicalAccessorMethods,
+            Action<int>? observeDecodeWork = null)
+    {
+        HashSet<MethodDefinitionHandle> methods = [];
+
+        foreach (var propertyHandle in type.GetProperties())
+        {
+            var property = reader.GetPropertyDefinition(propertyHandle);
+            if (!AttributeReader.HasEditorBrowsableNeverAttribute(
+                    reader,
+                    property.GetCustomAttributes(),
+                    observeDecodeWork))
+            {
+                continue;
+            }
+
+            var accessors = property.GetAccessors();
+            AddIfCanonical(accessors.Getter);
+            AddIfCanonical(accessors.Setter);
+        }
+
+        foreach (var eventHandle in type.GetEvents())
+        {
+            var @event = reader.GetEventDefinition(eventHandle);
+            if (!AttributeReader.HasEditorBrowsableNeverAttribute(
+                    reader,
+                    @event.GetCustomAttributes(),
+                    observeDecodeWork))
+            {
+                continue;
+            }
+
+            var accessors = @event.GetAccessors();
+            AddIfCanonical(accessors.Adder);
+            AddIfCanonical(accessors.Remover);
+            AddIfCanonical(accessors.Raiser);
+        }
+
+        return methods;
+
+        void AddIfCanonical(MethodDefinitionHandle handle)
+        {
+            if (!handle.IsNil && canonicalAccessorMethods.Contains(handle))
+                methods.Add(handle);
         }
     }
 

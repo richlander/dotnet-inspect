@@ -1231,16 +1231,19 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Summary_FilteredExplicitAggregate_DoesNotProjectMethodImplFlood(
-        bool isEvent)
+    [InlineData(false, 0)]
+    [InlineData(false, 32_769)]
+    [InlineData(true, 0)]
+    [InlineData(true, 32_769)]
+    public void EditorHiddenCanonicalAggregate_DoesNotProjectMethodImplRows(
+        bool isEvent,
+        int methodImplCount)
     {
         AccessorOwner owner = isEvent
             ? AccessorOwner.Event
             : AccessorOwner.Property;
         byte[] image = BuildFilteredAggregateMethodImplFloodImage(
-            methodImplCount: 32_769,
+            methodImplCount,
             owner);
         using var fullStream = new MemoryStream(image, writable: false);
         using var fullReader = new PEReader(fullStream);
@@ -1250,11 +1253,90 @@ public sealed class ApiSurfaceExtractorBoundsTests
         using var summaryReader = new PEReader(summaryStream);
         ApiSurface summary = ApiSurfaceExtractor.ExtractSummary(summaryReader);
 
-        foreach (ApiSurface surface in new[] { full, summary })
+        using var boundedStream = new MemoryStream(image, writable: false);
+        using var boundedReader = new PEReader(boundedStream);
+        var bounded = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+            ApiSurfaceExtractor.ExtractBounded(
+                boundedReader,
+                ApiSurfaceExtractionScope.Public,
+                new ApiSurfaceExtractionBounds(
+                    maxTypes: 10,
+                    maxMembers: 10,
+                    maxInspectionFailures: 10,
+                    maxTypeForwarders: 10,
+                    maxMetadataRows: 100_000,
+                    maxRetainedTextCharacters: 1_000_000)));
+
+        foreach (ApiSurface surface in new[]
+            {
+                full,
+                summary,
+                bounded.Surface,
+            })
         {
             Assert.Empty(surface.InspectionFailures);
             Assert.Empty(Assert.Single(surface.Types).Members);
         }
+
+        using var queryStream = new MemoryStream(image, writable: false);
+        using var queryReader = new PEReader(queryStream);
+        MetadataReader metadata = queryReader.GetMetadataReader();
+        TypeDefinitionHandle host = metadata.TypeDefinitions.Single(handle =>
+            metadata.GetString(metadata.GetTypeDefinition(handle).Name) == "Host");
+        ApiType queried = MetadataDeclarationQuery.GetTypeSurface(
+            metadata,
+            host,
+            includeNonPublicMembers: false);
+        Assert.Empty(queried.Members);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EditorHiddenAggregate_PreservesNoncanonicalExplicitImplementation(
+        bool isEvent)
+    {
+        AccessorOwner owner = isEvent
+            ? AccessorOwner.Event
+            : AccessorOwner.Property;
+        byte[] image = BuildFilteredAggregateMethodImplFloodImage(
+            methodImplCount: 1,
+            owner,
+            canonicalAccessor: false);
+        string expectedName = isEvent
+            ? "IFoo.add_Changed"
+            : "IFoo.get_P";
+
+        using var fullStream = new MemoryStream(image, writable: false);
+        using var fullReader = new PEReader(fullStream);
+        ApiSurface full = ApiSurfaceExtractor.Extract(fullReader);
+        using var summaryStream = new MemoryStream(image, writable: false);
+        using var summaryReader = new PEReader(summaryStream);
+        ApiSurface summary = ApiSurfaceExtractor.ExtractSummary(summaryReader);
+
+        foreach (ApiSurface surface in new[] { full, summary })
+        {
+            Assert.Empty(surface.InspectionFailures);
+            ApiMember member = Assert.Single(
+                Assert.Single(surface.Types).Members);
+            Assert.Equal(expectedName, member.Name);
+            Assert.Equal(
+                "explicit-interface-implementation",
+                member.Kind);
+        }
+
+        using var queryStream = new MemoryStream(image, writable: false);
+        using var queryReader = new PEReader(queryStream);
+        MetadataReader metadata = queryReader.GetMetadataReader();
+        TypeDefinitionHandle host = metadata.TypeDefinitions.Single(handle =>
+            metadata.GetString(metadata.GetTypeDefinition(handle).Name) == "Host");
+        ApiMember queried = Assert.Single(
+            MetadataDeclarationQuery.GetTypeSurface(
+                metadata,
+                host,
+                includeNonPublicMembers: false).Members);
+        Assert.Equal(expectedName, queried.Name);
+        Assert.True(queried.IsExplicitInterfaceImplementation);
     }
 
     [Fact]
@@ -2597,7 +2679,8 @@ public sealed class ApiSurfaceExtractorBoundsTests
 
     static byte[] BuildFilteredAggregateMethodImplFloodImage(
         int methodImplCount,
-        AccessorOwner owner)
+        AccessorOwner owner,
+        bool canonicalAccessor = true)
     {
         var metadata = Metadata("FilteredAggregateMethodImplFlood");
         AssemblyReferenceHandle contracts = metadata.AddAssemblyReference(
@@ -2616,6 +2699,34 @@ public sealed class ApiSurfaceExtractorBoundsTests
             "Host",
             TypeAttributes.Public);
         metadata.AddInterfaceImplementation(host, interfaceType);
+        AssemblyReferenceHandle runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle editorBrowsable = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System.ComponentModel"),
+            metadata.GetOrAddString("EditorBrowsableAttribute"));
+        var attributeConstructorSignature = new BlobBuilder();
+        new BlobEncoder(attributeConstructorSignature)
+            .MethodSignature(isInstanceMethod: true)
+            .Parameters(
+                1,
+                returnType => returnType.Void(),
+                parameters => parameters.AddParameter().Type().Int32());
+        MemberReferenceHandle attributeConstructor = metadata.AddMemberReference(
+            editorBrowsable,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(attributeConstructorSignature));
+        var attributeValue = new BlobBuilder();
+        attributeValue.WriteUInt16(1);
+        attributeValue.WriteInt32(1);
+        attributeValue.WriteUInt16(0);
+        BlobHandle attributeValueHandle =
+            metadata.GetOrAddBlob(attributeValue);
 
         var accessorSignature = new BlobBuilder();
         new BlobEncoder(accessorSignature)
@@ -2632,20 +2743,26 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 _ => { });
         BlobHandle accessorSignatureHandle =
             metadata.GetOrAddBlob(accessorSignature);
+        string declarationName = owner == AccessorOwner.Property
+            ? "get_P"
+            : "add_Changed";
+        string bodyName = canonicalAccessor
+            ? declarationName
+            : "IFoo." + declarationName;
         MethodDefinitionHandle accessor = metadata.AddMethodDefinition(
-            MethodAttributes.Private
+            MethodAttributes.Public
                 | MethodAttributes.Virtual
                 | MethodAttributes.Final
                 | MethodAttributes.NewSlot
                 | MethodAttributes.HideBySig
                 | MethodAttributes.SpecialName,
             MethodImplAttributes.IL,
-            metadata.GetOrAddString("<hidden>"),
+            metadata.GetOrAddString(bodyName),
             accessorSignatureHandle,
             bodyOffset: -1,
             MetadataTokens.ParameterHandle(1));
 
-        string declarationName;
+        EntityHandle aggregate;
         if (owner == AccessorOwner.Property)
         {
             var propertySignature = new BlobBuilder();
@@ -2657,28 +2774,32 @@ public sealed class ApiSurfaceExtractorBoundsTests
                     _ => { });
             PropertyDefinitionHandle property = metadata.AddProperty(
                 PropertyAttributes.None,
-                metadata.GetOrAddString("IFoo.P"),
+                metadata.GetOrAddString("P"),
                 metadata.GetOrAddBlob(propertySignature));
             metadata.AddPropertyMap(host, property);
             metadata.AddMethodSemantics(
                 property,
                 MethodSemanticsAttributes.Getter,
                 accessor);
-            declarationName = "get_P";
+            aggregate = property;
         }
         else
         {
             EventDefinitionHandle @event = metadata.AddEvent(
                 EventAttributes.None,
-                metadata.GetOrAddString("IFoo.Changed"),
+                metadata.GetOrAddString("Changed"),
                 interfaceType);
             metadata.AddEventMap(host, @event);
             metadata.AddMethodSemantics(
                 @event,
                 MethodSemanticsAttributes.Adder,
                 accessor);
-            declarationName = "add_Changed";
+            aggregate = @event;
         }
+        metadata.AddCustomAttribute(
+            aggregate,
+            attributeConstructor,
+            attributeValueHandle);
 
         MemberReferenceHandle declaration = metadata.AddMemberReference(
             interfaceType,
