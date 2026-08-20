@@ -560,16 +560,29 @@ internal static class BrowserPackageWorkspace
     internal static Task<string> ResolveDependencyVersionAsync(
         string packageId,
         string? declaredRange) =>
+        ResolveDependencyVersionAsync(
+            packageId,
+            declaredRange,
+            Gallery,
+            PackageOperationTimeout);
+
+    internal static Task<string> ResolveDependencyVersionAsync(
+        string packageId,
+        string? declaredRange,
+        IPackageSourceClient source,
+        TimeSpan timeout) =>
         RunPackageOperationAsync(
             deadline => ResolveDependencyVersionCoreAsync(
                 packageId,
                 declaredRange,
+                source,
                 deadline.Token),
-            PackageOperationTimeout);
+            timeout);
 
     static async Task<string> ResolveDependencyVersionCoreAsync(
         string packageId,
         string? declaredRange,
+        IPackageSourceClient source,
         CancellationToken cancellationToken)
     {
         if (PackageDependencyVersionRange.GetExactVersion(declaredRange)
@@ -578,13 +591,13 @@ internal static class BrowserPackageWorkspace
             PackageSourceCoordinate coordinate =
                 await ResolveCoordinateAsync(
                     new PackageCoordinate(packageId, exactVersion),
-                    Gallery,
+                    source,
                     cancellationToken).ConfigureAwait(false);
             return coordinate.Version;
         }
 
         PackageVersionResult result = await GetVersionResultAsync(
-            Gallery,
+            source,
             packageId,
             cancellationToken).ConfigureAwait(false);
         if (!result.HasAuthoritativeListingState)

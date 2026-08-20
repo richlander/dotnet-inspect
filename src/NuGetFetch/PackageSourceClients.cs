@@ -379,10 +379,7 @@ public static class PackageSourceClientFactory
     public static IPackageSourceClient CreateGallery(
         NuGetFetchOptions? options = null) =>
         new NuGetGalleryPackageSourceClient(
-            new HttpClient
-            {
-                Timeout = Timeout.InfiniteTimeSpan,
-            },
+            CreateGalleryTransport(),
             options ?? new NuGetFetchOptions());
 
     internal static IPackageSourceClient CreateGallery(
@@ -471,6 +468,30 @@ public static class PackageSourceClientFactory
         {
             Timeout = Timeout.InfiniteTimeSpan,
         };
+    }
+
+    private static HttpClient CreateGalleryTransport()
+    {
+        bool isBrowser = OperatingSystem.IsBrowser();
+        HttpClientHandler handler = CreateGalleryTransportHandler(isBrowser);
+        return new HttpClient(handler, disposeHandler: true)
+        {
+            Timeout = Timeout.InfiniteTimeSpan,
+        };
+    }
+
+    internal static HttpClientHandler CreateGalleryTransportHandler(
+        bool isBrowser)
+    {
+        HttpClientHandler handler =
+            CreateCredentialFreeTransportHandler(isBrowser);
+        if (!isBrowser)
+        {
+            handler.AutomaticDecompression =
+                System.Net.DecompressionMethods.All;
+        }
+
+        return handler;
     }
 
     internal static HttpClientHandler CreateCredentialFreeTransportHandler(

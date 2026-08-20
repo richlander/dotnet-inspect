@@ -57,11 +57,19 @@ shortening the selected assembly set.
    shared resolver, retry, response-body, archive-validation, and store paths;
    expiry is surfaced as a visible timeout instead of leaving the page behind
    an unbounded loading indicator.
-   Gallery version enumeration currently exposes raw flat-container versions
-   with unknown listing state. The version picker may display that partial
-   enumeration, but dependency wildcard and range selection fails closed until
-   registration-backed listing state is implemented; exact dependency pins
-   remain available.
+   Gallery version enumeration joins the flat-container list with bounded
+   SemVer2 registration metadata. Listed and unlisted versions remain visible
+   to the version picker, while dependency wildcard and range selection uses
+   listed versions only. A registration outage returns a typed partial list
+   with unknown state, keeps the picker available, and makes range selection
+   fail closed; exact dependency pins remain available.
+   `GalleryEnumerationJoinsAuthoritativeListingState`,
+   `GalleryExternalRegistrationPageIsValidatedAndRebased`, and
+   `GalleryExternalPagesUseBoundedConcurrency`,
+   `GalleryMalformedRegistrationIsTypedPartialEnumeration`, and
+   `GalleryIncompleteRegistrationIsTypedPartialEnumeration` gate the source
+   contract. `DependencyRangeUsesAuthoritativeGalleryListingState` gates its
+   Browser consumption.
 3. **Hand the group to a query.** The participants open one `InspectionWorkspace`
    and one binding-consistent `AssemblyContextGroup`. `BrowserInspectionScope`
    exposes exactly two hand-offs — `Use(group => query(group))` and

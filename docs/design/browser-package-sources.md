@@ -285,12 +285,12 @@ Candidate results retain this status per reporting source rather than reducing
 it to one package-wide Boolean. An aggregate view can therefore show that a
 coordinate is unlisted on Gallery while available from a private feed.
 
-The current product still uses `PackageVersionInfo.Listed` and reports
-registration-outage enumeration as listed fail-open data. Replacing that
-current behavior and its Markdown/TSV/JSONL projection with the target typed
-status is implementation work for
-[#4239](https://github.com/richlander/dotnet-inspect/issues/4239), not behavior
-claimed by this documentation-only PR.
+The typed Gallery source client implements this contract for Browser
+enumeration. Desktop compatibility paths still use
+`PackageVersionInfo.Listed` and report registration-outage enumeration as
+listed fail-open data. Replacing that desktop behavior and its
+Markdown/TSV/JSONL projection remains implementation work for
+[#4239](https://github.com/richlander/dotnet-inspect/issues/4239).
 
 ## Cache and provenance
 
@@ -622,27 +622,35 @@ exception because the operation result has already been returned. Invalid
 caller coordinates and caller cancellation likewise remain exceptions rather
 than being misreported as source failures.
 
-The Gallery version-enumeration result is still the complete raw flat-container
-list, so every candidate currently carries `unknown` listing state. Canonical
-NuGet.org and custom v3 enumeration also report `unknown`, because a raw
-flat-container list can include unlisted versions without carrying their
+Gallery version enumeration joins the complete flat-container list with the
+SemVer2 registration index. Inline pages are consumed in place. External page
+IDs are accepted only as validated HTTPS package-page identities and are
+rebased to the Gallery CDN; their advertised host is never dereferenced.
+Registration pages are fetched in bounded concurrent batches under the same
+operation deadline. A complete join reports authoritative `listed` and
+`unlisted` candidates. Missing, malformed, incomplete, or unavailable
+registration data returns the flat-container candidates as a typed partial
+result with `unknown` state.
+
+Canonical NuGet.org and custom v3 enumeration still report `unknown`, because
+a raw flat-container list can include unlisted versions without carrying their
 state. `not-applicable` remains available for source kinds that genuinely have
 no listing concept. Gallery search reports `listed`, because unlisted
 coordinates do not appear in that search surface. `PackageVersionResult`
-exposes whether all listing states are authoritative, so raw Gallery and v3
-results cannot be admitted into a listing-aware cache. Registration joining
-remains follow-up work.
+exposes whether all listing states are authoritative, so partial Gallery and
+raw v3 results cannot be admitted into a listing-aware cache.
 
 The Browser workspace now uses this client as its built-in NuGet.org
 transport. Exact coordinates bypass discovery and request the Gallery package
 CDN directly. Omitted root versions use an exact-ID Gallery search and select
-its listed stable result. Raw flat-container enumeration remains available to
-the Browser version picker, while wildcard and range dependency selection
-fails closed when listing authority is absent. The typed payload's advertised
-length flows through the shared `PackagePayloadAcquisition` admission and
-store pipeline, so Browser cache reservation, archive limits, producer
-authorization, and publication are not reimplemented in the host. Desktop
-package-resolution consumers remain on the compatibility path.
+its listed stable result. Complete enumeration remains available to the
+Browser version picker; wildcard and range dependency selection excludes
+unlisted versions and fails closed when listing authority is absent. The typed
+payload's advertised length flows through the shared
+`PackagePayloadAcquisition` admission and store pipeline, so Browser cache
+reservation, archive limits, producer authorization, and publication are not
+reimplemented in the host. Desktop package-resolution consumers remain on the
+compatibility path.
 
 The v3 compatibility adapter initially exposes version and package-payload
 operations only, and validates package coordinates before any service-index or
@@ -654,6 +662,13 @@ The local-folder descriptor remains modeled without a runtime client.
 `HttpProducerIdentityFoldsIdnAndPercentEscapeSpelling`,
 `LegacyPackageSourceCreatesV3Client`,
 `GalleryClientUsesKnownEndpointsWithoutServiceIndex`,
+`GalleryEnumerationJoinsAuthoritativeListingState`,
+`GalleryExternalRegistrationPageIsValidatedAndRebased`,
+`GalleryExternalPagesUseBoundedConcurrency`,
+`GalleryRejectsIneligibleExternalRegistrationPage`,
+`GalleryMalformedRegistrationIsTypedPartialEnumeration`,
+`GalleryMalformedExternalPageIsTypedPartialEnumeration`,
+`GalleryIncompleteRegistrationIsTypedPartialEnumeration`,
 `GalleryEscapesUnicodePackageIdsAsOneSegment`,
 `GalleryRequestsUseLibraryDeadlines`,
 `CanonicalV3EnumerationReportsUnknownListingState`,
@@ -669,6 +684,8 @@ The local-folder descriptor remains modeled without a runtime client.
 `GalleryCallerCancellationRemainsCancellation`,
 `CanonicalNuGetOrgV3DoesNotReintroduceSearchShortcut`, and
 `LegacyLocalSourceRemainsAnExplicitUnsupportedKind` gate these boundaries.
+`BrowserEngineBoundaryTests.DependencyRangeUsesAuthoritativeGalleryListingState`
+gates the Browser's listing-aware dependency range selection.
 The existing `NuGetSearchSourcesTests` continue to gate the package-layer
 service-index search behavior and credential-scope canonicalization.
 
@@ -677,15 +694,13 @@ still largely equate a source with a v3 service-index URL. The implementation
 should:
 
 1. Move v3 resource discovery and URL construction fully into its source client.
-2. Join Gallery registration metadata so complete enumeration reports
-   authoritative per-version listing state.
-3. Migrate package resolution from direct `PackageSource`/`NuGetClient` use to
+2. Migrate package resolution from direct `PackageSource`/`NuGetClient` use to
    the source-client boundary.
-4. Add environment-scoped availability observations without mutating durable
+3. Add environment-scoped availability observations without mutating durable
    candidate observations.
-5. Let desktop and browser hosts choose transport implementations without
+4. Let desktop and browser hosts choose transport implementations without
    changing producer identity above the acquisition layer.
-6. Replace the browser's singleton `default versus mirror` state with a source
+5. Replace the browser's singleton `default versus mirror` state with a source
    registry and selected source set.
 
 The product libraries must own these contracts. A browser harness may present
