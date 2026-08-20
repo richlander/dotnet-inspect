@@ -11,9 +11,11 @@
   Triage predicates without widening the selected source MethodDefs (#4312,
   #4370, #4390, #4410, #4435, #4442).
 - Adds package dependency-tree projection and avoids package archive downloads
-  when nuspec or dependency-only evidence is sufficient. Multi-library output
-  paths and global row windows now stay aligned across output formats (#4318,
-  #4329, #4340, #4353, #4423).
+  when nuspec or dependency-only evidence is sufficient.
+  `package --all-libraries` bare selection preserves its fixed overview and
+  `--count` returns per-section maps; multi-library output paths and global row
+  windows stay aligned across output formats (#4313, #4318, #4329, #4340,
+  #4353, #4423).
 - Adds a version-matched `package-skills` guide for discovering, validating,
   selecting, and persisting `SKILL.md` files supplied by restored NuGet
   dependencies. `project -S Skills` now validates package skill identity and
@@ -47,13 +49,14 @@
 
 ### Acquisition and safety
 
-- Adds typed NuGet Gallery source operations and standard search discovery for
-  nuget.org. Package deadlines, redirects, response addresses, and SSRF
-  classification fail visibly at their owning source boundary (#4155, #4320,
-  #4322, #4338, #4349).
+- Adds standard nuget.org search discovery. Package deadlines, redirects,
+  response addresses, and SSRF classification fail visibly at their owning
+  source boundary (#4155, #4349).
 - Preserves primary assembly acquisition failures and refactors symbol-package
   and method-reference resolution into shared bounded owners (#4310, #4330,
   #4337).
+- Rejects hostile symbol-package entry lengths before expansion or allocation
+  (#4332).
 - Bounds custom-attribute decoding and metadata type-name construction before
   allocation, rejecting amplified element counts, excessive nesting, and
   oversized names (#4234, #4345).
