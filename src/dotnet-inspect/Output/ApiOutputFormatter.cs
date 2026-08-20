@@ -2518,11 +2518,7 @@ public static class ApiOutputFormatter
                 }))
             .Concat((diagnostics ?? index.Diagnostics)
                 .Where(diagnostic =>
-                    (diagnostic.DeclaringTypeToken is not null
-                        && type.MetadataToken is not null
-                        && diagnostic.DeclaringTypeToken == type.MetadataToken)
-                    || (diagnostic.DeclaringTypeToken is null
-                        && declaredMethodTokens.Contains(diagnostic.MethodToken)))
+                    declaredMethodTokens.Contains(diagnostic.MethodToken))
                 .Select(diagnostic =>
                 {
                     var row = new UnsafeMemberRow(

@@ -343,9 +343,12 @@ public class UnsafeMembersSectionTests
     }
 
     [Fact]
-    public void TypeUnsafeMembers_RendersFailuresFromNonSurfaceDeclaredMethods()
+    public void TypeUnsafeMembers_MatchesDiagnosticsInTheAnalysisTokenDomain()
     {
         var index = LibraryBodyIndex.Open(typeof(SampleUnsafeClass).Assembly.Location);
+        var matchingMethod = Assert.Single(
+            index.DeclaredMethods,
+            method => method.Name == nameof(SampleUnsafeClass.UnsafePointerMethod));
         var otherTypeMethod = Assert.Single(
             index.DeclaredMethods,
             method => method.Name == nameof(SamplePInvokeClass.GetCurrentProcessId));
@@ -364,15 +367,15 @@ public class UnsafeMembersSectionTests
             index,
             [
                 new AnalysisDiagnostic(
-                    0x0600FFFE,
-                    "MalformedIdentity",
+                    matchingMethod.MetadataToken,
+                    matchingMethod.Name,
                     "BadImageFormatException: malformed signature",
-                    DeclaringTypeToken: type.MetadataToken),
+                    DeclaringTypeToken: 0x0200FFFF),
                 new AnalysisDiagnostic(
                     otherTypeMethod.MetadataToken,
                     otherTypeMethod.Name,
                     "BadImageFormatException: unrelated body",
-                    DeclaringTypeToken: 0x0200FFFF)
+                    DeclaringTypeToken: type.MetadataToken)
             ]);
 
         var row = Assert.Single(
