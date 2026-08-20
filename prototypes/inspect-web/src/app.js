@@ -27,6 +27,8 @@ import {
   packageLenses,
   parameterTitleHtml,
   removeWorkspacePackage,
+  removeAppendedNotice,
+  replaceCurrentNavigationEntry,
   retainWorkspacePackage,
   resolveLoadedGraphTargetCandidate,
   shareStateLengthError,
@@ -40,6 +42,23 @@ import {
   uniqueTypeByQueryId,
   workspaceCoordinatesMatch
 } from "./data.js";
+import {
+  bodyTargetMatchesOverload,
+  captureLibraryScope,
+  decodeBodyTarget,
+  encodeBodyTarget,
+  filterMemberGroups,
+  invalidateMemberCallGraphWork,
+  MEMBER_TRAITS,
+  memberNavTargetIndex,
+  memberScopeIsActive,
+  restoreLibraryScope,
+  restoreMemberHistoryState,
+} from "./member-filtering.js";
+import {
+  captureMemberFocus,
+  createMemberFocusRestorer
+} from "/src/member-focus.ts";
 import {
   buildDependencyGraphMermaid,
   buildTypeGraphMermaid
@@ -246,9 +265,13 @@ const state = {
   requestedFramework: "net10.0",
   selectedTypeId: "",
   selectedMemberKey: "",
+  memberBrowseTypeId: "",
   selectedOverloadIndex: null,
   memberSection: "overview",
   memberKindFilter: "all",
+  memberAccessibilityFilter: "all",
+  memberTraitFilter: "",
+  memberTextFilter: "",
   memberSource: null,
   memberSourceLoading: false,
   memberSourceError: "",
@@ -269,6 +292,7 @@ const state = {
   typeMetadataLoading: false,
   typeMetadataError: "",
   typeMetadataKey: "",
+  typeMetadataGeneration: 0,
   packageDependencies: null,
   packageDependenciesLoading: false,
   packageDependenciesError: "",
@@ -381,10 +405,16 @@ function viewSignature() {
     l: state.lens,
     t: state.selectedTypeId,
     m: state.selectedMemberKey,
+    mb: state.memberBrowseTypeId,
+    mk: state.memberKindFilter,
+    ma: state.memberAccessibilityFilter,
+    mr: state.memberTraitFilter,
     o: state.selectedOverloadIndex,
+    b: encodeBodyTarget(state.selectedBodyTarget),
     s: state.memberSection,
     pr: state.atPackageRoot,
-    pl: state.packageLens
+    pl: state.packageLens,
+    ls: captureLibraryScope(state.libraryScope),
   });
 }
 
@@ -395,32 +425,63 @@ function captureView() {
     lens: state.lens,
     selectedTypeId: state.selectedTypeId,
     selectedMemberKey: state.selectedMemberKey,
+    memberBrowseTypeId: state.memberBrowseTypeId,
+    memberKindFilter: state.memberKindFilter,
+    memberAccessibilityFilter: state.memberAccessibilityFilter,
+    memberTraitFilter: state.memberTraitFilter,
+    memberTextFilter: state.memberTextFilter,
     selectedOverloadIndex: state.selectedOverloadIndex,
     bodyTarget: state.selectedBodyTarget,
     memberSection: state.memberSection,
     atPackageRoot: state.atPackageRoot,
-    packageLens: state.packageLens
+    packageLens: state.packageLens,
+    libraryScope: captureLibraryScope(state.libraryScope),
   };
 }
 
 function recordNav() {
   if (!state.package) return;
   const sig = viewSignature();
-  if (nav.index >= 0 && nav.stack[nav.index]?.sig === sig) return;
+  if (nav.index >= 0 && nav.stack[nav.index]?.sig === sig) {
+    nav.stack[nav.index].view = captureView();
+    return;
+  }
   nav.stack = nav.stack.slice(0, nav.index + 1);
   nav.stack.push({ sig, view: captureView() });
   nav.index = nav.stack.length - 1;
 }
 
+function normalizeCurrentNavEntry() {
+  replaceCurrentNavigationEntry(nav, viewSignature(), captureView());
+}
+
 function applyView(view) {
   const pkg = packageForView(state.packages, view);
   if (!pkg) return false;
+  invalidateMemberCallGraphWork(state);
   activatePackage(pkg);
+  state.libraryScope = restoreLibraryScope(
+    view.libraryScope,
+    pkg.types.map(type => libraryKey(type)));
+  const type = pkg.types.find(item => item.id === view.selectedTypeId);
+  const member = type
+    ? memberGroups(type).find(group => group.key === view.selectedMemberKey)
+    : null;
+  const memberHistory = restoreMemberHistoryState(
+    view,
+    type,
+    member,
+    member ? memberSectionIdsFor(member) : []);
   state.lens = view.lens;
-  state.selectedTypeId = view.selectedTypeId;
-  state.selectedMemberKey = view.selectedMemberKey;
-  state.selectedOverloadIndex = view.selectedOverloadIndex;
-  state.memberSection = view.memberSection;
+  state.selectedTypeId = type?.id ?? pkg.types[0]?.id ?? "";
+  state.selectedMemberKey = memberHistory.selectedMemberKey;
+  state.memberBrowseTypeId = memberHistory.memberBrowseTypeId;
+  state.memberKindFilter = memberHistory.memberKindFilter;
+  state.memberAccessibilityFilter = memberHistory.memberAccessibilityFilter;
+  state.memberTraitFilter = memberHistory.memberTraitFilter;
+  state.memberTextFilter = memberHistory.memberTextFilter;
+  state.selectedOverloadIndex = memberHistory.selectedOverloadIndex;
+  state.memberSection = memberHistory.memberSection;
   state.atPackageRoot = view.atPackageRoot ?? false;
   state.packageLens = view.packageLens ?? "overview";
   state.memberSource = null;
@@ -432,13 +493,8 @@ function applyView(view) {
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
-  state.selectedBodyTarget = view.bodyTarget ?? null;
-  const type = selectedType();
-  const member = selectedMember(type);
-  if (member
-    && !memberSectionIdsFor(member).includes(state.memberSection)) {
-    state.memberSection = "overview";
-  }
+  state.selectedBodyTarget = memberHistory.selectedBodyTarget;
+  normalizeCurrentNavEntry();
   if (!state.atPackageRoot && state.lens === "api" && state.selectedMemberKey && member) {
     if (state.memberSection === "source") loadSelectedMemberSource();
     else if (state.memberSection === "annotated") loadSelectedMemberAnnotatedSource();
@@ -513,6 +569,8 @@ function base64UrlDecode(value) {
 // terse to keep the encoded string short:
 //   t = tabs [[id, version, framework], …]   a = active tab index   v = view token
 //   y/m/o/c = selected type / member / overload / member section (type view only)
+//   b/q/k/e/r = member browse scope / text / kind / accessibility / trait filters
+//   d = selected body [member name, selector key, metadata token]
 function encodeShareState() {
   const packet = {
     t: state.packages.map(item => [item.id, item.version, item.activeFramework || ""]),
@@ -533,6 +591,12 @@ function encodeShareState() {
     if (state.selectedMemberKey) packet.m = state.selectedMemberKey;
     if (state.selectedOverloadIndex != null) packet.o = state.selectedOverloadIndex;
     if (state.memberSection && state.memberSection !== "overview") packet.c = state.memberSection;
+    if (state.selectedBodyTarget) packet.d = encodeBodyTarget(state.selectedBodyTarget);
+    if (memberScopeIsActive(state, selectedType()?.id)) packet.b = 1;
+    if (state.memberTextFilter) packet.q = state.memberTextFilter;
+    if (state.memberKindFilter !== "all") packet.k = state.memberKindFilter;
+    if (state.memberAccessibilityFilter !== "all") packet.e = state.memberAccessibilityFilter;
+    if (state.memberTraitFilter) packet.r = state.memberTraitFilter;
   }
   return base64UrlEncode(JSON.stringify(packet));
 }
@@ -547,7 +611,7 @@ function decodeShareState(value) {
     if (Array.isArray(raw)) {
       const normalized = normalizeShareTabs(raw);
       if (normalized.error) return { error: normalized.error };
-      return { tabs: normalized.tabs, active: 0, view: "", rich: false, type: null, member: null, overload: null, section: null, library: null };
+      return { tabs: normalized.tabs, active: 0, view: "", rich: false, type: null, member: null, overload: null, section: null, bodyTarget: null, library: null };
     }
     if (raw && Array.isArray(raw.t)) {
       const normalized = normalizeShareTabs(raw.t);
@@ -563,7 +627,13 @@ function decodeShareState(value) {
         member: raw.m != null ? String(raw.m) : null,
         overload: raw.o != null ? String(raw.o) : null,
         section: raw.c != null ? String(raw.c) : null,
-        library: raw.l != null ? String(raw.l) : null
+        bodyTarget: decodeBodyTarget(raw.d),
+        library: raw.l != null ? String(raw.l) : null,
+        memberBrowse: raw.b === 1,
+        memberTextFilter: raw.q != null ? String(raw.q) : "",
+        memberKindFilter: raw.k != null ? String(raw.k) : "all",
+        memberAccessibilityFilter: raw.e != null ? String(raw.e) : "all",
+        memberTraitFilter: raw.r != null ? String(raw.r) : ""
       };
     }
     return { error: "The shared workspace state is invalid and was ignored." };
@@ -598,10 +668,16 @@ function parseLocation() {
   let member = params.get("member");
   let overload = params.get("overload");
   let section = params.get("section");
+  let bodyTarget = null;
   let viewToken = location.hash.slice(1);
   let tabs = [];
   let active = 0;
   let library = null;
+  let memberBrowse = false;
+  let memberTextFilter = "";
+  let memberKindFilter = "all";
+  let memberAccessibilityFilter = "all";
+  let memberTraitFilter = "";
   let workspaceNotice = share?.error || "";
 
   if (share && !share.error) {
@@ -616,7 +692,13 @@ function parseLocation() {
       member = share.member;
       overload = share.overload;
       section = share.section;
+      bodyTarget = share.bodyTarget;
       library = share.library;
+      memberBrowse = share.memberBrowse;
+      memberTextFilter = share.memberTextFilter;
+      memberKindFilter = share.memberKindFilter;
+      memberAccessibilityFilter = share.memberAccessibilityFilter;
+      memberTraitFilter = share.memberTraitFilter;
     } else {
       // Legacy array packet carries only the extra tab set; the visible params stay the
       // target. Point the active index at the visible package so it opens focused.
@@ -640,12 +722,18 @@ function parseLocation() {
     member,
     overload,
     section,
+    bodyTarget,
     lens: view.lens,
     atPackageRoot: view.atPackageRoot,
     packageLens: view.packageLens,
     tabs,
     active,
     library,
+    memberBrowse,
+    memberTextFilter,
+    memberKindFilter,
+    memberAccessibilityFilter,
+    memberTraitFilter,
     workspaceNotice
   };
 }
@@ -673,7 +761,13 @@ const initialDeepLink = {
   type: initialLocation.type,
   member: initialLocation.member,
   overload: initialLocation.overload,
-  section: initialLocation.section
+  section: initialLocation.section,
+  bodyTarget: initialLocation.bodyTarget,
+  memberBrowse: initialLocation.memberBrowse,
+  memberTextFilter: initialLocation.memberTextFilter,
+  memberKindFilter: initialLocation.memberKindFilter,
+  memberAccessibilityFilter: initialLocation.memberAccessibilityFilter,
+  memberTraitFilter: initialLocation.memberTraitFilter
 };
 
 const app = document.querySelector("#app");
@@ -720,6 +814,12 @@ function beginSpotlightNavigation() {
 function isTextEntry(element = document.activeElement) {
   return ["INPUT", "SELECT", "TEXTAREA"].includes(element?.tagName)
     || element?.isContentEditable;
+}
+
+function isInteractiveElement(element) {
+  return Boolean(element?.matches?.(
+    "button, a[href], input, select, textarea, summary, "
+    + "[role=button], [role=link], [role=checkbox]"));
 }
 
 function isContainedBrowserShortcut(event) {
@@ -849,11 +949,18 @@ function toggleLibraryChip(name) {
 
 // Reset the type cursor/selection to the first in-scope type after the library
 // scope changes, keeping the current namespace/kind filters.
-function afterLibraryScopeChange() {
+function normalizeLibrarySelection() {
   state.typeCursor = 0;
   const first = filteredTypes()[0];
-  if (first) state.selectedTypeId = first.id;
+  state.selectedTypeId = first?.id || "";
   state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
+  state.selectedOverloadIndex = null;
+  resetMemberFilters();
+}
+
+function afterLibraryScopeChange() {
+  normalizeLibrarySelection();
   render();
 }
 
@@ -948,17 +1055,28 @@ function clearWorkspacePackages() {
     releasePackageModelCaches(packageModel);
 }
 
+function resetLocationFilters() {
+  state.typeFilter = "";
+  state.namespaceFilter = "";
+  state.kindFilter = "";
+  state.libraryScope = null;
+  state.typeCursor = 0;
+  resetMemberFilters();
+}
+
 function selectPackageTab(pkg) {
   if (!pkg) return;
   activatePackage(pkg, { resetAccessibility: true });
   state.home = false;
   state.selectedTypeId = pkg.types[0]?.id || "";
   state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
   state.libraryScope = null;
+  resetMemberFilters();
   resetMemberSectionState();
   render();
 }
@@ -983,6 +1101,10 @@ function activatePackage(pkg, { resetAccessibility = false } = {}) {
   state.package = pkg;
   if (changed)
     state.dependenciesGroupIndex = null;
+  if (changed) {
+    state.memberBrowseTypeId = "";
+    resetMemberFilters();
+  }
   if (pkg && (changed || resetAccessibility || state.accessibilityFilter.size === 0))
     state.accessibilityFilter = defaultAccessibilityFilter(pkg);
   return changed;
@@ -1071,12 +1193,113 @@ function typeGroups() {
 
 function memberGroups(type) {
   const groups = new Map();
-  for (const member of type.api ?? []) {
+  for (const member of type?.api ?? []) {
     const key = `${member.kind}:${member.name}`;
     if (!groups.has(key)) groups.set(key, { key, name: member.name, kind: member.kind, overloads: [] });
     groups.get(key).overloads.push(member);
   }
   return [...groups.values()];
+}
+
+function memberFilterState() {
+  return {
+    query: state.memberTextFilter,
+    kind: state.memberKindFilter,
+    accessibility: state.memberAccessibilityFilter,
+    trait: state.memberTraitFilter
+  };
+}
+
+function resetMemberFilters() {
+  state.memberKindFilter = "all";
+  state.memberAccessibilityFilter = "all";
+  state.memberTraitFilter = "";
+  state.memberTextFilter = "";
+}
+
+function visibleMemberGroups(type) {
+  return filterMemberGroups(memberGroups(type), memberFilterState());
+}
+
+function memberKinds(type) {
+  return [...new Set(memberGroups(type).map(group => group.kind))];
+}
+
+function memberAccessibilities(type) {
+  const values = new Set((type.api ?? []).map(member => member.accessibility));
+  return ["public", "protected", "internal", "private", "protected internal", "private protected"]
+    .filter(value => values.has(value))
+    .concat([...values].filter(value => value && ![
+      "public", "protected", "internal", "private", "protected internal", "private protected"
+    ].includes(value)).sort());
+}
+
+function availableMemberTraits(type) {
+  return MEMBER_TRAITS.filter(([property]) => (type.api ?? []).some(member => member[property]));
+}
+
+function renderMemberFilterControls(type) {
+  const groups = memberGroups(type);
+  const visible = visibleMemberGroups(type);
+  const kinds = memberKinds(type);
+  const accessibilities = memberAccessibilities(type);
+  const traits = availableMemberTraits(type);
+  return `
+    <div class="type-search member-search">
+      <span aria-hidden="true">/</span>
+      <input id="member-filter" aria-label="Filter members and signatures" value="${escapeHtml(state.memberTextFilter)}" placeholder="Filter members and signatures" autocomplete="off" spellcheck="false" />
+      <button class="tiny-button" id="clear-member-filter" title="Clear member filters" aria-label="Clear member filters">×</button>
+    </div>
+    <div class="member-filter-stack">
+      <div class="namespace-chips kind-chips" aria-label="Member kind filters">
+        <button class="${state.memberKindFilter === "all" ? "active" : ""}" data-member-kind-filter="all" aria-pressed="${state.memberKindFilter === "all"}">all kinds</button>
+        ${kinds.map(kind => `<button class="${state.memberKindFilter === kind ? "active" : ""}" data-member-kind-filter="${escapeHtml(kind)}" aria-pressed="${state.memberKindFilter === kind}">${escapeHtml(kind.replaceAll("-", " "))}</button>`).join("")}
+      </div>
+      ${accessibilities.length ? `<div class="namespace-chips access-chips" aria-label="Member accessibility filters">
+        <button class="${state.memberAccessibilityFilter === "all" ? "active" : ""}" data-member-access-filter="all" aria-pressed="${state.memberAccessibilityFilter === "all"}">all access</button>
+        ${accessibilities.map(accessibility => `<button class="${state.memberAccessibilityFilter === accessibility ? "active" : ""}" data-member-access-filter="${escapeHtml(accessibility)}" aria-pressed="${state.memberAccessibilityFilter === accessibility}">${escapeHtml(accessibility)}</button>`).join("")}
+      </div>` : ""}
+      ${traits.length ? `<div class="namespace-chips member-trait-chips" aria-label="Member trait filters">
+        <button class="${!state.memberTraitFilter ? "active" : ""}" data-member-trait-filter="" aria-pressed="${!state.memberTraitFilter}">all traits</button>
+        ${traits.map(([property, label]) => `<button class="${state.memberTraitFilter === property ? "active" : ""}" data-member-trait-filter="${property}" aria-pressed="${state.memberTraitFilter === property}">${label}</button>`).join("")}
+      </div>` : ""}
+    </div>
+    <div class="member-filter-result">${visible.length} of ${groups.length} member groups</div>`;
+}
+
+function compositionFilterButton(count, label, attribute, value, className = "") {
+  return `<button class="composition-filter ${className}" ${attribute}="${escapeHtml(value)}"><strong>${count}</strong><span>${escapeHtml(label)}</span></button>`;
+}
+
+function renderMemberComposition(type) {
+  const members = type.api ?? [];
+  const kinds = memberKinds(type)
+    .map(kind => compositionFilterButton(
+      members.filter(member => member.kind === kind).length,
+      kind.replaceAll("-", " "),
+      "data-member-jump-kind",
+      kind))
+    .join("");
+  const accessibilities = memberAccessibilities(type)
+    .map(accessibility => compositionFilterButton(
+      members.filter(member => member.accessibility === accessibility).length,
+      accessibility,
+      "data-member-jump-access",
+      accessibility))
+    .join("");
+  const traits = availableMemberTraits(type)
+    .map(([property, label]) => compositionFilterButton(
+      members.filter(member => member[property]).length,
+      label,
+      "data-member-jump-trait",
+      property,
+      `flag-${label}`))
+    .join("");
+  if (!kinds && !accessibilities && !traits) return "";
+  return `
+    <div class="composition-filters" aria-label="Browse members by kind">${kinds}</div>
+    ${accessibilities ? `<div class="composition-filters" aria-label="Browse members by accessibility">${accessibilities}</div>` : ""}
+    ${traits ? `<div class="composition-filters" aria-label="Browse members by trait">${traits}</div>` : ""}`;
 }
 
 function selectedMember(type) {
@@ -1088,7 +1311,7 @@ function selectedMember(type) {
 // lens strip, detail pane, and arrow keys all react to the active scope.
 function scope() {
   if (state.atPackageRoot) return "package";
-  return state.lens === "api" && state.selectedMemberKey ? "member" : "type";
+  return memberScopeIsActive(state, selectedType()?.id) ? "member" : "type";
 }
 
 // The resident runtime pseudo-package (Microsoft.NETCore.App) has no NuGet nupkg, so the
@@ -1113,7 +1336,10 @@ function scopedPlatformLibrary() {
 function activeLenses() {
   const sc = scope();
   if (sc === "package") return packageLensesFor(state.package);
-  if (sc === "member") return memberSectionsFor(selectedMember(selectedType()));
+  if (sc === "member") {
+    const member = selectedMember(selectedType());
+    return member ? memberSectionsFor(member) : [];
+  }
   return lenses;
 }
 
@@ -1121,21 +1347,17 @@ function activeLenses() {
 // members (with the active member's overloads nested) once a member is open under
 // the API lens. Both modes render into #type-list so keyboard/scroll logic is shared.
 function navMode() {
-  if (state.atPackageRoot) return "type";
-  return state.lens === "api" && state.selectedMemberKey ? "member" : "type";
+  return memberScopeIsActive(state, selectedType()?.id) ? "member" : "type";
 }
 
 function resetMemberSectionState() {
+  invalidateMemberCallGraphWork(state);
   state.memberSection = "overview";
   state.memberSource = null;
   state.memberSourceError = "";
   state.memberCallGraph = null;
   state.memberCallGraphError = "";
   state.memberCallGraphKey = "";
-  state.memberCallGraphExpanding = false;
-  // Invalidate any in-flight progressive call-graph load so a late cross-library
-  // result can't repopulate the graph after the selection has moved on.
-  state.memberCallGraphSeq++;
   state.memberFacts = null;
   state.memberFactsError = "";
   state.memberAnnotated = null;
@@ -1144,10 +1366,47 @@ function resetMemberSectionState() {
 }
 
 function openMemberGroup(key) {
+  state.memberBrowseTypeId = selectedType()?.id ?? "";
   state.selectedMemberKey = key;
   state.selectedOverloadIndex = null;
   resetMemberSectionState();
   loadSelectedMemberDocumentation();
+}
+
+function enterMemberScope() {
+  const type = selectedType();
+  if (!type) return false;
+  const groups = memberGroups(type);
+  if (!groups.length) {
+    state.memberBrowseTypeId = "";
+    return false;
+  }
+  state.atPackageRoot = false;
+  state.lens = "api";
+  state.memberBrowseTypeId = type.id;
+  const visible = visibleMemberGroups(type);
+  const selectedIsVisible = visible.some(group => group.key === state.selectedMemberKey);
+  if (!selectedIsVisible) {
+    if (visible.length) openMemberGroup(visible[0].key);
+    else {
+      state.selectedMemberKey = "";
+      state.selectedOverloadIndex = null;
+      resetMemberSectionState();
+    }
+  }
+  return true;
+}
+
+function normalizeMemberSelection() {
+  const type = selectedType();
+  if (!type || !state.selectedMemberKey) return;
+  const visible = visibleMemberGroups(type);
+  if (!visible.some(group => group.key === state.selectedMemberKey)) {
+    state.memberBrowseTypeId = type.id;
+    state.selectedMemberKey = "";
+    state.selectedOverloadIndex = null;
+    resetMemberSectionState();
+  }
 }
 
 function openOverload(index) {
@@ -1165,6 +1424,9 @@ function applyMemberSection(id) {
   if (member && member.overloads.length > 1 && state.selectedOverloadIndex == null) {
     state.selectedOverloadIndex = 0;
   }
+  if (state.memberSection === "call-graph" && id !== "call-graph") {
+    invalidateMemberCallGraphWork(state);
+  }
   state.memberSection = id;
   if (id === "source") loadSelectedMemberSource();
   else if (id === "annotated") loadSelectedMemberAnnotatedSource();
@@ -1178,7 +1440,7 @@ function applyMemberSection(id) {
 // group's overloads nested immediately beneath it. This is the exact list ↑/↓ walks.
 function memberNavEntries(type) {
   const entries = [];
-  for (const group of memberGroups(type)) {
+  for (const group of visibleMemberGroups(type)) {
     entries.push({ kind: "member", group });
     if (group.key === state.selectedMemberKey && group.overloads.length > 1) {
       group.overloads.forEach((_, index) => entries.push({ kind: "overload", group, index }));
@@ -1188,17 +1450,17 @@ function memberNavEntries(type) {
 }
 
 function memberNavCursor(entries) {
-  const index = entries.findIndex(entry => {
+  return entries.findIndex(entry => {
     if (entry.kind === "overload") {
       return entry.group.key === state.selectedMemberKey && state.selectedOverloadIndex === entry.index;
     }
     const isMulti = entry.group.overloads.length > 1;
     return entry.group.key === state.selectedMemberKey && (isMulti ? state.selectedOverloadIndex == null : true);
   });
-  return index < 0 ? 0 : index;
 }
 
 function selectMemberNavEntry(entry, focusList) {
+  const preservedFocus = captureMemberFocus(document);
   if (entry.kind === "member") {
     if (entry.group.key === state.selectedMemberKey && entry.group.overloads.length === 1) {
       render();
@@ -1209,6 +1471,10 @@ function selectMemberNavEntry(entry, focusList) {
     if (entry.group.key !== state.selectedMemberKey) state.selectedMemberKey = entry.group.key;
     openOverload(entry.index);
   }
+  memberFocusRestorer.schedule(
+    document,
+    preservedFocus,
+    requestAnimationFrame);
   requestAnimationFrame(() => {
     if (focusList) document.querySelector("#type-list")?.focus();
     document.querySelector("#type-list .selected")?.scrollIntoView({ block: "nearest" });
@@ -1219,8 +1485,7 @@ function stepMemberNav(delta, focusList) {
   const type = selectedType();
   const entries = memberNavEntries(type);
   if (!entries.length) return;
-  let cursor = memberNavCursor(entries);
-  cursor = Math.max(0, Math.min(entries.length - 1, cursor + delta));
+  const cursor = memberNavTargetIndex(memberNavCursor(entries), entries.length, delta);
   selectMemberNavEntry(entries[cursor], focusList);
 }
 
@@ -1242,17 +1507,13 @@ function stepHorizontal(delta) {
   }
   const type = selectedType();
   const member = state.lens === "api" ? selectedMember(type) : null;
+  if (scope() === "member" && !member) return;
   const overloadOpen = member && !(member.overloads.length > 1 && state.selectedOverloadIndex == null);
   if (overloadOpen) {
     const order = memberSectionsFor(member).map(([id]) => id);
     let index = order.indexOf(state.memberSection);
     if (index < 0) index = 0;
-    state.memberSection = order[(index + delta + order.length) % order.length];
-    if (state.memberSection === "source") loadSelectedMemberSource();
-    else if (state.memberSection === "annotated") loadSelectedMemberAnnotatedSource();
-    else if (state.memberSection === "call-graph") loadSelectedMemberCallGraph();
-    else if (state.memberSection === "facts") loadSelectedMemberFacts();
-    else loadSelectedMemberDocumentation();
+    applyMemberSection(order[(index + delta + order.length) % order.length]);
   } else {
     const index = lenses.findIndex(([id]) => id === state.lens);
     state.lens = lenses[(index + delta + lenses.length) % lenses.length][0];
@@ -1270,10 +1531,7 @@ function drillIn() {
   const type = selectedType();
   if (!type) return;
   if (navMode() === "type") {
-    if (state.lens !== "api") state.lens = "api";
-    const groups = memberGroups(type);
-    if (groups.length) openMemberGroup(groups[0].key);
-    else render();
+    if (enterMemberScope()) render();
   } else {
     const member = selectedMember(type);
     if (member && member.overloads.length > 1 && state.selectedOverloadIndex == null) {
@@ -1289,9 +1547,9 @@ function drillOut() {
     const member = selectedMember(selectedType());
     if (member && member.overloads.length > 1 && state.selectedOverloadIndex != null) {
       state.selectedOverloadIndex = null;
+      resetMemberSectionState();
     } else {
-      state.selectedMemberKey = "";
-      state.selectedOverloadIndex = null;
+      return exitMemberScope();
     }
     render();
     return true;
@@ -1302,6 +1560,15 @@ function drillOut() {
     return true;
   }
   return false;
+}
+
+function exitMemberScope() {
+  state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
+  state.selectedOverloadIndex = null;
+  resetMemberSectionState();
+  render();
+  return true;
 }
 
 
@@ -1354,7 +1621,15 @@ function render() {
     state.atPackageRoot = true;
     state.selectedTypeId = "";
     state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
     state.selectedOverloadIndex = null;
+  } else if (state.selectedTypeId !== current.id) {
+    state.selectedTypeId = current.id;
+    state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
+    state.selectedOverloadIndex = null;
+    resetMemberFilters();
+    resetMemberSectionState();
   }
   const visible = filteredTypes();
   // Keep the package lens on something the active package actually supports, so a restored
@@ -1560,10 +1835,13 @@ function renderTypeNavPane(current, visible) {
 }
 
 function renderMemberNavPane(type) {
+  const visibleGroups = visibleMemberGroups(type);
   return renderMemberNav({
     type,
     entries: memberNavEntries(type),
     memberCount: memberGroups(type).length,
+    visibleMemberCount: visibleGroups.length,
+    filterControlsHtml: renderMemberFilterControls(type),
     selectedMemberKey: state.selectedMemberKey,
     selectedOverloadIndex: state.selectedOverloadIndex,
     escapeHtml,
@@ -1574,28 +1852,36 @@ function renderMemberNavPane(type) {
 }
 
 // The scope switcher + lens strip. The leading segmented control is the scope ladder —
-// Package (whole package), Types (one public type), and Member (a member of that type,
-// shown only once you drill in). Each segment is selectable and swaps the strip beside it:
+// Package (whole package), Types (one public type), and Member (a member of that type).
+// Member is available as soon as the selected type has members. Each segment is selectable
+// and swaps the strip beside it:
 //   package → package lenses   type → type lenses   member → member sections
 // Keeping all three families of buttons on one strip means the member modes (Overview,
 // Call graph, …) live here too instead of inside the detail pane.
 function renderScopeBar() {
   const sc = scope();
+  const selected = selectedType();
+  const showMemberScope =
+    !state.atPackageRoot && Boolean(selected && memberGroups(selected).length);
   if (sc === "package") {
     return renderScopeBarPure({
       scope: sc,
       strip: packageLensesFor(state.package),
       activeStripId: state.packageLens,
       stripAttribute: "data-package-lens",
+      showMemberScope,
       escapeHtml,
     });
   }
   if (sc === "member") {
+    const member = selectedMember(selected);
     return renderScopeBarPure({
       scope: sc,
-      strip: memberSectionsFor(selectedMember(selectedType())),
+      strip: member ? memberSectionsFor(member) : [],
       activeStripId: state.memberSection,
       stripAttribute: "data-member-section",
+      showMemberScope,
+      emptyStripLabel: "Filtered member list",
       escapeHtml,
     });
   }
@@ -1604,6 +1890,7 @@ function renderScopeBar() {
     strip: lenses,
     activeStripId: state.lens,
     stripAttribute: "data-lens",
+    showMemberScope,
     escapeHtml,
   });
 }
@@ -2660,8 +2947,9 @@ function drillToPerfMember(token, assembly, typeId) {
 
   state.atPackageRoot = false;
   state.selectedTypeId = targetType.id;
+  state.memberBrowseTypeId = targetType.id;
   state.namespaceFilter = "";
-  state.memberKindFilter = "all";
+  resetMemberFilters();
   state.lens = "api";
   const key = `${member.kind}:${member.name}`;
   state.selectedMemberKey = key;
@@ -2798,7 +3086,15 @@ function typeHeadingHtml(item) {
 }
 
 function renderTypeMetadataHtml(item) {
-  return renderTypeMetadata({ item, packageContext: state.package, metadataState: state, escapeHtml, relatedTypeChip, factRows });
+  return renderTypeMetadata({
+    item,
+    packageContext: state.package,
+    metadataState: state,
+    memberCompositionHtml: renderMemberComposition(item),
+    escapeHtml,
+    relatedTypeChip,
+    factRows,
+  });
 }
 
 function renderTypeSourceHtml(item) {
@@ -2810,6 +3106,15 @@ function renderLens(item) {
   if (state.atPackageRoot) return renderPackageView();
   const member = selectedMember(item);
   if (state.lens === "api" && member) return renderMember(item, member);
+  if (state.lens === "api" && state.memberBrowseTypeId === item.id) {
+    return `
+      ${typeHeadingHtml(item)}
+      <section class="document-section empty-document">
+        <span class="large-glyph">⌕</span>
+        <h2>No member selected</h2>
+        <p>Adjust the member filters or choose a member from the list.</p>
+      </section>`;
+  }
   if (state.lens === "source") {
     return `
       ${typeHeadingHtml(item)}
@@ -2819,27 +3124,18 @@ function renderLens(item) {
     return `${typeHeadingHtml(item)}${renderTypeMetadataHtml(item)}`;
   }
   const groups = memberGroups(item);
-  const kindOrder = ["constructor", "method", "property", "field", "event"];
-  const kindLabels = { constructor: "constructors", method: "methods", property: "properties", field: "fields", event: "events" };
-  const presentKinds = kindOrder.filter(kind => groups.some(group => group.kind === kind));
-  if (state.memberKindFilter !== "all" && !presentKinds.includes(state.memberKindFilter)) state.memberKindFilter = "all";
-  const activeKind = state.memberKindFilter;
-  const visibleGroups = activeKind === "all" ? groups : groups.filter(group => group.kind === activeKind);
-  const filterButtons = [`<button class="member-kind ${activeKind === "all" ? "active" : ""}" data-kind="all">all</button>`]
-    .concat(presentKinds.map(kind =>
-      `<button class="member-kind ${activeKind === kind ? "active" : ""}" data-kind="${kind}">${kindLabels[kind]}</button>`))
-    .join("");
+  const visibleGroups = visibleMemberGroups(item);
   return `
     ${typeHeadingHtml(item)}
     <section class="document-section">
       <div class="section-title"><h2>Public API</h2><span>${groups.length} member groups · ${item.members} overloads</span></div>
-      <div class="member-filter">${filterButtons}</div>
+      <div class="member-browser-controls">${renderMemberFilterControls(item)}</div>
       <div class="api-list">${visibleGroups.map(group => `
         <button class="api-row" data-member="${escapeHtml(group.key)}">
           <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
           <code>${highlight(group.overloads[0].signature)}</code>
           <small>${group.overloads.length === 1 ? escapeHtml(group.kind) : `${group.overloads.length} overloads`}</small>
-        </button>`).join("") || '<div class="empty-list">No declared public members.</div>'}</div>
+        </button>`).join("") || '<div class="empty-list">No declared public members match these filters.</div>'}</div>
     </section>`;
 }
 
@@ -3193,9 +3489,11 @@ function bindEvents() {
         if (first) state.selectedTypeId = first.id;
       }
       state.selectedMemberKey = "";
+      state.memberBrowseTypeId = "";
       state.selectedOverloadIndex = null;
+    } else if (target === "member") {
+      enterMemberScope();
     }
-    // "member" is only shown while it is already the active scope, so it is a no-op.
     render();
   }));
   document.querySelectorAll("[data-package-lens]").forEach(button => button.addEventListener("click", () => {
@@ -3218,6 +3516,8 @@ function bindEvents() {
     state.namespaceFilter = "";
     state.typeFilter = "";
     state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
+    resetMemberFilters();
     state.typeCursor = 0;
     const first = filteredTypes()[0];
     if (first) state.selectedTypeId = first.id;
@@ -3229,6 +3529,8 @@ function bindEvents() {
     state.kindFilter = "";
     state.typeFilter = "";
     state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
+    resetMemberFilters();
     state.typeCursor = 0;
     const first = filteredTypes()[0];
     if (first) state.selectedTypeId = first.id;
@@ -3242,6 +3544,8 @@ function bindEvents() {
     state.namespaceFilter = "";
     state.typeFilter = "";
     state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
+    resetMemberFilters();
     state.typeCursor = 0;
     const first = filteredTypes()[0];
     if (first) state.selectedTypeId = first.id;
@@ -3250,13 +3554,15 @@ function bindEvents() {
   document.querySelectorAll("[data-lens]").forEach(button => button.addEventListener("click", () => {
     state.lens = button.dataset.lens;
     state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
     render();
   }));
   document.querySelectorAll("[data-type]").forEach(button => button.addEventListener("click", () => {
     state.atPackageRoot = false;
     state.selectedTypeId = button.dataset.type;
     state.selectedMemberKey = "";
-    state.memberKindFilter = "all";
+    state.memberBrowseTypeId = "";
+    resetMemberFilters();
     state.typeCursor = filteredTypes().findIndex(item => item.id === state.selectedTypeId);
     render();
   }));
@@ -3282,12 +3588,90 @@ function bindEvents() {
   document.querySelectorAll("[data-opp-lookfor]").forEach(button => button.addEventListener("click", () => {
     openSpotlight(button.dataset.oppLookfor);
   }));
-  document.querySelectorAll(".member-filter .member-kind").forEach(button => button.addEventListener("click", () => {
-    state.memberKindFilter = button.dataset.kind;
-    render();
+  const renderMemberFilterAndRestoreFocus = selector => {
+    const preserved = captureMemberFocus(document);
+    if (selector) {
+      preserved.selector = selector;
+      preserved.dataTarget = null;
+    }
+    renderWithMemberFocus(preserved);
+  };
+  document.querySelectorAll("[data-member-kind-filter]").forEach(button => button.addEventListener("click", () => {
+    const value = button.dataset.memberKindFilter;
+    state.memberKindFilter = value;
+    normalizeMemberSelection();
+    renderMemberFilterAndRestoreFocus();
+  }));
+  document.querySelectorAll("[data-member-access-filter]").forEach(button => button.addEventListener("click", () => {
+    const value = button.dataset.memberAccessFilter;
+    state.memberAccessibilityFilter = value;
+    normalizeMemberSelection();
+    renderMemberFilterAndRestoreFocus();
+  }));
+  document.querySelectorAll("[data-member-trait-filter]").forEach(button => button.addEventListener("click", () => {
+    const value = button.dataset.memberTraitFilter;
+    state.memberTraitFilter = value;
+    normalizeMemberSelection();
+    renderMemberFilterAndRestoreFocus();
+  }));
+  const memberFilter = document.querySelector("#member-filter");
+  memberFilter?.addEventListener("input", event => {
+    state.memberTextFilter = event.target.value;
+    normalizeMemberSelection();
+    renderPreservingMemberFocus();
+  });
+  memberFilter?.addEventListener("keydown", event => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      if (navMode() === "member") {
+        exitMemberScope();
+      } else {
+        state.memberTextFilter = "";
+        normalizeMemberSelection();
+        renderMemberFilterAndRestoreFocus("#member-filter");
+      }
+      return;
+    }
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    event.preventDefault();
+    stepMemberNav(event.key === "ArrowDown" ? 1 : -1, true);
+  });
+  document.querySelector("#clear-member-filter")?.addEventListener("click", () => {
+    resetMemberFilters();
+    normalizeMemberSelection();
+    renderMemberFilterAndRestoreFocus("#clear-member-filter");
+  });
+  const enterMemberNavigation = action => {
+    const focusGeneration = beginSpotlightNavigation();
+    action();
+    focusTypeList(focusGeneration);
+  };
+  document.querySelectorAll("[data-member-jump-kind]").forEach(button => button.addEventListener("click", () => {
+    enterMemberNavigation(() => {
+      resetMemberFilters();
+      state.memberKindFilter = button.dataset.memberJumpKind;
+      enterMemberScope();
+      render();
+    });
+  }));
+  document.querySelectorAll("[data-member-jump-access]").forEach(button => button.addEventListener("click", () => {
+    enterMemberNavigation(() => {
+      resetMemberFilters();
+      state.memberAccessibilityFilter = button.dataset.memberJumpAccess;
+      enterMemberScope();
+      render();
+    });
+  }));
+  document.querySelectorAll("[data-member-jump-trait]").forEach(button => button.addEventListener("click", () => {
+    enterMemberNavigation(() => {
+      resetMemberFilters();
+      state.memberTraitFilter = button.dataset.memberJumpTrait;
+      enterMemberScope();
+      render();
+    });
   }));
   document.querySelectorAll("[data-member]").forEach(button => button.addEventListener("click", () => {
-    openMemberGroup(button.dataset.member);
+    enterMemberNavigation(() => openMemberGroup(button.dataset.member));
   }));
   document.querySelectorAll("[data-overload]").forEach(button => button.addEventListener("click", () => {
     openOverload(Number(button.dataset.overload));
@@ -3301,7 +3685,7 @@ function bindEvents() {
     if (group) selectMemberNavEntry({ kind: "overload", group, index: Number(button.dataset.navOverload) }, false);
   }));
   document.querySelector("#nav-to-types")?.addEventListener("click", () => {
-    drillOut();
+    exitMemberScope();
   });
   document.querySelectorAll("[data-member-section]").forEach(button => button.addEventListener("click", () => {
     applyMemberSection(button.dataset.memberSection);
@@ -3379,6 +3763,8 @@ function bindEvents() {
     const first = filteredTypes()[0];
     if (first) state.selectedTypeId = first.id;
     state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
+    resetMemberFilters();
     render();
   }));
   const namespaceJump = document.getElementById("namespace-jump");
@@ -3388,6 +3774,8 @@ function bindEvents() {
     const first = filteredTypes()[0];
     if (first) state.selectedTypeId = first.id;
     state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
+    resetMemberFilters();
     render();
   });
   document.querySelectorAll("[data-kind-filter]").forEach(button => button.addEventListener("click", () => {
@@ -3396,6 +3784,8 @@ function bindEvents() {
     const first = filteredTypes()[0];
     if (first) state.selectedTypeId = first.id;
     state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
+    resetMemberFilters();
     render();
   }));
   document.querySelectorAll("[data-library-chip]").forEach(button => button.addEventListener("click", () => {
@@ -3422,26 +3812,77 @@ function bindEvents() {
   // root + the active lens, then rescan. Types are loaded too so switching to Types/Overview
   // afterward isn't empty.
   const bindPlatformLensPicker = (dataAttr, lens, loader) => {
-    document.querySelectorAll(`[${dataAttr}]`).forEach(select => select.addEventListener("change", async () => {
+    const openLibrary = async (
+      name,
+      pack,
+      originPackage = state.package,
+      noticeRetryState = null) => {
+      if (!state.packages.includes(originPackage)
+        || !packageIdentityEquals(state.package, originPackage)
+        || state.home
+        || !state.atPackageRoot
+        || state.packageLens !== lens) {
+        return;
+      }
+      if (noticeRetryState
+        && state.queryNoticeRetryAction === noticeRetryState.action) {
+        state.queryNotice = removeAppendedNotice(
+          state.queryNotice,
+          noticeRetryState.previous,
+          noticeRetryState.appended);
+        state.queryNoticeRetryAction = null;
+      }
       const navigationSeq = ++state.navigationSeq;
-      const name = select.value;
-      if (!name) return;
+      const isCurrent = () =>
+        navigationSeq === state.navigationSeq
+        && !state.home
+        && state.atPackageRoot
+        && state.packageLens === lens
+        && packageIdentityEquals(state.package, originPackage);
       const key = name.replace(/\.dll$/i, "");
-      const pack = select.selectedOptions[0]?.dataset.pack || platformPackForAssembly(key);
       const resident = (runtimePackPackage()?.types || []).some(type => libraryKey(type) === key);
       if (!resident) {
-        await loadRuntimePackAssembly(
+        const loaded = await loadRuntimePackAssembly(
           platformScopeTfm(),
           `${key}.dll`,
           pack,
-          () => navigationSeq === state.navigationSeq);
-        if (navigationSeq !== state.navigationSeq) return;
+          () => state.packages.includes(originPackage));
+        if (!loaded) {
+          if (isCurrent()) {
+            const noticeState = {
+              action: null,
+              previous: state.queryNotice,
+              appended: "",
+            };
+            const retryAction = () =>
+              openLibrary(name, pack, originPackage, noticeState);
+            noticeState.action = retryAction;
+            appendQueryNotice(
+              `Couldn’t load ${key}: ${state.runtimePackError || "runtime pack acquisition failed."}`,
+              retryAction);
+            noticeState.appended = state.queryNotice;
+            render();
+          }
+          return;
+        }
       }
+      if (!isCurrent()) return;
       state.libraryScope = new Set([key]);
       recordPlatformRecent(key, pack);
       state.atPackageRoot = true;
       state.packageLens = lens;
+      state.namespaceFilter = "";
+      state.typeFilter = "";
+      state.kindFilter = "";
+      normalizeLibrarySelection();
       loader();
+    };
+    document.querySelectorAll(`[${dataAttr}]`).forEach(select => select.addEventListener("change", () => {
+      const name = select.value;
+      if (!name) return;
+      const key = name.replace(/\.dll$/i, "");
+      const pack = select.selectedOptions[0]?.dataset.pack || platformPackForAssembly(key);
+      openLibrary(name, pack);
     }));
   };
   bindPlatformLensPicker("data-platform-integrations-library", "integrations", loadPackageIntegrations);
@@ -3474,6 +3915,8 @@ function bindEvents() {
     const first = filteredTypes()[0];
     if (first) state.selectedTypeId = first.id;
     state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
+    resetMemberFilters();
     render();
     focusFilter();
   });
@@ -3597,7 +4040,8 @@ function selectTypeByCursor(cursor, items, focusList) {
   state.typeCursor = cursor;
   state.selectedTypeId = items[cursor].id;
   state.selectedMemberKey = "";
-  state.memberKindFilter = "all";
+  state.memberBrowseTypeId = "";
+  resetMemberFilters();
   render();
   requestAnimationFrame(() => {
     if (focusList) document.querySelector("#type-list")?.focus();
@@ -4187,6 +4631,7 @@ async function switchPlatformVersion(tfm, retryPackage = null) {
   state.packageLens = "overview";
   state.selectedTypeId = loaded.types[0]?.id || "";
   state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   state.typeFilter = "";
   state.namespaceFilter = "";
@@ -4303,7 +4748,8 @@ function activateRuntimePack() {
 // its type list. The download happens only here, on demand — selecting the Platform scope
 // itself never downloads.
 async function openPlatformLibrary(assembly, pack, options = {}) {
-  const focusGeneration = beginSpotlightNavigation();
+  const scopeOnly = options.scopeOnly === true;
+  const focusGeneration = scopeOnly ? null : beginSpotlightNavigation();
   const navigationSeq = options.navigationSeq ?? ++state.navigationSeq;
   if (navigationSeq !== state.navigationSeq) return;
   spotlight.reset();
@@ -4341,10 +4787,11 @@ async function openPlatformLibrary(assembly, pack, options = {}) {
   if (!pkg) { render(); return; }
   activatePackage(pkg, { resetAccessibility: true });
   state.home = false;
-  state.loading = false;
   const hasLib = pkg.types.some(type => libraryKey(type) === key);
   state.libraryScope = hasLib ? new Set([key]) : null;
   if (hasLib) recordPlatformRecent(key, pack);
+  if (scopeOnly) return pkg;
+  state.loading = false;
   state.atPackageRoot = !hasLib; // scoped → jump straight to the type list; otherwise the overview
   state.packageLens = "overview";
   state.namespaceFilter = "";
@@ -4353,6 +4800,8 @@ async function openPlatformLibrary(assembly, pack, options = {}) {
   const scoped = filteredTypes();
   state.selectedTypeId = scoped[0]?.id || pkg.types[0]?.id || "";
   state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
+  resetMemberFilters();
   state.selectedOverloadIndex = null;
   const selectionData = loadSelectionData();
   render();
@@ -4369,7 +4818,9 @@ function pickSpotlightLoadedPackage(pkg) {
   state.atPackageRoot = true;
   state.selectedTypeId = null;
   state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
+  resetMemberFilters();
   resetMemberSectionState();
   spotlight.reset();
   render();
@@ -4386,6 +4837,8 @@ async function pickSpotlightMember(result) {
   state.atPackageRoot = false;
   state.selectedTypeId = type.id;
   state.lens = "api";
+  resetMemberFilters();
+  state.memberBrowseTypeId = type.id;
   state.selectedMemberKey = result.memberKey;
   state.selectedOverloadIndex = null;
   state.typeFilter = "";
@@ -4412,8 +4865,11 @@ async function pickSpotlight(packageResult, typeId) {
   state.atPackageRoot = false;
   state.selectedTypeId = type.id;
   state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
+  resetMemberFilters();
   state.selectedOverloadIndex = null;
   state.memberSection = "overview";
+  state.selectedBodyTarget = null;
   state.memberSource = null;
   state.memberSourceError = "";
   state.memberCallGraph = null;
@@ -4452,6 +4908,8 @@ function executeCommand(value, result = null) {
     if (match) {
       state.selectedTypeId = match.id;
       state.selectedMemberKey = "";
+      state.memberBrowseTypeId = "";
+      resetMemberFilters();
       operation = loadSelectionData();
     }
   } else if (verb === "show") {
@@ -4480,11 +4938,39 @@ function executeCommand(value, result = null) {
 
 function focusFilter() {
   requestAnimationFrame(() => {
-    const input = document.querySelector("#type-filter");
+    const input = document.querySelector("#member-filter, #type-filter");
     if (!input) return;
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
   });
+}
+
+const memberFocusRestorer = createMemberFocusRestorer();
+
+function renderWithMemberFocus(preserved) {
+  render();
+  memberFocusRestorer.schedule(
+    document,
+    preserved,
+    requestAnimationFrame);
+  return preserved;
+}
+
+function renderPreservingMemberFocus(fallback = null) {
+  const current = captureMemberFocus(document);
+  const preserved = memberFocusRestorer.resolve(current, fallback);
+  return renderWithMemberFocus(preserved);
+}
+
+function workbenchOverlayOwnsFocus() {
+  return workbenchModalOwnsFocus()
+    || state.tasteOpen;
+}
+
+function workbenchModalOwnsFocus() {
+  return state.spotlightOpen
+    || state.graphSourceOpen
+    || state.docViewerOpen;
 }
 
 function buildStateUrl(base = location.href) {
@@ -4545,15 +5031,32 @@ function applyDeepLink(deep) {
   state.platformDrillLoading = false;
   state.platformDrillError = "";
   const restoreType = deep?.type && pkg.types.some(item => item.id === deep.type);
+  resetMemberFilters();
   state.selectedTypeId = restoreType ? deep.type : (pkg.types[0]?.id || "");
   state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   state.memberSection = "overview";
+  state.selectedBodyTarget = null;
   if (restoreType && deep) {
     const type = pkg.types.find(item => item.id === deep.type);
     const groups = memberGroups(type);
+    const traits = new Set(MEMBER_TRAITS.map(([property]) => property));
+    state.memberTextFilter = deep.memberTextFilter || "";
+    state.memberKindFilter = memberKinds(type).includes(deep.memberKindFilter)
+      ? deep.memberKindFilter
+      : "all";
+    state.memberAccessibilityFilter = memberAccessibilities(type).includes(deep.memberAccessibilityFilter)
+      ? deep.memberAccessibilityFilter
+      : "all";
+    state.memberTraitFilter = traits.has(deep.memberTraitFilter)
+      ? deep.memberTraitFilter
+      : "";
+    if (deep.memberBrowse && groups.length)
+      state.memberBrowseTypeId = type.id;
     const group = deep.member ? groups.find(item => item.key === deep.member) : null;
     if (group) {
+      state.memberBrowseTypeId = type.id;
       state.selectedMemberKey = deep.member;
       const overloadIndex = Number(deep.overload);
       if (deep.overload != null && deep.overload !== ""
@@ -4564,6 +5067,11 @@ function applyDeepLink(deep) {
       if (deep.section
         && memberSectionIdsFor(group).includes(deep.section)) {
         state.memberSection = deep.section;
+      }
+      const restoredOverload = group.overloads[
+        state.selectedOverloadIndex ?? (group.overloads.length === 1 ? 0 : -1)];
+      if (bodyTargetMatchesOverload(deep.bodyTarget, group, restoredOverload)) {
+        state.selectedBodyTarget = deep.bodyTarget;
       }
     }
   }
@@ -4747,9 +5255,7 @@ function runHomeDemo(kind) {
   if (!link) return;
   try { history.pushState(null, "", link); } catch {}
   const loc = parseLocation();
-  restoreWorkspaceFromLocation(loc, {
-    type: loc.type, member: loc.member, overload: loc.overload, section: loc.section
-  });
+  restoreWorkspaceFromLocation(loc, loc);
 }
 
 // Return to the intro/home page without tearing down the warm engine or the loaded packages.
@@ -4797,8 +5303,10 @@ async function openRuntimePackFromHome() {
   }
   state.atPackageRoot = true;
   state.packageLens = "overview";
+  resetMemberFilters();
   state.selectedTypeId = pack.types[0]?.id || "";
   state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   render();
   loadSelectionData();
@@ -4918,7 +5426,7 @@ async function loadSelectedMemberDocumentation() {
   state.memberDocumentationKey = signature;
   state.memberDocumentationLoading = true;
   state.memberDocumentationError = "";
-  render();
+  const preservedFocus = renderPreservingMemberFocus();
   try {
     const documentation = await inspectMemberDocumentation(request);
     if (!memberRequestIsCurrent(signature))
@@ -4937,7 +5445,8 @@ async function loadSelectedMemberDocumentation() {
   } finally {
     if (state.memberDocumentationKey === signature) {
       state.memberDocumentationLoading = false;
-      render();
+      if (memberRequestIsCurrent(signature))
+        renderPreservingMemberFocus(preservedFocus);
     }
   }
 }
@@ -4970,7 +5479,7 @@ async function loadSelectedMemberSource() {
   state.memberSource = null;
   state.memberSourceLoading = true;
   state.memberSourceError = "";
-  render();
+  const preservedFocus = renderPreservingMemberFocus();
   try {
     const result = await inspectMemberSource({
       packageId: state.package.id,
@@ -4996,11 +5505,13 @@ async function loadSelectedMemberSource() {
       state.memberSourceError = String(error?.message || error);
     }
   } finally {
-    if (generation === state.sourceRequestGeneration
-      && state.memberSourceKey === signature) {
+    const current = generation === state.sourceRequestGeneration
+      && state.memberSourceKey === signature;
+    if (current) {
       state.memberSourceLoading = false;
+      if (memberRequestIsCurrent(signature, false, true))
+        renderPreservingMemberFocus(preservedFocus);
     }
-    render();
   }
 }
 
@@ -5029,7 +5540,7 @@ async function loadSelectedMemberAnnotatedSource() {
   state.memberAnnotatedError = "";
   state.memberAnnotatedFactId = null;
   state.memberAnnotatedNodeIds = [];
-  render();
+  const preservedFocus = renderPreservingMemberFocus();
   try {
     const result = await inspectMemberAnnotatedSource({
       packageId: state.package.id,
@@ -5057,9 +5568,11 @@ async function loadSelectedMemberAnnotatedSource() {
       state.memberAnnotatedError = String(error?.message || error);
     }
   } finally {
-    if (state.memberAnnotatedKey === signature)
+    if (state.memberAnnotatedKey === signature) {
       state.memberAnnotatedLoading = false;
-    render();
+      if (memberRequestIsCurrent(signature, true, true))
+        renderPreservingMemberFocus(preservedFocus);
+    }
   }
 }
 
@@ -5091,6 +5604,7 @@ function memberRequestIsCurrent(
   includeBody = false,
   includeTaste = false) {
   const type = selectedType();
+  if (!type) return false;
   const member = selectedMember(type);
   const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
   return Boolean(type && overload)
@@ -5099,12 +5613,12 @@ function memberRequestIsCurrent(
 
 async function loadSelectedTypeSource() {
   if (activeSourceOperationKind(state) !== "type") {
-    render();
+    renderPreservingMemberFocus();
     return;
   }
   const type = selectedType();
   if (!type) {
-    render();
+    renderPreservingMemberFocus();
     return;
   }
   const signature = typeSourceSignature(type, state.package, state.taste, memberRequestKey);
@@ -5113,7 +5627,7 @@ async function loadSelectedTypeSource() {
       state.typeSourceLoading,
       state.typeSource,
       state.typeSourceError)) {
-    render();
+    renderPreservingMemberFocus();
     return;
   }
   const generation = beginSourceRequestState(state);
@@ -5121,7 +5635,14 @@ async function loadSelectedTypeSource() {
   state.typeSource = null;
   state.typeSourceError = "";
   state.typeSourceLoading = true;
-  render();
+  const preservedFocus = renderPreservingMemberFocus();
+  const ownsRequest = () =>
+    generation === state.sourceRequestGeneration
+    && state.typeSourceKey === signature;
+  const isCurrent = () =>
+    ownsRequest()
+    && activeSourceOperationKind(state) === "type"
+    && !workbenchModalOwnsFocus();
   try {
     const result = await inspectTypeSource({
       packageId: state.package.id,
@@ -5132,40 +5653,57 @@ async function loadSelectedTypeSource() {
       typeIdentity: type.definitionId ?? type.id,
       styleOptionsJson: JSON.stringify(state.taste)
     });
-    if (generation === state.sourceRequestGeneration
-      && state.typeSourceKey === signature) {
+    if (ownsRequest()) {
       state.typeSource = result;
     }
   } catch (error) {
-    if (generation === state.sourceRequestGeneration
-      && state.typeSourceKey === signature) {
+    if (ownsRequest()) {
       state.typeSourceError = String(error?.message || error);
     }
   } finally {
-    if (generation === state.sourceRequestGeneration
-      && state.typeSourceKey === signature) {
+    if (ownsRequest()) {
       state.typeSourceLoading = false;
+      if (isCurrent())
+        renderPreservingMemberFocus(preservedFocus);
     }
-    render();
   }
 }
 
 async function loadSelectedTypeMetadata() {
   const type = selectedType();
   if (!type) {
-    render();
+    renderPreservingMemberFocus();
     return;
   }
   const signature = typeMetadataSignature(type, state.package);
-  if (state.typeMetadataKey === signature && (state.typeMetadata || state.typeMetadataError)) {
-    render();
+  if (state.typeMetadataKey === signature
+    && (state.typeMetadataLoading || state.typeMetadata || state.typeMetadataError)) {
+    renderPreservingMemberFocus();
     return;
   }
+  const generation = ++state.typeMetadataGeneration;
   state.typeMetadataKey = signature;
   state.typeMetadata = null;
   state.typeMetadataError = "";
   state.typeMetadataLoading = true;
-  render();
+  const preservedFocus = renderPreservingMemberFocus();
+  const ownsRequest = () =>
+    generation === state.typeMetadataGeneration
+    && state.typeMetadataKey === signature;
+  const isCurrent = () => {
+    const currentType = selectedType();
+    return ownsRequest()
+      && !state.home
+      && !state.settings
+      && !state.explorer?.open
+      && !state.loading
+      && !state.error
+      && !workbenchOverlayOwnsFocus()
+      && state.lens === "metadata"
+      && !state.atPackageRoot
+      && currentType
+      && typeMetadataSignature(currentType, state.package) === signature;
+  };
   try {
     const result = await inspectTypeProjection({
       packageId: state.package.id,
@@ -5174,13 +5712,16 @@ async function loadSelectedTypeMetadata() {
       assembly: type.assembly,
       type: type.queryId ?? type.id
     });
-    if (state.typeMetadataKey === signature) state.typeMetadata = result;
+    if (ownsRequest()) state.typeMetadata = result;
   } catch (error) {
-    if (state.typeMetadataKey === signature) state.typeMetadataError = String(error?.message || error);
+    if (ownsRequest()) state.typeMetadataError = String(error?.message || error);
   } finally {
-    if (state.typeMetadataKey === signature) state.typeMetadataLoading = false;
-    render();
-    if (state.typeMetadata?.graphNodes?.length > 1) renderTypeGraph();
+    if (ownsRequest()) {
+      state.typeMetadataLoading = false;
+      if (isCurrent()) {
+        renderPreservingMemberFocus(preservedFocus);
+      }
+    }
   }
 }
 
@@ -5270,7 +5811,8 @@ function navigateToType(target) {
   }
   state.selectedTypeId = target.id;
   state.selectedMemberKey = "";
-  state.memberKindFilter = "all";
+  state.memberBrowseTypeId = "";
+  resetMemberFilters();
   state.typeCursor = filteredTypes().findIndex(candidate => candidate.id === target.id);
   render();
 }
@@ -5398,6 +5940,7 @@ function switchToPackageForDependencies(packageKey) {
   state.packageLens = "dependencies";
   state.selectedTypeId = target.types[0]?.id || "";
   state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   render();
 }
@@ -5503,7 +6046,7 @@ async function loadSelectedMemberCallGraph() {
   state.memberCallGraphLoading = true;
   state.memberCallGraphExpanding = false;
   state.memberCallGraphError = "";
-  render();
+  const preservedFocus = renderPreservingMemberFocus();
   try {
     const local = await inspectMemberCallGraph({ ...base, workspace: [] });
     if (seq !== state.memberCallGraphSeq
@@ -5512,7 +6055,7 @@ async function loadSelectedMemberCallGraph() {
     state.memberCallGraph = local;
     state.memberCallGraphLoading = false;
     state.memberCallGraphExpanding = hasOtherLibraries;
-    render();
+    renderPreservingMemberFocus(preservedFocus);
     await renderMermaidCallGraph();
 
     if (hasOtherLibraries) {
@@ -5548,11 +6091,11 @@ async function loadSelectedMemberCallGraph() {
     if (state.memberCallGraph) {
       state.memberCallGraphError =
         `Workspace expansion was incomplete: ${String(error?.message || error)}`;
-      render();
+      renderPreservingMemberFocus(preservedFocus);
       await renderMermaidCallGraph();
     } else {
       state.memberCallGraphError = String(error?.message || error);
-      render();
+      renderPreservingMemberFocus(preservedFocus);
     }
   }
 }
@@ -5569,7 +6112,7 @@ async function loadRuntimeMemberCallGraph(type, overload) {
   state.memberCallGraphLoading = true;
   state.memberCallGraphExpanding = false;
   state.memberCallGraphError = "";
-  render();
+  const preservedFocus = renderPreservingMemberFocus();
   try {
     const graph = await inspectExpandPlatformCallGraph({
       framework: state.package.activeFramework,
@@ -5583,14 +6126,14 @@ async function loadRuntimeMemberCallGraph(type, overload) {
     state.memberCallGraph = graph;
     state.memberCallGraphLoading = false;
     state.memberCallGraphExpanding = false;
-    render();
+    renderPreservingMemberFocus(preservedFocus);
     await renderMermaidCallGraph();
   } catch (error) {
     if (seq !== state.memberCallGraphSeq) return;
     state.memberCallGraphLoading = false;
     state.memberCallGraphExpanding = false;
     state.memberCallGraphError = String(error?.message || error);
-    render();
+    renderPreservingMemberFocus(preservedFocus);
   }
 }
 
@@ -5916,7 +6459,7 @@ async function drillPlatformNode(node) {
   const seq = state.memberCallGraphSeq;
   state.platformDrillLoading = true;
   state.platformDrillError = "";
-  render();
+  const preservedFocus = renderPreservingMemberFocus();
   try {
     const graph = await inspectExpandPlatformCallGraph({
       framework: state.package.activeFramework,
@@ -5932,14 +6475,14 @@ async function drillPlatformNode(node) {
       title: `${stripArity(node.typeFullName.split(".").pop() ?? "")}.${node.memberName}`
     });
     state.platformDrillLoading = false;
-    render();
+    renderPreservingMemberFocus(preservedFocus);
     await renderMermaidCallGraph();
   } catch (error) {
     if (seq !== state.memberCallGraphSeq) return;
     state.platformDrillLoading = false;
     state.platformDrillError =
       `Could not descend into ${node.typeFullName}.${node.memberName}: ${String(error?.message || error)}`;
-    render();
+    renderPreservingMemberFocus(preservedFocus);
     await renderMermaidCallGraph();
   }
 }
@@ -5961,26 +6504,41 @@ function popPlatformDrill() {
 async function navigateOrDrillPlatform(node) {
   if (state.platformDrillLoading) return;
   const seq = state.memberCallGraphSeq;
+  const type = selectedType();
+  const member = selectedMember(type);
+  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
+  if (!type || !member || !overload || state.memberSection !== "call-graph") return;
+  const originSignature = memberRequestSignature(type, overload, true);
+  const ownsNavigation = () =>
+    seq === state.memberCallGraphSeq
+    && state.memberSection === "call-graph"
+    && memberRequestIsCurrent(originSignature, true);
   const framework = state.package?.activeFramework || "";
   let pack = runtimePackPackage();
   if (!pack) {
     state.platformDrillLoading = true;
     state.platformDrillError = "";
-    render();
+    const preservedFocus = renderPreservingMemberFocus();
     pack = await loadRuntimePack(
       framework,
-      () => seq === state.memberCallGraphSeq);
-    if (seq !== state.memberCallGraphSeq) return;
+      ownsNavigation);
+    if (!ownsNavigation()) {
+      if (seq === state.memberCallGraphSeq) {
+        state.platformDrillLoading = false;
+        renderPreservingMemberFocus(preservedFocus);
+      }
+      return;
+    }
     state.platformDrillLoading = false;
     if (!pack) {
       state.platformDrillError = state.runtimePackError || "Could not load the .NET runtime pack.";
-      render();
+      renderPreservingMemberFocus(preservedFocus);
       await renderMermaidCallGraph();
       return;
     }
   }
   const selection = findRuntimeMemberSelection(pack, node);
-  if (seq !== state.memberCallGraphSeq) return;
+  if (!ownsNavigation()) return;
   if (!selection) {
     await drillPlatformNode(node);
     return;
@@ -5996,6 +6554,10 @@ function navigateToRuntimeMember(pack, type, group, overloadIndex, bodyTarget = 
   state.atPackageRoot = false;
   state.lens = "api";
   state.selectedTypeId = type.id;
+  const targetLibrary = libraryKey(type);
+  state.libraryScope = targetLibrary ? new Set([targetLibrary]) : null;
+  resetMemberFilters();
+  state.memberBrowseTypeId = type.id;
   state.selectedMemberKey = group.key;
   state.selectedOverloadIndex = overloadIndex ?? 0;
   state.memberSection = "call-graph";
@@ -6346,6 +6908,8 @@ function navigateToMember(pkg, type, group, overloadIndex = null, bodyTarget = n
   activatePackage(pkg);
   state.lens = "api";
   state.selectedTypeId = type.id;
+  resetMemberFilters();
+  state.memberBrowseTypeId = type.id;
   state.selectedMemberKey = group.key;
   state.selectedOverloadIndex = overloadIndex;
   state.memberSection = "overview";
@@ -6384,7 +6948,7 @@ async function loadSelectedMemberFacts() {
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
-  render();
+  const preservedFocus = renderPreservingMemberFocus();
   try {
     const result = await inspectMemberFacts({
       packageId: state.package.id,
@@ -6405,9 +6969,11 @@ async function loadSelectedMemberFacts() {
       state.memberFactsError = String(error?.message || error);
     }
   } finally {
-    if (state.memberFactsKey === signature)
+    if (state.memberFactsKey === signature) {
       state.memberFactsLoading = false;
-    render();
+      if (memberRequestIsCurrent(signature))
+        renderPreservingMemberFocus(preservedFocus);
+    }
   }
 }
 
@@ -6484,8 +7050,10 @@ async function loadPackage(packageId, version, framework, options = {}) {
     if (deep && (deep.type || deep.member)) {
       applyDeepLink(deep);
     } else {
+      resetMemberFilters();
       state.selectedTypeId = packageModel.types[0]?.id || "";
       state.selectedMemberKey = "";
+      state.memberBrowseTypeId = "";
       state.selectedOverloadIndex = null;
       state.memberSection = "overview";
     }
@@ -6831,12 +7399,15 @@ async function runCallGraphDemo() {
   }
 
   state.selectedTypeId = type.id;
+  state.atPackageRoot = false;
+  state.lens = "api";
+  state.packageLens = "overview";
+  resetMemberFilters();
+  resetMemberSectionState();
+  state.memberBrowseTypeId = type.id;
   state.selectedMemberKey = member.key;
   state.selectedOverloadIndex = overloadIndex;
   state.memberSection = "call-graph";
-  state.memberCallGraph = null;
-  state.memberCallGraphError = "";
-  state.memberCallGraphKey = "";
   state.loading = false;
   render();
   await loadSelectedMemberCallGraph();
@@ -6853,9 +7424,11 @@ async function restoreWorkspaceFromLocation(
   state.queryNotice = loc.workspaceNotice || "";
   state.queryNoticeRetryAction = null;
   state.home = false;
+  applyLocationView(loc);
   state.loading = true;
   state.error = "";
   state.retryAction = null;
+  resetLocationFilters();
   clearWorkspacePackages();
   render();
   const target = {
@@ -6920,12 +7493,14 @@ async function restoreWorkspaceFromLocation(
     activatePackage(targetModel, { resetAccessibility: true });
     // Restore the platform library scope captured in the share packet before applying the
     // deep link, so a refreshed/shared platform-library link lands on that library.
-    if (isRuntimePackId(targetModel.id) && loc.library) {
-      await applyPlatformLibraryScope(
+    if (isRuntimePackId(targetModel.id)) {
+      const scoped = await applyPlatformLibraryScope(
         loc.library,
         navigationSeq,
         () => restoreWorkspaceFromLocation(loc, deep));
       if (navigationSeq !== state.navigationSeq) return;
+      if (!scoped) return;
+      applyLocationView(loc);
     }
     applyDeepLink(deep);
     state.loading = false;
@@ -6950,6 +7525,12 @@ async function restoreWorkspaceFromLocation(
     state.retryAction = () => restoreWorkspaceFromLocation(loc, deep);
     render();
   }
+}
+
+function applyLocationView(loc) {
+  state.lens = loc.lens || "api";
+  state.atPackageRoot = loc.atPackageRoot || false;
+  state.packageLens = loc.packageLens || "overview";
 }
 
 // Restores the full open-tab set from the opaque workspace bucket (or just the visible
@@ -7132,7 +7713,8 @@ document.addEventListener("keydown", event => {
   } else if (event.key === "Escape" && !event.defaultPrevented && !typing
       && (navMode() === "member" || !state.atPackageRoot)) {
     event.preventDefault();
-    drillOut();
+    if (navMode() === "member") exitMemberScope();
+    else drillOut();
   } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
     event.preventDefault();
     openSpotlight("", "commands");
@@ -7166,7 +7748,8 @@ document.addEventListener("keydown", event => {
     event.preventDefault();
     stepHorizontal(event.key === "ArrowRight" ? 1 : -1);
   } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
-      && !state.spotlightOpen && event.key === "Enter") {
+      && !state.spotlightOpen && !isInteractiveElement(event.target)
+      && event.key === "Enter") {
     event.preventDefault();
     drillIn();
   } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
@@ -7212,22 +7795,12 @@ window.addEventListener("popstate", () => {
     render();
     return;
   }
+  resetLocationFilters();
+  const deep = loc;
   if (!state.package) {
-    const deep = {
-      type: loc.type,
-      member: loc.member,
-      overload: loc.overload,
-      section: loc.section
-    };
     restoreWorkspaceFromLocation(loc, deep, navigationSeq);
     return;
   }
-  const deep = {
-    type: loc.type,
-    member: loc.member,
-    overload: loc.overload,
-    section: loc.section
-  };
   if (loc.tabs?.length && !workspaceCoordinatesMatch(state.packages, loc.tabs)) {
     restoreWorkspaceFromLocation(loc, deep, navigationSeq);
     return;
@@ -7242,9 +7815,7 @@ window.addEventListener("popstate", () => {
     activatePackage(target, { resetAccessibility: true });
   }
   state.home = false;
-  state.lens = loc.lens || "api";
-  state.atPackageRoot = loc.atPackageRoot || false;
-  state.packageLens = loc.packageLens || "overview";
+  applyLocationView(loc);
   const samePackage = packageCoordinateMatchesLocation(state.package, loc);
   if (samePackage || !loc.package) {
     if (isRuntimePackId(state.package.id)) {
@@ -7273,12 +7844,15 @@ window.addEventListener("popstate", () => {
 // (lazily loading that assembly if needed via the same drill-in path as clicking it), or
 // clear the scope for the aggregate platform, then restore the deep-linked selection.
 async function restorePlatformScopeThenDeepLink(loc, navigationSeq) {
-  await applyPlatformLibraryScope(
+  const scoped = await applyPlatformLibraryScope(
     loc.library,
     navigationSeq,
     () => restorePlatformScopeThenDeepLink(loc, state.navigationSeq));
   if (navigationSeq !== state.navigationSeq) return;
+  if (!scoped) return;
+  applyLocationView(loc);
   applyDeepLink(loc);
+  state.loading = false;
   render();
   loadSelectionData();
 }
@@ -7291,17 +7865,17 @@ async function applyPlatformLibraryScope(
   retryAction = null) {
   if (navigationSeq != null && navigationSeq !== state.navigationSeq) return;
   const key = String(libraryKey || "").replace(/\.dll$/i, "");
-  if (!key) { state.libraryScope = null; return; }
+  if (!key) { state.libraryScope = null; return true; }
   // The pack (CoreCLR vs ASP.NET Core) is resolved from the static index roster; ensure it
   // is loaded on a cold shared/refreshed link so the right assembly is fetched.
   if (!state.platformIndex) {
     try { state.platformIndex = await loadPlatformIndex(); } catch { /* best effort; defaults to CoreCLR */ }
   }
   if (navigationSeq != null && navigationSeq !== state.navigationSeq) return;
-  await openPlatformLibrary(
+  return Boolean(await openPlatformLibrary(
     key,
     platformPackForAssembly(key),
-    { navigationSeq, retryAction });
+    { navigationSeq, retryAction, scopeOnly: true }));
 }
 
 // History (back/forward) landed on a .NET Platform state. Its resident pseudo-package
@@ -7315,17 +7889,18 @@ async function restoreRuntimePackFromHistory(loc, deep, navigationSeq) {
   if (navigationSeq !== state.navigationSeq) return;
   if (pack) {
     activatePackage(pack, { resetAccessibility: true });
-    if (loc.library) {
-      await applyPlatformLibraryScope(
-        loc.library,
-        navigationSeq,
-        () => restoreRuntimePackFromHistory(
-          loc,
-          deep,
-          state.navigationSeq));
-      if (navigationSeq !== state.navigationSeq) return;
-    }
+    const scoped = await applyPlatformLibraryScope(
+      loc.library,
+      navigationSeq,
+      () => restoreRuntimePackFromHistory(
+        loc,
+        deep,
+        state.navigationSeq));
+    if (navigationSeq !== state.navigationSeq) return;
+    if (!scoped) return;
+    applyLocationView(loc);
     applyDeepLink(deep);
+    state.loading = false;
   } else {
     appendQueryNotice(
       `Workspace restore was incomplete: ${loc.package}: ${state.runtimePackError || "runtime pack acquisition failed."}`);
