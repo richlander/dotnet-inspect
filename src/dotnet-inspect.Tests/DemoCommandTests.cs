@@ -96,7 +96,7 @@ public class DemoCommandTests
             ProductDemoSections.ExpandRunSections(ProductDemoSections.CallGraph));
         Assert.Equal(
             [SectionNames.CallGraph],
-            ProductDemoSections.ExpandRunSections(ProductDemoSections.CallGraph, standaloneGraphFormat: true));
+            ProductDemoSections.ExpandRunSections(ProductDemoSections.CallGraph, singleSectionFormat: true));
         Assert.Equal(
             [SectionNames.Methods],
             ProductDemoSections.ExpandRunSections(ProductDemoSections.Methods));
@@ -172,6 +172,47 @@ public class DemoCommandTests
         Assert.Equal(
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.CallGraph },
             member.IncludeSections);
+        Assert.Equal([SectionNames.CallGraph], Assert.IsType<string[]>(member.Select));
+    }
+
+    [Fact]
+    public void Runner_MethodsDemo_RejectsStandaloneMermaid()
+    {
+        var resolved = ProductInspectionDemos.ResolveHomeScenario(ProductInspectionDemos.StjSerializerScenarioId);
+        Assert.False(
+            DemoScenarioRunner.TryCreateOptions(
+                resolved, OutputFormat.Mermaid, noHeader: false, out _, out var error));
+        Assert.Contains("--mermaid requires a Call Graph home demo", error, StringComparison.Ordinal);
+        Assert.Contains("Methods", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Runner_CallGraph_Table_UsesSingleSection()
+    {
+        var resolved = ProductInspectionDemos.ResolveHomeScenario(ProductInspectionDemos.ExtensionsCallGraphScenarioId);
+        Assert.True(
+            DemoScenarioRunner.TryCreateOptions(
+                resolved, OutputFormat.Table, noHeader: false, out var options, out var error),
+            error);
+        var member = Assert.IsType<MemberOptions>(options);
+        Assert.Equal(
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.CallGraph },
+            member.IncludeSections);
+        Assert.Equal([SectionNames.CallGraph], Assert.IsType<string[]>(member.Select));
+        Assert.True(member.Tabular);
+    }
+
+    [Fact]
+    public void Runner_MethodsDemo_SetsSelectForSectionQuery()
+    {
+        var resolved = ProductInspectionDemos.ResolveHomeScenario(ProductInspectionDemos.StjSerializerScenarioId);
+        Assert.True(
+            DemoScenarioRunner.TryCreateOptions(
+                resolved, OutputFormat.Markdown, noHeader: false, out var options, out var error),
+            error);
+        var type = Assert.IsType<TypeOptions>(options);
+        Assert.Equal([SectionNames.Methods], Assert.IsType<string[]>(type.Select));
+        Assert.True(type.HasSectionQuery);
     }
 
     [Fact]
@@ -241,6 +282,32 @@ public class DemoCommandTests
         Assert.Empty(error);
         Assert.Contains("graph TD", output, StringComparison.Ordinal);
         Assert.Contains("TryAddEnumerable", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Cli_DemoMethods_Mermaid_FailsClosed()
+    {
+        var (exitCode, output, error) = await RunCliAsync(
+            "demo",
+            ProductInspectionDemos.StjSerializerScenarioId,
+            "--mermaid");
+
+        Assert.Equal(1, exitCode);
+        Assert.DoesNotContain("├─", output, StringComparison.Ordinal);
+        Assert.Contains("--mermaid requires a Call Graph home demo", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Cli_DemoCallGraph_Table_Succeeds()
+    {
+        var (exitCode, output, error) = await RunCliAsync(
+            "demo",
+            ProductInspectionDemos.ExtensionsCallGraphScenarioId,
+            "--table");
+
+        Assert.True(exitCode == 0, error + "\n" + output);
+        Assert.DoesNotContain("Selection matches 2 sections", error, StringComparison.Ordinal);
+        Assert.False(string.IsNullOrWhiteSpace(output));
     }
 
     private static string[] MarkdownSectionHeadings(string markdown) =>

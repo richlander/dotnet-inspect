@@ -35,16 +35,17 @@ public static class ProductDemoSections
     /// <paramref name="boundSection"/>. Call Graph presets expand to Call Graph
     /// + Callers so the closed preset matches the multi-package CLI companion
     /// rule instead of silently gaining a second section at run time.
-    /// Standalone graph formats (<c>--mermaid</c> / <c>--tree</c>) keep Call Graph
-    /// alone because those renderers require exactly one selected graph.
+    /// One-section formats (<c>--mermaid</c>, <c>--table</c>/<c>--tsv</c>/<c>--jsonl</c>)
+    /// keep Call Graph alone so arity matches the member pipeline; Markdown/JSON
+    /// keep the Callers companion.
     /// </summary>
     public static IReadOnlyList<string> ExpandRunSections(
         string boundSection,
-        bool standaloneGraphFormat = false)
+        bool singleSectionFormat = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(boundSection);
         if (string.Equals(boundSection, CallGraph, StringComparison.Ordinal))
-            return standaloneGraphFormat ? [CallGraph] : [CallGraph, Callers];
+            return singleSectionFormat ? [CallGraph] : [CallGraph, Callers];
         return [boundSection];
     }
 

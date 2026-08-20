@@ -413,7 +413,8 @@ the runtime section set) and `ResolveHomeScenario` fails when a home demo omits
 `View.Section` or names a section outside that allow list
 (`ProductHomeDemos_AllBindKnownProductSections`,
 `ProductDemoSections_AreProductSectionNames`). Formats stay orthogonal on
-`demo` (including `--mermaid` for graph demos). Full minted view-facet ids
+`demo` (including `--mermaid` for Call Graph demos; Methods demos reject
+standalone mermaid rather than falling through to the type shape tree). Full minted view-facet ids
 remain open ([Open questions](#open-questions) — view-facet registry binding).
 **CLI run** lowers the resolved plan to `TypeCommand` / `MemberCommand` options
 (`DemoScenarioRunner`) so `dotnet-inspect demo <id>` returns ordinary section

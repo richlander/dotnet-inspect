@@ -196,12 +196,16 @@ public static class DemoScenarioRunner
         if (!TryResolveSource(resolved, view, context, out var source, out error))
             return false;
 
-        // Standalone mermaid/tree require a single graph section; Markdown keeps companions.
-        var standaloneGraph = format is OutputFormat.Mermaid && !embeddedMermaid;
+        if (!TryResolveRunSections(section, format, embeddedMermaid, out var runSections, out error))
+            return false;
+
+        // Select mirrors -S so HasSectionQuery is true and TypeCommand cannot
+        // silently fall through to the default shape tree under --mermaid/etc.
         TypeOptions type = new()
         {
             TypeName = view.Type,
-            IncludeSections = ToIncludeSet(ProductDemoSections.ExpandRunSections(section, standaloneGraph)),
+            Select = [.. runSections],
+            IncludeSections = ToIncludeSet(runSections),
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Minimal,
             MarkdownExplicitlySet = format == OutputFormat.Markdown || embeddedMermaid,
@@ -257,16 +261,17 @@ public static class DemoScenarioRunner
         if (!TryCollectCallerPackages(resolved, context, source.PackagePath, out var callers, out error))
             return false;
 
-        // Standalone mermaid/tree require a single graph section; Markdown keeps companions.
-        var standaloneGraph = format is OutputFormat.Mermaid && !embeddedMermaid;
+        if (!TryResolveRunSections(section, format, embeddedMermaid, out var runSections, out error))
+            return false;
+
         MemberOptions member = new()
         {
             TypeName = view.Type,
             MemberFilter = memberFilter,
             KindFilter = kindFilter,
             MemberDigest = view.MemberAnchor,
-            // ExpandRunSections makes Call Graph presets declare Callers too (closed set).
-            IncludeSections = ToIncludeSet(ProductDemoSections.ExpandRunSections(section, standaloneGraph)),
+            Select = [.. runSections],
+            IncludeSections = ToIncludeSet(runSections),
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Normal,
             ShowDocs = false,
@@ -279,6 +284,36 @@ public static class DemoScenarioRunner
         };
 
         options = ApplyFormat(member, format, noHeader, embeddedMermaid);
+        return true;
+    }
+
+    /// <summary>
+    /// One-section formats (standalone mermaid; table/tsv/jsonl) keep the primary
+    /// graph section only. Markdown/JSON keep Call Graph + Callers companions.
+    /// Standalone mermaid is rejected unless the expanded set is exactly Call Graph.
+    /// </summary>
+    private static bool TryResolveRunSections(
+        string boundSection,
+        OutputFormat format,
+        bool embeddedMermaid,
+        out IReadOnlyList<string> runSections,
+        out string? error)
+    {
+        error = null;
+        var singleSectionFormat = format is OutputFormat.Table or OutputFormat.Tsv or OutputFormat.Jsonl
+            || (format is OutputFormat.Mermaid && !embeddedMermaid);
+        runSections = ProductDemoSections.ExpandRunSections(boundSection, singleSectionFormat);
+
+        if (format is OutputFormat.Mermaid && !embeddedMermaid
+            && (runSections.Count != 1
+                || !string.Equals(runSections[0], ProductDemoSections.CallGraph, StringComparison.Ordinal)))
+        {
+            error =
+                $"--mermaid requires a Call Graph home demo (got bound section '{boundSection}'). "
+                + "Use default Markdown or another format for Methods demos.";
+            return false;
+        }
+
         return true;
     }
 
