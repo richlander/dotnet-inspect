@@ -139,6 +139,24 @@ entry gate invalidates every later result, so run it first and report it.
 
    Filter to a class while iterating, e.g.
    `… -c Release -- -filter "/*/*/IteratorAcknowledgmentPassTests/*"`.
+   The decompiler test host rejects an explicit `-class`, `-method`, or
+   `-filter` selector that matches no discovered test, including one unmatched
+   selector alongside valid selectors. Every requested `-id` must resolve
+   after the other filters, even when another ID is valid. The host also
+   rejects standalone or combined direct selections that resolve to no
+   runnable test, including through explicit-test mode, and reports stale or
+   malformed `-run` serializations directly. A misspelled targeted gate
+   therefore fails instead of reporting a successful zero-test or partial run.
+   Preflight discovery runs in a short-lived child process so its serializer
+   registration and disposable theory data cannot alter the real runner process.
+   `ExplicitFilterGuardTests.TestHost_RejectsEveryUnmatchedExplicitFilter` is
+   the subprocess gate for both the rejection and isolation contracts.
+   `ExplicitFilterGuardTests.AppHostAlias_ConcurrentProcessesAreIsolated`
+   protects its renamed-apphost regression from concurrent test processes by
+   holding isolated aliases live in independent workers while another host
+   starts through the real muxer.
+   `ExplicitFilterGuardTests.AppHostAlias_CancellationCleansParentOwnedDirectories`
+   protects worker cleanup when the parent cancels those processes.
 
 3. **IR invariant checks.** Every pass must leave a structurally valid tree.
    `IrPasses.Run` calls `function.CheckInvariant()` after each pass — armed by
@@ -546,10 +564,9 @@ compile-back; a pruned skeleton would incorrectly turn that canary green.
 > [!TIP]
 > When measuring a class by name, check the namespace. Several classes in this
 > assembly live in `ILInspector.DecompilerHarness`, not
-> `ILInspector.Decompiler.Tests`, and a `-class` filter that matches nothing is
-> silently dropped rather than reported as an error — an ad-hoc measurement can
-> quietly omit a class. `eng/decompiler-gate-expected-classes.txt` and the CI
-> checker exist to stop exactly that from happening to the gate itself.
+> `ILInspector.Decompiler.Tests`. The test host rejects a `-class` filter that
+> matches nothing; `eng/decompiler-gate-expected-classes.txt` and the CI checker
+> additionally keep the preset and its expected class registry synchronized.
 
 ## Vocabulary
 
