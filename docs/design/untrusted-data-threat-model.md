@@ -294,13 +294,14 @@ unguarded, a planted sibling picked up by reference resolution could mint
 core-library identity for its own definitions and make a fake interface
 authorize raising for a type that implements nothing of the sort.
 
-`CoreLibraryIdentityTrust` owns the rule. Trust follows **acquisition**, and
-which acquisition applies follows how the caller named the file. A raw path is
-an explicit designation — the caller chose that exact file — so it is trusted.
-A `ResolvedAssemblyReference` was reached by discovery, so it is trusted only
-when its `AssemblyResolutionProvenance` is a `PlatformAsset` or a
-`DesignatedAsset`. `TypeRefDecoder.CanonicalSelf` consults the registry before
-honouring a platform key.
+`CoreLibraryIdentityTrust` owns the current rule. Trust follows
+**acquisition**, and which acquisition applies follows how the caller named the
+file. Current raw-path entry points treat the path as an explicit designation
+because the caller chose that exact file. A `ResolvedAssemblyReference` was
+reached by discovery, so it is trusted only when its
+`AssemblyResolutionProvenance` is a `PlatformAsset` or a `DesignatedAsset`.
+`TypeRefDecoder.CanonicalSelf` consults the registry before honouring a platform
+key.
 
 The registry is an **allow list**, and the polarity is load-bearing. A deny
 list has to enumerate every site that turns bytes into a reader, so a site
@@ -329,7 +330,10 @@ platform trust onto authorized workspace admission-role evidence. Source
 adapters retain acquisition provenance separately, and Metadata no longer owns
 the trust arm. The decompiler still receives an explicit owner-issued trust
 grant; no path, assembly name, public-key blob, or source-provenance display
-field can reconstruct it.
+field can reconstruct it. In particular, a lease-scoped path to a retained
+snapshot is only a content-access form. The target retires the current
+raw-path-implies-designation shortcut; opening that path cannot grant
+core-library trust without a separate authorized admission role.
 
 The residual case is a host policy, `CoreLibraryTrustPolicy`. The default,
 `DesignatedAndPlatform`, is correct for any host that inspects untrusted
@@ -359,7 +363,9 @@ gates the reader-creation path that bypasses `MetadataContext`, and fails if
 the registry ever returns to deny-list polarity;
 `PlantedCoreLibraryIdentityTests.DesignatedTarget_KeepsCoreLibraryIdentity`
 and `PlantedCoreLibraryIdentityTests.RawPathOpen_KeepsCoreLibraryIdentity`
-gate the scope, so failing closed does not cost ordinary use;
+gate the current scope, so failing closed does not cost ordinary use. During
+the artifact migration, the latter changes from preserving blanket raw-path
+trust to proving `LeaseScopedPath_IsNotADesignationGrant`;
 `PlantedCoreLibraryIdentityTests.DesignatedCorpusAssembly_SatisfiesPlatformScope`
 gates the resolver half, since a core-library `TypeRef` forces
 `AssemblyResolutionScope.Platform` and a designated corpus assembly must be

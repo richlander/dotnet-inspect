@@ -247,8 +247,10 @@ accepts only a current query lease. An artifact catalog descriptor or
 `ResolvedAssemblyReference` cannot bypass the owner with a bare `Func<Stream>`
 or readable path. A path on a target descriptor is inert location evidence, not
 read authority; when a producer genuinely requires a path, the current lease
-may provide a lease-scoped path to the exact retained snapshot. This is a
-target change from the current parameterless
+may provide a lease-scoped path to the exact retained snapshot. Receiving or
+opening that path grants no designation or core-library trust; those remain
+separate workspace admission roles. This is a target change from the current
+parameterless
 `ResolvedAssemblyReference.OpenRead` and public readable `Path`.
 
 It does not:
@@ -472,7 +474,9 @@ browser, remote-cache, or content-addressed implementations.
 An owner-authorized access lease may expose a repeatable stream opener, a
 bounded buffer, or a lease-scoped path to retained content when the storage
 implementation has one. A catalog or target descriptor cannot expose those
-routes, and consumers cannot require the path form. Storage does not:
+routes, and consumers cannot require the path form. A leased path is content
+transport, not evidence of caller designation or another workspace role.
+Storage does not:
 
 - decide whether content is a package or assembly;
 - parse a nuspec or PE header;
@@ -632,6 +636,10 @@ Several current types are migration inputs, not target precedent:
   project, platform, local, embedded, and caller-designated concepts. The
   `DesignatedAsset` arm also combines acquisition provenance with a trust-policy
   role.
+- `MetadataContext.Open(string)` and `MetadataSource.OpenCore(string, ...)`
+  treat a raw path as caller designation and grant core-library trust without
+  consulting an admission role. That is current compatibility behavior, not
+  the target meaning of a lease-scoped retained-snapshot path.
 - `workspace-definitions.md` currently maps member kinds directly onto that
   closed Metadata provenance hierarchy.
 - `type-forwarding-resolution.md` currently calls that hierarchy authoritative
@@ -702,11 +710,13 @@ The target remains unverified until tests equivalent to these exist:
 - `CoreAssemblyQueries_ExcludePackageImplementations`
 - `CoreAssemblySourceQueries_ExcludePackageSymbolCapabilities`
 - `PlatformProjectionClosure_ExcludesPackageNuGetAndPackageCompanion`
+- `InstalledPlatformAdapterClosure_ExcludesPackageAndNuGetImplementations`
 - `ArtifactSetSession_ComposesArtifactsFromMultipleSources`
 - `ArtifactSetSession_SealedGenerationCannotMutate`
 - `ArtifactIdentity_IsScopedToOwningGeneration`
 - `DesignatedArtifactTrust_RequiresAuthorizedAdmissionRole`
 - `PlatformArtifactTrust_RequiresAuthorizedAdmissionRole`
+- `LeaseScopedPath_IsNotADesignationGrant`
 - `ArtifactSetSession_DisposesEveryContributingLease`
 - `ArtifactSetSession_ReleasesLeasesOnlyAfterDependentGroupsQuiesce`
 - `ArtifactSetSession_PreservesPrimaryFailureWhenCleanupFails`
@@ -729,12 +739,14 @@ The target remains unverified until tests equivalent to these exist:
 - `PackageAdapter_ProjectsSelectedEntriesWithoutLeakingPackageTypes`
 - `PackageGraphProjection_UsesAdapterOwnedCorrespondence`
 - `PlatformGraphProjection_UsesAdapterOwnedCorrespondence`
+- `RemotePlatformPack_UsesPackageMappingVersionAndProducerAuthorization`
+- `RemotePlatformPack_RejectsUnauthorizedOrNarrowedProducerCache`
 - `LocalOnlyWorkspace_ExecutesAssemblyQueryWithoutPackageCapabilities`
 - `CiArtifactScenario_PreservesProviderRunCommitAndDigestProvenance`
 - `CrossProviderCiArtifacts_CompareAcrossSealedAuthorizedContexts`
 - `BrowserWorkspace_ComposesSequentiallyWithoutFilesystemOrThreads`
 
-The first eight are structural edge/closure gates derived from the actual project
+The first nine are structural edge/closure gates derived from the actual project
 graph, not a hand-maintained allow list. The remainder are behavior and lifetime
 gates. The local-only query gate covers metadata and authored-source query
 families so a metadata-only success cannot hide package-owned source
