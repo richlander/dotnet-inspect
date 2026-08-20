@@ -48,6 +48,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
         var allocationOccurrences = new Dictionary<int, ImmutableArray<AllocationOccurrence>>();
         var unsafetyOccurrences = new Dictionary<int, ImmutableArray<UnsafetyOccurrence>>();
         var suppressedOpportunityTokens = new HashSet<int>();
+        var scopeExcludedOpportunityTokens =
+            new HashSet<int>();
         var leakFindings = ImmutableArray.CreateBuilder<LeakTriageFinding>();
         var leakCandidates = ImmutableArray.CreateBuilder<LeakTriageCandidate>();
         var exceptionPathCandidates =
@@ -131,6 +133,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 optimizationOpportunities.AddRange(r.Opportunities);
             if (r.Suppressed)
                 suppressedOpportunityTokens.Add(r.Token);
+            if (r.ScopeExcluded)
+                scopeExcludedOpportunityTokens.Add(r.Token);
             if (r.HasSignals)
                 bodySignals[r.Token] = r.Signals;
             if (r.Diagnostic is not null)
@@ -178,6 +182,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
             Optimizations: new(
                 Opportunities: optimizationOpportunities.ToImmutable(),
                 SuppressedMethodTokens: suppressedOpportunityTokens,
+                ScopeExcludedMethodTokens:
+                    scopeExcludedOpportunityTokens,
                 ExceptionTypeNames: _exceptionTypeNames),
             OwnershipFlow: new(ownershipFlow.ToImmutable()),
             Resources: new(leakTriageResult),
