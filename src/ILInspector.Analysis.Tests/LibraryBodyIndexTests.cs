@@ -4218,6 +4218,138 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void
+        OptimizationOpportunities_ScopedAmbiguousSourceFailsClosed()
+    {
+        byte[] image =
+            BuildMalformedAsyncSourceAssembly(
+                ambiguousSource: true,
+                moveNextSmallArray: true);
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"AmbiguousAsyncArray-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(path, image);
+            var full = LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities);
+            MethodIdentity moveNext = Assert.Single(
+                full.Methods,
+                method => method.Name == "MoveNext"
+                    && method.ParameterTypes.IsDefaultOrEmpty);
+            var scoped = LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+                bodyTypeScope:
+                    type => type.Equals(
+                        moveNext.DeclaringType));
+
+            Assert.Contains(
+                full.OptimizationOpportunities,
+                opportunity => opportunity.Shape == "small-array"
+                    && opportunity.Method.MetadataToken
+                        == moveNext.MetadataToken);
+            Assert.Contains(
+                scoped.Diagnostics,
+                diagnostic => diagnostic.MethodToken
+                        == moveNext.MetadataToken
+                    && diagnostic.Message.Contains(
+                        "Multiple async source methods",
+                        StringComparison.Ordinal));
+            Assert.DoesNotContain(
+                scoped.OptimizationOpportunities,
+                opportunity => opportunity.Method.MetadataToken
+                    == moveNext.MetadataToken);
+            Assert.DoesNotContain(
+                scoped.AllocationFanoutOpportunities,
+                opportunity => opportunity.Method.MetadataToken
+                    == moveNext.MetadataToken);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void
+        OptimizationOpportunities_ScopedUnresolvedLiftedSourceFailsClosed()
+    {
+        byte[] image =
+            BuildMalformedAsyncSourceAssembly(
+                moveNextSmallArray: true,
+                unresolvedLiftedSource: true);
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"UnresolvedLiftedAsyncArray-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(path, image);
+            var full = LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities);
+            MethodIdentity moveNext = Assert.Single(
+                full.Methods,
+                method => method.Name == "MoveNext"
+                    && method.ParameterTypes.IsDefaultOrEmpty);
+            MethodIdentity kickoff = Assert.Single(
+                full.Methods,
+                method => method.Name
+                    == "<Outer>b__0_0");
+            var scoped = LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+                bodyTypeScope:
+                    type => type.Equals(
+                        kickoff.DeclaringType));
+
+            Assert.Contains(
+                full.OptimizationOpportunities,
+                opportunity => opportunity.Shape == "small-array"
+                    && opportunity.Method.MetadataToken
+                        == moveNext.MetadataToken);
+            Assert.Contains(
+                full.OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method == kickoff
+                    && opportunity.EvidenceMethodToken
+                        == moveNext.MetadataToken);
+            Assert.Null(
+                full.ResolveDeclaredMethod(moveNext));
+            Assert.Contains(
+                scoped.GetAllocationOccurrences(),
+                pair => pair.Key == moveNext.MetadataToken);
+            Assert.DoesNotContain(
+                scoped.OptimizationOpportunities,
+                opportunity => opportunity.Method.MetadataToken
+                    == moveNext.MetadataToken);
+            Assert.DoesNotContain(
+                scoped.OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method == kickoff
+                    && opportunity.EvidenceMethodToken
+                        == moveNext.MetadataToken);
+            Assert.Null(
+                scoped.ResolveDeclaredMethod(moveNext));
+            Assert.DoesNotContain(
+                scoped.AllocationFanoutOpportunities,
+                opportunity => opportunity.Method.MetadataToken
+                    == moveNext.MetadataToken);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void OptimizationOpportunities_MalformedParallelStateMapPreservesCalls()
     {
         byte[] image =
@@ -4239,7 +4371,9 @@ public class LibraryBodyIndexTests
     static byte[] BuildMalformedAsyncSourceAssembly(
         bool ambiguousSource = false,
         bool malformedMoveNextMethodImpl = false,
-        int extraMethodCount = 0)
+        int extraMethodCount = 0,
+        bool moveNextSmallArray = false,
+        bool unresolvedLiftedSource = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -4418,7 +4552,10 @@ public class LibraryBodyIndexTests
                 MethodAttributes.Public
                     | MethodAttributes.Static,
                 MethodImplAttributes.IL,
-                metadata.GetOrAddString("AnalyzeAsync"),
+                metadata.GetOrAddString(
+                    unresolvedLiftedSource
+                        ? "<Outer>b__0_0"
+                        : "AnalyzeAsync"),
                 taskSignature,
                 AddRetBody(bodyEncoder),
                 MetadataTokens.ParameterHandle(1));
@@ -4441,12 +4578,23 @@ public class LibraryBodyIndexTests
             MetadataTokens.ParameterHandle(1));
 
         var moveNextIl = new BlobBuilder();
+        if (moveNextSmallArray)
+        {
+            moveNextIl.WriteByte(
+                (byte)ILOpCode.Ldc_i4_0);
+            moveNextIl.WriteByte(
+                (byte)ILOpCode.Newarr);
+            moveNextIl.WriteInt32(
+                MetadataTokens.GetToken(sourceType));
+            moveNextIl.WriteByte(
+                (byte)ILOpCode.Pop);
+        }
         moveNextIl.WriteByte((byte)ILOpCode.Call);
         moveNextIl.WriteInt32(MetadataTokens.GetToken(read));
         moveNextIl.WriteByte((byte)ILOpCode.Ret);
         int moveNextBody = bodyEncoder.AddMethodBody(
             new InstructionEncoder(moveNextIl),
-            maxStack: 0);
+            maxStack: moveNextSmallArray ? 1 : 0);
         MethodDefinitionHandle moveNext =
             metadata.AddMethodDefinition(
             MethodAttributes.Public
@@ -10507,6 +10655,228 @@ public class LibraryBodyIndexTests
             call => call.Caller == expected.Caller
                 && call.EvidenceMethod == expected.EvidenceMethod
                 && call.Callee == expected.Callee);
+    }
+
+    [Fact]
+    public void
+        DirectCalls_ClosureTypeScopeRetainsAsyncLambdaMoveNext()
+    {
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        var full = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        DirectCall expected = Assert.Single(
+            full.DirectCalls,
+            call => call.Caller.Name
+                    == "ScopedCapturingAsyncLambdaOwner"
+                && call.EvidenceMethod.Name == "MoveNext"
+                && call.Callee.Name == "GetAwaiter");
+        MethodIdentity kickoff = Assert.Single(
+            full.Methods,
+            method => method.Name.StartsWith(
+                "<ScopedCapturingAsyncLambdaOwner>b__",
+                StringComparison.Ordinal));
+
+        var scoped = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence,
+            bodyTypeScope:
+                type => type.Equals(
+                    kickoff.DeclaringType));
+
+        Assert.Contains(
+            scoped.DirectCalls,
+            call => call.Caller == expected.Caller
+                && call.EvidenceMethod
+                    == expected.EvidenceMethod
+                && call.Callee == expected.Callee);
+    }
+
+    [Fact]
+    public void
+        OptimizationOpportunities_ClosureTypeScopeDoesNotLeakAsyncLambdaOwner()
+    {
+        const string ownerName =
+            "ScopedAsyncLambdaRecommendationOwner";
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        var full = LibraryBodyIndex.Open(path);
+        MethodIdentity owner = Assert.Single(
+            full.Methods,
+            method => method.Name == ownerName);
+        MethodIdentity kickoff = Assert.Single(
+            full.Methods,
+            method => method.Name.StartsWith(
+                $"<{ownerName}>b__",
+                StringComparison.Ordinal));
+        OptimizationOpportunity opportunity = Assert.Single(
+            full.OptimizationOpportunities,
+            candidate => candidate.Shape == "sync-call-in-async"
+                && candidate.Method == kickoff);
+        MethodIdentity evidence = Assert.Single(
+            full.Methods,
+            method => method.MetadataToken
+                == Assert.IsType<int>(
+                    opportunity.EvidenceMethodToken));
+
+        Assert.Equal("MoveNext", evidence.Name);
+        Assert.Equal(
+            owner,
+            full.ResolveDeclaredMethod(kickoff));
+        Assert.Equal(
+            owner,
+            full.ResolveDeclaredMethod(evidence));
+
+        DirectCall expectedCall = Assert.Single(
+            full.DirectCalls,
+            call => call.Caller == owner
+                && call.EvidenceMethod == evidence
+                && call.Callee.Name
+                    == nameof(ClassicAsyncSiblingFixture
+                        .ReadValue));
+        var scoped = LibraryBodyIndex.Open(
+            path,
+            bodyTypeScope:
+                type => type.Equals(
+                    kickoff.DeclaringType));
+
+        Assert.Contains(
+            scoped.DirectCalls,
+            call => call == expectedCall);
+        Assert.Equal(
+            owner,
+            scoped.ResolveDeclaredMethod(evidence));
+        Assert.DoesNotContain(
+            scoped.OptimizationOpportunities,
+            candidate => candidate.Shape
+                    == opportunity.Shape
+                && candidate.Method == kickoff
+                && candidate.EvidenceMethodToken
+                    == opportunity.EvidenceMethodToken);
+    }
+
+    [Fact]
+    public void
+        OptimizationOpportunities_ClosureTypeScopePreservesSuppression()
+    {
+        const string ownerName =
+            "ScopedAllocationHotspotLambdaOwner";
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        var full = LibraryBodyIndex.Open(path);
+        MethodIdentity kickoff = Assert.Single(
+            full.Methods,
+            method => method.Name.StartsWith(
+                $"<{ownerName}>b__",
+                StringComparison.Ordinal));
+        Assert.True(
+            full.GetAllocationOccurrences().TryGetValue(
+                kickoff.MetadataToken,
+                out ImmutableArray<AllocationOccurrence>
+                    fullAllocations));
+        Assert.True(
+            fullAllocations.Count(
+                allocation => allocation.CountsAsHeapAllocation
+                    && allocation.InLoop) >= 16);
+
+        Assert.DoesNotContain(
+            full.OptimizationOpportunities,
+            candidate => candidate.Shape
+                    == "allocation-hotspot"
+                && candidate.Method == kickoff);
+        Assert.Contains(
+            full.AllocationFanoutOpportunities,
+            candidate => candidate.Method == kickoff);
+
+        var scoped = LibraryBodyIndex.Open(
+            path,
+            bodyTypeScope:
+                type => type.Equals(
+                    kickoff.DeclaringType));
+        Assert.True(
+            scoped.GetAllocationOccurrences().TryGetValue(
+                kickoff.MetadataToken,
+                out ImmutableArray<AllocationOccurrence>
+                    scopedAllocations));
+        Assert.Equal(fullAllocations, scopedAllocations);
+
+        Assert.DoesNotContain(
+            scoped.OptimizationOpportunities,
+            candidate => candidate.Shape
+                    == "allocation-hotspot"
+                && candidate.Method == kickoff);
+        Assert.DoesNotContain(
+            scoped.AllocationFanoutOpportunities,
+            candidate => candidate.Method == kickoff);
+    }
+
+    [Fact]
+    public void
+        OptimizationOpportunities_ClosureTypeScopeSuppressesAsyncDerivedRows()
+    {
+        const string ownerName =
+            "ScopedAsyncAllocationHotspotLambdaOwner";
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        var full = LibraryBodyIndex.Open(path);
+        MethodIdentity kickoff = Assert.Single(
+            full.Methods,
+            method => method.Name.StartsWith(
+                $"<{ownerName}>b__",
+                StringComparison.Ordinal)
+                && method.ReturnType
+                    .ToQualifiedDisplayString()
+                    .StartsWith(
+                        "System.Threading.Tasks.Task<",
+                        StringComparison.Ordinal));
+        OptimizationOpportunity shaped = Assert.Single(
+            full.OptimizationOpportunities,
+            candidate => candidate.Shape
+                    == "capturing-delegate"
+                && candidate.Method.Name == "MoveNext"
+                && candidate.Method.DeclaringType
+                    .ToQualifiedDisplayString()
+                    .Contains(
+                        ownerName,
+                        StringComparison.Ordinal));
+        MethodIdentity evidence = shaped.Method;
+        Assert.True(
+            full.GetAllocationOccurrences().TryGetValue(
+                evidence.MetadataToken,
+                out ImmutableArray<AllocationOccurrence>
+                    fullAllocations));
+        Assert.True(
+            fullAllocations.Count(
+                allocation => allocation.CountsAsHeapAllocation
+                    && allocation.InLoop) >= 16);
+        Assert.DoesNotContain(
+            full.OptimizationOpportunities,
+            candidate => candidate.Shape
+                    == "allocation-hotspot"
+                && candidate.Method == evidence);
+        Assert.Contains(
+            full.AllocationFanoutOpportunities,
+            candidate => candidate.Method == evidence);
+
+        var scoped = LibraryBodyIndex.Open(
+            path,
+            bodyTypeScope:
+                type => type.Equals(
+                    kickoff.DeclaringType));
+        Assert.True(
+            scoped.GetAllocationOccurrences().TryGetValue(
+                evidence.MetadataToken,
+                out ImmutableArray<AllocationOccurrence>
+                    scopedAllocations));
+        Assert.Equal(fullAllocations, scopedAllocations);
+
+        Assert.DoesNotContain(
+            scoped.OptimizationOpportunities,
+            candidate => candidate.Method == evidence);
+        Assert.DoesNotContain(
+            scoped.AllocationFanoutOpportunities,
+            candidate => candidate.Method == evidence);
     }
 
     [Fact]
