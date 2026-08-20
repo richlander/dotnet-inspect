@@ -548,6 +548,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                             plan.RequestedMethodScope?.Contains(
                                 MetadataTokens.GetToken(
                                     methodHandle))
+                                == true
+                            || plan.TypeScope?.Invoke(
+                                method.DeclaringType)
                                 == true)
                         && sourceOwner is not null)
                     {

@@ -5,9 +5,10 @@ namespace DotnetInspector.Tests;
 
 /// <summary>
 /// Locks the type-targeted-decode invariant: opening a <see cref="Analysis.LibraryBodyIndex"/> with a
-/// <c>bodyTypeScope</c> predicate restricted to one declaring type decodes only that type's method
-/// bodies, yet produces per-method facts (direct calls, unsafe evidence, unsafety occurrences,
-/// allocation occurrences) identical to the full whole-assembly build for every method of that type.
+/// <c>bodyTypeScope</c> predicate restricted to one declaring type analyzes only evidence bodies
+/// belonging to that type or to source methods of that type, yet produces per-evidence-method facts
+/// (direct calls, unsafe evidence, unsafety occurrences, allocation occurrences) identical to the
+/// full whole-assembly build for every method of that type.
 /// This is what lets the type command render Unsafe Members / Called Types / Allocation-Safety-Cost
 /// facts for one type — including its private/compiler-generated methods — without decoding every
 /// method in the assembly. Unlike a token <c>bodyScope</c> (member command), a declaring-type
@@ -28,11 +29,24 @@ public class TypeTargetedDecodeTests
             .OrderByDescending(g => g.Count())
             .First().Key;
 
+    static string CallFacts(
+        Analysis.LibraryBodyIndex index,
+        int evidenceToken) =>
+        string.Join(
+            ";",
+            index.DirectCalls
+                .Where(call =>
+                    call.EvidenceMethod.MetadataToken
+                        == evidenceToken)
+                .Select(call => call.ToString())
+                .OrderBy(
+                    value => value,
+                    StringComparer.Ordinal));
+
     [Fact]
     public void TypeTargetedBuild_MatchesFullBuild_ForEveryMethodOfTheType()
     {
         var full = Analysis.LibraryBodyIndex.Open(SelfPath);
-        var fullCalls = full.GetDirectCallsByCaller();
         var fullUnsafe = full.GetUnsafeEvidenceByMember();
         var fullUnsafety = full.GetUnsafetyOccurrences();
         var fullAlloc = full.GetAllocationOccurrences();
@@ -42,14 +56,20 @@ public class TypeTargetedDecodeTests
         Assert.NotEmpty(tokens);
 
         var targeted = Analysis.LibraryBodyIndex.Open(SelfPath, bodyTypeScope: tr => tr.Equals(target));
-        var tCalls = targeted.GetDirectCallsByCaller();
         var tUnsafe = targeted.GetUnsafeEvidenceByMember();
         var tUnsafety = targeted.GetUnsafetyOccurrences();
         var tAlloc = targeted.GetAllocationOccurrences();
 
+        Assert.Contains(
+            targeted.DirectCalls,
+            call => call.EvidenceMethod.DeclaringType.Equals(
+                    target)
+                && !call.Caller.DeclaringType.Equals(target));
         foreach (var token in tokens)
         {
-            Assert.Equal(Facts(fullCalls, token), Facts(tCalls, token));
+            Assert.Equal(
+                CallFacts(full, token),
+                CallFacts(targeted, token));
             Assert.Equal(Facts(fullUnsafe, token), Facts(tUnsafe, token));
             Assert.Equal(Facts(fullUnsafety, token), Facts(tUnsafety, token));
             Assert.Equal(Facts(fullAlloc, token), Facts(tAlloc, token));
@@ -65,11 +85,14 @@ public class TypeTargetedDecodeTests
 
         var targeted = Analysis.LibraryBodyIndex.Open(SelfPath, bodyTypeScope: tr => tr.Equals(target));
 
-        // Every decoded direct-call caller belongs to the scoped type; no other type is decoded.
-        foreach (var caller in targeted.GetDirectCallsByCaller().Keys)
-            Assert.Contains(caller, inScope);
+        // Every direct-call evidence body belongs to the scoped type; declared callers may
+        // belong to source-owner types outside that physical scope.
+        foreach (var call in targeted.DirectCalls)
+            Assert.Contains(
+                call.EvidenceMethod.MetadataToken,
+                inScope);
 
         // At least one method of the target type actually decoded (the type has bodies with calls).
-        Assert.NotEmpty(targeted.GetDirectCallsByCaller());
+        Assert.NotEmpty(targeted.DirectCalls);
     }
 }

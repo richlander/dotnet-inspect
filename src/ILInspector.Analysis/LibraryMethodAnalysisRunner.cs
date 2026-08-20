@@ -241,6 +241,10 @@ internal sealed class LibraryMethodAnalysisRunner(
             {
                 return result;
             }
+            bool directlySelectedType =
+                bodyTypeScope?.Invoke(
+                    caller.DeclaringType)
+                    == true;
             if (bodyTypeScope is not null)
             {
                 TypeRef? sourceType = null;
@@ -254,11 +258,17 @@ internal sealed class LibraryMethodAnalysisRunner(
                     mappedEvidence
                         ? sourceType!
                         : caller.DeclaringType;
-                if (!bodyTypeScope(scopedType))
+                if (!directlySelectedType
+                    && !bodyTypeScope(scopedType))
                     return result;
             }
             try
             {
+                bool directlySelectedBody =
+                    requestedMethodScope?.Contains(
+                        caller.MetadataToken)
+                        == true
+                    || directlySelectedType;
                 MethodIdentity? declaredMethod =
                     _infrastructure.ResolveDeclaredMethod(
                         methodHandle,
@@ -268,9 +278,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                         bodyScope,
                         bodyTypeScope,
                         requestedMethodScope,
-                        requestedMethodScope?.Contains(
-                            caller.MetadataToken)
-                            == true);
+                        directlySelectedBody);
                 result.DeclaredMethod = declaredMethod;
                 result.DeclaredSource = declaredMethod;
             }
