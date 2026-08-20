@@ -37,6 +37,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
     {
         var declaredMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
         var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
+        var declaredMethodsByBody =
+            new Dictionary<MethodIdentity, MethodIdentity>();
         var unsafeLeverageMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
         var calls = ImmutableArray.CreateBuilder<DirectCall>();
         var unsafeEvidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
@@ -54,7 +56,18 @@ internal sealed class LibraryBodyAnalysisAccumulator
             ImmutableArray.CreateBuilder<LeakTriageFailure>();
         var ownershipFlow =
             ImmutableArray.CreateBuilder<ArrayPoolOwnershipMethodEvidence>();
+        var declaredSources = new Dictionary<int, MethodIdentity>();
         int none = 0, impl = 0, expl = 0;
+
+        foreach (var result in results)
+        {
+            if (result.HasCaller
+                && result.DeclaredMethod is not null)
+            {
+                declaredMethodsByBody[result.Caller!] =
+                    result.DeclaredMethod;
+            }
+        }
 
         // Merge per-method results in metadata order, reproducing the exact sequence of appends
         // the original sequential loop performed. A method that hit a recoverable failure carries
@@ -97,7 +110,19 @@ internal sealed class LibraryBodyAnalysisAccumulator
             if (r.HasBody)
                 methods.Add(r.Caller!);
             if (!r.Calls.IsDefaultOrEmpty)
-                calls.AddRange(r.Calls);
+            {
+                calls.AddRange(
+                    r.Calls.Select(call =>
+                    {
+                        MethodIdentity declared =
+                            ResolveDeclaredMethod(
+                                call.Caller,
+                                declaredMethodsByBody);
+                        return declared == call.Caller
+                            ? call
+                            : call with { Caller = declared };
+                    }));
+            }
             if (!r.Allocations.IsDefaultOrEmpty)
                 allocationOccurrences[r.Token] = r.Allocations;
             if (!r.Unsafety.IsDefaultOrEmpty)
@@ -110,6 +135,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 bodySignals[r.Token] = r.Signals;
             if (r.Diagnostic is not null)
                 diagnostics.Add(r.Diagnostic);
+            if (r.DeclaredSource is { } declaredSource)
+                declaredSources[r.Token] = declaredSource;
         }
 
         var methodArray = methods.ToImmutable();
@@ -139,7 +166,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
                         (string Namespace, string Name),
                         bool>(),
                 NonHeapNewObjOperandTokens:
-                    nonHeapNewObjOperandTokens),
+                    nonHeapNewObjOperandTokens,
+                DeclaredSources: declaredSources),
             Safety: new(
                 Evidence: unsafeEvidence.ToImmutable(),
                 LeverageMethods: unsafeLeverageMethods.ToImmutable(),
@@ -154,6 +182,30 @@ internal sealed class LibraryBodyAnalysisAccumulator
             OwnershipFlow: new(ownershipFlow.ToImmutable()),
             Resources: new(leakTriageResult),
             Diagnostics: diagnostics.ToImmutable());
+    }
+
+    static MethodIdentity ResolveDeclaredMethod(
+        MethodIdentity method,
+        IReadOnlyDictionary<MethodIdentity, MethodIdentity>
+            declaredMethodsByBody)
+    {
+        MethodIdentity current = method;
+        for (int depth = 0;
+            depth <= declaredMethodsByBody.Count;
+            depth++)
+        {
+            if (!declaredMethodsByBody.TryGetValue(
+                    current,
+                    out MethodIdentity? declared)
+                || declared == current)
+            {
+                return current;
+            }
+            current = declared;
+        }
+
+        throw new InvalidOperationException(
+            "Declared-method resolution contains a cycle.");
     }
 
     // (struct/enum) and therefore do not allocate on the heap (#1804). Classified here,
