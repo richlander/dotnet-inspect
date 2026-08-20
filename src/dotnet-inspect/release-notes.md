@@ -41,6 +41,9 @@
 - Top Leverage ranking now uses the typed query path, and call-graph selectors
   preserve physical file identity and full signature structure across scoped
   projections (#4335, #4388, #4396).
+- Adds the opt-in Call Graph `AsyncAlternatives` field for per-method
+  `sync-call-in-async` opportunity counts while Performance Triage retains the
+  exact call-site evidence and replacement (#4380).
 
 ### Acquisition and safety
 
