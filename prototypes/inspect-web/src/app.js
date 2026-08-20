@@ -910,13 +910,18 @@ function toggleLibraryChip(name) {
 
 // Reset the type cursor/selection to the first in-scope type after the library
 // scope changes, keeping the current namespace/kind filters.
-function afterLibraryScopeChange() {
+function normalizeLibrarySelection() {
   state.typeCursor = 0;
   const first = filteredTypes()[0];
-  if (first) state.selectedTypeId = first.id;
+  state.selectedTypeId = first?.id || "";
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
+  state.selectedOverloadIndex = null;
   resetMemberFilters();
+}
+
+function afterLibraryScopeChange() {
+  normalizeLibrarySelection();
   render();
 }
 
@@ -3749,6 +3754,10 @@ function bindEvents() {
       recordPlatformRecent(key, pack);
       state.atPackageRoot = true;
       state.packageLens = lens;
+      state.namespaceFilter = "";
+      state.typeFilter = "";
+      state.kindFilter = "";
+      normalizeLibrarySelection();
       loader();
     }));
   };
@@ -7644,6 +7653,7 @@ async function restorePlatformScopeThenDeepLink(loc, navigationSeq) {
     navigationSeq,
     () => restorePlatformScopeThenDeepLink(loc, state.navigationSeq));
   if (navigationSeq !== state.navigationSeq) return;
+  applyLocationView(loc);
   applyDeepLink(loc);
   render();
   loadSelectionData();
@@ -7691,6 +7701,7 @@ async function restoreRuntimePackFromHistory(loc, deep, navigationSeq) {
           state.navigationSeq));
       if (navigationSeq !== state.navigationSeq) return;
     }
+    applyLocationView(loc);
     applyDeepLink(deep);
   } else {
     appendQueryNotice(

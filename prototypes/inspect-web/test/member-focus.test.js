@@ -39,7 +39,10 @@ test("navigation focus and scroll survive completion before loading focus restor
   const { document, element, elements } = createDocument();
   const initialList = element("#type-list", {
     id: "type-list",
-    dataset: { navScope: "members:Type0" },
+    dataset: {
+      navScope: "members:Type0",
+      navSelection: "member:Build",
+    },
     scrollTop: 87,
   });
   document.activeElement = initialList;
@@ -48,7 +51,10 @@ test("navigation focus and scroll survive completion before loading focus restor
   initialList.isConnected = false;
   const replacementList = element("#type-list", {
     id: "type-list",
-    dataset: { navScope: "members:Type0" },
+    dataset: {
+      navScope: "members:Type0",
+      navSelection: "member:Build",
+    },
   });
   document.activeElement = document.body;
   const completion = resolveMemberFocusSnapshot(
@@ -94,6 +100,34 @@ test("navigation scroll is not copied into a different list scope", () => {
   });
 
   assert.equal(memberList.scrollTop, 0);
+});
+
+test("navigation scroll yields to a changed selection in the same scope", () => {
+  const { document, element } = createDocument();
+  element("#type-list", {
+    id: "type-list",
+    dataset: {
+      navScope: "members:Type0",
+      navSelection: "member:Build",
+    },
+    scrollTop: 87,
+  });
+  const snapshot = captureMemberFocus(document, value => value);
+  const memberList = element("#type-list", {
+    id: "type-list",
+    dataset: {
+      navScope: "members:Type0",
+      navSelection: "member:Run",
+    },
+  });
+  memberList.scrollTop = 300;
+
+  restoreMemberFocus(document, snapshot, callback => {
+    callback(0);
+    return 1;
+  });
+
+  assert.equal(memberList.scrollTop, 300);
 });
 
 test("member-filter selection survives a replacement render", () => {

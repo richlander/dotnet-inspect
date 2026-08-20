@@ -132,7 +132,7 @@ export function renderTypeNav(options: TypeNavOptions): string {
         ${accessibilityControlHtml}
         ${libraryControlHtml}
       </div>
-      <div class="type-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="types">
+      <div class="type-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="types" data-nav-selection="type:${escapeHtml(current.id)}">
         ${[...typeGroups].map(([namespace, types]) => `
           <section class="type-group">
             <button class="namespace-row" data-namespace="${escapeHtml(namespace)}">
@@ -174,6 +174,11 @@ export function renderMemberNav(options: MemberNavOptions): string {
     selectedMemberKey, selectedOverloadIndex,
     escapeHtml, typeDisplayName, shortKind, highlight,
   } = options;
+  const navigationSelection = selectedMemberKey
+    ? (selectedOverloadIndex == null
+      ? `member:${selectedMemberKey}`
+      : `overload:${selectedMemberKey}:${selectedOverloadIndex}`)
+    : "";
   return `
     <aside class="type-browser member-nav" aria-label="Members of ${escapeHtml(typeDisplayName(type))}">
       <div class="browser-head">
@@ -188,7 +193,7 @@ export function renderMemberNav(options: MemberNavOptions): string {
         <small>types</small>
       </button>
       ${filterControlsHtml}
-      <div class="type-list member-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="members:${escapeHtml(type.id)}">
+      <div class="type-list member-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="members:${escapeHtml(type.id)}" data-nav-selection="${escapeHtml(navigationSelection)}">
         ${entries.map(entry => {
           if (entry.kind === "member") {
             const group = entry.group;

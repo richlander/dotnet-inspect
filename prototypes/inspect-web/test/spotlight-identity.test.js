@@ -470,6 +470,18 @@ test("home demos restore the complete parsed location", () => {
   assert.match(
     appSource,
     /function applyLocationView\(loc\) \{\s*state\.lens = loc\.lens \|\| "api";\s*state\.atPackageRoot = loc\.atPackageRoot \|\| false;\s*state\.packageLens = loc\.packageLens \|\| "overview";/);
+  const platformHistory =
+    appSource.match(/async function restorePlatformScopeThenDeepLink\([\s\S]*?\n}\n\n\/\/ Load and scope/)?.[0]
+    ?? "";
+  assert.match(
+    platformHistory,
+    /await applyPlatformLibraryScope\([\s\S]*applyLocationView\(loc\);\s*applyDeepLink\(loc\)/);
+  const runtimeHistory =
+    appSource.match(/async function restoreRuntimePackFromHistory\([\s\S]*?\n}\n\nbootstrap\(\);/)?.[0]
+    ?? "";
+  assert.match(
+    runtimeHistory,
+    /await applyPlatformLibraryScope\([\s\S]*applyLocationView\(loc\);\s*applyDeepLink\(deep\)/);
 });
 
 test("opening an already-resident Platform resets type-specific member filters", () => {
@@ -479,6 +491,18 @@ test("opening an already-resident Platform resets type-specific member filters",
   assert.match(
     openPlatform,
     /state\.atPackageRoot = true;\s*state\.packageLens = "overview";\s*resetMemberFilters\(\);\s*state\.selectedTypeId = pack\.types\[0\]\?\.id \|\| "";/);
+});
+
+test("lens-scoped Platform library changes reset type-specific member state", () => {
+  const picker =
+    appSource.match(/const bindPlatformLensPicker = [\s\S]*?bindPlatformLensPicker\("data-platform-integrations-library"/)?.[0]
+    ?? "";
+  assert.match(
+    picker,
+    /state\.libraryScope = new Set\(\[key\]\);[\s\S]*state\.atPackageRoot = true;\s*state\.packageLens = lens;\s*state\.namespaceFilter = "";\s*state\.typeFilter = "";\s*state\.kindFilter = "";\s*normalizeLibrarySelection\(\);\s*loader\(\)/);
+  assert.match(
+    appSource,
+    /function normalizeLibrarySelection\(\) \{[\s\S]*state\.selectedTypeId = first\?\.id \|\| "";[\s\S]*state\.selectedMemberKey = "";[\s\S]*state\.selectedOverloadIndex = null;[\s\S]*resetMemberFilters\(\)[\s\S]*function afterLibraryScopeChange\(\) \{\s*normalizeLibrarySelection\(\);\s*render\(\)/);
 });
 
 test("settings keep a viewport-bounded scroll region", () => {

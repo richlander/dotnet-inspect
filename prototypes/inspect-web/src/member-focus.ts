@@ -6,6 +6,7 @@ export interface MemberFocusSnapshot {
     direction: "forward" | "backward" | "none" | null;
   } | null;
   navigationScope: string | null;
+  navigationSelection: string | null;
   navigationScrollTop: number | null;
   focusLost: boolean;
 }
@@ -57,6 +58,7 @@ export function captureMemberFocus(
     selector,
     selection,
     navigationScope: navigationList?.dataset.navScope ?? null,
+    navigationSelection: navigationList?.dataset.navSelection ?? null,
     navigationScrollTop: navigationList?.scrollTop ?? null,
     focusLost:
       active === null
@@ -89,6 +91,7 @@ export function restoreMemberFocus(
     if (navigationList
       && snapshot.navigationScope !== null
       && navigationList.dataset.navScope === snapshot.navigationScope
+      && (navigationList.dataset.navSelection ?? null) === snapshot.navigationSelection
       && snapshot.navigationScrollTop !== null) {
       navigationList.scrollTop = snapshot.navigationScrollTop;
     }
