@@ -68,8 +68,12 @@ shortening the selected assembly set.
    `GalleryExternalPagesUseBoundedConcurrency`,
    `GalleryMalformedRegistrationIsTypedPartialEnumeration`, and
    `GalleryIncompleteRegistrationIsTypedPartialEnumeration` gate the source
-   contract. `DependencyRangeUsesAuthoritativeGalleryListingState` gates its
-   Browser consumption.
+   contract. `GalleryCallerCancellationDuringRegistrationRemainsCancellation`
+   distinguishes actual caller cancellation from optional-registration
+   fallback. `DependencyRangeUsesAuthoritativeGalleryListingState`,
+   `BrowserGalleryDeadlineLeavesTimeForPartialRegistration`, and
+   `VersionPickerRetainsFlatListWhenRegistrationTimesOut` gate Browser
+   consumption.
 3. **Hand the group to a query.** The participants open one `InspectionWorkspace`
    and one binding-consistent `AssemblyContextGroup`. `BrowserInspectionScope`
    exposes exactly two hand-offs — `Use(group => query(group))` and

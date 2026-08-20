@@ -1228,7 +1228,27 @@ public sealed class PackageSourceClientTests
         Assert.True(result.HasAuthoritativeListingState);
         Assert.Equal(9, result.Candidates.Count);
         Assert.Equal(9, handler.PageRequests);
-        Assert.InRange(handler.MaxActivePageRequests, 2, 8);
+        Assert.Equal(8, handler.MaxActivePageRequests);
+    }
+
+    [Fact]
+    public async Task GalleryCallerCancellationDuringRegistrationRemainsCancellation()
+    {
+        var handler = new CancelableRegistrationHandler();
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+        using var cancellation = new CancellationTokenSource();
+        Task<PackageSourceOperationResult<PackageVersionResult>> operation =
+            runtime.GetVersionsAsync(
+                "contoso",
+                cancellation.Token);
+        await handler.RegistrationStarted.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => operation);
     }
 
     [Fact]
@@ -2166,6 +2186,7 @@ public sealed class PackageSourceClientTests
 
     private sealed class ConcurrentRegistrationHandler : HttpMessageHandler
     {
+        private const int ExpectedBatchSize = 8;
         private readonly TaskCompletionSource _pageRequestsMayComplete =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _activePageRequests;
@@ -2203,8 +2224,17 @@ public sealed class PackageSourceClientTests
                 ref _activePageRequests);
             UpdateMaximum(active);
             Interlocked.Increment(ref _pageRequests);
-            if (active >= 2)
-                _pageRequestsMayComplete.TrySetResult();
+            if (active == 1)
+            {
+                _ = ReleasePageRequestsAsync(
+                    TimeSpan.FromMilliseconds(200));
+            }
+
+            if (active == ExpectedBatchSize)
+            {
+                _ = ReleasePageRequestsAsync(
+                    TimeSpan.FromMilliseconds(50));
+            }
 
             try
             {
@@ -2231,6 +2261,12 @@ public sealed class PackageSourceClientTests
             }
         }
 
+        private async Task ReleasePageRequestsAsync(TimeSpan delay)
+        {
+            await Task.Delay(delay);
+            _pageRequestsMayComplete.TrySetResult();
+        }
+
         private void UpdateMaximum(int active)
         {
             int observed;
@@ -2251,6 +2287,33 @@ public sealed class PackageSourceClientTests
             {
                 Content = new StringContent(json),
             };
+    }
+
+    private sealed class CancelableRegistrationHandler : HttpMessageHandler
+    {
+        public TaskCompletionSource RegistrationStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (request.RequestUri!.AbsoluteUri == GalleryVersions)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content =
+                        new StringContent("""{"versions":["1.0.0"]}"""),
+                };
+            }
+
+            RegistrationStarted.TrySetResult();
+            await Task.Delay(
+                Timeout.InfiniteTimeSpan,
+                cancellationToken);
+            throw new InvalidOperationException(
+                "The registration stall completed without cancellation.");
+        }
     }
 
     private sealed class TransientGalleryHandler(

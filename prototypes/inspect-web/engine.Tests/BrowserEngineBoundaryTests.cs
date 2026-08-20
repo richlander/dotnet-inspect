@@ -1677,6 +1677,37 @@ public sealed class BrowserEngineBoundaryTests
             handler.Requested);
     }
 
+    [Fact]
+    public void BrowserGalleryDeadlineLeavesTimeForPartialRegistration()
+    {
+        Assert.Equal(
+            TimeSpan.FromSeconds(5),
+            BrowserPackageWorkspace.PackageOperationTimeout
+            - BrowserPackageWorkspace.GalleryOperationTimeout);
+    }
+
+    [Fact]
+    public async Task VersionPickerRetainsFlatListWhenRegistrationTimesOut()
+    {
+        var handler = new StallingGalleryRegistrationHandler();
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(
+                handler,
+                new NuGetFetchOptions
+                {
+                    RequestTimeout = TimeSpan.FromMilliseconds(100),
+                    OperationTimeout = TimeSpan.FromMilliseconds(100),
+                });
+
+        string[] versions = await BrowserPackageWorkspace.GetVersionsAsync(
+            "contoso",
+            source,
+            TimeSpan.FromSeconds(2));
+
+        Assert.Equal(["1.0.0"], versions);
+        Assert.Equal(2, handler.Requests);
+    }
+
     private static BrowserDependencyCoordinateMatch MatchDependencyCoordinate(
         BrowserDependencyCoordinateCandidate[] candidates,
         string packageId,
@@ -2180,6 +2211,35 @@ public sealed class BrowserEngineBoundaryTests
                 {
                     Content = new StringContent(json ?? ""),
                 });
+        }
+    }
+
+    sealed class StallingGalleryRegistrationHandler : HttpMessageHandler
+    {
+        public int Requests { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Requests++;
+            if (request.RequestUri!.AbsoluteUri.Contains(
+                    "v3-flatcontainer",
+                    StringComparison.Ordinal))
+            {
+                return new HttpResponseMessage(
+                    System.Net.HttpStatusCode.OK)
+                {
+                    Content =
+                        new StringContent("""{"versions":["1.0.0"]}"""),
+                };
+            }
+
+            await Task.Delay(
+                Timeout.InfiniteTimeSpan,
+                cancellationToken);
+            throw new InvalidOperationException(
+                "The registration stall completed without cancellation.");
         }
     }
 

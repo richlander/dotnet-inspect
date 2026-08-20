@@ -53,6 +53,11 @@ namespace InspectWeb.Engine;
 /// gate the service-index-free Gallery routes, while
 /// <c>BrowserEngineBoundaryTests.PackageAcquisition_RejectedReservationDisposesGalleryPayload</c>
 /// gates response ownership when Browser capacity policy rejects a transfer.
+/// <c>BrowserEngineBoundaryTests.BrowserGalleryDeadlineLeavesTimeForPartialRegistration</c>
+/// and
+/// <c>BrowserEngineBoundaryTests.VersionPickerRetainsFlatListWhenRegistrationTimesOut</c>
+/// gate the timeout margin that lets optional registration degrade to a partial
+/// version-picker result before the Browser operation ceiling.
 /// </para>
 /// </remarks>
 [SupportedOSPlatform("browser")]
@@ -63,6 +68,8 @@ internal static class BrowserPackageWorkspace
     const int MaxOpenScopes = 4;
     internal static TimeSpan PackageOperationTimeout { get; } =
         TimeSpan.FromSeconds(30);
+    internal static TimeSpan GalleryOperationTimeout { get; } =
+        PackageOperationTimeout - TimeSpan.FromSeconds(5);
 
     static readonly BrowserMsdlProxyHandler MsdlProxyHandler =
         new(new HttpClientHandler());
@@ -76,8 +83,8 @@ internal static class BrowserPackageWorkspace
         PackageSourceClientFactory.CreateGallery(
             new NuGetFetchOptions
             {
-                RequestTimeout = TimeSpan.FromMinutes(2),
-                OperationTimeout = TimeSpan.FromMinutes(2),
+                RequestTimeout = GalleryOperationTimeout,
+                OperationTimeout = GalleryOperationTimeout,
             });
     static readonly BrowserSessionPackageStore Store = new();
     static readonly PackagePayloadLimits PayloadLimits = new()
@@ -509,14 +516,25 @@ internal static class BrowserPackageWorkspace
             timeout);
 
     internal static Task<string[]> GetVersionsAsync(string packageId) =>
+        GetVersionsAsync(
+            packageId,
+            Gallery,
+            PackageOperationTimeout);
+
+    internal static Task<string[]> GetVersionsAsync(
+        string packageId,
+        IPackageSourceClient source,
+        TimeSpan timeout) =>
         RunPackageOperationAsync(
             deadline => GetVersionsCoreAsync(
                 packageId,
+                source,
                 deadline.Token),
-            PackageOperationTimeout);
+            timeout);
 
     static async Task<string[]> GetVersionsCoreAsync(
         string packageId,
+        IPackageSourceClient source,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
@@ -527,7 +545,7 @@ internal static class BrowserPackageWorkspace
         }
 
         PackageVersionResult result = await GetVersionResultAsync(
-            Gallery,
+            source,
             packageId,
             cancellationToken).ConfigureAwait(false);
         return

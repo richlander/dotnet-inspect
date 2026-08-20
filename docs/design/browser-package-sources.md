@@ -669,6 +669,7 @@ The local-folder descriptor remains modeled without a runtime client.
 `GalleryMalformedRegistrationIsTypedPartialEnumeration`,
 `GalleryMalformedExternalPageIsTypedPartialEnumeration`,
 `GalleryIncompleteRegistrationIsTypedPartialEnumeration`,
+`GalleryCallerCancellationDuringRegistrationRemainsCancellation`,
 `GalleryEscapesUnicodePackageIdsAsOneSegment`,
 `GalleryRequestsUseLibraryDeadlines`,
 `CanonicalV3EnumerationReportsUnknownListingState`,
@@ -686,6 +687,11 @@ The local-folder descriptor remains modeled without a runtime client.
 `LegacyLocalSourceRemainsAnExplicitUnsupportedKind` gate these boundaries.
 `BrowserEngineBoundaryTests.DependencyRangeUsesAuthoritativeGalleryListingState`
 gates the Browser's listing-aware dependency range selection.
+`BrowserEngineBoundaryTests.BrowserGalleryDeadlineLeavesTimeForPartialRegistration`
+and
+`BrowserEngineBoundaryTests.VersionPickerRetainsFlatListWhenRegistrationTimesOut`
+gate the deadline margin that preserves partial version-picker enumeration when
+optional registration stalls.
 The existing `NuGetSearchSourcesTests` continue to gate the package-layer
 service-index search behavior and credential-scope canonicalization.
 
