@@ -50,6 +50,10 @@ export function captureMemberFocus(
   } else if (active?.dataset.memberTraitFilter !== undefined) {
     selector =
       `[data-member-trait-filter="${escapeSelectorValue(active.dataset.memberTraitFilter)}"]`;
+  } else if (active?.dataset.navMember !== undefined) {
+    selector = `[data-nav-member="${escapeSelectorValue(active.dataset.navMember)}"]`;
+  } else if (active?.dataset.navOverload !== undefined) {
+    selector = `[data-nav-overload="${escapeSelectorValue(active.dataset.navOverload)}"]`;
   } else if (active?.dataset.packageLens !== undefined) {
     selector = `[data-package-lens="${escapeSelectorValue(active.dataset.packageLens)}"]`;
   } else if (active?.dataset.lens !== undefined) {

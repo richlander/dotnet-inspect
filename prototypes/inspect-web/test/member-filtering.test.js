@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   bodyTargetMatchesOverload,
+  decodeBodyTarget,
+  encodeBodyTarget,
   filterMemberGroups,
   memberGroupMatches,
   memberNavTargetIndex,
@@ -39,6 +41,21 @@ test("body targets must identify the selected overload or one of its accessor bo
       overload),
     false);
   assert.equal(bodyTargetMatchesOverload({}, member, overload), false);
+});
+
+test("body targets round-trip through the compact rich-packet tuple", () => {
+  const target = {
+    memberName: "get_Value",
+    selectorKey: "getter",
+    metadataToken: 11,
+  };
+
+  assert.deepEqual(decodeBodyTarget(encodeBodyTarget(target)), target);
+  assert.deepEqual(
+    decodeBodyTarget(["get_Value", "getter", null]),
+    { memberName: "get_Value", selectorKey: "getter", metadataToken: null });
+  assert.equal(decodeBodyTarget([null, null, null]), null);
+  assert.equal(decodeBodyTarget(["get_Value", "getter", "11"]), null);
 });
 
 test("history restores type filters independently of Member browse scope", () => {

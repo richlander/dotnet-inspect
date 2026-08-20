@@ -459,8 +459,16 @@ test("shared member views retain scope and filter state", () => {
   assert.match(encoder, /packet\.k = state\.memberKindFilter/);
   assert.match(encoder, /packet\.e = state\.memberAccessibilityFilter/);
   assert.match(encoder, /packet\.r = state\.memberTraitFilter/);
+  assert.match(encoder, /packet\.d = encodeBodyTarget\(state\.selectedBodyTarget\)/);
   assert.match(decoder, /memberBrowse: raw\.b === 1/);
+  assert.match(decoder, /bodyTarget: decodeBodyTarget\(raw\.d\)/);
   assert.match(appSource, /if \(deep\.memberBrowse && groups\.length\)\s*state\.memberBrowseTypeId = type\.id/);
+  assert.match(
+    appSource,
+    /state\.selectedBodyTarget = null;[\s\S]*bodyTargetMatchesOverload\(deep\.bodyTarget, group, restoredOverload\)[\s\S]*state\.selectedBodyTarget = deep\.bodyTarget/);
+  assert.match(
+    appSource,
+    /function selectMemberNavEntry\(entry, focusList\) \{\s*const preservedFocus = captureMemberFocus\(document, cssEscape\);[\s\S]*memberFocusRestorer\.schedule\(\s*document,\s*preservedFocus/);
   assert.match(
     appSource,
     /window\.addEventListener\("popstate"[\s\S]*const deep = loc;[\s\S]*restoreWorkspaceFromLocation\(loc, deep, navigationSeq\)/);

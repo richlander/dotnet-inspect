@@ -43,6 +43,9 @@ import {
   workspaceCoordinatesMatch
 } from "./data.js";
 import {
+  bodyTargetMatchesOverload,
+  decodeBodyTarget,
+  encodeBodyTarget,
   filterMemberGroups,
   MEMBER_TRAITS,
   memberNavTargetIndex,
@@ -556,6 +559,7 @@ function base64UrlDecode(value) {
 //   t = tabs [[id, version, framework], …]   a = active tab index   v = view token
 //   y/m/o/c = selected type / member / overload / member section (type view only)
 //   b/q/k/e/r = member browse scope / text / kind / accessibility / trait filters
+//   d = selected body [member name, selector key, metadata token]
 function encodeShareState() {
   const packet = {
     t: state.packages.map(item => [item.id, item.version, item.activeFramework || ""]),
@@ -576,6 +580,7 @@ function encodeShareState() {
     if (state.selectedMemberKey) packet.m = state.selectedMemberKey;
     if (state.selectedOverloadIndex != null) packet.o = state.selectedOverloadIndex;
     if (state.memberSection && state.memberSection !== "overview") packet.c = state.memberSection;
+    if (state.selectedBodyTarget) packet.d = encodeBodyTarget(state.selectedBodyTarget);
     if (memberScopeIsActive(state, selectedType()?.id)) packet.b = 1;
     if (state.memberTextFilter) packet.q = state.memberTextFilter;
     if (state.memberKindFilter !== "all") packet.k = state.memberKindFilter;
@@ -595,7 +600,7 @@ function decodeShareState(value) {
     if (Array.isArray(raw)) {
       const normalized = normalizeShareTabs(raw);
       if (normalized.error) return { error: normalized.error };
-      return { tabs: normalized.tabs, active: 0, view: "", rich: false, type: null, member: null, overload: null, section: null, library: null };
+      return { tabs: normalized.tabs, active: 0, view: "", rich: false, type: null, member: null, overload: null, section: null, bodyTarget: null, library: null };
     }
     if (raw && Array.isArray(raw.t)) {
       const normalized = normalizeShareTabs(raw.t);
@@ -611,6 +616,7 @@ function decodeShareState(value) {
         member: raw.m != null ? String(raw.m) : null,
         overload: raw.o != null ? String(raw.o) : null,
         section: raw.c != null ? String(raw.c) : null,
+        bodyTarget: decodeBodyTarget(raw.d),
         library: raw.l != null ? String(raw.l) : null,
         memberBrowse: raw.b === 1,
         memberTextFilter: raw.q != null ? String(raw.q) : "",
@@ -651,6 +657,7 @@ function parseLocation() {
   let member = params.get("member");
   let overload = params.get("overload");
   let section = params.get("section");
+  let bodyTarget = null;
   let viewToken = location.hash.slice(1);
   let tabs = [];
   let active = 0;
@@ -674,6 +681,7 @@ function parseLocation() {
       member = share.member;
       overload = share.overload;
       section = share.section;
+      bodyTarget = share.bodyTarget;
       library = share.library;
       memberBrowse = share.memberBrowse;
       memberTextFilter = share.memberTextFilter;
@@ -703,6 +711,7 @@ function parseLocation() {
     member,
     overload,
     section,
+    bodyTarget,
     lens: view.lens,
     atPackageRoot: view.atPackageRoot,
     packageLens: view.packageLens,
@@ -742,6 +751,7 @@ const initialDeepLink = {
   member: initialLocation.member,
   overload: initialLocation.overload,
   section: initialLocation.section,
+  bodyTarget: initialLocation.bodyTarget,
   memberBrowse: initialLocation.memberBrowse,
   memberTextFilter: initialLocation.memberTextFilter,
   memberKindFilter: initialLocation.memberKindFilter,
@@ -1433,6 +1443,7 @@ function memberNavCursor(entries) {
 }
 
 function selectMemberNavEntry(entry, focusList) {
+  const preservedFocus = captureMemberFocus(document, cssEscape);
   if (entry.kind === "member") {
     if (entry.group.key === state.selectedMemberKey && entry.group.overloads.length === 1) {
       render();
@@ -1443,6 +1454,10 @@ function selectMemberNavEntry(entry, focusList) {
     if (entry.group.key !== state.selectedMemberKey) state.selectedMemberKey = entry.group.key;
     openOverload(entry.index);
   }
+  memberFocusRestorer.schedule(
+    document,
+    preservedFocus,
+    requestAnimationFrame);
   requestAnimationFrame(() => {
     if (focusList) document.querySelector("#type-list")?.focus();
     document.querySelector("#type-list .selected")?.scrollIntoView({ block: "nearest" });
@@ -4819,6 +4834,7 @@ async function pickSpotlight(packageResult, typeId) {
   resetMemberFilters();
   state.selectedOverloadIndex = null;
   state.memberSection = "overview";
+  state.selectedBodyTarget = null;
   state.memberSource = null;
   state.memberSourceError = "";
   state.memberCallGraph = null;
@@ -5011,6 +5027,11 @@ function applyDeepLink(deep) {
       if (deep.section
         && memberSectionIdsFor(group).includes(deep.section)) {
         state.memberSection = deep.section;
+      }
+      const restoredOverload = group.overloads[
+        state.selectedOverloadIndex ?? (group.overloads.length === 1 ? 0 : -1)];
+      if (bodyTargetMatchesOverload(deep.bodyTarget, group, restoredOverload)) {
+        state.selectedBodyTarget = deep.bodyTarget;
       }
     }
   }

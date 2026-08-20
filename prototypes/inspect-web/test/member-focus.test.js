@@ -233,6 +233,29 @@ test("scope and lens controls survive a replacement render", () => {
   }
 });
 
+test("member and overload rows survive activation renders", () => {
+  const cases = [
+    ["[data-nav-member=\"method:Build\"]", { navMember: "method:Build" }],
+    ["[data-nav-overload=\"1\"]", { navOverload: "1" }],
+  ];
+
+  for (const [selector, dataset] of cases) {
+    const { document, element } = createDocument();
+    const initialButton = element(selector, { dataset });
+    document.activeElement = initialButton;
+    const snapshot = captureMemberFocus(document, value => value);
+
+    const replacementButton = element(selector, { dataset });
+    document.activeElement = document.body;
+    restoreMemberFocus(document, snapshot, callback => {
+      callback(0);
+      return 1;
+    });
+
+    assert.equal(document.activeElement, replacementButton);
+  }
+});
+
 test("deferred restoration does not steal intentionally moved focus", () => {
   const { document, element } = createDocument();
   const initialInput = element("#member-filter", { id: "member-filter" });

@@ -68,6 +68,33 @@ export function bodyTargetMatchesOverload(target, member, overload) {
     && (target.metadataToken == null || target.metadataToken === candidate.metadataToken));
 }
 
+export function encodeBodyTarget(target) {
+  if (!target) return null;
+  return [
+    target.memberName ?? null,
+    target.selectorKey ?? null,
+    target.metadataToken ?? null,
+  ];
+}
+
+export function decodeBodyTarget(value) {
+  if (!Array.isArray(value) || value.length !== 3) return null;
+  const [memberNameValue, selectorKeyValue, metadataTokenValue] = value;
+  if ((memberNameValue != null && typeof memberNameValue !== "string")
+    || (selectorKeyValue != null && typeof selectorKeyValue !== "string")
+    || (metadataTokenValue != null && !Number.isInteger(metadataTokenValue))) {
+    return null;
+  }
+  const target = {
+    memberName: memberNameValue || null,
+    selectorKey: selectorKeyValue || null,
+    metadataToken: metadataTokenValue,
+  };
+  return target.memberName || target.selectorKey || target.metadataToken != null
+    ? target
+    : null;
+}
+
 export function restoreMemberHistoryState(
   view,
   type,
