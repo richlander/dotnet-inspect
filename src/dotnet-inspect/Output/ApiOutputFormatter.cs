@@ -2416,9 +2416,6 @@ public static class ApiOutputFormatter
         IReadOnlyList<ApiMember> methods,
         MemberOptions options)
     {
-        string kind = options.BodyKindQuery.Kind
-            ?? throw new InvalidOperationException(
-                "The Body Shapes section requires a validated body-kind predicate.");
         IReadOnlyList<ApiMember> scopedMethods = ResolveBodyShapeMethods(
             methods,
             options.OverloadIndex);
@@ -2428,7 +2425,24 @@ public static class ApiOutputFormatter
                 .Where(method => method.MetadataToken.HasValue)
                 .Select(method => method.MetadataToken!.Value),
         ];
+        PopulateBodyShapes(
+            view,
+            assemblyPath,
+            pdbPath,
+            methodTokens,
+            options);
+    }
 
+    internal static void PopulateBodyShapes(
+        TypeView view,
+        string assemblyPath,
+        string? pdbPath,
+        IReadOnlySet<int> methodTokens,
+        ApiOptions options)
+    {
+        string kind = options.BodyKindQuery.Kind
+            ?? throw new InvalidOperationException(
+                "The Body Shapes section requires a validated body-kind predicate.");
         options.RenderConfigWarnings?.EmitOnce();
         using var source = Decompiler.Pipeline.MetadataSource.Open(
             assemblyPath,
@@ -2465,6 +2479,38 @@ public static class ApiOutputFormatter
             CommandError.WriteWarning(
                 $"Body Shapes skipped {result.Failures.Count} candidates; "
                 + "rerun with --verbose for details.");
+        }
+    }
+
+    internal static HashSet<int> ResolveTypeBodyShapeMethodTokens(ApiType type)
+    {
+        var tokens = new HashSet<int>();
+        foreach (var member in type.Members)
+        {
+            if (member.DeclaringType is { Length: > 0 } declaringType
+                && !string.Equals(declaringType, type.FullName, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (ApiMemberSectionDescriptors.IsMethodLike(member)
+                && member.MetadataToken is { } methodToken)
+            {
+                tokens.Add(methodToken);
+            }
+
+            Add(member.GetterToken);
+            Add(member.SetterToken);
+            Add(member.AdderToken);
+            Add(member.RemoverToken);
+        }
+
+        return tokens;
+
+        void Add(int? token)
+        {
+            if (token is { } value)
+                tokens.Add(value);
         }
     }
 

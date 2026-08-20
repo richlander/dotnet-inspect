@@ -51,9 +51,10 @@ public static class MethodImporter
         var typeDef = reader.GetTypeDefinition(typeDefHandle);
         var method = reader.GetMethodDefinition(methodHandle);
 
+        var typeGenericParameterNames = ParameterNames(reader, typeDef.GetGenericParameters());
         var methodGenericParameterNames = ParameterNames(reader, method.GetGenericParameters());
         var scope = new GenericScope(
-            ParameterNames(reader, typeDef.GetGenericParameters()),
+            typeGenericParameterNames,
             methodGenericParameterNames);
 
         var declaringType = TypeRefDecoder.Instance.GetTypeFromDefinition(reader, typeDefHandle, 0);
@@ -162,7 +163,8 @@ public static class MethodImporter
             CompilerGenerated: FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes())),
             DeclaringTypeCompilerGenerated: FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, typeDef.GetCustomAttributes())),
             IsRuntimeAsync: FactState(MethodDefinitionFacts.IsRuntimeAsync(method)),
-            MetadataToken: MetadataTokens.GetToken(methodHandle));
+            MetadataToken: MetadataTokens.GetToken(methodHandle),
+            DeclaringTypeGenericParameterNames: typeGenericParameterNames);
     }
 
     static MetadataFactState FactState(bool value) => value ? MetadataFactState.Yes : MetadataFactState.No;
