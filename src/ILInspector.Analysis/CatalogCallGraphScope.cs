@@ -565,7 +565,7 @@ public sealed class CatalogCallGraphScope : IDisposable
                 {
                     var storage = GraphNodeStorageKey.CallSite(
                         participant.Assembly,
-                        call.Caller.ModuleVersionId,
+                        call.EvidenceMethod.ModuleVersionId,
                         call);
                     PlanEntry plan = GetOrAddPlan(
                         plans,

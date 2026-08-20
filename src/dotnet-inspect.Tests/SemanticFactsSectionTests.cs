@@ -110,6 +110,66 @@ public class SemanticFactsSectionTests
     }
 
     [Fact]
+    public async Task
+        MemberCostFacts_DoNotAttachGeneratedBodyOffsets()
+    {
+        var result = await RunMemberAsync(
+            nameof(SemanticFactsFixture
+                .AsyncVirtualDispatch),
+            SectionNames.CostFacts);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain(
+            nameof(SemanticFactsVirtualTarget.Compute),
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        LibraryIlOffsetCostContext_UsesGeneratedEvidenceBody()
+    {
+        var method =
+            typeof(SemanticFactsFixture).GetMethod(
+                nameof(SemanticFactsFixture
+                    .AsyncVirtualDispatch))!;
+        var index =
+            LibraryBodyIndex.Open(TestAssemblyPath);
+        DirectCall call = Assert.Single(
+            index.DirectCalls,
+            call => call.Caller.MetadataToken
+                    == method.MetadataToken
+                && call.EvidenceMethod != call.Caller
+                && call.Callee.Name
+                    == nameof(
+                        SemanticFactsVirtualTarget.Compute));
+
+        var result = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(
+                new LibraryOptions
+                {
+                    AssemblyName = TestAssemblyPath,
+                    ILOffsetParameter =
+                        $"0x{call.EvidenceMethod.MetadataToken:X}"
+                        + $"+0x{call.ILOffset:X}",
+                    IncludeSections =
+                        [SectionNames.CostContext],
+                    Select = [SectionNames.CostContext],
+                    Verbosity = Verbosity.Minimal,
+                    Markdown = true,
+                    FormatExplicitlySet = true,
+                }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains(
+            "virtual dispatch",
+            result.Output);
+        Assert.Contains(
+            nameof(SemanticFactsVirtualTarget.Compute),
+            result.Output);
+    }
+
+    [Fact]
     public async Task LibraryIlOffsetSafetyContext_FlagsUnsafeCall()
     {
         var method = typeof(SemanticFactsFixture).GetMethod(nameof(SemanticFactsFixture.UnsafeAs))!;
@@ -260,4 +320,16 @@ public static class SemanticFactsFixture
 
     public static uint UnsafeAs(ref int value)
         => System.Runtime.CompilerServices.Unsafe.As<int, uint>(ref value);
+
+    public static async Task<int> AsyncVirtualDispatch(
+        SemanticFactsVirtualTarget target)
+    {
+        await Task.Yield();
+        return target.Compute();
+    }
+}
+
+public class SemanticFactsVirtualTarget
+{
+    public virtual int Compute() => 1;
 }
