@@ -446,7 +446,13 @@ test("member filters retain accessible controls and focus across rerenders", () 
     ?? "";
   assert.match(
     platformNavigation,
-    /const preservedFocus = renderPreservingMemberFocus\(\)[\s\S]*state\.platformDrillError = state\.runtimePackError[\s\S]*renderPreservingMemberFocus\(preservedFocus\)/);
+    /const originSignature = memberRequestSignature\(type, overload, true\);[\s\S]*state\.memberSection === "call-graph"[\s\S]*memberRequestIsCurrent\(originSignature, true\)[\s\S]*loadRuntimePack\([\s\S]*ownsNavigation\)[\s\S]*if \(!ownsNavigation\(\)\) return;[\s\S]*state\.platformDrillError = state\.runtimePackError[\s\S]*renderPreservingMemberFocus\(preservedFocus\)/);
+  assert.match(
+    appSource,
+    /function applyMemberSection\(id\) \{[\s\S]*state\.memberSection === "call-graph" && id !== "call-graph"[\s\S]*state\.memberCallGraphSeq\+\+;[\s\S]*state\.platformDrillLoading = false;/);
+  assert.match(
+    appSource,
+    /function navigateToRuntimeMember\([\s\S]*const targetLibrary = libraryKey\(type\);\s*state\.libraryScope = targetLibrary \? new Set\(\[targetLibrary\]\) : null;[\s\S]*state\.typeCursor = Math\.max\(0, filteredTypes\(\)/);
 });
 
 test("shared member views retain scope and filter state", () => {
@@ -474,6 +480,18 @@ test("shared member views retain scope and filter state", () => {
   assert.match(
     appSource,
     /window\.addEventListener\("popstate"[\s\S]*const deep = loc;[\s\S]*restoreWorkspaceFromLocation\(loc, deep, navigationSeq\)/);
+});
+
+test("member entry controls move focus into the resulting member navigation", () => {
+  const bindings =
+    appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
+    ?? "";
+  assert.match(
+    bindings,
+    /const enterMemberNavigation = action => \{\s*const focusGeneration = beginSpotlightNavigation\(\);\s*action\(\);\s*focusTypeList\(focusGeneration\);/);
+  assert.match(
+    bindings,
+    /data-member-jump-kind[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*enterMemberScope\(\);[\s\S]*data-member-jump-access[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*data-member-jump-trait[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*data-member\]"\)\.forEach[\s\S]*enterMemberNavigation\(\(\) => openMemberGroup/);
 });
 
 test("package tab selection resets type-specific member filters", () => {

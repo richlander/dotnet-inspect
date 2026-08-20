@@ -1349,6 +1349,8 @@ function resetMemberSectionState() {
   state.memberCallGraphError = "";
   state.memberCallGraphKey = "";
   state.memberCallGraphExpanding = false;
+  state.platformDrillLoading = false;
+  state.platformDrillError = "";
   // Invalidate any in-flight progressive call-graph load so a late cross-library
   // result can't repopulate the graph after the selection has moved on.
   state.memberCallGraphSeq++;
@@ -1417,6 +1419,10 @@ function applyMemberSection(id) {
   const member = selectedMember(selectedType());
   if (member && member.overloads.length > 1 && state.selectedOverloadIndex == null) {
     state.selectedOverloadIndex = 0;
+  }
+  if (state.memberSection === "call-graph" && id !== "call-graph") {
+    state.memberCallGraphSeq++;
+    state.platformDrillLoading = false;
   }
   state.memberSection = id;
   if (id === "source") loadSelectedMemberSource();
@@ -3634,26 +3640,37 @@ function bindEvents() {
     normalizeMemberSelection();
     renderMemberFilterAndRestoreFocus("#clear-member-filter");
   });
+  const enterMemberNavigation = action => {
+    const focusGeneration = beginSpotlightNavigation();
+    action();
+    focusTypeList(focusGeneration);
+  };
   document.querySelectorAll("[data-member-jump-kind]").forEach(button => button.addEventListener("click", () => {
-    resetMemberFilters();
-    state.memberKindFilter = button.dataset.memberJumpKind;
-    enterMemberScope();
-    render();
+    enterMemberNavigation(() => {
+      resetMemberFilters();
+      state.memberKindFilter = button.dataset.memberJumpKind;
+      enterMemberScope();
+      render();
+    });
   }));
   document.querySelectorAll("[data-member-jump-access]").forEach(button => button.addEventListener("click", () => {
-    resetMemberFilters();
-    state.memberAccessibilityFilter = button.dataset.memberJumpAccess;
-    enterMemberScope();
-    render();
+    enterMemberNavigation(() => {
+      resetMemberFilters();
+      state.memberAccessibilityFilter = button.dataset.memberJumpAccess;
+      enterMemberScope();
+      render();
+    });
   }));
   document.querySelectorAll("[data-member-jump-trait]").forEach(button => button.addEventListener("click", () => {
-    resetMemberFilters();
-    state.memberTraitFilter = button.dataset.memberJumpTrait;
-    enterMemberScope();
-    render();
+    enterMemberNavigation(() => {
+      resetMemberFilters();
+      state.memberTraitFilter = button.dataset.memberJumpTrait;
+      enterMemberScope();
+      render();
+    });
   }));
   document.querySelectorAll("[data-member]").forEach(button => button.addEventListener("click", () => {
-    openMemberGroup(button.dataset.member);
+    enterMemberNavigation(() => openMemberGroup(button.dataset.member));
   }));
   document.querySelectorAll("[data-overload]").forEach(button => button.addEventListener("click", () => {
     openOverload(Number(button.dataset.overload));
@@ -6486,6 +6503,15 @@ function popPlatformDrill() {
 async function navigateOrDrillPlatform(node) {
   if (state.platformDrillLoading) return;
   const seq = state.memberCallGraphSeq;
+  const type = selectedType();
+  const member = selectedMember(type);
+  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
+  if (!type || !member || !overload || state.memberSection !== "call-graph") return;
+  const originSignature = memberRequestSignature(type, overload, true);
+  const ownsNavigation = () =>
+    seq === state.memberCallGraphSeq
+    && state.memberSection === "call-graph"
+    && memberRequestIsCurrent(originSignature, true);
   const framework = state.package?.activeFramework || "";
   let pack = runtimePackPackage();
   if (!pack) {
@@ -6494,8 +6520,8 @@ async function navigateOrDrillPlatform(node) {
     const preservedFocus = renderPreservingMemberFocus();
     pack = await loadRuntimePack(
       framework,
-      () => seq === state.memberCallGraphSeq);
-    if (seq !== state.memberCallGraphSeq) return;
+      ownsNavigation);
+    if (!ownsNavigation()) return;
     state.platformDrillLoading = false;
     if (!pack) {
       state.platformDrillError = state.runtimePackError || "Could not load the .NET runtime pack.";
@@ -6505,7 +6531,7 @@ async function navigateOrDrillPlatform(node) {
     }
   }
   const selection = findRuntimeMemberSelection(pack, node);
-  if (seq !== state.memberCallGraphSeq) return;
+  if (!ownsNavigation()) return;
   if (!selection) {
     await drillPlatformNode(node);
     return;
@@ -6521,6 +6547,8 @@ function navigateToRuntimeMember(pack, type, group, overloadIndex, bodyTarget = 
   state.atPackageRoot = false;
   state.lens = "api";
   state.selectedTypeId = type.id;
+  const targetLibrary = libraryKey(type);
+  state.libraryScope = targetLibrary ? new Set([targetLibrary]) : null;
   resetMemberFilters();
   state.memberBrowseTypeId = type.id;
   state.selectedMemberKey = group.key;
