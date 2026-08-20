@@ -351,11 +351,16 @@ public class UrlRedactionTests
     [Fact]
     public void CacheObservationKey_CarriesNoQueryValue()
     {
+        const string category =
+            "url-redaction-test";
         var observed = new List<CacheObservation>();
-        using (CacheTelemetry.Subscribe(new CacheObserver(observed)))
+        using (CacheTelemetry.Subscribe(
+            new CacheObserver(
+                observed,
+                category)))
         {
             CacheTelemetry.Record(
-                "package",
+                category,
                 $"https://feed.test/flat/sample/index.json?x={Secret}",
                 CacheAccessResult.Miss);
         }
@@ -375,15 +380,20 @@ public class UrlRedactionTests
     [Fact]
     public void CacheObservationKey_PreservesPackageCoordinate()
     {
+        const string category =
+            "package-coordinate-test";
         var observed = new List<CacheObservation>();
-        using (CacheTelemetry.Subscribe(new CacheObserver(observed)))
+        using (CacheTelemetry.Subscribe(
+            new CacheObserver(
+                observed,
+                category)))
         {
             CacheTelemetry.Record(
-                "packages",
+                category,
                 "newtonsoft.json@13.0.3",
                 CacheAccessResult.Hit);
             CacheTelemetry.Record(
-                "packages",
+                category,
                 "system.text.json@9.0.0",
                 CacheAccessResult.Hit);
         }
@@ -401,7 +411,9 @@ public class UrlRedactionTests
             StringComparison.Ordinal);
     }
 
-    sealed class CacheObserver(List<CacheObservation> observed)
+    sealed class CacheObserver(
+        List<CacheObservation> observed,
+        string category)
         : IObserver<CacheObservation>
     {
         public void OnCompleted()
@@ -412,6 +424,10 @@ public class UrlRedactionTests
         {
         }
 
-        public void OnNext(CacheObservation value) => observed.Add(value);
+        public void OnNext(CacheObservation value)
+        {
+            if (value.Category == category)
+                observed.Add(value);
+        }
     }
 }

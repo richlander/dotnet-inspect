@@ -537,13 +537,22 @@ command metadata, and escaping.
 
 The typed `src/status-bar.ts` component renders both the full-width workspace
 data bar and the home readiness bar. The workspace bar occupies the bottom row
-formerly used by the persistent command prompt, giving diagnostics, cache
-state, package source, active assembly, and framework the full viewport width.
-Package source is shown only in a workspace. Current browser acquisition
-distinguishes NuGet.org from the .NET platform; the typed model also reserves
-local-file and custom-feed provenance for future acquisition paths. Missing or
-malformed provenance is shown as `Unknown` rather than omitted so acquisition
-failures stay diagnosable.
+formerly used by the persistent command prompt, giving the bar the full
+viewport width. By default the bar shows a compact, single-line summary in
+priority order: app version/commit, package provenance, build date, and a
+one-line performance summary. A dedicated toggle button at the end of the bar
+(so it never overlaps the commit link) expands and collapses the view,
+adding the full diagnostics breakdown (download/startup/precompute/total),
+package cache stats, active assembly, framework, and the "public API
+surface" label. Expansion state lives in `state.statusBarExpanded` and
+applies to both the workspace and home bars.
+Package source, assembly, and framework are shown only in a workspace.
+Current browser acquisition distinguishes NuGet.org from the .NET platform;
+the typed model also reserves local-file and custom-feed provenance for
+future acquisition paths. Missing or malformed provenance is shown as
+`Unknown` rather than omitted so acquisition failures stay diagnosable.
+Symbol/PDB acquisition status is not yet surfaced here — no backend contract
+reports it today — and is a tracked fast-follow.
 
 `src/type-panel.ts` owns the type selector (the "PUBLIC TYPES" / "MEMBERS" nav
 pane) and the type viewer (the type heading, metadata, and source sections
@@ -620,6 +629,29 @@ slice in explicitly. `test/graph-source.test.js` gates the loading state, the
 original-versus-decompiled provenance labels, the open-source link's presence
 only when a `url` is provided, the error state's fallback message, and title
 escaping in both the header and loading status.
+
+`src/annotated-source.ts` owns the annotated source result (the
+fact-annotated C#/IL dual view shown for a member overload) as a pure,
+dependency-injected render function; it composes `annotated-source-view.ts`'s
+`buildAnnotatedView` projection into markup. `app.js` still owns `state`, the
+sequence-guarded async load lifecycle, and the medium-toggle/fact-selection
+event handlers, and passes each computed slice in explicitly.
+`test/annotated-source.test.js` gates the rejected-document fallback, the
+medium toggles and hidden-line count, the context-limitation notice, anchored
+versus unanchored fact rendering, selection state, and source-text escaping.
+
+`src/package-opportunities.ts` owns the package/platform "Integration
+opportunities" lens (the ecosystem auth/cloud/config/database/AI-client
+integration suggestions for a package or platform library) as a pure,
+dependency-injected render function, including its opportunity-row API-name
+splitting, package-chip detection, and "look for" chip rendering. `app.js`
+still owns `state`, the scan-scope-keyed async load lifecycle
+(`loadPackageOpportunities`), and the platform library picker, and passes
+each computed slice in explicitly. `test/package-opportunities.test.js` gates
+the platform pick-a-library prompt, the scanning/loading/error states (fresh
+versus stale scope), the no-opportunities and inspection-error banners, the
+category summary counts, API name splitting, package-chip versus plain-text
+kind rendering, look-for chip/wildcard/empty rendering, and text escaping.
 
 - `Cmd/Ctrl+K` opens Spotlight in the Commands scope.
 - `Cmd/Ctrl+P` opens Spotlight in the All scope.

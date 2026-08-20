@@ -182,7 +182,8 @@ public static class TimelineCommand
                         AnalysisFindings.CallSiteDescriptor,
                         static (index, token, subject) =>
                         {
-                            index.GetDirectCallsByCaller().TryGetValue(token, out var calls);
+                            index.GetDirectCallsByEvidenceMethod()
+                                .TryGetValue(token, out var calls);
                             return new FindingInspection<DirectCall>.Complete(
                                 AnalysisFindings.InspectCallSites(
                                     calls.IsDefault ? [] : calls,

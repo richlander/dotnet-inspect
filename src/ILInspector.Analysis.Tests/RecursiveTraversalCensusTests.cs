@@ -155,6 +155,30 @@ public class RecursiveTraversalCensusTests
     }
 
     [Fact]
+    public void Analyze_RecognizesPhysicalLiftedSelfRecursion()
+    {
+        var owner = Method(1, "Owner");
+        var lifted = Method(2, "<Owner>g__Core|0_0");
+        DirectCall normalized = Call(
+            owner,
+            lifted,
+            4,
+            inLoop: true) with
+        {
+            EvidenceMethod = lifted,
+        };
+
+        var result = RecursiveTraversalCensus.Analyze(
+            "Fixture.dll",
+            [owner, lifted],
+            [normalized],
+            [Opportunity(lifted, "pt~lifted")]);
+
+        var root = Assert.Single(result.Roots);
+        Assert.Equal(lifted.MetadataToken, root.MethodToken);
+    }
+
+    [Fact]
     public void Measure_ReportsInputFailures()
     {
         var report = RecursiveTraversalCensus.Measure(["/not/a/real/assembly.dll"]);
