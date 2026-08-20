@@ -1137,7 +1137,9 @@ internal static class CSharpDeclarationWriter
             signature,
             preserveQualifiedIndexerKeyword: IsExplicitInterfaceProperty(member)
                 && member.SignatureModel?.MemberName == "this[]");
-        if (!options.AbbreviateSignature)
+        // Parameter names from SignatureModel are escaped in FormatParameter.
+        // Re-lexing the composed string is only for compatibility text.
+        if (!options.AbbreviateSignature && !renderedFromModel)
             signature = EscapeParameterLists(signature);
 
         List<string> attributeLines = [];
@@ -2483,7 +2485,13 @@ internal static class CSharpDeclarationWriter
     }
 
     /// <summary>
-    /// Escapes keyword-named parameters inside a member signature's parameter lists.
+    /// Best-effort parameter-name escaping for compatibility signature text —
+    /// opaque <see cref="ApiMember.Signature"/>, or a model
+    /// <see cref="TryRenderSignatureModel"/> cannot yet emit. Signatures built
+    /// from the model escape names in <see cref="FormatParameter"/> and must not
+    /// come through here.
+    /// <c>MemberDeclaration_SignatureModel_DoesNotEscapeUnnamedParameterType</c>
+    /// is the skip-vs-scan gate.
     /// </summary>
     /// <remarks>
     /// Only a parenthesis run that actually opens a parameter list is rewritten. C#

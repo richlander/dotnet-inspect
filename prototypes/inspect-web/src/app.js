@@ -45,8 +45,8 @@ import {
   buildTypeGraphMermaid
 } from "./graph-mermaid.js";
 import { buildAnnotatedView, factsForNode, MEDIA, MEDIUM_LABELS, nodeAtOffset } from "/src/annotated-source-view.ts";
-import { createCommandBar } from "/src/command-bar.ts";
 import { renderScopeBar as renderScopeBarPure } from "/src/scope-bar.ts";
+import { renderDocViewer as renderDocViewerPure } from "/src/doc-viewer.ts";
 import {
   renderMemberNav,
   renderTypeMetadata,
@@ -72,6 +72,11 @@ import {
   renderTastePopover,
 } from "/src/settings-panel.ts";
 import { loadPlatformIndex } from "/src/platform-index.js";
+import {
+  createSpotlight,
+  visibleSpotlightPackageHits,
+} from "/src/spotlight.ts";
+import { fmtBytes, statusBarHtml } from "/src/status-bar.ts";
 
 let initializeEngine;
 let cancelSourceInspection;
@@ -313,9 +318,6 @@ const state = {
   platformRecent: loadPlatformRecent(),
   recentPackages: loadRecentPackages(),
   accessibilityFilter: new Set(),
-  command: "",
-  completionIndex: 0,
-  promptOpen: false,
   spotlightOpen: false,
   spotlightQuery: "",
   spotlightIndex: 0,
@@ -675,6 +677,7 @@ let mermaidModule;
 let markdownModule;
 const depGraphRenderSequence = createDependencyGraphRenderSequence();
 let callGraphRenderSeq = 0;
+let spotlightFocusGeneration = 0;
 document.documentElement.dataset.theme = state.theme;
 
 function escapeHtml(value) {
@@ -685,14 +688,63 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
-const commandBar = createCommandBar({
+const spotlight = createSpotlight({
   state,
   lenses,
   escapeHtml,
-  execute: executeCommand,
+  highlightRanges,
+  kindIcon,
+  searchResults: spotlightResults,
+  pickResult: pickSpotlightResult,
+  executeCommand,
+  commandContext: () => !state.home && state.package
+    ? { command: state.spotlightQuery, package: state.package }
+    : null,
+  schedulePackageFetch: scheduleSpotlightPackageFetch,
+  resetPackageSearch: resetSpotlightPackageSearch,
+  packageSearchLoading: () => state.spotlightPkgLoading,
+  packageCount: () => state.packages.length,
+  activeFramework: () => state.package?.activeFramework || "",
   render,
-  focusAfterDismiss: () => document.querySelector("#type-list").focus(),
+  focusAfterDismiss: () => focusTypeList(spotlightFocusGeneration),
 });
+
+function beginSpotlightNavigation() {
+  return ++spotlightFocusGeneration;
+}
+
+function isTextEntry(element = document.activeElement) {
+  return ["INPUT", "SELECT", "TEXTAREA"].includes(element?.tagName)
+    || element?.isContentEditable;
+}
+
+function isContainedBrowserShortcut(event) {
+  return (event.metaKey || event.ctrlKey)
+    && ["f", "k", "p"].includes(event.key.toLowerCase());
+}
+
+function focusTypeList(generation = spotlightFocusGeneration) {
+  if (generation !== spotlightFocusGeneration
+      || state.spotlightOpen || state.graphSourceOpen || state.docViewerOpen
+      || isTextEntry()) return;
+  requestAnimationFrame(() => {
+    if (generation !== spotlightFocusGeneration
+        || state.spotlightOpen || state.graphSourceOpen || state.docViewerOpen
+        || isTextEntry()) return;
+    document.querySelector("#type-list")?.focus();
+  });
+}
+
+function openSpotlight(seed = "", scope = "all") {
+  if (state.loading || state.error) return;
+  state.tasteOpen = false;
+  beginSpotlightNavigation();
+  spotlight.open(seed, scope);
+}
+
+function closeSpotlight() {
+  spotlight.close();
+}
 
 const packageBar = createPackageBar({
   state,
@@ -1387,26 +1439,18 @@ function render() {
           <article class="detail-scroll">
             ${renderLens(current)}
           </article>
-          <footer class="statusbar">
-            <span class="ready-dot"></span><span>browser wasm ready</span>
-            ${buildIdentityHtml()}
-            ${state.diag ? `
-            <span class="diag" title="Framework assets fetched over the wire — compressed → uncompressed, across ${state.diag.assets} files">↓ download ${fmtMs(state.diag.downloadMs)} · ${fmtBytes(state.diag.transfer)}${state.diag.decoded ? ` → ${fmtBytes(state.diag.decoded)}` : ""}</span>
-            <span class="diag" title="Runtime instantiation after assets arrived: WASM compile + module init + runMain">⚙ startup ${fmtMs(state.diag.startupMs)}</span>
-            <span class="diag" title="Initial package query precomputed during load">⚡ precompute ${fmtMs(state.diag.precomputeMs)}</span>
-            <span class="diag diag-total" title="Total time from navigation start to interactive">Σ ${fmtMs(state.diag.totalMs)}</span>` : ""}
-            ${state.packageCacheStats && state.packageCacheStats.packages > 0 ? `
-            <span class="diag" title="${state.packageCacheStats.packages} distinct NuGet package${state.packageCacheStats.packages === 1 ? "" : "s"} acquired this session; ${state.packageCacheStats.resident} currently resident in the in-memory cache (${(state.packageCacheStats.residentBytes / 1048576).toFixed(1)} MB, including archives retained by open workspaces)${state.packageCacheStats.packages > state.packageCacheStats.resident ? `; ${state.packageCacheStats.packages - state.packageCacheStats.resident} evicted under the aggregate LRU limit of 12 packages / 128 MB` : ""}; ${state.packageCacheStats.workspaces} open workspace${state.packageCacheStats.workspaces === 1 ? "" : "s"} (LRU limit 4)">◇ ${state.packageCacheStats.packages} package${state.packageCacheStats.packages === 1 ? "" : "s"} · ${state.packageCacheStats.resident} resident in cache · ${state.packageCacheStats.workspaces} workspace${state.packageCacheStats.workspaces === 1 ? "" : "s"}</span>` : ""}
-          <span class="status-spacer"></span>
-          <span>${escapeHtml(current?.assembly ?? state.package.assembly)}</span>
-          <span>${escapeHtml(state.package.activeFramework)}</span>
-          <span>public API surface</span>
-          </footer>
         </section>
       </main>
 
-      ${commandBar.html()}
-      ${state.spotlightOpen ? renderSpotlight() : ""}
+      ${statusBarHtml({
+        buildIdentity: state.buildIdentity,
+        diagnostics: state.diag,
+        packageCache: state.packageCacheStats,
+        source: state.package.source,
+        assembly: current?.assembly ?? state.package.assembly,
+        framework: state.package.activeFramework,
+      }, escapeHtml)}
+      ${state.spotlightOpen ? spotlight.modalHtml() : ""}
       ${state.graphSourceOpen ? renderGraphSource() : ""}
       ${state.docViewerOpen ? renderDocViewer() : ""}
       ${state.tasteOpen ? renderTastePopoverHtml() : ""}
@@ -3515,8 +3559,6 @@ function bindEvents() {
       const [assembly, heapName] = btn.dataset.mdeOpenHeap.split("|");
       openExplorerHeap(assembly, heapName);
     }));
-  commandBar.bind(document);
-
   document.querySelector("#framework").addEventListener("change", event => {
     switchPackageFramework(event.target.value);
   });
@@ -3546,25 +3588,7 @@ function bindEvents() {
     }
   });
   document.querySelector("#type-list")?.addEventListener("keydown", handleTypeKeys);
-  const spotlightInput = document.querySelector("#spotlight-input");
-  if (spotlightInput) {
-    spotlightInput.addEventListener("input", event => {
-      state.spotlightQuery = event.target.value;
-      state.spotlightIndex = 0;
-      if (state.spotlightFocus === "chips") {
-        state.spotlightFocus = "input";
-        updateSpotlightChips();
-      }
-      scheduleSpotlightPackageFetch();
-      updateSpotlightResults();
-    });
-    spotlightInput.addEventListener("keydown", handleSpotlightKeys);
-  }
-  bindSpotlightChipClicks(document);
-  bindSpotlightResultClicks(document);
-  document.querySelector("#spotlight-backdrop")?.addEventListener("mousedown", event => {
-    if (event.target.id === "spotlight-backdrop") closeSpotlight();
-  });
+  if (state.spotlightOpen) spotlight.bind(document, "modal");
   document.querySelector("#graph-source-backdrop")?.addEventListener("mousedown", event => {
     if (event.target.id === "graph-source-backdrop") closeGraphSource();
   });
@@ -3869,16 +3893,6 @@ function spotlightLoadedPackageMatches(query) {
     .map(pkg => ({ pkg, ranges: computeHighlightRanges(pkg.id, lowerQuery) }));
 }
 
-const SPOTLIGHT_SCOPES = [
-  { id: "all", label: "All" },
-  { id: "packages", label: "Packages" },
-  { id: "types", label: "Types" },
-  { id: "members", label: "Members" },
-  { id: "runtime", label: "Platform" },
-];
-
-const PLATFORM_PACK_LABEL = { "netcore.app": ".NET", "aspnetcore.app": "ASP.NET Core" };
-
 // The target framework the Platform scope resolves libraries against. A resident Platform
 // pack's own framework is authoritative — even a preview TFM (e.g. net11.0) the static index
 // does not carry yet, whose roster is then honestly empty rather than silently another
@@ -4053,7 +4067,12 @@ function spotlightResults() {
       if (all && recentShown.size >= 6) break;
     }
     let added = 0;
-    for (const hit of state.spotlightPkgHits) {
+    const packageHits = visibleSpotlightPackageHits(
+      query,
+      state.spotlightPkgQuery,
+      state.spotlightPkgHits,
+    );
+    for (const hit of packageHits) {
       if (openIds.has(hit.id.toLowerCase()) || recentShown.has(hit.id.toLowerCase())) continue;
       results.push({ kind: "pkg-nuget", hit, ranges: computeHighlightRanges(hit.id, query.toLowerCase()) });
       if (all && ++added >= 4) break;
@@ -4075,201 +4094,59 @@ function spotlightResults() {
   return results;
 }
 
-function spotlightRowHtml(result, index) {
-  const selected = index === state.spotlightIndex ? "selected" : "";
-  const multiPkg = state.packages.length > 1;
-  const base = `class="spotlight-item ${selected}" role="option" aria-selected="${index === state.spotlightIndex}" data-sl-index="${index}"`;
-  if (result.kind === "pkg-loaded") {
-    return `<button ${base} data-sl-pkg-open="${escapeHtml(result.pkg.id)}">
-      <span class="kind-icon sl-pkg">▣</span>
-      <span class="spotlight-item-name">${highlightRanges(result.pkg.id, result.ranges)}</span>
-      <span class="spotlight-item-ns">${escapeHtml(result.pkg.version)} · open</span>
-    </button>`;
-  }
-  if (result.kind === "pkg-nuget") {
-    return `<button ${base} data-sl-pkg-load="${escapeHtml(result.hit.id)}" data-sl-pkg-version="${escapeHtml(result.hit.version || "")}">
-      <span class="kind-icon sl-pkg-new">↓</span>
-      <span class="spotlight-item-name">${highlightRanges(result.hit.id, result.ranges)}</span>
-      <span class="spotlight-item-ns">${escapeHtml(result.hit.version || "")} · nuget.org</span>
-    </button>`;
-  }
-  if (result.kind === "pkg-recent") {
-    const ver = result.entry.version && result.entry.version !== "latest" ? result.entry.version : "";
-    return `<button ${base} data-sl-pkg-recent="${escapeHtml(result.entry.id)}">
-      <span class="kind-icon sl-pkg">▣</span>
-      <span class="spotlight-item-name">${highlightRanges(result.entry.id, result.ranges)}</span>
-      <span class="spotlight-item-ns">${ver ? `${escapeHtml(ver)} · ` : ""}recent</span>
-    </button>`;
-  }
-  if (result.kind === "rtpack-suggest") {
-    const fw = state.package?.activeFramework || "runtime";
-    return `<button ${base} data-sl-load-runtime="1">
-      <span class="kind-icon sl-pkg-new">↓</span>
-      <span class="spotlight-item-name">Load .NET runtime pack</span>
-      <span class="spotlight-item-ns">Search platform types (TextWriter, String…) · ${escapeHtml(fw)}</span>
-    </button>`;
-  }
-  if (result.kind === "rtpack-status") {
-    const text = result.loading
-      ? "Loading .NET runtime pack — this can take a while…"
-      : `Runtime pack failed: ${result.error || "unknown error"}`;
-    return `<div class="spotlight-item spotlight-status ${selected}" data-sl-index="${index}">
-      <span class="kind-icon">${result.loading ? "◔" : "⚠"}</span>
-      <span class="spotlight-item-name">${escapeHtml(text)}</span>
-    </div>`;
-  }
-  if (result.kind === "platform-lib") {
-    const label = PLATFORM_PACK_LABEL[result.pack] || result.pack;
-    const types = `${result.publicTypes} type${result.publicTypes === 1 ? "" : "s"}`;
-    const meta = `${label} · ${types}${result.loaded ? " · loaded" : ""}`;
-    return `<button ${base} data-sl-platform-lib="${escapeHtml(result.assembly)}" data-sl-platform-pack="${escapeHtml(result.pack)}">
-      <span class="kind-icon sl-lib">▤</span>
-      <span class="spotlight-item-name">${highlightRanges(result.assembly, result.ranges)}</span>
-      <span class="spotlight-item-ns">${escapeHtml(meta)}</span>
-    </button>`;
-  }
-  if (result.kind === "member") {
-    return `<button ${base} data-sl-member="${escapeHtml(result.memberKey)}" data-sl-pkg="${escapeHtml(result.pkg.id)}" data-sl-type="${escapeHtml(result.type.id)}">
-      <span class="kind-icon sl-member">ƒ</span>
-      <span class="spotlight-item-name">${highlightRanges(result.name, result.ranges)}</span>
-      <span class="spotlight-item-ns">${escapeHtml(result.type.name)}${multiPkg ? ` · ${escapeHtml(result.pkg.id)}` : ""}</span>
-    </button>`;
-  }
-  return `<button ${base} data-sl-type="${escapeHtml(result.type.id)}" data-sl-pkg="${escapeHtml(result.pkg.id)}">
-    <span class="kind-icon">${kindIcon(result.type.kind)}</span>
-    <span class="spotlight-item-name">${highlightRanges(result.type.name, result.ranges)}</span>
-    <span class="spotlight-item-ns">${escapeHtml(result.type.namespace || "")}${multiPkg ? ` · ${escapeHtml(result.pkg.id)}` : ""}</span>
-  </button>`;
-}
-
-const SPOTLIGHT_GROUP_LABELS = { "pkg-recent": "Recent", "pkg-loaded": "Packages", "pkg-nuget": "Packages", type: "Types", member: "Members", "platform-lib": "Libraries", "rtpack-suggest": "Runtime", "rtpack-status": "Runtime" };
-
-function spotlightResultsHtml(results) {
-  if (!results.length) {
-    const q = state.spotlightQuery.trim();
-    if (!q) return `<div class="spotlight-empty">Search packages, types, and members — pick a target below.</div>`;
-    if (state.spotlightPkgLoading) return `<div class="spotlight-empty">Searching…</div>`;
-    return `<div class="spotlight-empty">Nothing matches “${escapeHtml(q)}”.</div>`;
-  }
-  const grouped = state.spotlightScope === "all";
-  let html = "";
-  let lastGroup = null;
-  results.forEach((result, index) => {
-    if (grouped) {
-      const group = SPOTLIGHT_GROUP_LABELS[result.kind];
-      if (group && group !== lastGroup) {
-        html += `<div class="spotlight-group">${group}</div>`;
-        lastGroup = group;
-      }
-    }
-    html += spotlightRowHtml(result, index);
-  });
-  if (state.spotlightPkgLoading && (state.spotlightScope === "all" || state.spotlightScope === "packages")) {
-    html += `<div class="spotlight-hint">Searching nuget.org…</div>`;
-  }
-  return html;
-}
-
-function spotlightChipsHtml() {
-  return SPOTLIGHT_SCOPES.map((scope, index) => {
-    const active = state.spotlightScope === scope.id ? "active" : "";
-    const focused = state.spotlightFocus === "chips" && state.spotlightChipIndex === index ? "focused" : "";
-    return `<button class="spotlight-chip ${active} ${focused}" data-sl-scope="${scope.id}" data-sl-chip="${index}">${scope.label}</button>`;
-  }).join("");
-}
-
-function renderSpotlight() {
-  const results = spotlightResults();
-  state.spotlightIndex = Math.min(state.spotlightIndex, Math.max(results.length - 1, 0));
-  return `
-    <div class="spotlight-backdrop" id="spotlight-backdrop">
-      <div class="spotlight" role="dialog" aria-modal="true" aria-label="Go to anything">
-        <div class="spotlight-search">
-          <span class="spotlight-glyph">⌕</span>
-          <input id="spotlight-input" value="${escapeHtml(state.spotlightQuery)}" placeholder="Go to anything…  package, type, or member" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="spotlight-results" />
-          <kbd>esc</kbd>
-        </div>
-        <div class="spotlight-chips" id="spotlight-chips">${spotlightChipsHtml()}</div>
-        <div class="spotlight-results" id="spotlight-results" role="listbox">${spotlightResultsHtml(results)}</div>
-        <div class="spotlight-foot"><span>↑↓ select</span><span>→ target</span><span>↵ open</span><span>esc close</span></div>
-      </div>
-    </div>`;
-}
-
-function bindSpotlightResultClicks(root) {
-  const dispatch = index => {
-    const results = spotlightResults();
-    const result = results[Number(index)];
-    if (result) pickSpotlightResult(result);
-  };
-  root.querySelectorAll("[data-sl-index]").forEach(button =>
-    button.addEventListener("click", () => dispatch(button.dataset.slIndex)));
-}
-
-function bindSpotlightChipClicks(root) {
-  root.querySelectorAll("[data-sl-scope]").forEach(button =>
-    button.addEventListener("click", () => setSpotlightScope(button.dataset.slScope)));
-}
-
-// Repaints just the scope-chip row so arrow-key focus movement doesn't rebuild the
-// input (and lose its caret) on every keystroke.
-function updateSpotlightChips() {
-  const container = document.querySelector("#spotlight-chips");
-  if (!container) return;
-  container.innerHTML = spotlightChipsHtml();
-  bindSpotlightChipClicks(container);
-}
-
-function updateSpotlightResults() {
-  const container = document.querySelector("#spotlight-results");
-  if (!container) return;
-  const results = spotlightResults();
-  state.spotlightIndex = Math.min(state.spotlightIndex, Math.max(results.length - 1, 0));
-  container.innerHTML = spotlightResultsHtml(results);
-  bindSpotlightResultClicks(container);
-  container.querySelector(".spotlight-item.selected")?.scrollIntoView({ block: "nearest" });
-}
-
-function setSpotlightScope(scope) {
-  if (!SPOTLIGHT_SCOPES.some(item => item.id === scope)) return;
-  state.spotlightScope = scope;
-  state.spotlightIndex = 0;
-  // The Platform scope is now index-first: selecting it lists the platform
-  // library roster from the static index with no download. A pack loads lazily
-  // only when the user drills into a specific library.
-  if (scope === "packages" || scope === "all") scheduleSpotlightPackageFetch();
-  // Scope only affects the chip row and the results list, so repaint those in place
-  // instead of re-rendering the whole app (which flashed the screen on every chip move).
-  updateSpotlightChips();
-  updateSpotlightResults();
-  focusSpotlight();
-}
-
 // Debounced client-side NuGet discovery. Guards against stale queries via spotlightPkgQuery
 // and refreshes results only when the resolved query still matches the input.
 let spotlightPkgTimer = null;
+let spotlightPkgGeneration = 0;
+
+function resetSpotlightPackageSearch() {
+  spotlightPkgGeneration++;
+  if (spotlightPkgTimer) clearTimeout(spotlightPkgTimer);
+  spotlightPkgTimer = null;
+  state.spotlightPkgHits = [];
+  state.spotlightPkgQuery = "";
+  state.spotlightPkgLoading = false;
+}
+
 function scheduleSpotlightPackageFetch() {
   const query = state.spotlightQuery.trim();
-  if (spotlightPkgTimer) clearTimeout(spotlightPkgTimer);
-  if (state.spotlightScope !== "all" && state.spotlightScope !== "packages") return;
+  if (spotlightPkgTimer) {
+    clearTimeout(spotlightPkgTimer);
+    spotlightPkgTimer = null;
+  }
+  if (state.spotlightScope !== "all" && state.spotlightScope !== "packages") {
+    spotlightPkgGeneration++;
+    state.spotlightPkgLoading = false;
+    return;
+  }
   if (query.length < 2) {
+    spotlightPkgGeneration++;
     state.spotlightPkgHits = [];
     state.spotlightPkgQuery = "";
     state.spotlightPkgLoading = false;
     return;
   }
-  if (query === state.spotlightPkgQuery) return;
+  if (query === state.spotlightPkgQuery) {
+    spotlightPkgGeneration++;
+    state.spotlightPkgLoading = false;
+    return;
+  }
+  const generation = ++spotlightPkgGeneration;
   state.spotlightPkgLoading = true;
-  spotlightPkgTimer = setTimeout(() => fetchSpotlightPackages(query), 220);
+  spotlightPkgTimer = setTimeout(() => {
+    spotlightPkgTimer = null;
+    fetchSpotlightPackages(query, generation);
+  }, 220);
 }
 
-async function fetchSpotlightPackages(query) {
+async function fetchSpotlightPackages(query, generation) {
   const url = `https://azuresearch-usnc.nuget.org/query?q=${encodeURIComponent(query)}&take=8&prerelease=true&semVerLevel=2.0.0`;
   try {
     const response = await fetch(url);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const payload = await response.json();
-    if (state.spotlightQuery.trim() !== query) return; // stale
+    if (generation !== spotlightPkgGeneration
+      || state.spotlightQuery.trim() !== query) return;
     state.spotlightPkgHits = (payload.data || []).map(item => ({
       id: item.id,
       version: item.version,
@@ -4277,13 +4154,15 @@ async function fetchSpotlightPackages(query) {
     }));
     state.spotlightPkgQuery = query;
   } catch (error) {
-    if (state.spotlightQuery.trim() !== query) return;
+    if (generation !== spotlightPkgGeneration
+      || state.spotlightQuery.trim() !== query) return;
     state.spotlightPkgHits = [];
     state.spotlightPkgQuery = query;
   } finally {
-    if (state.spotlightQuery.trim() === query) {
+    if (generation === spotlightPkgGeneration
+      && state.spotlightQuery.trim() === query) {
       state.spotlightPkgLoading = false;
-      updateSpotlightResults();
+      spotlight.updateResults();
     }
   }
 }
@@ -4477,50 +4356,13 @@ async function switchPackageFramework(newFramework) {
 }
 
 
-function openSpotlight(seed = "") {
-  state.spotlightOpen = true;
-  state.spotlightQuery = seed;
-  state.spotlightScope = "all";
-  state.spotlightFocus = "input";
-  state.spotlightChipIndex = 0;
-  state.spotlightIndex = 0;
-  state.spotlightPkgHits = [];
-  state.spotlightPkgQuery = "";
-  state.spotlightPkgLoading = false;
-  if (seed.trim()) scheduleSpotlightPackageFetch();
-  render();
-  focusSpotlight();
-}
-
-function closeSpotlight() {
-  state.spotlightOpen = false;
-  state.spotlightQuery = "";
-  state.spotlightFocus = "input";
-  state.spotlightChipIndex = 0;
-  state.spotlightIndex = 0;
-  state.spotlightPkgHits = [];
-  state.spotlightPkgQuery = "";
-  state.spotlightPkgLoading = false;
-  if (spotlightPkgTimer) clearTimeout(spotlightPkgTimer);
-  render();
-}
-
-function focusSpotlight() {
-  requestAnimationFrame(() => {
-    const input = document.querySelector("#spotlight-input");
-    if (!input) return;
-    input.focus();
-    input.setSelectionRange(input.value.length, input.value.length);
-  });
-}
-
 // Routes a blended result to the right navigation path per its kind.
 function pickSpotlightResult(result) {
   if (!result) { closeSpotlight(); return; }
   switch (result.kind) {
     case "pkg-loaded": pickSpotlightLoadedPackage(result.pkg); break;
-    case "pkg-nuget": closeSpotlight(); loadPackage(result.hit.id, result.hit.version); break;
-    case "pkg-recent": closeSpotlight(); loadPackage(result.entry.id, result.entry.version, result.entry.framework); break;
+    case "pkg-nuget": loadPackageFromSpotlight(result.hit.id, result.hit.version); break;
+    case "pkg-recent": loadPackageFromSpotlight(result.entry.id, result.entry.version, result.entry.framework); break;
     case "member": pickSpotlightMember(result); break;
     case "rtpack-suggest": state.spotlightScope = "runtime"; state.spotlightIndex = 0; activateRuntimePack(); break;
     case "platform-lib": openPlatformLibrary(result.assembly, result.pack); break;
@@ -4529,13 +4371,19 @@ function pickSpotlightResult(result) {
   }
 }
 
+async function loadPackageFromSpotlight(id, version, framework = "") {
+  const focusGeneration = beginSpotlightNavigation();
+  spotlight.reset();
+  await loadPackage(id, version, framework);
+  focusTypeList(focusGeneration);
+}
+
 // Kicks off the runtime-pack load (if not already loaded/loading) and repaints the
 // spotlight in place so the loading row and, once resolved, the platform types appear
 // without tearing down the dialog.
 function activateRuntimePack() {
   if (runtimePackLoaded() || state.runtimePackLoading) {
-    updateSpotlightChips();
-    updateSpotlightResults();
+    spotlight.refresh();
     return;
   }
   const framework = state.package?.activeFramework || "";
@@ -4543,12 +4391,10 @@ function activateRuntimePack() {
   const pending = loadRuntimePack(
     framework,
     () => navigationSeq === state.navigationSeq); // sets runtimePackLoading synchronously
-  updateSpotlightChips();
-  updateSpotlightResults();
+  spotlight.refresh();
   pending.then(() => {
-    if (!state.spotlightOpen) return;
-    updateSpotlightChips();
-    updateSpotlightResults();
+    if (!state.spotlightOpen && !state.home) return;
+    spotlight.refresh();
   });
 }
 
@@ -4558,9 +4404,10 @@ function activateRuntimePack() {
 // its type list. The download happens only here, on demand — selecting the Platform scope
 // itself never downloads.
 async function openPlatformLibrary(assembly, pack, options = {}) {
+  const focusGeneration = beginSpotlightNavigation();
   const navigationSeq = options.navigationSeq ?? ++state.navigationSeq;
   if (navigationSeq !== state.navigationSeq) return;
-  closeSpotlight();
+  spotlight.reset();
   const key = (assembly || "").replace(/\.dll$/i, "");
   const fileName = key ? `${key}.dll` : "";
   const tfm = platformScopeTfm();
@@ -4608,13 +4455,16 @@ async function openPlatformLibrary(assembly, pack, options = {}) {
   state.selectedTypeId = scoped[0]?.id || pkg.types[0]?.id || "";
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
+  const selectionData = loadSelectionData();
   render();
-  loadSelectionData();
+  await selectionData;
+  focusTypeList(focusGeneration);
 }
 
 function pickSpotlightLoadedPackage(pkg) {
   const target = state.packages.find(item => packageIdentityEquals(item, pkg));
   if (!target) { closeSpotlight(); return; }
+  const focusGeneration = beginSpotlightNavigation();
   state.home = false;
   activatePackage(target, { resetAccessibility: true });
   state.atPackageRoot = true;
@@ -4622,16 +4472,16 @@ function pickSpotlightLoadedPackage(pkg) {
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
   resetMemberSectionState();
-  state.spotlightOpen = false;
-  state.spotlightQuery = "";
-  state.spotlightIndex = 0;
+  spotlight.reset();
   render();
+  focusTypeList(focusGeneration);
 }
 
-function pickSpotlightMember(result) {
+async function pickSpotlightMember(result) {
   const pkg = state.packages.find(item => packageIdentityEquals(item, result.pkg));
   const type = pkg?.types?.find(item => item.id === result.type.id);
   if (!type) { closeSpotlight(); return; }
+  const focusGeneration = beginSpotlightNavigation();
   state.home = false;
   activatePackage(pkg);
   state.atPackageRoot = false;
@@ -4642,22 +4492,22 @@ function pickSpotlightMember(result) {
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
-  state.spotlightOpen = false;
-  state.spotlightQuery = "";
-  state.spotlightIndex = 0;
+  spotlight.reset();
   resetMemberSectionState();
   state.typeCursor = filteredTypes().findIndex(item => item.id === state.selectedTypeId);
   render();
-  loadSelectedMemberDocumentation();
+  await loadSelectedMemberDocumentation();
+  focusTypeList(focusGeneration);
 }
 
-function pickSpotlight(packageResult, typeId) {
+async function pickSpotlight(packageResult, typeId) {
   const pkg = state.packages.find(item => packageIdentityEquals(item, packageResult));
   const type = pkg?.types?.find(item => item.id === typeId);
   if (!type) {
     closeSpotlight();
     return;
   }
+  const focusGeneration = beginSpotlightNavigation();
   state.home = false;
   activatePackage(pkg);
   state.atPackageRoot = false;
@@ -4677,149 +4527,45 @@ function pickSpotlight(packageResult, typeId) {
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
-  state.spotlightOpen = false;
-  state.spotlightQuery = "";
-  state.spotlightIndex = 0;
+  spotlight.reset();
   state.typeCursor = filteredTypes().findIndex(item => item.id === state.selectedTypeId);
+  const selectionData = loadSelectionData();
   render();
+  await selectionData;
+  if (focusGeneration !== spotlightFocusGeneration) return;
   requestAnimationFrame(() => {
+    if (focusGeneration !== spotlightFocusGeneration) return;
     document.querySelector(`[data-type="${CSS.escape(state.selectedTypeId)}"]`)?.scrollIntoView({ block: "nearest" });
   });
+  focusTypeList(focusGeneration);
 }
 
-function spotlightScopeIndex() {
-  return Math.max(0, SPOTLIGHT_SCOPES.findIndex(scope => scope.id === state.spotlightScope));
-}
-
-// Move the virtual chip cursor and live-apply the scope it lands on. Keeps DOM focus on
-// the input so typing still routes here; only the chip row repaints.
-function moveSpotlightChip(index) {
-  state.spotlightChipIndex = index;
-  setSpotlightScope(SPOTLIGHT_SCOPES[index].id);
-}
-
-function spotlightFocusInput() {
-  state.spotlightFocus = "input";
-  updateSpotlightChips();
-  focusSpotlight();
-}
-
-// Repaint only the selected-row highlight over the already-rendered result rows. Crucially
-// this does NOT recompute spotlightResults() (which runs a synchronous WASM type search and
-// a full member scan), so holding an arrow key no longer floods the single-threaded main
-// loop and stays smooth.
-function highlightSpotlightSelection() {
-  const container = document.querySelector("#spotlight-results");
-  if (!container) return 0;
-  const items = container.querySelectorAll(".spotlight-item");
-  items.forEach((el, i) => {
-    const selected = i === state.spotlightIndex;
-    el.classList.toggle("selected", selected);
-    el.setAttribute("aria-selected", selected ? "true" : "false");
-  });
-  items[state.spotlightIndex]?.scrollIntoView({ block: "nearest" });
-  return items.length;
-}
-
-// Move the result selection by delta without wrapping. Returns false when the move would
-// step above the first row (so the caller can hand focus back up to the chip row).
-function moveSpotlightSelection(delta) {
-  const container = document.querySelector("#spotlight-results");
-  const count = container ? container.querySelectorAll(".spotlight-item").length : 0;
-  if (!count) return false;
-  const next = state.spotlightIndex + delta;
-  if (next < 0) return false;
-  state.spotlightIndex = Math.min(count - 1, next);
-  highlightSpotlightSelection();
-  return true;
-}
-
-function handleSpotlightKeys(event) {
-  if (event.key === "Escape") {
-    event.preventDefault();
-    closeSpotlight();
-    return;
-  }
-  if (event.key === "Tab") {
-    event.preventDefault();
-    const order = SPOTLIGHT_SCOPES.map(scope => scope.id);
-    const current = order.indexOf(state.spotlightScope);
-    const next = event.shiftKey ? (current - 1 + order.length) % order.length : (current + 1) % order.length;
-    state.spotlightChipIndex = next;
-    setSpotlightScope(order[next]);
-    return;
-  }
-
-  // Chip-focus zone: arrows traverse the scope chips (live-applying scope), and step
-  // back out to the text field or down into the results.
-  if (state.spotlightFocus === "chips") {
-    if (event.key === "ArrowRight") {
-      event.preventDefault();
-      if (state.spotlightChipIndex < SPOTLIGHT_SCOPES.length - 1) moveSpotlightChip(state.spotlightChipIndex + 1);
-    } else if (event.key === "ArrowLeft") {
-      event.preventDefault();
-      if (state.spotlightChipIndex === 0) spotlightFocusInput();
-      else moveSpotlightChip(state.spotlightChipIndex - 1);
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      spotlightFocusInput();
-    } else if (event.key === "ArrowDown" || event.key === "Enter") {
-      event.preventDefault();
-      state.spotlightIndex = 0;
-      spotlightFocusInput();
-      highlightSpotlightSelection();
-    }
-    return;
-  }
-
-  // Text zone: Right at the caret's right edge hands focus to the chips; otherwise the
-  // usual result navigation applies. Result computation is deferred to Enter so arrow
-  // navigation never triggers the WASM type search.
-  if (event.key === "ArrowRight") {
-    const input = event.target;
-    const atEnd = input.selectionStart === input.selectionEnd && input.selectionStart === input.value.length;
-    if (atEnd) {
-      event.preventDefault();
-      state.spotlightFocus = "chips";
-      state.spotlightChipIndex = spotlightScopeIndex();
-      updateSpotlightChips();
-    }
-  } else if (event.key === "ArrowDown") {
-    event.preventDefault();
-    moveSpotlightSelection(1);
-  } else if (event.key === "ArrowUp") {
-    event.preventDefault();
-    // At the top of the list, step back up to the chip row (which can then step up to
-    // the search text) instead of wrapping around within the results.
-    if (!moveSpotlightSelection(-1)) {
-      state.spotlightFocus = "chips";
-      state.spotlightChipIndex = spotlightScopeIndex();
-      updateSpotlightChips();
-    }
-  } else if (event.key === "Enter") {
-    event.preventDefault();
-    pickSpotlightResult(spotlightResults()[state.spotlightIndex]);
-  }
-}
-
-function executeCommand(value) {
+function executeCommand(value, result = null) {
+  beginSpotlightNavigation();
   const [verb, ...rest] = value.split(/\s+/);
   const argument = rest.join(" ");
+  let operation;
   if (verb === "type") {
-    const match = state.package.types.find(item => item.name.toLowerCase() === argument.toLowerCase())
-      || state.package.types.find(item => item.name.toLowerCase().includes(argument.toLowerCase()));
+    const match = result?.targetTypeId
+      ? state.package.types.find(item => item.id === result.targetTypeId)
+      : state.package.types.find(item => item.name.toLowerCase() === argument.toLowerCase())
+        || state.package.types.find(item => item.name.toLowerCase().includes(argument.toLowerCase()));
     if (match) {
       state.selectedTypeId = match.id;
       state.selectedMemberKey = "";
+      operation = loadSelectionData();
     }
   } else if (verb === "show") {
     const match = lenses.find(([id, label]) => id === argument.toLowerCase() || label.toLowerCase() === argument.toLowerCase());
-    if (match) state.lens = match[0];
+    if (match) {
+      state.lens = match[0];
+      operation = loadSelectionData();
+    }
   } else if (verb === "framework" && state.package.frameworks.includes(argument)) {
-    switchPackageFramework(argument);
+    operation = switchPackageFramework(argument);
   } else if (verb === "package") {
     const [id, version = "latest"] = argument.split("@");
-    if (id) loadPackage(id, version, "");
+    if (id) operation = loadPackage(id, version, "");
   } else if (verb === "clear") {
     state.typeFilter = "";
     state.namespaceFilter = "";
@@ -4830,11 +4576,13 @@ function executeCommand(value) {
     share();
   }
   state.history = [value, ...state.history.filter(item => item !== value)].slice(0, 5);
+  return operation;
 }
 
 function focusFilter() {
   requestAnimationFrame(() => {
     const input = document.querySelector("#type-filter");
+    if (!input) return;
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
   });
@@ -4928,22 +4676,20 @@ function applyDeepLink(deep) {
 function loadSelectionData() {
   if (state.atPackageRoot) return;
   if (state.lens === "source") {
-    loadSelectedTypeSource();
-    return;
+    return loadSelectedTypeSource();
   }
   if (state.lens === "metadata") {
-    loadSelectedTypeMetadata();
-    return;
+    return loadSelectedTypeMetadata();
   }
   if (state.lens !== "api" || !state.selectedMemberKey) return;
   const member = selectedMember(selectedType());
   if (!member) return;
   if (member.overloads.length > 1 && state.selectedOverloadIndex == null) return;
-  if (state.memberSection === "source") loadSelectedMemberSource();
-  else if (state.memberSection === "annotated") loadSelectedMemberAnnotatedSource();
-  else if (state.memberSection === "call-graph") loadSelectedMemberCallGraph();
-  else if (state.memberSection === "facts") loadSelectedMemberFacts();
-  else loadSelectedMemberDocumentation();
+  if (state.memberSection === "source") return loadSelectedMemberSource();
+  if (state.memberSection === "annotated") return loadSelectedMemberAnnotatedSource();
+  if (state.memberSection === "call-graph") return loadSelectedMemberCallGraph();
+  if (state.memberSection === "facts") return loadSelectedMemberFacts();
+  return loadSelectedMemberDocumentation();
 }
 
 async function share() {
@@ -5008,9 +4754,7 @@ async function copyText(value, confirmation) {
 // chips, NuGet discovery, and result picking all behave exactly like the modal Spotlight.
 function renderHomeView() {
   document.title = "dotnet-inspect -- Inspect any NuGet package: types, methods, metadata, decompilation.";
-  const results = spotlightResults();
   const enginePending = !state.engineReady;
-  state.spotlightIndex = Math.min(state.spotlightIndex, Math.max(results.length - 1, 0));
   app.innerHTML = `
     <div class="home">
       <header class="home-bar">
@@ -5035,14 +4779,7 @@ function renderHomeView() {
           <p class="home-lede">Explore NuGet packages and the .NET platform — types, members, public API surface, dependencies, call graphs, and decompiled C# — all computed locally in your browser. Nothing to install, nothing uploaded.</p>
           <p class="home-availability">Also available as a <a href="https://www.nuget.org/packages/dotnet-inspect" target="_blank" rel="noreferrer">CLI tool</a> and <a href="https://github.com/richlander/dotnet-skills" target="_blank" rel="noreferrer">agent skill</a>.</p>
           <div class="home-search ${enginePending ? "engine-pending" : ""}" role="search" aria-busy="${enginePending}">
-            <div class="home-search-content" ${enginePending ? "inert" : ""}>
-              <div class="home-search-box">
-                <span class="spotlight-glyph">⌕</span>
-                <input id="spotlight-input" value="${escapeHtml(state.spotlightQuery)}" placeholder="Search NuGet — a package, type, or member…" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="spotlight-results" ${enginePending ? "disabled" : ""} />
-              </div>
-              <div class="spotlight-chips" id="spotlight-chips">${spotlightChipsHtml()}</div>
-              <div class="spotlight-results home-results" id="spotlight-results" role="listbox">${spotlightResultsHtml(results)}</div>
-            </div>
+            ${spotlight.inlineHtml(enginePending)}
             ${enginePending
               ? `<div class="home-engine-status" role="status" aria-live="polite">
                   <span class="loader" aria-hidden="true"></span>
@@ -5061,13 +4798,13 @@ function renderHomeView() {
         </div>
         <aside class="home-art">${homeArtSvg()}</aside>
       </main>
-      <footer class="home-foot">
-        ${state.engineReady
-          ? '<span class="ready-dot"></span><span>browser wasm ready</span>'
-          : '<span class="home-wasm-spinner" aria-hidden="true"></span><span>browser wasm loading</span>'}
-        ${buildIdentityHtml()}
-        ${state.diag ? `<span class="diag">⚙ ready in ${fmtMs(state.diag.totalMs)}</span>` : ""}
-      </footer>
+      ${statusBarHtml({
+        variant: "home",
+        ready: state.engineReady,
+        buildIdentity: state.buildIdentity,
+        diagnostics: state.diag,
+        compactDiagnostics: true,
+      }, escapeHtml)}
     </div>`;
   bindHomeEvents();
 }
@@ -5087,32 +4824,7 @@ function bindHomeEvents() {
     state.queryNoticeRetryAction = null;
     render();
   });
-  const input = document.querySelector("#spotlight-input");
-  if (input) {
-    input.addEventListener("input", event => {
-      state.spotlightQuery = event.target.value;
-      state.spotlightIndex = 0;
-      scheduleSpotlightPackageFetch();
-      updateSpotlightResults();
-    });
-    input.addEventListener("keydown", event => {
-      const results = spotlightResults();
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        state.spotlightIndex = Math.min(state.spotlightIndex + 1, Math.max(results.length - 1, 0));
-        updateSpotlightResults();
-      } else if (event.key === "ArrowUp") {
-        event.preventDefault();
-        state.spotlightIndex = Math.max(state.spotlightIndex - 1, 0);
-        updateSpotlightResults();
-      } else if (event.key === "Enter") {
-        event.preventDefault();
-        pickSpotlightResult(results[state.spotlightIndex]);
-      }
-    });
-  }
-  bindSpotlightChipClicks(document.querySelector("#spotlight-chips"));
-  bindSpotlightResultClicks(document.querySelector("#spotlight-results"));
+  spotlight.bind(document, "inline");
   document.querySelectorAll("[data-home-demo]").forEach(button =>
     button.addEventListener("click", () => runHomeDemo(button.dataset.homeDemo)));
   requestAnimationFrame(() => document.querySelector("#spotlight-input")?.focus());
@@ -5144,15 +4856,7 @@ function runHomeDemo(kind) {
 // workbench; the home search reuses the still-resident package list.
 function goHome() {
   state.home = true;
-  state.spotlightOpen = false;
-  state.spotlightQuery = "";
-  state.spotlightIndex = 0;
-  state.spotlightScope = "all";
-  state.spotlightFocus = "input";
-  state.spotlightChipIndex = 0;
-  state.spotlightPkgHits = [];
-  state.spotlightPkgLoading = false;
-  state.spotlightPkgQuery = "";
+  spotlight.reset();
   try { history.pushState(null, "", "/"); } catch {}
   render();
 }
@@ -6597,31 +6301,14 @@ function closeDocViewer() {
 }
 
 function renderDocViewer() {
-  const doc = state.docViewer;
-  const title = doc ? `${doc.name}` : "Document";
-  const subtitle = doc ? doc.path : "";
-  const meta = state.docViewerMeta;
-  const metaCard = meta
-    ? `<div class="doc-frontmatter">
-        <div class="doc-fm-head"><strong>${escapeHtml(meta.name)}</strong>${meta.version ? `<span class="doc-fm-version">v${escapeHtml(meta.version)}</span>` : ""}</div>
-        ${meta.descriptionHtml ? `<p class="doc-fm-desc">${meta.descriptionHtml}</p>` : ""}
-      </div>`
-    : "";
-  const body = state.docViewerLoading
-    ? `<div class="doc-viewer-status">Loading ${escapeHtml(title)}…</div>`
-    : state.docViewerError
-      ? `<div class="doc-viewer-status error">${escapeHtml(state.docViewerError)}</div>`
-      : `${metaCard}<article class="markdown-body">${state.docViewerHtml}</article>`;
-  return `
-    <div class="doc-viewer-backdrop" id="doc-viewer-backdrop">
-      <div class="doc-viewer" role="dialog" aria-modal="true" aria-label="Package document">
-        <div class="doc-viewer-head">
-          <span class="doc-viewer-title">${escapeHtml(title)}<small>${escapeHtml(subtitle)}</small></span>
-          <button id="doc-viewer-close" type="button" aria-label="Close">esc</button>
-        </div>
-        <div class="doc-viewer-body">${body}</div>
-      </div>
-    </div>`;
+  return renderDocViewerPure({
+    doc: state.docViewer,
+    meta: state.docViewerMeta,
+    loading: state.docViewerLoading,
+    error: state.docViewerError,
+    html: state.docViewerHtml,
+    escapeHtml,
+  });
 }
 
 // The decompiler style ("taste") catalog, grouped by tier, as checkbox rows. Shared by the
@@ -6881,6 +6568,7 @@ async function loadPackage(packageId, version, framework, options = {}) {
       assembly: defaultAssembly.name,
       assemblyId: defaultAssembly.id,
       assemblyAsset: defaultAssembly.asset,
+      source: { kind: "nuget.org" },
       assemblies: result.assemblies ?? [],
       types,
       accessibility: result.accessibility ?? [],
@@ -6909,8 +6597,9 @@ async function loadPackage(packageId, version, framework, options = {}) {
       state.memberSection = "overview";
     }
     state.loading = false;
+    const selectionData = loadSelectionData();
     render();
-    loadSelectionData();
+    await selectionData;
     return packageModel;
   } catch (error) {
     if (navigationSeq != null && navigationSeq !== state.navigationSeq) return null;
@@ -7080,6 +6769,7 @@ async function loadRuntimePack(framework, isCurrent = () => true) {
       assembly: defaultAssembly.name,
       assemblyId: defaultAssembly.id,
       assemblyAsset: defaultAssembly.asset,
+      source: { kind: "platform" },
       assemblies: result.assemblies ?? [],
       types,
       accessibility: result.accessibility ?? [],
@@ -7169,6 +6859,7 @@ async function loadRuntimePackAssembly(
       assembly: result.assemblies[0].name,
       assemblyId: result.defaultAssemblyId,
       assemblyAsset: result.assemblies[0].asset,
+      source: { kind: "platform" },
       assemblies: result.assemblies ?? [],
       types: newTypes,
       accessibility: result.accessibility ?? [],
@@ -7459,36 +7150,6 @@ function computeDiagnostics(tStart, tEngine, tReady) {
   };
 }
 
-function fmtMs(ms) {
-  if (ms == null) return "—";
-  return ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(2)} s`;
-}
-
-function buildIdentityHtml() {
-  const identity = state.buildIdentity;
-  if (!identity?.version) return "";
-
-  const commit = identity.commit || "";
-  const shortCommit = commit.slice(0, 7);
-  const commitHtml = identity.commitUrl && shortCommit
-    ? `<a href="${escapeHtml(identity.commitUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(shortCommit)}</a>`
-    : escapeHtml(shortCommit);
-  const parsedTimestamp = Date.parse(identity.builtAtUtc || "");
-  const builtAt = Number.isFinite(parsedTimestamp)
-    ? new Date(parsedTimestamp).toLocaleString(undefined, {
-        dateStyle: "medium",
-        timeStyle: "medium",
-        timeZone: "UTC"
-      })
-    : "";
-  const title = [
-    `dotnet-inspect ${identity.version}`,
-    commit ? `commit ${commit}` : "",
-    builtAt ? `built ${builtAt} UTC` : ""
-  ].filter(Boolean).join(" · ");
-  return `<span class="build-identity" title="${escapeHtml(title)}">v${escapeHtml(identity.version)}${shortCommit ? ` · ${commitHtml}` : ""}${builtAt ? ` · built ${escapeHtml(builtAt)} UTC` : ""}</span>`;
-}
-
 function refreshPackageStats() {
   try {
     const stats = inspectPackageCacheStats();
@@ -7498,17 +7159,6 @@ function refreshPackageStats() {
   }
 }
 
-function fmtBytes(bytes) {
-  if (!bytes) return "—";
-  const units = ["B", "KB", "MB", "GB"];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value.toFixed(value < 10 && unit > 0 ? 1 : 0)} ${units[unit]}`;
-}
 
 document.addEventListener("keydown", event => {
   // The Metadata Explorer is a full-screen modal-style view. Escape zooms the focus lightbox
@@ -7523,6 +7173,8 @@ document.addEventListener("keydown", event => {
       event.preventDefault();
       if (event.shiftKey) explorerHistoryForward();
       else explorerHistoryBack();
+    } else if (isContainedBrowserShortcut(event)) {
+      event.preventDefault();
     }
     return;
   }
@@ -7532,29 +7184,65 @@ document.addEventListener("keydown", event => {
     if (event.key === "Escape") {
       event.preventDefault();
       closeSettings();
+    } else if (isContainedBrowserShortcut(event)) {
+      event.preventDefault();
     }
     return;
   }
-  const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName);
+  const typing = isTextEntry();
   // The home page has its own scoped input handling (search box); global workbench
   // shortcuts assume a loaded package, so stay out of the way here.
   if (state.home) return;
+  if (state.loading || state.error) {
+    if (isContainedBrowserShortcut(event) || event.key === "/") {
+      event.preventDefault();
+    }
+    return;
+  }
+  if (state.graphSourceOpen) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeGraphSource();
+    } else if (isContainedBrowserShortcut(event)) {
+      event.preventDefault();
+    }
+    return;
+  }
+  if (state.docViewerOpen) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeDocViewer();
+    } else if (isContainedBrowserShortcut(event)) {
+      event.preventDefault();
+    }
+    return;
+  }
+  if (state.spotlightOpen) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeSpotlight();
+    } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      openSpotlight("", "commands");
+    } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
+      event.preventDefault();
+      openSpotlight();
+    } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
+      event.preventDefault();
+    }
+    return;
+  }
   if (event.key === "Escape" && state.tasteOpen) {
     event.preventDefault();
     state.tasteOpen = false;
     render();
-  } else if (event.key === "Escape" && state.graphSourceOpen) {
-    event.preventDefault();
-    closeGraphSource();
-  } else if (event.key === "Escape" && state.docViewerOpen) {
-    event.preventDefault();
-    closeDocViewer();
-  } else if (event.key === "Escape" && !typing && (navMode() === "member" || !state.atPackageRoot)) {
+  } else if (event.key === "Escape" && !event.defaultPrevented && !typing
+      && (navMode() === "member" || !state.atPackageRoot)) {
     event.preventDefault();
     drillOut();
   } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
     event.preventDefault();
-    commandBar.open();
+    openSpotlight("", "commands");
   } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
     event.preventDefault();
     openSpotlight();
@@ -7585,7 +7273,7 @@ document.addEventListener("keydown", event => {
     event.preventDefault();
     stepHorizontal(event.key === "ArrowRight" ? 1 : -1);
   } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
-      && !state.spotlightOpen && !state.promptOpen && event.key === "Enter") {
+      && !state.spotlightOpen && event.key === "Enter") {
     event.preventDefault();
     drillIn();
   } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
@@ -7627,6 +7315,7 @@ window.addEventListener("popstate", () => {
     state.errorDetail = "";
     state.retryAction = null;
     state.home = true;
+    spotlight.reset();
     render();
     return;
   }
