@@ -63,9 +63,9 @@
 - Bounds custom-attribute decoding and metadata type-name construction before
   allocation, rejecting amplified element counts, excessive nesting, and
   oversized names (#4234, #4345).
-- Grants core-library identity from acquisition provenance instead of
-  self-declaration, preventing planted assemblies from minting trusted core
-  definitions (#4428).
+- Under the default policy, grants core-library identity from acquisition
+  provenance instead of self-declaration so resolver-discovered sibling
+  assemblies cannot mint trusted core definitions (#4428).
 
 ### Decompiler and analysis correctness
 
