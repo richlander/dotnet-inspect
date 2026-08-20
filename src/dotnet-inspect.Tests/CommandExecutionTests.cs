@@ -9588,12 +9588,15 @@ public partial class CommandExecutionTests
         Assert.Equal(markdownRows.ToString(), count.Trim());
     }
 
-    [Fact]
-    public async Task Member_MemberInfo_RejectsWholeDocumentJsonRatherThanDroppingTheCensus()
+    [Theory]
+    [InlineData(SectionNames.MemberInfo)]
+    [InlineData("Member I?fo")]
+    public async Task Member_MemberInfo_RejectsWholeDocumentJsonRatherThanDroppingTheCensus(
+        string selector)
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "System.String", "--platform", "System.Runtime",
-            "-S", SectionNames.MemberInfo, "--json", "--tips", "q");
+            "-S", selector, "--json", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Equal(string.Empty, output.Trim());
@@ -9602,6 +9605,24 @@ public partial class CommandExecutionTests
             error,
             StringComparison.Ordinal);
         Assert.Contains("--jsonl", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Member_DottedStructuralSchema_IncludesBroadMemberInfo()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Text.Json.JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "-D",
+            "--schema",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(SectionNames.MemberInfo, output);
+        Assert.Empty(error);
     }
 
     [Theory]

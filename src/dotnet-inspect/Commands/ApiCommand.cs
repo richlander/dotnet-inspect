@@ -130,7 +130,7 @@ public class ApiCommand
 
         var memberPipelines = new[]
         {
-            ApiMemberSectionDescriptors.CreatePipeline(),
+            ApiMemberSectionDescriptors.CreateBroadMemberPipeline(),
             ApiMemberOverloadSectionDescriptors.CreatePipeline(),
             ApiMemberDetailSectionDescriptors.CreatePipeline(),
         };
@@ -502,7 +502,7 @@ public class ApiCommand
     {
         SectionPipeline<ApiType>[] pipelines =
         [
-            ApiMemberSectionDescriptors.CreatePipeline(),
+            ApiMemberSectionDescriptors.CreateBroadMemberPipeline(),
             ApiMemberOverloadSectionDescriptors.CreatePipeline(),
             ApiMemberDetailSectionDescriptors.CreatePipeline()
         ];
@@ -645,7 +645,7 @@ public class ApiCommand
     {
         SectionPipeline<ApiType>[] pipelines =
         [
-            ApiMemberSectionDescriptors.CreatePipeline(),
+            ApiMemberSectionDescriptors.CreateBroadMemberPipeline(),
             ApiMemberOverloadSectionDescriptors.CreatePipeline(),
             ApiMemberDetailSectionDescriptors.CreatePipeline()
         ];
@@ -2805,7 +2805,7 @@ public class ApiCommand
             // payload projection (--value/--print) does compose, and is handled above.
             if (IsColumnProjectionRequested(options))
                 return RejectColumnProjectionUnderJson(suggestPayloadProjection: true);
-            if (IsExplicitMemberInfoSelector(options))
+            if (IsOnlyMemberInfoSelected(options))
             {
                 CommandError.Write(
                     $"section '{SectionNames.MemberInfo}' cannot be represented by whole-document --json.",
@@ -4360,12 +4360,9 @@ public class ApiCommand
         return null;
     }
 
-    private static bool IsExplicitMemberInfoSelector(ApiOptions options)
-        => options.IncludeSections?.Contains(SectionNames.MemberInfo) == true
-           && (options.Select is null
-               || options.Select.Any(selector => selector.Equals(
-                   SectionNames.MemberInfo,
-                   StringComparison.OrdinalIgnoreCase)));
+    private static bool IsOnlyMemberInfoSelected(ApiOptions options)
+        => options.IncludeSections is { Count: 1 } sections
+           && sections.Contains(SectionNames.MemberInfo);
 
     private static bool ShouldRenderMemberIndex(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.MemberIndex) == true;
