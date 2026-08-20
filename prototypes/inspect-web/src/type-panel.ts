@@ -132,7 +132,7 @@ export function renderTypeNav(options: TypeNavOptions): string {
         ${accessibilityControlHtml}
         ${libraryControlHtml}
       </div>
-      <div class="type-list" role="listbox" tabindex="0" id="type-list">
+      <div class="type-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="types">
         ${[...typeGroups].map(([namespace, types]) => `
           <section class="type-group">
             <button class="namespace-row" data-namespace="${escapeHtml(namespace)}">
@@ -188,7 +188,7 @@ export function renderMemberNav(options: MemberNavOptions): string {
         <small>types</small>
       </button>
       ${filterControlsHtml}
-      <div class="type-list member-list" role="listbox" tabindex="0" id="type-list">
+      <div class="type-list member-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="members:${escapeHtml(type.id)}">
         ${entries.map(entry => {
           if (entry.kind === "member") {
             const group = entry.group;

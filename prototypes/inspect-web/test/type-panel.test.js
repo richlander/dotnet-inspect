@@ -95,6 +95,7 @@ test("the type nav lists namespace groups with the current type selected", () =>
     html,
     /data-type="System\.Text\.Json\.JsonDocument" role="option" aria-selected="false"/);
   assert.match(html, /data-namespace="System\.Text\.Json"/);
+  assert.match(html, /id="type-list" data-nav-scope="types"/);
 });
 
 test("the type nav reports no matches for an empty filtered group", () => {
@@ -156,6 +157,9 @@ test("the member nav marks the active group and its selected overload", () => {
   assert.match(
     html,
     /data-nav-overload="0" role="option" aria-selected="false"/);
+  assert.match(
+    html,
+    /id="type-list" data-nav-scope="members:System\.Text\.Json\.JsonSerializer"/);
   assert.match(html, /id="member-filters"/);
   assert.match(html, /←→ sections/);
 });

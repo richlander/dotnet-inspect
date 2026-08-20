@@ -384,7 +384,13 @@ test("member filters retain accessible controls and focus across rerenders", () 
     /memberFilter\?\.addEventListener\("input"[\s\S]*renderPreservingMemberFocus\(\)/);
   assert.match(
     appSource,
-    /memberFilter\?\.addEventListener\("keydown"[\s\S]*event\.key === "Escape"[\s\S]*drillOut\(\)[\s\S]*stepMemberNav/);
+    /memberFilter\?\.addEventListener\("keydown"[\s\S]*event\.key === "Escape"[\s\S]*exitMemberScope\(\)[\s\S]*stepMemberNav/);
+  assert.match(
+    appSource,
+    /event\.key === "Escape" && !event\.defaultPrevented && !typing[\s\S]*if \(navMode\(\) === "member"\) exitMemberScope\(\)/);
+  assert.match(
+    appSource,
+    /#nav-to-types"\)\?\.addEventListener\("click", \(\) => \{\s*exitMemberScope\(\)/);
   assert.match(
     memberFocusSource,
     /active\?\.id === "type-list"[\s\S]*selector = "#type-list"/);
@@ -452,6 +458,21 @@ test("home demos restore the complete parsed location", () => {
     ?? "";
   assert.match(runHomeDemo, /restoreWorkspaceFromLocation\(loc, loc\)/);
   assert.doesNotMatch(runHomeDemo, /type: loc\.type/);
+  const restoreWorkspace =
+    appSource.match(/async function restoreWorkspaceFromLocation\([\s\S]*?\n}\n\n\/\/ Restores the full open-tab/)?.[0]
+    ?? "";
+  assert.match(
+    restoreWorkspace,
+    /state\.lens = loc\.lens \|\| "api";\s*state\.atPackageRoot = loc\.atPackageRoot \|\| false;\s*state\.packageLens = loc\.packageLens \|\| "overview";/);
+});
+
+test("opening an already-resident Platform resets type-specific member filters", () => {
+  const openPlatform =
+    appSource.match(/async function openRuntimePackFromHome\([\s\S]*?\n}\n\n\/\/ The inspector-bot/)?.[0]
+    ?? "";
+  assert.match(
+    openPlatform,
+    /state\.atPackageRoot = true;\s*state\.packageLens = "overview";\s*resetMemberFilters\(\);\s*state\.selectedTypeId = pack\.types\[0\]\?\.id \|\| "";/);
 });
 
 test("settings keep a viewport-bounded scroll region", () => {

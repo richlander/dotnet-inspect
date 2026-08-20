@@ -1495,9 +1495,7 @@ function drillOut() {
     if (member && member.overloads.length > 1 && state.selectedOverloadIndex != null) {
       state.selectedOverloadIndex = null;
     } else {
-      state.selectedMemberKey = "";
-      state.memberBrowseTypeId = "";
-      state.selectedOverloadIndex = null;
+      return exitMemberScope();
     }
     render();
     return true;
@@ -1508,6 +1506,14 @@ function drillOut() {
     return true;
   }
   return false;
+}
+
+function exitMemberScope() {
+  state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
+  state.selectedOverloadIndex = null;
+  render();
+  return true;
 }
 
 
@@ -3544,7 +3550,7 @@ function bindEvents() {
   memberFilter?.addEventListener("keydown", event => {
     if (event.key === "Escape") {
       event.preventDefault();
-      drillOut();
+      exitMemberScope();
       return;
     }
     if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
@@ -3589,7 +3595,7 @@ function bindEvents() {
     if (group) selectMemberNavEntry({ kind: "overload", group, index: Number(button.dataset.navOverload) }, false);
   }));
   document.querySelector("#nav-to-types")?.addEventListener("click", () => {
-    drillOut();
+    exitMemberScope();
   });
   document.querySelectorAll("[data-member-section]").forEach(button => button.addEventListener("click", () => {
     applyMemberSection(button.dataset.memberSection);
@@ -5125,6 +5131,7 @@ async function openRuntimePackFromHome() {
   }
   state.atPackageRoot = true;
   state.packageLens = "overview";
+  resetMemberFilters();
   state.selectedTypeId = pack.types[0]?.id || "";
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
@@ -7199,6 +7206,9 @@ async function restoreWorkspaceFromLocation(
   state.queryNotice = loc.workspaceNotice || "";
   state.queryNoticeRetryAction = null;
   state.home = false;
+  state.lens = loc.lens || "api";
+  state.atPackageRoot = loc.atPackageRoot || false;
+  state.packageLens = loc.packageLens || "overview";
   state.loading = true;
   state.error = "";
   state.retryAction = null;
@@ -7478,7 +7488,8 @@ document.addEventListener("keydown", event => {
   } else if (event.key === "Escape" && !event.defaultPrevented && !typing
       && (navMode() === "member" || !state.atPackageRoot)) {
     event.preventDefault();
-    drillOut();
+    if (navMode() === "member") exitMemberScope();
+    else drillOut();
   } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
     event.preventDefault();
     openSpotlight("", "commands");

@@ -5,7 +5,8 @@ export interface MemberFocusSnapshot {
     end: number | null;
     direction: "forward" | "backward" | "none" | null;
   } | null;
-  memberListScrollTop: number | null;
+  navigationScope: string | null;
+  navigationScrollTop: number | null;
   focusLost: boolean;
 }
 
@@ -14,7 +15,7 @@ export function captureMemberFocus(
   escapeSelectorValue: (value: string) => string,
 ): MemberFocusSnapshot {
   const active = document.activeElement as HTMLElement | null;
-  const memberList = document.querySelector<HTMLElement>("#type-list");
+  const navigationList = document.querySelector<HTMLElement>("#type-list");
   let selector = "";
   let selection: MemberFocusSnapshot["selection"] = null;
   if (active?.id === "member-filter") {
@@ -43,7 +44,8 @@ export function captureMemberFocus(
   return {
     selector,
     selection,
-    memberListScrollTop: memberList?.scrollTop ?? null,
+    navigationScope: navigationList?.dataset.navScope ?? null,
+    navigationScrollTop: navigationList?.scrollTop ?? null,
     focusLost:
       active === null
       || active === document.body
@@ -63,17 +65,30 @@ export function restoreMemberFocus(
   snapshot: MemberFocusSnapshot,
   requestFrame: (callback: FrameRequestCallback) => number,
 ): void {
-  if (!snapshot.selector && snapshot.memberListScrollTop === null)
+  if (!snapshot.selector && snapshot.navigationScope === null)
     return;
 
   requestFrame(() => {
-    const memberList = document.querySelector<HTMLElement>("#type-list");
-    if (memberList && snapshot.memberListScrollTop !== null)
-      memberList.scrollTop = snapshot.memberListScrollTop;
+    const navigationList = document.querySelector<HTMLElement>("#type-list");
+    if (navigationList
+      && snapshot.navigationScope !== null
+      && navigationList.dataset.navScope === snapshot.navigationScope
+      && snapshot.navigationScrollTop !== null) {
+      navigationList.scrollTop = snapshot.navigationScrollTop;
+    }
     const replacement = snapshot.selector
       ? document.querySelector<HTMLElement>(snapshot.selector)
       : null;
-    replacement?.focus();
+    const active = document.activeElement as HTMLElement | null;
+    const canRestoreFocus =
+      active === null
+      || active === document.body
+      || active.isConnected === false
+      || active === replacement;
+    if (!replacement || !canRestoreFocus)
+      return;
+
+    replacement.focus();
     const input = replacement as HTMLInputElement | null;
     if (snapshot.selection && typeof input?.setSelectionRange === "function") {
       input.setSelectionRange(
