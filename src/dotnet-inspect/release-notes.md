@@ -36,11 +36,23 @@
 
 ### Experimental analysis and decompilation
 
+- **Breaking:** Removes the standalone `body-shape` command without a
+  compatibility alias. Use the existing `--where "Kind=<C# Body Kinds ID>"`
+  query with `library`, one exact `type`, or one exact `member`; these scoped
+  `Body Shapes` sections provide the command's search and output capabilities.
+- Rendered body-kind queries can now target one exact `type`, searching only
+  the MethodDef and accessor bodies owned by that type. Existing output
+  projections and `--all` behavior apply without widening to other types in
+  the assembly.
 - Rendered body-kind queries can now target one exact `member` overload. The
   query resolves properties and events to their accessor MethodDef tokens,
   emits round-tripping owner-plus-accessor selectors, supports non-public
   selections with `--all`, and decompiles only the selected body instead of
   scanning the assembly.
+- Library body-kind queries now compose with existing Performance Triage
+  predicates. Matching opportunities are joined through typed source
+  MethodDef identities before decompilation, so only candidate methods are
+  searched for the requested rendered syntax.
 - Adds bounded exact structural clone comparison and same-assembly discovery.
   Exact normalized IL/control-flow witnesses remain distinct from unsupported,
   failed, limited, ambiguous, and different outcomes; incomplete candidate

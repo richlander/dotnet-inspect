@@ -23,11 +23,11 @@ dnx dotnet-inspect -y -- <command>
 | Inspect overloads | `member Type --platform Lib -m Name -S "Member Index"` |
 | Select an overload | `member Type --platform Lib Name:1` or `Name~digest` |
 | Discover legal query values | `vocabulary -D`; select values with `vocabulary -S Accessibility`, `-S "C# Style Choices" --json`, or `-S "C# Body Kinds"`. |
-| Find rendered body syntax | `library path/to.dll --where "Kind=ObjectCreationExpression"` or `member Type Method:1 --library path/to.dll --where "Kind=InvocationExpression"`; load `skill decompiler` for stable kinds and coordinates. |
+| Find rendered body syntax | `library path/to.dll --where "Kind=ObjectCreationExpression"`, `type Type --library path/to.dll --where "Kind=InvocationExpression"`, or `member Type Method:1 --library path/to.dll --where "Kind=InvocationExpression"`; load `skill decompiler` for stable kinds and coordinates. |
 | Compare APIs | `diff --package Foo@old..new --breaking` (`--additive` new APIs); `--alloc-regressions` for perf regressions (allocations up, hot first). |
 | Trace API evolution | `timeline --package Foo@old..new --type Type --members --at all`; omit `--at` to inspect the vector without acquiring packages. |
 | Inspect packages | `package Foo`; use `-D` to discover sections. Load `skill private-feeds` for custom/authenticated sources. |
-| Inspect libraries | `library Foo` or `library path/to.dll`; use `-D` to discover sections. Load `skill metadata` for raw ECMA-335 tables/heaps. |
+| Inspect libraries | `library Foo` or `library path/to.dll`; use `-D` to discover sections and `-S "Unsafe Members"` for standalone unsafe evidence. Load `skill metadata` for raw ECMA-335 tables/heaps. |
 | Relationships | `depends Type`, `extensions Type`, `implements Interface`. |
 
 ## Member lookup

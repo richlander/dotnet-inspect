@@ -411,7 +411,26 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             }
         }
 
-        return accumulator.Build(results);
+        LibraryBodyAnalysisResult analysis = accumulator.Build(results);
+        if (!includeMethodEvidence)
+            return analysis;
+
+        IReadOnlyDictionary<int, MethodIdentity> asyncSources =
+            _asyncSourceResolver.SourceMethodsByMoveNextToken();
+        if (asyncSources.Count == 0)
+            return analysis;
+
+        var declaredSources = new Dictionary<int, MethodIdentity>(
+            analysis.Methods.DeclaredSources);
+        foreach ((int token, MethodIdentity source) in asyncSources)
+            declaredSources.TryAdd(token, source);
+        return analysis with
+        {
+            Methods = analysis.Methods with
+            {
+                DeclaredSources = declaredSources,
+            },
+        };
     }
 
     // Assemblies with at least this many methods use the parallel per-method analysis path.

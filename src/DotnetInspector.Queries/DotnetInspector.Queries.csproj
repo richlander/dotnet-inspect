@@ -34,4 +34,5 @@
     -->
     <InternalsVisibleTo Include="DotnetInspector.ResearchQueries" />
   </ItemGroup>
+
 </Project>

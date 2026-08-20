@@ -9,12 +9,13 @@ grammar for the contract that
 already fixes in prose; that document remains the owner of the bundle
 contract, lifetime rules, and authorization model.
 
-This is a design proposal. Implementation has begun: the `package` and
-`embedded` member coordinates and one loader that realizes a selected context
-into exactly one `AssemblyContextGroup` now exist in product code, with the
-gates listed under [What exists today](#what-exists-today). Every other
-property asserted below is **unverified** until the gates named in
-[Status and gates](#status-and-gates) exist.
+This is a design proposal. Implementation has begun: the `package`,
+`platform`, and `embedded` member coordinates and one loader that realizes a
+selected context into exactly one `AssemblyContextGroup` now exist in product
+code, and the definition-record loader, registry, scenario resolution, and
+product home demos listed under [What exists today](#what-exists-today) are
+gated. Every other property asserted below is **unverified** until the gates
+named in [Status and gates](#status-and-gates) exist.
 
 ## Purpose
 
@@ -365,6 +366,57 @@ never selects one implicitly. A URL packet transposes to one packet-local
 composition of peer workspace, view, navigation, query, and scenario records,
 assigns reserved `share-*` ids within that composition, and selects its
 scenario explicitly.
+
+### Product demos are closed section presets
+
+Queries and sections are the **open** product surface: the caller supplies
+package, library, type, member, and related inputs, and the tool returns
+ordinary sections in ordinary formats (Markdown, JSON, Mermaid where a section
+already emits it, and so on). Product **home demos** are the **closed**
+counterpart: a small registry of curated bindings that fix those inputs and
+name which existing section(s) to run. A demo is a demonstration of the
+shipping product, not an arbitrary program against lower-level inspection APIs.
+
+Hard constraints:
+
+1. **Section-only.** Every demo selects one or more section ids the product
+   already ships (including view facets that resolve to sections). If a desired
+   demo cannot be expressed as existing sections, add or fix the section first,
+   then register the demo. Demo-only queries, renderers, or host-private load
+   paths are out of bounds.
+2. **Same pipeline as interactive use.** Running a demo materializes its fixed
+   coordinates and view, realizes the workspace through the normal loader, runs
+   the normal section pipeline, and returns those sections. Hosts differ only
+   in how they present the result (CLI formatters, browser UI over the engine
+   surface, tests). They do not reimplement the inspection.
+3. **Formats stay orthogonal.** The demo does not own JSON vs Markdown vs
+   Mermaid. Callers use the same format controls as any other section-producing
+   command.
+4. **Public `demo` means run.** A user-facing demo command must return real
+   section output from that pipeline. Resolve-only catalog or plan dumps are
+   tooling or debug aids, not the product bar for a root command.
+5. **CLI argv, definition plan, and engine ops are encodings of one binding.**
+   A home demo id, an equivalent CLI invocation that selects the same inputs
+   and sections, and (when exported) the browser engine operations that load
+   and project those sections describe the same closed preset. Share packets
+   and generated TypeScript bindings for the engine surface project that
+   preset; they are not a second demo system.
+
+The product registry (`ProductInspectionDemos`) stays a static id→metadata
+table plus peer definition records lowered to a `ResolvedScenario`. Listing
+remains metadata-only. **Today's binding is not yet a full closed section
+preset:** the three home scenarios fix coordinates and view focus (type,
+member anchor/key, library), but STJ and platform views name no `section`,
+and the call-graph view's `section: "call-graph"` is an illustrative token
+until the product-owned section/view-facet registry binds demo selections
+(see [Open questions](#open-questions) — view-facet registry binding — and the
+matching gate under [Status and gates](#status-and-gates)). The residual is
+therefore two tight steps, not "run only": (1) bind each home demo to stable
+existing section ids through that registry, then (2) **run** — realize the
+binding, execute those sections, return ordinary formatted section output. The
+browser home buttons and any imperative call-graph path converge on the same
+registry and sections once both steps exist; TypeScript export of the engine
+surface can land on its own schedule before the web host switches buttons over.
 
 ### Member coordinates
 
@@ -782,11 +834,20 @@ Implementation must add, at minimum:
   every record kind, including rejection of duplicate and unknown properties
   at top-level and nested shapes, unknown `schemaVersion` and `kind` values,
   redefinition of well-known group names, and every declared byte, depth,
-  value, coordinate, and cancellation limit;
+  value, coordinate, and cancellation limit —
+  `InspectionDefinitionTests.JsonRoundTrip_PreservesEveryRecordKind`,
+  `Parse_RejectsDuplicateProperties`, `Parse_RejectsUnknownProperties`, and
+  `Parse_RejectsUnknownKindAndSchemaVersion` cover the closed record kinds and
+  hardened bind path; well-known group redefinition, depth/value budgets, and
+  cancellation remain open;
 - a record-separation gate proving scenarios compose peer workspace, query,
   view, and navigation records by id, workspace-free scenarios create no
   assembly group, record count never activates a scenario implicitly, and
-  duplicate, unknown, or cross-kind record references fail visibly;
+  duplicate, unknown, or cross-kind record references fail visibly —
+  `InspectionDefinitionTests.Registry_RejectsDuplicateIdsWithinKind_AndResolvesPeerComposition`,
+  `Registry_UnknownPeerReference_FailsVisibly`,
+  `Registry_WorkspaceFreeScenario_CreatesNoAssemblyGroup`, and
+  `Registry_DoesNotActivateImplicitlyFromRecordCount`;
 - a grammar gate covering recursive catalog paths and composition, plus one
   exact-pin parser exercised through member coordinates, group subscriptions,
   and packet tuples, including rejection of `latest`, ranges, build metadata,
@@ -851,7 +912,20 @@ Implementation must add, at minimum:
   an unknown name a typed outcome there. The gate's concrete form tracks
   the registry-binding open question; and
 - a demo-parity gate showing the previously imperative call-graph demo loads
-  from a definition and lands on the anchor-digest-selected overload.
+  from a definition and lands on the anchor-digest-selected overload —
+  `InspectionDefinitionTests.ProductHomeDemos_ResolveCallGraphByMemberAnchor`
+  (and STJ/platform companions) resolve static product-registry scenarios to
+  `WorkspaceMemberCoordinate` plans and view `memberAnchor` `74b6b4b321`; host
+  acquisition and UI landing remain host work on top of
+  `ProductInspectionDemos` / `ResolvedScenario`;
+- a demo-section constraint (design rule under
+  [Product demos are closed section presets](#product-demos-are-closed-section-presets)):
+  each product home demo names only existing section/view ids and runs through
+  the normal section pipeline — **unverified** until (a) home-demo views bind
+  stable product section ids (today STJ/platform omit `section`; call-graph's
+  token is not registry-validated), and (b) a run path and gate fail
+  registration of a demo whose selected sections are unknown or that bypasses
+  sections.
 
 The shell-safety elimination above is the one asserted property no
 repository gate can reach — it is a claim about external tools, verified
@@ -859,6 +933,32 @@ manually (bash and zsh by transcript; PowerShell and cmd analytically) and
 otherwise falling under this note's blanket unverified marking.
 
 ### What exists today
+
+Definition records and product demos (this slice):
+
+- `DotnetInspector.Queries.Definitions` loads one standalone JSON record through
+  `HardenedJson` then a source-generated context with unmapped members
+  disallowed (`InspectionDefinitionJson`);
+- `InspectionDefinitionRegistry` stores peer records by `(kind, id)`, resolves
+  scenarios by explicit id, and lowers package/platform/embedded coordinates to
+  `WorkspaceMemberCoordinate` for `WorkspaceContextLoader` (group `subscribe`
+  expressions and filesystem coordinates are typed failures in this slice);
+- `ProductInspectionDemos` is a static id→factory registry (smooth-markdown-table
+  `RendererRegistry` style) of the three home scenarios; listing is metadata-only
+  and `ResolveHomeScenario` allocates only that demo's peer records; JSON remains
+  the portable load path for external definitions;
+- `InspectionDefinitionTests` is the gate for round-trip, separation,
+  demo-parity, null nested-array rejection, whole-record coordinate budget,
+  dual `rid`/`runtimeIdentifier` rejection, and fail-closed subscribe /
+  filesystem / cross-kind peer resolution; and
+- **not yet:** closed section presets + **run**
+  ([above](#product-demos-are-closed-section-presets)) — bind each home demo to
+  product-owned section ids (not merely coordinates/type focus); realize the
+  binding; execute those sections; return formatted section output on CLI and
+  (via the engine / generated TS surface) on inspect-web; replace hand-authored
+  home links and imperative call-graph load once that path exists. Today's
+  `ResolvedScenario` plans are a partial binding. A resolve-only plan dump is
+  not the user-facing demo command.
 
 The coordinate-realization slice implements the `package`, `platform`, and
 `embedded` member coordinates
@@ -1043,10 +1143,13 @@ is not part of runtime-pack acquisition. It supplies:
   so an archive folder whose framework text carries a sign is an ordinary
   unusable folder rather than an exception escaping the loader after commit.
 
-Nothing else on the list above exists yet. There is no record schema or
-serializer, no group catalog or grammar, no packet projection, no `platform`,
-`project`, `local`, or `directory` coordinate, and no preset binding, so every
-property that depends on those remains unverified.
+The residual open items from the list above are: group catalog grammar and
+subscribe lowering, packet projection, filesystem `project` / `local` /
+`directory` coordinate hosts, and preset/query binding. Coordinate kinds
+`package`, `platform`, and `embedded` already lower; the record schema,
+serializer, registry, and product demos are gated by
+`InspectionDefinitionTests`. Every property that still depends on the residual
+items remains unverified.
 
-Until those gates exist, nothing in this note beyond the slice above is a
-behavior claim.
+Until those residual gates exist, nothing in this note beyond the slices above
+is a behavior claim.
