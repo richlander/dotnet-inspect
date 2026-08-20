@@ -540,11 +540,12 @@ data bar and the home readiness bar. The workspace bar occupies the bottom row
 formerly used by the persistent command prompt, giving the bar the full
 viewport width. By default the bar shows a compact, single-line summary in
 priority order: app version/commit, package provenance, build date, and a
-one-line performance summary. Clicking (or pressing Enter/Space on) the bar
-toggles an expanded view that adds the full diagnostics breakdown
-(download/startup/precompute/total), package cache stats, active assembly,
-framework, and the "public API surface" label. Expansion state lives in
-`state.statusBarExpanded` and applies to both the workspace and home bars.
+one-line performance summary. A dedicated toggle button at the end of the bar
+(so it never overlaps the commit link) expands and collapses the view,
+adding the full diagnostics breakdown (download/startup/precompute/total),
+package cache stats, active assembly, framework, and the "public API
+surface" label. Expansion state lives in `state.statusBarExpanded` and
+applies to both the workspace and home bars.
 Package source, assembly, and framework are shown only in a workspace.
 Current browser acquisition distinguishes NuGet.org from the .NET platform;
 the typed model also reserves local-file and custom-feed provenance for

@@ -80,8 +80,9 @@ test("the compact workspace data bar shows version/commit, provenance, and a one
 
   assert.match(html, /class="statusbar data-bar"/);
   assert.doesNotMatch(html, /class="statusbar data-bar expanded"/);
-  assert.match(html, /tabindex="0"/);
+  assert.match(html, /data-status-bar-toggle-button/);
   assert.match(html, /aria-expanded="false"/);
+  assert.match(html, /<button type="button" class="status-bar-toggle"/);
 
   const identityIndex = html.indexOf("v1.2.3");
   const provenanceIndex = html.indexOf("Source:");
@@ -170,6 +171,6 @@ test("workspace source failures remain visible as unknown provenance", () => {
 test("the data bar exposes a click/keyboard expand affordance even with no optional fields", () => {
   const html = statusBarHtml({}, escapeHtml);
   assert.match(html, /data-status-bar-toggle="collapsed"/);
-  assert.match(html, /tabindex="0"/);
+  assert.match(html, /data-status-bar-toggle-button/);
   assert.doesNotMatch(html, /Source:/);
 });
