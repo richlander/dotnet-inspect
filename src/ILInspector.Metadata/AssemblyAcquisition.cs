@@ -37,8 +37,11 @@ public abstract record AssemblyResolutionProvenance
     /// <summary>
     /// An assembly the caller enumerated explicitly, rather than one the
     /// resolver discovered on its own. Designation is a statement of trust by
-    /// the caller: it distinguishes a build layout or corpus the user pointed
-    /// at from a file that merely happened to sit beside an inspected artifact.
+    /// the caller: it distinguishes a set the caller listed from a file that
+    /// merely happened to sit beside an inspected artifact. Corpus enumeration
+    /// is the only product caller that designates today; naming a directory on
+    /// the command line does not, because platform-scope resolution already
+    /// covers build-layout inspection without it.
     /// </summary>
     public static AssemblyResolutionProvenance Designated(string resolverSource) =>
         new DesignatedAsset(resolverSource);

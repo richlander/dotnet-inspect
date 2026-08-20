@@ -85,13 +85,15 @@ public class PlantedCoreLibraryIdentityTests
     }
 
     /// <summary>
-    /// An assembly the caller designated — a corpus path, or a build layout the
-    /// user named — keeps core-library identity even though it is reached by
-    /// resolution rather than being the target. Designation is the caller's
-    /// statement of trust, and it is what separates a dotnet/runtime build
-    /// layout from a planted sibling: the two are indistinguishable in
-    /// metadata. Fails if <c>DesignatedAsset</c> stops being honoured, which
-    /// would silently degrade raising for corpus and build-layout inspection.
+    /// An assembly the caller designated — a corpus path — keeps core-library
+    /// identity even though it is reached by resolution rather than being the
+    /// target. Designation is the caller's statement of trust, and it is what
+    /// would separate a dotnet/runtime build layout from a planted sibling:
+    /// the two are indistinguishable in metadata. No command designates a
+    /// user-named directory today, and none needs to, because a platform-token
+    /// reference resolves at platform scope, which excludes siblings outright.
+    /// Fails if <c>DesignatedAsset</c> stops being honoured, which would
+    /// silently degrade corpus inspection.
     /// </summary>
     [Fact]
     public void DesignatedAcquisition_KeepsCoreLibraryIdentity()
@@ -119,6 +121,44 @@ public class PlantedCoreLibraryIdentityTests
             AssemblyResolutionProvenance.Local("sibling"),
             CoreLibraryTrustPolicy.IncludeDiscovered,
             expectedCorelib: true);
+    }
+
+    /// <summary>
+    /// The host opt-in reaches siblings only. A package payload and an embedded
+    /// upload are denied core-library identity under <em>both</em> policies,
+    /// because trusting the directory a build layout occupies says nothing
+    /// about content that was downloaded or handed to the tool. Fails if
+    /// <c>MayMint</c> goes back to treating <c>IncludeDiscovered</c> as a
+    /// blanket switch over every provenance, which would silently entitle a
+    /// planted core library inside a package — the exact #4411 exposure — for
+    /// any host that opted in for build layouts.
+    /// </summary>
+    [Fact]
+    public void TheHostOptIn_DoesNotReachPackagesOrUploads()
+    {
+        foreach (var policy in new[]
+        {
+            CoreLibraryTrustPolicy.DesignatedAndPlatform,
+            CoreLibraryTrustPolicy.IncludeDiscovered,
+        })
+        {
+            RunWithResolvedCoreLibrary(
+                AssemblyResolutionProvenance.Package(
+                    "Contoso.Evil",
+                    "1.0.0",
+                    tfm: null,
+                    rid: null),
+                policy,
+                expectedCorelib: false);
+
+            RunWithResolvedCoreLibrary(
+                AssemblyResolutionProvenance.Embedded(
+                    "upload",
+                    digest: "sha256:0",
+                    declaredName: "System.Runtime"),
+                policy,
+                expectedCorelib: false);
+        }
     }
 
     /// <summary>

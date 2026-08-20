@@ -318,9 +318,24 @@ inspecting a dotnet/runtime build layout has a real core library beside the
 assembly under inspection; an attacker shipping a malicious package has a
 planted `System.Runtime.dll` beside its own library. **No metadata distinguishes
 them** — only the caller's intent does. An assembly the caller enumerated
-explicitly (a corpus path, or a directory the user named) carries
-`DesignatedAsset` and keeps core-library identity; one the resolver discovered
-beside the target does not.
+explicitly carries `DesignatedAsset` and keeps core-library identity; one the
+resolver discovered beside the target does not.
+
+Today the only product caller that designates is corpus enumeration
+(`CorpusAssemblyPaths`). No command turns a user-named directory into a
+designation, so a discovered sibling core library is denied identity however
+the user reached it.
+
+That denial does not block build-layout inspection, because a sibling is not
+how a build layout supplies a core library in the first place. A core-library
+reference carries a platform public-key token, so it is asserted at
+`AssemblyResolutionScope.Platform`, and platform scope admits only
+trusted-platform, shared-framework, and corpus candidates — siblings are
+filtered out before trust is ever consulted. The layout's own core library is
+therefore never the candidate for a platform-token reference. When the user
+names that core library directly it is opened rather than resolved, and the
+deny list is scoped to resolution, so it keeps its identity. Both halves of
+the developer workflow work without designating the directory.
 
 The residual case is a host policy, `CoreLibraryTrustPolicy`. The default,
 `DesignatedAndPlatform`, is correct for any host that inspects untrusted

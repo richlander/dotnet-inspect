@@ -87,13 +87,22 @@ static class CoreLibraryIdentityTrust
     /// Whether an acquisition entitles the assembly to core-library identity.
     /// A platform acquisition and an explicit caller designation always do; a
     /// discovered sibling does only when the host has opted in.
+    /// <para>
+    /// The opt-in is scoped to <see cref="AssemblyResolutionProvenance.LocalAsset"/>
+    /// deliberately. It exists for a host whose surrounding directory is as
+    /// trusted as the target, so it entitles what that directory yielded and
+    /// nothing else: package payloads and embedded uploads stay denied under
+    /// every policy, because neither becomes trustworthy by the host trusting
+    /// a build layout.
+    /// </para>
     /// </summary>
     internal static bool MayMint(
         AssemblyResolutionProvenance provenance,
         CoreLibraryTrustPolicy policy) =>
         provenance is AssemblyResolutionProvenance.PlatformAsset
             or AssemblyResolutionProvenance.DesignatedAsset
-        || policy == CoreLibraryTrustPolicy.IncludeDiscovered;
+        || policy == CoreLibraryTrustPolicy.IncludeDiscovered
+            && provenance is AssemblyResolutionProvenance.LocalAsset;
 
     /// <summary>
     /// Whether <paramref name="reader"/> may canonicalize its own assembly name

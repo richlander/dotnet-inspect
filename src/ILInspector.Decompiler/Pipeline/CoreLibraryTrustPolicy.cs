@@ -27,6 +27,9 @@ enum CoreLibraryTrustPolicy
     /// surrounding directory is as trusted as the target itself, such as a
     /// local tool pointed at a build layout the user controls. This restores
     /// the pre-<c>#4411</c> behaviour and with it the planted-sibling exposure.
+    /// It reaches siblings only: a package payload or an embedded upload stays
+    /// denied, so a host that trusts its working directory does not thereby
+    /// trust content it merely downloaded or was handed.
     /// </summary>
     IncludeDiscovered,
 }
