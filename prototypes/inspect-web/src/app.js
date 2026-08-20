@@ -800,14 +800,29 @@ function defaultVisibleTypeId(pkg) {
   // No type within the active library scope passes the current accessibility filter -- e.g.
   // an internal-only platform library (zero public types) reached via a link with no explicit
   // type. Prefer a type still within the requested scope over an unrelated package-wide type,
-  // so the caller's accessibility-widening reconciliation (see applyDeepLink) can admit it
-  // without losing the library scope that was the actual target of the restore.
+  // so the caller's accessibility-widening reconciliation (see reconcileAccessibilityFilter)
+  // can admit it without losing the library scope that was the actual target of the restore.
   if (state.libraryScope) {
     const scoped = pkg.types.find(item => state.libraryScope.has(libraryKey(item)));
     if (scoped) return scoped.id;
   }
   return pkg.types[0]?.id || "";
 }
+
+// Widen state.accessibilityFilter, if necessary, so it admits the given type. Every
+// defaultVisibleTypeId caller must invoke this immediately after assigning
+// state.selectedTypeId so a package/library where every type falls outside the current
+// filter (e.g. one with zero public types) doesn't leave the type list empty while the pane
+// renders a type filteredTypes() would hide.
+function reconcileAccessibilityFilter(type) {
+  if (!type) return;
+  if (!state.accessibilityFilter.has(type.accessibilityId)) {
+    const next = new Set(state.accessibilityFilter);
+    next.add(type.accessibilityId);
+    state.accessibilityFilter = next;
+  }
+}
+
 
 // The "Filter types" box matches, within the active scope, on the type's own identity
 // (name/namespace/kind), the owning library (assembly) name, and — so a member you
@@ -987,6 +1002,7 @@ function selectPackageTab(pkg) {
   state.kindFilter = "";
   state.libraryScope = null;
   state.selectedTypeId = defaultVisibleTypeId(pkg);
+  reconcileAccessibilityFilter(pkg.types.find(item => item.id === state.selectedTypeId));
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
   resetMemberSectionState();
@@ -4224,6 +4240,7 @@ async function switchPlatformVersion(tfm, retryPackage = null) {
   // package rather than a possibly-stale or now-nonexistent library.
   state.libraryScope = null;
   state.selectedTypeId = defaultVisibleTypeId(loaded);
+  reconcileAccessibilityFilter(loaded.types.find(item => item.id === state.selectedTypeId));
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
   render();
@@ -4608,11 +4625,7 @@ function applyDeepLink(deep) {
   // renders the restored one.
   const selected = pkg.types.find(item => item.id === state.selectedTypeId);
   if (selected) {
-    if (!state.accessibilityFilter.has(selected.accessibilityId)) {
-      const next = new Set(state.accessibilityFilter);
-      next.add(selected.accessibilityId);
-      state.accessibilityFilter = next;
-    }
+    reconcileAccessibilityFilter(selected);
     // A regular package's scope was already cleared above. For the platform pseudo-package,
     // only clear the restored scope if the selected type doesn't actually belong to it --
     // defaultVisibleTypeId now prefers a type within libraryScope even when none of that
@@ -4881,6 +4894,7 @@ async function openRuntimePackFromHome() {
   state.kindFilter = "";
   state.libraryScope = null;
   state.selectedTypeId = defaultVisibleTypeId(pack);
+  reconcileAccessibilityFilter(pack.types.find(item => item.id === state.selectedTypeId));
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
   render();
@@ -5484,6 +5498,7 @@ function switchToPackageForDependencies(packageKey) {
   state.kindFilter = "";
   state.libraryScope = null;
   state.selectedTypeId = defaultVisibleTypeId(target);
+  reconcileAccessibilityFilter(target.types.find(item => item.id === state.selectedTypeId));
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
   render();
@@ -6572,6 +6587,7 @@ async function loadPackage(packageId, version, framework, options = {}) {
       applyDeepLink(deep);
     } else {
       state.selectedTypeId = defaultVisibleTypeId(packageModel);
+      reconcileAccessibilityFilter(packageModel.types.find(item => item.id === state.selectedTypeId));
       state.selectedMemberKey = "";
       state.selectedOverloadIndex = null;
       state.memberSection = "overview";
