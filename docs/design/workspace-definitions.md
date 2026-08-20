@@ -368,6 +368,57 @@ composition of peer workspace, view, navigation, query, and scenario records,
 assigns reserved `share-*` ids within that composition, and selects its
 scenario explicitly.
 
+### Product demos are closed section presets
+
+Queries and sections are the **open** product surface: the caller supplies
+package, library, type, member, and related inputs, and the tool returns
+ordinary sections in ordinary formats (Markdown, JSON, Mermaid where a section
+already emits it, and so on). Product **home demos** are the **closed**
+counterpart: a small registry of curated bindings that fix those inputs and
+name which existing section(s) to run. A demo is a demonstration of the
+shipping product, not an arbitrary program against lower-level inspection APIs.
+
+Hard constraints:
+
+1. **Section-only.** Every demo selects one or more section ids the product
+   already ships (including view facets that resolve to sections). If a desired
+   demo cannot be expressed as existing sections, add or fix the section first,
+   then register the demo. Demo-only queries, renderers, or host-private load
+   paths are out of bounds.
+2. **Same pipeline as interactive use.** Running a demo materializes its fixed
+   coordinates and view, realizes the workspace through the normal loader, runs
+   the normal section pipeline, and returns those sections. Hosts differ only
+   in how they present the result (CLI formatters, browser UI over the engine
+   surface, tests). They do not reimplement the inspection.
+3. **Formats stay orthogonal.** The demo does not own JSON vs Markdown vs
+   Mermaid. Callers use the same format controls as any other section-producing
+   command.
+4. **Public `demo` means run.** A user-facing demo command must return real
+   section output from that pipeline. Resolve-only catalog or plan dumps are
+   tooling or debug aids, not the product bar for a root command.
+5. **CLI argv, definition plan, and engine ops are encodings of one binding.**
+   A home demo id, an equivalent CLI invocation that selects the same inputs
+   and sections, and (when exported) the browser engine operations that load
+   and project those sections describe the same closed preset. Share packets
+   and generated TypeScript bindings for the engine surface project that
+   preset; they are not a second demo system.
+
+The product registry (`ProductInspectionDemos`) stays a static id→metadata
+table plus peer definition records lowered to a `ResolvedScenario`. Listing
+remains metadata-only. **Today's binding is not yet a full closed section
+preset:** the three home scenarios fix coordinates and view focus (type,
+member anchor/key, library), but STJ and platform views name no `section`,
+and the call-graph view's `section: "call-graph"` is an illustrative token
+until the product-owned section/view-facet registry binds demo selections
+(see [Open questions](#open-questions) — view-facet registry binding — and the
+matching gate under [Status and gates](#status-and-gates)). The residual is
+therefore two tight steps, not "run only": (1) bind each home demo to stable
+existing section ids through that registry, then (2) **run** — realize the
+binding, execute those sections, return ordinary formatted section output. The
+browser home buttons and any imperative call-graph path converge on the same
+registry and sections once both steps exist; TypeScript export of the engine
+surface can land on its own schedule before the web host switches buttons over.
+
 ### Member coordinates
 
 Each member names an acquisition location with a `kind` discriminator mapping
@@ -875,7 +926,15 @@ Implementation must add, at minimum:
   (and STJ/platform companions) resolve static product-registry scenarios to
   `WorkspaceMemberCoordinate` plans and view `memberAnchor` `74b6b4b321`; host
   acquisition and UI landing remain host work on top of
-  `ProductInspectionDemos` / `ResolvedScenario`.
+  `ProductInspectionDemos` / `ResolvedScenario`;
+- a demo-section constraint (design rule under
+  [Product demos are closed section presets](#product-demos-are-closed-section-presets)):
+  each product home demo names only existing section/view ids and runs through
+  the normal section pipeline — **unverified** until (a) home-demo views bind
+  stable product section ids (today STJ/platform omit `section`; call-graph's
+  token is not registry-validated), and (b) a run path and gate fail
+  registration of a demo whose selected sections are unknown or that bypasses
+  sections.
 
 The shell-safety elimination above is the one asserted property no
 repository gate can reach — it is a claim about external tools, verified
@@ -896,11 +955,19 @@ Definition records and product demos (this slice):
 - `ProductInspectionDemos` is a static id→factory registry (smooth-markdown-table
   `RendererRegistry` style) of the three home scenarios; listing is metadata-only
   and `ResolveHomeScenario` allocates only that demo's peer records; JSON remains
-  the portable load path for external definitions; and
+  the portable load path for external definitions;
 - `InspectionDefinitionTests` is the gate for round-trip, separation,
   demo-parity, null nested-array rejection, whole-record coordinate budget,
   dual `rid`/`runtimeIdentifier` rejection, and fail-closed subscribe /
-  filesystem / cross-kind peer resolution.
+  filesystem / cross-kind peer resolution; and
+- **not yet:** closed section presets + **run**
+  ([above](#product-demos-are-closed-section-presets)) — bind each home demo to
+  product-owned section ids (not merely coordinates/type focus); realize the
+  binding; execute those sections; return formatted section output on CLI and
+  (via the engine / generated TS surface) on inspect-web; replace hand-authored
+  home links and imperative call-graph load once that path exists. Today's
+  `ResolvedScenario` plans are a partial binding. A resolve-only plan dump is
+  not the user-facing demo command.
 
 The coordinate-realization slice implements the `package`, `platform`, and
 `embedded` member coordinates

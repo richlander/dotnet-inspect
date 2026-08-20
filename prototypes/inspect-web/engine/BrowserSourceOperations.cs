@@ -23,6 +23,10 @@ public static partial class BrowserInspectionEngine
             maxExpandedPdbBytes: 24 * MiB);
 
     [JSExport]
+    public static void ConfigureHost(string origin) =>
+        BrowserPackageWorkspace.ConfigureMsdlProxy(origin);
+
+    [JSExport]
     public static void CancelSourceQuery() =>
         BrowserSourceOperationCoordinator.CancelCurrent();
 
