@@ -379,17 +379,29 @@ happily if the scan silently observed nothing, and
 identity rather than a label, so an added overload or a lowered local function
 cannot inherit an existing entry's approval.
 
-Grants are recognised by identity too, and for the same reason. A call into
-`CoreLibraryIdentityTrust` counts as a grant unless its member appears on an
-explicit non-granting list, and
-`ReaderConstructionSiteTests.TrustTypeMembers_AreClassified` fails when the type
-declares a member that list does not account for. Round 3 of PR #4469 escaped an
-earlier `StartsWith("Grant")` test by adding a member named `Classify` that
-forwarded to the grant and calling it from a site pinned as acquisition-only:
-every test stayed green while every opened reader gained identity. Recognising a
-grant by its name reproduced, on the grant half, the same cosmetic
-non-convergence the gate exists to end — so the polarity is inverted, and an
-unclassified member is grant-relevant until someone says otherwise.
+Grants are recognised by the primitive, not by the call surface, and that is
+what makes the gate converge. Core-library identity *is* membership in the
+`s_trusted` table, so `ReaderConstructionSiteTests.TrustTableAccess_IsConfinedToItsPinnedMembers`
+pins every method in the assembly whose IL reaches that field — whatever it is
+called, whatever type declares it, and whether or not it is reachable through
+the trust type's own surface. Loading the field counts as reach because mutating
+the table requires getting hold of it first; storing it is initialization, and
+is allowed only in the static constructor that creates it. A call into
+`CoreLibraryIdentityTrust` is still reported as a grant unless its full
+signature is allow-listed, and
+`ReaderConstructionSiteTests.TrustTypeMembers_AreClassified` requires the type
+to account for every member it declares and to declare no nested types.
+
+The structure was arrived at by being escaped. Rounds 3 and 4 of PR #4469 broke
+a scan keyed on calls into the trust type four times: a member named `Classify`
+that forwarded to the grant; a nested `Helper` reaching the table directly, so
+its call sites never named the trust type at all; a static constructor that
+granted from a staged reader; and a `MayMint(MetadataReader)` overload that
+inherited the exemption belonging to the unrelated `MayMint`. Every one was a
+fresh cosmetic dimension of the call surface, which is precisely the endless
+series issue #4464 exists to stop. The field is not such a dimension — to
+confer trust you have to reach the table — so pinning its referents is complete
+by construction rather than by enumerating the ways a grant might be spelled.
 
 The pin is deliberately bounded: it answers where readers come from and which of
 them are classified, not whether each grant is deserved. A method that passed a

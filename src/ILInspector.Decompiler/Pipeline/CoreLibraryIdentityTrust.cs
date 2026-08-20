@@ -45,11 +45,12 @@ namespace ILInspector.Decompiler.Pipeline;
 /// halves — the grant and the check — and covers the resolved, designated,
 /// raw-path, and unclassified open paths, and by
 /// <c>ReaderConstructionSiteTests</c>, which pins every method in this assembly
-/// whose IL obtains a <c>MetadataReader</c> or calls into this type, so a new way
-/// to obtain a reader cannot be added without saying which half it is on. A call
-/// here counts as a grant unless its member is listed as non-granting, and that
-/// list is required to account for every member this type declares — so adding a
-/// grant under a name that does not look like one fails the gate. That
+/// whose IL obtains a <c>MetadataReader</c> or reaches the trust table, so a new
+/// way to obtain a reader cannot be added without saying which half it is on.
+/// Identity is exactly membership in <c>s_trusted</c>, and every method able to
+/// reach that field is pinned by signature — so a grant cannot hide behind a
+/// name, a nested helper, a static constructor, or an overload of a member that
+/// does not grant. That
 /// pin covers reader creation and granting, not provenance and not receipt:
 /// whether a grant is deserved remains <c>PlantedCoreLibraryIdentityTests</c>'s
 /// property, and a reader arriving by delegate or reflection is simply

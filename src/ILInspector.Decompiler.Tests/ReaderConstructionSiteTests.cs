@@ -31,14 +31,25 @@ namespace ILInspector.Decompiler.Tests;
 /// stops obtaining or granting is a stale entry.
 /// </para>
 /// <para>
-/// Grants are recognised the same way, by identity rather than by spelling. A
-/// call into <c>CoreLibraryIdentityTrust</c> grants unless its member is named
-/// in <see cref="s_nonGrantingTrustMembers"/>, and
-/// <see cref="TrustTypeMembers_AreClassified"/> fails when the type gains a
-/// member that set does not account for. Round 3 of PR #4469 escaped an earlier
-/// <c>StartsWith("Grant")</c> test with a member named <c>Classify</c> that
-/// forwarded to the grant: recognising a grant by its name reproduced, on the
-/// grant half, the very non-convergence this gate exists to end.
+/// Grants are recognised by the primitive, not by the call surface. Core-library
+/// identity <em>is</em> membership in the <c>s_trusted</c> table, so
+/// <see cref="TrustTableAccess_IsConfinedToItsPinnedMembers"/> pins every method
+/// in the assembly whose IL reaches that field, whatever it is called and
+/// whatever type declares it. A call into <c>CoreLibraryIdentityTrust</c> is
+/// still reported as a grant unless its full signature appears in
+/// <see cref="s_nonGrantingTrustMembers"/>, and
+/// <see cref="TrustTypeMembers_AreClassified"/> requires the type to account for
+/// every member it declares and to declare no nested types.
+/// </para>
+/// <para>
+/// That structure is the answer to #4464 rather than one more patch. Rounds 3
+/// and 4 escaped the call-surface scan four times — a member named
+/// <c>Classify</c>, a nested <c>Helper</c> reaching the table directly, a
+/// granting static constructor, and a <c>MayMint(MetadataReader)</c> overload
+/// inheriting a bare-name exemption. Each was a fresh cosmetic dimension, which
+/// is exactly the series that has no end. The field is not a dimension: to
+/// confer trust you must reach the table, so pinning its referents is complete
+/// by construction.
 /// </para>
 /// <para>
 /// The scan sees <em>creation</em>, not receipt. A method handed a reader —
@@ -83,6 +94,31 @@ public sealed class ReaderConstructionSiteTests
     /// display name was escaped in review by declaring a namespace with this
     /// name.
     /// </summary>
+    /// <summary>
+    /// The field that <em>is</em> the trust. Core-library identity is exactly
+    /// membership in this table, so every IL reference to it in the assembly is
+    /// pinned by <see cref="TrustTableAccess_IsConfinedToItsPinnedMembers"/>.
+    /// </summary>
+    const string TrustTableFieldName = "s_trusted";
+
+    /// <summary>
+    /// The static constructor that creates the trust table. It is the one method
+    /// allowed to store the field, because it is the method that makes it.
+    /// </summary>
+    const string TrustTableInitializerKey = "Pipeline.CoreLibraryIdentityTrust..cctor()";
+
+    /// <summary>
+    /// Every method in <c>ILInspector.Decompiler</c> permitted to touch the trust
+    /// table, keyed by full signature. Nothing else in the assembly may name the
+    /// field at all — not a nested helper, not a static constructor, not another
+    /// overload of an allow-listed name.
+    /// </summary>
+    static readonly ImmutableHashSet<string> s_trustTableAccessors =
+        ImmutableHashSet.Create(
+            StringComparer.Ordinal,
+            "Pipeline.CoreLibraryIdentityTrust.GrantCoreLibraryIdentity(MetadataReader)",
+            "Pipeline.CoreLibraryIdentityTrust.MayMintCoreLibraryIdentity(MetadataReader)");
+
     const string TrustTypeFullName = "ILInspector.Decompiler.Pipeline.CoreLibraryIdentityTrust";
 
     /// <summary>
@@ -104,8 +140,8 @@ public sealed class ReaderConstructionSiteTests
     static readonly ImmutableHashSet<string> s_nonGrantingTrustMembers =
         ImmutableHashSet.Create(
             StringComparer.Ordinal,
-            "MayMint",
-            "MayMintCoreLibraryIdentity");
+            "MayMint(AssemblyResolutionProvenance, CoreLibraryTrustPolicy)",
+            "MayMintCoreLibraryIdentity(MetadataReader)");
 
     /// <summary>
     /// The members of the trust type that confer core-library identity. This set
@@ -117,8 +153,8 @@ public sealed class ReaderConstructionSiteTests
     static readonly ImmutableHashSet<string> s_grantingTrustMembers =
         ImmutableHashSet.Create(
             StringComparer.Ordinal,
-            "GrantCoreLibraryIdentity",
-            "GrantIfEntitled");
+            "GrantCoreLibraryIdentity(MetadataReader)",
+            "GrantIfEntitled(MetadataReader, AssemblyResolutionProvenance, CoreLibraryTrustPolicy)");
 
     /// <summary>
     /// Whether a trust-relevant site obtains a reader, grants core-library
@@ -256,6 +292,17 @@ public sealed class ReaderConstructionSiteTests
     /// loud rather than letting the omission read as approval. Set equality, so
     /// a stale entry for a deleted member fails too.
     /// </summary>
+    /// <remarks>
+    /// Keyed by full signature, not by bare name. Round 4 of PR #4469 escaped a
+    /// name-keyed version by adding a granting <c>MayMint(MetadataReader)</c>
+    /// overload, which silently inherited the exemption belonging to the
+    /// unrelated <c>MayMint(AssemblyResolutionProvenance, CoreLibraryTrustPolicy)</c>.
+    /// The trust type is also required to declare no nested types, because a
+    /// nested helper can reach the private table while its call sites never name
+    /// the trust type — the other round-4 escape. <c>.cctor</c> is skipped here
+    /// and covered by <see cref="TrustTableAccess_IsConfinedToItsPinnedMembers"/>,
+    /// which does not skip it.
+    /// </remarks>
     [Fact]
     public void TrustTypeMembers_AreClassified()
     {
@@ -264,27 +311,44 @@ public sealed class ReaderConstructionSiteTests
         var reader = pe.GetMetadataReader();
 
         var declared = new HashSet<string>(StringComparer.Ordinal);
+        var nested = new List<string>();
         foreach (var handle in reader.TypeDefinitions)
         {
             var type = reader.GetTypeDefinition(handle);
             if (FullName(reader, handle) != TrustTypeFullName)
                 continue;
 
+            foreach (var nestedHandle in type.GetNestedTypes())
+                nested.Add(FullName(reader, nestedHandle));
+
             foreach (var methodHandle in type.GetMethods())
             {
-                string name = reader.GetString(reader.GetMethodDefinition(methodHandle).Name);
+                var definition = reader.GetMethodDefinition(methodHandle);
+                string name = reader.GetString(definition.Name);
 
-                // The static constructor is emitted for the trust table itself and
-                // is never a callable grant vector, so it is not a classification
-                // anyone has to make.
+                // The static constructor initializes the trust table and cannot be
+                // called, so it is not a classification anyone has to make. It is
+                // not thereby unexamined: TrustTableAccess_IsConfinedToItsPinnedMembers
+                // scans it like any other method, so a .cctor that granted would
+                // fail there.
                 if (name == ".cctor")
                     continue;
 
-                declared.Add(name);
+                var signature = definition.DecodeSignature(
+                    new SignatureTypeNames(), genericContext: null);
+                declared.Add($"{name}({string.Join(", ", signature.ParameterTypes)})");
             }
         }
 
         Assert.NotEmpty(declared);
+
+        Assert.True(
+            nested.Count == 0,
+            "CoreLibraryIdentityTrust declares a nested type. A nested type can "
+            + "reach the private trust table while none of its call sites name "
+            + "the trust type, so the grant would not appear on the trust "
+            + "surface at all: "
+            + Format(nested));
 
         var classified = s_grantingTrustMembers.Union(s_nonGrantingTrustMembers);
 
@@ -302,6 +366,54 @@ public sealed class ReaderConstructionSiteTests
         static string Format(IEnumerable<string> names)
         {
             string joined = string.Join(", ", names.Order(StringComparer.Ordinal));
+            return joined.Length == 0 ? "(none)" : joined;
+        }
+    }
+
+    /// <summary>
+    /// Confines the grant primitive. Core-library identity is not conferred by
+    /// calling something named like a grant — it is conferred by putting a reader
+    /// into <c>s_trusted</c>, and read back by looking one up. So every method in
+    /// the assembly whose IL names that field has to be pinned here, whatever it
+    /// is called, whatever type declares it, and whether or not it is reachable
+    /// through the trust type's public surface.
+    /// </summary>
+    /// <remarks>
+    /// This is the test that makes the gate converge, and round 4 of PR #4469 is
+    /// why it exists. Both reviewers escaped a scan that keyed on calls
+    /// <em>into</em> <c>CoreLibraryIdentityTrust</c>: a nested
+    /// <c>CoreLibraryIdentityTrust.Helper.Grant</c> mutating the table directly
+    /// never names the trust type at its call site, and the type's own static
+    /// constructor was skipped outright. Sol added a third — a granting
+    /// <c>MayMint(MetadataReader)</c> overload, which inherited the exemption of
+    /// the unrelated <c>MayMint</c> because the allow list was keyed on the bare
+    /// name. Each was a fresh cosmetic dimension on the call surface, which is
+    /// the non-convergence issue #4464 exists to end. The field is not a
+    /// dimension: trust <em>is</em> membership in that table, so pinning its
+    /// referents is complete by construction rather than by enumeration.
+    /// </remarks>
+    [Fact]
+    public void TrustTableAccess_IsConfinedToItsPinnedMembers()
+    {
+        var observed = EnumerateMethods(typeof(MetadataSource).Assembly.Location)
+            .Where(e => e.Method.ReachesTrustTable)
+            .Select(e => e.Key)
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.True(
+            observed.SetEquals(s_trustTableAccessors),
+            "The set of methods that touch the core-library trust table has "
+            + "changed. Granting identity means putting a reader into that "
+            + "table, so anything able to name the field can confer trust no "
+            + "matter what it is called or where it is declared."
+            + Environment.NewLine
+            + $"  Touches the table but is not pinned: {Format(observed.Except(s_trustTableAccessors))}"
+            + Environment.NewLine
+            + $"  Pinned but no longer touches it: {Format(s_trustTableAccessors.Except(observed))}");
+
+        static string Format(IEnumerable<string> keys)
+        {
+            string joined = string.Join(", ", keys.Order(StringComparer.Ordinal));
             return joined.Length == 0 ? "(none)" : joined;
         }
     }
@@ -403,7 +515,10 @@ public sealed class ReaderConstructionSiteTests
         return sites.ToImmutableDictionary(StringComparer.Ordinal);
     }
 
-    readonly record struct ScannedMethod(TrustRole Role, string DeclaringTypeFullName);
+    readonly record struct ScannedMethod(
+        TrustRole Role,
+        string DeclaringTypeFullName,
+        bool ReachesTrustTable);
 
     static IEnumerable<(ScannedMethod Method, string Key)> EnumerateMethods(string assemblyPath)
     {
@@ -426,9 +541,80 @@ public sealed class ReaderConstructionSiteTests
                 continue;
 
             string declaringType = FullName(reader, method.GetDeclaringType());
+            string key = SiteKey(reader, method, declaringType);
             yield return (
-                new ScannedMethod(RoleOf(reader, il), declaringType),
-                SiteKey(reader, method, declaringType));
+                new ScannedMethod(
+                    RoleOf(reader, il),
+                    declaringType,
+                    ReachesTrustTable(reader, il, key)),
+                key);
+        }
+    }
+
+    /// <summary>
+    /// Whether this method can reach the contents of the trust table. Loading the
+    /// field, its address, or its token all count, because mutating the table
+    /// requires getting hold of it first. Storing the field is initialization
+    /// rather than reach, and is allowed only in the static constructor that
+    /// creates the table — anywhere else, replacing the table wholesale would be
+    /// a way to install a pre-populated one.
+    /// </summary>
+    static bool ReachesTrustTable(MetadataReader reader, byte[] il, string siteKey)
+    {
+        bool loads = false;
+        bool stores = false;
+
+        foreach (var instruction in InstructionDecoder.Decode(il))
+        {
+            if (instruction.Operand is not (OperandKind.InlineField or OperandKind.InlineTok))
+                continue;
+
+            var operand = MetadataTokens.EntityHandle((int)instruction.OperandValue);
+            if (!TryDescribeField(reader, operand, out string declaringType, out string field))
+                continue;
+
+            if (declaringType != TrustTypeFullName || field != TrustTableFieldName)
+                continue;
+
+            if (instruction.OpCode is ILOpCode.Stsfld or ILOpCode.Stfld)
+                stores = true;
+            else
+                loads = true;
+        }
+
+        return loads || (stores && siteKey != TrustTableInitializerKey);
+    }
+
+    static bool TryDescribeField(
+        MetadataReader reader,
+        EntityHandle handle,
+        out string declaringType,
+        out string field)
+    {
+        declaringType = "";
+        field = "";
+
+        switch (handle.Kind)
+        {
+            case HandleKind.FieldDefinition:
+            {
+                var definition = reader.GetFieldDefinition((FieldDefinitionHandle)handle);
+                field = reader.GetString(definition.Name);
+                declaringType = FullName(reader, definition.GetDeclaringType());
+                return true;
+            }
+            case HandleKind.MemberReference:
+            {
+                var reference = reader.GetMemberReference((MemberReferenceHandle)handle);
+                if (reference.GetKind() != MemberReferenceKind.Field)
+                    return false;
+
+                field = reader.GetString(reference.Name);
+                declaringType = TypeNameOf(reader, reference.Parent);
+                return true;
+            }
+            default:
+                return false;
         }
     }
 
@@ -450,7 +636,7 @@ public sealed class ReaderConstructionSiteTests
             // container. Review of PR #4469 escaped a PEReader-only scan through
             // MetadataReaderProvider and through the unsafe MetadataReader
             // constructor, neither of which constructs a PEReader.
-            if (member == "GetMetadataReader")
+            if (MemberName(member) == "GetMetadataReader")
                 role |= TrustRole.ObtainsReader;
 
             if (instruction.OpCode == ILOpCode.Newobj
@@ -469,6 +655,15 @@ public sealed class ReaderConstructionSiteTests
         return role;
     }
 
+    /// <summary>
+    /// The bare name of a signature-qualified member key.
+    /// </summary>
+    static string MemberName(string member)
+    {
+        int paren = member.IndexOf('(', StringComparison.Ordinal);
+        return paren < 0 ? member : member[..paren];
+    }
+
     static bool TryDescribeMember(
         MetadataReader reader,
         EntityHandle handle,
@@ -484,13 +679,23 @@ public sealed class ReaderConstructionSiteTests
             {
                 var reference = reader.GetMemberReference((MemberReferenceHandle)handle);
                 member = reader.GetString(reference.Name);
+                if (reference.GetKind() == MemberReferenceKind.Method)
+                {
+                    var signature = reference.DecodeMethodSignature(
+                        new SignatureTypeNames(), genericContext: null);
+                    member += $"({string.Join(", ", signature.ParameterTypes)})";
+                }
+
                 declaringType = TypeNameOf(reader, reference.Parent);
                 return true;
             }
             case HandleKind.MethodDefinition:
             {
                 var definition = reader.GetMethodDefinition((MethodDefinitionHandle)handle);
-                member = reader.GetString(definition.Name);
+                var signature = definition.DecodeSignature(
+                    new SignatureTypeNames(), genericContext: null);
+                member = reader.GetString(definition.Name)
+                    + $"({string.Join(", ", signature.ParameterTypes)})";
                 declaringType = FullName(reader, definition.GetDeclaringType());
                 return true;
             }
