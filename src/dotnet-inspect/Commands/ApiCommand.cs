@@ -2755,6 +2755,21 @@ public class ApiCommand
                     + "Use --jsonl, --tsv, or --table.");
                 return 1;
             }
+            var unsupportedCallerSection =
+                options.IncludeSections?.FirstOrDefault(section =>
+                    section.Equals(
+                        SectionNames.Callers,
+                        StringComparison.OrdinalIgnoreCase)
+                    || section.Equals(
+                        SectionNames.CallGraph,
+                        StringComparison.OrdinalIgnoreCase));
+            if (unsupportedCallerSection is not null)
+            {
+                CommandError.Write(
+                    $"Document --json cannot represent {unsupportedCallerSection} analysis. "
+                    + "Use --jsonl, --tsv, --table, or a graph output format.");
+                return 1;
+            }
             // --fields/--columns select table columns; document JSON has no column-slicing
             // facility, so the combination is rejected rather than silently dropped. A scalar
             // payload projection (--value/--print) does compose, and is handled above.

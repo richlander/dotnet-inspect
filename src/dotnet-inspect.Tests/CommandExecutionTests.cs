@@ -14970,6 +14970,34 @@ public partial class CommandExecutionTests
         Assert.Contains(nameof(CallerScopeCountFixture.Root), result.Output);
     }
 
+    [Theory]
+    [InlineData(SectionNames.Callers)]
+    [InlineData(SectionNames.CallGraph)]
+    public async Task Member_DocumentJsonWithExplicitCallerAnalysis_FailsClosed(
+        string section)
+    {
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            $"{nameof(MemberCallsFixture.Overloaded)}:1",
+            "-S",
+            section,
+            "--bin",
+            testDirectory,
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Document --json cannot represent {section} analysis.",
+            error);
+    }
+
     [Fact]
     public async Task Member_CallerScope_BareSelectPreservesAuthoredOverview()
     {
