@@ -61,6 +61,32 @@ test("member scope adds a member segment alongside package and type", () => {
   assert.match(html, /class="lens active" data-member-section="facts"/);
 });
 
+test("type scope can expose the first-class member segment", () => {
+  const html = renderScopeBar({
+    scope: "type",
+    strip: typeLenses,
+    activeStripId: "api",
+    stripAttribute: "data-lens",
+    showMemberScope: true,
+    escapeHtml,
+  });
+
+  assert.match(html, /data-scope="member" role="tab" aria-selected="false"/);
+});
+
+test("member scope names an empty filtered strip", () => {
+  const html = renderScopeBar({
+    scope: "member",
+    strip: [],
+    activeStripId: null,
+    stripAttribute: "data-member-section",
+    emptyStripLabel: "Filtered member list",
+    escapeHtml,
+  });
+
+  assert.match(html, /<span class="lens-context">Filtered member list<\/span>/);
+});
+
 test("lens button labels carry their keyboard shortcut index", () => {
   const html = renderScopeBar({
     scope: "type",

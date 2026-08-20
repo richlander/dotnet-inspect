@@ -275,6 +275,18 @@ export function workspaceCoordinatesMatch(packages, tabs) {
     }));
 }
 
+export function removeAppendedNotice(current, previous, appended) {
+  if (current === appended) return previous;
+  if (!current.startsWith(`${appended} `)) return current;
+  const laterNotice = current.slice(appended.length + 1);
+  return [previous, laterNotice].filter(Boolean).join(" ");
+}
+
+export function replaceCurrentNavigationEntry(nav, sig, view) {
+  if (nav.index < 0 || nav.index >= nav.stack.length) return;
+  nav.stack[nav.index] = { sig, view };
+}
+
 export function callGraphTargetTypeId(target) {
   return target?.typeDefinitionId || target?.typeMetadataId || "";
 }

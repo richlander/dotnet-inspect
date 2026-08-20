@@ -95,6 +95,8 @@ test("the type nav lists namespace groups with the current type selected", () =>
     html,
     /data-type="System\.Text\.Json\.JsonDocument" role="option" aria-selected="false"/);
   assert.match(html, /data-namespace="System\.Text\.Json"/);
+  assert.match(html, /id="type-list" data-nav-scope="types"/);
+  assert.match(html, /data-nav-selection="type:System\.Text\.Json\.JsonSerializer"/);
 });
 
 test("the type nav reports no matches for an empty filtered group", () => {
@@ -119,6 +121,29 @@ test("the type nav reports no matches for an empty filtered group", () => {
   assert.match(html, /No public types match this filter\./);
 });
 
+test("the type nav handles a package with no projected types", () => {
+  const html = renderTypeNav({
+    current: null,
+    visible: [],
+    typeGroups: new Map(),
+    typeFilter: "",
+    namespaceFilter: "",
+    kindFilter: "",
+    namespaceCount: 0,
+    namespaceOptionsHtml: "",
+    kindFilters: [],
+    accessibilityControlHtml: "",
+    libraryControlHtml: "",
+    escapeHtml,
+    typeDisplayName,
+    kindIcon,
+    shortKind,
+  });
+
+  assert.match(html, /data-nav-selection=""/);
+  assert.match(html, /No public types match this filter\./);
+});
+
 test("the member nav marks the active group and its selected overload", () => {
   const group = {
     key: "method:Serialize",
@@ -139,6 +164,8 @@ test("the member nav marks the active group and its selected overload", () => {
     type: jsonSerializer,
     entries,
     memberCount: 1,
+    visibleMemberCount: 1,
+    filterControlsHtml: '<label id="member-filters">filters</label>',
     selectedMemberKey: "method:Serialize",
     selectedOverloadIndex: 1,
     escapeHtml,
@@ -154,6 +181,32 @@ test("the member nav marks the active group and its selected overload", () => {
   assert.match(
     html,
     /data-nav-overload="0" role="option" aria-selected="false"/);
+  assert.match(
+    html,
+    /id="type-list" data-nav-scope="members:System\.Text\.Json\.JsonSerializer"/);
+  assert.match(
+    html,
+    /data-nav-selection="overload:method:Serialize:1"/);
+  assert.match(html, /id="member-filters"/);
+  assert.match(html, /←→ sections/);
+});
+
+test("the member nav does not advertise sections without a selected member", () => {
+  const html = renderMemberNav({
+    type: jsonSerializer,
+    entries: [],
+    memberCount: 1,
+    visibleMemberCount: 0,
+    filterControlsHtml: "",
+    selectedMemberKey: "",
+    selectedOverloadIndex: null,
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
+
+  assert.doesNotMatch(html, /←→ sections/);
 });
 
 test("the type heading reports the owning package and library", () => {
@@ -213,6 +266,7 @@ test("type metadata renders a loading state while the projection is in flight", 
       typeMetadataError: null,
       typeMetadata: null,
     },
+    memberCompositionHtml: "",
     escapeHtml,
     relatedTypeChip: name => `<button>${escapeHtml(name)}</button>`,
     factRows,
@@ -241,6 +295,10 @@ test("type metadata renders composition, interfaces, and derived types once load
         composition: { total: 3, methods: 3 },
       },
     },
+    memberCompositionHtml: `
+      <div class="composition-filters">
+        <button data-member-jump-kind="method"><strong>3</strong><span>method</span></button>
+      </div>`,
     escapeHtml,
     relatedTypeChip: name => `<button data-graph-type="${escapeHtml(name)}">${escapeHtml(name)}</button>`,
     factRows,
@@ -249,8 +307,8 @@ test("type metadata renders composition, interfaces, and derived types once load
   assert.match(html, /Implements/);
   assert.match(html, /data-graph-type="System\.IDisposable"/);
   assert.match(html, /Known derived types/);
-  assert.match(html, /Composition/);
-  assert.match(html, /3<\/strong><span>Methods/);
+  assert.match(html, /Members/);
+  assert.match(html, /data-member-jump-kind="method"/);
 });
 
 test("type PDB source renders the provenance and copy action once loaded", () => {

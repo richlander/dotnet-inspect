@@ -828,16 +828,25 @@ Research overlay bridge, and the application layer:
   `CrossAssemblyMetadataResolver_FollowsForwardersToDefiningAssembly` and
   `ForwarderIntoFrameworkSignedAssemblyIsResolvedUnderPlatformScope` gate its
   forwarder and binding-scope behavior.
-  `LibraryBodyAnalysisBuilder.AsyncSibling` owns the
-  `sync-call-in-async` opportunity because sibling discovery and recursive-slot
-  suppression require reader-relative MethodDef, MethodImpl, type hierarchy,
-  exact assembly identity, and workspace-resolution evidence. It consumes the
-  canonical direct-call rows after ordinary opportunity collection and appends
-  only this metadata-bound shape; recoverable sibling-classification failures
-  remain diagnostic without discarding independent ordinary opportunities or
-  body signals. Source-independent synchronous-definition and sibling-candidate
-  discovery is cached by exact callee identity, while accessibility and
-  dispatch suppression remain source-dependent;
+  `LibraryBodyAsyncSiblingSignatureMatcher` owns stateless async-sibling
+  signature decoding, source-frame projection, exact type identity and
+  comparison, optional cancellation matching, async return compatibility, and
+  bounded finding display.
+  `AsyncSiblingMethodMatching_PreservesOpenGenericSignature`,
+  `AsyncSiblingCancellationTokenDefault_MustBeNull`,
+  and `AsyncSiblingTypeSupport_IsLinearForSharedDag` gate representative
+  decoding, compatibility, and linear-work behavior; the identity and display
+  gates below cover the remaining policy.
+  `LibraryBodyAnalysisBuilder.AsyncSibling` owns the `sync-call-in-async`
+  opportunity because sibling discovery and recursive-slot suppression require
+  reader-relative MethodDef, MethodImpl, type hierarchy, exact assembly
+  identity, and workspace-resolution evidence. It consumes the stateless
+  matcher and canonical direct-call rows after ordinary opportunity collection
+  and appends only this metadata-bound shape; recoverable sibling-classification
+  failures remain diagnostic without discarding independent ordinary
+  opportunities or body signals. Source-independent synchronous-definition and
+  sibling-candidate discovery is cached by exact callee identity, while
+  accessibility and dispatch suppression remain source-dependent;
   `OptimizationOpportunities_DistinctCalleesIndexCandidateTypeOnce` gates the
   per-type method index that bounds distinct-callee discovery;
   `AsyncSiblingMethodIndex_ConcurrentReadsBuildTypeOnce` gates synchronized
@@ -853,19 +862,17 @@ Research overlay bridge, and the application layer:
   Constructed generic type relationships preserve DAG sharing and bound
   structural identity, comparison, and finding-display work;
   `TypeRefSharedDag_EqualityHashAndAsyncIdentityAreLinear`,
-  `AsyncSiblingExactIdentity_DistinguishesOriginsWithinSharedDag`, and
+  `AsyncSiblingExactIdentity_DistinguishesOriginsWithinSharedDag`,
   `AsyncSiblingIdentityAndMatching_DistinguishArrayShape`, and
   `AsyncSiblingTypeMatching_DistinguishesStructuredNames` gate exact identity,
   while `AsyncSiblingFindingDisplay_RejectsExponentialDagExpansion`,
-  `AsyncSiblingFindingDisplay_AcceptsWideFlatSignature`, and
-  `AsyncSiblingFindingDisplay_BoundsAggregateMemberText`, and
+  `AsyncSiblingFindingDisplay_AcceptsWideFlatSignature`,
+  `AsyncSiblingFindingDisplay_BoundsAggregateMemberText`,
   `AsyncSiblingFindingDisplay_RejectsExcessiveArrayRank`, and
   `AsyncSiblingFindingDisplay_AccumulatesNestedArrayRanks` gate per-type
-  relationship and aggregate-output limits.
-  `AsyncSiblingTypeSupport_IsLinearForSharedDag` gates signature
-  classification work. Trusted framework-contract identities, exact
-  interface-slot correspondence, friend-aware protected access, and nested
-  private-access domains are gated by
+  relationship and aggregate-output limits. Trusted framework-contract
+  identities, exact interface-slot correspondence, friend-aware protected
+  access, and nested private-access domains are gated by
   `AsyncSiblingPrivateAccess_CyclicDeclaringTypeFailsClosed`,
   `OptimizationOpportunities_PrivateAccessIsDirectionalAcrossNestedTypes`,
   `OptimizationOpportunities_MethodImplSelfDispatchIsSuppressed`,
