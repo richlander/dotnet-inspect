@@ -277,6 +277,164 @@ and
 `PlatformResolverTests.ResolveAssembly_AssemblyNameCannotEscapeReferencePack`
 gate these seams.
 
+### Core-library identity is granted by acquisition, not by self-declaration
+
+An assembly that decodes as `TypeRef.CoreLibrary` is privileged: the decompiler
+treats its types as the canonical platform types, so a
+`System.Collections.IEnumerable` bearing that identity compares equal to the
+real one and authorizes raising decisions such as
+`SupportsCollectionInitializer`.
+
+That identity must never be derived from what an assembly says about itself.
+The platform public keys are published data and nothing in this product
+verifies a strong-name signature, so an attacker can name a planted file
+`System.Runtime`, copy the ECMA public key blob into its `AssemblyDef` verbatim,
+and satisfy any check made purely on self-declared name and key. Left
+unguarded, a planted sibling picked up by reference resolution could mint
+core-library identity for its own definitions and make a fake interface
+authorize raising for a type that implements nothing of the sort.
+
+`CoreLibraryIdentityTrust` owns the rule. Trust follows **acquisition**, and
+which acquisition applies follows how the caller named the file. A raw path is
+an explicit designation — the caller chose that exact file — so it is trusted.
+A `ResolvedAssemblyReference` was reached by discovery, so it is trusted only
+when its `AssemblyResolutionProvenance` is a `PlatformAsset` or a
+`DesignatedAsset`. `TypeRefDecoder.CanonicalSelf` consults the registry before
+honouring a platform key.
+
+The registry is an **allow list**, and the polarity is load-bearing. A deny
+list has to enumerate every site that turns bytes into a reader, so a site
+nobody remembered fails open and silently restores the vulnerability. That is
+not hypothetical: the first version of this fix classified only in
+`MetadataContext.Open(ResolvedAssemblyReference)` and missed
+`MetadataSource.OpenCore`, which creates readers directly and is the path
+`MemberBodyProducer` takes for a type defined in a sibling assembly. Failing
+closed bounds the obligation to the few sites that deliberately *grant* trust:
+a new open path that forgets to classify loses core-library identity, which is
+visible and safe, rather than gaining it, which is neither.
+
+Designation is what separates the two workflows that share a shape. A developer
+inspecting a dotnet/runtime build layout has a real core library beside the
+assembly under inspection; an attacker shipping a malicious package has a
+planted `System.Runtime.dll` beside its own library. **No metadata distinguishes
+them** — only the caller's intent does. An assembly the caller enumerated
+explicitly (a corpus path, or a directory the user named) carries
+`DesignatedAsset` and keeps core-library identity; one the resolver discovered
+beside the target does not.
+
+The residual case is a host policy, `CoreLibraryTrustPolicy`. The default,
+`DesignatedAndPlatform`, is correct for any host that inspects untrusted
+uploads. A host whose surrounding directory is as trusted as the target — a
+local tool pointed at a build layout the user controls — may select
+`IncludeDiscovered`, which restores the pre-fix behaviour and, with it, the
+planted-sibling exposure. That trade is the host's to make explicitly; it is
+never inferred.
+
+Because trust is read off provenance, provenance must not understate a genuine
+platform acquisition. Resolvers that hand back files taken from the host's
+trusted-platform-assembly list, and the intrinsic core-library binding that
+returns the designated target when that target is itself the core library,
+report `PlatformAsset` for that reason.
+
+`PlantedCoreLibraryIdentityTests.PlantedPlatformKey_DoesNotMintCoreLibraryIdentity`
+gates the boundary with a real planted assembly carrying the verbatim ECMA
+key;
+`PlantedCoreLibraryIdentityTests.PlantedSibling_OpenedThroughMetadataSource_LosesCoreLibraryIdentity`
+gates the reader-creation path that bypasses `MetadataContext`, and fails if
+the registry ever returns to deny-list polarity;
+`PlantedCoreLibraryIdentityTests.DesignatedTarget_KeepsCoreLibraryIdentity`
+and `PlantedCoreLibraryIdentityTests.RawPathOpen_KeepsCoreLibraryIdentity`
+gate the scope, so failing closed does not cost ordinary use;
+`PlantedCoreLibraryIdentityTests.DesignatedCorpusAssembly_SatisfiesPlatformScope`
+gates the resolver half, since a core-library `TypeRef` forces
+`AssemblyResolutionScope.Platform` and a designated corpus assembly must be
+able to satisfy it;
+`PlantedCoreLibraryIdentityTests.DesignatedAcquisition_KeepsCoreLibraryIdentity`
+gates the build-layout and corpus workflow; and
+`PlantedCoreLibraryIdentityTests.DiscoveredSibling_FollowsTheHostPolicy`
+gates both settings of the host policy.
+
+The gate that has been hardest to get right is the one asserting that *no*
+reader-creation site was overlooked, because the obvious formulation — reflect
+over the factory methods — enumerates signatures, and a signature has
+unboundedly many cosmetic dimensions. Three consecutive review rounds on the
+fix escaped it along a different one each time: the method name, then the
+declared return type, then visibility and `Task` wrapping (issue #4464).
+`ReaderConstructionSiteTests.TrustRelevantSites_MatchThePin` replaces that with
+an observation those escapes cannot reach. It reads the compiled IL of
+`ILInspector.Decompiler` and pins every method that obtains a `MetadataReader`
+or calls a grant on `CoreLibraryIdentityTrust`. Trust attaches to a reader
+instance, and this assembly creates one only by calling `GetMetadataReader` or
+by constructing a reader directly, so a site is visible whatever it is called,
+however it is declared, and whether or not its result is wrapped. Both
+directions fail:
+an unpinned site is an unreviewed way to obtain a reader, and a pinned site
+that stops obtaining or granting is a stale entry. Listing is not approval —
+most pinned sites deliberately do *not* classify, and the table records which
+half of the design each one is on.
+`ReaderConstructionSiteTests.Scanner_ObservesBothAcquisitionAndGrantSites` is
+its non-vacuity check, since a scan compared against a table would pass just as
+happily if the scan silently observed nothing, and
+`ReaderConstructionSiteTests.SiteKeys_AreUniquePerMethod` keeps each site key an
+identity rather than a label, so an added overload or a lowered local function
+cannot inherit an existing entry's approval.
+
+Grants are recognised by the primitive, not by the call surface, and that is
+what makes the gate converge. Core-library identity *is* membership in the
+`s_trusted` table, so `ReaderConstructionSiteTests.TrustTableAccess_IsConfinedToItsPinnedMembers`
+pins every method in the assembly whose IL reaches that field — whatever it is
+called, whatever type declares it, and whether or not it is reachable through
+the trust type's own surface. Loading the field counts as reach because mutating
+the table requires getting hold of it first; storing it is initialization, and
+is allowed only in the static constructor that creates it. A call into
+`CoreLibraryIdentityTrust` is still reported as a grant unless its full
+signature is allow-listed, and
+`ReaderConstructionSiteTests.TrustTypeMembers_AreClassified` requires the type
+to account for every member it declares and to declare no nested types.
+
+The structure was arrived at by being escaped. Rounds 3 and 4 of PR #4469 broke
+a scan keyed on calls into the trust type four times: a member named `Classify`
+that forwarded to the grant; a nested `Helper` reaching the table directly, so
+its call sites never named the trust type at all; a static constructor that
+granted from a staged reader; and a `MayMint(MetadataReader)` overload that
+inherited the exemption belonging to the unrelated `MayMint`. Every one was a
+fresh cosmetic dimension of the call surface, which is precisely the endless
+series issue #4464 exists to stop. The field is not such a dimension — a grant
+written as ordinary code has to name the table to mutate it — so within direct
+IL access the pin is complete by construction rather than by enumerating the
+ways a grant might be spelled.
+
+That completeness is bounded in two ways worth stating rather than assuming.
+Reflection over the field emits no `ldsfld`, so a reflective mutation reaches
+the table without naming it in IL. And the scan watches the grant, not the
+*consumer*: making `MayMintCoreLibraryIdentity` return `true` unconditionally,
+having `TypeRefDecoder.CanonicalSelf` mint without consulting trust, or adding a
+second trust store all confer identity while adding no referent to `s_trusted`,
+and all leave the IL gate green. Neither bound is unguarded.
+`PlantedCoreLibraryIdentityTests` owns them, and round 5 of PR #4469 confirmed
+by tampering that each of those cases fails three of its tests —
+`PlantedPlatformKey`, `DiscoveredSibling`, and `PlantedSibling`. The division of
+labour is the same one stated above: this gate asks where readers come from and
+what reaches the trust table, and that suite asks whether the identity is
+deserved.
+
+The pin is deliberately bounded: it answers where readers come from and which of
+them are classified, not whether each grant is deserved. A method that passed a
+discovered path into the raw-path designation overload would launder discovery
+into designation while neither obtaining a reader nor granting identity itself,
+so it would not appear in the pin. That property belongs to provenance, and
+`PlantedCoreLibraryIdentityTests` gates it.
+
+The scan also sees creation rather than receipt, so a method handed a reader
+through a delegate, an interface, or a reflective invoke is invisible to it.
+That is sound for two reasons. A reader created outside the assembly was never
+classified, and unclassified means no core-library identity, so laundering one
+inward loses the privilege rather than gaining it. And the grant is a direct
+call into `CoreLibraryIdentityTrust` at five sites, every one of which the scan
+reports, so a reflectively-obtained reader cannot be granted identity
+invisibly. Reflection costs the completeness of the acquisition inventory, not
+the trust boundary.
+
 ### Restored manifest paths remain within their owning roots
 
 Paths read from `.deps.json` and `project.assets.json` are relative artifact
