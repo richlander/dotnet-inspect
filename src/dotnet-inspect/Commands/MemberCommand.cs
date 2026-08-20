@@ -237,6 +237,12 @@ public static class MemberCommand
                 }
                 apiType.DeclaringTypeMembers ??= apiType.Members;
                 apiType.Members = [selected];
+                apiType.SelectedAccessorOrdinal =
+                    target.Kind is MemberTargetKind.Property or MemberTargetKind.Event
+                        ? explicitAccessorSelector
+                            ? target.OverloadIndex
+                            : 1
+                        : null;
                 var detailDllPath = apiType.SourceAssemblyPath ?? apiDllPath;
                 effectiveOptions = effectiveOptions with
                 {

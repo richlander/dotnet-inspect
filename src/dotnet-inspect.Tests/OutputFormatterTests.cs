@@ -2,6 +2,7 @@ using DotnetInspector.Models;
 using System.Text.Json;
 using DotnetInspector.Views;
 using DotnetInspector;
+using DotnetInspector.CommandLine;
 using DotnetInspector.Commands;
 using ILInspector.Analysis;
 using ILInspector.Findings;
@@ -468,6 +469,38 @@ public class OutputFormatterTests
                 markdown);
             Assert.DoesNotContain("small-array", markdown);
         }
+    }
+
+    [Fact]
+    public async Task MemberCommand_ScopesPerformanceTriageToSelectedAccessor()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "member",
+                    typeof(OutputFormatterTests).FullName!,
+                    "--library",
+                    typeof(OutputFormatterTests).Assembly.Location,
+                    "--all",
+                    "-m",
+                    $"{nameof(AccessorSmallArrayOpportunity)}:2",
+                    "-S",
+                    SectionNames.PerformanceTriage,
+                    "--tips",
+                    "q",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains(
+            "No optimization opportunities were found for this type.",
+            result.Output);
+        Assert.DoesNotContain("small-array", result.Output);
+        Assert.DoesNotContain(
+            $"get_{nameof(AccessorSmallArrayOpportunity)}",
+            result.Output);
     }
 
     [Fact]
