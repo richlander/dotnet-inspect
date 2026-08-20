@@ -4695,9 +4695,7 @@ public static class ApiSurfaceExtractor
         }
 
         static bool KnownKind(ResolvedTypeDefinition definition)
-            => definition.Kind
-                    != MetadataTypeDefinitionKind.Unknown
-                && definition.KindResolutionFailure is null;
+            => definition.HasKnownKind;
 
         internal OperatorMetadata.DeclarationClassification
             ClassifyOperator(MethodDefinitionHandle handle)

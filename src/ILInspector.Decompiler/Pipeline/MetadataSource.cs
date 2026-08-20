@@ -767,14 +767,22 @@ public sealed class MetadataSource : IDisposable
                 var method = Reader.GetMethodDefinition(methodHandle);
                 if (!Reader.StringComparer.Equals(method.Name, methodName))
                     continue;
-                if (MethodDefinitionFacts.IsOperator(
-                    Reader,
-                    method))
+                var classification =
+                    CrossAssembly.ClassifyCSharpOperatorDeclaration(
+                        Reader,
+                        method);
+                if (classification
+                    == OperatorMetadata.DeclarationClassification.Yes)
                 {
                     _operatorHierarchyFacts.TryAdd(
                         cacheKey,
                         MetadataFactState.Yes);
                     return MetadataFactState.Yes;
+                }
+                if (classification
+                    == OperatorMetadata.DeclarationClassification.Unknown)
+                {
+                    unresolved = true;
                 }
             }
             if (remainingWork < 0)

@@ -36,6 +36,8 @@ public sealed record MemberTargetSelector(
     string? Kind = null,
     int? GenericArity = null)
 {
+    public IReadOnlyList<string>? ExactNameFamily { get; init; }
+
     public string NormalizedSelector
     {
         get
@@ -78,13 +80,22 @@ public sealed record MemberTargetSelector(
         overloadIndex ??= accessorIndex;
         var genericArity = TryGetGenericArity(overloadHead);
         var name = FqnParser.NormalizeMemberName(overloadHead);
+        IReadOnlyList<string>? exactNameFamily =
+            name.EndsWith('*')
+                && (overloadHead.Contains("++", StringComparison.Ordinal)
+                    || overloadHead.Contains("--", StringComparison.Ordinal))
+                ? [name[..^1], $"{name[..^1]}Assignment"]
+                : null;
         return new MemberTargetSelector(
             requested,
             name,
             overloadIndex,
             digest,
             kind,
-            genericArity);
+            genericArity)
+        {
+            ExactNameFamily = exactNameFamily,
+        };
     }
 
     public static string? NormalizeKindQualifier(string value)
@@ -214,7 +225,11 @@ public static class MemberTargetResolver
     {
         var declaringMembers = type.Members
             .Where(member =>
-                selector.Name.Contains('*')
+                selector.ExactNameFamily is { Count: > 0 } exactNames
+                    ? exactNames.Contains(
+                        member.Name,
+                        StringComparer.Ordinal)
+                    : selector.Name.Contains('*')
                     || selector.Name.Contains('?')
                     ? TypeMatcher.MatchesGlob(
                         member.Name,

@@ -84,6 +84,11 @@ JSON round-trip by inferring declaring-type participation from display text.
 `ApiMember.SignatureModel` likewise persists parameter and return-type structure;
 required operator pairs and other declaration consumers compare that model
 rather than treating missing structure as a wildcard.
+Operator representability remains `Unknown` when a resolved definition's kind
+could not be authenticated, and required custom modifiers are not erased into
+an affirmative source proof. The compiler-produced hierarchy cases in
+`ReferenceEqualityMetadataFactsTests` and the adversarial signature cases in
+`OperatorApiSurfaceTests` gate those boundaries.
 `ApiOutputFormatterTests.ApiTypeJson_PersistsStructuredSignatureModel` and the
 operator proof and pair JSON tests in `ApiOutputFormatterTests` and
 `CSharpDeclarationWriterTests` gate this contract.
@@ -475,6 +480,12 @@ instead of falling back to partial string matching."
 Selector is the question; anchor is the answer. Do not use an anchor where a
 selector belongs — constructing an anchor costs canonicalization and hashing,
 which is precisely the work a cheap pre-filter exists to avoid.
+
+A source `++` or `--` selector denotes the exact static/instance metadata-name
+pair, not a prefix glob. `MemberTargetSelector.ExactNameFamily` carries that
+question through resolution while an explicitly entered `*` or `?` remains a
+glob. `MemberTargetResolverTests.GetCandidates_IncrementTokenIncludesStaticAndInstanceShapes`
+gates both sides of the distinction.
 
 ### `MemberCanonicalSignature` — the DocId-shaped grammar
 

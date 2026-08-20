@@ -379,13 +379,23 @@ internal sealed class CrossAssemblyTypeResolver
                     break;
                 }
                 var method = reader.GetMethodDefinition(methodHandle);
-                if (reader.StringComparer.Equals(method.Name, methodName)
-                    && MethodDefinitionFacts.IsOperator(
+                if (!reader.StringComparer.Equals(method.Name, methodName))
+                    continue;
+                var classification =
+                    ClassifyCSharpOperatorDeclaration(
                         reader,
-                        method))
+                        method,
+                        resolved.Assembly.Assembly);
+                if (classification
+                    == OperatorMetadata.DeclarationClassification.Yes)
                 {
                     hasOperator = true;
                     return true;
+                }
+                if (classification
+                    == OperatorMetadata.DeclarationClassification.Unknown)
+                {
+                    unresolved = true;
                 }
             }
             if (budgetExhausted)
@@ -1350,6 +1360,8 @@ internal sealed class CrossAssemblyTypeResolver
                 return OperatorMetadata.TypeRelationship.Unknown;
             }
 
+            if (!resolved.HasKnownKind)
+                return OperatorMetadata.TypeRelationship.Unknown;
             return resolved.IsValueType
                 ? OperatorMetadata.TypeRelationship.Yes
                 : OperatorMetadata.TypeRelationship.No;

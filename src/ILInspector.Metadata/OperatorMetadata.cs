@@ -98,6 +98,12 @@ public static class OperatorMetadata
         if (decoded.IsDegraded)
             return DeclarationClassification.Unknown;
         var signature = decoded.Value;
+        if (signature.ReturnType.HasRequiredModifier
+            || signature.ParameterTypes.Any(
+                parameter => parameter.HasRequiredModifier))
+        {
+            return DeclarationClassification.No;
+        }
         if (signature.Header.CallingConvention != SignatureCallingConvention.Default
             || signature.Header.HasExplicitThis
             || signature.Header.IsGeneric)
@@ -116,9 +122,14 @@ public static class OperatorMetadata
         {
             return DeclarationClassification.No;
         }
-        if (HasUnrepresentableDeclaringKind(reader, declaringType))
-            return DeclarationClassification.No;
         var declaringIdentity = OperatorSignatureType.ForDeclaringType(reader, declaringHandle);
+        if (HasUnrepresentableDeclaringKind(
+            reader,
+            declaringType,
+            declaringIdentity))
+        {
+            return DeclarationClassification.No;
+        }
         var selfConstrainedTypeParameters = SelfConstrainedTypeParameters(
             reader,
             declaringType,
@@ -349,7 +360,8 @@ public static class OperatorMetadata
 
     static bool HasUnrepresentableDeclaringKind(
         MetadataReader reader,
-        TypeDefinition declaringType)
+        TypeDefinition declaringType,
+        OperatorSignatureType declaringIdentity)
     {
         if (declaringType.BaseType.IsNil)
             return false;
@@ -357,7 +369,11 @@ public static class OperatorMetadata
         var baseType =
             ReadSignatureType(reader, declaringType.BaseType);
         return IsTrustedSystemType(baseType, "Enum")
-            || IsTrustedSystemType(baseType, "MulticastDelegate");
+            || IsTrustedSystemType(baseType, "MulticastDelegate")
+            || IsTrustedSystemType(baseType, "Delegate")
+                && !IsTrustedSystemType(
+                    declaringIdentity,
+                    "MulticastDelegate");
     }
 
     // C# 11 permits an interface operator operand to be a type parameter only
@@ -686,6 +702,8 @@ public static class OperatorMetadata
         bool IsGenericInstantiation,
         ImmutableArray<OperatorSignatureType> TypeArguments)
     {
+        public bool HasRequiredModifier { get; init; }
+
         public bool IsBoolean =>
             Identity.IsNil
             && Namespace == "System"
@@ -778,7 +796,8 @@ public static class OperatorMetadata
                 || IsByRef != other.IsByRef
                 || IsTypeParameter != other.IsTypeParameter
                 || IsMethodTypeParameter != other.IsMethodTypeParameter
-                || IsGenericInstantiation != other.IsGenericInstantiation)
+                || IsGenericInstantiation != other.IsGenericInstantiation
+                || HasRequiredModifier != other.HasRequiredModifier)
             {
                 return false;
             }
@@ -844,8 +863,13 @@ public static class OperatorMetadata
         public static readonly OperatorSignatureTypeProvider Instance = new();
 
         internal static OperatorSignatureType Opaque => new(false, false, false, false, -1, default, false, false, null, null, false, false, []);
-        static OperatorSignatureType NonNamed(string name)
-            => new(false, false, false, false, -1, default, false, false, null, name, false, false, []);
+        static OperatorSignatureType NonNamed(
+            string name,
+            bool hasRequiredModifier = false)
+            => new(false, false, false, false, -1, default, false, false, null, name, false, false, [])
+            {
+                HasRequiredModifier = hasRequiredModifier,
+            };
 
         public OperatorSignatureType GetPrimitiveType(PrimitiveTypeCode typeCode)
             => typeCode == PrimitiveTypeCode.Void
@@ -906,16 +930,25 @@ public static class OperatorMetadata
             => GuardedProviderDecode.TypeSpec(reader, handle, this, genericContext, Opaque);
 
         public OperatorSignatureType GetSZArrayType(OperatorSignatureType elementType)
-            => NonNamed("#array");
+            => NonNamed(
+                "#array",
+                elementType.HasRequiredModifier);
 
         public OperatorSignatureType GetArrayType(OperatorSignatureType elementType, ArrayShape shape)
-            => NonNamed("#array");
+            => NonNamed(
+                "#array",
+                elementType.HasRequiredModifier);
 
         public OperatorSignatureType GetByReferenceType(OperatorSignatureType elementType)
-            => new(false, true, false, false, -1, default, false, false, null, null, false, false, [elementType]);
+            => new(false, true, false, false, -1, default, false, false, null, null, false, false, [elementType])
+            {
+                HasRequiredModifier = elementType.HasRequiredModifier,
+            };
 
         public OperatorSignatureType GetPointerType(OperatorSignatureType elementType)
-            => NonNamed("#pointer");
+            => NonNamed(
+                "#pointer",
+                elementType.HasRequiredModifier);
 
         public OperatorSignatureType GetGenericInstantiation(
             OperatorSignatureType genericType,
@@ -930,6 +963,10 @@ public static class OperatorMetadata
                 },
                 IsGenericInstantiation = true,
                 TypeArguments = typeArguments,
+                HasRequiredModifier =
+                    genericType.HasRequiredModifier
+                    || typeArguments.Any(
+                        argument => argument.HasRequiredModifier),
             };
 
         public OperatorSignatureType GetGenericMethodParameter(object? genericContext, int index)
@@ -942,12 +979,21 @@ public static class OperatorMetadata
             OperatorSignatureType modifier,
             OperatorSignatureType unmodifiedType,
             bool isRequired)
-            => unmodifiedType;
+            => isRequired
+                ? unmodifiedType with
+                {
+                    HasRequiredModifier = true,
+                }
+                : unmodifiedType;
 
         public OperatorSignatureType GetPinnedType(OperatorSignatureType elementType) => elementType;
 
         public OperatorSignatureType GetFunctionPointerType(MethodSignature<OperatorSignatureType> signature)
-            => NonNamed("#function-pointer");
+            => NonNamed(
+                "#function-pointer",
+                signature.ReturnType.HasRequiredModifier
+                || signature.ParameterTypes.Any(
+                    parameter => parameter.HasRequiredModifier));
 
         public OperatorSignatureType GetTypeFromSerializedName(string name) => Opaque;
 

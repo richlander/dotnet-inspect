@@ -240,6 +240,23 @@ public sealed class OperatorApiSurfaceTests
     }
 
     [Fact]
+    public void CSharpOperatorDeclaration_RejectsRequiredCustomModifier()
+    {
+        using var image =
+            OperatorImage.BuildRawUnrepresentableOperator(
+                derivesDirectlyFromDelegate: false,
+                hasRequiredModifier: true);
+
+        Assert.False(
+            image.IsCSharpOperatorDeclaration("op_Addition"));
+        Assert.False(
+            Assert.Single(
+                image.Members,
+                member => member.Name == "op_Addition")
+                .CSharpOperatorDeclaration);
+    }
+
+    [Fact]
     public void CSharpOperatorDeclaration_TreatsCoreLibraryEnumAsAClass()
     {
         using var stream = File.OpenRead(typeof(object).Assembly.Location);
@@ -1073,6 +1090,23 @@ public sealed class OperatorApiSurfaceTests
     }
 
     [Fact]
+    public void CSharpOperatorDeclaration_RejectsDirectDelegateSubclass()
+    {
+        using var image =
+            OperatorImage.BuildRawUnrepresentableOperator(
+                derivesDirectlyFromDelegate: true,
+                hasRequiredModifier: false);
+
+        Assert.False(
+            image.IsCSharpOperatorDeclaration("op_Addition"));
+        Assert.False(
+            Assert.Single(
+                image.Members,
+                member => member.Name == "op_Addition")
+                .CSharpOperatorDeclaration);
+    }
+
+    [Fact]
     public void CSharpOperatorDeclaration_AcceptsMulticastDelegateOperators()
     {
         using var stream = File.OpenRead(typeof(MulticastDelegate).Assembly.Location);
@@ -1300,6 +1334,165 @@ public sealed class OperatorApiSurfaceTests
             builder.Serialize(image);
             File.WriteAllBytes(path, image.ToArray());
             return new OperatorImage(path, TypeName);
+        }
+
+        public static OperatorImage BuildRawUnrepresentableOperator(
+            bool derivesDirectlyFromDelegate,
+            bool hasRequiredModifier)
+        {
+            string typeName = derivesDirectlyFromDelegate
+                ? "DirectDelegate"
+                : "RequiredModifier";
+            string fullName = $"N.{typeName}";
+            string path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                $"operator-surface-{Guid.NewGuid():N}.dll");
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                0,
+                metadata.GetOrAddString("OperatorSurface.dll"),
+                metadata.GetOrAddGuid(Guid.NewGuid()),
+                default,
+                default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString("OperatorSurface"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+            var coreIdentity = typeof(object).Assembly.GetName();
+            byte[] coreToken =
+                coreIdentity.GetPublicKeyToken() ?? [];
+            var core = metadata.AddAssemblyReference(
+                metadata.GetOrAddString(coreIdentity.Name!),
+                coreIdentity.Version ?? new Version(0, 0, 0, 0),
+                default,
+                coreToken.Length == 0
+                    ? default
+                    : metadata.GetOrAddBlob(coreToken),
+                default,
+                default);
+            var objectType = metadata.AddTypeReference(
+                core,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+            var delegateType = metadata.AddTypeReference(
+                core,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Delegate"));
+            TypeReferenceHandle modifier = default;
+            if (hasRequiredModifier)
+            {
+                var modifierAssembly =
+                    metadata.AddAssemblyReference(
+                        metadata.GetOrAddString(
+                            "ModifierAssembly"),
+                        new Version(1, 0, 0, 0),
+                        default,
+                        default,
+                        default,
+                        default);
+                modifier = metadata.AddTypeReference(
+                    modifierAssembly,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString(
+                        "RequiredModifier"));
+            }
+
+            metadata.AddTypeDefinition(
+                default,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            TypeDefinitionHandle declaringType =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public
+                        | TypeAttributes.Class,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString(typeName),
+                    derivesDirectlyFromDelegate
+                        ? delegateType
+                        : objectType,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x00);
+            signature.WriteCompressedInteger(2);
+            WriteClass(signature, declaringType);
+            if (hasRequiredModifier)
+            {
+                signature.WriteByte(0x1f);
+                signature.WriteCompressedInteger(
+                    EncodeTypeDefOrRef(modifier));
+            }
+            WriteClass(signature, declaringType);
+            WriteClass(signature, declaringType);
+
+            var bodies = new BlobBuilder();
+            var bodyEncoder =
+                new MethodBodyStreamEncoder(bodies);
+            var code = new BlobBuilder();
+            var instructions =
+                new InstructionEncoder(
+                    code,
+                    new ControlFlowBuilder());
+            instructions.LoadArgument(0);
+            instructions.OpCode(ILOpCode.Ret);
+            int bodyOffset =
+                bodyEncoder.AddMethodBody(
+                    instructions,
+                    maxStack: 1);
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("op_Addition"),
+                metadata.GetOrAddBlob(signature),
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+
+            var builder = new ManagedPEBuilder(
+                PEHeaderBuilder.CreateLibraryHeader(),
+                new MetadataRootBuilder(
+                    metadata,
+                    suppressValidation: true),
+                bodies,
+                flags: CorFlags.ILOnly);
+            var image = new BlobBuilder();
+            builder.Serialize(image);
+            File.WriteAllBytes(path, image.ToArray());
+            return new OperatorImage(path, fullName);
+        }
+
+        static void WriteClass(
+            BlobBuilder signature,
+            EntityHandle type)
+        {
+            signature.WriteByte(
+                (byte)SignatureTypeKind.Class);
+            signature.WriteCompressedInteger(
+                EncodeTypeDefOrRef(type));
+        }
+
+        static int EncodeTypeDefOrRef(
+            EntityHandle type)
+        {
+            int tag = type.Kind switch
+            {
+                HandleKind.TypeDefinition => 0,
+                HandleKind.TypeReference => 1,
+                HandleKind.TypeSpecification => 2,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(type)),
+            };
+            return (MetadataTokens.GetRowNumber(type) << 2)
+                | tag;
         }
 
         public MemberAnchor Anchor(string methodName)

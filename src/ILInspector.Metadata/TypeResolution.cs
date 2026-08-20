@@ -979,6 +979,9 @@ public sealed class ResolvedTypeDefinition
         Kind == MetadataTypeDefinitionKind.Interface;
     public bool IsValueType =>
         Kind == MetadataTypeDefinitionKind.ValueType;
+    public bool HasKnownKind =>
+        Kind != MetadataTypeDefinitionKind.Unknown
+        && KindResolutionFailure is null;
     public bool DeclaringAssemblyDefinesCoreLibraryRoot { get; }
 }
 

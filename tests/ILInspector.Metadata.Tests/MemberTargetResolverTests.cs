@@ -69,6 +69,13 @@ public class MemberTargetResolverTests
                     Signature =
                         "void op_IncrementAssignment()",
                 },
+                new ApiMember
+                {
+                    Name = "op_IncrementBogus",
+                    Kind = "method",
+                    Signature =
+                        "void op_IncrementBogus()",
+                },
             ],
         };
 
@@ -80,7 +87,22 @@ public class MemberTargetResolverTests
         Assert.Equal("op_Increment*", selector.Name);
         Assert.Equal(
             ["op_Increment", "op_IncrementAssignment"],
+            selector.ExactNameFamily);
+        Assert.Equal(
+            ["op_Increment", "op_IncrementAssignment"],
             candidates.Select(
+                candidate => candidate.Member.Name));
+
+        var explicitGlob = MemberTargetResolver.GetCandidates(
+            type,
+            MemberTargetSelector.Parse("op_Increment*"));
+        Assert.Equal(
+            [
+                "op_Increment",
+                "op_IncrementAssignment",
+                "op_IncrementBogus",
+            ],
+            explicitGlob.Select(
                 candidate => candidate.Member.Name));
     }
 
