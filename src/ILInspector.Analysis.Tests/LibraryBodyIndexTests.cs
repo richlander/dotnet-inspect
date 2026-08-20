@@ -4005,6 +4005,54 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void
+        OptimizationOpportunities_ScopedAmbiguousSourceFailsClosed()
+    {
+        byte[] image =
+            BuildMalformedAsyncSourceAssembly(
+                ambiguousSource: true,
+                moveNextSmallArray: true);
+        ImmutableArray<byte> bytes = [.. image];
+        var full =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "AmbiguousAsyncArray.dll",
+                bytes,
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities);
+        MethodIdentity moveNext = Assert.Single(
+            full.Methods,
+            method => method.Name == "MoveNext"
+                && method.ParameterTypes.IsDefaultOrEmpty);
+
+        var scoped =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "AmbiguousAsyncArray.dll",
+                bytes,
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+                bodyTypeScope:
+                    type => type.Equals(
+                        moveNext.DeclaringType));
+
+        Assert.Contains(
+            full.OptimizationOpportunities,
+            opportunity => opportunity.Shape == "small-array"
+                && opportunity.Method.MetadataToken
+                    == moveNext.MetadataToken);
+        Assert.Contains(
+            scoped.Diagnostics,
+            diagnostic => diagnostic.MethodToken
+                    == moveNext.MetadataToken
+                && diagnostic.Message.Contains(
+                    "Multiple async source methods",
+                    StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            scoped.OptimizationOpportunities,
+            opportunity => opportunity.Method.MetadataToken
+                == moveNext.MetadataToken);
+    }
+
+    [Fact]
     public void OptimizationOpportunities_MalformedParallelStateMapPreservesCalls()
     {
         byte[] image =
@@ -4026,7 +4074,8 @@ public class LibraryBodyIndexTests
     static byte[] BuildMalformedAsyncSourceAssembly(
         bool ambiguousSource = false,
         bool malformedMoveNextMethodImpl = false,
-        int extraMethodCount = 0)
+        int extraMethodCount = 0,
+        bool moveNextSmallArray = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -4228,12 +4277,23 @@ public class LibraryBodyIndexTests
             MetadataTokens.ParameterHandle(1));
 
         var moveNextIl = new BlobBuilder();
+        if (moveNextSmallArray)
+        {
+            moveNextIl.WriteByte(
+                (byte)ILOpCode.Ldc_i4_0);
+            moveNextIl.WriteByte(
+                (byte)ILOpCode.Newarr);
+            moveNextIl.WriteInt32(
+                MetadataTokens.GetToken(sourceType));
+            moveNextIl.WriteByte(
+                (byte)ILOpCode.Pop);
+        }
         moveNextIl.WriteByte((byte)ILOpCode.Call);
         moveNextIl.WriteInt32(MetadataTokens.GetToken(read));
         moveNextIl.WriteByte((byte)ILOpCode.Ret);
         int moveNextBody = bodyEncoder.AddMethodBody(
             new InstructionEncoder(moveNextIl),
-            maxStack: 0);
+            maxStack: moveNextSmallArray ? 1 : 0);
         MethodDefinitionHandle moveNext =
             metadata.AddMethodDefinition(
             MethodAttributes.Public
