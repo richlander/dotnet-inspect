@@ -409,7 +409,8 @@ preset:** the three home scenarios fix coordinates and view focus (type,
 member anchor/key, library), but STJ and platform views name no `section`,
 and the call-graph view's `section: "call-graph"` is an illustrative token
 until the product-owned section/view-facet registry binds demo selections
-(see the view-facet registry gate above). The residual is therefore two
+(see the view-facet registry open question earlier in this note and the
+matching gate under Status and gates). The residual is therefore two
 tight steps, not "run only": (1) bind each home demo to stable existing
 section ids through that registry, then (2) **run** — realize the binding,
 execute those sections, return ordinary formatted section output. The

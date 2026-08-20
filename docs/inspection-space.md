@@ -666,9 +666,11 @@ section is not a home demo until the section exists. CLI argv, definition
 plans, and browser engine operations (including a generated TypeScript binding
 of that engine surface) are encodings of the same preset—not parallel demo
 systems. Group-subscription grammar and share-packet transposition remain
-design-ahead of that loader. Selecting a scenario lowers into the same
-acquisition and typed query paths used by an interactive request; it does not
-create a second demo-only execution path. Detail:
+design-ahead of that loader. When run exists, selecting a scenario must lower
+into the same acquisition and typed query paths used by an interactive
+request—it must not create a second demo-only execution path. Today resolve
+stops at the plan (`ResolvedScenario`); acquisition and section execution are
+still host/future work on top of that plan. Detail:
 [workspace-definitions.md — Product demos are closed section
 presets](design/workspace-definitions.md#product-demos-are-closed-section-presets).
 
