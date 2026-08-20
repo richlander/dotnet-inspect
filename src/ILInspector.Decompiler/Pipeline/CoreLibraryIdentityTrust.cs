@@ -48,13 +48,14 @@ namespace ILInspector.Decompiler.Pipeline;
 /// whose IL obtains a <c>MetadataReader</c> or reaches the trust table, so a new
 /// way to obtain a reader cannot be added without saying which half it is on.
 /// Identity is exactly membership in <c>s_trusted</c>, and every method able to
-/// reach that field is pinned by signature — so a grant cannot hide behind a
-/// name, a nested helper, a static constructor, or an overload of a member that
-/// does not grant. That
-/// pin covers reader creation and granting, not provenance and not receipt:
-/// whether a grant is deserved remains <c>PlantedCoreLibraryIdentityTests</c>'s
-/// property, and a reader arriving by delegate or reflection is simply
-/// unclassified, which is the fail-closed answer.
+/// reach that field in IL is pinned by signature — so a grant cannot hide behind
+/// a name, a nested helper, a static constructor, or an overload of a member
+/// that does not grant. That pin covers reader creation and direct grants, not
+/// provenance, not receipt, and not the consumer side: whether a grant is
+/// deserved, and whether the check is honoured at all, remain
+/// <c>PlantedCoreLibraryIdentityTests</c>'s property, and a reader arriving by
+/// delegate or reflection is simply unclassified, which is the fail-closed
+/// answer.
 /// </para>
 /// </summary>
 static class CoreLibraryIdentityTrust

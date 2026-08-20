@@ -399,9 +399,24 @@ its call sites never named the trust type at all; a static constructor that
 granted from a staged reader; and a `MayMint(MetadataReader)` overload that
 inherited the exemption belonging to the unrelated `MayMint`. Every one was a
 fresh cosmetic dimension of the call surface, which is precisely the endless
-series issue #4464 exists to stop. The field is not such a dimension — to
-confer trust you have to reach the table — so pinning its referents is complete
-by construction rather than by enumerating the ways a grant might be spelled.
+series issue #4464 exists to stop. The field is not such a dimension — a grant
+written as ordinary code has to name the table to mutate it — so within direct
+IL access the pin is complete by construction rather than by enumerating the
+ways a grant might be spelled.
+
+That completeness is bounded in two ways worth stating rather than assuming.
+Reflection over the field emits no `ldsfld`, so a reflective mutation reaches
+the table without naming it in IL. And the scan watches the grant, not the
+*consumer*: making `MayMintCoreLibraryIdentity` return `true` unconditionally,
+having `TypeRefDecoder.CanonicalSelf` mint without consulting trust, or adding a
+second trust store all confer identity while adding no referent to `s_trusted`,
+and all leave the IL gate green. Neither bound is unguarded.
+`PlantedCoreLibraryIdentityTests` owns them, and round 5 of PR #4469 confirmed
+by tampering that each of those cases fails three of its tests —
+`PlantedPlatformKey`, `DiscoveredSibling`, and `PlantedSibling`. The division of
+labour is the same one stated above: this gate asks where readers come from and
+what reaches the trust table, and that suite asks whether the identity is
+deserved.
 
 The pin is deliberately bounded: it answers where readers come from and which of
 them are classified, not whether each grant is deserved. A method that passed a

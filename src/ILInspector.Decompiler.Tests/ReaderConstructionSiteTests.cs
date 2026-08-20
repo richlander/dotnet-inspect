@@ -47,9 +47,25 @@ namespace ILInspector.Decompiler.Tests;
 /// <c>Classify</c>, a nested <c>Helper</c> reaching the table directly, a
 /// granting static constructor, and a <c>MayMint(MetadataReader)</c> overload
 /// inheriting a bare-name exemption. Each was a fresh cosmetic dimension, which
-/// is exactly the series that has no end. The field is not a dimension: to
-/// confer trust you must reach the table, so pinning its referents is complete
-/// by construction.
+/// is exactly the series that has no end. The field is not a dimension: a grant
+/// written as ordinary code has to name it, so within direct IL access the pin
+/// is complete by construction rather than by enumerating spellings.
+/// </para>
+/// <para>
+/// <strong>That completeness is bounded to direct IL access, and to the grant.</strong>
+/// Reflection over the field emits no <c>ldsfld</c>, so a reflective mutation
+/// reaches the table without naming it here. And nothing in this class watches
+/// the <em>consumer</em>: making <c>MayMintCoreLibraryIdentity</c> return
+/// <see langword="true"/> unconditionally, having <c>TypeRefDecoder.CanonicalSelf</c>
+/// mint without consulting trust at all, or introducing a second trust store
+/// confers identity while adding no referent to <c>s_trusted</c>, and every one
+/// of those leaves these tests green. They are not unguarded — they are
+/// <c>PlantedCoreLibraryIdentityTests</c>'s property, and round 5 of PR #4469
+/// confirmed each of those three tampers fails three of its tests
+/// (<c>PlantedPlatformKey</c>, <c>DiscoveredSibling</c>, and
+/// <c>PlantedSibling</c>). The division is deliberate: this gate asks where
+/// readers come from and what reaches the trust table, and that suite asks
+/// whether the resulting identity is deserved.
 /// </para>
 /// <para>
 /// The scan sees <em>creation</em>, not receipt. A method handed a reader —
