@@ -1053,8 +1053,9 @@ kbd {
 .provenance::before { content: "·"; margin-right: 8px; color: var(--line-strong); }
 .build-date { color: var(--dim); white-space: nowrap; }
 .build-date::before { content: "·"; margin-right: 8px; color: var(--line-strong); }
-.status-bar-toggle { margin-left: auto; padding: 2px 6px; background: transparent; border: 1px solid var(--line-strong); border-radius: 3px; color: var(--dim); font: 10px var(--mono); cursor: pointer; line-height: 1; }
+.status-bar-toggle { margin-left: auto; flex: none; position: sticky; right: 0; padding: 2px 6px; background: var(--chrome); border: 1px solid var(--line-strong); border-radius: 3px; color: var(--dim); font: 10px var(--mono); cursor: pointer; line-height: 1; }
 .status-bar-toggle:hover { color: var(--muted); border-color: var(--muted); }
+.home-foot .status-bar-toggle { background: var(--bg); }
 
 .toast {
   position: fixed;

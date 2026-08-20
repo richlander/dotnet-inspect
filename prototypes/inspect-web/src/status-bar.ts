@@ -203,7 +203,7 @@ export function statusBarHtml(
     : "";
 
   return `
-    <footer class="${classes}" data-status-bar-toggle="${expanded ? "expanded" : "collapsed"}" title="Click to ${expanded ? "collapse" : "show all data"}">
+    <footer class="${classes}" data-status-bar-toggle="${expanded ? "expanded" : "collapsed"}">
       ${ready
         ? '<span class="ready-dot"></span>'
         : '<span class="home-wasm-spinner" aria-hidden="true"></span>'}<span>${escapeHtml(statusLabel)}</span>
@@ -212,6 +212,6 @@ export function statusBarHtml(
       ${buildDate}
       ${perf}
       ${expandedExtras}
-      <button type="button" class="status-bar-toggle" data-status-bar-toggle-button aria-expanded="${expanded}" title="${expanded ? "Collapse" : "Show all data"}">${expanded ? "▲" : "▼"}</button>
+      <button type="button" class="status-bar-toggle" data-status-bar-toggle-button aria-expanded="${expanded}" aria-label="${expanded ? "Collapse" : "Show all data"}" title="${expanded ? "Collapse" : "Show all data"}">${expanded ? "▲" : "▼"}</button>
     </footer>`;
 }

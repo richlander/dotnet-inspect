@@ -82,6 +82,7 @@ test("the compact workspace data bar shows version/commit, provenance, and a one
   assert.doesNotMatch(html, /class="statusbar data-bar expanded"/);
   assert.match(html, /data-status-bar-toggle-button/);
   assert.match(html, /aria-expanded="false"/);
+  assert.match(html, /aria-label="Show all data"/);
   assert.match(html, /<button type="button" class="status-bar-toggle"/);
 
   const identityIndex = html.indexOf("v1.2.3");
@@ -125,6 +126,7 @@ test("the expanded workspace data bar shows every field, including full diagnost
 
   assert.match(html, /class="statusbar data-bar expanded"/);
   assert.match(html, /aria-expanded="true"/);
+  assert.match(html, /aria-label="Collapse"/);
   assert.match(html, /↓ download 20 ms · 1\.0 KB → 2\.0 KB/);
   assert.match(html, /3 packages · 2 resident in cache · 1 workspace/);
   assert.match(html, /Source: packages\.&quot;&lt;example&gt;/);
