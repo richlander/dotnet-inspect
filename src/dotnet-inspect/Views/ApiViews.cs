@@ -1090,7 +1090,12 @@ public record CallSiteRow(
     string Callee,
     [property: MarkoutPropertyName("Operand Token")] string OperandToken,
     [property: MarkoutPropertyName("Return Address")]
-    [property: MarkoutSkipNull] string? ReturnAddress);
+    [property: MarkoutSkipNull] string? ReturnAddress)
+{
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? EvidenceMethod { get; init; } =
+        LibraryViewText.Contain(EvidenceMethod);
+}
 
 [MarkoutSerializable]
 public record TypeExceptionRegionRow(
