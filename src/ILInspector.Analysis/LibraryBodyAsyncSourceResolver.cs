@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -58,11 +59,13 @@ internal sealed class LibraryBodyAsyncSourceResolver
         LibraryBodyAnalysisPlan plan)
     {
         IReadOnlySet<int>? bodyScope = plan.MethodScope;
-        Dictionary<int, TypeRef>?
+        Dictionary<int, ImmutableArray<TypeRef>>?
             typeScopeEvidenceSources =
                 plan.TypeScopeEvidenceSources is null
                     ? null
-                    : new Dictionary<int, TypeRef>(
+                    : new Dictionary<
+                        int,
+                        ImmutableArray<TypeRef>>(
                         plan.TypeScopeEvidenceSources);
         if (plan.Includes(
                 LibraryBodyAnalysisFeatures.MethodEvidence)
@@ -86,14 +89,24 @@ internal sealed class LibraryBodyAsyncSourceResolver
                     MethodIdentity source)
                     in AsyncStateMachineSourceMethods())
                 {
-                    TypeRef declaredSourceType =
-                        typeScopeEvidenceSources.TryGetValue(
+                    AddEvidenceSource(
+                        typeScopeEvidenceSources,
+                        moveNextToken,
+                        source.DeclaringType);
+                    if (typeScopeEvidenceSources.TryGetValue(
                             source.MetadataToken,
-                            out TypeRef? liftedSourceType)
-                            ? liftedSourceType
-                            : source.DeclaringType;
-                    typeScopeEvidenceSources[moveNextToken] =
-                        declaredSourceType;
+                            out ImmutableArray<TypeRef>
+                                liftedSourceTypes))
+                    {
+                        foreach (TypeRef liftedSourceType
+                            in liftedSourceTypes)
+                        {
+                            AddEvidenceSource(
+                                typeScopeEvidenceSources,
+                                moveNextToken,
+                                liftedSourceType);
+                        }
+                    }
                     if (bodyScope?.Contains(
                             source.MetadataToken)
                         == true)
@@ -111,6 +124,22 @@ internal sealed class LibraryBodyAsyncSourceResolver
             TypeScopeEvidenceSources =
                 typeScopeEvidenceSources,
         };
+    }
+
+    static void AddEvidenceSource(
+        Dictionary<int, ImmutableArray<TypeRef>> sources,
+        int evidenceToken,
+        TypeRef sourceType)
+    {
+        ImmutableArray<TypeRef> existing =
+            sources.GetValueOrDefault(evidenceToken);
+        if (existing.IsDefault)
+            existing = [];
+        if (!existing.Contains(sourceType))
+        {
+            sources[evidenceToken] =
+                existing.Add(sourceType);
+        }
     }
 
     internal bool ScopeMayRequireStateMachineBody(
