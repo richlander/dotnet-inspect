@@ -5008,6 +5008,7 @@ function applyDeepLink(deep) {
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   state.memberSection = "overview";
+  state.selectedBodyTarget = null;
   if (restoreType && deep) {
     const type = pkg.types.find(item => item.id === deep.type);
     const groups = memberGroups(type);

@@ -454,6 +454,8 @@ test("shared member views retain scope and filter state", () => {
     /function encodeShareState\(\)[\s\S]*?\n}\n\nfunction decodeShareState/)?.[0] ?? "";
   const decoder = appSource.match(
     /function decodeShareState\([\s\S]*?\n}\n\n\/\/ Maps a view token/)?.[0] ?? "";
+  const deepLink = appSource.match(
+    /function applyDeepLink\(deep\) \{[\s\S]*?\n}\n\n\/\/ Kick off/)?.[0] ?? "";
   assert.match(encoder, /packet\.b = 1/);
   assert.match(encoder, /packet\.q = state\.memberTextFilter/);
   assert.match(encoder, /packet\.k = state\.memberKindFilter/);
@@ -464,8 +466,8 @@ test("shared member views retain scope and filter state", () => {
   assert.match(decoder, /bodyTarget: decodeBodyTarget\(raw\.d\)/);
   assert.match(appSource, /if \(deep\.memberBrowse && groups\.length\)\s*state\.memberBrowseTypeId = type\.id/);
   assert.match(
-    appSource,
-    /state\.selectedBodyTarget = null;[\s\S]*bodyTargetMatchesOverload\(deep\.bodyTarget, group, restoredOverload\)[\s\S]*state\.selectedBodyTarget = deep\.bodyTarget/);
+    deepLink,
+    /state\.memberSection = "overview";\s*state\.selectedBodyTarget = null;\s*if \(restoreType && deep\)[\s\S]*bodyTargetMatchesOverload\(deep\.bodyTarget, group, restoredOverload\)[\s\S]*state\.selectedBodyTarget = deep\.bodyTarget/);
   assert.match(
     appSource,
     /function selectMemberNavEntry\(entry, focusList\) \{\s*const preservedFocus = captureMemberFocus\(document, cssEscape\);[\s\S]*memberFocusRestorer\.schedule\(\s*document,\s*preservedFocus/);
