@@ -136,6 +136,9 @@ public static class ApiMemberSectionDescriptors
             .Add<CostFacts>(HasBodyBackedMembers, HasExecutableBodyMembers)
             .Add<TopLeverage>(HasBodyBackedMembers, HasExecutableBodyMembers)
             .Add<OptimizationOpportunities>(HasBodyBackedMembers, HasExecutableBodyMembers)
+            .Add<ApiMemberDetailSectionDescriptors.BodyShapes>(
+                HasBodyBackedMembers,
+                HasExecutableBodyMembers)
             .Add<SourceFiles>(HasSourceFiles, HasSourceFiles)
             .Add<DecompiledSource>(
                 HasBodyBackedMembersOrEnum,
@@ -1084,8 +1087,7 @@ public static class ApiMemberDetailSectionDescriptors
             SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Count == 1
-               && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+            => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
 
     /// <summary>

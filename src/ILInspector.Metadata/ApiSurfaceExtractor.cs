@@ -1449,7 +1449,6 @@ public static class ApiSurfaceExtractor
             bool isExplicitImplementation = explicitImplementationBodies.Contains(methodHandle);
             if (methodAccess != MethodAttributes.Public && !isExplicitImplementation)
                 continue;
-
             string methodName = reader.GetString(method.Name);
             var isRetainedImplementationAccessor = isExplicitImplementation
                 && (methodName.Contains('.', StringComparison.Ordinal)

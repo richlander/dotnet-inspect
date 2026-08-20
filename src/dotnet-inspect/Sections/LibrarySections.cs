@@ -197,8 +197,11 @@ public static class LibrarySections
     {
         return new ScannerRegistry()
             .Add(ScannerOptimizationOpportunities, SectionCost.Unbounded, ctx =>
+            {
                 ctx.Model.OptimizationOpportunities = LibraryMetadataService.ScanOptimizationOpportunities(
-                    ctx.BodyIndex, ctx.AssemblyPath, ctx.Logger, ctx.Model.PerformanceTriageOptions))
+                    ctx.BodyIndex, ctx.AssemblyPath, ctx.Logger, ctx.Model.PerformanceTriageOptions);
+                ctx.Model.PerformanceDiagnosticsReported = true;
+            })
             .Add(ScannerResourceTriage, SectionCost.Unbounded, ctx =>
                 ctx.Model.Apply(LibraryMetadataService.ScanResourceTriage(
                     ctx.BodyIndex,
@@ -222,7 +225,26 @@ public static class LibrarySections
             metadata.GetPrefetchedImage(),
             metadata.PortablePdbPath,
             context.BodyReferenceResolver);
-        var result = BodyShapeSearch.Search(source, kind);
+        IReadOnlySet<int>? methodTokens = null;
+        if (context.Model.PerformanceTriageOptions.HasCandidateFilters)
+        {
+            var index = context.BodyIndex();
+            if (!context.Model.PerformanceDiagnosticsReported)
+            {
+                LibraryMetadataService.ReportOptimizationDiagnostics(index);
+                context.Model.PerformanceDiagnosticsReported = true;
+            }
+            methodTokens = LibraryMetadataService.PerformanceSourceMethods(
+                    LibraryMetadataService.FilterPerformanceOpportunities(
+                        index,
+                        context.Model.PerformanceTriageOptions))
+                .Select(static method => method.MetadataToken)
+                .ToHashSet();
+        }
+
+        var result = methodTokens is null
+            ? BodyShapeSearch.Search(source, kind)
+            : BodyShapeSearch.Search(source, kind, methodTokens);
         context.Model.BodyShapeSearchResult = result;
 
         if (result.Failures.Count == 0)

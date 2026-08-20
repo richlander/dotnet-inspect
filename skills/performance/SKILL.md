@@ -134,6 +134,23 @@ dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
   --where "Finding=analysis.call-site" --json
 ```
 
+To ask which source-facing methods with matching performance evidence also
+contain one rendered C# syntax kind, add a `Kind` predicate and omit `-S`:
+
+```bash
+dnx dotnet-inspect -y -- library MyLib.dll \
+  --where "Kind=InvocationExpression" \
+  --where "Finding=analysis.call-site" \
+  --where "Shape=sync-call-in-async" \
+  --where "Confidence>=medium" --jsonl
+```
+
+This emits `Body Shapes`, not Performance rows. The typed performance
+opportunities narrow source MethodDef bodies before decompilation; run the
+Performance query separately when its candidate, evidence, and IL receipt are
+needed. `--top` and `--order-by` do not compose with Body Shapes; use `--rows`
+to limit rendered syntax matches.
+
 Aggregate rows such as `allocation-hotspot` use `Provenance=aggregate` and have
 a `pt~` candidate id but no exact source Finding, operation, or token.
 `Provenance=unmatched` flags an instruction-level row that did not join to the
@@ -152,7 +169,12 @@ runfaster correlate --triage triage.json --trace workload.nettrace
 
 Compact `Performance:* --jsonl` rows omit deep provenance and cannot support an
 exact trace join. `runfaster` keeps their operation `Token` separate from the
-declaring `MethodToken` and reports missing runtime coordinates explicitly.
+source-facing `MethodToken`, uses `EvidenceMethod` as the physical body token
+when supplied, and reports missing runtime coordinates explicitly. Blank
+flattened cells are treated as absent; invalid non-empty or conflicting
+supplied evidence-method tokens fail visibly.
+Method-name samples can still establish method-level heat, but only a complete
+runtime coordinate can produce an exact `confirmed-hot` result.
 For a filtered export, the trace join stops at the first frame in the
 represented assembly; it does not walk past an unexported in-assembly callee
 and credit an outer caller. If `--library` and `--triage` name the same physical

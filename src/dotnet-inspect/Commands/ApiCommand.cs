@@ -303,9 +303,8 @@ public class ApiCommand
         {
             if (SelectOutput.WriteUnresolved(selectResult))
                 return (null!, 1);
-            if (options is MemberOptions bodyMemberOptions
-                && ApplyBodyShapeSelectionRequirements(
-                    bodyMemberOptions,
+            if (ApplyBodyShapeSelectionRequirements(
+                    options,
                     selectResult) is { } bodyShapeError)
             {
                 CommandError.Write(bodyShapeError);
@@ -314,7 +313,7 @@ public class ApiCommand
             if (selectResult.Sections != null)
                 options = options with { IncludeSections = selectResult.Sections };
         }
-        if (options is MemberOptions
+        if (options is
             {
                 BodyKindQuery.HasFilter: true,
                 Select: null,
@@ -464,7 +463,7 @@ public class ApiCommand
     }
 
     internal static string? ApplyBodyShapeSelectionRequirements(
-        MemberOptions options,
+        ApiOptions options,
         SelectResult selectResult)
     {
         if (selectResult.Sections is not { } sections)
@@ -498,7 +497,7 @@ public class ApiCommand
     }
 
     internal static bool TargetsBodyShapes(
-        MemberOptions options,
+        ApiOptions options,
         string[]? selectors)
     {
         if (selectors is not { Length: > 0 })
@@ -1066,7 +1065,7 @@ public class ApiCommand
             if (!resolved.HasError && resolved.Sections is { Count: > 0 })
                 sections.UnionWith(resolved.Sections);
         }
-        if (options is MemberOptions { BodyKindQuery.HasFilter: false }
+        if (!options.BodyKindQuery.HasFilter
             && options.Discover is not null)
         {
             sections.Remove(SectionNames.BodyShapes);
@@ -1947,6 +1946,18 @@ public class ApiCommand
                 }
             }
 
+            if (options is TypeOptions
+                && options.DllPath is { } typeBodyShapeDllPath
+                && GetRequestedMemberSections(type, options).Contains(SectionNames.BodyShapes))
+            {
+                ApiOutputFormatter.PopulateBodyShapes(
+                    view,
+                    typeBodyShapeDllPath,
+                    options.PdbPath,
+                    ApiOutputFormatter.ResolveTypeBodyShapeMethodTokens(type),
+                    options);
+            }
+
             // Type-scope analysis sections share one index build per type (built lazily, only
             // when such a section is requested) instead of opening one session per section.
             Analysis.LibraryBodyIndex? typeAnalysisIndex = null;
@@ -2598,7 +2609,7 @@ public class ApiCommand
         var fullSchema = GetTypeDocumentSchema(options);
         var filteredType = BuildFilteredTypeForSections(apiType, options);
         var effective = memberPipeline.GetDiscoverableSections(filteredType, options.IncludeSections);
-        if (options is MemberOptions { BodyKindQuery.HasFilter: false })
+        if (!options.BodyKindQuery.HasFilter)
         {
             effective = effective
                 .Where(section => !section.Equals(
@@ -2848,6 +2859,18 @@ public class ApiCommand
                     executionSections,
                     memberOptions.MemberSourceTooComplex,
                     memberOptions.MemberSourceCoordinatesInvalid);
+            }
+
+            if (renderOptions is TypeOptions
+                && renderOptions.DllPath is { } typeBodyShapeDllPath
+                && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.BodyShapes))
+            {
+                ApiOutputFormatter.PopulateBodyShapes(
+                    view,
+                    typeBodyShapeDllPath,
+                    renderOptions.PdbPath,
+                    ApiOutputFormatter.ResolveTypeBodyShapeMethodTokens(type),
+                    renderOptions);
             }
 
             Analysis.LibraryBodyIndex? typeAnalysisIndex = null;
