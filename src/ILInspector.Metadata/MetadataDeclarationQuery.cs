@@ -157,14 +157,11 @@ public static class MetadataDeclarationQuery
                 typeDef)
             : [];
         var explicitInterfaceIdentityProvider = new ExplicitInterfaceTypeIdentityProvider();
-        var explicitInterfaceImplementationTargets =
-            ApiSurfaceExtractor.GetExplicitInterfaceImplementationTargets(
-                reader,
-                typeDef,
-                explicitInterfaceIdentityProvider,
-                typeContext: typeContext);
-        var explicitInterfaceImplementationBodies =
-            explicitInterfaceImplementationTargets.Keys.ToHashSet();
+        var methodImplementations = new ApiSurfaceExtractor.MethodImplementationProjection(
+            reader,
+            typeDef,
+            explicitInterfaceIdentityProvider,
+            typeContext: typeContext);
         bool isInterfaceTypeDefinition = (attributes & TypeAttributes.Interface) != 0;
         foreach (var propertyHandle in typeDef.GetProperties())
         {
@@ -183,7 +180,7 @@ public static class MetadataDeclarationQuery
             bool isExplicitInterfaceImplementation =
                 ApiSurfaceExtractor.IsExplicitInterfaceAggregate(
                     propertyName,
-                    explicitInterfaceImplementationTargets,
+                    methodImplementations,
                     (declaration.Getter, "get_"),
                     (declaration.Setter, "set_"));
             if (isExplicitInterfaceImplementation
@@ -298,7 +295,7 @@ public static class MetadataDeclarationQuery
             bool isExplicitInterfaceImplementation =
                 ApiSurfaceExtractor.IsExplicitInterfaceAggregate(
                     eventName,
-                    explicitInterfaceImplementationTargets,
+                    methodImplementations,
                     (accessors.Adder, "add_"),
                     (accessors.Remover, "remove_"));
             if (isExplicitInterfaceImplementation
@@ -369,9 +366,26 @@ public static class MetadataDeclarationQuery
             var method = reader.GetMethodDefinition(methodHandle);
             var methodName = reader.GetString(method.Name);
             var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
+            if (methodName.StartsWith('<'))
+                continue;
+
+            string methodAccessibility = AccessibilityKeyword(methodAccess);
             bool isFinalizer = type.Kind == "class"
                 && ApiSurfaceExtractor.IsFinalizerMethod(reader, methodHandle);
-            var isRetainedImplementationAccessor = explicitInterfaceImplementationBodies.Contains(methodHandle)
+            bool canBeExplicitInterfaceImplementation =
+                methodImplementations.ContainsBody(methodHandle);
+            if (!includeNonPublicMembers
+                && methodAccessibility != "public"
+                && !canBeExplicitInterfaceImplementation
+                && !isFinalizer)
+            {
+                continue;
+            }
+
+            bool isExplicitInterfaceImplementation =
+                canBeExplicitInterfaceImplementation
+                && methodImplementations.HasExplicitInterfaceTargets(methodHandle);
+            var isRetainedImplementationAccessor = isExplicitInterfaceImplementation
                 && (methodName.Contains('.', StringComparison.Ordinal)
                     || (!canonicalAccessorMethods.Contains(methodHandle)
                         || (!includeNonPublicMembers
@@ -381,13 +395,11 @@ public static class MetadataDeclarationQuery
                     || extensionPropertyImplementationMethods.Contains(methodHandle))
                 && !isRetainedImplementationAccessor)
                 continue;
-            if (methodName.StartsWith('<'))
-                continue;
 
             var declaration = GetMethod(reader, typeDef, method);
             if (!includeNonPublicMembers
-                && declaration.Accessibility != "public"
-                && !explicitInterfaceImplementationBodies.Contains(methodHandle)
+                && methodAccessibility != "public"
+                && !isExplicitInterfaceImplementation
                 && !isFinalizer)
                 continue;
 
@@ -412,6 +424,7 @@ public static class MetadataDeclarationQuery
                 IsUnsafe = ApiSurfaceExtractor.HasUnsafeSignature(reader, method)
                     || AttributeReader.HasRequiresUnsafeAttribute(reader, method.GetCustomAttributes()),
                 Accessibility = NonPublicAccessibility(declaration.Accessibility),
+                IsExplicitInterfaceImplementation = isExplicitInterfaceImplementation,
                 Attributes = declaration.Attributes.ToList(),
             });
         }

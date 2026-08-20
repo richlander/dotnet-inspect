@@ -473,25 +473,57 @@ public class ApiInventoryQueryTests
             candidate => candidate.Name == "ReservedAccessibilityHost");
         Assert.Contains(type.Members, member => member.Name == "GoodMethod");
         Assert.Contains(type.Members, member => member.Name == "GoodField");
-        Assert.DoesNotContain(type.Members, member => member.Name == "BadMethod");
+        Assert.DoesNotContain(type.Members, member => member.Name == "Contracts.IProbe.BadMethod");
         Assert.DoesNotContain(type.Members, member => member.Name == "BadField");
 
         MetadataReader reader = peReader.GetMetadataReader();
         TypeDefinitionHandle typeHandle = reader.TypeDefinitions.Single(handle =>
             reader.GetString(reader.GetTypeDefinition(handle).Name) == "ReservedAccessibilityHost");
         MethodDefinitionHandle badMethod = reader.GetTypeDefinition(typeHandle).GetMethods().Single(handle =>
-            reader.GetString(reader.GetMethodDefinition(handle).Name) == "BadMethod");
+            reader.GetString(reader.GetMethodDefinition(handle).Name) == "Contracts.IProbe.BadMethod");
+        MethodDefinitionHandle badGetter = reader.GetTypeDefinition(typeHandle).GetMethods().Single(handle =>
+            reader.GetString(reader.GetMethodDefinition(handle).Name) == "get_BadProperty");
+        MethodDefinitionHandle badAdder = reader.GetTypeDefinition(typeHandle).GetMethods().Single(handle =>
+            reader.GetString(reader.GetMethodDefinition(handle).Name) == "add_BadEvent");
         FieldDefinitionHandle badField = reader.GetTypeDefinition(typeHandle).GetFields().Single(handle =>
             reader.GetString(reader.GetFieldDefinition(handle).Name) == "BadField");
+        PropertyDefinitionHandle badProperty = reader.GetTypeDefinition(typeHandle).GetProperties().Single();
+        EventDefinitionHandle badEvent = reader.GetTypeDefinition(typeHandle).GetEvents().Single();
         Assert.Equal(
-            new Dictionary<string, int>
+            new[]
             {
-                ["method accessibility"] = MetadataTokens.GetToken(badMethod),
-                ["field accessibility"] = MetadataTokens.GetToken(badField)
+                ("event accessibility", MetadataTokens.GetToken(badEvent)),
+                ("field accessibility", MetadataTokens.GetToken(badField)),
+                ("method accessibility", MetadataTokens.GetToken(badMethod)),
+                ("method accessibility", MetadataTokens.GetToken(badGetter)),
+                ("method accessibility", MetadataTokens.GetToken(badAdder)),
+                ("property accessibility", MetadataTokens.GetToken(badProperty))
             },
-            surface.InspectionFailures.ToDictionary(
-                failure => failure.Operation,
-                failure => failure.SubjectToken));
+            surface.InspectionFailures
+                .Select(failure => (failure.Operation, failure.SubjectToken))
+                .OrderBy(failure => failure.Operation)
+                .ThenBy(failure => failure.SubjectToken));
+
+        ApiSurface summary = ApiSurfaceExtractor.ExtractSummary(peReader);
+        ApiType summarized = Assert.Single(
+            summary.Types,
+            candidate => candidate.Name == "ReservedAccessibilityHost");
+        Assert.Contains(summarized.Members, member => member.Name == "GoodMethod");
+        Assert.Contains(summarized.Members, member => member.Name == "GoodField");
+        Assert.DoesNotContain(
+            summarized.Members,
+            member => member.Name == "Contracts.IProbe.BadMethod");
+        Assert.DoesNotContain(summarized.Members, member => member.Name == "BadField");
+        Assert.Equal(
+            surface.InspectionFailures
+                .Select(failure => (failure.Operation, failure.SubjectToken))
+                .OrderBy(failure => failure.Operation)
+                .ThenBy(failure => failure.SubjectToken),
+            summary.InspectionFailures
+                .Select(failure => (failure.Operation, failure.SubjectToken))
+                .OrderBy(failure => failure.Operation)
+                .ThenBy(failure => failure.SubjectToken));
+
         Assert.Throws<BadImageFormatException>(
             () => MetadataDeclarationQuery.GetTypeSurface(
                 reader,
@@ -755,13 +787,25 @@ public class ApiInventoryQueryTests
             baseType: default,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(1));
-        metadata.AddTypeDefinition(
+        TypeDefinitionHandle type = metadata.AddTypeDefinition(
             TypeAttributes.Public,
             metadata.GetOrAddString("Fixtures"),
             metadata.GetOrAddString("ReservedAccessibilityHost"),
             baseType: default,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(1));
+        AssemblyReferenceHandle contractsAssembly = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Contracts"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+        TypeReferenceHandle interfaceType = metadata.AddTypeReference(
+            contractsAssembly,
+            metadata.GetOrAddString("Contracts"),
+            metadata.GetOrAddString("IProbe"));
+        metadata.AddInterfaceImplementation(type, interfaceType);
 
         var fieldSignature = new BlobBuilder();
         fieldSignature.WriteByte(0x06); // FIELD
@@ -788,13 +832,59 @@ public class ApiInventoryQueryTests
             methodSignatureHandle,
             bodyOffset: 0,
             parameterList: MetadataTokens.ParameterHandle(1));
-        metadata.AddMethodDefinition(
+        MethodDefinitionHandle badMethod = metadata.AddMethodDefinition(
             (MethodAttributes)0x0007 | MethodAttributes.Static,
             MethodImplAttributes.Runtime,
-            metadata.GetOrAddString("BadMethod"),
+            metadata.GetOrAddString("Contracts.IProbe.BadMethod"),
             methodSignatureHandle,
             bodyOffset: 0,
             parameterList: MetadataTokens.ParameterHandle(1));
+        MemberReferenceHandle interfaceMethod = metadata.AddMemberReference(
+            interfaceType,
+            metadata.GetOrAddString("BadMethod"),
+            methodSignatureHandle);
+        metadata.AddMethodImplementation(type, badMethod, interfaceMethod);
+
+        MethodDefinitionHandle badGetter = metadata.AddMethodDefinition(
+            (MethodAttributes)0x0007 | MethodAttributes.Static | MethodAttributes.SpecialName,
+            MethodImplAttributes.Runtime,
+            metadata.GetOrAddString("get_BadProperty"),
+            metadata.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x08 }),
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
+        PropertyDefinitionHandle badProperty = metadata.AddProperty(
+            PropertyAttributes.None,
+            metadata.GetOrAddString("BadProperty"),
+            metadata.GetOrAddBlob(new byte[] { 0x08, 0x00, 0x08 }));
+        metadata.AddPropertyMap(type, badProperty);
+        metadata.AddMethodSemantics(
+            badProperty,
+            MethodSemanticsAttributes.Getter,
+            badGetter);
+
+        var eventAccessorSignature = new BlobBuilder();
+        new BlobEncoder(eventAccessorSignature)
+            .MethodSignature()
+            .Parameters(
+                1,
+                returnType => returnType.Void(),
+                parameters => parameters.AddParameter().Type().Type(type, isValueType: false));
+        MethodDefinitionHandle badAdder = metadata.AddMethodDefinition(
+            (MethodAttributes)0x0007 | MethodAttributes.Static | MethodAttributes.SpecialName,
+            MethodImplAttributes.Runtime,
+            metadata.GetOrAddString("add_BadEvent"),
+            metadata.GetOrAddBlob(eventAccessorSignature),
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
+        EventDefinitionHandle badEvent = metadata.AddEvent(
+            EventAttributes.None,
+            metadata.GetOrAddString("BadEvent"),
+            type);
+        metadata.AddEventMap(type, badEvent);
+        metadata.AddMethodSemantics(
+            badEvent,
+            MethodSemanticsAttributes.Adder,
+            badAdder);
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),

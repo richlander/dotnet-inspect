@@ -1115,6 +1115,37 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TypeSurface_HiddenMethodImplBodies_DoNotSpendProjectionBudget(
+        bool includeNonPublicMembers)
+    {
+        using var stream = new MemoryStream(
+            BuildMethodImplFloodImage(
+                methodImplCount: 32_769,
+                nameLength: 64,
+                includeMethodImpls: true,
+                hideBodies: true),
+            writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle typeHandle = reader.TypeDefinitions.Single(handle =>
+            reader.GetString(reader.GetTypeDefinition(handle).Name) == "Implementer");
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        ApiType type = MetadataDeclarationQuery.GetTypeSurface(
+            reader,
+            typeHandle,
+            includeNonPublicMembers);
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Empty(type.Members);
+        Assert.True(
+            allocated < 96L * 1024 * 1024,
+            $"focused query allocated {allocated:N0} bytes");
+    }
+
+    [Theory]
     [InlineData(TransformArrayKind.TupleElementNames)]
     [InlineData(TransformArrayKind.Nullable)]
     [InlineData(TransformArrayKind.Dynamic)]
