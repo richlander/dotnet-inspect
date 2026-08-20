@@ -15080,7 +15080,11 @@ public partial class CommandExecutionTests
         List<string> args = [.. command];
         if (command is ["library", ..] && section == "Context: Source Location")
             args.AddRange(["--il-offset", "0x06000041+0x0"]);
-        args.AddRange(["-S", section, "--table", "--tips", "q", "-n", "40"]);
+        args.AddRange(["-S", section]);
+        args.Add(section == SectionNames.AnnotatedSource
+            ? "--print"
+            : "--table");
+        args.AddRange(["--tips", "q", "-n", "40"]);
         return [.. args];
     }
 
