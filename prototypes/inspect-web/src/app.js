@@ -780,15 +780,22 @@ function filteredTypes() {
 }
 
 // The type the type list would land on by default: the first type the CURRENT
-// accessibility filter admits, not merely the first type the backend happens to return.
-// Package/library roots otherwise land on whatever type sorts first server-side — often an
-// internal compiler-generated type (e.g. an FxResources.*.SR resource shim) — while the type
-// list itself (filteredTypes) hides it, splitting the landing type from the visible list.
+// accessibility filter (and, if set, library scope) admits, not merely the first type the
+// backend happens to return. Package/library roots otherwise land on whatever type sorts
+// first server-side — often an internal compiler-generated type (e.g. an FxResources.*.SR
+// resource shim) — while the type list itself (filteredTypes) hides it, splitting the
+// landing type from the visible list. Honoring libraryScope here (rather than only
+// accessibility) matters for restores that legitimately set it before falling back to a
+// default type -- e.g. a deep link to a platform library's root with no explicit type --
+// so the default lands inside the restored library instead of picking a package-wide type
+// that a later reconciliation step then treats as evidence the scope should be cleared.
 // Callers must reset any stale type/namespace/kind/library filters (and the accessibility
 // filter, via activatePackage) before calling this so it reflects the incoming package.
 function defaultVisibleTypeId(pkg) {
   if (!pkg) return "";
-  const visible = pkg.types.find(item => state.accessibilityFilter.has(item.accessibilityId));
+  const visible = pkg.types.find(item =>
+    state.accessibilityFilter.has(item.accessibilityId)
+    && (!state.libraryScope || state.libraryScope.has(libraryKey(item))));
   return visible ? visible.id : (pkg.types[0]?.id || "");
 }
 
@@ -4201,6 +4208,11 @@ async function switchPlatformVersion(tfm, retryPackage = null) {
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
+  // A library scope from the version being switched away from doesn't necessarily carry over
+  // to the new version's assembly layout; clear it like the other stale filters above so
+  // defaultVisibleTypeId (which now also honors libraryScope) picks from the whole incoming
+  // package rather than a possibly-stale or now-nonexistent library.
+  state.libraryScope = null;
   state.selectedTypeId = defaultVisibleTypeId(loaded);
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
