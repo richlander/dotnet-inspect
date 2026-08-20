@@ -406,7 +406,11 @@ public sealed class ReaderConstructionSiteTests
     /// name. Each was a fresh cosmetic dimension on the call surface, which is
     /// the non-convergence issue #4464 exists to end. The field is not a
     /// dimension: trust <em>is</em> membership in that table, so pinning its
-    /// referents is complete by construction rather than by enumeration.
+    /// referents is complete by construction rather than by enumeration —
+    /// for a grant written as ordinary code, which is the bound stated on this
+    /// class. Reflection over the field emits no <c>ldsfld</c>, and a
+    /// consumer-side grant reaches the table not at all;
+    /// <c>PlantedCoreLibraryIdentityTests</c> owns both.
     /// </remarks>
     [Fact]
     public void TrustTableAccess_IsConfinedToItsPinnedMembers()
