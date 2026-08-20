@@ -154,8 +154,8 @@ dnx dotnet-inspect -y -- library System.Text.Json \
 
 | Member | Token | Match |
 | ------ | ----- | ----- |
-| `System.Text.Json.JsonDocument.RootElement~2810741072` | `0x06000260` | `new JsonElement(this, 0)` |
-| `System.Text.Json.JsonDocumentOptions.CommentHandling~4fc3b6f99d` | `0x060002DC` | `new ArgumentOutOfRangeException("value", SR.JsonDocumentDoesNotSupportComments)` |
+| `System.Text.Json.JsonDocument.RootElement~2810741072:1` | `0x06000260` | `new JsonElement(this, 0)` |
+| `System.Text.Json.JsonDocumentOptions.CommentHandling~4fc3b6f99d:2` | `0x060002DC` | `new ArgumentOutOfRangeException("value", SR.JsonDocumentDoesNotSupportComments)` |
 | `System.Text.Json.JsonElement.GetProperty~b07c7787dc` | `0x060002EA` | `new KeyNotFoundException(SR.Format(SR.Arg_KeyNotFoundWithKey, propertyName))` |
 ```
 
@@ -235,7 +235,7 @@ permits a selected non-public member.
 | `implements X` | Find concrete implementors or subclasses. |
 | `depends X` | Walk type, package, or library dependency graphs; emits Mermaid diagrams. |
 | `cache` | Inspect or clear dotnet-inspect caches. |
-| `skill` | Print the base LLM skill; routes to focused skills (`skill list`, `skill source`, `skill performance`). |
+| `skill` | Print the base LLM skill; routes to focused skills (`skill list`, `skill sourcelink`, `skill performance`). |
 
 Remote dependency trees requested with `depends --package`,
 `package -S Dependencies --tree`, or the legacy `package --dependencies` alias
@@ -424,13 +424,16 @@ retains its narrower inbound-only scan.
 Ranking rows carry a copyable `Stable` selector, `Visibility`, and `Selector`;
 add `--all` to drill non-public members.
 
-Export nested JSON when runtime correlation is the next step, then give that
-document and the matching allocation trace to `runfaster`:
+Export nested JSON when runtime correlation is the next step. The `runfaster`
+prototype is available only in this repository and is not included in the
+published `dotnet-inspect` packages. From a source checkout, give it that
+document and a matching allocation trace:
 
 ```bash
 dotnet-inspect library MyLib.dll -S "Performance:*" \
   --where "Priority>=high" --json > triage.json
-runfaster correlate --triage triage.json --trace workload.nettrace
+dotnet run --project src/runfaster -- \
+  correlate --triage triage.json --trace workload.nettrace
 ```
 
 The compact `Performance:* --jsonl` table intentionally carries only the tight

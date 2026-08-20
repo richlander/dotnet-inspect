@@ -33,24 +33,14 @@
   behavioral interchangeability (#4091).
 - Performance Triage structured JSON now carries declaring assembly, source
   MethodDef, physical evidence MethodDef, module version ID, and IL offset for
-  runtime joins. `runfaster` correlates those coordinates with allocation
-  traces while preserving build alternatives, conservative ambiguity, logical
-  duplicate conservation, and source/runtime alias identity. Compact
-  Performance JSONL remains intentionally non-correlatable (#4326, #4343,
-  #4347, #4406).
+  runtime joins. Compact Performance JSONL remains intentionally
+  non-correlatable (#4091, #4326, #4347).
 - Top Leverage ranking now uses the typed query path, and call-graph selectors
   preserve physical file identity and full signature structure across scoped
   projections (#4335, #4388, #4396).
 
-### Graphs, acquisition, and safety
+### Acquisition and safety
 
-- Adds bounded typed Integration graph modes, cross-library neighborhoods,
-  seed admission, peer neighborhoods, and explicit induced sets. Unsupported
-  or incomplete graph evidence remains visible rather than guessed (#4288,
-  #4325, #4346, #4355, #4367, #4373, #4389).
-- Adds bounded near-clone alignment and fuzzy clone ranking with worksheet
-  evidence while retaining exact structural comparison as a distinct result
-  (#4315, #4331).
 - Adds typed NuGet Gallery source operations and standard search discovery for
   nuget.org. Package deadlines, redirects, response addresses, and SSRF
   classification fail visibly at their owning source boundary (#4155, #4320,
@@ -65,6 +55,8 @@
   accessor identity, nested-generic and byref selector keys, generated
   framework type identity, and async/lifted source ownership (#4205, #4359,
   #4371, #4386, #4402, #4425).
+- Preserves raw reference-equality binding instead of rebinding decompiled
+  comparisons to user-defined equality operators (#4250).
 - Improves control-flow and dataflow fidelity for sparse switch partitions,
   legal multi-block `do`/`while` loops, early region exits, and proven
   cross-block stack-slot live ranges. Unsupported lambda parameter types are

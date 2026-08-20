@@ -158,13 +158,16 @@ expected producer census.
 
 ## Correlate triage with an allocation trace
 
-Export nested JSON, whose deep rows carry the declaring method coordinate, then
-pass it to `runfaster` with a trace captured from the same assembly build:
+Export nested JSON, whose deep rows carry the declaring method coordinate. The
+`runfaster` prototype is available only in the dotnet-inspect repository and is
+not included in the published packages. From a source checkout, pass it that
+document and a trace captured from the same assembly build:
 
 ```bash
 dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
   --where "Priority>=high" --json > triage.json
-runfaster correlate --triage triage.json --trace workload.nettrace
+dotnet run --project src/runfaster -- \
+  correlate --triage triage.json --trace workload.nettrace
 ```
 
 Compact `Performance:* --jsonl` rows omit deep provenance and cannot support an
