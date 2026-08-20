@@ -41,4 +41,13 @@ internal static class CompilerGeneratedNames
     internal static bool IsLocalFunctionOrLambda(string methodName)
         => methodName.Contains(">g__", StringComparison.Ordinal)
             || methodName.Contains(">b__", StringComparison.Ordinal);
+
+    internal static bool RequiresDeclaredOwner(
+        MethodIdentity method)
+        => IsLocalFunctionOrLambda(method.Name)
+            || method.Name == "MoveNext"
+                && LeafName(method.DeclaringType)
+                    .Contains(
+                        StateMachineInfix,
+                        StringComparison.Ordinal);
 }
