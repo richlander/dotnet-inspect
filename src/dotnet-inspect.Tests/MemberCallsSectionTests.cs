@@ -31,6 +31,22 @@ public class MemberCallsSectionTests
     }
 
     [Fact]
+    public async Task
+        CallsSection_IdentifiesGeneratedEvidenceBody()
+    {
+        var result = await RunMemberCallsAsync(
+            nameof(MemberCallsFixture
+                .CallsWriteLineAfterYield));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("Evidence Method", result.Output);
+        Assert.Contains("MoveNext", result.Output);
+        Assert.Contains(
+            "`System.Console.WriteLine(string)`",
+            result.Output);
+    }
+
+    [Fact]
     public async Task CallsSection_SelectedSecondOverload_UsesSelectedMethod()
     {
         var result = await RunMemberCallsAsync(nameof(MemberCallsFixture.Overloaded), overloadIndex: 2);
@@ -99,6 +115,13 @@ public static class MemberCallsFixture
     }
 
     public static int CallsInterfaceItem(IList<int> values) => values[0];
+
+    public static async Task
+        CallsWriteLineAfterYield()
+    {
+        await Task.Yield();
+        Console.WriteLine("async");
+    }
 
     public static void Overloaded(int value)
     {

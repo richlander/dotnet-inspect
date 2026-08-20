@@ -345,8 +345,8 @@ public static class ArrayPoolOwnershipPathFindings
 
             var step = new ArrayPoolOwnershipPathStep(
                 row.Number,
-                call.Caller.ModuleVersionId,
-                call.Caller.MetadataToken,
+                call.EvidenceMethod.ModuleVersionId,
+                call.EvidenceMethod.MetadataToken,
                 call.ILOffset,
                 call.OperandToken,
                 use.CalleeParameterIndex);

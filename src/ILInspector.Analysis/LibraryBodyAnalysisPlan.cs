@@ -1,11 +1,14 @@
+using System.Collections.Immutable;
+
 namespace ILInspector.Analysis;
 
 internal sealed record LibraryBodyAnalysisPlan(
     LibraryBodyAnalysisFeatures Features,
     IReadOnlySet<int>? MethodScope,
     Func<TypeRef, bool>? TypeScope,
-    IReadOnlyDictionary<int, TypeRef>?
-        TypeScopeEvidenceSources = null)
+    IReadOnlyDictionary<int, ImmutableArray<TypeRef>>?
+        TypeScopeEvidenceSources = null,
+    IReadOnlySet<int>? RequestedMethodScope = null)
 {
     internal bool IsScoped
         => MethodScope is not null || TypeScope is not null;
@@ -36,6 +39,10 @@ internal sealed record LibraryBodyAnalysisPlan(
                 "Leak Triage requires a full assembly body census.");
         }
 
-        return new(features, methodScope, typeScope);
+        return new(
+            features,
+            methodScope,
+            typeScope,
+            RequestedMethodScope: methodScope);
     }
 }
