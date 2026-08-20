@@ -134,7 +134,11 @@ public class ApiMemberAnalysisInspectionTests
                     method.DeclaringType.Name == nameof(DiffCommand)));
 
         Assert.NotEmpty(inspection.BodyIndex.OptimizationOpportunities);
+        Assert.True(inspection.BodyIndex.Features.HasFlag(
+            ILInspector.Analysis.LibraryBodyAnalysisFeatures.Allocations));
         Assert.Empty(cliIndex.OptimizationOpportunities);
+        Assert.False(cliIndex.Features.HasFlag(
+            ILInspector.Analysis.LibraryBodyAnalysisFeatures.Allocations));
     }
 
     [Fact]
@@ -164,6 +168,64 @@ public class ApiMemberAnalysisInspectionTests
         Assert.Empty(inspection.CallGraphFields);
         Assert.False(inspection.IncludesCallGraphOpportunities);
         Assert.Empty(cliIndex.OptimizationOpportunities);
+        Assert.All(
+            inspection.CallGraphBodyIndexes,
+            index => Assert.False(index.Features.HasFlag(
+                ILInspector.Analysis.LibraryBodyAnalysisFeatures.Allocations)));
+    }
+
+    [Theory]
+    [InlineData("Fanout")]
+    [InlineData("Copy")]
+    [InlineData("EvidenceIL")]
+    public void CallGraphFields_DoNotEnableClassifiedAllocationAnalysis(
+        string field)
+    {
+        var inspection = new ApiMemberAnalysisInspection(
+            SelfPath,
+            [],
+            new HashSet<string> { SectionNames.CallGraph },
+            [CliPath],
+            new MemberOptions
+            {
+                Fields = [field],
+            });
+        int root = TokenOf(
+            SelfPath,
+            nameof(MemberCallGraphFixture),
+            nameof(MemberCallGraphFixture.CrossAssemblyAsyncAlternative));
+
+        _ = inspection.BuildCallGraph(root);
+
+        Assert.All(
+            inspection.CallGraphBodyIndexes,
+            index => Assert.False(index.Features.HasFlag(
+                ILInspector.Analysis.LibraryBodyAnalysisFeatures.Allocations)));
+    }
+
+    [Fact]
+    public void CallGraphAllocationField_EnablesClassifiedAllocationAnalysis()
+    {
+        var inspection = new ApiMemberAnalysisInspection(
+            SelfPath,
+            [],
+            new HashSet<string> { SectionNames.CallGraph },
+            [CliPath],
+            new MemberOptions
+            {
+                Fields = ["Alloc"],
+            });
+        int root = TokenOf(
+            SelfPath,
+            nameof(MemberCallGraphFixture),
+            nameof(MemberCallGraphFixture.CrossAssemblyAsyncAlternative));
+
+        _ = inspection.BuildCallGraph(root);
+
+        Assert.All(
+            inspection.CallGraphBodyIndexes,
+            index => Assert.True(index.Features.HasFlag(
+                ILInspector.Analysis.LibraryBodyAnalysisFeatures.Allocations)));
     }
 
     [Fact]

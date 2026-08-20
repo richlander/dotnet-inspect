@@ -19,6 +19,7 @@ internal sealed class ApiMemberAnalysisInspection
     readonly IReadOnlyList<string>? _callerScopeAssemblies;
     readonly bool _includeAllocations;
     readonly bool _includeOpportunities;
+    readonly bool _includeGraphAllocations;
     readonly bool _includeGraphOpportunities;
     readonly bool _hasCallGraphFieldProjection;
     readonly IReadOnlyList<CallGraphField> _callGraphFields = [];
@@ -60,11 +61,16 @@ internal sealed class ApiMemberAnalysisInspection
                 || options?.Columns is { Length: > 0 }))
         {
             _hasCallGraphFieldProjection = true;
-            _includeAllocations = true;
             _callGraphFields = CallGraphFieldSelection.Resolve(
                 options?.Fields ?? []);
+            _includeGraphAllocations = _callGraphFields.Contains(
+                CallGraphField.Allocations);
             _includeGraphOpportunities = _callGraphFields.Contains(
                 CallGraphField.AsyncAlternatives);
+            if (_includeGraphAllocations)
+            {
+                _includeAllocations = true;
+            }
             if (_includeGraphOpportunities)
             {
                 _includeOpportunities = true;
@@ -157,7 +163,9 @@ internal sealed class ApiMemberAnalysisInspection
         ILInspector.CallGraph.CallGraphProjection projection =
             Session.CallGraph(
                 methodToken,
-                CallerScopes(_includeAllocations, methodToken),
+                CallerScopes(
+                    includeAllocations: _includeGraphAllocations,
+                    methodToken),
                 CalleeScopes(),
                 out Analysis.CatalogCallGraphDiagnostics diagnostics);
         _callGraphDiagnostics = diagnostics;
@@ -169,7 +177,7 @@ internal sealed class ApiMemberAnalysisInspection
         Analysis.CallTreeNode tree = Session.CallerTree(
             methodToken,
             CallerScopes(
-                includeAllocations: _includeAllocations,
+                includeAllocations: _includeGraphAllocations,
                 methodToken),
             out Analysis.CatalogCallGraphDiagnostics diagnostics);
         _callGraphDiagnostics = diagnostics;
@@ -319,7 +327,7 @@ internal sealed class ApiMemberAnalysisInspection
         List<MethodBodyInspectionSession> opened =
             OpenScopes(
                 ForwardScopeCandidates(),
-                _includeAllocations,
+                _includeGraphAllocations,
                 _includeGraphOpportunities);
         if (opened.Count == 0)
             return null;

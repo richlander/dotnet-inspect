@@ -113,6 +113,19 @@ target member's canonical triage analysis without multiplying that work across
 the graph scope; `CallGraphScopes_DoNotInheritPerformanceTriageOpportunities`
 gates the cost boundary.
 
+Most graph annotations consume compact call/body signals from the
+always-required method-evidence index. Only the `Alloc` / `Allocations` field
+authorizes escape-classified allocation occurrences for the target and graph
+scopes. Columns, topology fields, and non-allocation signal fields do not. A
+separately selected `Allocation Facts` or `Performance Triage` section may
+still authorize allocation analysis for the target member only.
+`CallGraphColumns_DoNotEnableScopedGraphOpportunities`,
+`CallGraphFields_DoNotEnableClassifiedAllocationAnalysis`,
+`CallGraphAllocationField_EnablesClassifiedAllocationAnalysis`, and
+`CallGraphScopes_DoNotInheritPerformanceTriageOpportunities` gate that
+backpressure boundary; `CallGraphSection_ProjectsAllocationAndCopySignals`
+proves the allocation cue remains available.
+
 With the exception fields projected, the caller half of `Call Graph` answers
 exception-reachability questions directly:
 
