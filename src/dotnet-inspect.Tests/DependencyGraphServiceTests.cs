@@ -369,6 +369,9 @@ public class DependencyGraphServiceTests : IDisposable
             rendered.Error);
         Assert.Contains(
             "No dependencies declared in package.",
+            rendered.Output);
+        Assert.DoesNotContain(
+            "No dependencies declared in package.",
             rendered.Error);
         Assert.Contains(
             handler.Requests,

@@ -10,6 +10,14 @@ public sealed class BodyShapeFixture : IBodyShapeValue
 {
     public static object PublicCreation() => new object();
 
+    public static int[] PublicSmallArray() => new int[3];
+
+    public static bool PublicLocalFunctionBox<T>(T left, T right)
+    {
+        return EqualsCore(left, right);
+        static bool EqualsCore(T x, T y) => x!.Equals(y);
+    }
+
     private static object PrivateCreation() => new Version(1, 2);
 
     object IBodyShapeValue.Value => new object();
@@ -48,6 +56,11 @@ public sealed class BodyShapeFixture : IBodyShapeValue
             builder.Append('-');
         return builder.ToString();
     }
+}
+
+public static class BodyShapeFixtureExtensions
+{
+    public static object ProjectedCreation(this BodyShapeFixture value) => new();
 }
 
 public sealed class GenericBodyShapeFixture<T>

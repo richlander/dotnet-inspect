@@ -386,6 +386,7 @@ public sealed class IrFunction : IrNode
     public int MetadataToken { get; set; }
     public TypeRef? BaseType { get; set; }
     public MethodSignature Signature { get; }
+    public ImmutableArray<string> DeclaringTypeGenericParameterNames { get; set; } = [];
     /// <summary>
     /// Typed constructor evidence decoded from the reserved metadata method name
     /// (<c>.ctor</c>/<c>.cctor</c>) at import time. Consumers (e.g. compile-back
@@ -1606,6 +1607,16 @@ public sealed class ForeachStatement : IrNode
     public override string Describe() => $"{(IsAwait ? "AwaitForeachStatement" : "ForeachStatement")} V_{LocalIndex} ({LocalType.ToDisplayString()})";
 }
 
+/// <summary>
+/// A stable empty statement that owns a retained branch-target label. Unlike a
+/// neighboring statement, later expression and sugar passes cannot consume it,
+/// and the printer keeps it outside any synthesized <c>unsafe</c> block.
+/// </summary>
+public sealed class LabelAnchor : IrNode
+{
+    public override string Describe() => "LabelAnchor";
+}
+
 /// <summary>An unconditional branch to the block starting at <see cref="TargetOffset"/>.</summary>
 public sealed class Branch : IrNode
 {
@@ -1619,16 +1630,27 @@ public sealed class Branch : IrNode
 /// <summary>Branches to <see cref="TargetOffset"/> when the condition is true; falls through otherwise.</summary>
 public sealed class ConditionalBranch : IrNode
 {
-    public ConditionalBranch(IrExpression condition, int targetOffset)
+    public ConditionalBranch(
+        IrExpression condition,
+        int targetOffset,
+        ConditionalBranchOrigin origin = ConditionalBranchOrigin.Synthesized)
     {
         TargetOffset = targetOffset;
+        Origin = origin;
         AddChild(condition);
     }
 
     public IrExpression Condition => (IrExpression)Children[0];
     public int TargetOffset { get; }
+    public ConditionalBranchOrigin Origin { get; }
 
     public override string Describe() => $"ConditionalBranch IL_{TargetOffset:X4}";
+}
+
+public enum ConditionalBranchOrigin
+{
+    Synthesized,
+    Imported,
 }
 
 /// <summary>
