@@ -461,10 +461,42 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 == "authenticate MethodImpl target");
     }
 
-    [Fact]
-    public void ConstructedMethodImplRequiresExactInterfaceInstantiation()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ConstructedMethodImplRequiresExactInterfaceInstantiation(
+        bool sameImage)
     {
-        byte[] image = BuildConstructedInterfaceMismatchImage();
+        byte[] image =
+            BuildConstructedInterfaceMismatchImage(sameImage);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(peReader);
+
+        ApiMember member = Assert.Single(
+            Assert.Single(
+                surface.Types,
+                type => type.Name
+                    == "ConstructedInterfaceMismatch")
+            .Members);
+        Assert.Equal("method", member.Kind);
+        Assert.False(member.IsVirtual);
+        Assert.Equal(
+            ApiExplicitInterfaceProvenanceKind.Unavailable,
+            Assert.IsType<ApiExplicitInterfaceProvenance>(
+                member.ExplicitInterfaceProvenance).Kind);
+        Assert.Contains(
+            surface.InspectionFailures,
+            failure => failure.Operation
+                == "authenticate MethodImpl target");
+    }
+
+    [Fact]
+    public void ConstructedMethodImplRequiresExactArgumentAssemblyIdentity()
+    {
+        byte[] image =
+            BuildConstructedInterfaceArgumentAssemblyMismatchImage();
         using var stream = new MemoryStream(image, writable: false);
         using var peReader = new PEReader(stream);
 
@@ -473,7 +505,6 @@ public sealed class ApiSurfaceExtractorBoundsTests
         ApiMember member = Assert.Single(
             Assert.Single(surface.Types).Members);
         Assert.Equal("method", member.Kind);
-        Assert.False(member.IsVirtual);
         Assert.Equal(
             ApiExplicitInterfaceProvenanceKind.Unavailable,
             Assert.IsType<ApiExplicitInterfaceProvenance>(
@@ -1565,29 +1596,45 @@ public sealed class ApiSurfaceExtractorBoundsTests
         return Serialize(metadata);
     }
 
-    static byte[] BuildConstructedInterfaceMismatchImage()
+    static byte[] BuildConstructedInterfaceMismatchImage(
+        bool sameImage)
     {
         var metadata = Metadata("ConstructedInterfaceMismatch");
-        AssemblyReferenceHandle contracts =
-            metadata.AddAssemblyReference(
+        TypeDefinitionHandle type = AddModuleAndPublicType(
+            metadata,
+            "ConstructedInterfaceMismatch");
+        EntityHandle contract;
+        if (sameImage)
+        {
+            contract = metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
                 metadata.GetOrAddString("Contracts"),
-                new Version(1, 0, 0, 0),
+                metadata.GetOrAddString("IValue`1"),
                 default,
-                default,
-                default,
-                default);
-        TypeReferenceHandle contract =
-            metadata.AddTypeReference(
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+        }
+        else
+        {
+            AssemblyReferenceHandle contracts =
+                metadata.AddAssemblyReference(
+                    metadata.GetOrAddString("Contracts"),
+                    new Version(1, 0, 0, 0),
+                    default,
+                    default,
+                    default,
+                    default);
+            contract = metadata.AddTypeReference(
                 contracts,
                 metadata.GetOrAddString("Contracts"),
                 metadata.GetOrAddString("IValue`1"));
+        }
         TypeSpecificationHandle implemented =
             AddConstructedType(metadata, contract, 0x0e);
         TypeSpecificationHandle declared =
             AddConstructedType(metadata, contract, 0x08);
-        TypeDefinitionHandle type = AddModuleAndPublicType(
-            metadata,
-            "ConstructedInterfaceMismatch");
         var signatureBytes = new BlobBuilder();
         new BlobEncoder(signatureBytes).MethodSignature(
             SignatureCallingConvention.Default,
@@ -1616,6 +1663,97 @@ public sealed class ApiSurfaceExtractorBoundsTests
         return Serialize(metadata);
     }
 
+    static byte[]
+        BuildConstructedInterfaceArgumentAssemblyMismatchImage()
+    {
+        var metadata = Metadata(
+            "ConstructedInterfaceArgumentAssemblyMismatch");
+        TypeDefinitionHandle type = AddModuleAndPublicType(
+            metadata,
+            "ConstructedInterfaceArgumentAssemblyMismatch");
+        AssemblyReferenceHandle contracts =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Contracts"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        AssemblyReferenceHandle left =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Left"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        AssemblyReferenceHandle right =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Right"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle contract =
+            metadata.AddTypeReference(
+                contracts,
+                metadata.GetOrAddString("Contracts"),
+                metadata.GetOrAddString("IValue`1"));
+        TypeReferenceHandle leftArgument =
+            metadata.AddTypeReference(
+                left,
+                metadata.GetOrAddString("Collision"),
+                metadata.GetOrAddString("Arg"));
+        TypeReferenceHandle rightArgument =
+            metadata.AddTypeReference(
+                right,
+                metadata.GetOrAddString("Collision"),
+                metadata.GetOrAddString("Arg"));
+        TypeSpecificationHandle implemented =
+            AddConstructedType(
+                metadata,
+                contract,
+                leftArgument);
+        TypeSpecificationHandle declared =
+            AddConstructedType(
+                metadata,
+                contract,
+                rightArgument);
+        var signatureBytes = new BlobBuilder();
+        new BlobEncoder(signatureBytes).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                0,
+                returnType => returnType.Type().Int32(),
+                _ => { });
+        BlobHandle signature = metadata.GetOrAddBlob(
+            signatureBytes);
+        MethodDefinitionHandle body =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | MethodAttributes.Final
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Value"),
+                signature,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        MemberReferenceHandle declaration =
+            metadata.AddMemberReference(
+                declared,
+                metadata.GetOrAddString("Value"),
+                signature);
+        metadata.AddInterfaceImplementation(type, implemented);
+        metadata.AddMethodImplementation(
+            type,
+            body,
+            declaration);
+        return Serialize(metadata);
+    }
+
     static TypeSpecificationHandle AddConstructedType(
         MetadataBuilder metadata,
         EntityHandle genericType,
@@ -1627,6 +1765,22 @@ public sealed class ApiSurfaceExtractorBoundsTests
         WriteTypeDefOrRef(signature, genericType);
         signature.WriteCompressedInteger(1);
         signature.WriteByte(argumentTypeCode);
+        return metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(signature));
+    }
+
+    static TypeSpecificationHandle AddConstructedType(
+        MetadataBuilder metadata,
+        EntityHandle genericType,
+        EntityHandle argumentType)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x15);
+        signature.WriteByte(0x12);
+        WriteTypeDefOrRef(signature, genericType);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x12);
+        WriteTypeDefOrRef(signature, argumentType);
         return metadata.AddTypeSpecification(
             metadata.GetOrAddBlob(signature));
     }

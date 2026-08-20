@@ -6358,11 +6358,19 @@ static class FidelityCheck
             string match = name is ".ctor" or ".cctor" ? name : name;
             bool matchExplicitInterface =
                 explicitInterfaceProvenance is not null;
-            string correspondenceMatch = matchExplicitInterface
-                ? ExplicitCorrespondenceMethodLeaf(
-                    match,
-                    explicitInterfaceProvenance!)
-                : match;
+            string correspondenceMatch;
+            try
+            {
+                correspondenceMatch = matchExplicitInterface
+                    ? ExplicitCorrespondenceMethodLeaf(
+                        match,
+                        explicitInterfaceProvenance!)
+                    : match;
+            }
+            catch (CompileBackPlanningException)
+            {
+                return null;
+            }
             var canonicalMatches =
                 canonicalSignature is null
                     ? null

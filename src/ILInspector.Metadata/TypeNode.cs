@@ -274,11 +274,17 @@ internal sealed class PrimitiveTypeNode(string name, bool isReferenceType) : Typ
 }
 
 /// <summary>Non-generic named types (JsonSerializer, Stream, etc.).</summary>
-internal sealed class NamedTypeNode(string name, bool isReferenceType) : TypeNode
+internal sealed class NamedTypeNode(
+    string name,
+    bool isReferenceType,
+    string? structuralIdentity = null) : TypeNode
 {
     public string Name => name;
     public override bool IsReferenceType => isReferenceType;
     public override long EstimatedRenderedLength => name.Length + 1L;
+
+    internal override string StructuralIdentity()
+        => structuralIdentity ?? base.StructuralIdentity();
 
     public override string Render(bool canonicalTuples)
     {
@@ -303,7 +309,8 @@ internal sealed class GenericTypeNode(
     ImmutableArray<TypeNode> arguments,
     string nestedSuffix = "",
     bool degradedGenericType = false,
-    string? metadataName = null) : TypeNode
+    string? metadataName = null,
+    string? structuralBaseIdentity = null) : TypeNode
 {
     readonly long estimatedRenderedLength =
         EstimateRenderedLength(baseName, arguments, nestedSuffix);
@@ -316,7 +323,7 @@ internal sealed class GenericTypeNode(
 
     internal override string StructuralIdentity()
         => StructuralTypeIdentity.Generic(
-            metadataName ?? baseName,
+            structuralBaseIdentity ?? metadataName ?? baseName,
             arguments.Select(argument => argument.StructuralIdentity()));
 
     static long EstimateRenderedLength(

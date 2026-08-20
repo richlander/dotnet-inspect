@@ -425,8 +425,10 @@ is retained with unavailable provenance and an `authenticate MethodImpl target` 
 failure, rather than being silently dropped or relabeled as an interface member. Authenticated
 and unavailable declarations remain independently visible when one body has both; consumers that
 require complete declaration identity reject the mixed provenance. A constructed interface
-declaration authenticates only against the exact structural InterfaceImpl instantiation, not
-merely the same generic interface definition. Method, property, and event spelling uses the
+declaration authenticates only against the exact structural InterfaceImpl instantiation,
+including same-image interface roots and the defining assembly identity of every nested named
+type argument, not merely the same generic interface definition or rendered spelling. Method,
+property, and event spelling uses the
 authenticated MethodImpl declaration method name for its semantic member leaf; it does not infer
 that leaf from the implementing member's unrelated metadata name. Unavailable bodies remain
 addressable as ordinary methods, but their metadata-only virtual, abstract, and override flags
@@ -462,6 +464,7 @@ the event semantic-method boundary. ``MethodImplWithoutImplementedInterface_Fail
 `AbstractInstanceMethodImplWithoutFinal_IsNotExplicit`,
 `Extract_TransitiveExternalMethodImplFailsVisibly`,
 `ConstructedMethodImplRequiresExactInterfaceInstantiation`,
+`ConstructedMethodImplRequiresExactArgumentAssemblyIdentity`,
 `Extract_UsesContainingGenericParameterInExplicitQualifier`,
 `ExplicitQualifier_UsesContainingGenericParameterName`,
 `ExplicitInterfaceMethod_UsesDeclarationLeafForUndottedName`,
@@ -469,6 +472,7 @@ the event semantic-method boundary. ``MethodImplWithoutImplementedInterface_Fail
 `UnavailableVisualBasicMethodImplDoesNotEmitPrivateVirtual`,
 `Search_MixedUnavailableMethodImplIsExcludedWithFailure`,
 `FidelityCheck_UsesAuthenticatedExplicitMethodDeclarationLeaf`,
+`FidelityLookup_RejectsMismatchedExplicitInterfaceProvenance`,
 `Extract_RetainsReabstractedInterfaceMethodImpls`, and
 `FidelityLookup_NormalizesOnlyTrustedPlatformProvenance` gate the MethodImpl and provenance
 authentication rules above.

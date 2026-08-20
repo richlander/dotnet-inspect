@@ -2104,11 +2104,12 @@ public static class ApiSurfaceExtractor
             return MethodImplTargetKind.Unknown;
         if (root.Kind == HandleKind.TypeDefinition)
         {
-            return (reader.GetTypeDefinition(
+            if ((reader.GetTypeDefinition(
                         (TypeDefinitionHandle)root).Attributes
-                    & TypeAttributes.Interface) != 0
-                ? MethodImplTargetKind.Interface
-                : MethodImplTargetKind.NonInterface;
+                    & TypeAttributes.Interface) == 0)
+            {
+                return MethodImplTargetKind.NonInterface;
+            }
         }
         return implementedInterfaces.Any(implemented =>
                 SameExplicitInterfaceDefinition(
@@ -2394,7 +2395,11 @@ public static class ApiSurfaceExtractor
         TypeNode interfaceType = GuardedProviderDecode.TypeSpec(
             reader,
             handle,
-            TypeNodeProvider.Instance,
+            new TypeNodeProvider(
+                beforeMaterialize: beforeDecodeWork,
+                scopeNamedTypeIdentity: true,
+                assemblyReferenceProjection:
+                    referenceProjection),
             typeContext,
             (TypeNode)new DegradedTypeNode());
         if (interfaceType.IsDegraded || interfaceTypeName is null)
