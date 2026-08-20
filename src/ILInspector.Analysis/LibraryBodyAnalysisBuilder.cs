@@ -342,36 +342,63 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         return asyncSource;
     }
 
-    bool ILibraryMethodAnalysisInfrastructure
-        .TryResolveUltimateDeclaredMethod(
+    DeclaredOwnerResolution ILibraryMethodAnalysisInfrastructure
+        .ResolveUltimateDeclaredMethod(
             MethodDefinitionHandle methodHandle,
             MethodDefinition methodDefinition,
             MethodIdentity method,
             bool typeSourceGenerated,
             out MethodIdentity? ultimateOwner)
     {
-        MethodIdentity? current =
-            ((ILibraryMethodAnalysisInfrastructure)this)
-                .ResolveDeclaredMethod(
-                    methodHandle,
-                    methodDefinition,
-                    method,
-                    typeSourceGenerated,
-                    ownerMethodScope: null,
-                    ownerTypeScope: null,
-                    requestedMethodScope: null,
-                    directlySelectedBody: false);
-        if (current is null
-            || current == method)
+        if (_liftedSourceOwnerResolver.TryResolve(
+                methodHandle,
+                methodDefinition,
+                method,
+                out MethodIdentity? liftedOwner,
+                out _,
+                ownerMethodScope: null,
+                ownerTypeScope: null,
+                directlySelectedBody: false)
+            && liftedOwner is not null)
         {
-            ultimateOwner = null;
-            return !CompilerGeneratedNames
-                .RequiresDeclaredOwner(method);
+            return TryResolveUltimateLiftedOwner(
+                liftedOwner,
+                out ultimateOwner)
+                ? DeclaredOwnerResolution.Resolved
+                : DeclaredOwnerResolution.Unresolved;
         }
 
-        return TryResolveUltimateLiftedOwner(
-            current,
-            out ultimateOwner);
+        AsyncSourceResolution asyncResolution =
+            _asyncSourceResolver.ResolveSourceOwnership(
+                method,
+                methodDefinition,
+                typeSourceGenerated,
+                out MethodIdentity? asyncSource);
+        if (asyncResolution == AsyncSourceResolution.Unresolved)
+        {
+            ultimateOwner = null;
+            return DeclaredOwnerResolution.Unresolved;
+        }
+        if (asyncResolution == AsyncSourceResolution.None
+            || asyncSource is null
+            || asyncSource == method)
+        {
+            ultimateOwner = null;
+            return DeclaredOwnerResolution.None;
+        }
+
+        if (CompilerGeneratedNames
+                .IsLocalFunctionOrLambda(asyncSource.Name))
+        {
+            return TryResolveUltimateLiftedOwner(
+                asyncSource,
+                out ultimateOwner)
+                ? DeclaredOwnerResolution.Resolved
+                : DeclaredOwnerResolution.Unresolved;
+        }
+
+        ultimateOwner = asyncSource;
+        return DeclaredOwnerResolution.Resolved;
     }
 
     bool TryResolveUltimateLiftedOwner(

@@ -99,7 +99,7 @@ internal interface ILibraryMethodAnalysisInfrastructure
         IReadOnlySet<int>? requestedMethodScope,
         bool directlySelectedBody);
 
-    bool TryResolveUltimateDeclaredMethod(
+    DeclaredOwnerResolution ResolveUltimateDeclaredMethod(
         MethodDefinitionHandle methodHandle,
         MethodDefinition methodDefinition,
         MethodIdentity method,
@@ -109,6 +109,13 @@ internal interface ILibraryMethodAnalysisInfrastructure
     bool DispatchCanTargetOverride(
         TypeDefinition declaringType,
         MethodDefinition method);
+}
+
+internal enum DeclaredOwnerResolution
+{
+    None,
+    Resolved,
+    Unresolved,
 }
 
 // Method-local output is merged by LibraryBodyAnalysisAccumulator in metadata
@@ -298,31 +305,30 @@ internal sealed class LibraryMethodAnalysisRunner(
                 result.DeclaredMethod = declaredMethod;
                 MethodIdentity? ultimateOwner =
                     declaredMethod;
-                bool ultimateOwnerResolved =
-                    declaredMethod is not null
-                    || !CompilerGeneratedNames
-                        .RequiresDeclaredOwner(caller);
+                DeclaredOwnerResolution ownerResolution =
+                    declaredMethod is null
+                        ? DeclaredOwnerResolution.None
+                        : DeclaredOwnerResolution.Resolved;
                 bool needsUltimateResolution =
                     declaredMethod is not null
                         && CompilerGeneratedNames
                             .IsLocalFunctionOrLambda(
                                 declaredMethod.Name)
                     || includeOpportunities
-                        && bodyTypeScope is not null
-                        && CompilerGeneratedNames
-                            .RequiresDeclaredOwner(caller);
+                        && bodyTypeScope is not null;
                 if (needsUltimateResolution)
                 {
-                    ultimateOwnerResolved =
+                    ownerResolution =
                         _infrastructure
-                            .TryResolveUltimateDeclaredMethod(
+                            .ResolveUltimateDeclaredMethod(
                                 methodHandle,
                                 methodDefinition,
                                 caller,
                                 typeSourceGenerated,
                                 out ultimateOwner);
                 }
-                if (ultimateOwnerResolved)
+                if (ownerResolution
+                    == DeclaredOwnerResolution.Resolved)
                     result.DeclaredSource = ultimateOwner;
                 if (bodyTypeScope is not null)
                 {
@@ -331,7 +337,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                     opportunityDeclaredMethod =
                         ultimateOwner;
                     opportunityDeclaredMethodResolved =
-                        ultimateOwnerResolved;
+                        ownerResolution
+                            != DeclaredOwnerResolution.Unresolved;
                 }
             }
             catch (Exception ex)

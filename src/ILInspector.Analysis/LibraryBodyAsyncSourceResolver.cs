@@ -8,6 +8,13 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
+internal enum AsyncSourceResolution
+{
+    None,
+    Resolved,
+    Unresolved,
+}
+
 /// <summary>
 /// Owns acquisition-scoped async source-to-state-machine mapping and scoped
 /// evidence expansion for primary-image analysis.
@@ -32,6 +39,8 @@ internal sealed class LibraryBodyAsyncSourceResolver
     IReadOnlySet<int>? _classicAsyncSourceMethodTokens;
     IReadOnlySet<MetadataTypeDefinitionName>?
         _ambiguousAsyncStateMachineTypes;
+    IReadOnlySet<MetadataTypeDefinitionName>?
+        _unresolvedAsyncStateMachineTypes;
 
     internal LibraryBodyAsyncSourceResolver(
         MetadataReader reader,
@@ -304,6 +313,29 @@ internal sealed class LibraryBodyAsyncSourceResolver
         _ = _localTypeDefinitions();
     }
 
+    internal AsyncSourceResolution ResolveSourceOwnership(
+        MethodIdentity physicalMethod,
+        MethodDefinition methodDefinition,
+        bool typeSourceGenerated,
+        out MethodIdentity? source)
+    {
+        source = ResolveSourceMethod(
+            physicalMethod,
+            methodDefinition,
+            typeSourceGenerated);
+        if (source is not null)
+            return AsyncSourceResolution.Resolved;
+
+        MetadataTypeDefinitionName? stateMachineType =
+            physicalMethod.DeclaringType.Resolution?.Type;
+        return stateMachineType is not null
+            && _unresolvedAsyncStateMachineTypes?.Contains(
+                stateMachineType)
+                == true
+            ? AsyncSourceResolution.Unresolved
+            : AsyncSourceResolution.None;
+    }
+
     /// <summary>
     /// MoveNext token → declared async source. Unique mappings only;
     /// ambiguous state-machine types are omitted. Safe to call after a
@@ -324,15 +356,19 @@ internal sealed class LibraryBodyAsyncSourceResolver
             MetadataTypeDefinitionName,
             MethodIdentity>();
         var ambiguous = new HashSet<MetadataTypeDefinitionName>();
+        var unresolved = new HashSet<
+            MetadataTypeDefinitionName>();
         foreach (var typeHandle in _reader.TypeDefinitions)
         {
             TypeDefinition typeDefinition;
+            bool typeSourceGenerated;
             try
             {
                 typeDefinition =
                     _reader.GetTypeDefinition(typeHandle);
-                if (_isSourceGeneratedTypeOrEnclosing(typeHandle))
-                    continue;
+                typeSourceGenerated =
+                    _isSourceGeneratedTypeOrEnclosing(
+                        typeHandle);
             }
             catch (Exception ex)
                 when (IsRecoverableMethodFailure(ex))
@@ -342,23 +378,35 @@ internal sealed class LibraryBodyAsyncSourceResolver
 
             foreach (var methodHandle in typeDefinition.GetMethods())
             {
+                MetadataTypeDefinitionName? candidateType =
+                    null;
                 try
                 {
                     var methodDefinition =
                         _reader.GetMethodDefinition(methodHandle);
-                    if (_primaryMetadataResolver
+                    AsyncStateMachineAttributeInfo attribute =
+                        AsyncStateMachineAttribute(
+                            methodDefinition.GetCustomAttributes());
+                    if (attribute.SerializedType is
+                            { } candidateSerializedType)
+                    {
+                        candidateType =
+                            StateMachineTypeDefinitionName(
+                                candidateSerializedType);
+                    }
+                    if (typeSourceGenerated
+                        || _primaryMetadataResolver
                             .HasGeneratedCodeAttribute(
                                 methodDefinition.GetCustomAttributes())
                         || _primaryMetadataResolver
                             .HasCompilerGeneratedAttribute(
                                 methodDefinition.GetCustomAttributes()))
                     {
+                        if (candidateType is { } skippedType)
+                            unresolved.Add(skippedType);
                         continue;
                     }
 
-                    AsyncStateMachineAttributeInfo attribute =
-                        AsyncStateMachineAttribute(
-                            methodDefinition.GetCustomAttributes());
                     if (attribute.Rejected
                         || MethodClassificationScanner
                             .ClassifyAsyncMethod(
@@ -373,6 +421,8 @@ internal sealed class LibraryBodyAsyncSourceResolver
                             is not { } stateMachineType
                         || ambiguous.Contains(stateMachineType))
                     {
+                        if (candidateType is { } skippedType)
+                            unresolved.Add(skippedType);
                         continue;
                     }
 
@@ -387,7 +437,10 @@ internal sealed class LibraryBodyAsyncSourceResolver
                             methodDefinition,
                             scope);
                     if (IsBlazorRenderMethod(method))
+                    {
+                        unresolved.Add(stateMachineType);
                         continue;
+                    }
 
                     if (!methodsByType.TryAdd(
                             stateMachineType,
@@ -400,6 +453,8 @@ internal sealed class LibraryBodyAsyncSourceResolver
                 catch (Exception ex)
                     when (IsRecoverableMethodFailure(ex))
                 {
+                    if (candidateType is { } failedType)
+                        unresolved.Add(failedType);
                     // The normal per-method pass retains the malformed method's
                     // diagnostic; source-map prewarming must not abort the index.
                 }
@@ -413,6 +468,8 @@ internal sealed class LibraryBodyAsyncSourceResolver
             MetadataTypeDefinitionName stateMachineType,
             MethodIdentity source) in methodsByType)
         {
+            if (unresolved.Contains(stateMachineType))
+                continue;
             try
             {
                 if (!_localTypeDefinitions().TryGetValue(
@@ -444,6 +501,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
         }
 
         _ambiguousAsyncStateMachineTypes = ambiguous;
+        _unresolvedAsyncStateMachineTypes = unresolved;
         _classicAsyncSourceMethodTokens =
             new HashSet<int>(
                 methods.Values.Select(
