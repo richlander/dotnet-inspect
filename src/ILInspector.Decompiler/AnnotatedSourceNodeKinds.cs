@@ -60,6 +60,7 @@ public static class AnnotatedSourceNodeKinds
             "IncrementOrDecrementExpression",
             "CheckedStatement",
             "ConversionExpression",
+            "EmptyStatement",
             "ExpressionStatement",
             "NameExpression",
             "AssignmentStatement",
