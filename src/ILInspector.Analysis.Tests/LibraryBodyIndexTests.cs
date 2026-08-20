@@ -1515,6 +1515,37 @@ public class LibraryBodyIndexTests
         Assert.Equal(
             owner,
             index.ResolveDeclaredMethod(call.EvidenceMethod));
+
+        DirectCall[] expected = index.DirectCalls
+            .Where(expectedCall =>
+                expectedCall.Caller == owner)
+            .ToArray();
+        var methodScoped = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence,
+            bodyScope: new HashSet<int>
+            {
+                owner.MetadataToken,
+            });
+        var typeScoped = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence,
+            bodyTypeScope: type =>
+                type.Equals(owner.DeclaringType));
+        foreach (LibraryBodyIndex scoped
+            in new[] { methodScoped, typeScoped })
+        {
+            Assert.Equal(
+                expected,
+                scoped.DirectCalls
+                    .Where(scopedCall =>
+                        scopedCall.Caller == owner)
+                    .ToArray());
+            Assert.Equal(
+                owner,
+                scoped.ResolveDeclaredMethod(
+                    call.EvidenceMethod));
+        }
     }
 
     [Fact]
@@ -10008,6 +10039,51 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void
+        DirectCalls_AttributeAsyncIteratorBodiesToDeclaredSource()
+    {
+        string path =
+            typeof(OptimizationOpportunityFixtures).Assembly.Location;
+        var index = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity source = Assert.Single(
+            index.DeclaredMethods,
+            method => method.Name
+                == nameof(OptimizationOpportunityFixtures
+                    .YieldsPlainObjectAsync));
+        DirectCall expected = Assert.Single(
+            index.DirectCalls,
+            call => call.Kind == CallKind.NewObject
+                && call.Caller == source
+                && call.EvidenceMethod.Name == "MoveNext"
+                && call.EvidenceMethod.DeclaringType.Name.Contains(
+                    nameof(OptimizationOpportunityFixtures
+                        .YieldsPlainObjectAsync),
+                    StringComparison.Ordinal));
+
+        Assert.Equal(
+            source,
+            index.ResolveDeclaredMethod(
+                expected.EvidenceMethod));
+
+        var scoped = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence,
+            bodyScope: new HashSet<int>
+            {
+                source.MetadataToken,
+            });
+        Assert.Contains(
+            scoped.DirectCalls,
+            call => call == expected);
+        Assert.Equal(
+            source,
+            scoped.ResolveDeclaredMethod(
+                expected.EvidenceMethod));
+    }
+
+    [Fact]
     public void OptimizationOpportunities_LiftedOwnerBody_IsIndexedOnce()
     {
         string path =
@@ -10807,11 +10883,11 @@ public class LibraryBodyIndexTests
                 LibraryBodyAnalysisFeatures
                     .OptimizationOpportunities,
                 bodyScope: new HashSet<int> { liftedToken });
-        Assert.Contains(
-            scoped.Diagnostics,
-            diagnostic => diagnostic.Method.Contains(
-                "<GenericObjectEqualsLocalFunction>g__EqualsCore|",
-                StringComparison.Ordinal));
+        Assert.Single(
+            scoped.Diagnostics.Where(
+                diagnostic => diagnostic.Method.Contains(
+                    "<GenericObjectEqualsLocalFunction>g__EqualsCore|",
+                    StringComparison.Ordinal)));
     }
 
     [Fact]

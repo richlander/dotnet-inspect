@@ -28,6 +28,9 @@ internal sealed class LibraryBodyAsyncSourceResolver
     IReadOnlyDictionary<
         int,
         MethodIdentity>? _asyncStateMachineSourceMethods;
+    IReadOnlyDictionary<
+        int,
+        MethodIdentity>? _executionSourceMethodsByMoveNextToken;
     IReadOnlySet<int>? _classicAsyncSourceMethodTokens;
     IReadOnlySet<MetadataTypeDefinitionName>?
         _ambiguousAsyncStateMachineTypes;
@@ -97,7 +100,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
                 foreach ((
                     int moveNextToken,
                     MethodIdentity source)
-                    in AsyncStateMachineSourceMethods())
+                    in ExecutionSourceMethodsByMoveNextToken())
                 {
                     TypeRef declaredSourceType =
                         typeScopeEvidenceSources.TryGetValue(
@@ -308,17 +311,25 @@ internal sealed class LibraryBodyAsyncSourceResolver
 
         ClassicAsyncExecutionMethods executionMethods =
             _classicAsyncExecutionMethods.Value;
+        IReadOnlyDictionary<int, MethodIdentity>
+            actionableSources = AsyncStateMachineSourceMethods();
         if (executionMethods.SourceByMoveNextToken.TryGetValue(
                 physicalMethod.MetadataToken,
                 out MethodIdentity? source))
         {
             if (includeGeneratedIntermediate)
                 return source;
-            return AsyncStateMachineSourceMethods().TryGetValue(
+            return actionableSources.TryGetValue(
                     physicalMethod.MetadataToken,
                     out MethodIdentity? actionableSource)
                 ? actionableSource
                 : null;
+        }
+        if (actionableSources.TryGetValue(
+                physicalMethod.MetadataToken,
+                out source))
+        {
+            return source;
         }
         if (executionMethods.RejectedStateMachines.Contains(
                 stateMachineType)
@@ -338,14 +349,46 @@ internal sealed class LibraryBodyAsyncSourceResolver
     }
 
     /// <summary>
-    /// MoveNext token → declared async source. Unique mappings only;
-    /// ambiguous state-machine types are omitted. Safe to call after a
-    /// completed analysis — it does not throw on those omissions.
+    /// MoveNext token → authenticated immediate execution source. The source
+    /// can itself be a generated lifted kickoff; callers that expose declared
+    /// ownership must compose it through the lifted-owner resolver.
     /// </summary>
     internal IReadOnlyDictionary<int, MethodIdentity>
-        SourceMethodsByMoveNextToken()
-        => _classicAsyncExecutionMethods.Value
-            .SourceByMoveNextToken;
+        ExecutionSourceMethodsByMoveNextToken()
+    {
+        if (_executionSourceMethodsByMoveNextToken is not null)
+            return _executionSourceMethodsByMoveNextToken;
+
+        var sources = new Dictionary<int, MethodIdentity>(
+            AsyncStateMachineSourceMethods());
+        foreach ((
+            int moveNextToken,
+            MethodIdentity source)
+            in _classicAsyncExecutionMethods.Value
+                .SourceByMoveNextToken)
+        {
+            if (sources.TryGetValue(
+                    moveNextToken,
+                    out MethodIdentity? existing)
+                && existing != source)
+            {
+                sources.Remove(moveNextToken);
+                continue;
+            }
+            sources[moveNextToken] = source;
+        }
+        _executionSourceMethodsByMoveNextToken = sources;
+        return sources;
+    }
+
+    /// <summary>
+    /// MoveNext token → non-generated declared source. Generated execution
+    /// sources require per-method lifted-owner composition and are omitted
+    /// from this scope-independent fallback.
+    /// </summary>
+    internal IReadOnlyDictionary<int, MethodIdentity>
+        DeclaredSourceMethodsByMoveNextToken()
+        => AsyncStateMachineSourceMethods();
 
     internal bool TryResolveClassicStateMachineMoveNext(
         MethodDefinitionHandle sourceHandle,

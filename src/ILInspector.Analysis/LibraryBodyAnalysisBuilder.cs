@@ -485,17 +485,27 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         LibraryBodyAnalysisResult analysis = accumulator.Build(results);
         if (!plan.ScopeExpansionDiagnostics.IsDefaultOrEmpty)
         {
+            var fallbackDiagnostics =
+                analysis.Diagnostics.ToBuilder();
+            var unique = new HashSet<AnalysisDiagnostic>(
+                analysis.Diagnostics);
+            foreach (AnalysisDiagnostic diagnostic
+                in plan.ScopeExpansionDiagnostics)
+            {
+                if (unique.Add(diagnostic))
+                    fallbackDiagnostics.Add(diagnostic);
+            }
             analysis = analysis with
             {
-                Diagnostics = analysis.Diagnostics.AddRange(
-                    plan.ScopeExpansionDiagnostics),
+                Diagnostics = fallbackDiagnostics.ToImmutable(),
             };
         }
         if (!includeMethodEvidence)
             return analysis;
 
         IReadOnlyDictionary<int, MethodIdentity> asyncSources =
-            _asyncSourceResolver.SourceMethodsByMoveNextToken();
+            _asyncSourceResolver
+                .DeclaredSourceMethodsByMoveNextToken();
         if (asyncSources.Count == 0)
             return analysis;
 
