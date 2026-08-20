@@ -140,6 +140,129 @@ const engineSource = readFileSync(
 const deploySource = readFileSync(
   new URL("../../../.github/workflows/deploy-inspect-web.yml", import.meta.url),
   "utf8");
+const statusBarSource = readFileSync(
+  new URL("../src/status-bar.ts", import.meta.url),
+  "utf8");
+const spotlightSource = readFileSync(
+  new URL("../src/spotlight.ts", import.meta.url),
+  "utf8");
+const commandBarSource = readFileSync(
+  new URL("../src/command-bar.ts", import.meta.url),
+  "utf8");
+
+test("typed Spotlight owns search presentation and hosts commands", () => {
+  assert.match(
+    appSource,
+    /import \{\s*createSpotlight,\s*visibleSpotlightPackageHits,\s*\} from "\/src\/spotlight\.ts"/);
+  assert.match(appSource, /openSpotlight\("", "commands"\)/);
+  assert.match(appSource, /state\.spotlightOpen \? spotlight\.modalHtml\(\)/);
+  assert.match(appSource, /spotlight\.inlineHtml\(enginePending\)/);
+  assert.doesNotMatch(appSource, /function renderSpotlight\(/);
+  assert.doesNotMatch(appSource, /commandBar\.html\(\)/);
+  assert.match(spotlightSource, /const COMMAND_SCOPE = \{ id: "commands"/);
+  assert.match(
+    spotlightSource,
+    /type HighlightRange = readonly \[start: number, end: number\]/);
+  assert.match(spotlightSource, /function handleModalKeys\(event: KeyboardEvent\)/);
+  assert.match(commandBarSource, /export function commandPaletteResults\(/);
+});
+
+test("workspace data bar receives package acquisition provenance", () => {
+  assert.match(appSource, /source: state\.package\.source/);
+  assert.match(appSource, /source: \{ kind: "nuget\.org" \}/);
+  assert.match(appSource, /source: \{ kind: "platform" \}/);
+  assert.match(statusBarSource, /Source: \$\{escapeHtml\(packageSourceLabel\(model\.source\)\)\}/);
+});
+
+test("leaving package search clears its pending loading state", () => {
+  const scheduler =
+    appSource.match(/function scheduleSpotlightPackageFetch\(\)[\s\S]*?\n}\n\nasync function fetchSpotlightPackages/)?.[0]
+    ?? "";
+  assert.match(
+    scheduler,
+    /state\.spotlightScope !== "all"[\s\S]*state\.spotlightPkgLoading = false;[\s\S]*return;/);
+  assert.match(
+    appSource,
+    /event\.key === "Escape" && !event\.defaultPrevented && !typing/);
+  assert.match(
+    scheduler,
+    /query === state\.spotlightPkgQuery[\s\S]*spotlightPkgGeneration\+\+;[\s\S]*state\.spotlightPkgLoading = false;[\s\S]*return;/);
+  assert.match(
+    appSource,
+    /visibleSpotlightPackageHits\(\s*query,\s*state\.spotlightPkgQuery,\s*state\.spotlightPkgHits,\s*\)/);
+});
+
+test("Spotlight async work is generation-gated and refreshes either mounted surface", () => {
+  assert.match(appSource, /let spotlightPkgGeneration = 0/);
+  assert.match(
+    appSource,
+    /generation !== spotlightPkgGeneration[\s\S]*state\.spotlightQuery\.trim\(\) !== query/);
+  assert.match(
+    appSource,
+    /if \(!state\.spotlightOpen && !state\.home\) return;[\s\S]*spotlight\.refresh\(\)/);
+});
+
+test("global workbench shortcuts respect the topmost modal", () => {
+  assert.match(
+    appSource,
+    /if \(state\.home\) return;[\s\S]*if \(state\.graphSourceOpen\)[\s\S]*if \(state\.docViewerOpen\)[\s\S]*if \(state\.spotlightOpen\)/);
+  assert.match(
+    appSource,
+    /state\.spotlightOpen[\s\S]*event\.key\.toLowerCase\(\) === "k"[\s\S]*event\.preventDefault\(\);[\s\S]*openSpotlight\("", "commands"\)/);
+  assert.match(
+    appSource,
+    /state\.spotlightOpen[\s\S]*event\.key\.toLowerCase\(\) === "p"[\s\S]*event\.preventDefault\(\);[\s\S]*openSpotlight\(\)/);
+  assert.match(
+    appSource,
+    /state\.spotlightOpen[\s\S]*event\.key\.toLowerCase\(\) === "f"[\s\S]*event\.preventDefault\(\)/);
+  assert.match(
+    appSource,
+    /state\.spotlightOpen[\s\S]*event\.key === "Escape"[\s\S]*closeSpotlight\(\)/);
+  assert.match(
+    appSource,
+    /function openSpotlight\(seed = "", scope = "all"\) \{\s*if \(state\.loading \|\| state\.error\) return;\s*state\.tasteOpen = false;/);
+  assert.match(
+    spotlightSource,
+    /function bind\(root: ParentNode, mode: "modal" \| "inline"\)[\s\S]*if \(mode === "modal"\)[\s\S]*focus\(\);/);
+  assert.match(
+    appSource,
+    /if \(state\.explorer\?\.open\)[\s\S]*isContainedBrowserShortcut\(event\)[\s\S]*event\.preventDefault\(\)/);
+  assert.match(
+    appSource,
+    /if \(state\.settings\)[\s\S]*isContainedBrowserShortcut\(event\)[\s\S]*event\.preventDefault\(\)/);
+  assert.match(
+    spotlightSource,
+    /aria-activedescendant="spotlight-result-\$\{state\.spotlightIndex\}"[\s\S]*syncActiveDescendant\(items\.length\)/);
+  assert.match(
+    appSource,
+    /if \(state\.loading \|\| state\.error\) \{\s*if \(isContainedBrowserShortcut\(event\) \|\| event\.key === "\/"\)[\s\S]*event\.preventDefault\(\);[\s\S]*return;/);
+  assert.match(
+    appSource,
+    /function focusFilter\(\) \{[\s\S]*const input = document\.querySelector\("#type-filter"\);\s*if \(!input\) return;/);
+});
+
+test("Spotlight navigation waits for selection data before restoring focus", () => {
+  const selectionLoader =
+    appSource.match(/function loadSelectionData\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(selectionLoader, /return loadSelectedTypeSource\(\)/);
+  assert.match(selectionLoader, /return loadSelectedTypeMetadata\(\)/);
+  assert.match(
+    appSource,
+    /async function loadPackageFromSpotlight[\s\S]*await loadPackage\([\s\S]*focusTypeList\(focusGeneration\)/);
+  assert.match(
+    appSource,
+    /async function openPlatformLibrary[\s\S]*spotlight\.reset\(\)[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*await selectionData;[\s\S]*focusTypeList\(focusGeneration\)/);
+  assert.match(
+    appSource,
+    /async function pickSpotlight\(packageResult, typeId\)[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*await selectionData;[\s\S]*focusTypeList\(focusGeneration\)/);
+  assert.match(
+    appSource,
+    /let spotlightFocusGeneration = 0[\s\S]*function focusTypeList\(generation = spotlightFocusGeneration\)[\s\S]*generation !== spotlightFocusGeneration[\s\S]*isTextEntry\(\)/);
+  assert.match(
+    spotlightSource,
+    /const generation = interactionGeneration;[\s\S]*Promise\.resolve\(execution\)\.then\(\(\) => \{\s*if \(generation === interactionGeneration\)/);
+});
 
 test("dependency graph render identity includes truncation and navigation", () => {
   const graph = {
@@ -179,14 +302,16 @@ test("ready status shows versioned linked build provenance", () => {
   assert.match(appSource, /state\.buildIdentity = inspectBuildIdentity\(\)/);
   assert.match(
     appSource,
-    /class="statusbar"[\s\S]{0,200}\$\{buildIdentityHtml\(\)\}/);
+    /<\/main>[\s\S]{0,700}\$\{statusBarHtml\(\{/);
+  assert.match(statusBarSource, /"statusbar data-bar"/);
+  assert.match(statusBarSource, /buildIdentityHtml\(model\.buildIdentity/);
   assert.match(
     appSource,
-    /class="home-foot"[\s\S]{0,500}\$\{buildIdentityHtml\(\)\}/);
+    /variant: "home"[\s\S]{0,200}buildIdentity: state\.buildIdentity/);
   assert.match(
-    appSource,
+    statusBarSource,
     /identity\.commitUrl[\s\S]*target="_blank" rel="noopener noreferrer"/);
-  assert.match(appSource, /built \$\{escapeHtml\(builtAt\)\} UTC/);
+  assert.match(statusBarSource, /built \$\{escapeHtml\(builtAt\)\} UTC/);
   assert.match(
     deploySource,
     /-getProperty:VersionPrefix[\s\S]*-p:VersionPrefix="\$version"[\s\S]*-p:SourceRevisionId="\$GITHUB_SHA"[\s\S]*-p:BuildTimestampUtc="\$built_at"/);
@@ -216,7 +341,7 @@ test("bare home paints before wasm engine download", () => {
     appSource,
     /class="home-search \$\{enginePending[\s\S]*class="home-engine-status"/);
   assert.match(
-    appSource,
+    `${appSource}\n${statusBarSource}`,
     /state\.engineReady[\s\S]*browser wasm ready[\s\S]*browser wasm loading/);
   assert.match(
     appSource,
