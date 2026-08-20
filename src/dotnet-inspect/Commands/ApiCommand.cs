@@ -2673,6 +2673,9 @@ public class ApiCommand
             return 1;
         }
 
+        if (RejectUnsupportedCallerDocumentJson(options))
+            return 1;
+
         if (options is TypeOptions { ShapeOutput: true } typeOptions && !options.Count)
         {
             ApiOutputFormatter.WriteShapeOutput(
@@ -2753,15 +2756,6 @@ public class ApiCommand
                 CommandError.Write(
                     "Document --json cannot represent Body Shapes analysis. "
                     + "Use --jsonl, --tsv, or --table.");
-                return 1;
-            }
-            var unsupportedCallerSection =
-                GetExplicitCallerAnalysisSection(options);
-            if (unsupportedCallerSection is not null)
-            {
-                CommandError.Write(
-                    $"Document --json cannot represent {unsupportedCallerSection} analysis. "
-                    + "Use --jsonl, --tsv, --table, or a graph output format.");
                 return 1;
             }
             // --fields/--columns select table columns; document JSON has no column-slicing
@@ -4223,6 +4217,24 @@ public class ApiCommand
                    || selector.Equals(
                        "Optimization Opportunities",
                        StringComparison.OrdinalIgnoreCase)) == true;
+
+    internal static bool RejectUnsupportedCallerDocumentJson(
+        ApiOptions options)
+    {
+        if (!options.JsonOutput
+            || options.Count
+            || options.Discover is not null
+            || IsProjectionRequested(options)
+            || GetExplicitCallerAnalysisSection(options) is not { } section)
+        {
+            return false;
+        }
+
+        CommandError.Write(
+            $"Document --json cannot represent {section} analysis. "
+            + "Use --jsonl, --tsv, --table, or a graph output format.");
+        return true;
+    }
 
     private static string? GetExplicitCallerAnalysisSection(
         ApiOptions options)

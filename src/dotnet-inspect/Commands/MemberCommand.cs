@@ -44,6 +44,8 @@ public static class MemberCommand
             var (preamble, error) = ApiCommand.RunPreamble(options);
             if (error.HasValue) return error.Value;
             options = (MemberOptions)preamble.Options;
+            if (ApiCommand.RejectUnsupportedCallerDocumentJson(options))
+                return 1;
         }
         else if (options.Discover != null
                  && !options.EffectiveDiscovery)
@@ -211,6 +213,8 @@ public static class MemberCommand
                     PackageRangeAddress = null,
                     ProjectAssetsPath = projectAssetsPath,
                 };
+                if (ApiCommand.RejectUnsupportedCallerDocumentJson(options))
+                    return 1;
             }
             var memberPipeline = ApiMemberSectionPipelines.Create(options);
 

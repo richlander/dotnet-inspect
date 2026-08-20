@@ -14976,7 +14976,9 @@ public partial class CommandExecutionTests
     public async Task Member_DocumentJsonWithExplicitCallerAnalysis_FailsClosed(
         string section)
     {
-        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var missingDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}");
         var (exit, output, error) = await RunAppAsync(
             "member",
             typeof(MemberCallsFixture).FullName!,
@@ -14986,7 +14988,7 @@ public partial class CommandExecutionTests
             "-S",
             section,
             "--bin",
-            testDirectory,
+            missingDirectory,
             "--json",
             "--tips",
             "q");
@@ -14996,6 +14998,7 @@ public partial class CommandExecutionTests
         Assert.Contains(
             $"Document --json cannot represent {section} analysis.",
             error);
+        Assert.DoesNotContain("Directory not found", error);
     }
 
     [Fact]
