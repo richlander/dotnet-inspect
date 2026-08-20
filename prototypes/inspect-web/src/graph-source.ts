@@ -1,7 +1,7 @@
 export interface GraphSourceResult {
   provider: string;
   provenance: string;
-  url: string;
+  url: string | null | undefined;
   text: string;
 }
 

@@ -49,11 +49,11 @@ test("loaded original source renders provenance, an open-source link, and highli
   assert.match(html, /<mark>void Render\(\) \{\}<\/mark>/);
 });
 
-test("loaded decompiled source labels the provenance as decompiled and omits the link when url is empty", () => {
+test("loaded decompiled source labels the provenance as decompiled and omits the link when url is null", () => {
   const html = renderGraphSource({
     title: "Widget.Render()",
     loading: false,
-    source: { provider: "decompiled", provenance: "decompiled from IL", url: "", text: "void Render() {}" },
+    source: { provider: "decompiled", provenance: "decompiled from IL", url: null, text: "void Render() {}" },
     error: "",
     escapeHtml,
     highlightCSharp,
@@ -87,6 +87,25 @@ test("error state with an explicit message renders that message escaped", () => 
   });
 
   assert.match(html, /graph-source-status error">&lt;script&gt;alert\(1\)&lt;\/script&gt;</);
+});
+
+test("provenance and url are escaped", () => {
+  const html = renderGraphSource({
+    title: "Widget.Render()",
+    loading: false,
+    source: {
+      provider: "original",
+      provenance: '<b>"evil"</b>',
+      url: 'https://example.com/"><script>alert(1)</script>',
+      text: "void Render() {}",
+    },
+    error: "",
+    escapeHtml,
+    highlightCSharp,
+  });
+
+  assert.match(html, /<span>&lt;b&gt;&quot;evil&quot;&lt;\/b&gt;<\/span>/);
+  assert.match(html, /href="https:\/\/example\.com\/&quot;&gt;&lt;script&gt;alert\(1\)&lt;\/script&gt;"/);
 });
 
 test("the title is escaped in both the header and the loading status", () => {
