@@ -36,6 +36,10 @@
 
 ### Experimental analysis and decompilation
 
+- **Breaking:** Removes the standalone `body-shape` command without a
+  compatibility alias. Use the existing `--where "Kind=<C# Body Kinds ID>"`
+  query with `library`, one exact `type`, or one exact `member`; these scoped
+  `Body Shapes` sections provide the command's search and output capabilities.
 - Rendered body-kind queries can now target one exact `type`, searching only
   the MethodDef and accessor bodies owned by that type. Existing output
   projections and `--all` behavior apply without widening to other types in
