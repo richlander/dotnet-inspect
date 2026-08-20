@@ -97,7 +97,8 @@ internal interface ILibraryMethodAnalysisInfrastructure
         IReadOnlySet<int>? ownerMethodScope,
         Func<TypeRef, bool>? ownerTypeScope,
         IReadOnlySet<int>? requestedMethodScope,
-        bool directlySelectedBody);
+        bool directlySelectedBody,
+        out bool ultimateOwnerResolved);
 
     bool DispatchCanTargetOverride(
         TypeDefinition declaringType,
@@ -232,6 +233,10 @@ internal sealed class LibraryMethodAnalysisRunner(
             }
 
             result.HasBody = true;
+            // Allocation evidence can survive a later recoverable failure,
+            // so classification below replaces this pessimistic state only
+            // after its metadata and scope checks complete.
+            result.Suppressed = includeOpportunities;
             // Scoped builds decode only selected method bodies; every other method is still
             // indexed as an identity (above) but its body is not decoded/scanned. MethodScope
             // selects by method token; TypeScope selects by declaring type. Reverse/aggregate
@@ -279,7 +284,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                         bodyScope,
                         bodyTypeScope,
                         requestedMethodScope,
-                        directlySelectedBody);
+                        directlySelectedBody,
+                        out _);
                 result.DeclaredMethod = declaredMethod;
                 result.DeclaredSource = declaredMethod;
                 if (bodyTypeScope is not null)
@@ -295,10 +301,13 @@ internal sealed class LibraryMethodAnalysisRunner(
                             ownerMethodScope: null,
                             ownerTypeScope: null,
                             requestedMethodScope: null,
-                            directlySelectedBody: false);
-                    opportunityDeclaredMethodResolved = true;
-                    result.DeclaredSource =
-                        opportunityDeclaredMethod;
+                            directlySelectedBody: false,
+                            out opportunityDeclaredMethodResolved);
+                    if (opportunityDeclaredMethodResolved)
+                    {
+                        result.DeclaredSource =
+                            opportunityDeclaredMethod;
+                    }
                 }
             }
             catch (Exception ex)

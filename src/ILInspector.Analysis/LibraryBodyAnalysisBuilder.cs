@@ -293,7 +293,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             IReadOnlySet<int>? ownerMethodScope,
             Func<TypeRef, bool>? ownerTypeScope,
             IReadOnlySet<int>? requestedMethodScope,
-            bool directlySelectedBody)
+            bool directlySelectedBody,
+            out bool ultimateOwnerResolved)
     {
         if (_liftedSourceOwnerResolver.TryResolve(
                 methodHandle,
@@ -305,9 +306,15 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 ownerTypeScope,
                 directlySelectedBody))
         {
+            ultimateOwnerResolved = true;
             return sourceOwner;
         }
 
+        bool requiresDeclaredOwner =
+            CompilerGeneratedNames.IsLocalFunctionOrLambda(
+                method.Name)
+            || typeSourceGenerated
+                && method.Name == "MoveNext";
         MethodIdentity? asyncSource =
             _asyncSourceResolver.ResolveSourceMethod(
                 method,
@@ -316,6 +323,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         if (asyncSource is null
             || asyncSource == method)
         {
+            ultimateOwnerResolved =
+                !requiresDeclaredOwner;
             return asyncSource;
         }
 
@@ -338,9 +347,13 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                         asyncSource.MetadataToken)
                         == true))
         {
+            ultimateOwnerResolved = true;
             return sourceOwner;
         }
 
+        ultimateOwnerResolved =
+            !CompilerGeneratedNames.IsLocalFunctionOrLambda(
+                asyncSource.Name);
         return asyncSource;
     }
 

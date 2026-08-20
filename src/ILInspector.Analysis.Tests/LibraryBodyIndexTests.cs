@@ -4053,6 +4053,54 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void
+        OptimizationOpportunities_ScopedUnresolvedLiftedSourceFailsClosed()
+    {
+        byte[] image =
+            BuildMalformedAsyncSourceAssembly(
+                moveNextSmallArray: true,
+                unresolvedLiftedSource: true);
+        ImmutableArray<byte> bytes = [.. image];
+        var full =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "UnresolvedLiftedAsyncArray.dll",
+                bytes,
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities);
+        MethodIdentity moveNext = Assert.Single(
+            full.Methods,
+            method => method.Name == "MoveNext"
+                && method.ParameterTypes.IsDefaultOrEmpty);
+        MethodIdentity kickoff = Assert.Single(
+            full.Methods,
+            method => method.Name
+                == "<Outer>b__0_0");
+
+        var scoped =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "UnresolvedLiftedAsyncArray.dll",
+                bytes,
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+                bodyTypeScope:
+                    type => type.Equals(
+                        kickoff.DeclaringType));
+
+        Assert.Contains(
+            full.OptimizationOpportunities,
+            opportunity => opportunity.Shape == "small-array"
+                && opportunity.Method.MetadataToken
+                    == moveNext.MetadataToken);
+        Assert.Contains(
+            scoped.GetAllocationOccurrences(),
+            pair => pair.Key == moveNext.MetadataToken);
+        Assert.DoesNotContain(
+            scoped.OptimizationOpportunities,
+            opportunity => opportunity.Method.MetadataToken
+                == moveNext.MetadataToken);
+    }
+
+    [Fact]
     public void OptimizationOpportunities_MalformedParallelStateMapPreservesCalls()
     {
         byte[] image =
@@ -4075,7 +4123,8 @@ public class LibraryBodyIndexTests
         bool ambiguousSource = false,
         bool malformedMoveNextMethodImpl = false,
         int extraMethodCount = 0,
-        bool moveNextSmallArray = false)
+        bool moveNextSmallArray = false,
+        bool unresolvedLiftedSource = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -4254,7 +4303,10 @@ public class LibraryBodyIndexTests
                 MethodAttributes.Public
                     | MethodAttributes.Static,
                 MethodImplAttributes.IL,
-                metadata.GetOrAddString("AnalyzeAsync"),
+                metadata.GetOrAddString(
+                    unresolvedLiftedSource
+                        ? "<Outer>b__0_0"
+                        : "AnalyzeAsync"),
                 taskSignature,
                 AddRetBody(bodyEncoder),
                 MetadataTokens.ParameterHandle(1));
