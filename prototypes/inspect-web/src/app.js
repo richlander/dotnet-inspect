@@ -796,7 +796,17 @@ function defaultVisibleTypeId(pkg) {
   const visible = pkg.types.find(item =>
     state.accessibilityFilter.has(item.accessibilityId)
     && (!state.libraryScope || state.libraryScope.has(libraryKey(item))));
-  return visible ? visible.id : (pkg.types[0]?.id || "");
+  if (visible) return visible.id;
+  // No type within the active library scope passes the current accessibility filter -- e.g.
+  // an internal-only platform library (zero public types) reached via a link with no explicit
+  // type. Prefer a type still within the requested scope over an unrelated package-wide type,
+  // so the caller's accessibility-widening reconciliation (see applyDeepLink) can admit it
+  // without losing the library scope that was the actual target of the restore.
+  if (state.libraryScope) {
+    const scoped = pkg.types.find(item => state.libraryScope.has(libraryKey(item)));
+    if (scoped) return scoped.id;
+  }
+  return pkg.types[0]?.id || "";
 }
 
 // The "Filter types" box matches, within the active scope, on the type's own identity
@@ -4580,13 +4590,22 @@ function applyDeepLink(deep) {
   state.platformDrillLoading = false;
   state.platformDrillError = "";
   const restoreType = deep?.type && pkg.types.some(item => item.id === deep.type);
+  // Only the .NET Platform pseudo-package's library scope is carried across a restore (via
+  // applyPlatformLibraryScope, which every restore path already runs before reaching here). A
+  // regular package's scope is never part of that restored view, so any value still set here
+  // is leftover session state from a previously viewed package. Clear it before computing a
+  // fallback default type below (not merely after), so that leftover scope can't narrow which
+  // type the fallback picks -- e.g. two unrelated packages happening to share an assembly name.
+  if (!isRuntimePackId(pkg.id)) {
+    state.libraryScope = null;
+  }
   state.selectedTypeId = restoreType ? deep.type : defaultVisibleTypeId(pkg);
-  // The restored/defaulted type may sit outside the current accessibility bucket or library
-  // scope (e.g. an internal type reached via a shared link, or a history entry for a type in
-  // a library the session had since scoped away from). Reconcile both filters against the
-  // actual selected type so the type list and the displayed type stay aligned, instead of
-  // showing an unrelated first type -- or an empty list -- while the pane renders the
-  // restored one.
+  // The restored/defaulted type may sit outside the current accessibility bucket or the
+  // platform's library scope (e.g. an internal type reached via a shared link, or a history
+  // entry for a type in a library the session had since scoped away from). Reconcile both
+  // filters against the actual selected type so the type list and the displayed type stay
+  // aligned, instead of showing an unrelated first type -- or an empty list -- while the pane
+  // renders the restored one.
   const selected = pkg.types.find(item => item.id === state.selectedTypeId);
   if (selected) {
     if (!state.accessibilityFilter.has(selected.accessibilityId)) {
@@ -4594,20 +4613,18 @@ function applyDeepLink(deep) {
       next.add(selected.accessibilityId);
       state.accessibilityFilter = next;
     }
-    // Only the .NET Platform pseudo-package's library scope is carried in the URL/history
-    // (via applyPlatformLibraryScope, which every restore path already runs before reaching
-    // here). A regular package's scope is never part of that restored view, so any value
-    // still set is leftover session state -- always clear it rather than reconciling it
-    // against the selected type, which could coincidentally leave a stale scope in place
-    // when the restored type happens to still belong to it.
+    // A regular package's scope was already cleared above. For the platform pseudo-package,
+    // only clear the restored scope if the selected type doesn't actually belong to it --
+    // defaultVisibleTypeId now prefers a type within libraryScope even when none of that
+    // scope's types pass the accessibility filter (see its own comment), so this should only
+    // trigger when the scope's library genuinely has no types at all.
     if (isRuntimePackId(pkg.id)) {
       if (state.libraryScope && !state.libraryScope.has(libraryKey(selected))) {
         state.libraryScope = null;
       }
-    } else {
-      state.libraryScope = null;
     }
   }
+
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
   state.memberSection = "overview";
