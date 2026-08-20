@@ -99,6 +99,13 @@ internal interface ILibraryMethodAnalysisInfrastructure
         IReadOnlySet<int>? requestedMethodScope,
         bool directlySelectedBody);
 
+    bool TryResolveUltimateDeclaredMethod(
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition methodDefinition,
+        MethodIdentity method,
+        bool typeSourceGenerated,
+        out MethodIdentity? ultimateOwner);
+
     bool DispatchCanTargetOverride(
         TypeDefinition declaringType,
         MethodDefinition method);
@@ -122,6 +129,7 @@ internal sealed class LibraryMethodAnalysisResult
     public ImmutableArray<UnsafetyOccurrence> Unsafety;
     public ImmutableArray<OptimizationOpportunity> Opportunities;
     public bool Suppressed;
+    public bool ScopeExcluded;
     public bool HasSignals;
     public BodySignals Signals;
     public LeakTriageResult? LeakTriage;
@@ -154,7 +162,6 @@ internal sealed class LibraryMethodAnalysisRunner(
             LibraryBodyAnalysisFeatures.Allocations);
         bool includeOpportunities = plan.Includes(
             LibraryBodyAnalysisFeatures.OptimizationOpportunities);
-        bool collectOpportunities = includeOpportunities;
         bool includeLeakTriage = plan.Includes(
             LibraryBodyAnalysisFeatures.LeakTriage);
         bool includeOwnershipFlow = plan.Includes(
@@ -238,6 +245,13 @@ internal sealed class LibraryMethodAnalysisRunner(
             }
 
             result.HasBody = true;
+            // Allocation evidence can survive a later recoverable failure,
+            // so classification below replaces this pessimistic state only
+            // after its metadata and scope checks complete.
+            result.Suppressed = includeOpportunities;
+            result.ScopeExcluded =
+                includeOpportunities
+                && bodyTypeScope is not null;
             // Scoped builds decode only selected method bodies; every other method is still
             // indexed as an identity (above) but its body is not decoded/scanned. MethodScope
             // selects by method token; TypeScope selects by declaring type. Reverse/aggregate
@@ -247,33 +261,35 @@ internal sealed class LibraryMethodAnalysisRunner(
             {
                 return result;
             }
+            bool directlySelectedType =
+                bodyTypeScope?.Invoke(
+                    caller.DeclaringType)
+                    == true;
             if (bodyTypeScope is not null)
             {
-                TypeRef? sourceType = null;
+                ImmutableArray<TypeRef> sourceTypes = [];
                 bool mappedEvidence =
                     plan.TypeScopeEvidenceSources
                         ?.TryGetValue(
                             caller.MetadataToken,
-                            out sourceType)
+                            out sourceTypes)
                     == true;
-                bool physicalTypeSelected =
-                    bodyTypeScope(caller.DeclaringType);
-                bool sourceTypeSelected =
-                    mappedEvidence
-                    && bodyTypeScope(sourceType!);
-                if (!physicalTypeSelected
-                    && !sourceTypeSelected)
-                {
+                if (!directlySelectedType
+                    && (!mappedEvidence
+                        || !sourceTypes.Any(
+                            bodyTypeScope)))
                     return result;
-                }
-                if (mappedEvidence
-                    && !sourceTypeSelected)
-                {
-                    collectOpportunities = false;
-                }
             }
+            MethodIdentity? opportunityDeclaredMethod = null;
+            bool opportunityDeclaredMethodResolved =
+                bodyTypeScope is null;
             try
             {
+                bool directlySelectedBody =
+                    requestedMethodScope?.Contains(
+                        caller.MetadataToken)
+                        == true
+                    || directlySelectedType;
                 MethodIdentity? declaredMethod =
                     _infrastructure.ResolveDeclaredMethod(
                         methodHandle,
@@ -281,15 +297,47 @@ internal sealed class LibraryMethodAnalysisRunner(
                         caller,
                         typeSourceGenerated,
                         bodyScope,
-                        ownerTypeScope: null,
-                        requestedMethodScope:
-                            requestedMethodScope,
-                        directlySelectedBody:
-                            requestedMethodScope?.Contains(
-                                caller.MetadataToken)
-                                == true);
+                        bodyTypeScope,
+                        requestedMethodScope,
+                        directlySelectedBody);
                 result.DeclaredMethod = declaredMethod;
-                result.DeclaredSource = declaredMethod;
+                MethodIdentity? ultimateOwner =
+                    declaredMethod;
+                bool ultimateOwnerResolved =
+                    declaredMethod is not null
+                    || !CompilerGeneratedNames
+                        .RequiresDeclaredOwner(caller);
+                bool needsUltimateResolution =
+                    declaredMethod is not null
+                        && CompilerGeneratedNames
+                            .IsLocalFunctionOrLambda(
+                                declaredMethod.Name)
+                    || includeOpportunities
+                        && bodyTypeScope is not null
+                        && CompilerGeneratedNames
+                            .RequiresDeclaredOwner(caller);
+                if (needsUltimateResolution)
+                {
+                    ultimateOwnerResolved =
+                        _infrastructure
+                            .TryResolveUltimateDeclaredMethod(
+                                methodHandle,
+                                methodDefinition,
+                                caller,
+                                typeSourceGenerated,
+                                out ultimateOwner);
+                }
+                if (ultimateOwnerResolved)
+                    result.DeclaredSource = ultimateOwner;
+                if (bodyTypeScope is not null)
+                {
+                    // Evidence admission follows the selected type, but a
+                    // recommendation belongs to the ultimate declared owner.
+                    opportunityDeclaredMethod =
+                        ultimateOwner;
+                    opportunityDeclaredMethodResolved =
+                        ultimateOwnerResolved;
+                }
             }
             catch (Exception ex)
                 when (IsRecoverableMethodFailure(ex))
@@ -401,7 +449,19 @@ internal sealed class LibraryMethodAnalysisRunner(
                 result.Signals = signals;
                 result.HasSignals = true;
             }
-            if (collectOpportunities)
+            bool collectScopedOpportunities =
+                includeOpportunities
+                && (bodyTypeScope is null
+                    || opportunityDeclaredMethodResolved
+                        && (opportunityDeclaredMethod is null
+                            || bodyTypeScope(
+                                opportunityDeclaredMethod
+                                    .DeclaringType)));
+            result.ScopeExcluded =
+                includeOpportunities
+                && bodyTypeScope is not null
+                && !collectScopedOpportunities;
+            if (includeOpportunities)
             {
                 var methodAttributes =
                     methodDefinition.GetCustomAttributes();
@@ -430,41 +490,44 @@ internal sealed class LibraryMethodAnalysisRunner(
                     _infrastructure.HasCompilerGeneratedAttribute(
                         methodAttributes)
                     || sourceFunction;
-                if (!typeSourceGenerated
-                    && !sourceGenerated
-                    && !compilerGenerated
-                    && !IsBlazorRenderMethod(caller))
+                bool suppressOpportunities =
+                    typeSourceGenerated
+                    || sourceGenerated
+                    || compilerGenerated
+                    || IsBlazorRenderMethod(caller);
+                result.Suppressed =
+                    suppressOpportunities
+                    || !collectScopedOpportunities;
+                if (collectScopedOpportunities
+                    && !suppressOpportunities)
                 {
                     result.Opportunities =
                         OptimizationOpportunityAnalysis.Collect(
                             allocationFacts,
                             methodAnalysisResolver);
                 }
-                else
+                else if (collectScopedOpportunities
+                    && !sourceGenerated
+                    && !typeSourceGenerated
+                    && compilerGenerated
+                    && hasSourceOwner
+                    && sourceOwner is not null
+                    && !IsBlazorRenderMethod(caller)
+                    && !IsBlazorRenderMethod(sourceOwner))
                 {
-                    if (!typeSourceGenerated
-                        && !sourceGenerated
-                        && compilerGenerated
-                        && hasSourceOwner
-                        && sourceOwner is not null
-                        && !IsBlazorRenderMethod(caller)
-                        && !IsBlazorRenderMethod(sourceOwner))
-                    {
-                        result.Opportunities =
-                        [
-                            .. OptimizationOpportunityAnalysis.Collect(
-                                allocationFacts,
-                                methodAnalysisResolver)
-                            .Where(static opportunity =>
-                                opportunity.Shape
-                                    == "generic-parameter-object-box")
-                            .Select(opportunity => opportunity with
-                            {
-                                SourceOwner = sourceOwner,
-                            }),
-                        ];
-                    }
-                    result.Suppressed = true;
+                    result.Opportunities =
+                    [
+                        .. OptimizationOpportunityAnalysis.Collect(
+                            allocationFacts,
+                            methodAnalysisResolver)
+                        .Where(static opportunity =>
+                            opportunity.Shape
+                                == "generic-parameter-object-box")
+                        .Select(opportunity => opportunity with
+                        {
+                            SourceOwner = sourceOwner,
+                        }),
+                    ];
                 }
             }
 
@@ -480,7 +543,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                     hasUnsafeApiMember
                     || hasUnsafeSignature
                     || hasUnsafeLocals);
-            if (collectOpportunities)
+            if (collectScopedOpportunities)
             {
                 MethodIdentity? asyncSource = null;
                 try
