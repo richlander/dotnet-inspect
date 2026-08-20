@@ -206,6 +206,19 @@ public enum CallGraphRowMatch
     Ambiguous,
 }
 
+/// <summary>The outcome of locating a method definition in a projection.</summary>
+public enum CallGraphNodeMatch
+{
+    /// <summary>The method maps to exactly one projected logical node.</summary>
+    Found,
+
+    /// <summary>The bounded projection contains no node for the method.</summary>
+    NotProjected,
+
+    /// <summary>More than one projected node can represent the method.</summary>
+    Ambiguous,
+}
+
 /// <summary>
 /// A format-neutral projection of the typed call-graph facts that
 /// <c>ILInspector.Analysis</c> produces (<see cref="CallTreeNode"/> caller and callee roots
@@ -302,6 +315,62 @@ public sealed partial class CallGraphProjection
         DirectCall call,
         out CallGraphRow row) =>
         FindCalleeRow(Focus.Id, call, out row);
+
+    /// <summary>
+    /// Resolves one method definition to its projected logical node. Exact
+    /// physical definition evidence wins; structural identity handles
+    /// evidence-free projections.
+    /// </summary>
+    public CallGraphNodeMatch FindNode(
+        MethodIdentity method,
+        out CallGraphNode node)
+    {
+        ArgumentNullException.ThrowIfNull(method);
+
+        CallGraphNode[] exact =
+        [
+            .. Nodes.Where(candidate =>
+                candidate.GraphEvidence.Any(evidence =>
+                    MatchesDefinition(evidence.Storage, method)
+                    || evidence.DefinitionStorage is { } definition
+                        && MatchesDefinition(definition, method))),
+        ];
+        if (exact.Length == 1)
+        {
+            node = exact[0];
+            return CallGraphNodeMatch.Found;
+        }
+        if (exact.Length > 1)
+        {
+            node = null!;
+            return CallGraphNodeMatch.Ambiguous;
+        }
+
+        GraphNodeIdentity identity =
+            GraphNodeIdentity.FromMethod(method);
+        CallGraphNode[] structural =
+        [
+            .. Nodes.Where(candidate =>
+                candidate.Identity == identity),
+        ];
+        if (structural.Length == 1)
+        {
+            node = structural[0];
+            return CallGraphNodeMatch.Found;
+        }
+
+        node = null!;
+        return structural.Length > 1
+            ? CallGraphNodeMatch.Ambiguous
+            : CallGraphNodeMatch.NotProjected;
+
+        static bool MatchesDefinition(
+            GraphNodeStorageKey storage,
+            MethodIdentity candidate) =>
+            storage.Kind == GraphNodeStorageKind.Definition
+            && storage.ModuleVersionId == candidate.ModuleVersionId
+            && storage.MethodToken == candidate.MetadataToken;
+    }
 
     /// <summary>
     /// Resolves one physical call site from a projected caller node to its
