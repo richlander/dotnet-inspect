@@ -161,6 +161,37 @@ test("member-filter selection survives a replacement render", () => {
   );
 });
 
+test("type-filter selection survives a replacement render", () => {
+  const { document, element } = createDocument();
+  const initialInput = element("#type-filter", {
+    id: "type-filter",
+    selectionStart: 2,
+    selectionEnd: 5,
+    selectionDirection: "backward",
+  });
+  document.activeElement = initialInput;
+  const snapshot = captureMemberFocus(document, value => value);
+
+  let restoredSelection = null;
+  const replacementInput = element("#type-filter", {
+    id: "type-filter",
+    setSelectionRange(start, end, direction) {
+      restoredSelection = { start, end, direction };
+    },
+  });
+  document.activeElement = document.body;
+  restoreMemberFocus(document, snapshot, callback => {
+    callback(0);
+    return 1;
+  });
+
+  assert.equal(document.activeElement, replacementInput);
+  assert.deepEqual(
+    restoredSelection,
+    { start: 2, end: 5, direction: "backward" },
+  );
+});
+
 test("deferred restoration does not steal intentionally moved focus", () => {
   const { document, element } = createDocument();
   const initialInput = element("#member-filter", { id: "member-filter" });

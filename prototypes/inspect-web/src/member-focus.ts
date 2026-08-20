@@ -31,9 +31,9 @@ export function captureMemberFocus(
   const navigationList = document.querySelector<HTMLElement>("#type-list");
   let selector = "";
   let selection: MemberFocusSnapshot["selection"] = null;
-  if (active?.id === "member-filter") {
+  if (active?.id === "member-filter" || active?.id === "type-filter") {
     const input = active as HTMLInputElement;
-    selector = "#member-filter";
+    selector = `#${active.id}`;
     selection = {
       start: input.selectionStart,
       end: input.selectionEnd,

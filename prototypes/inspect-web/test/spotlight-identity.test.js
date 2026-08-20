@@ -499,7 +499,8 @@ test("lens-scoped Platform library changes reset type-specific member state", ()
     ?? "";
   assert.match(
     picker,
-    /const originPackage = state\.package;[\s\S]*select\.isConnected[\s\S]*state\.atPackageRoot[\s\S]*state\.packageLens === lens[\s\S]*packageIdentityEquals\(state\.package, originPackage\)[\s\S]*loadRuntimePackAssembly\([\s\S]*isCurrent\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*state\.libraryScope = new Set\(\[key\]\);[\s\S]*state\.atPackageRoot = true;\s*state\.packageLens = lens;\s*state\.namespaceFilter = "";\s*state\.typeFilter = "";\s*state\.kindFilter = "";\s*normalizeLibrarySelection\(\);\s*loader\(\)/);
+    /const openLibrary = async \(name, pack\) => \{[\s\S]*const originPackage = state\.package;[\s\S]*state\.atPackageRoot[\s\S]*state\.packageLens === lens[\s\S]*packageIdentityEquals\(state\.package, originPackage\)[\s\S]*const loaded = await loadRuntimePackAssembly\([\s\S]*\(\) => state\.packages\.includes\(originPackage\)\);[\s\S]*if \(!loaded\) \{[\s\S]*appendQueryNotice\([\s\S]*\(\) => openLibrary\(name, pack\)\);[\s\S]*return;[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*state\.libraryScope = new Set\(\[key\]\);[\s\S]*normalizeLibrarySelection\(\);\s*loader\(\)/);
+  assert.doesNotMatch(picker, /select\.isConnected/);
   assert.match(
     appSource,
     /function normalizeLibrarySelection\(\) \{[\s\S]*state\.selectedTypeId = first\?\.id \|\| "";[\s\S]*state\.selectedMemberKey = "";[\s\S]*state\.selectedOverloadIndex = null;[\s\S]*resetMemberFilters\(\)[\s\S]*function afterLibraryScopeChange\(\) \{\s*normalizeLibrarySelection\(\);\s*render\(\)/);
@@ -541,7 +542,16 @@ test("type projection completions render only while current and preserve navigat
     ?? "";
   assert.match(
     typeMetadata,
-    /const generation = \+\+state\.typeMetadataGeneration;[\s\S]*const preservedFocus = renderPreservingMemberFocus\(\);[\s\S]*generation === state\.typeMetadataGeneration[\s\S]*typeMetadataSignature\(currentType, state\.package\) === signature[\s\S]*if \(isCurrent\(\)\) \{[\s\S]*renderPreservingMemberFocus\(preservedFocus\)/);
+    /const generation = \+\+state\.typeMetadataGeneration;[\s\S]*const preservedFocus = renderPreservingMemberFocus\(\);[\s\S]*generation === state\.typeMetadataGeneration[\s\S]*!state\.home[\s\S]*!state\.settings[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!state\.spotlightOpen[\s\S]*!state\.graphSourceOpen[\s\S]*!state\.docViewerOpen[\s\S]*!state\.tasteOpen[\s\S]*typeMetadataSignature\(currentType, state\.package\) === signature[\s\S]*if \(isCurrent\(\)\) \{[\s\S]*renderPreservingMemberFocus\(preservedFocus\)/);
+});
+
+test("typeless member lookup and request guards stay empty", () => {
+  assert.match(
+    appSource,
+    /function memberGroups\(type\) \{[\s\S]*for \(const member of type\?\.api \?\? \[\]\)/);
+  assert.match(
+    appSource,
+    /function memberRequestIsCurrent\([\s\S]*const type = selectedType\(\);\s*if \(!type\) return false;\s*const member = selectedMember\(type\)/);
 });
 
 test("settings keep a viewport-bounded scroll region", () => {

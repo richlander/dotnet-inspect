@@ -1155,7 +1155,7 @@ function typeGroups() {
 
 function memberGroups(type) {
   const groups = new Map();
-  for (const member of type.api ?? []) {
+  for (const member of type?.api ?? []) {
     const key = `${member.kind}:${member.name}`;
     if (!groups.has(key)) groups.set(key, { key, name: member.name, kind: member.kind, overloads: [] });
     groups.get(key).overloads.push(member);
@@ -3745,27 +3745,32 @@ function bindEvents() {
   // root + the active lens, then rescan. Types are loaded too so switching to Types/Overview
   // afterward isn't empty.
   const bindPlatformLensPicker = (dataAttr, lens, loader) => {
-    document.querySelectorAll(`[${dataAttr}]`).forEach(select => select.addEventListener("change", async () => {
+    const openLibrary = async (name, pack) => {
       const navigationSeq = ++state.navigationSeq;
       const originPackage = state.package;
       const isCurrent = () =>
         navigationSeq === state.navigationSeq
-        && select.isConnected
         && !state.home
         && state.atPackageRoot
         && state.packageLens === lens
         && packageIdentityEquals(state.package, originPackage);
-      const name = select.value;
-      if (!name) return;
       const key = name.replace(/\.dll$/i, "");
-      const pack = select.selectedOptions[0]?.dataset.pack || platformPackForAssembly(key);
       const resident = (runtimePackPackage()?.types || []).some(type => libraryKey(type) === key);
       if (!resident) {
-        await loadRuntimePackAssembly(
+        const loaded = await loadRuntimePackAssembly(
           platformScopeTfm(),
           `${key}.dll`,
           pack,
-          isCurrent);
+          () => state.packages.includes(originPackage));
+        if (!loaded) {
+          if (isCurrent()) {
+            appendQueryNotice(
+              `Couldn’t load ${key}: ${state.runtimePackError || "runtime pack acquisition failed."}`,
+              () => openLibrary(name, pack));
+            render();
+          }
+          return;
+        }
       }
       if (!isCurrent()) return;
       state.libraryScope = new Set([key]);
@@ -3777,6 +3782,13 @@ function bindEvents() {
       state.kindFilter = "";
       normalizeLibrarySelection();
       loader();
+    };
+    document.querySelectorAll(`[${dataAttr}]`).forEach(select => select.addEventListener("change", () => {
+      const name = select.value;
+      if (!name) return;
+      const key = name.replace(/\.dll$/i, "");
+      const pack = select.selectedOptions[0]?.dataset.pack || platformPackForAssembly(key);
+      openLibrary(name, pack);
     }));
   };
   bindPlatformLensPicker("data-platform-integrations-library", "integrations", loadPackageIntegrations);
@@ -5476,6 +5488,7 @@ function memberRequestIsCurrent(
   includeBody = false,
   includeTaste = false) {
   const type = selectedType();
+  if (!type) return false;
   const member = selectedMember(type);
   const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
   return Boolean(type && overload)
@@ -5560,6 +5573,15 @@ async function loadSelectedTypeMetadata() {
   const isCurrent = () => {
     const currentType = selectedType();
     return ownsRequest()
+      && !state.home
+      && !state.settings
+      && !state.explorer?.open
+      && !state.loading
+      && !state.error
+      && !state.spotlightOpen
+      && !state.graphSourceOpen
+      && !state.docViewerOpen
+      && !state.tasteOpen
       && state.lens === "metadata"
       && !state.atPackageRoot
       && currentType
