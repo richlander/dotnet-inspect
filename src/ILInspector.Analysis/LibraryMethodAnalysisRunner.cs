@@ -162,12 +162,17 @@ internal sealed class LibraryMethodAnalysisRunner(
         var calls =
             ImmutableArray.CreateBuilder<DirectCall>();
         MetadataReader reader = _infrastructure.Reader;
+        TypeRef? declaringType = null;
         LeakTriageFailureKind leakFailureKind =
             LeakTriageFailureKind.MethodMetadata;
         try
         {
             var methodDefinition =
                 reader.GetMethodDefinition(methodHandle);
+            declaringType = TypeRefDecoder.Instance.GetTypeFromDefinition(
+                reader,
+                typeHandle,
+                0);
             var scope = _infrastructure.CreateScope(
                 typeDefinition,
                 methodDefinition);
@@ -479,7 +484,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                     typeHandle,
                     methodHandle),
                 $"{ex.GetType().Name}: {ex.Message}",
-                DeclaringType: result.Caller?.DeclaringType,
+                DeclaringType: result.Caller?.DeclaringType
+                    ?? declaringType,
                 DeclaringTypeToken: MetadataTokens.GetToken(typeHandle));
             if (includeLeakTriage
                 && result.LeakTriage is null)

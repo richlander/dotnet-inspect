@@ -372,17 +372,33 @@ public class UnsafeMembersSectionTests
                     "BadImageFormatException: malformed signature",
                     DeclaringTypeToken: 0x0200FFFF),
                 new AnalysisDiagnostic(
+                    0x0600FFFE,
+                    "PreIdentityFailure",
+                    "BadImageFormatException: pre-identity signature failure",
+                    DeclaringType: matchingMethod.DeclaringType,
+                    DeclaringTypeToken: 0x0200FFFF),
+                new AnalysisDiagnostic(
                     otherTypeMethod.MetadataToken,
                     otherTypeMethod.Name,
                     "BadImageFormatException: unrelated body",
                     DeclaringTypeToken: type.MetadataToken)
             ]);
 
-        var row = Assert.Single(
-            view.UnsafeMemberRows!,
-            candidate => candidate.Kind == "diagnostic");
-        Assert.Equal("Analysis failed", row.Reason);
-        Assert.Contains("malformed signature", row.Detail);
+        var rows = view.UnsafeMemberRows!
+            .Where(candidate => candidate.Kind == "diagnostic")
+            .ToArray();
+        Assert.Equal(2, rows.Length);
+        Assert.All(rows, row => Assert.Equal("Analysis failed", row.Reason));
+        Assert.Contains(
+            rows,
+            row => row.Detail.Contains(
+                "malformed signature",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            rows,
+            row => row.Detail.Contains(
+                "pre-identity signature failure",
+                StringComparison.Ordinal));
         Assert.DoesNotContain(
             view.UnsafeMemberRows!,
             candidate => candidate.Detail.Contains("unrelated body", StringComparison.Ordinal));

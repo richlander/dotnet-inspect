@@ -1567,11 +1567,17 @@ public class LibraryBodyIndexTests
                         == "sync-call-in-async"
                     && opportunity.Method.Name == "AnalyzeAsync");
 
-            Assert.Contains(
+            AnalysisDiagnostic broken = Assert.Single(
                 index.Diagnostics,
                 diagnostic => diagnostic.Method.Contains(
                     "BrokenAsync",
                     StringComparison.Ordinal));
+            Assert.NotNull(broken.DeclaringType);
+            Assert.Equal("Sample", broken.DeclaringType.Namespace);
+            Assert.Equal("Source", broken.DeclaringType.Name);
+            Assert.DoesNotContain(
+                index.DeclaredMethods,
+                method => method.MetadataToken == broken.MethodToken);
             Assert.Contains(
                 index.Diagnostics,
                 diagnostic => diagnostic.Method.Contains(
