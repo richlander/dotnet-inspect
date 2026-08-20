@@ -228,11 +228,14 @@ public static class ProductInspectionDemos
     {
         const int v = InspectionDefinitionJson.CurrentSchemaVersion;
         var stjPackage = Package("System.Text.Json", "10.0.0", "net10.0");
+        // Unversioned host runtime: CoreLib is runtime-only (no ref-pack download),
+        // so a patch pin would fail on machines without that exact shared framework
+        // (CI installs the 11.0.x SDK lane). Package demos still pin NuGet versions.
         var runtimePlatform = new DefinitionMemberCoordinate.PlatformCoordinate(
             "runtime",
-            null,
-            "10.0.10",
-            "net10.0");
+            Assembly: null,
+            Version: null,
+            Framework: null);
         return
         [
             new WorkspaceDefinition(

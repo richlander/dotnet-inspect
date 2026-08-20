@@ -5,6 +5,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
+using DotnetInspector.Services;
 
 namespace DotnetInspector.Tests;
 
@@ -125,7 +126,7 @@ public class DemoCommandTests
         var type = Assert.IsType<TypeOptions>(options);
         Assert.Equal("System.Collections.Generic.List`1", type.TypeName);
         Assert.Equal("System.Private.CoreLib", type.PlatformAssembly);
-        Assert.Equal("runtime@10.0.10", type.PlatformFramework);
+        Assert.Equal("runtime", type.PlatformFramework);
         Assert.Equal(
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.Methods },
             type.IncludeSections);
@@ -246,6 +247,12 @@ public class DemoCommandTests
     [Fact]
     public async Task ExecuteScenario_PlatformList_ReturnsMethodsSection()
     {
+        var (coreLibPath, _, _, coreLibError) = PlatformResolver.ResolveAssembly(
+            "System.Private.CoreLib",
+            frameworkSpec: "runtime");
+        if (coreLibPath is null)
+            Assert.Skip($"System.Private.CoreLib not available: {coreLibError}");
+
         var (exitCode, output, error) = await ConsoleCapture.RunAsync(
             () => DemoCommand.ExecuteScenarioAsync(
                 ProductInspectionDemos.PlatformListScenarioId,
