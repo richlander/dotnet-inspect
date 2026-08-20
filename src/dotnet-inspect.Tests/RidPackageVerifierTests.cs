@@ -391,6 +391,39 @@ public class RidPackageVerifierTests
     }
 
     [Fact]
+    public async Task VerifyAsync_LocalSiblingPreservesShortVersionSpelling()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"rid-local-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            WritePackageArchive(
+                Path.Combine(
+                    directory,
+                    "TestPackage.linux-x64.1.0.nupkg"),
+                "TestPackage.linux-x64",
+                "1.0");
+            InspectionResult result = CreateResult();
+
+            await RidPackageVerifier.VerifyAsync(
+                new HttpClient(),
+                result,
+                "1.0",
+                directory,
+                new VerboseLogger(enabled: false));
+
+            Assert.True(
+                Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task VerifyAsync_LocalSiblingUsesNuGetCaseInsensitiveIdentity()
     {
         string directory = Path.Combine(

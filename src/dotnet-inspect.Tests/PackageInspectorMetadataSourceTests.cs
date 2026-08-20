@@ -1082,6 +1082,40 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             options,
             isLocalFile: false,
             pipeline));
+
+        options = options with
+        {
+            Discover = [PackageSections.Manifest],
+            IncludeSections =
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    PackageSections.Manifest,
+                    PackageSections.Signals,
+                    PackageSections.SourceLinkFiles,
+                    PackageSections.Vulnerabilities,
+                },
+            Verbosity = Verbosity.Detailed,
+        };
+        InspectionOptions producerOptions =
+            PackageCommand.CreateProducerOptions(
+                options,
+                userVerbosity: Verbosity.Minimal,
+                pipeline);
+
+        Assert.Equal(
+            [PackageSections.Manifest],
+            producerOptions.IncludeSections);
+        Assert.Equal(Verbosity.Minimal, producerOptions.Verbosity);
+        Assert.False(PackageCommand.RequiresPackageMetadata(
+            producerOptions,
+            pipeline));
+        Assert.False(PackageCommand.AllowsVulnerabilityTraffic(
+            producerOptions));
+        Assert.Empty(pipeline.GetRequiredQueries(
+            producerOptions.Verbosity,
+            producerOptions.IncludeSections,
+            producerOptions.FixedOverview,
+            excludeUnbounded: true));
     }
 
     [Theory]

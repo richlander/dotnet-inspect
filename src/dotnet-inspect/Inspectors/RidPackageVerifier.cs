@@ -102,14 +102,34 @@ public static class RidPackageVerifier
                 NuspecProbeResult probe;
                 if (localSnapshot is not null)
                 {
-                    string expectedFileName =
-                        $"{ridPkg.PackageId}.{normalizedVersion}.nupkg";
-                    probe = await ProbeLocalPackageArchiveAsync(
-                        localSnapshot,
-                        expectedFileName,
-                        ridPkg.PackageId,
-                        normalizedVersion,
-                        logger.Log).ConfigureAwait(false);
+                    probe = new NuspecProbeResult(
+                        null,
+                        NuspecProbeStatus.Absent);
+                    var candidateBudget =
+                        new LocalCaseVariantProbeBudget();
+                    foreach (string versionSpelling in
+                             LocalVersionSpellings(
+                                 version,
+                                 normalizedVersion))
+                    {
+                        string expectedFileName =
+                            $"{ridPkg.PackageId}.{versionSpelling}.nupkg";
+                        NuspecProbeResult spellingProbe =
+                            await ProbeLocalPackageArchiveAsync(
+                                localSnapshot,
+                                expectedFileName,
+                                ridPkg.PackageId,
+                                normalizedVersion,
+                                logger.Log,
+                                candidateBudget).ConfigureAwait(false);
+                        probe = new NuspecProbeResult(
+                            spellingProbe.Xml ?? probe.Xml,
+                            CombineEvidence(
+                                probe.Status,
+                                spellingProbe.Status));
+                        if (probe.Status == NuspecProbeStatus.Present)
+                            break;
+                    }
                 }
                 else
                 {
@@ -149,10 +169,12 @@ public static class RidPackageVerifier
             string expectedFileName,
             string packageId,
             string version,
-            Action<string>? log)
+            Action<string>? log,
+            LocalCaseVariantProbeBudget? candidateBudget = null)
     {
-        string expectedPath =
-            Path.Combine(snapshot.LocalDirectory, expectedFileName);
+            candidateBudget ??= new LocalCaseVariantProbeBudget();
+            string expectedPath =
+                Path.Combine(snapshot.LocalDirectory, expectedFileName);
         NuspecProbeResult exact =
             await PackageExtractor.ProbeLocalPackageArchiveAsync(
                 expectedPath,
@@ -167,6 +189,14 @@ public static class RidPackageVerifier
             snapshot.GetCandidates(expectedFileName);
         foreach (string candidatePath in candidates.Paths)
         {
+            if (!candidateBudget.TryConsume())
+            {
+                status = CombineEvidence(
+                    status,
+                    NuspecProbeStatus.Indeterminate);
+                break;
+            }
+
             NuspecProbeResult candidate =
                 await PackageExtractor.ProbeLocalPackageArchiveAsync(
                     candidatePath,
@@ -268,6 +298,20 @@ public static class RidPackageVerifier
         IReadOnlyList<string> Paths,
         bool Complete);
 
+    internal sealed class LocalCaseVariantProbeBudget
+    {
+        private int _remaining = MaxLocalCaseVariantCandidates;
+
+        internal bool TryConsume()
+        {
+            if (_remaining == 0)
+                return false;
+
+            _remaining--;
+            return true;
+        }
+    }
+
     private static bool? ToAvailability(NuspecProbeStatus status) =>
         status switch
         {
@@ -290,5 +334,19 @@ public static class RidPackageVerifier
             || right == NuspecProbeStatus.Indeterminate
                 ? NuspecProbeStatus.Indeterminate
                 : NuspecProbeStatus.Absent;
+    }
+
+    private static IEnumerable<string> LocalVersionSpellings(
+        string version,
+        string normalizedVersion)
+    {
+        yield return version;
+        if (!string.Equals(
+                version,
+                normalizedVersion,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            yield return normalizedVersion;
+        }
     }
 }
