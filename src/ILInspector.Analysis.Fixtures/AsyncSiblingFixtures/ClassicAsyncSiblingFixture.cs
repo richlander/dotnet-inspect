@@ -36,6 +36,41 @@ public static class ClassicAsyncSiblingFixture
         return Core(value);
     }
 
+    public static int CallsThroughSiblingLocalFunctions(int value)
+    {
+        return First(value);
+
+        static int First(int v) => Second(v);
+        static int Second(int v) =>
+            v > 0 ? First(v - 1) : ReadValue(v);
+    }
+
+    public static async Task<int> AsyncOwnerCallsThroughLocalFunction(
+        int value)
+    {
+        await Task.Yield();
+        int offset = value;
+        return Core();
+
+        int Core() => ReadValue(offset);
+    }
+
+    internal static async Task<int> ScopedAsyncLocalOwner(string marker)
+    {
+        await Task.Yield();
+        return Core(marker.Length);
+
+        static int Core(int value) => ReadValue(value);
+    }
+
+    public static async Task<int> ScopedAsyncLocalOwner(int marker)
+    {
+        await Task.Yield();
+        return Core(marker);
+
+        static int Core(int value) => ReadValue(value);
+    }
+
     public static void ReadByRef(ref int value)
         => value++;
 

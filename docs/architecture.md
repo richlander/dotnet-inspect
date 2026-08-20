@@ -778,17 +778,21 @@ Research overlay bridge, and the application layer:
   metadata resolver and `LibraryBodyLiftedSourceOwnerResolver` consume that
   same resolution authority. The lifted-source-owner resolver owns
   acquisition-scoped local-function/lambda owner correlation, memoized owner
-  body-reference evidence, top-level entry-point authentication, and classic
-  async state-machine type-name resolution. It consumes primary metadata
+  execution-body evidence, bounded reference closure across sibling lifted
+  bodies, top-level entry-point authentication, and classic async
+  state-machine type-name resolution. Authenticated async `MoveNext` bodies
+  seed the same closure as ordinary owner bodies. It consumes primary metadata
   identity and generated-code judgments rather than duplicating them.
   `OptimizationOpportunities_DuplicateMemberRefsResolveStructuralIdentityOnce`,
   `OptimizationOpportunities_SharedMemberRefDecodesOnceAcrossOwnerBodies`, and
   `LiftedOwnerMemberIdentity_RetainsExactAssemblyReferenceScope` gate cache
   sharing and scope-aware identity.
   `OptimizationOpportunities_LiftedOwnerBody_IsIndexedOnce`,
+  `ResolveDeclaredMethod_MapsSiblingReferencedLocalFunctionToOwner`,
+  `ResolveDeclaredMethod_MapsAsyncOwnerLocalFunctionToOwner`,
   `OptimizationOpportunities_ClassicAsyncTypeDefinitionsAreIndexedOnce`, and
-  the top-level local-function tests gate the lifted-owner caches and execution
-  mapping.
+  the top-level local-function tests gate the lifted-owner caches, closure, and
+  execution mapping.
   `LibraryBodyAsyncSourceResolver` owns acquisition-scoped runtime/classic
   async source resolution, classic source-to-`MoveNext` mapping, state-machine
   attribute authentication, and scoped evidence expansion. It reuses primary
