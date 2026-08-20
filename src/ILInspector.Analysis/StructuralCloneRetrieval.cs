@@ -144,13 +144,16 @@ public static partial class StructuralCloneAnalysis
         MethodDefinitionHandle seed,
         ImmutableArray<MethodDefinitionHandle> methods,
         StructuralCloneRetrievalLimits? limits = null)
-        => RetrieveSimilar(
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        return RetrieveSimilar(
             image,
             seed,
             image,
             methods,
             sameImage: true,
             limits);
+    }
 
     /// <summary>
     /// Ranks likely structural-clone peers from one candidate image for a seed

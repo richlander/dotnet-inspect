@@ -12,6 +12,19 @@ namespace ILInspector.Analysis.Tests;
 public class StructuralCloneRetrievalTests
 {
     [Fact]
+    public void RetrieveSimilar_NullImageNamesPublicParameter()
+    {
+        ArgumentNullException exception =
+            Assert.Throws<ArgumentNullException>(() =>
+                StructuralCloneAnalysis.RetrieveSimilar(
+                    null!,
+                    default,
+                    []));
+
+        Assert.Equal("image", exception.ParamName);
+    }
+
+    [Fact]
     public void RetrieveSimilar_RanksExactAndNearPeersAboveHardNegative()
     {
         using PEReader image = OpenFixture();
