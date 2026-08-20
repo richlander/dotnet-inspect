@@ -3184,8 +3184,13 @@ public class PackageCommand
         bool wantsSignals,
         VerboseLogger logger)
     {
+        bool wantsSignedField =
+            options.Fields?.Contains("Signed", StringComparer.OrdinalIgnoreCase) == true
+            || options.Columns?.Contains("Signed", StringComparer.OrdinalIgnoreCase) == true;
         if (nupkgPath == null
-            || (options.Verbosity < Verbosity.Normal && !wantsSignals))
+            || (options.Verbosity < Verbosity.Normal
+                && !wantsSignals
+                && !wantsSignedField))
         {
             return;
         }

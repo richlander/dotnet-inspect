@@ -509,9 +509,12 @@ internal static class AuditSignalBuilder
                 ? $"{scannedFileCount} and {audit.ScannedSourceLinkMaps} SourceLink "
                     + (audit.ScannedSourceLinkMaps == 1 ? "map" : "maps")
                 : scannedFileCount;
+            string eligibleFiles = audit.EligibleFileCountComplete
+                ? audit.EligibleFiles.ToString()
+                : $"{audit.EligibleFiles}+";
             string evidence = audit.Complete
                 ? $"{findingCount} across {scannedInputs}"
-                : $"{findingCount}; scanned {audit.ScannedFiles}/{audit.EligibleFiles} text-bearing files"
+                : $"{findingCount}; scanned {audit.ScannedFiles}/{eligibleFiles} text-bearing files"
                     + (audit.ScannedSourceLinkMaps > 0
                         ? $" and {audit.ScannedSourceLinkMaps} SourceLink maps"
                         : "");

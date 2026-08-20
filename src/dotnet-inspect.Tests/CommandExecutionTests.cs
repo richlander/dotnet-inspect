@@ -21194,6 +21194,26 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_QuietSignedValuePerformsExplicitVerification()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "System.CommandLine@2.0.3",
+            "-S",
+            "Package Info",
+            "--fields",
+            "Signed",
+            "--value",
+            "-v:q",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("Verified", output.Trim());
+    }
+
+    [Fact]
     public async Task Package_PrintRequiresSingleSelectedSection()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Print.Requires.Select", "README.md", "readme", "agents");

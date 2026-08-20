@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Formats.Asn1;
 using System.IO.Compression;
 using System.Security.Cryptography;
@@ -19,6 +20,8 @@ public class PackageSignatureVerifierTests : IDisposable
     private const string AuthorCommitmentOid = "1.2.840.113549.1.9.16.6.1";
     private const string CodeSigningEkuOid = "1.3.6.1.5.5.7.3.3";
     private const string CommitmentTypeIndicationOid = "1.2.840.113549.1.9.16.2.16";
+    private const string LifetimeSigningEkuOid = "1.3.6.1.4.1.311.10.3.13";
+    private const string RepositoryCommitmentOid = "1.2.840.113549.1.9.16.6.2";
     private const string ServerAuthenticationEkuOid = "1.3.6.1.5.5.7.3.1";
     private const string TimestampTokenOid = "1.2.840.113549.1.9.16.2.14";
 
@@ -173,6 +176,29 @@ public class PackageSignatureVerifierTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData("Version:1\n\n")]
+    [InlineData("Version:1\n\n\n")]
+    public void VerifySignatureFile_RejectsOverlappingEmptyHashSection(
+        string content)
+    {
+        string signaturePath = CreateTestSignature(
+            content,
+            AuthorCommitmentOid);
+        try
+        {
+            SignatureVerificationResult result =
+                PackageSignatureVerifier.VerifySignatureFile(signaturePath);
+
+            Assert.False(result.IsValid);
+            Assert.Contains("NuGet V1 format", result.Reason, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(signaturePath);
+        }
+    }
+
     [Fact]
     public void VerifySignatureFile_RejectsMissingCommitmentType()
     {
@@ -187,6 +213,74 @@ public class PackageSignatureVerifierTests : IDisposable
 
             Assert.False(result.IsValid);
             Assert.Contains("commitment type", result.Reason, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(signaturePath);
+        }
+    }
+
+    [Fact]
+    public void VerifySignatureFile_RejectsRepositorySignatureWithoutServiceIndex()
+    {
+        string hash = Convert.ToBase64String(new byte[32]);
+        string signaturePath = CreateTestSignature(
+            $"Version:1\n\n2.16.840.1.101.3.4.2.1-Hash:{hash}\n\n",
+            RepositoryCommitmentOid);
+        try
+        {
+            SignatureVerificationResult result =
+                PackageSignatureVerifier.VerifySignatureFile(signaturePath);
+
+            Assert.False(result.IsValid);
+            Assert.Contains(
+                "signed-attribute profile",
+                result.Reason,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(signaturePath);
+        }
+    }
+
+    [Fact]
+    public void VerifySignatureFile_RejectsWeakPackageSignerKey()
+    {
+        string hash = Convert.ToBase64String(new byte[32]);
+        string signaturePath = CreateTestSignature(
+            $"Version:1\n\n2.16.840.1.101.3.4.2.1-Hash:{hash}\n\n",
+            AuthorCommitmentOid,
+            keySize: 1024);
+        try
+        {
+            SignatureVerificationResult result =
+                PackageSignatureVerifier.VerifySignatureFile(signaturePath);
+
+            Assert.False(result.IsValid);
+            Assert.Contains("RSA key requirement", result.Reason, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(signaturePath);
+        }
+    }
+
+    [Fact]
+    public void VerifySignatureFile_RejectsLifetimeSigningEku()
+    {
+        string hash = Convert.ToBase64String(new byte[32]);
+        string signaturePath = CreateTestSignature(
+            $"Version:1\n\n2.16.840.1.101.3.4.2.1-Hash:{hash}\n\n",
+            AuthorCommitmentOid,
+            includeLifetimeSigningEku: true);
+        try
+        {
+            SignatureVerificationResult result =
+                PackageSignatureVerifier.VerifySignatureFile(signaturePath);
+
+            Assert.False(result.IsValid);
+            Assert.Contains("Lifetime Signing", result.Reason, StringComparison.Ordinal);
         }
         finally
         {
@@ -262,6 +356,21 @@ public class PackageSignatureVerifierTests : IDisposable
     }
 
     [Fact]
+    public void ConfigureCertificateChainPolicy_DisablesCertificateDownloads()
+    {
+        using X509Chain chain = new();
+
+        PackageSignatureVerifier.ConfigureCertificateChainPolicy(
+            chain.ChainPolicy,
+            [],
+            [],
+            CodeSigningEkuOid);
+
+        Assert.True(chain.ChainPolicy.DisableCertificateDownloads);
+        Assert.Equal(X509RevocationMode.NoCheck, chain.ChainPolicy.RevocationMode);
+    }
+
+    [Fact]
     public async Task VerifyPackage_SignedPackage_HasContentHash()
     {
         string nupkgPath = await DownloadPackageAsync("Newtonsoft.Json", "13.0.3");
@@ -307,6 +416,37 @@ public class PackageSignatureVerifierTests : IDisposable
             Assert.False(result.IsValid);
             Assert.False(result.PackageContentVerified);
             Assert.Contains("content hash", result.Reason, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(nupkgPath);
+        }
+    }
+
+    [Fact]
+    public async Task VerifyPackage_InvalidCentralDirectoryBoundsFailsClosed()
+    {
+        string nupkgPath = await DownloadPackageAsync("Newtonsoft.Json", "13.0.3");
+        try
+        {
+            byte[] package = File.ReadAllBytes(nupkgPath);
+            int endRecord = FindEndRecord(package);
+            uint centralDirectorySize =
+                BinaryPrimitives.ReadUInt32LittleEndian(
+                    package.AsSpan(endRecord + 12));
+            BinaryPrimitives.WriteUInt32LittleEndian(
+                package.AsSpan(endRecord + 12),
+                centralDirectorySize + 1);
+            File.WriteAllBytes(nupkgPath, package);
+
+            SignatureVerificationResult result =
+                PackageSignatureVerifier.VerifyPackage(nupkgPath);
+
+            Assert.False(result.IsValid);
+            Assert.Contains(
+                "content hash",
+                result.Reason,
+                StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
@@ -502,9 +642,11 @@ public class PackageSignatureVerifierTests : IDisposable
 
     private static string CreateTestSignature(
         string content,
-        string? commitmentOid)
+        string? commitmentOid,
+        int keySize = 2048,
+        bool includeLifetimeSigningEku = false)
     {
-        using RSA key = RSA.Create(2048);
+        using RSA key = RSA.Create(keySize);
         var request = new CertificateRequest(
             "CN=Test package signer",
             key,
@@ -524,6 +666,8 @@ public class PackageSignatureVerifierTests : IDisposable
         {
             new Oid(CodeSigningEkuOid),
         };
+        if (includeLifetimeSigningEku)
+            usages.Add(new Oid(LifetimeSigningEkuOid));
         request.CertificateExtensions.Add(
             new X509EnhancedKeyUsageExtension(usages, critical: true));
         using X509Certificate2 certificate = request.CreateSelfSigned(
@@ -552,6 +696,20 @@ public class PackageSignatureVerifierTests : IDisposable
             $"package-signature-{Guid.NewGuid():N}.p7s");
         File.WriteAllBytes(path, cms.Encode());
         return path;
+    }
+
+    private static int FindEndRecord(byte[] package)
+    {
+        for (int index = package.Length - 22; index >= 0; index--)
+        {
+            if (BinaryPrimitives.ReadUInt32LittleEndian(package.AsSpan(index))
+                == 0x06054B50)
+            {
+                return index;
+            }
+        }
+
+        throw new InvalidDataException("ZIP end record was not found.");
     }
 
     private async Task<string> DownloadPackageAsync(string id, string version)

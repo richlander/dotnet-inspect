@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Formats.Asn1;
 using System.IO.Compression;
+using System.Numerics;
 using System.Security.Cryptography;
 using System.Security.Cryptography.Pkcs;
 using System.Security.Cryptography.X509Certificates;
@@ -21,13 +22,19 @@ public static class PackageSignatureVerifier
     private const string CommitmentTypeIndicationOid = "1.2.840.113549.1.9.16.2.16";
     private const string AuthorCommitmentOid = "1.2.840.113549.1.9.16.6.1";     // proof of origin
     private const string RepositoryCommitmentOid = "1.2.840.113549.1.9.16.6.2";  // proof of receipt
+    private const string RepositoryServiceIndexOid = "1.3.6.1.4.1.311.84.2.1.1.1";
     private const string TimestampTokenOid = "1.2.840.113549.1.9.16.2.14";
     private const string TimestampInfoContentTypeOid = "1.2.840.113549.1.9.16.1.4";
     private const string CodeSigningEkuOid = "1.3.6.1.5.5.7.3.3";
     private const string TimestampingEkuOid = "1.3.6.1.5.5.7.3.8";
+    private const string LifetimeSigningEkuOid = "1.3.6.1.4.1.311.10.3.13";
+    private const string EnhancedKeyUsageOid = "2.5.29.37";
     private const string Sha256Oid = "2.16.840.1.101.3.4.2.1";
     private const string Sha384Oid = "2.16.840.1.101.3.4.2.2";
     private const string Sha512Oid = "2.16.840.1.101.3.4.2.3";
+    private const string Sha256WithRsaOid = "1.2.840.113549.1.1.11";
+    private const string Sha384WithRsaOid = "1.2.840.113549.1.1.12";
+    private const string Sha512WithRsaOid = "1.2.840.113549.1.1.13";
     private const uint CentralDirectoryHeaderSignature = 0x02014B50;
     private const uint EndOfCentralDirectorySignature = 0x06054B50;
     private const int CentralDirectoryFixedLength = 46;
@@ -191,6 +198,10 @@ public static class PackageSignatureVerifier
             return new SignatureVerificationResult(
                 SignatureStatus.Invalid, "Could not extract signing certificate.");
         }
+        SignatureVerificationResult? profileFailure =
+            ValidateCertificateProfile(signerCert, rejectLifetimeSigning: true);
+        if (profileFailure is not null)
+            return profileFailure;
 
         // Extract publisher identity from certificate CN
         string? publisher = ExtractCN(signerCert.Subject);
@@ -203,9 +214,22 @@ public static class PackageSignatureVerifier
                 SignatureStatus.Invalid,
                 "Package signature has an invalid commitment type.");
         }
+        if (signatureType == SignatureType.Repository
+            && (!HasValidRepositoryServiceIndex(signerInfo)
+                || CountRepositoryCounterSignatures(signerInfo) > 0))
+        {
+            return new SignatureVerificationResult(
+                SignatureStatus.Invalid,
+                "Package repository signature has an invalid signed-attribute profile.");
+        }
 
         // Verify timestamp first — needed to decide if expired certs are acceptable
-        DateTimeOffset? timestamp = VerifyTimestamp(signerInfo);
+        VerifiedTimestamp? timestamp = VerifyTimestamp(signerInfo);
+        if (timestamp is not null
+            && !IsCertificateValidForTimestamp(signerCert, timestamp.Value))
+        {
+            timestamp = null;
+        }
 
         // Build certificate chain. If the cert is expired but a valid timestamp
         // proves it was signed while the cert was still valid, allow it.
@@ -213,7 +237,7 @@ public static class PackageSignatureVerifier
         SignatureVerificationResult chainResult = VerifyCertificateChain(
             signerCert, signedCms.Certificates, TrustedRoots.CodeSigningRoots,
             CodeSigningEkuOid,
-            verificationTime: timestamp);
+            verificationTime: timestamp?.UpperBound);
 
         if (!chainResult.IsValid)
             return chainResult;
@@ -224,7 +248,7 @@ public static class PackageSignatureVerifier
             Publisher = publisher,
             Thumbprint = thumbprint,
             SignatureType = signatureType,
-            Timestamp = timestamp,
+            Timestamp = timestamp?.Time,
             ContentHash = contentHash.Value,
             ContentHashAlgorithm = contentHash.AlgorithmOid,
             CounterSignature = signatureType == SignatureType.Author
@@ -257,7 +281,8 @@ public static class PackageSignatureVerifier
         }
 
         const string Header = "Version:1\n\n";
-        if (!text.StartsWith(Header, StringComparison.Ordinal)
+        if (text.Length <= Header.Length + 2
+            || !text.StartsWith(Header, StringComparison.Ordinal)
             || !text.EndsWith("\n\n", StringComparison.Ordinal))
         {
             return null;
@@ -429,6 +454,10 @@ public static class PackageSignatureVerifier
                 && CryptographicOperations.FixedTimeEquals(expected, actual);
         }
         catch (IOException)
+        {
+            return false;
+        }
+        catch (InvalidDataException)
         {
             return false;
         }
@@ -662,11 +691,58 @@ public static class PackageSignatureVerifier
         }
     }
 
+    private static int CountRepositoryCounterSignatures(SignerInfo primarySigner)
+    {
+        int count = 0;
+        foreach (SignerInfo counterSigner in primarySigner.CounterSignerInfos)
+        {
+            if (TryDetectSignatureType(counterSigner, out SignatureType type)
+                && type == SignatureType.Repository)
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    private static bool HasValidRepositoryServiceIndex(SignerInfo signerInfo)
+    {
+        CryptographicAttributeObject? serviceIndex = null;
+        foreach (CryptographicAttributeObject attribute in signerInfo.SignedAttributes)
+        {
+            if (attribute.Oid?.Value != RepositoryServiceIndexOid)
+                continue;
+            if (serviceIndex is not null)
+                return false;
+            serviceIndex = attribute;
+        }
+
+        if (serviceIndex is null || serviceIndex.Values.Count != 1)
+            return false;
+
+        try
+        {
+            AsnReader reader = new(
+                serviceIndex.Values[0].RawData,
+                AsnEncodingRules.DER);
+            string value = reader.ReadCharacterString(
+                UniversalTagNumber.IA5String);
+            reader.ThrowIfNotEmpty();
+            return Uri.TryCreate(value, UriKind.Absolute, out Uri? uri)
+                && uri.Scheme.Equals("https", StringComparison.Ordinal);
+        }
+        catch (AsnContentException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>
     /// Verifies the RFC 3161 timestamp counter-signature if present.
     /// Returns the timestamp value on success, null if absent or invalid.
     /// </summary>
-    private static DateTimeOffset? VerifyTimestamp(SignerInfo signerInfo)
+    private static VerifiedTimestamp? VerifyTimestamp(SignerInfo signerInfo)
     {
         foreach (CryptographicAttributeObject attr in signerInfo.UnsignedAttributes)
         {
@@ -675,10 +751,10 @@ public static class PackageSignatureVerifier
 
             foreach (AsnEncodedData value in attr.Values)
             {
-                DateTimeOffset? ts = VerifyTimestampToken(
+                VerifiedTimestamp? ts = VerifyTimestampToken(
                     value.RawData,
                     signerInfo.GetSignature());
-                if (ts.HasValue)
+                if (ts is not null)
                     return ts;
             }
         }
@@ -693,12 +769,16 @@ public static class PackageSignatureVerifier
     private static SignatureVerificationResult? VerifyRepositoryCounterSignature(
         SignerInfo primarySigner, X509Certificate2Collection extraCerts)
     {
+        if (CountRepositoryCounterSignatures(primarySigner) != 1)
+            return null;
+
         foreach (SignerInfo counterSigner in primarySigner.CounterSignerInfos)
         {
             if (!TryDetectSignatureType(counterSigner, out SignatureType counterType)
                 || counterType != SignatureType.Repository
                 || !IsSupportedHashAlgorithm(
-                    counterSigner.DigestAlgorithm.Value ?? string.Empty))
+                    counterSigner.DigestAlgorithm.Value ?? string.Empty)
+                || !HasValidRepositoryServiceIndex(counterSigner))
             {
                 continue;
             }
@@ -706,15 +786,24 @@ public static class PackageSignatureVerifier
             X509Certificate2? cert = counterSigner.Certificate;
             if (cert is null)
                 continue;
+            SignatureVerificationResult? profileFailure =
+                ValidateCertificateProfile(cert, rejectLifetimeSigning: true);
+            if (profileFailure is not null)
+                continue;
 
             string? publisher = ExtractCN(cert.Subject);
             string thumbprint = cert.GetCertHashString(HashAlgorithmName.SHA256);
-            DateTimeOffset? timestamp = VerifyTimestamp(counterSigner);
+            VerifiedTimestamp? timestamp = VerifyTimestamp(counterSigner);
+            if (timestamp is not null
+                && !IsCertificateValidForTimestamp(cert, timestamp.Value))
+            {
+                timestamp = null;
+            }
 
             SignatureVerificationResult chainResult = VerifyCertificateChain(
                 cert, extraCerts, TrustedRoots.CodeSigningRoots,
                 CodeSigningEkuOid,
-                verificationTime: timestamp);
+                verificationTime: timestamp?.UpperBound);
 
             if (!chainResult.IsValid)
                 continue;
@@ -724,7 +813,7 @@ public static class PackageSignatureVerifier
                 Publisher = publisher,
                 Thumbprint = thumbprint,
                 SignatureType = SignatureType.Repository,
-                Timestamp = timestamp,
+                Timestamp = timestamp?.Time,
             };
         }
 
@@ -734,7 +823,7 @@ public static class PackageSignatureVerifier
     /// <summary>
     /// Decodes and verifies an RFC 3161 timestamp token (which is itself a CMS SignedData).
     /// </summary>
-    private static DateTimeOffset? VerifyTimestampToken(
+    private static VerifiedTimestamp? VerifyTimestampToken(
         byte[] tokenBytes,
         byte[] parentSignature)
     {
@@ -765,20 +854,32 @@ public static class PackageSignatureVerifier
             X509Certificate2? tsCert = timestampCms.SignerInfos[0].Certificate;
             if (tsCert is null)
                 return null;
+            SignatureVerificationResult? profileFailure =
+                ValidateCertificateProfile(tsCert, rejectLifetimeSigning: false);
+            if (profileFailure is not null)
+                return null;
+
+            VerifiedTimestamp timestamp = timestampInfo.Value.Timestamp;
+            if (!IsCertificateValidForTimestamp(tsCert, timestamp))
+                return null;
 
             SignatureVerificationResult tsChain = VerifyCertificateChain(
                 tsCert,
                 timestampCms.Certificates,
                 TrustedRoots.TimestampingRoots,
                 TimestampingEkuOid,
-                verificationTime: timestampInfo.Value.Timestamp);
-            return tsChain.IsValid ? timestampInfo.Value.Timestamp : null;
+                verificationTime: timestamp.UpperBound);
+            return tsChain.IsValid ? timestamp : null;
         }
         catch (CryptographicException)
         {
             return null;
         }
         catch (AsnContentException)
+        {
+            return null;
+        }
+        catch (OverflowException)
         {
             return null;
         }
@@ -809,10 +910,86 @@ public static class PackageSignatureVerifier
         imprint.ThrowIfNotEmpty();
         _ = sequence.ReadInteger();
         DateTimeOffset timestamp = sequence.ReadGeneralizedTime();
+        TimeSpan accuracy = TimeSpan.Zero;
+        if (sequence.HasData
+            && sequence.PeekTag().HasSameClassAndValue(Asn1Tag.Sequence))
+        {
+            accuracy = ReadTimestampAccuracy(sequence.ReadSequence());
+        }
+        if (sequence.HasData
+            && sequence.PeekTag().HasSameClassAndValue(
+                new Asn1Tag(UniversalTagNumber.Boolean)))
+        {
+            _ = sequence.ReadBoolean();
+        }
+        if (sequence.HasData
+            && sequence.PeekTag().HasSameClassAndValue(
+                new Asn1Tag(UniversalTagNumber.Integer)))
+        {
+            _ = sequence.ReadInteger();
+        }
+        if (sequence.HasData
+            && sequence.PeekTag().TagClass == TagClass.ContextSpecific
+            && sequence.PeekTag().TagValue == 0)
+        {
+            _ = sequence.ReadEncodedValue();
+        }
+        if (sequence.HasData
+            && sequence.PeekTag().TagClass == TagClass.ContextSpecific
+            && sequence.PeekTag().TagValue == 1)
+        {
+            _ = sequence.ReadEncodedValue();
+        }
+        sequence.ThrowIfNotEmpty();
+        reader.ThrowIfNotEmpty();
         if (!IsSupportedHashAlgorithm(algorithmOid))
             return null;
 
-        return new TimestampInfo(algorithmOid, messageHash, timestamp);
+        return new TimestampInfo(
+            algorithmOid,
+            messageHash,
+            new VerifiedTimestamp(
+                timestamp,
+                timestamp.Subtract(accuracy),
+                timestamp.Add(accuracy)));
+    }
+
+    private static TimeSpan ReadTimestampAccuracy(AsnReader accuracy)
+    {
+        long ticks = 0;
+        if (accuracy.HasData
+            && accuracy.PeekTag().HasSameClassAndValue(
+                new Asn1Tag(UniversalTagNumber.Integer)))
+        {
+            BigInteger seconds = accuracy.ReadInteger();
+            if (seconds < 0 || seconds > long.MaxValue / TimeSpan.TicksPerSecond)
+                throw new AsnContentException();
+            ticks = checked((long)seconds * TimeSpan.TicksPerSecond);
+        }
+
+        var millisecondsTag = new Asn1Tag(TagClass.ContextSpecific, 0);
+        if (accuracy.HasData
+            && accuracy.PeekTag().HasSameClassAndValue(millisecondsTag))
+        {
+            BigInteger milliseconds = accuracy.ReadInteger(millisecondsTag);
+            if (milliseconds < 1 || milliseconds > 999)
+                throw new AsnContentException();
+            ticks = checked(
+                ticks + (long)milliseconds * TimeSpan.TicksPerMillisecond);
+        }
+
+        var microsecondsTag = new Asn1Tag(TagClass.ContextSpecific, 1);
+        if (accuracy.HasData
+            && accuracy.PeekTag().HasSameClassAndValue(microsecondsTag))
+        {
+            BigInteger microseconds = accuracy.ReadInteger(microsecondsTag);
+            if (microseconds < 1 || microseconds > 999)
+                throw new AsnContentException();
+            ticks = checked(ticks + (long)microseconds * 10);
+        }
+
+        accuracy.ThrowIfNotEmpty();
+        return TimeSpan.FromTicks(ticks);
     }
 
     private static bool VerifyTimestampImprint(
@@ -832,6 +1009,75 @@ public static class PackageSignatureVerifier
                 timestampInfo.MessageHash);
     }
 
+    private static bool IsCertificateValidForTimestamp(
+        X509Certificate2 certificate,
+        VerifiedTimestamp timestamp)
+        => certificate.NotBefore.ToUniversalTime() <= timestamp.LowerBound.UtcDateTime
+            && certificate.NotAfter.ToUniversalTime() >= timestamp.UpperBound.UtcDateTime;
+
+    private static SignatureVerificationResult? ValidateCertificateProfile(
+        X509Certificate2 certificate,
+        bool rejectLifetimeSigning)
+    {
+        try
+        {
+            if (certificate.SignatureAlgorithm.Value
+                is not (Sha256WithRsaOid or Sha384WithRsaOid or Sha512WithRsaOid))
+            {
+                return new SignatureVerificationResult(
+                    SignatureStatus.Invalid,
+                    "Signer certificate uses an unsupported signature algorithm.");
+            }
+
+            using RSA? publicKey = certificate.GetRSAPublicKey();
+            if (publicKey is null || publicKey.KeySize < 2048)
+            {
+                return new SignatureVerificationResult(
+                    SignatureStatus.Invalid,
+                    "Signer certificate does not meet the NuGet V1 RSA key requirement.");
+            }
+
+            if (rejectLifetimeSigning
+                && HasExtendedKeyUsage(certificate, LifetimeSigningEkuOid))
+            {
+                return new SignatureVerificationResult(
+                    SignatureStatus.Invalid,
+                    "Package signer certificate has the Lifetime Signing EKU.");
+            }
+        }
+        catch (CryptographicException)
+        {
+            return new SignatureVerificationResult(
+                SignatureStatus.Invalid,
+                "Signer certificate profile could not be decoded.");
+        }
+
+        return null;
+    }
+
+    private static bool HasExtendedKeyUsage(
+        X509Certificate2 certificate,
+        string usageOid)
+    {
+        foreach (X509Extension extension in certificate.Extensions)
+        {
+            if (extension.Oid?.Value != EnhancedKeyUsageOid)
+                continue;
+
+            var usages = extension as X509EnhancedKeyUsageExtension
+                ?? new X509EnhancedKeyUsageExtension(
+                    new AsnEncodedData(extension.Oid, extension.RawData),
+                    extension.Critical);
+            foreach (Oid usage in usages.EnhancedKeyUsages)
+            {
+                if (usage.Value == usageOid)
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
     internal static SignatureVerificationResult VerifyCertificateChain(
         X509Certificate2 signerCert,
         X509Certificate2Collection extraCerts,
@@ -840,21 +1086,24 @@ public static class PackageSignatureVerifier
         DateTimeOffset? verificationTime = null)
     {
         using X509Chain chain = new();
+        ConfigureCertificateChainPolicy(
+            chain.ChainPolicy,
+            extraCerts,
+            trustedRoots,
+            applicationPolicyOid,
+            verificationTime);
 
-        chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
-        chain.ChainPolicy.CustomTrustStore.AddRange(trustedRoots);
-        chain.ChainPolicy.ExtraStore.AddRange(extraCerts);
-        chain.ChainPolicy.ApplicationPolicy.Add(new Oid(applicationPolicyOid));
-
-        // Disable revocation checking — matches NuGet SDK behavior for offline scenarios
-        chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
-
-        // When a timestamp is available, verify the chain at signing time
-        // so expired certificates are accepted if they were valid when signing occurred
-        if (verificationTime.HasValue)
-            chain.ChainPolicy.VerificationTime = verificationTime.Value.UtcDateTime;
-
-        bool isValid = chain.Build(signerCert);
+        bool isValid;
+        try
+        {
+            isValid = chain.Build(signerCert);
+        }
+        catch (CryptographicException ex)
+        {
+            return new SignatureVerificationResult(
+                SignatureStatus.Invalid,
+                $"Signer certificate chain could not be built: {ex.Message}");
+        }
 
         if (isValid)
         {
@@ -870,6 +1119,23 @@ public static class PackageSignatureVerifier
 
         string reason = string.Join("; ", issues);
         return new SignatureVerificationResult(SignatureStatus.Invalid, reason);
+    }
+
+    internal static void ConfigureCertificateChainPolicy(
+        X509ChainPolicy policy,
+        X509Certificate2Collection extraCerts,
+        X509Certificate2Collection trustedRoots,
+        string applicationPolicyOid,
+        DateTimeOffset? verificationTime = null)
+    {
+        policy.TrustMode = X509ChainTrustMode.CustomRootTrust;
+        policy.CustomTrustStore.AddRange(trustedRoots);
+        policy.ExtraStore.AddRange(extraCerts);
+        policy.ApplicationPolicy.Add(new Oid(applicationPolicyOid));
+        policy.DisableCertificateDownloads = true;
+        policy.RevocationMode = X509RevocationMode.NoCheck;
+        if (verificationTime.HasValue)
+            policy.VerificationTime = verificationTime.Value.UtcDateTime;
     }
 
     /// <summary>
@@ -895,7 +1161,12 @@ public static class PackageSignatureVerifier
     private readonly record struct TimestampInfo(
         string AlgorithmOid,
         byte[] MessageHash,
-        DateTimeOffset Timestamp);
+        VerifiedTimestamp Timestamp);
+
+    private readonly record struct VerifiedTimestamp(
+        DateTimeOffset Time,
+        DateTimeOffset LowerBound,
+        DateTimeOffset UpperBound);
 
     private readonly record struct ZipEndRecord(
         long Position,

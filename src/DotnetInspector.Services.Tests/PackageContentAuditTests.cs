@@ -308,6 +308,7 @@ public sealed class PackageContentAuditTests
 
             Assert.False(result.Complete);
             Assert.Equal(1, result.EligibleFiles);
+            Assert.False(result.EligibleFileCountComplete);
             Assert.Contains(
                 result.Findings,
                 finding =>
@@ -381,8 +382,9 @@ public sealed class PackageContentAuditTests
 
             Assert.False(result.Complete);
             Assert.Equal(
-                PackageContentAudit.MaxTextFiles,
+                PackageContentAudit.MaxTextFiles + 1,
                 result.EligibleFiles);
+            Assert.True(result.EligibleFileCountComplete);
             Assert.Equal(
                 PackageContentAudit.MaxTextFiles,
                 result.ScannedFiles);

@@ -64,7 +64,8 @@ public sealed record PackageContentAuditResult(
     int ScannedFiles,
     long ScannedBytes,
     bool Complete,
-    int ScannedSourceLinkMaps = 0);
+    int ScannedSourceLinkMaps = 0,
+    bool EligibleFileCountComplete = true);
 
 /// <summary>
 /// Finds rendering controls and restore-source declarations in text-bearing package files, and
@@ -127,7 +128,7 @@ public static class PackageContentAudit
 
         string root = Path.GetFullPath(extractPath);
         var collector = new FindingCollector();
-        int eligibleFiles = 0;
+        int eligibleFilesProcessed = 0;
         int scannedFiles = 0;
         long scannedBytes = 0;
 
@@ -136,6 +137,7 @@ public static class PackageContentAudit
                 packageRelativePaths,
                 MaxCandidatePaths,
                 out bool candidateLimitReached);
+        int eligibleFiles = paths.Count(IsTextBearingPath);
         if (candidateLimitReached)
         {
             collector.AddIncomplete(ToolFinding(
@@ -150,7 +152,7 @@ public static class PackageContentAudit
                 break;
             if (!IsTextBearingPath(relativePath))
                 continue;
-            if (eligibleFiles >= MaxTextFiles)
+            if (eligibleFilesProcessed >= MaxTextFiles)
             {
                 collector.AddIncomplete(ToolFinding(
                     relativePath,
@@ -159,7 +161,7 @@ public static class PackageContentAudit
                 break;
             }
 
-            eligibleFiles++;
+            eligibleFilesProcessed++;
             string fullPath;
             try
             {
@@ -257,7 +259,8 @@ public static class PackageContentAudit
             scannedFiles,
             scannedBytes,
             collector.Complete,
-            scannedSourceLinkMaps);
+            scannedSourceLinkMaps,
+            EligibleFileCountComplete: !candidateLimitReached);
     }
 
     private static int AddSourceLinkFindings(

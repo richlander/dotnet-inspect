@@ -129,6 +129,9 @@ legitimate mappings can contain parent references, while HTTP clients can
 canonicalize them to a different repository path. Evidence is bounded around
 the first rendering hazard and is always visually encoded before it reaches a
 terminal.
+When a candidate-path cap prevents an exact eligible-file total, partial-scan
+evidence renders the known denominator with a `+` suffix instead of claiming
+complete cardinality.
 
 When the scan runs, Signals adds `Audit | Findings` with `Detected`, `None`, or
 `Partial`. Registry-backed package Signals also distinguish an
@@ -136,7 +139,11 @@ unlisted exact version and author-, repository-, unsigned-, and unverified
 signature states. Author or repository verification requires both a valid
 code-signing chain and a signed content hash matching the inspected package
 archive. A timestamp can extend signer validity only when its time-stamping
-chain is valid and its message imprint matches that package signer's signature.
+chain and full uncertainty interval are valid and its message imprint matches
+that package signer's signature. NuGet V1 certificate profiles, repository
+service-index identity, and unique repository countersignature cardinality are
+required. Offline custom-root chain construction does not download missing
+certificates.
 These remain observations rather than a trust verdict.
 
 ```bash
@@ -180,8 +187,14 @@ gates signer trust against the signed archive bytes.
 `VerifySignatureFile_TransplantedTimestampIsNotTrusted`, and the malformed
 signed-content tests gate signer usage, timestamp binding, and NuGet signature
 identity.
+`VerifyPackage_InvalidCentralDirectoryBoundsFailsClosed`,
+`ConfigureCertificateChainPolicy_DisablesCertificateDownloads`, and the
+certificate-profile and repository-profile tests gate typed malformed-ZIP
+rejection, offline verification, and NuGet V1 trust constraints.
 `InspectionResultTests.Signed_PreservesUnestablishedVerificationState` gates
-Package Info and `--value signed` tri-state parity.
+Package Info and `--value signed` tri-state parity, while
+`Package_QuietSignedValuePerformsExplicitVerification` gates explicit quiet
+scalar acquisition.
 
 ## Identifier confusion
 

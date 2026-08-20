@@ -527,8 +527,12 @@ public class InspectionResultTests
             Commands.PackageCommand.GetPackageSignedValue(result));
     }
 
-    [Fact]
-    public async Task PackageSignals_IncompleteContentScanReportsPartialEvenWithFindings()
+    [Theory]
+    [InlineData(true, "1 finding; scanned 1/2 text-bearing files")]
+    [InlineData(false, "1 finding; scanned 1/2+ text-bearing files")]
+    public async Task PackageSignals_IncompleteContentScanReportsPartialEvenWithFindings(
+        bool eligibleFileCountComplete,
+        string expectedEvidence)
     {
         var result = new InspectionResult
         {
@@ -543,7 +547,8 @@ public class InspectionResultTests
                 EligibleFiles: 2,
                 ScannedFiles: 1,
                 ScannedBytes: 12,
-                Complete: false),
+                Complete: false,
+                EligibleFileCountComplete: eligibleFileCountComplete),
         };
 
         await AuditSignalBuilder.PopulatePackageAuditAsync(
@@ -555,7 +560,7 @@ public class InspectionResultTests
             result.AuditSignals!,
             value => value.Signal == "Findings");
         Assert.Equal("Partial", signal.Value);
-        Assert.Equal("1 finding; scanned 1/2 text-bearing files", signal.Evidence);
+        Assert.Equal(expectedEvidence, signal.Evidence);
     }
 
     [Theory]
