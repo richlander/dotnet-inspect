@@ -22,11 +22,15 @@ public class TypeTargetedDecodeTests
             ? string.Join(";", v.Select(x => x!.ToString()).OrderBy(s => s, StringComparer.Ordinal))
             : "";
 
-    static Analysis.TypeRef LargestType(Analysis.LibraryBodyIndex full)
+    static Analysis.TypeRef TargetType(Analysis.LibraryBodyIndex full)
         => full.Methods
-            .GroupBy(m => m.DeclaringType)
-            .OrderByDescending(g => g.Count())
-            .First().Key;
+            .Single(method =>
+                method.DeclaringType.Name
+                    == nameof(Analysis.LibraryBodyIndex)
+                && method.Name
+                    == nameof(Analysis.LibraryBodyIndex
+                        .GetDirectCallsByCaller))
+            .DeclaringType;
 
     [Fact]
     public void TypeTargetedBuild_MatchesFullBuild_ForEveryMethodOfTheType()
@@ -37,7 +41,7 @@ public class TypeTargetedDecodeTests
         var fullUnsafety = full.GetUnsafetyOccurrences();
         var fullAlloc = full.GetAllocationOccurrences();
 
-        var target = LargestType(full);
+        var target = TargetType(full);
         var tokens = full.Methods.Where(m => m.DeclaringType.Equals(target)).Select(m => m.MetadataToken).ToArray();
         Assert.NotEmpty(tokens);
 
@@ -60,7 +64,7 @@ public class TypeTargetedDecodeTests
     public void TypeTargetedBuild_DecodesOnlyTheScopedType()
     {
         var full = Analysis.LibraryBodyIndex.Open(SelfPath);
-        var target = LargestType(full);
+        var target = TargetType(full);
         var inScope = full.Methods.Where(m => m.DeclaringType.Equals(target)).Select(m => m.MetadataToken).ToHashSet();
 
         var targeted = Analysis.LibraryBodyIndex.Open(SelfPath, bodyTypeScope: tr => tr.Equals(target));
