@@ -47,6 +47,11 @@ import {
   memberScopeIsActive
 } from "./member-filtering.js";
 import {
+  captureMemberFocus,
+  resolveMemberFocusSnapshot,
+  restoreMemberFocus
+} from "/src/member-focus.ts";
+import {
   buildDependencyGraphMermaid,
   buildTypeGraphMermaid
 } from "./graph-mermaid.js";
@@ -3537,6 +3542,11 @@ function bindEvents() {
     renderPreservingMemberFocus();
   });
   memberFilter?.addEventListener("keydown", event => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      drillOut();
+      return;
+    }
     if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
     event.preventDefault();
     stepMemberNav(event.key === "ArrowDown" ? 1 : -1, true);
@@ -4785,42 +4795,12 @@ function focusFilter() {
   });
 }
 
-function renderPreservingMemberFocus() {
-  const active = document.activeElement;
-  const memberListScrollTop = document.querySelector("#type-list")?.scrollTop;
-  let selector = "";
-  let selection = null;
-  if (active?.id === "member-filter") {
-    selector = "#member-filter";
-    selection = {
-      start: active.selectionStart,
-      end: active.selectionEnd,
-      direction: active.selectionDirection
-    };
-  } else if (active?.id === "clear-member-filter") {
-    selector = "#clear-member-filter";
-  } else if (active?.dataset?.memberKindFilter !== undefined) {
-    selector = `[data-member-kind-filter="${cssEscape(active.dataset.memberKindFilter)}"]`;
-  } else if (active?.dataset?.memberAccessFilter !== undefined) {
-    selector = `[data-member-access-filter="${cssEscape(active.dataset.memberAccessFilter)}"]`;
-  } else if (active?.dataset?.memberTraitFilter !== undefined) {
-    selector = `[data-member-trait-filter="${cssEscape(active.dataset.memberTraitFilter)}"]`;
-  } else if (active?.id === "type-list") {
-    selector = "#type-list";
-  }
-
+function renderPreservingMemberFocus(fallback = null) {
+  const current = captureMemberFocus(document, cssEscape);
+  const preserved = resolveMemberFocusSnapshot(current, fallback);
   render();
-  if (!selector && memberListScrollTop == null) return;
-  requestAnimationFrame(() => {
-    const memberList = document.querySelector("#type-list");
-    if (memberList && memberListScrollTop != null)
-      memberList.scrollTop = memberListScrollTop;
-    const replacement = selector ? document.querySelector(selector) : null;
-    replacement?.focus();
-    if (selection && replacement?.setSelectionRange) {
-      replacement.setSelectionRange(selection.start, selection.end, selection.direction);
-    }
-  });
+  restoreMemberFocus(document, preserved, requestAnimationFrame);
+  return preserved;
 }
 
 function buildStateUrl(base = location.href) {
@@ -5097,9 +5077,7 @@ function runHomeDemo(kind) {
   if (!link) return;
   try { history.pushState(null, "", link); } catch {}
   const loc = parseLocation();
-  restoreWorkspaceFromLocation(loc, {
-    type: loc.type, member: loc.member, overload: loc.overload, section: loc.section
-  });
+  restoreWorkspaceFromLocation(loc, loc);
 }
 
 // Return to the intro/home page without tearing down the warm engine or the loaded packages.
@@ -5269,7 +5247,7 @@ async function loadSelectedMemberDocumentation() {
   state.memberDocumentationKey = signature;
   state.memberDocumentationLoading = true;
   state.memberDocumentationError = "";
-  render();
+  const preservedFocus = renderPreservingMemberFocus();
   try {
     const documentation = await inspectMemberDocumentation(request);
     if (!memberRequestIsCurrent(signature))
@@ -5289,7 +5267,7 @@ async function loadSelectedMemberDocumentation() {
     if (state.memberDocumentationKey === signature) {
       state.memberDocumentationLoading = false;
       if (memberRequestIsCurrent(signature))
-        renderPreservingMemberFocus();
+        renderPreservingMemberFocus(preservedFocus);
     }
   }
 }
@@ -5322,7 +5300,7 @@ async function loadSelectedMemberSource() {
   state.memberSource = null;
   state.memberSourceLoading = true;
   state.memberSourceError = "";
-  render();
+  const preservedFocus = renderPreservingMemberFocus();
   try {
     const result = await inspectMemberSource({
       packageId: state.package.id,
@@ -5353,7 +5331,7 @@ async function loadSelectedMemberSource() {
     if (current) {
       state.memberSourceLoading = false;
       if (memberRequestIsCurrent(signature, false, true))
-        renderPreservingMemberFocus();
+        renderPreservingMemberFocus(preservedFocus);
     }
   }
 }
@@ -5383,7 +5361,7 @@ async function loadSelectedMemberAnnotatedSource() {
   state.memberAnnotatedError = "";
   state.memberAnnotatedFactId = null;
   state.memberAnnotatedNodeIds = [];
-  render();
+  const preservedFocus = renderPreservingMemberFocus();
   try {
     const result = await inspectMemberAnnotatedSource({
       packageId: state.package.id,
@@ -5414,7 +5392,7 @@ async function loadSelectedMemberAnnotatedSource() {
     if (state.memberAnnotatedKey === signature) {
       state.memberAnnotatedLoading = false;
       if (memberRequestIsCurrent(signature, true, true))
-        renderPreservingMemberFocus();
+        renderPreservingMemberFocus(preservedFocus);
     }
   }
 }
@@ -5861,7 +5839,7 @@ async function loadSelectedMemberCallGraph() {
   state.memberCallGraphLoading = true;
   state.memberCallGraphExpanding = false;
   state.memberCallGraphError = "";
-  render();
+  const preservedFocus = renderPreservingMemberFocus();
   try {
     const local = await inspectMemberCallGraph({ ...base, workspace: [] });
     if (seq !== state.memberCallGraphSeq
@@ -5870,7 +5848,7 @@ async function loadSelectedMemberCallGraph() {
     state.memberCallGraph = local;
     state.memberCallGraphLoading = false;
     state.memberCallGraphExpanding = hasOtherLibraries;
-    renderPreservingMemberFocus();
+    renderPreservingMemberFocus(preservedFocus);
     await renderMermaidCallGraph();
 
     if (hasOtherLibraries) {
@@ -5906,11 +5884,11 @@ async function loadSelectedMemberCallGraph() {
     if (state.memberCallGraph) {
       state.memberCallGraphError =
         `Workspace expansion was incomplete: ${String(error?.message || error)}`;
-      renderPreservingMemberFocus();
+      renderPreservingMemberFocus(preservedFocus);
       await renderMermaidCallGraph();
     } else {
       state.memberCallGraphError = String(error?.message || error);
-      renderPreservingMemberFocus();
+      renderPreservingMemberFocus(preservedFocus);
     }
   }
 }
@@ -5927,7 +5905,7 @@ async function loadRuntimeMemberCallGraph(type, overload) {
   state.memberCallGraphLoading = true;
   state.memberCallGraphExpanding = false;
   state.memberCallGraphError = "";
-  render();
+  const preservedFocus = renderPreservingMemberFocus();
   try {
     const graph = await inspectExpandPlatformCallGraph({
       framework: state.package.activeFramework,
@@ -5941,14 +5919,14 @@ async function loadRuntimeMemberCallGraph(type, overload) {
     state.memberCallGraph = graph;
     state.memberCallGraphLoading = false;
     state.memberCallGraphExpanding = false;
-    renderPreservingMemberFocus();
+    renderPreservingMemberFocus(preservedFocus);
     await renderMermaidCallGraph();
   } catch (error) {
     if (seq !== state.memberCallGraphSeq) return;
     state.memberCallGraphLoading = false;
     state.memberCallGraphExpanding = false;
     state.memberCallGraphError = String(error?.message || error);
-    renderPreservingMemberFocus();
+    renderPreservingMemberFocus(preservedFocus);
   }
 }
 
@@ -6274,7 +6252,7 @@ async function drillPlatformNode(node) {
   const seq = state.memberCallGraphSeq;
   state.platformDrillLoading = true;
   state.platformDrillError = "";
-  render();
+  const preservedFocus = renderPreservingMemberFocus();
   try {
     const graph = await inspectExpandPlatformCallGraph({
       framework: state.package.activeFramework,
@@ -6290,14 +6268,14 @@ async function drillPlatformNode(node) {
       title: `${stripArity(node.typeFullName.split(".").pop() ?? "")}.${node.memberName}`
     });
     state.platformDrillLoading = false;
-    renderPreservingMemberFocus();
+    renderPreservingMemberFocus(preservedFocus);
     await renderMermaidCallGraph();
   } catch (error) {
     if (seq !== state.memberCallGraphSeq) return;
     state.platformDrillLoading = false;
     state.platformDrillError =
       `Could not descend into ${node.typeFullName}.${node.memberName}: ${String(error?.message || error)}`;
-    renderPreservingMemberFocus();
+    renderPreservingMemberFocus(preservedFocus);
     await renderMermaidCallGraph();
   }
 }
@@ -6324,7 +6302,7 @@ async function navigateOrDrillPlatform(node) {
   if (!pack) {
     state.platformDrillLoading = true;
     state.platformDrillError = "";
-    render();
+    const preservedFocus = renderPreservingMemberFocus();
     pack = await loadRuntimePack(
       framework,
       () => seq === state.memberCallGraphSeq);
@@ -6332,7 +6310,7 @@ async function navigateOrDrillPlatform(node) {
     state.platformDrillLoading = false;
     if (!pack) {
       state.platformDrillError = state.runtimePackError || "Could not load the .NET runtime pack.";
-      renderPreservingMemberFocus();
+      renderPreservingMemberFocus(preservedFocus);
       await renderMermaidCallGraph();
       return;
     }
@@ -6746,7 +6724,7 @@ async function loadSelectedMemberFacts() {
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
-  render();
+  const preservedFocus = renderPreservingMemberFocus();
   try {
     const result = await inspectMemberFacts({
       packageId: state.package.id,
@@ -6770,7 +6748,7 @@ async function loadSelectedMemberFacts() {
     if (state.memberFactsKey === signature) {
       state.memberFactsLoading = false;
       if (memberRequestIsCurrent(signature))
-        renderPreservingMemberFocus();
+        renderPreservingMemberFocus(preservedFocus);
     }
   }
 }
@@ -6848,6 +6826,7 @@ async function loadPackage(packageId, version, framework, options = {}) {
     if (deep && (deep.type || deep.member)) {
       applyDeepLink(deep);
     } else {
+      resetMemberFilters();
       state.selectedTypeId = packageModel.types[0]?.id || "";
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";

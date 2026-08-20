@@ -119,6 +119,9 @@ test("dependency graph node insertion is bounded", () => {
 });
 
 const appSource = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+const memberFocusSource = readFileSync(
+  new URL("../src/member-focus.ts", import.meta.url),
+  "utf8");
 const graphSource = readFileSync(
   new URL("../src/graph-mermaid.js", import.meta.url),
   "utf8");
@@ -372,7 +375,7 @@ test("member filters retain accessible controls and focus across rerenders", () 
     /id="clear-member-filter"[^>]*aria-label="Clear member filters"/);
   assert.match(
     appSource,
-    /state\.memberDocumentationLoading = false;\s*if \(memberRequestIsCurrent\(signature\)\)\s*renderPreservingMemberFocus\(\)/);
+    /const preservedFocus = renderPreservingMemberFocus\(\);[\s\S]*state\.memberDocumentationLoading = false;\s*if \(memberRequestIsCurrent\(signature\)\)\s*renderPreservingMemberFocus\(preservedFocus\)/);
   assert.match(
     stylesSource,
     /\.type-browser:not\(\.member-nav\) \.namespace-chips, \.pane-footer \{ display: none; \}/);
@@ -381,22 +384,22 @@ test("member filters retain accessible controls and focus across rerenders", () 
     /memberFilter\?\.addEventListener\("input"[\s\S]*renderPreservingMemberFocus\(\)/);
   assert.match(
     appSource,
-    /memberFilter\?\.addEventListener\("keydown"[\s\S]*stepMemberNav/);
+    /memberFilter\?\.addEventListener\("keydown"[\s\S]*event\.key === "Escape"[\s\S]*drillOut\(\)[\s\S]*stepMemberNav/);
   assert.match(
-    appSource,
+    memberFocusSource,
     /active\?\.id === "type-list"[\s\S]*selector = "#type-list"/);
   const platformDrill =
     appSource.match(/async function drillPlatformNode\([\s\S]*?\n}\n\nfunction popPlatformDrill/)?.[0]
     ?? "";
   assert.equal(
-    [...platformDrill.matchAll(/renderPreservingMemberFocus\(\)/g)].length,
+    [...platformDrill.matchAll(/renderPreservingMemberFocus\(preservedFocus\)/g)].length,
     2);
   const platformNavigation =
     appSource.match(/async function navigateOrDrillPlatform\([\s\S]*?\n}\n\n\/\/ Enter the resident runtime pack/)?.[0]
     ?? "";
   assert.match(
     platformNavigation,
-    /state\.platformDrillError = state\.runtimePackError[\s\S]*renderPreservingMemberFocus\(\)/);
+    /const preservedFocus = renderPreservingMemberFocus\(\)[\s\S]*state\.platformDrillError = state\.runtimePackError[\s\S]*renderPreservingMemberFocus\(preservedFocus\)/);
 });
 
 test("shared member views retain scope and filter state", () => {
@@ -432,6 +435,23 @@ test("loaded-package Spotlight selection resets type-specific member filters", (
   assert.match(
     selection,
     /state\.selectedTypeId = null;[\s\S]*resetMemberFilters\(\);[\s\S]*resetMemberSectionState\(\)/);
+});
+
+test("foreground package reload resets filters before selecting its first type", () => {
+  const loadPackage =
+    appSource.match(/async function loadPackage\([\s\S]*?\n}\n\nfunction runtimePackLoaded/)?.[0]
+    ?? "";
+  assert.match(
+    loadPackage,
+    /if \(deep && \(deep\.type \|\| deep\.member\)\) \{[\s\S]*applyDeepLink\(deep\);[\s\S]*\} else \{\s*resetMemberFilters\(\);\s*state\.selectedTypeId = packageModel\.types\[0\]\?\.id \|\| "";/);
+});
+
+test("home demos restore the complete parsed location", () => {
+  const runHomeDemo =
+    appSource.match(/function runHomeDemo\([\s\S]*?\n}\n\n\/\/ Return to the intro/)?.[0]
+    ?? "";
+  assert.match(runHomeDemo, /restoreWorkspaceFromLocation\(loc, loc\)/);
+  assert.doesNotMatch(runHomeDemo, /type: loc\.type/);
 });
 
 test("settings keep a viewport-bounded scroll region", () => {

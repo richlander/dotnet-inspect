@@ -143,7 +143,6 @@ public sealed class BrowserEngineBoundaryTests
             new BrowserMsdlProxyHandler(
                 new RequestRecordingHandler());
         Assert.Throws<ArgumentException>(() => handler.Configure(origin));
-        Assert.Throws<ArgumentException>(() => handler.Configure(origin));
     }
 
     [Fact]

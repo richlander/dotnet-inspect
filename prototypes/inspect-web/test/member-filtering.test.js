@@ -81,13 +81,17 @@ test("member search covers names and signatures", () => {
 });
 
 test("member scope follows the resolved type identity", () => {
-  assert.equal(memberScopeIsActive({
+  const state = {
     atPackageRoot: false,
     lens: "api",
     selectedMemberKey: "",
     memberBrowseTypeId: "Type0",
     selectedTypeId: null,
-  }, "Type0"), true);
+  };
+  assert.equal(memberScopeIsActive(state, "Type0"), true);
+  assert.equal(memberScopeIsActive(state, "Type1"), false);
+  assert.equal(memberScopeIsActive({ ...state, atPackageRoot: true }, "Type0"), false);
+  assert.equal(memberScopeIsActive({ ...state, lens: "metadata" }, "Type0"), false);
 });
 
 test("member navigation enters the nearest edge from no selection", () => {
