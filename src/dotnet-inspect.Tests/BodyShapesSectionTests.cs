@@ -448,6 +448,64 @@ public sealed class BodyShapesSectionTests
     }
 
     [Fact]
+    public async Task TypeKindPredicate_AutoSelectsBodyShapesInDefaultOutput()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "type",
+                    typeof(BodyShapeFixture).FullName!,
+                    "--library",
+                    FixturePath,
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain("Error:", result.Error, StringComparison.Ordinal);
+        Assert.Contains("Body Shapes", result.Output, StringComparison.Ordinal);
+        Assert.Contains(
+            nameof(BodyShapeFixture.PublicCreation),
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ObjectCreationExpression",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("├─", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TypeKindPredicate_ExplicitShapeWarnsThatSelectionIsIgnored()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "type",
+                    typeof(BodyShapeFixture).FullName!,
+                    "--library",
+                    FixturePath,
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                    "--shape",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains(
+            "--where Kind=...",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Contains("├─", result.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Body Shapes", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TypeBodyShapeTokens_ExcludeProjectedExtensionMethods()
     {
         using var source = MetadataSource.Open(FixturePath);

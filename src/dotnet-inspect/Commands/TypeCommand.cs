@@ -241,7 +241,7 @@ public static class TypeCommand
                     // Explicit --shape cannot honor a section/projection query; warn rather than
                     // silently dropping the selection.
                     if (effectiveOptions is { ShapeOutput: true, HasSectionQuery: true, Count: false })
-                        CommandError.WriteWarning("--shape does not support -S/--columns/--fields; selection was ignored.");
+                        CommandError.WriteWarning("--shape does not support -S/--columns/--fields or --where Kind=...; selection was ignored.");
 
                     // Enrich with local XML docs only (source info is in the source command)
                     {
