@@ -77,7 +77,10 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         MethodDefinition liftedMethod,
         MethodIdentity liftedIdentity,
         out MethodIdentity? sourceOwner,
-        out bool sourceGenerated)
+        out bool sourceGenerated,
+        IReadOnlySet<int>? ownerMethodScope = null,
+        Func<TypeRef, bool>? ownerTypeScope = null,
+        bool directlySelectedBody = false)
     {
         sourceOwner = null;
         sourceGenerated = false;
@@ -119,15 +122,43 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         TypeDefinitionHandle ownerType = chain[ownerIndex];
         TypeDefinition ownerDefinition = _reader.GetTypeDefinition(ownerType);
         string ownerName = liftedName[1..close];
+        int liftedToken =
+            MetadataTokens.GetToken(liftedHandle);
+        if (ownerMethodScope is not null
+            && !directlySelectedBody
+            && (!MethodsByName(ownerType).TryGetValue(
+                    ownerName,
+                    out ImmutableArray<MethodDefinitionHandle> scopedOwners)
+                || !scopedOwners.Any(handle =>
+                    ownerMethodScope.Contains(
+                        MetadataTokens.GetToken(handle)))))
+        {
+            return false;
+        }
+        if (ownerTypeScope is not null
+            && !directlySelectedBody
+            && !ownerTypeScope(
+                TypeRefDecoder.Instance.GetTypeFromDefinition(
+                    _reader,
+                    ownerType,
+                    0)))
+        {
+            return false;
+        }
         MethodReferenceKey member =
             _methodReferenceResolver.CreateIdentity(
                 liftedIdentity.Name,
                 liftedIdentity.DeclaringType,
                 liftedMethod.Signature);
         LiftedOwnerGroupEvidence ownerGroup =
-            LiftedOwnerGroup(ownerType, ownerName);
+            LiftedOwnerGroup(
+                ownerType,
+                ownerName,
+                directlySelectedBody
+                    ? null
+                    : ownerMethodScope);
         if (!ownerGroup.TryResolve(
-                MetadataTokens.GetToken(liftedHandle),
+                liftedToken,
                 member,
                 out MethodDefinitionHandle ownerHandle,
                 out bool ownerIsTopLevelEntryPoint))
@@ -155,18 +186,28 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
 
     LiftedOwnerGroupEvidence LiftedOwnerGroup(
         TypeDefinitionHandle ownerType,
-        string ownerName)
+        string ownerName,
+        IReadOnlySet<int>? ownerMethodScope)
     {
         var key = new LiftedOwnerGroupKey(ownerType, ownerName);
+        if (ownerMethodScope is not null)
+        {
+            return BuildLiftedOwnerGroup(
+                key,
+                ownerMethodScope);
+        }
         return _liftedOwnerGroups.GetOrAdd(
             key,
             group => new Lazy<LiftedOwnerGroupEvidence>(
-                () => BuildLiftedOwnerGroup(group),
+                () => BuildLiftedOwnerGroup(
+                    group,
+                    ownerMethodScope: null),
                 LazyThreadSafetyMode.ExecutionAndPublication)).Value;
     }
 
     LiftedOwnerGroupEvidence BuildLiftedOwnerGroup(
-        LiftedOwnerGroupKey group)
+        LiftedOwnerGroupKey group,
+        IReadOnlySet<int>? ownerMethodScope)
     {
         var evidence = new LiftedOwnerGroupEvidence();
         if (!MethodsByName(group.OwnerType).TryGetValue(
@@ -178,6 +219,12 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
 
         foreach (MethodDefinitionHandle ownerHandle in owners)
         {
+            if (ownerMethodScope is not null
+                && !ownerMethodScope.Contains(
+                    MetadataTokens.GetToken(ownerHandle)))
+            {
+                continue;
+            }
             MethodDefinitionHandle executionHandle = ownerHandle;
             TopLevelExecutionMethod execution = default;
             bool topLevel = group.OwnerName == "<Main>$"

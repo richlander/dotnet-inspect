@@ -22,6 +22,130 @@ public sealed class BrowserEngineBoundaryTests
     const int MiB = 1024 * 1024;
 
     [Fact]
+    public void MemberProjection_CarriesFilterFactsWithoutSignatureParsing()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Example",
+            Name = "Widget",
+            Kind = "class",
+        };
+        var member = new ApiMember
+        {
+            Name = "BuildAsync",
+            Kind = "method",
+            Signature = "protected static async Task BuildAsync()",
+            Accessibility = "protected",
+            IsStatic = true,
+            IsUnsafe = true,
+            IsVirtual = true,
+            IsAbstract = true,
+            IsOverride = true,
+            IsExtension = true,
+            IsObsolete = true,
+        };
+
+        BrowserMemberSurface projected = BrowserSurfaceProjection.Member(type, member);
+
+        Assert.Equal("protected", projected.Accessibility);
+        Assert.True(projected.IsStatic);
+        Assert.True(projected.IsUnsafe);
+        Assert.True(projected.IsVirtual);
+        Assert.True(projected.IsAbstract);
+        Assert.True(projected.IsOverride);
+        Assert.True(projected.IsExtension);
+        Assert.True(projected.IsObsolete);
+
+        BrowserMemberSurface ordinary = BrowserSurfaceProjection.Member(
+            type,
+            new ApiMember
+            {
+                Name = "Name",
+                Kind = "property",
+                Signature = "string Name { get; }",
+            });
+
+        Assert.Equal("public", ordinary.Accessibility);
+        Assert.False(ordinary.IsStatic);
+        Assert.False(ordinary.IsObsolete);
+
+        BrowserMemberSurface explicitImplementation = BrowserSurfaceProjection.Member(
+            type,
+            new ApiMember
+            {
+                Name = "IDisposable.Dispose",
+                Kind = "explicit-interface-implementation",
+                Signature = "void IDisposable.Dispose()",
+            });
+
+        Assert.Equal("private", explicitImplementation.Accessibility);
+
+        BrowserMemberSurface finalizer = BrowserSurfaceProjection.Member(
+            type,
+            new ApiMember
+            {
+                Name = "Finalize",
+                Kind = "finalizer",
+                Signature = "~Widget()",
+            });
+
+        Assert.Equal("protected", finalizer.Accessibility);
+    }
+
+    [Fact]
+    public async Task MsdlProxy_RewritesExactSymbolRequestToCurrentSwaApi()
+    {
+        var inner = new RequestRecordingHandler();
+        using var handler = new BrowserMsdlProxyHandler(inner);
+        handler.Configure("https://dotnet-inspect.ca");
+        using var client = new HttpClient(handler);
+
+        using HttpResponseMessage response =
+            await client.GetAsync(
+                "https://msdl.microsoft.com/download/symbols/"
+                + "System.Text.Json.pdb/"
+                + "00112233445566778899AABBCCDDEEFF1/"
+                + "System.Text.Json.pdb",
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            "https://dotnet-inspect.ca/api/msdl/"
+            + "System.Text.Json.pdb/"
+            + "00112233445566778899AABBCCDDEEFF1",
+            inner.RequestUri?.AbsoluteUri);
+    }
+
+    [Fact]
+    public async Task MsdlProxy_LeavesEveryOtherDestinationUnchanged()
+    {
+        var inner = new RequestRecordingHandler();
+        using var handler = new BrowserMsdlProxyHandler(inner);
+        handler.Configure("https://dotnet-inspect.ca");
+        using var client = new HttpClient(handler);
+
+        using HttpResponseMessage response =
+            await client.GetAsync(
+                "https://api.nuget.org/v3/index.json",
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            "https://api.nuget.org/v3/index.json",
+            inner.RequestUri?.AbsoluteUri);
+    }
+
+    [Theory]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("https://dotnet-inspect.ca/path")]
+    [InlineData("https://user@example.com")]
+    public void MsdlProxy_RejectsValuesThatAreNotHttpOrigins(string origin)
+    {
+        using var handler =
+            new BrowserMsdlProxyHandler(
+                new RequestRecordingHandler());
+        Assert.Throws<ArgumentException>(() => handler.Configure(origin));
+    }
+
+    [Fact]
     public void SourceContexts_UseFreshMemoryOnlyPdbStores()
     {
         AssemblyContextSourceQueryContext first =
@@ -2018,6 +2142,21 @@ public sealed class BrowserEngineBoundaryTests
 
         public void Dispose()
         {
+        }
+    }
+
+    sealed class RequestRecordingHandler : HttpMessageHandler
+    {
+        internal Uri? RequestUri { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            RequestUri = request.RequestUri;
+            return Task.FromResult(
+                new HttpResponseMessage(
+                    System.Net.HttpStatusCode.NotFound));
         }
     }
 
