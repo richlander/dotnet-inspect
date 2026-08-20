@@ -32,7 +32,7 @@ public class TypeTargetedDecodeTests
     public void TypeTargetedBuild_MatchesFullBuild_ForEveryMethodOfTheType()
     {
         var full = Analysis.LibraryBodyIndex.Open(SelfPath);
-        var fullCalls = full.GetDirectCallsByCaller();
+        var fullCalls = full.GetDirectCallsByEvidenceMethod();
         var fullUnsafe = full.GetUnsafeEvidenceByMember();
         var fullUnsafety = full.GetUnsafetyOccurrences();
         var fullAlloc = full.GetAllocationOccurrences();
@@ -42,7 +42,7 @@ public class TypeTargetedDecodeTests
         Assert.NotEmpty(tokens);
 
         var targeted = Analysis.LibraryBodyIndex.Open(SelfPath, bodyTypeScope: tr => tr.Equals(target));
-        var tCalls = targeted.GetDirectCallsByCaller();
+        var tCalls = targeted.GetDirectCallsByEvidenceMethod();
         var tUnsafe = targeted.GetUnsafeEvidenceByMember();
         var tUnsafety = targeted.GetUnsafetyOccurrences();
         var tAlloc = targeted.GetAllocationOccurrences();
@@ -65,11 +65,16 @@ public class TypeTargetedDecodeTests
 
         var targeted = Analysis.LibraryBodyIndex.Open(SelfPath, bodyTypeScope: tr => tr.Equals(target));
 
-        // Every decoded direct-call caller belongs to the scoped type; no other type is decoded.
-        foreach (var caller in targeted.GetDirectCallsByCaller().Keys)
-            Assert.Contains(caller, inScope);
+        // Every physical evidence body belongs to the scoped type. Logical
+        // callers may be declared on an enclosing owner type.
+        foreach (var call in targeted.DirectCalls)
+        {
+            Assert.Contains(
+                call.EvidenceMethod.MetadataToken,
+                inScope);
+        }
 
         // At least one method of the target type actually decoded (the type has bodies with calls).
-        Assert.NotEmpty(targeted.GetDirectCallsByCaller());
+        Assert.NotEmpty(targeted.DirectCalls);
     }
 }

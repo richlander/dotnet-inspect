@@ -538,6 +538,13 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                             methodHandle,
                             methodDefinition,
                             scope);
+                    bool directlySelectedBody =
+                        plan.RequestedMethodScope?.Contains(
+                            MetadataTokens.GetToken(methodHandle))
+                            == true
+                        || plan.TypeScope?.Invoke(
+                            method.DeclaringType)
+                            == true;
                     if (_liftedSourceOwnerResolver.TryResolve(
                             methodHandle,
                             methodDefinition,
@@ -546,10 +553,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                             out _,
                             plan.MethodScope,
                             plan.TypeScope,
-                            plan.RequestedMethodScope?.Contains(
-                                MetadataTokens.GetToken(
-                                    methodHandle))
-                                == true)
+                            directlySelectedBody)
                         && sourceOwner is not null)
                     {
                         ownersByBody[method] = sourceOwner;

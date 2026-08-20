@@ -792,6 +792,8 @@ Research overlay bridge, and the application layer:
   `ResolveDeclaredMethod_MapsAsyncOwnerLocalFunctionToOwner`,
   `ResolveDeclaredMethod_MapsAsyncLiftedFunctionSiblingToOwner`,
   `AsyncMoveNextResolution_UsesExplicitInterfaceImplementation`,
+  `DirectCalls_DirectLiftedTypeScopeRetainsDeclaredCaller`,
+  `TypeTargetedBuild_MatchesFullBuild_ForEveryMethodOfTheType`,
   `OptimizationOpportunities_ClassicAsyncTypeDefinitionsAreIndexedOnce`, and
   the top-level local-function tests gate the lifted-owner caches, closure, and
   execution mapping.

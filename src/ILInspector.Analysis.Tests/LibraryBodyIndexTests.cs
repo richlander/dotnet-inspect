@@ -10323,6 +10323,39 @@ public class LibraryBodyIndexTests
 
     [Fact]
     public void
+        DirectCalls_DirectLiftedTypeScopeRetainsDeclaredCaller()
+    {
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        var full = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        DirectCall expected = Assert.Single(
+            full.DirectCalls,
+            call => call.Caller.Name
+                    == nameof(ClassicAsyncSiblingFixture
+                        .AwaitTaskInAsyncLambda)
+                && call.EvidenceMethod.Name.StartsWith(
+                    "<AwaitTaskInAsyncLambda>b__",
+                    StringComparison.Ordinal)
+                && call.Callee.Name == "Start");
+
+        var scoped = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence,
+            bodyTypeScope: type =>
+                type.Equals(
+                    expected.EvidenceMethod.DeclaringType));
+
+        Assert.Contains(
+            scoped.DirectCalls,
+            call => call.Caller == expected.Caller
+                && call.EvidenceMethod == expected.EvidenceMethod
+                && call.Callee == expected.Callee);
+    }
+
+    [Fact]
+    public void
         ResolveDeclaredMethod_DirectAsyncLiftedKickoffScopeReturnsOwner()
     {
         string path =

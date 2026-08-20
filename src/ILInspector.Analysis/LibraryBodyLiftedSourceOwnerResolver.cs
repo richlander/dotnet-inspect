@@ -107,6 +107,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             return false;
         }
         if (ownerTypeScope is not null
+            && !directlySelectedBody
             && !ownerTypeScope(
                 TypeRefDecoder.Instance.GetTypeFromDefinition(
                     _reader,
