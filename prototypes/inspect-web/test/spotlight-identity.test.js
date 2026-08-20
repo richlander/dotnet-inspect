@@ -37,6 +37,7 @@ import {
   graphMemberTargetFromPacket,
   graphMemberTargetFromShare,
   graphOnlyBodyTarget,
+  retainGraphOnlyBodyTarget,
   MARKDOWN_SANITIZE_OPTIONS,
   MAX_SHARE_STATE_CHARACTERS,
   MAX_WORKSPACE_PACKAGES,
@@ -3841,16 +3842,34 @@ test("an exact resident runtime target wins over package identity skew", () => {
     "none");
 });
 
-test("only graph-only overloads retain graph body identity", () => {
-  const target = {
+test("graph-only overloads retain the latest graph-selected body", () => {
+  const getter = {
     memberName: "get_Item",
     selectorKey: "getter-selector"
   };
+  const setter = {
+    memberName: "set_Item",
+    selectorKey: "setter-selector"
+  };
+  const graphOnlyOverload = {
+    graphOnly: true,
+    graphTarget: getter
+  };
+  const publicOverload = {
+    graphOnly: false
+  };
 
+  retainGraphOnlyBodyTarget(graphOnlyOverload, setter);
+  retainGraphOnlyBodyTarget(publicOverload, setter);
+
+  assert.equal(graphOnlyBodyTarget(graphOnlyOverload), setter);
+  assert.equal(graphOnlyBodyTarget(publicOverload), null);
   assert.equal(
-    graphOnlyBodyTarget({ graphOnly: false, graphTarget: target }),
-    null);
-  assert.equal(graphOnlyBodyTarget({ graphOnly: true, graphTarget: target }), target);
+    Object.prototype.hasOwnProperty.call(publicOverload, "graphTarget"),
+    false);
+  assert.match(
+    appSource,
+    /retainGraphOnlyBodyTarget\(group\.overloads\[overloadIndex\], bodyTarget\)/);
   assert.doesNotMatch(
     appSource,
     /group\.overloads\[overloadIndex\]\.graphTarget = bodyTarget/);

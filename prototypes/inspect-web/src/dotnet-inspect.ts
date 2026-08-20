@@ -7491,6 +7491,9 @@ function navigateToMember(
   bodyTarget: BodyTarget | null = null,
 ) {
   invalidateGraphMemberNavigation();
+  if (overloadIndex != null) {
+    retainGraphOnlyBodyTarget(group.overloads[overloadIndex], bodyTarget);
+  }
   activatePackage(pkg);
   state.typeFilter = "";
   state.namespaceFilter = "";

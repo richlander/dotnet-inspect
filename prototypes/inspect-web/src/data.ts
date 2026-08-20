@@ -1109,6 +1109,16 @@ export function graphOnlyBodyTarget<TTarget>(
   return overload?.graphOnly ? overload.graphTarget ?? null : null;
 }
 
+export function retainGraphOnlyBodyTarget<TTarget>(
+  overload: {
+    graphOnly?: boolean;
+    graphTarget?: TTarget | null;
+  } | null | undefined,
+  target: TTarget | null | undefined,
+): void {
+  if (overload?.graphOnly && target) overload.graphTarget = target;
+}
+
 export interface CallGraphDiagnostics {
   incompleteNodes?: number;
   incompleteEdges?: number;
