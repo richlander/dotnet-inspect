@@ -403,8 +403,8 @@ public static class CallGraphInspectionGraphAdapter
                         target,
                         new CallGraphCallSiteEvidence(
                             callSite.Identity,
-                            call.Caller.ModuleVersionId,
-                            call.Caller.MetadataToken,
+                            call.EvidenceMethod.ModuleVersionId,
+                            call.EvidenceMethod.MetadataToken,
                             call.ILOffset,
                             call.OperandToken,
                             call.Kind,
