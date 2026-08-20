@@ -36,6 +36,10 @@
 
 ### Experimental analysis and decompilation
 
+- Rendered body-kind queries can now target one exact `type`, searching only
+  the MethodDef and accessor bodies owned by that type. Existing output
+  projections and `--all` behavior apply without widening to other types in
+  the assembly.
 - Rendered body-kind queries can now target one exact `member` overload. The
   query resolves properties and events to their accessor MethodDef tokens,
   emits round-tripping owner-plus-accessor selectors, supports non-public

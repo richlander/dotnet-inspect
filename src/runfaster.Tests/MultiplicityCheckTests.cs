@@ -49,8 +49,10 @@ public class MultiplicityCheckTests
         // A type-confirmed loop site (its type realized-hot, exact site inlined) is HOT, not cold —
         // labeling it "loop-unexercised" would contradict the type-confirmation. It must read loop-hot.
         var c = Candidate(multiplicity: "Loop");
-        c.TypeConfirmedBytes = 700_000_000;
-        c.TypeConfirmedSiteCount = 1;
+        c.ConfirmType(
+            "System.Object",
+            700_000_000,
+            1);
 
         Assert.True(c.TypeConfirmed);
         Assert.False(c.IsObserved);
