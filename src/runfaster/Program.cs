@@ -452,6 +452,8 @@ static void AddTriageDocumentCandidates(
     List<AllocationCandidate> candidates,
     ref int rows)
 {
+    ValidateEvidenceMethodTokens(root);
+
     if (root.ValueKind == JsonValueKind.Object)
     {
         if (LooksLikeTriageRow(root))
@@ -549,6 +551,24 @@ static void AddTriageCandidates(
             ref rows);
 }
 
+static void ValidateEvidenceMethodTokens(
+    JsonElement element)
+{
+    if (element.ValueKind == JsonValueKind.Object)
+    {
+        ReadOptionalEvidenceMethodToken(element);
+        foreach (var property in element.EnumerateObject())
+            ValidateEvidenceMethodTokens(property.Value);
+        return;
+    }
+
+    if (element.ValueKind != JsonValueKind.Array)
+        return;
+
+    foreach (var item in element.EnumerateArray())
+        ValidateEvidenceMethodTokens(item);
+}
+
 static bool LooksLikeTriageRow(JsonElement element)
 {
     if (element.ValueKind != JsonValueKind.Object)
@@ -610,6 +630,8 @@ static bool TryCreateCandidateFromJson(
         "method_token",
         "MethodToken",
         "methodToken");
+    int? evidenceMethodToken =
+        ReadOptionalEvidenceMethodToken(element);
     string? operandTokenText = GetJsonString(
         element,
         "MetadataToken",
@@ -670,9 +692,61 @@ static bool TryCreateCandidateFromJson(
         candidateId: GetJsonString(element, "Candidate", "candidate"),
         provenance: GetJsonString(element, "Provenance", "provenance"),
         operation: GetJsonString(element, "Operation", "operation"),
-        operandToken: operandToken);
+        operandToken: operandToken,
+        evidenceMethodToken: evidenceMethodToken);
     return true;
 }
+
+static int? ReadOptionalEvidenceMethodToken(
+    JsonElement element)
+{
+    int? result = null;
+    foreach (var property in element.EnumerateObject())
+    {
+        if (!IsEvidenceMethodProperty(property.Name))
+            continue;
+
+        if (property.Value.ValueKind == JsonValueKind.String
+            && string.IsNullOrWhiteSpace(
+                property.Value.GetString()))
+        {
+            continue;
+        }
+
+        string? tokenText = property.Value.ValueKind switch
+        {
+            JsonValueKind.String => property.Value.GetString(),
+            JsonValueKind.Number => property.Value.GetRawText(),
+            _ => null,
+        };
+        if (!TryParseFlexibleInt(tokenText, out int parsed)
+            || !ProgramSupport.IsMethodDefinitionToken(parsed))
+        {
+            throw new InvalidDataException(
+                $"Invalid evidence method token in "
+                + $"'{property.Name}'.");
+        }
+
+        if (result is int existing
+            && existing != parsed)
+        {
+            throw new InvalidDataException(
+                "Conflicting evidence method tokens "
+                + "were supplied.");
+        }
+
+        result = parsed;
+    }
+
+    return result;
+}
+
+static bool IsEvidenceMethodProperty(
+    string name)
+    => name is "Evidence Method"
+        or "evidence_method"
+        or "EvidenceMethod"
+        or "evidenceMethod";
 
 static Guid? ReadOptionalModuleVersionId(
     JsonElement element)
@@ -839,7 +913,10 @@ static bool TryCorrelateInput(
         result.DiagnosticInputs.Add(summary);
         return true;
     }
-    catch (IOException ex)
+    catch (Exception ex) when (
+        ex is IOException
+        or InvalidDataException
+        or OverflowException)
     {
         Console.Error.WriteLine($"Error: cannot read diagnostic input '{input.Path}': {ex.Message}");
         exitCode = 1;
@@ -871,6 +948,11 @@ static bool TryCorrelateNetTrace(
 
         source.Clr.GCAllocationTick += data =>
         {
+            if (data.AllocationAmount64 < 0)
+            {
+                throw new InvalidDataException(
+                    "GC allocation tick reported a negative allocation amount");
+            }
             allocationTicks++;
             result.RecordTypeVolume(data.TypeName, data.AllocationAmount64);
             var stack = traceLog.GetCallStackForEvent(data);
@@ -927,28 +1009,59 @@ static bool TryCorrelateNetTrace(
             if (matchedAddress is null || matchedCandidates.Length == 0)
                 return;
 
-            bool ambiguousIlJoin = matchedCandidates.Length > 1;
-            var methodsRecorded = new HashSet<string>(StringComparer.Ordinal);
+            var attributionPlan =
+                lookup.CreateAttributionPlan(
+                    matchedCandidates);
+            bool ambiguousIlJoin =
+                attributionPlan.Groups.Length > 1;
+            var attributedBytes =
+                lookup.AttributeBytes(
+                    matchedCandidates,
+                    data.AllocationAmount64);
+            var attributedTicks =
+                lookup.AttributeCounts(
+                    attributionPlan,
+                    1);
+            var bytesByMethod =
+                new Dictionary<string, long>(
+                    StringComparer.Ordinal);
             for (int i = 0; i < matchedCandidates.Length; i++)
             {
                 var candidate = matchedCandidates[i];
-                long candidateBytes = ProgramSupport.AttributedBytesForTest(data.AllocationAmount64, matchedCandidates.Length, i);
+                long candidateBytes =
+                    attributedBytes[candidate.Id];
 
-                if (methodsRecorded.Add(candidate.Method))
-                    result.RecordMethodAllocation(candidate.Method, data.TypeName, data.AllocationAmount64);
+                bytesByMethod[candidate.Method] =
+                    checked(
+                        bytesByMethod.GetValueOrDefault(
+                            candidate.Method)
+                        + candidateBytes);
                 MarkAllocationHit(
                     candidate,
                     matchedThisEvent,
                     sourceKind,
                     data.TypeName,
                     candidateBytes,
+                    allocationHits: checked((int)
+                        attributedTicks[
+                            candidate.Id]),
                     ilOffsetJoin: true,
                     exactOffset: candidate.IlOffset == matchedAddress.ILOffset,
                     ambiguousIlJoin);
             }
+            foreach (var (method, methodBytes)
+                     in bytesByMethod)
+            {
+                result.RecordMethodAllocation(
+                    method,
+                    data.TypeName,
+                    methodBytes);
+            }
 
             matchedEvents++;
-            allocationBytes += data.AllocationAmount64;
+            allocationBytes = checked(
+                allocationBytes
+                    + data.AllocationAmount64);
             foreach (var id in matchedThisEvent)
                 matchedRows.Add(id);
         };
@@ -961,7 +1074,7 @@ static bool TryCorrelateNetTrace(
             : $"matched {matchedEvents.ToString(CultureInfo.InvariantCulture)} allocation tick(s) by nearest preceding IL offset, sampled bytes {FormatBytes(allocationBytes)}");
         return true;
     }
-    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or FormatException or InvalidOperationException or NotSupportedException)
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or FormatException or InvalidOperationException or NotSupportedException or OverflowException)
     {
         Console.Error.WriteLine($"Error: cannot read nettrace '{path}': {ex.Message}");
         exitCode = 1;
@@ -991,8 +1104,17 @@ static bool TryCorrelateSpeedscope(
     }
 
     var frames = framesElement.EnumerateArray()
-        .Select(frame => frame.TryGetProperty("name", out var name) ? name.GetString() ?? "" : "")
-        .ToArray();
+        .Select((frame, index) => (
+            Index: index,
+            Name: frame.TryGetProperty(
+                "name",
+                out var name)
+                ? name.GetString() ?? ""
+                : ""));
+    var candidatesByFrame =
+        BuildFrameCandidateIndex(
+            frames,
+            lookup);
 
     int matchedRows = 0;
     int profileCount = 0;
@@ -1001,9 +1123,17 @@ static bool TryCorrelateSpeedscope(
         profileCount++;
         var type = profile.TryGetProperty("type", out var typeElement) ? typeElement.GetString() : null;
         if (string.Equals(type, "evented", StringComparison.OrdinalIgnoreCase))
-            matchedRows += CorrelateEventedSpeedscopeProfile(profile, frames, sourceKind, lookup);
+            matchedRows += CorrelateEventedSpeedscopeProfile(
+                profile,
+                candidatesByFrame,
+                sourceKind,
+                lookup);
         else if (string.Equals(type, "sampled", StringComparison.OrdinalIgnoreCase))
-            matchedRows += CorrelateSampledSpeedscopeProfile(profile, frames, sourceKind, lookup);
+            matchedRows += CorrelateSampledSpeedscopeProfile(
+                profile,
+                candidatesByFrame,
+                sourceKind,
+                lookup);
     }
 
     summary.MatchedRows = matchedRows;
@@ -1079,9 +1209,20 @@ static bool TryCorrelateChromiumTrace(
         return false;
     }
 
-    var frames = ReadChromiumFrames(stackFramesElement);
+    var frames = ReadChromiumFrames(
+        stackFramesElement);
+    var candidatesByFrame =
+        BuildFrameCandidateIndex(
+            frames.Select(static frame =>
+                (
+                    Index: frame.Key,
+                    Name: frame.Value)),
+            lookup);
     var stack = new List<int>();
-    var weightsByFrame = new Dictionary<int, double>();
+    var weightsByCandidate =
+        new Dictionary<
+            int,
+            (AllocationCandidate Candidate, double Weight)>();
     double previousAt = 0;
     bool havePreviousAt = false;
 
@@ -1096,8 +1237,12 @@ static bool TryCorrelateChromiumTrace(
         if (havePreviousAt && at > previousAt)
         {
             var delta = at - previousAt;
-            foreach (var frameIndex in stack)
-                weightsByFrame[frameIndex] = weightsByFrame.GetValueOrDefault(frameIndex) + delta;
+            AccumulateFrameObservation(
+                stack,
+                candidatesByFrame,
+                delta,
+                weightsByCandidate,
+                lookup);
         }
 
         havePreviousAt = true;
@@ -1131,7 +1276,9 @@ static bool TryCorrelateChromiumTrace(
         }
     }
 
-    int matchedRows = MarkFrameWeights(weightsByFrame, frames, sourceKind, lookup);
+    int matchedRows = CommitFrameWeights(
+        weightsByCandidate,
+        sourceKind);
     summary.MatchedRows = matchedRows;
     summary.Observations.Add($"chromium trace events: {traceEventsElement.GetArrayLength().ToString(CultureInfo.InvariantCulture)}");
     summary.Observations.Add(matchedRows == 0
@@ -1140,7 +1287,9 @@ static bool TryCorrelateChromiumTrace(
     return true;
 }
 
-static string[] ReadChromiumFrames(JsonElement stackFramesElement)
+static IReadOnlyDictionary<int, string>
+    ReadChromiumFrames(
+        JsonElement stackFramesElement)
 {
     var frames = new Dictionary<int, string>();
     foreach (var property in stackFramesElement.EnumerateObject())
@@ -1153,13 +1302,7 @@ static string[] ReadChromiumFrames(JsonElement stackFramesElement)
             : "";
     }
 
-    if (frames.Count == 0)
-        return [];
-
-    var result = new string[frames.Keys.Max() + 1];
-    foreach (var (id, name) in frames)
-        result[id] = name;
-    return result;
+    return frames;
 }
 
 static int TryReadFrameId(JsonElement element)
@@ -1176,7 +1319,10 @@ static int TryReadFrameId(JsonElement element)
 
 static int CorrelateEventedSpeedscopeProfile(
     JsonElement profile,
-    string[] frames,
+    IReadOnlyDictionary<
+        int,
+        IReadOnlyList<MethodTextMatch>>
+        candidatesByFrame,
     string sourceKind,
     CandidateLookup lookup)
 {
@@ -1184,7 +1330,10 @@ static int CorrelateEventedSpeedscopeProfile(
         return 0;
 
     var stack = new List<int>();
-    var weightsByFrame = new Dictionary<int, double>();
+    var weightsByCandidate =
+        new Dictionary<
+            int,
+            (AllocationCandidate Candidate, double Weight)>();
     double previousAt = 0;
     bool havePreviousAt = false;
 
@@ -1197,8 +1346,12 @@ static int CorrelateEventedSpeedscopeProfile(
         if (havePreviousAt && at > previousAt)
         {
             var delta = at - previousAt;
-            foreach (var frameIndex in stack)
-                weightsByFrame[frameIndex] = weightsByFrame.GetValueOrDefault(frameIndex) + delta;
+            AccumulateFrameObservation(
+                stack,
+                candidatesByFrame,
+                delta,
+                weightsByCandidate,
+                lookup);
         }
 
         havePreviousAt = true;
@@ -1229,12 +1382,17 @@ static int CorrelateEventedSpeedscopeProfile(
         }
     }
 
-    return MarkFrameWeights(weightsByFrame, frames, sourceKind, lookup);
+    return CommitFrameWeights(
+        weightsByCandidate,
+        sourceKind);
 }
 
 static int CorrelateSampledSpeedscopeProfile(
     JsonElement profile,
-    string[] frames,
+    IReadOnlyDictionary<
+        int,
+        IReadOnlyList<MethodTextMatch>>
+        candidatesByFrame,
     string sourceKind,
     CandidateLookup lookup)
 {
@@ -1245,42 +1403,173 @@ static int CorrelateSampledSpeedscopeProfile(
     if (profile.TryGetProperty("weights", out var weightsElement))
         weights = weightsElement.EnumerateArray().Select(w => w.TryGetDouble(out var value) ? value : 1).ToArray();
 
-    var weightsByFrame = new Dictionary<int, double>();
+    var weightsByCandidate =
+        new Dictionary<
+            int,
+            (AllocationCandidate Candidate, double Weight)>();
     int sampleIndex = 0;
     foreach (var sample in samplesElement.EnumerateArray())
     {
         var weight = weights is not null && sampleIndex < weights.Length ? weights[sampleIndex] : 1;
         sampleIndex++;
-        foreach (var frameElement in sample.EnumerateArray())
+        var frameIndices = sample
+            .EnumerateArray()
+            .Where(static frameElement =>
+                frameElement.TryGetInt32(out _))
+            .Select(static frameElement =>
+                frameElement.GetInt32());
+        AccumulateFrameObservation(
+            frameIndices,
+            candidatesByFrame,
+            weight,
+            weightsByCandidate,
+            lookup);
+    }
+
+    return CommitFrameWeights(
+        weightsByCandidate,
+        sourceKind);
+}
+
+static IReadOnlyDictionary<
+    int,
+    IReadOnlyList<MethodTextMatch>>
+    BuildFrameCandidateIndex(
+        IEnumerable<(int Index, string Name)> frames,
+        CandidateLookup lookup)
+    => frames
+        .Where(static frame =>
+            !string.IsNullOrEmpty(frame.Name))
+        .ToDictionary(
+            static frame =>
+                frame.Index,
+            frame =>
+                (IReadOnlyList<MethodTextMatch>)
+                [.. lookup.FindByMethodText(frame.Name)
+                .Where(static match =>
+                    !match.Candidate.SupersededByTriage)
+                .GroupBy(static match =>
+                    match.Candidate.Id)
+                .Select(static group =>
+                    new MethodTextMatch(
+                        group.First().Candidate,
+                        group.Any(static match =>
+                            match.IsRuntimeBody)))
+                .OrderBy(static match =>
+                    match.Candidate.Id)]);
+
+static void AccumulateFrameObservation(
+    IEnumerable<int> frameIndices,
+    IReadOnlyDictionary<
+        int,
+        IReadOnlyList<MethodTextMatch>>
+        candidatesByFrame,
+    double weight,
+    Dictionary<
+        int,
+        (AllocationCandidate Candidate, double Weight)>
+        weightsByCandidate,
+    CandidateLookup lookup)
+{
+    if (weight <= 0)
+        return;
+
+    var matchedFrames = frameIndices
+        .Select(frame =>
+            candidatesByFrame.TryGetValue(
+                frame,
+                out var matches)
+                ? matches
+                : [])
+        .Where(static matches =>
+            matches.Count > 0)
+        .ToArray();
+    var runtimeBodyCandidateIds =
+        matchedFrames
+            .SelectMany(static matches =>
+                matches)
+            .Where(static match =>
+                match.IsRuntimeBody)
+            .Select(static match =>
+                match.Candidate.Id)
+            .ToHashSet();
+    var observationWeights =
+        new Dictionary<
+            int,
+            (AllocationCandidate Candidate, double Weight)>();
+    foreach (var matches in matchedFrames)
+    {
+        var candidates = matches
+            .Where(match =>
+                match.IsRuntimeBody
+                || !runtimeBodyCandidateIds.Contains(
+                    match.Candidate.Id))
+            .Select(static match =>
+                match.Candidate)
+            .ToArray();
+        if (candidates.Length == 0)
+            continue;
+
+        var frameWeights =
+            lookup.AttributeWeight(
+                candidates,
+                weight);
+        foreach (var candidate in candidates)
         {
-            if (!frameElement.TryGetInt32(out var frame))
-                continue;
-            weightsByFrame[frame] = weightsByFrame.GetValueOrDefault(frame) + weight;
+            double priorWeight =
+                observationWeights.TryGetValue(
+                    candidate.Id,
+                    out var prior)
+                ? prior.Weight
+                : 0;
+            observationWeights[candidate.Id] =
+                (
+                    candidate,
+                    priorWeight
+                        + frameWeights[
+                            candidate.Id]);
         }
     }
 
-    return MarkFrameWeights(weightsByFrame, frames, sourceKind, lookup);
+    foreach (var (_, observation)
+             in observationWeights)
+    {
+        double accumulatedWeight =
+            weightsByCandidate.TryGetValue(
+                observation.Candidate.Id,
+                out var accumulated)
+            ? accumulated.Weight
+            : 0;
+        weightsByCandidate[
+            observation.Candidate.Id] =
+            (
+                observation.Candidate,
+                accumulatedWeight
+                    + observation.Weight);
+    }
 }
 
-static int MarkFrameWeights(
-    IReadOnlyDictionary<int, double> weightsByFrame,
-    string[] frames,
-    string sourceKind,
-    CandidateLookup lookup)
+static int CommitFrameWeights(
+    IReadOnlyDictionary<
+        int,
+        (AllocationCandidate Candidate, double Weight)>
+        weightsByCandidate,
+    string sourceKind)
 {
-    int matchedRows = 0;
-    foreach (var (frame, weight) in weightsByFrame.OrderByDescending(pair => pair.Value))
+    var matchedIds = new HashSet<int>();
+    foreach (var (_, entry) in weightsByCandidate
+                 .OrderBy(static pair =>
+                     pair.Key))
     {
-        if (frame < 0 || frame >= frames.Length || weight <= 0)
-            continue;
-
-        var matchedIds = new HashSet<int>();
-        foreach (var candidate in lookup.FindByMethodText(frames[frame]))
-            MarkHit(candidate, matchedIds, sourceKind, bytes: null, exactOffset: false, weight);
-        matchedRows += matchedIds.Count;
+        MarkHit(
+            entry.Candidate,
+            matchedIds,
+            sourceKind,
+            bytes: null,
+            exactOffset: false,
+            entry.Weight);
     }
-
-    return matchedRows;
+    return matchedIds.Count;
 }
 
 static int CorrelateLine(string line, string sourceKind, CandidateLookup lookup)
@@ -1290,15 +1579,55 @@ static int CorrelateLine(string line, string sourceKind, CandidateLookup lookup)
 
     var bytes = TryReadBytes(line);
     var matchedIds = new HashSet<int>();
+    var suppressedMethodIds = new HashSet<int>();
+    var exactCandidates =
+        new Dictionary<int, AllocationCandidate>();
+    bool rejectedCoordinateObserved = false;
     foreach (Match match in Patterns.TokenOffset().Matches(line))
     {
         if (!TryParseHexInt(match.Groups["token"].Value, out var token)
             || !TryParseHexInt(match.Groups["offset"].Value, out var offset))
             continue;
 
-        foreach (var candidate in lookup.FindByTokenOffset(token, offset))
-            MarkHit(candidate, matchedIds, sourceKind, bytes, exactOffset: true, weight: 1);
+        foreach (var candidate
+                 in lookup.FindRejectedByTokenOffset(
+                     token,
+                     offset))
+        {
+            rejectedCoordinateObserved = true;
+            suppressedMethodIds.Add(candidate.Id);
+        }
+
+        foreach (var candidate
+                 in lookup.FindByTokenOffset(
+                     token,
+                     offset))
+        {
+            if (candidate.SupersededByTriage)
+                continue;
+
+            exactCandidates.TryAdd(
+                candidate.Id,
+                candidate);
+        }
     }
+
+    if (exactCandidates.Count > 0)
+    {
+        MarkAttributedHits(
+            [.. exactCandidates.Values
+                .OrderBy(static candidate =>
+                    candidate.Id)],
+            matchedIds,
+            sourceKind,
+            bytes,
+            exactOffset: true,
+            lookup);
+        return matchedIds.Count;
+    }
+
+    if (rejectedCoordinateObserved)
+        return 0;
 
     var methodMatches = lookup.FindByMethodText(line);
     if (methodMatches.Count > 0)
@@ -1308,16 +1637,85 @@ static int CorrelateLine(string line, string sourceKind, CandidateLookup lookup)
         if (ilMatch.Success && TryParseHexInt(ilMatch.Groups["offset"].Value, out var parsedOffset))
             ilOffset = parsedOffset;
 
-        foreach (var candidate in methodMatches)
-        {
-            if (ilOffset is int offset && candidate.IlOffset >= 0 && candidate.IlOffset != offset)
-                continue;
+        var candidates = methodMatches
+            .GroupBy(static match =>
+                match.Candidate.Id)
+            .Where(group =>
+            {
+                var candidate = group.First().Candidate;
+                if (candidate.SupersededByTriage
+                || suppressedMethodIds.Contains(
+                    candidate.Id))
+                {
+                    return false;
+                }
 
-            MarkHit(candidate, matchedIds, sourceKind, bytes, exactOffset: ilOffset is not null && candidate.IlOffset == ilOffset, weight: 1);
-        }
+                bool hasRuntimeBodyFragment =
+                    group.Any(static match =>
+                        match.IsRuntimeBody);
+                bool hasSourceBodyFragment =
+                    group.Any(static match =>
+                        !match.IsRuntimeBody);
+                if (ilOffset is int explicitOffset
+                    && candidate.MethodToken == 0
+                    && candidate.EvidenceMethodToken is not null
+                    && candidate.IlOffset >= 0
+                    && candidate.IlOffset != explicitOffset)
+                {
+                    return false;
+                }
+                return ilOffset is not int offset
+                    || candidate.IlOffset < 0
+                    || candidate.IlOffset == offset
+                    || !hasRuntimeBodyFragment
+                    || hasSourceBodyFragment;
+            })
+            .Select(static group =>
+                group.First().Candidate)
+            .OrderBy(static candidate =>
+                candidate.Id)
+            .ToArray();
+
+        MarkAttributedHits(
+            candidates,
+            matchedIds,
+            sourceKind,
+            bytes,
+            exactOffset: false,
+            lookup);
     }
 
     return matchedIds.Count;
+}
+
+static void MarkAttributedHits(
+    IReadOnlyList<AllocationCandidate> candidates,
+    HashSet<int> matchedIds,
+    string sourceKind,
+    long? bytes,
+    bool exactOffset,
+    CandidateLookup lookup)
+{
+    var attributedBytes = bytes is long totalBytes
+        ? lookup.AttributeBytes(
+            candidates,
+            totalBytes)
+        : null;
+    var attributedWeights =
+        lookup.AttributeWeight(
+            candidates,
+            1);
+    for (int index = 0; index < candidates.Count; index++)
+    {
+        MarkHit(
+            candidates[index],
+            matchedIds,
+            sourceKind,
+            attributedBytes?[candidates[index].Id],
+            exactOffset,
+            weight: attributedWeights[
+                candidates[index].Id]);
+    }
 }
 
 static void MarkHit(AllocationCandidate candidate, HashSet<int> matchedIds, string sourceKind, long? bytes, bool exactOffset, double weight)
@@ -1328,9 +1726,13 @@ static void MarkHit(AllocationCandidate candidate, HashSet<int> matchedIds, stri
     candidate.RuntimeHits++;
     candidate.RuntimeWeight += weight;
     if (bytes is long value)
-        candidate.RuntimeBytes += value;
+    {
+        candidate.RuntimeBytes = checked(
+            candidate.RuntimeBytes + value);
+    }
     candidate.ObservedSources.Add(sourceKind);
     candidate.ExactOffsetObserved |= exactOffset;
+    candidate.MarkProjectedLibrariesSuperseded();
 }
 
 static void MarkAllocationHit(
@@ -1339,10 +1741,20 @@ static void MarkAllocationHit(
     string sourceKind,
     string? allocatedType,
     long sampledBytes,
+    int allocationHits = 1,
     bool ilOffsetJoin = false,
     bool exactOffset = false,
     bool ambiguousIlJoin = false)
-    => ProgramSupport.MarkAllocationHitForTest(candidate, matchedIds, sourceKind, allocatedType, sampledBytes, ilOffsetJoin, exactOffset, ambiguousIlJoin);
+    => ProgramSupport.MarkAllocationHitForTest(
+        candidate,
+        matchedIds,
+        sourceKind,
+        allocatedType,
+        sampledBytes,
+        allocationHits,
+        ilOffsetJoin,
+        exactOffset,
+        ambiguousIlJoin);
 
 static long? TryReadBytes(string line)
 {
@@ -1350,11 +1762,18 @@ static long? TryReadBytes(string line)
     if (!match.Success)
         return null;
 
-    if (!double.TryParse(match.Groups["value"].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
-        return null;
+    if (!decimal.TryParse(
+            match.Groups["value"].Value,
+            NumberStyles.Float,
+            CultureInfo.InvariantCulture,
+            out var value))
+    {
+        throw new InvalidDataException(
+            $"invalid byte value '{match.Groups["value"].Value}'");
+    }
 
     var unit = match.Groups["unit"].Value.ToLowerInvariant();
-    double multiplier = unit switch
+    decimal multiplier = unit switch
     {
         "b" or "byte" or "bytes" => 1,
         "kb" or "kib" => 1024,
@@ -1363,7 +1782,21 @@ static long? TryReadBytes(string line)
         _ => 1
     };
 
-    return (long)Math.Round(value * multiplier);
+    if (value < 0
+        || value > long.MaxValue / multiplier)
+    {
+        throw new InvalidDataException(
+            $"byte value '{match.Value}' is outside the supported range");
+    }
+
+    decimal rounded = decimal.Round(
+        value * multiplier);
+    if (rounded > long.MaxValue)
+    {
+        throw new InvalidDataException(
+            $"byte value '{match.Value}' is outside the supported range");
+    }
+    return checked((long)rounded);
 }
 
 static bool IsTextLike(string path)
@@ -1441,7 +1874,8 @@ static IEnumerable<AllocationCandidate> SelectCandidates(IReadOnlyList<Allocatio
 
 static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCandidate> candidates, CorrelateOptions options)
 {
-    var observed = candidates.Where(c => c.IsObserved).ToArray();
+    var observed = result.Candidates.Where(c => c.IsObserved).ToArray();
+    var visibleObserved = candidates.Where(c => c.IsObserved).ToArray();
     var cold = result.Candidates
         .Where(c => !c.IsObserved
             && !c.TypeConfirmed
@@ -1462,10 +1896,10 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
         .Select(g => new
         {
             Method = g.Key,
-            Weight = g.Max(c => c.RuntimeWeight),
-            Hits = g.Sum(c => c.RuntimeHits),
-            AllocationHits = g.Max(c => c.EffectiveAllocationHits),
-            AllocationBytes = g.Max(c => c.EffectiveObservedBytes),
+            Weight = g.Sum(c => c.RuntimeWeight),
+            Hits = g.Max(c => c.RuntimeHits),
+            AllocationHits = g.Sum(c => c.EffectiveAllocationHits),
+            AllocationBytes = g.Sum(c => c.EffectiveObservedBytes),
             Rows = g.Count(),
             Shapes = string.Join(", ", g.Select(c => c.AllocationKind).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)),
             Confidence = HighestConfidence(g.Select(c => c.Confidence)),
@@ -1618,7 +2052,9 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
 
     var typeConfirmed = result.Candidates
         .Where(c => c.TypeConfirmed)
-        .GroupBy(c => (c.Method, c.PredictedType))
+        .GroupBy(c => (
+            c.Method,
+            c.TypeConfirmedType))
         .Select(g => g.First())
         .OrderByDescending(c => c.TypeConfirmedBytes)
         .ThenBy(c => c.Method, StringComparer.Ordinal)
@@ -1630,12 +2066,12 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
         Console.WriteLine();
         Console.WriteLine("These static sites had no exact IL frame in the trace — commonly because the JIT inlined the method into its caller — but their predicted allocation type was realized-hot at runtime. The allocated type survives inlining even when the site does not, so the type is confirmed hot; the exact site is not pinned (that is the inlining cost). The volume column is the whole type's realized volume, not bytes attributed to this site; for a type-ambiguous row it is shared across the listed sites, so do not sum it.");
         Console.WriteLine();
-        Console.WriteLine("| Method | Kind | Predicted Type | Realized Type Volume (whole type) | Escape Kind | Site Certainty |");
+        Console.WriteLine("| Method | Kind | Confirmed Type | Realized Type Volume (whole type) | Escape Kind | Site Certainty |");
         Console.WriteLine("| ------ | ---- | -------------- | --------------------------------: | ----------- | -------------- |");
         foreach (var c in typeConfirmed)
         {
             var certainty = c.TypeConfirmedAmbiguous ? $"type-ambiguous ({c.TypeConfirmedSiteCount.ToString(CultureInfo.InvariantCulture)} sites share type)" : "unique predicted type";
-            Console.WriteLine($"| `{Escape(c.Method)}` | {Escape(c.AllocationKind)} | `{Escape(c.PredictedType ?? "")}` | {FormatBytes(c.TypeConfirmedBytes)} | {Escape(c.EscapeKind ?? "")} | {Escape(certainty)} |");
+            Console.WriteLine($"| `{Escape(c.Method)}` | {Escape(c.AllocationKind)} | `{Escape(c.TypeConfirmedType ?? "")}` | {FormatBytes(c.TypeConfirmedBytes)} | {Escape(c.EscapeKind ?? "")} | {Escape(certainty)} |");
         }
         Console.WriteLine();
     }
@@ -1643,8 +2079,8 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
     // Multiplicity predict-vs-observe (#2286): disambiguate a hot site's cause using the static
     // multiplicity prior. The trace confirms the site/type is HOT; the Loop/Once split is a static
     // prior it does not verify — so this describes the likely cause, it does not prescribe a fix.
-    var loopHot = observed.Where(c => c.MultiplicityCheck == "loop-hot").OrderByDescending(c => c.EffectiveObservedBytes).ToArray();
-    var callFrequency = observed.Where(c => c.MultiplicityCheck == "call-frequency").OrderByDescending(c => c.EffectiveObservedBytes).ToArray();
+    var loopHot = visibleObserved.Where(c => c.MultiplicityCheck == "loop-hot").OrderByDescending(c => c.EffectiveObservedBytes).ToArray();
+    var callFrequency = visibleObserved.Where(c => c.MultiplicityCheck == "call-frequency").OrderByDescending(c => c.EffectiveObservedBytes).ToArray();
     int loopUnexercised = result.Candidates.Count(c => c.MultiplicityCheck == "loop-unexercised");
     if (loopHot.Length > 0 || callFrequency.Length > 0 || loopUnexercised > 0)
     {
@@ -1687,7 +2123,7 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
     Console.WriteLine();
     Console.WriteLine("## Observed candidate rows");
     Console.WriteLine();
-    RenderTable(observed.Length > 0 ? observed : candidates, markdown: true);
+    RenderTable(visibleObserved.Length > 0 ? visibleObserved : candidates, markdown: true);
     if (cold.Length > 0)
     {
         Console.WriteLine();
@@ -1874,6 +2310,10 @@ static void WriteCandidateJsonObject(Utf8JsonWriter writer, AllocationCandidate 
         candidate.HasRuntimeCoordinate);
     writer.WriteString("tokenIl", candidate.TokenAndOffset);
     writer.WriteNumber("methodToken", candidate.MethodToken);
+    if (candidate.EvidenceMethodToken is int evidenceMethodToken)
+        writer.WriteNumber(
+            "evidenceMethodToken",
+            evidenceMethodToken);
     writer.WriteNumber("ilOffset", candidate.IlOffset);
     if (candidate.CandidateId is not null)
         writer.WriteString("candidate", candidate.CandidateId);
@@ -1938,6 +2378,9 @@ static void WriteCandidateJsonObject(Utf8JsonWriter writer, AllocationCandidate 
     {
         // Whole-type realized volume, not bytes attributed to this site; shared across sites for a
         // type-ambiguous confirmation, so a consumer must not sum it across rows.
+        writer.WriteString(
+            "typeConfirmedType",
+            candidate.TypeConfirmedType);
         writer.WriteNumber("realizedTypeVolumeBytes", candidate.TypeConfirmedBytes);
         writer.WriteNumber("typeConfirmedSiteCount", candidate.TypeConfirmedSiteCount);
         writer.WriteBoolean("typeConfirmedAmbiguous", candidate.TypeConfirmedAmbiguous);
@@ -2148,6 +2591,11 @@ sealed class MethodAllocationSummary(string method)
     }
 }
 
+readonly record struct TypeConfirmationEvidence(
+    string Type,
+    long Bytes,
+    int SiteCount);
+
 sealed class AllocationCandidate(
     int id,
     string source,
@@ -2180,19 +2628,31 @@ sealed class AllocationCandidate(
     string? candidateId = null,
     string? provenance = null,
     string? operation = null,
-    int? operandToken = null)
+    int? operandToken = null,
+    int? evidenceMethodToken = null)
 {
     public int Id { get; } = id;
     public string Source { get; } = source;
     public string LibraryPath { get; } = libraryPath;
     public string AssemblyName { get; } = assemblyName;
+    public string AssemblyModuleKey { get; } =
+        ProgramSupport.NormalizeModuleKey(
+            assemblyName);
     public Guid? ModuleVersionId { get; } = moduleVersionId;
-    public string UnknownLibraryInputIdentity { get; } =
-        source == "library" && moduleVersionId is null
-            ? ProgramSupport.NormalizeLibraryInputIdentity(
+    public string UnknownBuildInputIdentity { get; } =
+        moduleVersionId is null
+            ? ProgramSupport.NormalizeInputIdentity(
                 libraryPath)
             : "";
     public int MethodToken { get; } = methodToken;
+    public int? EvidenceMethodToken { get; } =
+        evidenceMethodToken;
+    public int RuntimeMethodToken =>
+        EvidenceMethodToken ?? MethodToken;
+    public bool SourceMethodIdentifiesRuntimeBody =>
+        EvidenceMethodToken is null
+        || (MethodToken != 0
+            && EvidenceMethodToken == MethodToken);
     public int IlOffset { get; } = ilOffset;
     public string? CandidateId { get; } = candidateId;
     public string? Provenance { get; } = provenance;
@@ -2232,6 +2692,7 @@ sealed class AllocationCandidate(
     public double RuntimeWeight { get; set; }
     public long RuntimeBytes { get; set; }
     public int AllocationHits { get; set; }
+    public bool AllocationObserved { get; set; }
     public long AllocationBytes { get; set; }
     public int ShapeAllocationHits { get; set; }
     public long ShapeAllocationBytes { get; set; }
@@ -2243,11 +2704,54 @@ sealed class AllocationCandidate(
     // Type-level confirmation (issue #2264): set when this site's exact IL frame did not resolve
     // (commonly because the JIT inlined the method) but its predicted allocated type was realized-hot
     // at runtime. Coarser than a site hit: it confirms the type is hot, not which site.
-    public long TypeConfirmedBytes { get; set; }
-    public int TypeConfirmedSiteCount { get; set; }
+    public TypeConfirmationEvidence?
+        TypeConfirmation { get; private set; }
+    public string? TypeConfirmedType =>
+        TypeConfirmation?.Type;
+    public long TypeConfirmedBytes =>
+        TypeConfirmation?.Bytes ?? 0;
+    public int TypeConfirmedSiteCount =>
+        TypeConfirmation?.SiteCount ?? 0;
     public bool TypeConfirmed => TypeConfirmedBytes > 0 && !IsObserved;
     public bool TypeConfirmedAmbiguous => TypeConfirmedSiteCount > 1;
+    public bool ProjectedByTriage { get; set; }
+    public List<AllocationCandidate> ProjectedLibraries
+        { get; } = [];
     public bool SupersededByTriage { get; set; }
+    public void MarkProjectedLibrariesSuperseded()
+    {
+        foreach (var projectedLibrary
+                 in ProjectedLibraries)
+        {
+            projectedLibrary.SupersededByTriage =
+                true;
+        }
+    }
+    public void ConfirmType(
+        string type,
+        long bytes,
+        int siteCount)
+    {
+        var proposed = new TypeConfirmationEvidence(
+            type,
+            bytes,
+            siteCount);
+        if (TypeConfirmation is not
+            TypeConfirmationEvidence current
+            || proposed.Bytes > current.Bytes
+            || (proposed.Bytes == current.Bytes
+                && proposed.SiteCount
+                    < current.SiteCount)
+            || (proposed.Bytes == current.Bytes
+                && proposed.SiteCount
+                    == current.SiteCount
+                && string.CompareOrdinal(
+                    proposed.Type,
+                    current.Type) < 0))
+        {
+            TypeConfirmation = proposed;
+        }
+    }
     public bool RowAmbiguous => AmbiguousIlOffsetJoin || (ShapeMatched && SameMethodShapeRows > 1 && !ExactOffsetObserved);
     public bool UnambiguousIlOffsetJoinObserved => IlOffsetJoinObserved && !AmbiguousIlOffsetJoin;
     public HashSet<string> ObservedSources { get; } = new(StringComparer.Ordinal);
@@ -2303,19 +2807,22 @@ sealed class AllocationCandidate(
         }
     }
     public double CostWeight => EffectiveObservedBytes * PromotionFactor;
-    public bool IsObserved => RuntimeHits > 0 || AllocationHits > 0;
+    public bool IsObserved =>
+        RuntimeHits > 0
+        || AllocationObserved
+        || AllocationHits > 0;
     public bool HasRuntimeCoordinate =>
-        AssemblyName.Length > 0
-        && (MethodToken & unchecked((int)0xFF000000)) == 0x06000000
-        && (MethodToken & 0x00FFFFFF) != 0
+        AssemblyModuleKey.Length > 0
+        && ProgramSupport.IsMethodDefinitionToken(
+            RuntimeMethodToken)
         && IlOffset >= 0;
-    public string TokenAndOffset => $"{DisplayHelpers.FormatToken(MethodToken)}+{DisplayHelpers.FormatOffset(IlOffset)}";
+    public string TokenAndOffset => $"{DisplayHelpers.FormatToken(RuntimeMethodToken)}+{DisplayHelpers.FormatOffset(IlOffset)}";
     public string Status => SupersededByTriage
         ? "superseded-by-triage"
         : ShapeMatched
         ? RowAmbiguous ? "shape-hot-ambiguous" : "shape-hot"
         : UnambiguousIlOffsetJoinObserved ? "il-offset-hot"
-        : AllocationHits > 0
+        : AllocationObserved || AllocationHits > 0
             ? "allocation-hot"
             : RuntimeHits == 0
         ? TypeConfirmedBytes > 0
@@ -2435,20 +2942,60 @@ sealed class AllocationCandidate(
     };
 }
 
+readonly record struct MethodTextMatch(
+    AllocationCandidate Candidate,
+    bool IsRuntimeBody);
+
+readonly record struct AttributionGroupHash(
+    ulong First,
+    ulong Second);
+
+readonly record struct ByteRemainderState(
+    AttributionGroupHash Hash,
+    int Offset);
+
+sealed record LogicalAttributionGroup(
+    string Key,
+    AllocationCandidate[] Candidates);
+
+sealed record LogicalAttributionPlan(
+    LogicalAttributionGroup[] Groups);
+
 sealed class CandidateLookup
 {
+    const int ByteRemainderStateCapacity = 4096;
     readonly Dictionary<(int Token, int Offset), List<AllocationCandidate>> _byTokenOffset;
+    readonly Dictionary<(int Token, int Offset), AllocationCandidate[]> _rejectedByTokenOffset;
     readonly Dictionary<(string Module, int Token), List<AllocationCandidate>> _byModuleMethodToken;
     readonly HashSet<string> _candidateModules;
-    readonly List<(string Fragment, AllocationCandidate Candidate)> _methodFragments;
+    readonly Dictionary<int, string>
+        _stableAttributionKeys = [];
+    readonly Dictionary<
+        AttributionGroupHash,
+        LinkedListNode<ByteRemainderState>>
+        _byteRemainderStates = [];
+    readonly LinkedList<ByteRemainderState>
+        _byteRemainderLru = [];
+    internal int RemainderStateCount =>
+        _byteRemainderStates.Count;
+    readonly List<(
+        string Fragment,
+        AllocationCandidate Candidate,
+        bool IsRuntimeBody)> _methodFragments;
 
     CandidateLookup(
         Dictionary<(int Token, int Offset), List<AllocationCandidate>> byTokenOffset,
+        Dictionary<(int Token, int Offset), AllocationCandidate[]> rejectedByTokenOffset,
         Dictionary<(string Module, int Token), List<AllocationCandidate>> byModuleMethodToken,
         HashSet<string> candidateModules,
-        List<(string Fragment, AllocationCandidate Candidate)> methodFragments)
+        List<(
+            string Fragment,
+            AllocationCandidate Candidate,
+            bool IsRuntimeBody)> methodFragments)
     {
         _byTokenOffset = byTokenOffset;
+        _rejectedByTokenOffset =
+            rejectedByTokenOffset;
         _byModuleMethodToken = byModuleMethodToken;
         _candidateModules = candidateModules;
         _methodFragments = methodFragments;
@@ -2458,19 +3005,17 @@ sealed class CandidateLookup
     {
         var byTokenOffset = new Dictionary<(int Token, int Offset), List<AllocationCandidate>>();
         var byModuleMethodToken = new Dictionary<(string Module, int Token), List<AllocationCandidate>>();
-        var fragments = new List<(string Fragment, AllocationCandidate Candidate)>();
-        foreach (var group in candidates.GroupBy(static c => (c.Method, c.AllocationKind)))
-        {
-            int count = group.Count();
-            foreach (var candidate in group)
-                candidate.SameMethodShapeRows = count;
-        }
-
+        var fragments = new List<(
+            string Fragment,
+            AllocationCandidate Candidate,
+            bool IsRuntimeBody)>();
         foreach (var candidate in candidates)
         {
-            if (candidate.MethodToken != 0 && candidate.IlOffset >= 0)
+            if (candidate.HasRuntimeCoordinate)
             {
-                var key = (candidate.MethodToken, candidate.IlOffset);
+                var key = (
+                    candidate.RuntimeMethodToken,
+                    candidate.IlOffset);
                 if (!byTokenOffset.TryGetValue(key, out var list))
                 {
                     list = [];
@@ -2480,7 +3025,9 @@ sealed class CandidateLookup
 
                 foreach (var moduleKey in CandidateModuleKeys(candidate))
                 {
-                    var moduleTokenKey = (moduleKey, candidate.MethodToken);
+                    var moduleTokenKey = (
+                        moduleKey,
+                        candidate.RuntimeMethodToken);
                     if (!byModuleMethodToken.TryGetValue(moduleTokenKey, out var tokenList))
                     {
                         tokenList = [];
@@ -2490,29 +3037,212 @@ sealed class CandidateLookup
                 }
             }
 
-            AddFragment(candidate.MethodKey, candidate);
-            AddFragment(candidate.MethodStackKey, candidate);
-            AddFragment(candidate.Method, candidate);
-            AddMethodLeafFragment(candidate.MethodKey, candidate);
-            AddMethodLeafFragment(candidate.MethodStackKey, candidate);
+            bool isRuntimeBody =
+                candidate.SourceMethodIdentifiesRuntimeBody;
+            AddFragment(
+                candidate.MethodKey,
+                candidate,
+                isRuntimeBody);
+            AddFragment(
+                candidate.MethodStackKey,
+                candidate,
+                isRuntimeBody);
+            AddFragment(
+                candidate.Method,
+                candidate,
+                isRuntimeBody);
+            AddMethodLeafFragment(
+                candidate.MethodKey,
+                candidate,
+                isRuntimeBody);
+            AddMethodLeafFragment(
+                candidate.MethodStackKey,
+                candidate,
+                isRuntimeBody);
         }
 
         foreach (var tokenList in byModuleMethodToken.Values)
             tokenList.Sort(static (left, right) => left.IlOffset.CompareTo(right.IlOffset));
 
+        var textSupersessions =
+            new List<TextSupersession>();
+        foreach (var (key, coordinateCandidates)
+                 in byTokenOffset)
+        {
+            var supersessions =
+                PlanTextSupersessions(
+                    coordinateCandidates);
+            if (supersessions.Length == 0)
+                continue;
+
+            textSupersessions.AddRange(
+                supersessions);
+            var supersededIds = supersessions
+                .Select(static supersession =>
+                    supersession.Library.Id)
+                .ToHashSet();
+            coordinateCandidates.RemoveAll(
+                candidate => supersededIds.Contains(
+                    candidate.Id));
+        }
+
+        if (textSupersessions.Count > 0)
+        {
+            var supersededIds = textSupersessions
+                .Select(static supersession =>
+                    supersession.Library.Id)
+                .ToHashSet();
+            foreach (var supersession
+                     in textSupersessions)
+            {
+                supersession.Library
+                    .ProjectedByTriage = true;
+                foreach (var target
+                         in supersession
+                             .TriageCandidates)
+                {
+                    if (!target.ProjectedLibraries
+                        .Any(library =>
+                            library.Id
+                                == supersession
+                                    .Library.Id))
+                    {
+                        target.ProjectedLibraries.Add(
+                            supersession.Library);
+                    }
+                }
+            }
+            foreach (var tokenList
+                     in byModuleMethodToken.Values)
+            {
+                tokenList.RemoveAll(candidate =>
+                    supersededIds.Contains(
+                        candidate.Id));
+            }
+
+            var targetsByLibraryId =
+                textSupersessions
+                    .GroupBy(static supersession =>
+                        supersession.Library.Id)
+                    .ToDictionary(
+                        static group => group.Key,
+                        static group => group
+                            .SelectMany(
+                                static supersession =>
+                                    supersession
+                                        .TriageCandidates)
+                            .DistinctBy(
+                                static target =>
+                                    target.Id)
+                            .ToArray());
+            var redirectedFragments =
+                new List<(
+                    string Fragment,
+                    AllocationCandidate Candidate,
+                    bool IsRuntimeBody)>();
+            foreach (var (
+                         fragment,
+                         candidate,
+                         isRuntimeBody)
+                     in fragments)
+            {
+                if (!targetsByLibraryId.TryGetValue(
+                        candidate.Id,
+                        out var targets))
+                {
+                    redirectedFragments.Add(
+                        (
+                            fragment,
+                            candidate,
+                            isRuntimeBody));
+                    continue;
+                }
+
+                foreach (var target in targets)
+                {
+                    redirectedFragments.Add(
+                        (
+                            fragment,
+                            target,
+                            isRuntimeBody));
+                }
+            }
+            fragments = redirectedFragments
+                .Distinct()
+                .ToList();
+        }
+
+        foreach (var group in candidates
+                     .Where(static candidate =>
+                         !candidate.ProjectedByTriage)
+                     .GroupBy(static candidate => (
+                         candidate.AssemblyModuleKey,
+                         BuildIdentity:
+                            candidate.ModuleVersionId
+                                ?.ToString("D")
+                            ?? candidate
+                                .UnknownBuildInputIdentity,
+                         candidate.RuntimeMethodToken,
+                         MethodWithoutToken:
+                            candidate.RuntimeMethodToken == 0
+                                ? candidate.Method
+                                : "",
+                         candidate.AllocationKind)))
+        {
+            int count = group
+                .Select(candidate =>
+                    StableAttributionKey(candidate))
+                .Distinct(StringComparer.Ordinal)
+                .Count();
+            foreach (var candidate in group)
+                candidate.SameMethodShapeRows = count;
+        }
+
+        var rejectedByTokenOffset =
+            new Dictionary<
+                (int Token, int Offset),
+                AllocationCandidate[]>();
+        foreach (var (key, coordinateCandidates)
+                 in byTokenOffset.ToArray())
+        {
+            if (!HasAmbiguousTextCoordinateIdentity(
+                    coordinateCandidates))
+            {
+                continue;
+            }
+
+            rejectedByTokenOffset.Add(
+                key,
+                [.. coordinateCandidates]);
+            byTokenOffset.Remove(key);
+        }
+
         return new CandidateLookup(
             byTokenOffset,
+            rejectedByTokenOffset,
             byModuleMethodToken,
             [.. byModuleMethodToken.Keys.Select(static key => key.Module)],
             fragments);
 
-        void AddFragment(string value, AllocationCandidate candidate)
+        void AddFragment(
+            string value,
+            AllocationCandidate candidate,
+            bool isRuntimeBody)
         {
             if (value.Length >= 8)
-                fragments.Add((value, candidate));
+            {
+                fragments.Add(
+                    (
+                        value,
+                        candidate,
+                        isRuntimeBody));
+            }
         }
 
-        void AddMethodLeafFragment(string value, AllocationCandidate candidate)
+        void AddMethodLeafFragment(
+            string value,
+            AllocationCandidate candidate,
+            bool isRuntimeBody)
         {
             if (string.IsNullOrWhiteSpace(value))
                 return;
@@ -2530,12 +3260,225 @@ sealed class CandidateLookup
             var declaringType = normalized[..methodDot];
             int typeDot = declaringType.LastIndexOf('.');
             var typeName = typeDot >= 0 ? declaringType[(typeDot + 1)..] : declaringType;
-            AddFragment($"{typeName}.{methodName}", candidate);
+            AddFragment(
+                $"{typeName}.{methodName}",
+                candidate,
+                isRuntimeBody);
         }
     }
 
     public IReadOnlyList<AllocationCandidate> FindByTokenOffset(int token, int offset)
         => _byTokenOffset.TryGetValue((token, offset), out var candidates) ? candidates : [];
+
+    public IReadOnlyDictionary<int, long>
+        AttributeBytes(
+            IReadOnlyList<AllocationCandidate> candidates,
+            long totalBytes)
+        => AttributeLong(
+            CreateAttributionPlan(candidates),
+            totalBytes,
+            groupDomain: 'B',
+            duplicateDomain: 'D');
+
+    public IReadOnlyDictionary<int, long>
+        AttributeCounts(
+            LogicalAttributionPlan plan,
+            long totalCount)
+        => AttributeLong(
+            plan,
+            totalCount,
+            groupDomain: 'T',
+            duplicateDomain: 'U');
+
+    public IReadOnlyDictionary<int, double>
+        AttributeWeight(
+            IReadOnlyList<AllocationCandidate> candidates,
+            double totalWeight)
+    {
+        var plan = CreateAttributionPlan(candidates);
+        var result = candidates.ToDictionary(
+            static candidate => candidate.Id,
+            static _ => 0d);
+        if (plan.Groups.Length == 0)
+            return result;
+
+        double groupWeight =
+            totalWeight / plan.Groups.Length;
+        foreach (var group in plan.Groups)
+        {
+            double candidateWeight =
+                groupWeight
+                / group.Candidates.Length;
+            foreach (var candidate
+                     in group.Candidates)
+            {
+                result[candidate.Id] =
+                    candidateWeight;
+            }
+        }
+        return result;
+    }
+
+    public LogicalAttributionPlan
+        CreateAttributionPlan(
+            IReadOnlyList<AllocationCandidate>
+                candidates)
+        => new(
+            [
+                .. candidates
+                    .GroupBy(
+                        GetStableAttributionKey)
+                    .OrderBy(
+                        static group => group.Key,
+                        StringComparer.Ordinal)
+                    .Select(static group =>
+                        new LogicalAttributionGroup(
+                            group.Key,
+                            [
+                                .. group.OrderBy(
+                                    static candidate =>
+                                        candidate.Id)
+                            ]))
+            ]);
+
+    IReadOnlyDictionary<int, long>
+        AttributeLong(
+            LogicalAttributionPlan plan,
+            long total,
+            char groupDomain,
+            char duplicateDomain)
+    {
+        if (total < 0)
+        {
+            throw new InvalidDataException(
+                "runtime attribution total must be non-negative");
+        }
+        var result =
+            plan.Groups
+                .SelectMany(static group =>
+                    group.Candidates)
+                .ToDictionary(
+                static candidate =>
+                    candidate.Id,
+                static _ => 0L);
+        if (plan.Groups.Length == 0)
+            return result;
+
+        long[] groupShares = SplitLong(
+            total,
+            plan.Groups.Length,
+            ComputeAttributionGroupHash(
+                plan.Groups.Select(static group =>
+                    group.Key),
+                domain: groupDomain));
+        for (int groupIndex = 0;
+             groupIndex < plan.Groups.Length;
+             groupIndex++)
+        {
+            var group = plan.Groups[groupIndex];
+            long[] candidateShares = SplitLong(
+                groupShares[groupIndex],
+                group.Candidates.Length,
+                ComputeAttributionGroupHash(
+                    [
+                        group.Key,
+                        group.Candidates.Length
+                            .ToString(
+                                CultureInfo
+                                    .InvariantCulture)
+                    ],
+                    domain: duplicateDomain));
+            for (int candidateIndex = 0;
+                 candidateIndex
+                    < group.Candidates.Length;
+                 candidateIndex++)
+            {
+                result[group.Candidates[
+                    candidateIndex].Id] =
+                    candidateShares[candidateIndex];
+            }
+        }
+        return result;
+    }
+
+    long[] SplitLong(
+        long total,
+        int count,
+        AttributionGroupHash groupHash)
+    {
+        if (total < 0)
+        {
+            throw new InvalidDataException(
+                "runtime attribution total must be non-negative");
+        }
+        var result = new long[count];
+        long baseBytes = total / count;
+        int remainder = checked((int)(
+            total % count));
+        Array.Fill(result, baseBytes);
+
+        int start = 0;
+        if (_byteRemainderStates.TryGetValue(
+                groupHash,
+                out var node))
+        {
+            start = node.Value.Offset;
+            _byteRemainderLru.Remove(node);
+            _byteRemainderLru.AddLast(node);
+        }
+        if (remainder == 0)
+            return result;
+
+        for (int index = 0;
+             index < remainder;
+             index++)
+        {
+            int recipient =
+                (start + index)
+                % count;
+            result[recipient]++;
+        }
+        int nextOffset =
+            (start + remainder)
+            % count;
+        if (node is not null)
+        {
+            node.Value = new ByteRemainderState(
+                groupHash,
+                nextOffset);
+        }
+        else
+        {
+            if (_byteRemainderStates.Count
+                == ByteRemainderStateCapacity)
+            {
+                var oldest =
+                    _byteRemainderLru.First!;
+                _byteRemainderLru.RemoveFirst();
+                _byteRemainderStates.Remove(
+                    oldest.Value.Hash);
+            }
+            var state = new ByteRemainderState(
+                groupHash,
+                nextOffset);
+            var added =
+                _byteRemainderLru.AddLast(state);
+            _byteRemainderStates.Add(
+                groupHash,
+                added);
+        }
+        return result;
+    }
+
+    public IReadOnlyList<AllocationCandidate>
+        FindRejectedByTokenOffset(
+            int token,
+            int offset)
+        => _rejectedByTokenOffset.TryGetValue(
+            (token, offset),
+            out var candidates)
+            ? candidates
+            : [];
 
     public IReadOnlyList<AllocationCandidate> FindNearestByCodeAddress(TraceCodeAddress address)
     {
@@ -2591,17 +3534,45 @@ sealed class CandidateLookup
         if (search.Length == 0)
             return [];
 
-        int nearest = search.Max(static candidate => candidate.IlOffset);
-        return search.Where(candidate => candidate.IlOffset == nearest).ToArray();
+        return
+        [
+            .. search
+                .GroupBy(static candidate => (
+                    candidate.AssemblyModuleKey,
+                    BuildIdentity:
+                        candidate.ModuleVersionId
+                            ?.ToString("D")
+                        ?? candidate
+                            .UnknownBuildInputIdentity))
+                .SelectMany(static buildCandidates =>
+                {
+                    int nearest = buildCandidates.Max(
+                        static candidate =>
+                            candidate.IlOffset);
+                    return buildCandidates.Where(
+                        candidate =>
+                            candidate.IlOffset
+                                == nearest);
+                })
+        ];
     }
 
-    public List<AllocationCandidate> FindByMethodText(string line)
+    public List<MethodTextMatch> FindByMethodText(string line)
     {
-        var candidates = new List<AllocationCandidate>();
-        foreach (var (fragment, candidate) in _methodFragments)
+        var candidates = new List<MethodTextMatch>();
+        foreach (var (
+                     fragment,
+                     candidate,
+                     isRuntimeBody)
+                 in _methodFragments)
         {
             if (line.Contains(fragment, StringComparison.Ordinal))
-                candidates.Add(candidate);
+            {
+                candidates.Add(
+                    new MethodTextMatch(
+                        candidate,
+                        isRuntimeBody));
+            }
         }
 
         return candidates;
@@ -2609,8 +3580,8 @@ sealed class CandidateLookup
 
     static IEnumerable<string> CandidateModuleKeys(AllocationCandidate candidate)
     {
-        if (ProgramSupport.NormalizeModuleKey(candidate.AssemblyName) is { Length: > 0 } assembly)
-            yield return assembly;
+        if (candidate.AssemblyModuleKey is { Length: > 0 })
+            yield return candidate.AssemblyModuleKey;
         if (string.Equals(
                 candidate.Source,
                 "library",
@@ -2635,12 +3606,245 @@ sealed class CandidateLookup
 
     static bool MethodMatches(AllocationCandidate candidate, string? method)
     {
-        return !string.IsNullOrWhiteSpace(method)
+        return candidate.SourceMethodIdentifiesRuntimeBody
+            && !string.IsNullOrWhiteSpace(method)
             && (method.Contains(candidate.MethodStackKey, StringComparison.Ordinal)
                 || method.Contains(candidate.MethodKey, StringComparison.Ordinal)
                 || method.Contains(candidate.Method, StringComparison.Ordinal));
     }
+
+    string GetStableAttributionKey(
+        AllocationCandidate candidate)
+    {
+        if (_stableAttributionKeys.TryGetValue(
+                candidate.Id,
+                out var key))
+        {
+            return key;
+        }
+
+        key = StableAttributionKey(candidate);
+        _stableAttributionKeys.Add(
+            candidate.Id,
+            key);
+        return key;
+    }
+
+    internal static string StableAttributionKey(
+        AllocationCandidate candidate)
+        => string.Concat(
+            EncodeAttributionPart(
+                candidate.AssemblyModuleKey),
+            EncodeAttributionPart(
+                candidate.ModuleVersionId
+                    ?.ToString("D")
+                ?? ""),
+            EncodeAttributionPart(
+                candidate.RuntimeMethodToken
+                    .ToString(
+                        "X8",
+                        CultureInfo.InvariantCulture)),
+            EncodeAttributionPart(
+                candidate.MethodToken.ToString(
+                    "X8",
+                    CultureInfo.InvariantCulture)),
+            EncodeAttributionPart(
+                candidate
+                    .UnknownBuildInputIdentity),
+            EncodeAttributionPart(
+                candidate.IlOffset.ToString(
+                    "X8",
+                    CultureInfo.InvariantCulture)),
+            EncodeAttributionPart(
+                candidate.Source),
+            EncodeAttributionPart(
+                candidate.Method),
+            EncodeAttributionPart(
+                candidate.AllocationKind),
+            EncodeAttributionPart(
+                candidate.Operation ?? ""),
+            EncodeAttributionPart(
+                candidate.OperandToken
+                    ?.ToString(
+                        "X8",
+                        CultureInfo.InvariantCulture)
+                ?? ""),
+            EncodeAttributionPart(
+                candidate.PredictedType ?? ""),
+            EncodeAttributionPart(
+                candidate.CandidateId ?? ""),
+            EncodeAttributionPart(
+                candidate.Provenance ?? ""));
+
+    static string EncodeAttributionPart(string value)
+        => string.Concat(
+            value.Length.ToString(
+                CultureInfo.InvariantCulture),
+            ":",
+            value);
+
+    static AttributionGroupHash
+        ComputeAttributionGroupHash(
+            IEnumerable<string> keys,
+            char domain)
+    {
+        const ulong firstOffset =
+            14695981039346656037UL;
+        const ulong secondOffset =
+            7809847782465536322UL;
+        const ulong firstPrime =
+            1099511628211UL;
+        const ulong secondPrime =
+            14029467366897019727UL;
+        ulong first = firstOffset ^ domain;
+        ulong second = secondOffset ^ domain;
+        foreach (string key in keys)
+        {
+            foreach (char character in key)
+            {
+                first ^= character;
+                first *= firstPrime;
+                second ^= character;
+                second *= secondPrime;
+            }
+        }
+        return new AttributionGroupHash(
+            first,
+            second);
+    }
+
+    static bool HasAmbiguousTextCoordinateIdentity(
+        IReadOnlyList<AllocationCandidate> candidates)
+    {
+        if (candidates
+            .Select(static candidate =>
+                candidate.AssemblyModuleKey)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Skip(1)
+            .Any())
+        {
+            return true;
+        }
+
+        int buildIdentityCount = candidates
+            .Where(static candidate =>
+                candidate.ModuleVersionId is not null
+                || candidate.UnknownBuildInputIdentity.Length > 0)
+            .Select(static candidate =>
+                candidate.ModuleVersionId is Guid moduleVersionId
+                    ? $"mvid:{moduleVersionId:D}"
+                    : $"path:{candidate.UnknownBuildInputIdentity}")
+            .Distinct(StringComparer.Ordinal)
+            .Take(2)
+            .Count();
+        return buildIdentityCount > 1;
+    }
+
+    static TextSupersession[] PlanTextSupersessions(
+        IReadOnlyList<AllocationCandidate> candidates)
+    {
+        var triageCandidates = candidates
+            .Where(static candidate => string.Equals(
+                candidate.Source,
+                "triage",
+                StringComparison.Ordinal))
+            .ToArray();
+        var result = new List<TextSupersession>();
+        foreach (var library in candidates.Where(
+                     static candidate => string.Equals(
+                         candidate.Source,
+                         "library",
+                         StringComparison.Ordinal)))
+        {
+            var compatibleTriage = triageCandidates
+                .Where(triage =>
+                    string.Equals(
+                        library.AssemblyModuleKey,
+                        triage.AssemblyModuleKey,
+                        StringComparison.OrdinalIgnoreCase)
+                    && PredictedTypesCompatible(
+                        library,
+                        triage))
+                .ToArray();
+            if (compatibleTriage.Length == 0)
+                continue;
+
+            AllocationCandidate[] buildTriage;
+            if (library.ModuleVersionId is Guid moduleVersionId)
+            {
+                buildTriage = compatibleTriage
+                    .Where(triage =>
+                        triage.ModuleVersionId
+                            == moduleVersionId)
+                    .ToArray();
+                if (buildTriage.Length > 0)
+                {
+                    result.Add(
+                        new TextSupersession(
+                            library,
+                            buildTriage));
+                    continue;
+                }
+            }
+
+            buildTriage = compatibleTriage
+                .Where(static triage =>
+                    triage.ModuleVersionId is null)
+                .ToArray();
+            if (buildTriage.Length == 0)
+                continue;
+
+            int compatibleLibraryBuilds =
+                candidates
+                    .Where(candidate =>
+                        string.Equals(
+                            candidate.Source,
+                            "library",
+                            StringComparison.Ordinal)
+                        && string.Equals(
+                            candidate.AssemblyModuleKey,
+                            library.AssemblyModuleKey,
+                            StringComparison
+                                .OrdinalIgnoreCase)
+                        && buildTriage.Any(triage =>
+                            PredictedTypesCompatible(
+                                candidate,
+                                triage)))
+                    .Select(static candidate =>
+                        candidate.ModuleVersionId
+                            is Guid candidateMvid
+                            ? $"mvid:{candidateMvid:D}"
+                            : $"path:{candidate.UnknownBuildInputIdentity}")
+                    .Distinct(
+                        StringComparer.Ordinal)
+                    .Take(2)
+                    .Count();
+            if (compatibleLibraryBuilds == 1)
+            {
+                result.Add(
+                    new TextSupersession(
+                        library,
+                        buildTriage));
+            }
+        }
+
+        return [.. result];
+    }
+
+    static bool PredictedTypesCompatible(
+        AllocationCandidate left,
+        AllocationCandidate right)
+        => (left.PredictedType is { Length: > 0 } leftType
+                && right.MatchesAllocatedType(
+                    leftType))
+            || (right.PredictedType is { Length: > 0 } rightType
+                && left.MatchesAllocatedType(
+                    rightType));
 }
+
+readonly record struct TextSupersession(
+    AllocationCandidate Library,
+    AllocationCandidate[] TriageCandidates);
 
 enum OutputFormat
 {
@@ -2696,12 +3900,18 @@ static partial class Patterns
     [GeneratedRegex(@"\bIL[_ ]?(?:0x)?(?<offset>[0-9a-fA-F]{1,6})\b", RegexOptions.CultureInvariant)]
     public static partial Regex IlOffset();
 
-    [GeneratedRegex(@"\b(?<value>\d+(?:\.\d+)?)\s*(?<unit>bytes?|b|kb|kib|mb|mib|gb|gib)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"(?<![\w.])(?<value>[+-]?\d+(?:\.\d+)?)\s*(?<unit>bytes?|b|kb|kib|mb|mib|gb|gib)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     public static partial Regex Bytes();
 }
 
 internal static class ProgramSupport
 {
+    internal static bool IsMethodDefinitionToken(
+        int token)
+        => (token & unchecked((int)0xFF000000))
+                == 0x06000000
+            && (token & 0x00FFFFFF) != 0;
+
     public static string NormalizeModuleKey(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -2779,6 +3989,7 @@ internal static class ProgramSupport
         string sourceKind,
         string? allocatedType,
         long sampledBytes,
+        int allocationHits = 1,
         bool ilOffsetJoin = false,
         bool exactOffset = false,
         bool ambiguousIlJoin = false)
@@ -2786,33 +3997,33 @@ internal static class ProgramSupport
         if (!matchedIds.Add(candidate.Id))
             return;
 
-        candidate.AllocationHits++;
-        candidate.AllocationBytes += sampledBytes;
+        candidate.AllocationObserved = true;
+        candidate.AllocationHits = checked(
+            candidate.AllocationHits
+                + allocationHits);
+        candidate.AllocationBytes = checked(
+            candidate.AllocationBytes
+                + sampledBytes);
         candidate.RuntimeWeight += sampledBytes;
         candidate.ObservedSources.Add(sourceKind);
         candidate.IlOffsetJoinObserved |= ilOffsetJoin;
         candidate.ExactOffsetObserved |= exactOffset;
         candidate.AmbiguousIlOffsetJoin |= ambiguousIlJoin;
+        candidate.MarkProjectedLibrariesSuperseded();
         if (!string.IsNullOrWhiteSpace(allocatedType))
         {
             candidate.ObservedAllocatedTypes[allocatedType] = candidate.ObservedAllocatedTypes.GetValueOrDefault(allocatedType) + sampledBytes;
             if (candidate.MatchesAllocatedType(allocatedType))
             {
                 candidate.ShapeMatched = true;
-                candidate.ShapeAllocationHits++;
-                candidate.ShapeAllocationBytes += sampledBytes;
+                candidate.ShapeAllocationHits = checked(
+                    candidate.ShapeAllocationHits
+                        + allocationHits);
+                candidate.ShapeAllocationBytes = checked(
+                    candidate.ShapeAllocationBytes
+                        + sampledBytes);
             }
         }
-    }
-
-    public static long AttributedBytesForTest(long totalBytes, int candidateCount, int candidateIndex)
-    {
-        if (candidateCount <= 0)
-            return 0;
-
-        long attributedBytes = totalBytes / candidateCount;
-        long remainderBytes = totalBytes % candidateCount;
-        return attributedBytes + (candidateIndex < remainderBytes ? 1 : 0);
     }
 
     // Backstop the site-join with type-level confirmation (issue #2264). When a small allocating
@@ -2831,13 +4042,34 @@ internal static class ProgramSupport
         if (result.RuntimeTypeVolume.Count == 0)
             return;
 
-        var runtimeByCanon = new Dictionary<string, long>(StringComparer.Ordinal);
-        foreach (var (type, bytes) in result.RuntimeTypeVolume)
+        var runtimeByCanon =
+            new Dictionary<
+                string,
+                (string Type, long Bytes)>(
+                    StringComparer.Ordinal);
+        foreach (var (type, bytes) in result
+                     .RuntimeTypeVolume
+                     .OrderBy(static pair =>
+                         pair.Key,
+                         StringComparer.Ordinal))
         {
             var canon = CanonicalTypeSignature(type, reflection: true);
             if (canon.Length == 0)
                 continue;
-            runtimeByCanon[canon] = runtimeByCanon.GetValueOrDefault(canon) + bytes;
+            if (runtimeByCanon.TryGetValue(
+                    canon,
+                    out var existing))
+            {
+                runtimeByCanon[canon] = (
+                    existing.Type,
+                    checked(existing.Bytes + bytes));
+            }
+            else
+            {
+                runtimeByCanon.Add(
+                    canon,
+                    (type, bytes));
+            }
         }
 
         // Types already explained by a site-observed candidate must not type-confirm other cold
@@ -2846,12 +4078,24 @@ internal static class ProgramSupport
         var observedCanons = new HashSet<string>(StringComparer.Ordinal);
         foreach (var candidate in result.Candidates)
         {
-            if (!candidate.IsObserved || candidate.PredictedType is not { Length: > 0 } type)
+            if (!candidate.IsObserved)
                 continue;
-            var canon = CanonicalTypeSignature(
-                NormalizeProducerTypeName(type));
-            if (canon.Length != 0)
-                observedCanons.Add(canon);
+
+            AddObservedType(
+                candidate.PredictedType);
+            foreach (var projectedLibrary
+                     in candidate.ProjectedLibraries)
+            {
+                AddObservedType(
+                    projectedLibrary.PredictedType);
+            }
+            foreach (string observedType
+                     in candidate
+                         .ObservedAllocatedTypes.Keys)
+            {
+                AddObservedRuntimeType(
+                    observedType);
+            }
         }
 
         var byCanon = new Dictionary<string, List<AllocationCandidate>>(StringComparer.Ordinal);
@@ -2859,24 +4103,31 @@ internal static class ProgramSupport
         {
             if (candidate.IsObserved
                 || candidate.SupersededByTriage
-                || candidate.PredictedType is not { Length: > 0 } type)
+                || candidate.ProjectedByTriage)
                 continue;
-            var canon = CanonicalTypeSignature(
-                NormalizeProducerTypeName(type));
-            if (canon.Length == 0 || observedCanons.Contains(canon))
-                continue;
-            if (!byCanon.TryGetValue(canon, out var list))
+
+            AddCandidateForType(
+                candidate,
+                candidate.PredictedType);
+            foreach (var projectedLibrary
+                     in candidate.ProjectedLibraries)
             {
-                list = [];
-                byCanon[canon] = list;
+                AddCandidateForType(
+                    candidate,
+                    projectedLibrary.PredictedType);
             }
-            list.Add(candidate);
         }
 
         foreach (var (canon, candidates) in byCanon)
         {
-            if (!runtimeByCanon.TryGetValue(canon, out var volume) || volume < TypeConfirmMinBytes)
+            if (!runtimeByCanon.TryGetValue(
+                    canon,
+                    out var confirmation)
+                || confirmation.Bytes
+                    < TypeConfirmMinBytes)
+            {
                 continue;
+            }
 
             var plan = PlanTypeConfirmationSites(candidates);
             if (plan.SiteCount > TypeConfirmMaxSites)
@@ -2886,9 +4137,61 @@ internal static class ProgramSupport
                 candidate.SupersededByTriage = true;
             foreach (var candidate in plan.Candidates)
             {
-                candidate.TypeConfirmedBytes = volume;
-                candidate.TypeConfirmedSiteCount = plan.SiteCount;
+                candidate.ConfirmType(
+                    confirmation.Type,
+                    confirmation.Bytes,
+                    plan.SiteCount);
+                candidate
+                    .MarkProjectedLibrariesSuperseded();
             }
+        }
+
+        void AddCandidateForType(
+            AllocationCandidate candidate,
+            string? type)
+        {
+            if (type is not { Length: > 0 })
+                return;
+
+            var canon = CanonicalTypeSignature(
+                NormalizeProducerTypeName(type));
+            if (canon.Length == 0
+                || observedCanons.Contains(canon))
+            {
+                return;
+            }
+            if (!byCanon.TryGetValue(
+                    canon,
+                    out var list))
+            {
+                list = [];
+                byCanon[canon] = list;
+            }
+            if (!list.Any(existing =>
+                    existing.Id == candidate.Id))
+            {
+                list.Add(candidate);
+            }
+        }
+
+        void AddObservedType(string? type)
+        {
+            if (type is not { Length: > 0 })
+                return;
+
+            var canon = CanonicalTypeSignature(
+                NormalizeProducerTypeName(type));
+            if (canon.Length != 0)
+                observedCanons.Add(canon);
+        }
+
+        void AddObservedRuntimeType(string type)
+        {
+            var canon = CanonicalTypeSignature(
+                type,
+                reflection: true);
+            if (canon.Length != 0)
+                observedCanons.Add(canon);
         }
     }
 
@@ -2899,10 +4202,15 @@ internal static class ProgramSupport
         var supersededLibraries = new List<AllocationCandidate>();
         int siteCount = 0;
 
-        foreach (var candidate in candidates.Where(static candidate =>
-                     !candidate.HasRuntimeCoordinate))
+        foreach (var group in candidates
+                     .Where(static candidate =>
+                         !candidate.HasRuntimeCoordinate)
+                     .GroupBy(
+                         CandidateLookup
+                             .StableAttributionKey,
+                         StringComparer.Ordinal))
         {
-            selected.Add(candidate);
+            selected.AddRange(group);
             siteCount++;
         }
 
@@ -2910,8 +4218,8 @@ internal static class ProgramSupport
                      .Where(static candidate =>
                          candidate.HasRuntimeCoordinate)
                      .GroupBy(static candidate => (
-                         Assembly: NormalizeModuleKey(candidate.AssemblyName),
-                         candidate.MethodToken,
+                         Assembly: candidate.AssemblyModuleKey,
+                         candidate.RuntimeMethodToken,
                          candidate.IlOffset)))
         {
             var coordinateCandidates = coordinateGroup.ToArray();
@@ -2929,8 +4237,7 @@ internal static class ProgramSupport
                     candidate.Source,
                     "triage",
                     StringComparison.Ordinal))
-                .GroupBy(static candidate =>
-                    candidate.ModuleVersionId)
+                .GroupBy(GetBuildKey)
                 .ToArray();
             var libraryGroups = coordinateCandidates
                 .Where(candidate => string.Equals(
@@ -2938,7 +4245,7 @@ internal static class ProgramSupport
                     "library",
                     StringComparison.Ordinal)
                     && !supersededIds.Contains(candidate.Id))
-                .GroupBy(GetLibraryBuildKey)
+                .GroupBy(GetBuildKey)
                 .ToArray();
             var otherCandidates = coordinateCandidates
                 .Where(static candidate =>
@@ -2999,25 +4306,27 @@ internal static class ProgramSupport
                 candidate.Source,
                 "triage",
                 StringComparison.Ordinal))
-            .GroupBy(static candidate =>
-                candidate.ModuleVersionId)
+            .GroupBy(GetBuildKey)
             .ToArray();
         var libraryGroups = candidates
             .Where(static candidate => string.Equals(
                 candidate.Source,
                 "library",
                 StringComparison.Ordinal))
-            .GroupBy(GetLibraryBuildKey)
+            .GroupBy(GetBuildKey)
             .ToList();
         var superseded = new List<AllocationCandidate>();
 
         foreach (var triageGroup in triageGroups.Where(
-                     static group => group.Key is not null))
+                     static group =>
+                         group.Key.ModuleVersionId
+                             is not null))
         {
             int matchingLibrary = libraryGroups.FindIndex(
                 libraryGroup =>
                     libraryGroup.Key.ModuleVersionId ==
-                        triageGroup.Key);
+                        triageGroup.Key
+                            .ModuleVersionId);
             if (matchingLibrary < 0)
                 continue;
 
@@ -3029,7 +4338,8 @@ internal static class ProgramSupport
 
         bool oneResolvableLegacySite =
             triageGroups.Length == 1
-            && triageGroups[0].Key is null
+            && triageGroups[0].Key.ModuleVersionId
+                is null
             && libraryGroups.Count == 1
             && candidates.All(static candidate =>
                 candidate.Source is "triage" or "library");
@@ -3101,13 +4411,20 @@ internal static class ProgramSupport
                         candidate.Source,
                         "library",
                         StringComparison.Ordinal)
+                    && matchedCandidates.Any(triage =>
+                        string.Equals(
+                            triage.Source,
+                            "triage",
+                            StringComparison.Ordinal)
+                        && triage.IlOffset ==
+                            candidate.IlOffset)
                     && candidate.MatchesAllocatedType(
                         allocatedType)))
                 .DistinctBy(static candidate => candidate.Id)
                 .ToArray());
     }
 
-    static LibraryBuildKey GetLibraryBuildKey(
+    static BuildKey GetBuildKey(
         AllocationCandidate candidate)
     {
         if (candidate.ModuleVersionId is Guid moduleVersionId)
@@ -3115,19 +4432,22 @@ internal static class ProgramSupport
 
         return new(
             null,
-            candidate.UnknownLibraryInputIdentity);
+            candidate.UnknownBuildInputIdentity);
     }
 
-    public static string NormalizeLibraryInputIdentity(
-        string libraryPath)
+    public static string NormalizeInputIdentity(
+        string inputPath)
     {
-        string path = Path.GetFullPath(libraryPath);
+        if (string.IsNullOrWhiteSpace(inputPath))
+            return "";
+
+        string path = Path.GetFullPath(inputPath);
         if (OperatingSystem.IsWindows())
             path = path.ToUpperInvariant();
         return path;
     }
 
-    readonly record struct LibraryBuildKey(
+    readonly record struct BuildKey(
         Guid? ModuleVersionId,
         string UnknownInputPath);
 

@@ -157,7 +157,16 @@ The projection owns everything a host must not re-invent in JavaScript:
   `FindFocusCalleeRow` maps a physical call occurrence from the selected member
   to that stable logical edge row. Exact catalog call-site storage wins; the
   assembly-local fallback uses the same typed structural identity as projection.
-  A missing and an ambiguous mapping are distinct outcomes.
+  `FindNode` likewise maps a `MethodIdentity` to a node, preferring exact
+  definition evidence, including the exact definition that supplied body facts
+  for a detached call-site occurrence, before the typed structural fallback
+  used by evidence-free projections. It never structurally crosses versioned
+  catalog evidence. Hosts use that method to join non-topological annotations
+  without reconstructing member identity from labels. Missing and ambiguous
+  mappings remain distinct outcomes. `FindNodePrefersExactDefinitionEvidence`,
+  `FindNodeUsesRetainedCallSiteDefinitionEvidence`,
+  `FindNodeUsesTypedStructuralFallback`, and
+  `FindNodeDoesNotCrossVersionedEvidence` gate that contract.
 - **Cycles and duplicates.** The bounded tree marks re-encountered members
   `AlreadyShown`; the projection collapses them onto the existing node and still
   records the edge, so a cycle `A → B → A` is two edges between two nodes.

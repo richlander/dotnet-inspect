@@ -480,11 +480,11 @@ Research projection may use that provenance to drive the implementation-diff
 presentation established by #4092. C# rendering must not become a second clone
 verifier, and this first slice introduces no Decompiler dependency.
 
-PR #4048's `body-shape` search is a complementary discovery surface. It finds
+The `Body Shapes` query is a complementary discovery surface. It finds
 occurrences of one exact stable rendered-C# syntax kind and returns source
 extents; clone comparison measures a whole body's normalized IL/CFG
 relationship. A remediation workflow can use a body-shape result to identify or
 explain a risky construct, then use clone discovery to expand from a confirmed
-seed. Any future user-facing clone search should align with `body-shape` on
+seed. Any future user-facing clone search should align with `Body Shapes` on
 stable member selectors, MethodDef tokens, explicit failures, limits, and
 structured output, while preserving the separate evidence planes.

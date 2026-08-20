@@ -69,6 +69,50 @@ regions) are folded in from the body scan during index build.
 A node renders a signal only when its count is non-zero (or, for `EvidenceIL`, when
 offsets exist), so requesting `--fields Alloc` annotates only the allocating nodes.
 
+### Performance opportunities
+
+`Async` / `AsyncAlternatives` is an opt-in node cue for the number of
+`sync-call-in-async` opportunities attributed to a method. Unlike the objective
+body signals above, this is a Performance Triage judgment. The graph therefore
+shows only `async alternatives N`; `Performance Triage` remains the canonical
+surface for the candidate, exact Finding provenance, physical evidence
+MethodDef/IL coordinate, and proposed replacement.
+
+The cue joins the opportunity's source `MethodIdentity` through
+`CallGraphProjection.FindNode`, which prefers retained definition evidence and
+then uses the typed structural identity of an evidence-free projection. The
+candidate set includes every indexed assembly participating in a cross-assembly
+graph and applies the same generated-code suppression as Performance Triage.
+This matters for classic async methods: their physical evidence can live in
+generated `MoveNext`. The source node receives the cue without inventing a
+logical edge that is absent from the source method's IL.
+`CallGraphSection_ProjectsAsyncAlternativeOpportunities` and
+`CallGraphSection_ProjectsAsyncAlternativesAcrossAssemblies`, and
+`CallGraphSection_OmitsSuppressedGeneratedAsyncAlternatives` gate that
+end-to-end behavior.
+
+Field aliases and wildcard patterns are resolved once through Markout's
+projection matcher before labels are built. Objective signals and opportunity
+cues therefore interpret a request such as `--fields "A*"` consistently;
+`CallGraphSection_ResolvesAllWildcardSignalFields` gates the shared
+resolution. An explicit field projection that matches only another selected
+section does not restore Call Graph's default cues;
+`CallGraphSection_DoesNotDefaultCuesForAnotherSectionsField` gates that
+distinction.
+
+`--columns` remains a tabular projection. Supplying it still makes the request
+explicit, so Call Graph does not restore default cues, but column patterns never
+resolve graph fields or authorize opportunity analysis.
+`CallGraphColumns_DoNotEnableScopedGraphOpportunities` and
+`CallGraphSection_ColumnsDoNotProjectGraphFields` gate that boundary.
+
+Opportunity analysis in cross-assembly graph scope sessions is enabled only
+when the resolved graph fields include `Async` / `AsyncAlternatives`.
+Selecting `Performance Triage` alongside an unprojected Call Graph enables the
+target member's canonical triage analysis without multiplying that work across
+the graph scope; `CallGraphScopes_DoNotInheritPerformanceTriageOpportunities`
+gates the cost boundary.
+
 With the exception fields projected, the caller half of `Call Graph` answers
 exception-reachability questions directly:
 
