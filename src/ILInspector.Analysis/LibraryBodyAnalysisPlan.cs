@@ -1,10 +1,12 @@
+using System.Collections.Immutable;
+
 namespace ILInspector.Analysis;
 
 internal sealed record LibraryBodyAnalysisPlan(
     LibraryBodyAnalysisFeatures Features,
     IReadOnlySet<int>? MethodScope,
     Func<TypeRef, bool>? TypeScope,
-    IReadOnlyDictionary<int, TypeRef>?
+    IReadOnlyDictionary<int, ImmutableArray<TypeRef>>?
         TypeScopeEvidenceSources = null,
     IReadOnlySet<int>? RequestedMethodScope = null)
 {
