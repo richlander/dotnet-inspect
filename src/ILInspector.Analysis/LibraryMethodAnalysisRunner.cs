@@ -392,7 +392,13 @@ internal sealed class LibraryMethodAnalysisRunner(
                 result.Signals = signals;
                 result.HasSignals = true;
             }
-            if (includeOpportunities)
+            bool collectScopedOpportunities =
+                includeOpportunities
+                && (bodyTypeScope is null
+                    || result.DeclaredMethod is null
+                    || bodyTypeScope(
+                        result.DeclaredMethod.DeclaringType));
+            if (collectScopedOpportunities)
             {
                 var methodAttributes =
                     methodDefinition.GetCustomAttributes();
@@ -471,7 +477,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                     hasUnsafeApiMember
                     || hasUnsafeSignature
                     || hasUnsafeLocals);
-            if (includeOpportunities)
+            if (collectScopedOpportunities)
             {
                 MethodIdentity? asyncSource = null;
                 try
