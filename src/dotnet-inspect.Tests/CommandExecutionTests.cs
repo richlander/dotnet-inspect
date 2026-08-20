@@ -3523,7 +3523,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_DeferredExactTypePreservesBodyKindFilterValidation()
+    public async Task Router_DeferredExactTypePreservesBodyKindQuery()
     {
         string[] arguments =
         [
@@ -3542,37 +3542,36 @@ public partial class CommandExecutionTests
         var deferred = await RunAppAsync(arguments);
 
         Assert.Equal(direct, deferred);
-        Assert.Equal(1, deferred.Exit);
-        Assert.Empty(deferred.Output);
-        Assert.Contains("Field 'Kind' is not filterable", deferred.Error);
+        Assert.Equal(0, deferred.Exit);
+        Assert.Contains("InvocationExpression", deferred.Output);
     }
 
     [Fact]
-    public async Task Router_DeferredExactTypeStaticDiscoveryPreservesBodyKindFilterValidation()
+    public async Task Router_DeferredStaticDiscoveryWithBodyKindStaysOffline()
     {
-        string[] arguments =
-        [
-            "System.Collections.Immutable.ImmutableArray<T>.Builder",
-            "--platform",
-            "System.Collections.Immutable",
-            "--where",
-            "Kind=InvocationExpression",
-            "-D",
-            "--schema",
-            "--tips",
-            "q"
-        ];
-        var direct = await RunAppAsync(["type", .. arguments]);
-        var deferred = await RunAppAsync(arguments);
+        string missingAssembly = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+        var (exit, output, error) = await RunAppAsync(
+            [
+                "Missing.Generic<T>.Add",
+                "--library",
+                missingAssembly,
+                "--where",
+                "Kind=InvocationExpression",
+                "-D",
+                "--schema",
+                "--tips",
+                "q"
+            ]);
 
-        Assert.Equal(direct, deferred);
-        Assert.Equal(1, deferred.Exit);
-        Assert.Empty(deferred.Output);
-        Assert.Contains("Field 'Kind' is not filterable", deferred.Error);
+        Assert.Equal(0, exit);
+        Assert.Contains("| Body Shapes | section |", output);
+        Assert.Empty(error);
     }
 
     [Fact]
-    public async Task Router_DeferredMemberStaticDiscoveryPreservesBodyKindQuery()
+    public async Task Router_DeferredMemberStaticDiscoveryKeepsBodyKindSection()
     {
         string[] common =
         [
@@ -3599,9 +3598,75 @@ public partial class CommandExecutionTests
                 .. common
             ]);
 
-        Assert.Equal(direct, deferred);
+        Assert.Equal(0, direct.Exit);
         Assert.Equal(0, deferred.Exit);
+        Assert.Contains("| Body Shapes | section |", direct.Output);
         Assert.Contains("| Body Shapes | section |", deferred.Output);
+        Assert.Empty(direct.Error);
+        Assert.Empty(deferred.Error);
+    }
+
+    [Theory]
+    [InlineData("System.String.IndexOf:1", "IndexOf:2")]
+    [InlineData("System.String.IndexOf~aaaaaaaaaa", "IndexOf~bbbbbbbbbb")]
+    [InlineData("System.String.IndexOf:1", "IndexOf~aaaaaaaaaa")]
+    public async Task Router_DeferredMemberRejectsConflictingOverloadSelectors(
+        string target,
+        string explicitSelector)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            target,
+            "--platform",
+            "System.Runtime",
+            "-m",
+            explicitSelector,
+            "-S",
+            "Signature",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "cannot combine different overload selectors",
+            error);
+    }
+
+    [Fact]
+    public async Task Router_DeferredMemberAcceptsMatchingOverloadSelectors()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.String.IndexOf:1",
+            "--platform",
+            "System.Runtime",
+            "-m",
+            "IndexOf:1",
+            "-S",
+            "Signature",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("IndexOf", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Router_GenericPlatformMethod_UserFrameworkIsNotDuplicated()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Threading.Tasks.Task.FromResult<TResult>:1",
+            "--framework",
+            "runtime",
+            "-S",
+            "Signature",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
     }
 
     [Fact]

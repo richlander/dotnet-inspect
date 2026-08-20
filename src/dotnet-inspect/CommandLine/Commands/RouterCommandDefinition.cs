@@ -379,7 +379,7 @@ public static class RouterCommandDefinition
             if (memberFind.Status == TypeFindIfMissStatus.Found)
             {
                 var match = memberFind.TypeResolution.Match!;
-                return ["member", match.FullName, "--platform", match.Library, .. FrameworkArgs(match.Source), "-m", memberFind.MemberSelector, .. tail];
+                return ["member", match.FullName, "--platform", match.Library, .. FrameworkArgsUnlessSpecified(match.Source, tail), "-m", memberFind.MemberSelector, .. tail];
             }
             if (memberFind.Status == TypeFindIfMissStatus.Ambiguous)
             {
@@ -430,7 +430,7 @@ public static class RouterCommandDefinition
             {
                 var match = typeFind.Match!;
                 CommandError.WriteNote($"Type '{target}' resolved via platform find to {match.FullName} in {match.Library}.");
-                return ["type", match.FullName, "--platform", match.Library, .. FrameworkArgs(match.Source), .. tail];
+                return ["type", match.FullName, "--platform", match.Library, .. FrameworkArgsUnlessSpecified(match.Source, tail), .. tail];
             }
             if (typeFind.Status == TypeFindIfMissStatus.Ambiguous)
             {
@@ -517,9 +517,6 @@ public static class RouterCommandDefinition
             DeferredTypeOrMemberCapability,
             .. tail
         ];
-
-        private static string[] FrameworkArgs(string source)
-            => string.IsNullOrWhiteSpace(source) ? [] : ["--framework", source];
 
         private static async Task<bool> PackageExistsAsync(
             string packageName,

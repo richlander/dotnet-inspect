@@ -45,8 +45,7 @@ public static class MemberCommand
             options = (MemberOptions)preamble.Options;
         }
         else if (options.Discover != null
-                 && !options.EffectiveDiscovery
-                 && !options.BodyKindQuery.HasFilter)
+                 && !options.EffectiveDiscovery)
         {
             var (_, discoveryExitCode) = ApiCommand.RunPreamble(options);
             if (discoveryExitCode.HasValue)
@@ -136,6 +135,14 @@ public static class MemberCommand
                     && explicitArity != impliedArity)
                 {
                     CommandError.Write("A member selection cannot combine different generic arities.");
+                    return 1;
+                }
+                if (MemberOverloadSelectorsConflict(
+                        mergeOptions,
+                        impliedSelector))
+                {
+                    CommandError.Write(
+                        "A member selection cannot combine different overload selectors.");
                     return 1;
                 }
 
@@ -634,6 +641,30 @@ public static class MemberCommand
     private static bool MemberFilterHasWildcard(string filter)
         => filter.Contains('*', StringComparison.Ordinal)
            || filter.Contains('?', StringComparison.Ordinal);
+
+    private static bool MemberOverloadSelectorsConflict(
+        MemberOptions explicitOptions,
+        MemberTargetSelector impliedSelector)
+    {
+        if (explicitOptions.OverloadIndex is { } explicitIndex
+            && impliedSelector.OverloadIndex is { } impliedIndex)
+        {
+            return explicitIndex != impliedIndex;
+        }
+
+        if (explicitOptions.MemberDigest is { Length: > 0 } explicitDigest
+            && impliedSelector.DigestPrefix is { Length: > 0 } impliedDigest)
+        {
+            return !explicitDigest.Equals(
+                impliedDigest,
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        return (explicitOptions.OverloadIndex.HasValue
+                && impliedSelector.DigestPrefix is { Length: > 0 })
+            || (explicitOptions.MemberDigest is { Length: > 0 }
+                && impliedSelector.OverloadIndex.HasValue);
+    }
 
     private static int BodyAccessorCount(ApiMember member)
         => member.Kind switch
