@@ -6977,8 +6977,11 @@ async function restoreWorkspaceFromLocation(
   if (targetModel) {
     activatePackage(targetModel, { resetAccessibility: true });
     // Restore the platform library scope captured in the share packet before applying the
-    // deep link, so a refreshed/shared platform-library link lands on that library.
-    if (isRuntimePackId(targetModel.id) && loc.library) {
+    // deep link, so a refreshed/shared platform-library link lands on that library. Called
+    // unconditionally (not just when loc.library is set) so an aggregate/no-library restore
+    // also clears any scope left over from a previous session -- applyPlatformLibraryScope's
+    // own falsy-key branch handles that case synchronously.
+    if (isRuntimePackId(targetModel.id)) {
       await applyPlatformLibraryScope(
         loc.library,
         navigationSeq,
