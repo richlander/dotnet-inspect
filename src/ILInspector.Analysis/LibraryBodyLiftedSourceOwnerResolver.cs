@@ -77,7 +77,9 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         MethodDefinition liftedMethod,
         MethodIdentity liftedIdentity,
         out MethodIdentity? sourceOwner,
-        out bool sourceGenerated)
+        out bool sourceGenerated,
+        IReadOnlySet<int>? ownerMethodScope = null,
+        Func<TypeRef, bool>? ownerTypeScope = null)
     {
         sourceOwner = null;
         sourceGenerated = false;
@@ -119,6 +121,25 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         TypeDefinitionHandle ownerType = chain[ownerIndex];
         TypeDefinition ownerDefinition = _reader.GetTypeDefinition(ownerType);
         string ownerName = liftedName[1..close];
+        if (ownerMethodScope is not null
+            && (!MethodsByName(ownerType).TryGetValue(
+                    ownerName,
+                    out ImmutableArray<MethodDefinitionHandle> scopedOwners)
+                || !scopedOwners.Any(handle =>
+                    ownerMethodScope.Contains(
+                        MetadataTokens.GetToken(handle)))))
+        {
+            return false;
+        }
+        if (ownerTypeScope is not null
+            && !ownerTypeScope(
+                TypeRefDecoder.Instance.GetTypeFromDefinition(
+                    _reader,
+                    ownerType,
+                    0)))
+        {
+            return false;
+        }
         MethodReferenceKey member =
             _methodReferenceResolver.CreateIdentity(
                 liftedIdentity.Name,

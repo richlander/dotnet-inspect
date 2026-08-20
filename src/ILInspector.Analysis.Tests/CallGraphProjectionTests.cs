@@ -665,8 +665,8 @@ public class CallGraphProjectionTests
         Assert.All(
             projection.CallSites.GroupBy(site =>
                 (
-                    site.Call.Caller.ModuleVersionId,
-                    site.Call.Caller.MetadataToken,
+                    site.Call.EvidenceMethod.ModuleVersionId,
+                    site.Call.EvidenceMethod.MetadataToken,
                     site.Call.ILOffset,
                     site.Call.OperandToken)),
             group => Assert.Single(group));

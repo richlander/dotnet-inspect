@@ -139,8 +139,10 @@ The projection owns everything a host must not re-invent in JavaScript:
   `FindCalleeRowUsesRetainedNonRepresentativeCallSite` gates repeated sites
   whose node evidence carries only a representative occurrence. A
   call-site storage key identifies one physical operand occurrence (source
-  registration, MVID, caller token, IL offset, and operand token); it is
-  evidence, never a logical node count or a cycle key.
+  registration, MVID, evidence-method token, IL offset, and operand token);
+  `DirectCall.Caller` may name the declared source method while
+  `DirectCall.EvidenceMethod` names that physical body. The key is evidence,
+  never a logical node count or a cycle key.
 - **Deterministic ids/ordering.** The focus is id `0`; remaining ids are assigned
   in first-seen order over a caller depth-first walk, then a callee walk. Nodes
   are emitted in id order and edges in first-seen order, so the same input

@@ -1227,6 +1227,84 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void DirectCalls_AttributeAsyncCallSitesToSourceMethod()
+    {
+        var index = LibraryBodyIndex.Open(
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        DirectCall directCall = Assert.Single(
+            index.DirectCalls,
+            call => call.Caller.Name
+                    == nameof(ClassicAsyncSiblingFixture
+                        .CallsSyncSiblingFromAsync)
+                && call.Callee.Name
+                    == nameof(ClassicAsyncSiblingFixture.ReadValue));
+        DirectCall groupedCall = Assert.Single(
+            index.GetDirectCallsByCaller()[
+                directCall.Caller.MetadataToken],
+            call => call.ILOffset == directCall.ILOffset);
+        DirectCall foundCall = Assert.Single(
+            index.FindCalls(
+                MemberPattern.Method(
+                    directCall.Callee.DeclaringType,
+                    directCall.Callee.Name)),
+            call => call.Caller == directCall.Caller);
+
+        foreach (DirectCall call in
+            new[] { directCall, groupedCall, foundCall })
+        {
+            Assert.Equal(
+                nameof(ClassicAsyncSiblingFixture
+                    .CallsSyncSiblingFromAsync),
+                call.Caller.Name);
+            Assert.NotEqual(
+                call.Caller.MetadataToken,
+                call.EvidenceMethod.MetadataToken);
+            Assert.Equal("MoveNext", call.EvidenceMethod.Name);
+        }
+
+        Assert.DoesNotContain(
+            index.DirectCalls,
+            call => call.Caller.Name == "MoveNext"
+                && call.Caller.DeclaringType.Name.Contains(
+                    nameof(ClassicAsyncSiblingFixture
+                        .CallsSyncSiblingFromAsync),
+                    StringComparison.Ordinal));
+        Assert.NotEmpty(
+            index.DirectCalls.Where(
+                call => call.Caller.Name
+                    == nameof(
+                        ClassicAsyncSiblingFixture.ReadValueAsync)));
+        Assert.All(
+            index.DirectCalls.Where(
+                call => call.Caller.Name
+                    == nameof(
+                        ClassicAsyncSiblingFixture.ReadValueAsync)),
+            call => Assert.Equal(
+                call.Caller,
+                call.EvidenceMethod));
+
+        MethodIdentity sourceMethod = Assert.Single(
+            index.Methods,
+            method => method.Name
+                == nameof(ClassicAsyncSiblingFixture
+                    .CallsSyncSiblingFromAsync));
+        var scoped = LibraryBodyIndex.Open(
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence,
+            bodyScope: new HashSet<int>
+            {
+                sourceMethod.MetadataToken,
+            });
+        Assert.Contains(
+            scoped.DirectCalls,
+            call => call.Caller == sourceMethod
+                && call.EvidenceMethod.Name == "MoveNext"
+                && call.Callee.Name
+                    == nameof(ClassicAsyncSiblingFixture.ReadValue));
+    }
+
+    [Fact]
     public void
         OptimizationOpportunities_PrivateAccessIsDirectionalAcrossNestedTypes()
     {
@@ -9499,6 +9577,55 @@ public class LibraryBodyIndexTests
         Assert.Equal(
             nameof(OptimizationOpportunityFixtures.GenericObjectEqualsLocalFunction),
             row.SourceOwner?.Name);
+    }
+
+    [Fact]
+    public void DirectCalls_AttributeLiftedBodiesButNotIterators()
+    {
+        var index = LibraryBodyIndex.Open(
+            typeof(OptimizationOpportunityFixtures).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        DirectCall liftedCall = Assert.Single(
+            index.DirectCalls,
+            call => call.Caller.Name
+                    == nameof(OptimizationOpportunityFixtures
+                        .GenericObjectEqualsLocalFunction)
+                && call.EvidenceMethod.Name.StartsWith(
+                    "<GenericObjectEqualsLocalFunction>g__EqualsCore|",
+                    StringComparison.Ordinal)
+                && call.Callee.Name == "Equals");
+        Assert.NotEqual(
+            liftedCall.Caller,
+            liftedCall.EvidenceMethod);
+
+        DirectCall iteratorCall = Assert.Single(
+            index.DirectCalls,
+            call => call.Kind == CallKind.NewObject
+                && call.Caller.Name == "MoveNext"
+                && call.Caller.DeclaringType.Name.Contains(
+                    nameof(OptimizationOpportunityFixtures
+                        .YieldsPlainObject),
+                    StringComparison.Ordinal)
+                && !call.Caller.DeclaringType.Name.Contains(
+                    nameof(OptimizationOpportunityFixtures
+                        .YieldsPlainObjectAsync),
+                    StringComparison.Ordinal));
+        Assert.Equal(
+            iteratorCall.Caller,
+            iteratorCall.EvidenceMethod);
+
+        var scoped = LibraryBodyIndex.Open(
+            typeof(OptimizationOpportunityFixtures).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence,
+            bodyScope: new HashSet<int>
+            {
+                liftedCall.Caller.MetadataToken,
+            });
+        Assert.Contains(
+            scoped.DirectCalls,
+            call => call.Caller == liftedCall.Caller
+                && call.EvidenceMethod == liftedCall.EvidenceMethod
+                && call.Callee == liftedCall.Callee);
     }
 
     [Fact]

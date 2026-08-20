@@ -529,8 +529,9 @@ Each relationship descriptor owns an occurrence-identity projection within one
 document. Projection deduplicates repeated observations by that key before
 assigning deterministic document-local occurrence ids. For `call`, the key is
 the physical body and call-site storage identity: artifact or acquisition
-identity as appropriate to the document lifetime, caller token, IL offset, and
-operand token. Observing that call site from caller and callee walks cannot
+identity as appropriate to the document lifetime, evidence-method token, IL
+offset, and operand token. `DirectCall.Caller` separately retains declared
+source attribution. Observing that call site from caller and callee walks cannot
 create two occurrences. Two distinct IL offsets remain two occurrences even
 when every other field and the logical edge are equal.
 

@@ -225,8 +225,8 @@ public static class AnnotatedMemberDocumentQuery
                 new AnnotatedCallGraphOccurrence(
                     row.Number,
                     fact.Id,
-                    call.Caller.ModuleVersionId,
-                    call.Caller.MetadataToken,
+                    call.EvidenceMethod.ModuleVersionId,
+                    call.EvidenceMethod.MetadataToken,
                     call.ILOffset,
                     call.OperandToken,
                     call.Kind,

@@ -86,6 +86,12 @@ internal interface ILibraryMethodAnalysisInfrastructure
         out MethodIdentity? sourceOwner,
         out bool sourceGenerated);
 
+    MethodIdentity? ResolveDeclaredMethod(
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition methodDefinition,
+        MethodIdentity method,
+        bool typeSourceGenerated);
+
     bool DispatchCanTargetOverride(
         TypeDefinition declaringType,
         MethodDefinition method);
@@ -98,6 +104,7 @@ internal sealed class LibraryMethodAnalysisResult
 {
     public bool HasCaller;
     public MethodIdentity? Caller;
+    public MethodIdentity? DeclaredMethod;
     public int Token;
     public CallerUnsafeMode Mode;
     public bool IsLeverage;
@@ -239,6 +246,26 @@ internal sealed class LibraryMethodAnalysisRunner(
                         : caller.DeclaringType;
                 if (!bodyTypeScope(scopedType))
                     return result;
+            }
+            try
+            {
+                result.DeclaredMethod =
+                    _infrastructure.ResolveDeclaredMethod(
+                        methodHandle,
+                        methodDefinition,
+                        caller,
+                        typeSourceGenerated);
+            }
+            catch (Exception ex)
+                when (IsRecoverableMethodFailure(ex))
+            {
+                result.Diagnostic = new AnalysisDiagnostic(
+                    MetadataTokens.GetToken(methodHandle),
+                    MethodLabel(
+                        typeHandle,
+                        methodHandle),
+                    $"{ex.GetType().Name}: {ex.Message}",
+                    DeclaringType: caller.DeclaringType);
             }
             leakFailureKind =
                 LeakTriageFailureKind.BodyAcquisition;

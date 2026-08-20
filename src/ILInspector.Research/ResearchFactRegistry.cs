@@ -21,7 +21,7 @@ public sealed class ResearchAssemblyContext
         _leverageByToken = new(() => index.TopLeverage(int.MaxValue)
             .ToDictionary(entry => entry.Method.MetadataToken, entry => entry));
         _callsByCaller = new(() => index.DirectCalls
-            .GroupBy(call => call.Caller.MetadataToken)
+            .GroupBy(call => call.EvidenceMethod.MetadataToken)
             .ToDictionary(
                 group => group.Key,
                 group => (IReadOnlyList<DirectCall>)group.ToArray()));
