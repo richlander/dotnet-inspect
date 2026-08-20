@@ -535,6 +535,58 @@ public class PackageSignatureVerifierTests : IDisposable
     }
 
     [Fact]
+    public void VerifyPackage_TruncatedCentralDirectoryReturnsInvalid()
+    {
+        byte[] package = new byte[22];
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            package,
+            0x06054B50);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            package.AsSpan(8),
+            1);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            package.AsSpan(10),
+            1);
+        using var stream = new MemoryStream(package);
+
+        SignatureVerificationResult result =
+            PackageSignatureVerifier.VerifyPackage(stream);
+
+        Assert.False(result.IsValid);
+        Assert.Equal(SignatureStatus.Invalid, result.Status);
+        Assert.Contains(
+            "signature entry",
+            result.Reason,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task VerifyPackage_RejectsSignatureCmsSuffix()
+    {
+        string nupkgPath = await DownloadPackageAsync("Newtonsoft.Json", "13.0.3");
+        try
+        {
+            byte[] package = AppendSignatureSuffix(
+                File.ReadAllBytes(nupkgPath),
+                "NOT-ASN1-SUFFIX"u8);
+            File.WriteAllBytes(nupkgPath, package);
+
+            SignatureVerificationResult result =
+                PackageSignatureVerifier.VerifyPackage(nupkgPath);
+
+            Assert.False(result.IsValid);
+            Assert.Contains(
+                "exactly one CMS value",
+                result.Reason,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(nupkgPath);
+        }
+    }
+
+    [Fact]
     public async Task VerifyPackage_RejectsInvalidSignatureEntryProfiles()
     {
         string nupkgPath = await DownloadPackageAsync("Newtonsoft.Json", "13.0.3");
@@ -1068,6 +1120,77 @@ public class PackageSignatureVerifierTests : IDisposable
         }
 
         throw new InvalidDataException("Signature entry was not found.");
+    }
+
+    private static byte[] AppendSignatureSuffix(
+        byte[] package,
+        ReadOnlySpan<byte> suffix)
+    {
+        int endRecord = FindEndRecord(package);
+        int centralDirectoryOffset = checked(
+            (int)BinaryPrimitives.ReadUInt32LittleEndian(
+                package.AsSpan(endRecord + 16)));
+        (int central, int local) = FindSignatureHeaders(package);
+        uint signatureLength = BinaryPrimitives.ReadUInt32LittleEndian(
+            package.AsSpan(central + 20));
+        ushort fileNameLength = BinaryPrimitives.ReadUInt16LittleEndian(
+            package.AsSpan(local + 26));
+        ushort extraLength = BinaryPrimitives.ReadUInt16LittleEndian(
+            package.AsSpan(local + 28));
+        int dataOffset = checked(local + 30 + fileNameLength + extraLength);
+        Assert.Equal(
+            centralDirectoryOffset,
+            checked(dataOffset + (int)signatureLength));
+
+        byte[] mutated = new byte[checked(package.Length + suffix.Length)];
+        package.AsSpan(0, centralDirectoryOffset).CopyTo(mutated);
+        suffix.CopyTo(mutated.AsSpan(centralDirectoryOffset));
+        package.AsSpan(centralDirectoryOffset).CopyTo(
+            mutated.AsSpan(centralDirectoryOffset + suffix.Length));
+
+        uint updatedLength = checked(signatureLength + (uint)suffix.Length);
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            mutated.AsSpan(local + 18),
+            updatedLength);
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            mutated.AsSpan(local + 22),
+            updatedLength);
+        int shiftedCentral = checked(central + suffix.Length);
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            mutated.AsSpan(shiftedCentral + 20),
+            updatedLength);
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            mutated.AsSpan(shiftedCentral + 24),
+            updatedLength);
+        uint crc = CalculateCrc32(mutated.AsSpan(dataOffset, (int)updatedLength));
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            mutated.AsSpan(local + 14),
+            crc);
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            mutated.AsSpan(shiftedCentral + 16),
+            crc);
+        int shiftedEndRecord = checked(endRecord + suffix.Length);
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            mutated.AsSpan(shiftedEndRecord + 16),
+            checked((uint)(centralDirectoryOffset + suffix.Length)));
+        return mutated;
+    }
+
+    private static uint CalculateCrc32(ReadOnlySpan<byte> bytes)
+    {
+        uint crc = uint.MaxValue;
+        foreach (byte value in bytes)
+        {
+            crc ^= value;
+            for (int bit = 0; bit < 8; bit++)
+            {
+                crc = (crc & 1) == 0
+                    ? crc >> 1
+                    : (crc >> 1) ^ 0xEDB88320;
+            }
+        }
+
+        return ~crc;
     }
 
     private async Task<string> DownloadPackageAsync(string id, string version)

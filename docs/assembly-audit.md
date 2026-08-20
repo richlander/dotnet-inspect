@@ -146,8 +146,9 @@ chain and full uncertainty interval are valid and its message imprint matches
 that package signer's signature. NuGet V1 certificate profiles, repository
 service-index identity, and unique repository countersignature cardinality are
 required. The signature entry must use NuGet's stored-entry local and central
-header profile, and each package or repository signer must carry one valid
-signing-time and signing-certificate-v2 attribute bound to its certificate.
+header profile and contain exactly one CMS value with no trailing payload.
+Each package or repository signer must carry one valid signing-time and
+signing-certificate-v2 attribute bound to its certificate.
 The RFC 3161 baseline policy supplies its defined one-second uncertainty when
 the token omits accuracy; unrepresentable timestamp bounds are rejected as an
 invalid timestamp. Offline custom-root chain construction does not download
@@ -204,6 +205,9 @@ missing/mismatched signer-attribute tests,
 `TryExtractTimestampInfo_BaselinePolicyDefaultsToOneSecond`, and
 `VerifySignatureFile_UnrepresentableTimestampAccuracyIsInvalid` gate the
 signature-entry, signer-identity, and timestamp-profile boundaries.
+`VerifyPackage_TruncatedCentralDirectoryReturnsInvalid` and
+`VerifyPackage_RejectsSignatureCmsSuffix` gate typed truncated-directory
+failure and whole-value CMS admission.
 `PackageContentAuditTests.SourceLinkEvidence_FramesAndBoundsBothOperands`
 gates structurally distinct bounded SourceLink operands.
 `InspectionResultTests.Signed_PreservesUnestablishedVerificationState` gates

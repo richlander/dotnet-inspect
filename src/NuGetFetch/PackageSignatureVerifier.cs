@@ -219,6 +219,13 @@ public static class PackageSignatureVerifier
 
     private static SignatureVerificationResult VerifySignature(byte[] signatureBytes)
     {
+        if (!ContainsExactlyOneCmsValue(signatureBytes))
+        {
+            return new SignatureVerificationResult(
+                SignatureStatus.Invalid,
+                "Package signature payload must contain exactly one CMS value.");
+        }
+
         SignedCms signedCms = new();
 
         try
@@ -566,6 +573,23 @@ public static class PackageSignatureVerifier
         }
     }
 
+    private static bool ContainsExactlyOneCmsValue(byte[] signatureBytes)
+    {
+        try
+        {
+            AsnReader reader = new(signatureBytes, AsnEncodingRules.BER);
+            if (!reader.PeekTag().HasSameClassAndValue(Asn1Tag.Sequence))
+                return false;
+            _ = reader.ReadEncodedValue();
+            reader.ThrowIfNotEmpty();
+            return true;
+        }
+        catch (AsnContentException)
+        {
+            return false;
+        }
+    }
+
     private static ZipEndRecord ReadZipEndRecord(Stream stream)
     {
         int tailLength = checked((int)Math.Min(
@@ -627,6 +651,12 @@ public static class PackageSignatureVerifier
         for (int index = 0; index < end.TotalEntries; index++)
         {
             long position = stream.Position;
+            if (position > end.Position
+                || end.Position - position < CentralDirectoryFixedLength)
+            {
+                throw new InvalidDataException(
+                    "Invalid central directory entry bounds.");
+            }
             stream.ReadExactly(header);
             if (BinaryPrimitives.ReadUInt32LittleEndian(header) != CentralDirectoryHeaderSignature)
                 throw new InvalidDataException("Invalid central directory header.");
