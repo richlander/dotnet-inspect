@@ -229,16 +229,16 @@ internal static class MetadataNamedTypeSignatureDecoder
             TypeSpecificationHandle handle,
             byte rawTypeKind)
         {
+            beforeDecodeWork?.Invoke(
+                reader.GetBlobReader(
+                    reader.GetTypeSpecification(handle).Signature).Length);
             if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
                 return null;
 
             using (scope)
             {
-                TypeSpecification specification =
-                    reader.GetTypeSpecification(handle);
-                beforeDecodeWork?.Invoke(
-                    reader.GetBlobReader(specification.Signature).Length);
-                return specification.DecodeSignature(this, context);
+                return reader.GetTypeSpecification(handle)
+                    .DecodeSignature(this, context);
             }
         }
 
