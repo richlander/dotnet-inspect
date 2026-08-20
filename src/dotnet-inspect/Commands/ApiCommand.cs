@@ -2805,7 +2805,7 @@ public class ApiCommand
             // payload projection (--value/--print) does compose, and is handled above.
             if (IsColumnProjectionRequested(options))
                 return RejectColumnProjectionUnderJson(suggestPayloadProjection: true);
-            if (IsOnlyMemberInfoSelected(options))
+            if (HasUnsupportedMemberInfoDocumentJsonSelection(options))
             {
                 CommandError.Write(
                     $"section '{SectionNames.MemberInfo}' cannot be represented by whole-document --json.",
@@ -4360,9 +4360,24 @@ public class ApiCommand
         return null;
     }
 
-    private static bool IsOnlyMemberInfoSelected(ApiOptions options)
-        => options.IncludeSections is { Count: 1 } sections
-           && sections.Contains(SectionNames.MemberInfo);
+    private static bool HasUnsupportedMemberInfoDocumentJsonSelection(
+        ApiOptions options)
+    {
+        if (options.IncludeSections is not { } sections
+            || !sections.Contains(SectionNames.MemberInfo))
+        {
+            return false;
+        }
+
+        return sections.Count == 1
+               || options is MemberOptions
+               {
+                   MemberSectionsPreResolved: true
+               }
+               || options.Select?.Any(selector => selector.Equals(
+                   SectionNames.MemberInfo,
+                   StringComparison.OrdinalIgnoreCase)) == true;
+    }
 
     private static bool ShouldRenderMemberIndex(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.MemberIndex) == true;

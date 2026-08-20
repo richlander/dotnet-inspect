@@ -9608,6 +9608,30 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_MemberInfo_ExactMixedSelectionRejectsWholeDocumentJson()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.DayOfWeek",
+            "--platform",
+            "System.Runtime",
+            "-S",
+            SectionNames.MemberInfo,
+            "-S",
+            SectionNames.Values,
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Equal(string.Empty, output.Trim());
+        Assert.Contains(
+            $"section '{SectionNames.MemberInfo}' cannot be represented by whole-document --json.",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Member_DottedStructuralSchema_IncludesBroadMemberInfo()
     {
         var (exit, output, error) = await RunAppAsync(
