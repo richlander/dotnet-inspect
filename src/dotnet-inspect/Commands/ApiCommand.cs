@@ -542,8 +542,7 @@ public class ApiCommand
         if (!options.HasCallerScope
             || options.Tree
             || IsStandaloneMermaid(options)
-            || options.JsonOutput
-            && options.IncludeSections is not { Count: > 0 }
+            || IsWholeDocumentJson(options)
             || HasAuthoredMemberSectionRequest(options)
             || !pipeline.SelectableSectionNames.Contains(
                 SectionNames.Callers,
@@ -4221,10 +4220,7 @@ public class ApiCommand
     internal static bool RejectUnsupportedCallerDocumentJson(
         ApiOptions options)
     {
-        if (!options.JsonOutput
-            || options.Count
-            || options.Discover is not null
-            || IsProjectionRequested(options)
+        if (!IsWholeDocumentJson(options)
             || GetExplicitCallerAnalysisSection(options) is not { } section)
         {
             return false;
@@ -4235,6 +4231,12 @@ public class ApiCommand
             + "Use --jsonl, --tsv, --table, or a graph output format.");
         return true;
     }
+
+    private static bool IsWholeDocumentJson(ApiOptions options)
+        => options.JsonOutput
+           && !options.Count
+           && options.Discover is null
+           && !IsProjectionRequested(options);
 
     private static string? GetExplicitCallerAnalysisSection(
         ApiOptions options)

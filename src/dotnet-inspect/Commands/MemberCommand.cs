@@ -256,6 +256,9 @@ public static class MemberCommand
             else
                 return 1;
 
+            if (ApiCommand.RejectUnsupportedCallerDocumentJson(options))
+                return 1;
+
             if (options.BodyKindQuery.HasFilter
                 && options.IncludeSections is null
                 && options.Discover is null)
