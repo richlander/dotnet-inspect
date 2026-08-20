@@ -387,10 +387,11 @@ targets. Exact allocation and call-site rows also retain a `Candidate` id, their
 native `Finding` descriptor, `Provenance=exact`, `Operation`, and metadata
 `Token`. Aggregate rows are marked `Provenance=aggregate`; `unmatched`
 identifies an instruction-level row that could not be joined to a producer
-occurrence. `Assembly` + `MethodToken` + `IL` form the allocation-trace join
-coordinate; `ModuleVersionId` distinguishes physical module builds when static
-inputs carry it. `Token` is the operand of the reported IL operation and must
-not be used as the declaring method token. Those fields let trace and
+occurrence. `Assembly` + (`EvidenceMethod` when present, otherwise
+`MethodToken`) + `IL` form the allocation-trace join coordinate;
+`ModuleVersionId` distinguishes physical module builds when static inputs carry
+it. `Token` is the operand of the reported IL operation and must not be used as
+the declaring method token. Those fields let trace and
 version-diff tooling join a triage row to
 `analysis.allocation` or `analysis.call-site` evidence without parsing
 `Evidence` prose. Use `--top`, `--loop`, `--min-confidence`, and
@@ -429,7 +430,12 @@ runfaster correlate --triage triage.json --trace workload.nettrace
 The compact `Performance:* --jsonl` table intentionally carries only the tight
 human-facing columns and therefore cannot support an exact trace join.
 `runfaster` reports those rows as not runtime-correlatable rather than treating
-them as negative workload evidence.
+them as negative workload evidence. For nested rows, it preserves the
+source-facing `MethodToken` but uses `EvidenceMethod` as the physical body token
+when supplied. Blank flattened cells are treated as absent; invalid non-empty
+or conflicting supplied evidence-method tokens fail visibly.
+Method-name samples can still establish method-level heat, but only a complete
+runtime coordinate can produce an exact `confirmed-hot` result.
 For filtered triage exports, allocation-stack correlation stops at the first
 frame in the represented assembly. If that method has no exported row, the
 allocation remains unattributed rather than being credited to an outer caller.
