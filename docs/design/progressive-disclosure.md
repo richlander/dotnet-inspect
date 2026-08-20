@@ -116,11 +116,14 @@ performance, metadata, SourceLink, and other domains together.
 Commands not yet migrated may retain their existing discovery behavior. New
 work should follow the reference model rather than copy a legacy command.
 
-Structural discovery normally avoids target inspection. Dotted
-`member Type.Member` arguments are the exception because the last dot may also
-belong to a namespace-qualified or nested type. The command resolves that
-boundary against metadata first, then reports the structural schema of the
-resulting broad-member or overload-inventory pipeline.
+Structural discovery avoids target inspection. A dotted
+`member Type.Member` argument is ambiguous because the last dot may instead
+belong to a namespace-qualified or nested type. With `--schema`, metadata is
+intentionally unavailable, so the command reports the conservative union of
+the member pipelines that the target may select. An explicit overload or digest
+suffix (`Name:N` or `Name~digest`) identifies the detail pipeline from syntax
+alone. Effective discovery may resolve the boundary against metadata and
+report only the pipeline that applies.
 
 ## Network and source capabilities
 
