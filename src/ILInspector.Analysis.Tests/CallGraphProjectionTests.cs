@@ -176,6 +176,149 @@ public class CallGraphProjectionTests
     }
 
     [Fact]
+    public void FindNodePrefersExactDefinitionEvidence()
+    {
+        MemberRef repeated = Member("Svc", "Do");
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallees(
+                Node(
+                    Member("Target", "Run"),
+                    CallTreeStatus.Expanded,
+                    [
+                        Leaf(repeated) with
+                        {
+                            GraphEvidence = Evidence(2),
+                        },
+                        Leaf(repeated) with
+                        {
+                            GraphEvidence = Evidence(3),
+                        },
+                    ]) with
+                {
+                    GraphEvidence = Evidence(1),
+                });
+        var method = new MethodIdentity(
+            repeated.DeclaringType.Assembly,
+            new Guid("11111111-1111-1111-1111-111111111111"),
+            repeated.DeclaringType,
+            repeated.Name,
+            repeated.ParameterTypes,
+            repeated.ReturnType,
+            3,
+            IsStatic: true);
+
+        Assert.Equal(
+            CallGraphNodeMatch.Found,
+            projection.FindNode(method, out CallGraphNode node));
+        Assert.Contains(
+            node.GraphEvidence,
+            evidence => evidence.Storage.MethodToken == 3);
+    }
+
+    [Fact]
+    public void FindNodeUsesTypedStructuralFallback()
+    {
+        MemberRef focus = Member("Target", "Run");
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallees(
+                Node(
+                    focus,
+                    CallTreeStatus.Expanded,
+                    [Leaf(Member("Svc", "Do"))]));
+        var method = new MethodIdentity(
+            focus.DeclaringType.Assembly,
+            Guid.NewGuid(),
+            focus.DeclaringType,
+            focus.Name,
+            focus.ParameterTypes,
+            focus.ReturnType,
+            0x06001234,
+            IsStatic: true);
+
+        Assert.Equal(
+            CallGraphNodeMatch.Found,
+            projection.FindNode(method, out CallGraphNode node));
+        Assert.Same(projection.Focus, node);
+    }
+
+    [Fact]
+    public void FindNodeUsesRetainedCallSiteDefinitionEvidence()
+    {
+        MemberRef focus = Member("Target", "Run");
+        MemberRef callee = Member("Svc", "Do");
+        DirectCall call = Call(focus, callee, 4);
+        GraphNodeEvidence callSite = CallSiteEvidence(call);
+        GraphNodeEvidence definition = Evidence(3);
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallees(
+                Node(
+                    focus,
+                    CallTreeStatus.Expanded,
+                    [
+                        Leaf(callee) with
+                        {
+                            GraphEvidence = new GraphNodeEvidence(
+                                callSite.Storage,
+                                GraphNodeIdentity.CreateDocumentLocal(),
+                                correspondence: null,
+                                definitionStorage:
+                                    definition.Storage),
+                        },
+                    ]));
+        var method = new MethodIdentity(
+            callee.DeclaringType.Assembly,
+            definition.Storage.ModuleVersionId,
+            callee.DeclaringType,
+            callee.Name,
+            callee.ParameterTypes,
+            callee.ReturnType,
+            definition.Storage.MethodToken,
+            IsStatic: true);
+
+        Assert.Equal(
+            CallGraphNodeMatch.Found,
+            projection.FindNode(method, out CallGraphNode node));
+        Assert.Equal("Do", node.Member.Name);
+    }
+
+    [Fact]
+    public void FindNodeDoesNotCrossVersionedEvidence()
+    {
+        MemberRef repeated = Member("Svc", "Do");
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallees(
+                Node(
+                    Member("Target", "Run"),
+                    CallTreeStatus.Expanded,
+                    [
+                        Leaf(repeated) with
+                        {
+                            GraphEvidence = Evidence(2),
+                        },
+                        Leaf(repeated) with
+                        {
+                            GraphEvidence = Evidence(3),
+                        },
+                    ]) with
+                {
+                    GraphEvidence = Evidence(1),
+                });
+        var method = new MethodIdentity(
+            repeated.DeclaringType.Assembly,
+            Guid.NewGuid(),
+            repeated.DeclaringType,
+            repeated.Name,
+            repeated.ParameterTypes,
+            repeated.ReturnType,
+            0x06001234,
+            IsStatic: true);
+
+        Assert.Equal(
+            CallGraphNodeMatch.NotProjected,
+            projection.FindNode(method, out _));
+    }
+
+    [Fact]
     public void FindCalleeRowUsesRetainedNonRepresentativeCallSite()
     {
         MemberRef focus = Member("Target", "Run");

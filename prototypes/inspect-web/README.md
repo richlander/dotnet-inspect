@@ -519,11 +519,24 @@ Package tabs and the framework selector are workspace identity, not display
 state: changing either resolves a different workspace. Lenses this engine does
 not answer report the engine's failure rather than fixture results.
 
-`src/command-bar.ts` owns command completion, suggestion rendering, editing,
-and keyboard interaction. `app.js` supplies the package-navigation effects so
-the component does not acquire engine or workspace authority.
-`test/command-bar.test.js` gates the completion grammar, replacement behavior,
-bounded suggestions, command metadata, selection, and escaping.
+`src/spotlight.ts` owns the modal workbench search, embedded home search,
+scope/result rendering, selection, and keyboard interaction.
+`src/command-bar.ts` supplies its typed Commands-scope grammar and results;
+`app.js` retains package queries, navigation, network acquisition, and command
+effects so the components do not acquire engine or workspace authority.
+`test/spotlight.test.js` and `test/command-bar.test.js` gate both presentation
+modes, scope ownership, completion and replacement behavior, bounded results,
+command metadata, and escaping.
+
+The typed `src/status-bar.ts` component renders both the full-width workspace
+data bar and the home readiness bar. The workspace bar occupies the bottom row
+formerly used by the persistent command prompt, giving diagnostics, cache
+state, package source, active assembly, and framework the full viewport width.
+Package source is shown only in a workspace. Current browser acquisition
+distinguishes NuGet.org from the .NET platform; the typed model also reserves
+local-file and custom-feed provenance for future acquisition paths. Missing or
+malformed provenance is shown as `Unknown` rather than omitted so acquisition
+failures stay diagnosable.
 
 `src/type-panel.ts` owns the type selector (the "PUBLIC TYPES" / "MEMBERS" nav
 pane) and the type viewer (the type heading, metadata, and source sections
@@ -554,9 +567,49 @@ style catalog's tier grouping, byte-divergent badges, and checked state; the
 taste popover's active/default states; and the Settings page's theme segment,
 close-button label, and active-style-count states.
 
-- `Cmd/Ctrl+K` focuses the persistent command prompt.
+`src/scope-bar.ts` owns the scope switcher and lens strip (the segmented
+Package/Types/Member control and the buttons beside it for the active scope's
+lenses or member sections) as a pure, dependency-injected render function.
+`app.js` still owns the current scope, the package/type/member lens
+definitions, and the active lens/section per scope, and passes each computed
+slice in explicitly. `test/scope-bar.test.js` gates the active scope segment,
+the active lens/section marking per scope, keyboard-shortcut indices, and
+label escaping.
+
+`src/metadata-viewer.ts` owns the Metadata lens (the image-level summary of each
+assembly — format stamp, heap sizes, ECMA-335 table row counts, and PE/CLI
+headers) and the Metadata Explorer (the spatial table/heap drill-down laid over
+it) as pure, dependency-injected render functions; both describe the metadata
+image rather than the API surface within it, so they share one module the way
+`type-panel.ts` combines the type selector and the type viewer. `app.js` still
+owns `state`, the engine calls that fetch an image, a table row window, or a
+heap listing, the explorer's focus/history stack, the DOM event binding, the
+`IntersectionObserver` that hydrates cards lazily, the resize listener, and the
+global keydown handler, and passes each computed slice in explicitly; the shared
+helpers used well beyond these views (`escapeHtml`, `fmtBytes`,
+`platformLensPicker`, `scopedPlatformLibrary`, `packageScopeSignature`) stay in
+`app.js` and are injected the same way. `test/metadata-viewer.test.js` gates the
+lens's picker, loading, failure, stale-scope, partial-read, and empty-image
+states and its heap/table ordering; the explorer's chips, history-button
+enablement, overview versus focus lightbox, lazy-load hooks, pager bounds, row
+highlight and selection, ref->def jump targets, cell escaping, heap addressing
+and coverage notes, and the row inspector.
+
+`src/doc-viewer.ts` owns the package document modal (the Markdown reader
+opened from a package's documents list) as a pure, dependency-injected render
+function. `app.js` still owns `state`, fetching and rendering the document's
+Markdown and frontmatter, and the sequence-guarded async load/close
+lifecycle, and passes each computed slice in explicitly. `test/doc-viewer.test.js`
+gates the closed/no-document fallback, loading and error states, the
+frontmatter card's presence and fields, and title/subtitle/frontmatter-name
+escaping (the rendered document body is trusted, pre-sanitized Markdown HTML
+and is not escaped).
+
+- `Cmd/Ctrl+K` opens Spotlight in the Commands scope.
+- `Cmd/Ctrl+P` opens Spotlight in the All scope.
 - `Cmd/Ctrl+F` or `/` focuses the type filter.
-- Arrow keys select a completion, `Tab` accepts it, and `Enter` runs it.
+- Arrow keys select a Spotlight result, `Tab` cycles scopes, and `Enter`
+  completes or runs a command.
 - Arrow keys or `j`/`k` navigate the type index.
 - Number keys switch the active scope's lenses when an input is not focused.
 - `share` copies the package, version, framework, type, and lens selection.
