@@ -605,6 +605,15 @@ frontmatter card's presence and fields, and title/subtitle/frontmatter-name
 escaping (the rendered document body is trusted, pre-sanitized Markdown HTML
 and is not escaped).
 
+`src/graph-source.ts` owns the member source modal (the code viewer opened
+from a call graph node) as a pure, dependency-injected render function.
+`app.js` still owns `state`, the sequence-guarded async source-inspection
+lifecycle, and the `highlightCSharp` Prism wrapper, and passes each computed
+slice in explicitly. `test/graph-source.test.js` gates the loading state, the
+original-versus-decompiled provenance labels, the open-source link's presence
+only when a `url` is provided, the error state's fallback message, and title
+escaping in both the header and loading status.
+
 - `Cmd/Ctrl+K` opens Spotlight in the Commands scope.
 - `Cmd/Ctrl+P` opens Spotlight in the All scope.
 - `Cmd/Ctrl+F` or `/` focuses the type filter.
