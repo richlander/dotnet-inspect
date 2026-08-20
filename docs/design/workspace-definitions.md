@@ -404,19 +404,23 @@ Hard constraints:
 
 The product registry (`ProductInspectionDemos`) stays a static id→metadata
 table plus peer definition records lowered to a `ResolvedScenario`. Listing
-remains metadata-only. **Today's binding is not yet a full closed section
-preset:** the three home scenarios fix coordinates and view focus (type,
-member anchor/key, library), but STJ and platform views name no `section`,
-and the call-graph view's `section: "call-graph"` is an illustrative token
-until the product-owned section/view-facet registry binds demo selections
-(see [Open questions](#open-questions) — view-facet registry binding — and the
-matching gate under [Status and gates](#status-and-gates)). The residual is
-therefore two tight steps, not "run only": (1) bind each home demo to stable
-existing section ids through that registry, then (2) **run** — realize the
-binding, execute those sections, return ordinary formatted section output. The
-browser home buttons and any imperative call-graph path converge on the same
-registry and sections once both steps exist; TypeScript export of the engine
-surface can land on its own schedule before the web host switches buttons over.
+remains metadata-only. **Home demos now bind product section display names**
+through `ProductDemoSections` (today: `Methods` for STJ and platform List`1`,
+`Call Graph` for the extensions member) and `ResolveHomeScenario` fails when a
+home demo omits `View.Section` or names a section outside that allow list
+(`ProductHomeDemos_AllBindKnownProductSections`,
+`ProductDemoSections_AreProductSectionNames`). Full minted view-facet ids
+remain open ([Open questions](#open-questions) — view-facet registry binding).
+**CLI run** lowers the resolved plan to `TypeCommand` / `MemberCommand` options
+(`DemoScenarioRunner`) so `dotnet-inspect demo <id>` returns ordinary section
+output from the existing pipelines; multi-package workspaces encode extra
+package members as `--caller-package` for the call-graph demo. Residual: (1)
+minted facet ids replacing display-name allow list; (2) realize via
+`WorkspaceContextLoader` into one `AssemblyContextGroup` instead of the CLI
+package/caller encoding; (3) inspect-web home buttons and the imperative
+call-graph path converge on the same registry/sections; TypeScript export of
+the engine surface can land on its own schedule before the web host switches
+buttons over.
 
 ### Member coordinates
 
@@ -920,12 +924,13 @@ Implementation must add, at minimum:
   `ProductInspectionDemos` / `ResolvedScenario`;
 - a demo-section constraint (design rule under
   [Product demos are closed section presets](#product-demos-are-closed-section-presets)):
-  each product home demo names only existing section/view ids and runs through
-  the normal section pipeline — **unverified** until (a) home-demo views bind
-  stable product section ids (today STJ/platform omit `section`; call-graph's
-  token is not registry-validated), and (b) a run path and gate fail
-  registration of a demo whose selected sections are unknown or that bypasses
-  sections.
+  each product home demo names only existing section ids and runs through the
+  normal section pipeline — gated by
+  `ProductHomeDemos_AllBindKnownProductSections`,
+  `ProductDemoSections_AreProductSectionNames`, and
+  `DemoCommandTests.ExecuteScenario_*_Returns*Section` (CLI encoding). Residual
+  gates for minted facet ids and `WorkspaceContextLoader` group run remain
+  open with the view-facet registry question.
 
 The shell-safety elimination above is the one asserted property no
 repository gate can reach — it is a claim about external tools, verified
@@ -945,20 +950,21 @@ Definition records and product demos (this slice):
   expressions and filesystem coordinates are typed failures in this slice);
 - `ProductInspectionDemos` is a static id→factory registry (smooth-markdown-table
   `RendererRegistry` style) of the three home scenarios; listing is metadata-only
-  and `ResolveHomeScenario` allocates only that demo's peer records; JSON remains
-  the portable load path for external definitions;
-- `InspectionDefinitionTests` is the gate for round-trip, separation,
-  demo-parity, null nested-array rejection, whole-record coordinate budget,
-  dual `rid`/`runtimeIdentifier` rejection, and fail-closed subscribe /
-  filesystem / cross-kind peer resolution; and
-- **not yet:** closed section presets + **run**
-  ([above](#product-demos-are-closed-section-presets)) — bind each home demo to
-  product-owned section ids (not merely coordinates/type focus); realize the
-  binding; execute those sections; return formatted section output on CLI and
-  (via the engine / generated TS surface) on inspect-web; replace hand-authored
-  home links and imperative call-graph load once that path exists. Today's
-  `ResolvedScenario` plans are a partial binding. A resolve-only plan dump is
-  not the user-facing demo command.
+  and `ResolveHomeScenario` allocates only that demo's peer records and enforces
+  `ProductDemoSections` binding; JSON remains the portable load path for external
+  definitions;
+- `ProductDemoSections` is the closed allow list of product section display names
+  home demos may select until minted view-facet ids land;
+- CLI `demo list` / `demo <id>` (`DemoCommand` + `DemoScenarioRunner`) lists
+  metadata and **runs** the bound section through `TypeCommand` /
+  `MemberCommand` (not a resolve-only plan dump);
+- `InspectionDefinitionTests` / `DemoCommandTests` gate round-trip, separation,
+  demo-parity, section binding, CLI lowering, and real section output for the
+  three homes; and
+- **not yet:** minted view-facet ids; `WorkspaceContextLoader` group realization
+  as the run substrate (CLI still uses package + `--caller-package` encoding);
+  inspect-web home buttons / imperative call-graph path switched onto the same
+  registry and sections (engine / generated TS surface can precede that switch).
 
 The coordinate-realization slice implements the `package`, `platform`, and
 `embedded` member coordinates

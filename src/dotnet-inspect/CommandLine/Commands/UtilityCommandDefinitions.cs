@@ -88,4 +88,49 @@ public static class UtilityCommandDefinitions
 
         return skillCommand;
     }
+
+    public static Command CreateDemoCommand(SharedOptions opts)
+    {
+        var demoCommand = new Command(
+            DemoCommand.Name,
+            "Run a product home inspection demo (real section output)");
+        var scenarioArg = new Argument<string?>("scenario")
+        {
+            Description = "Home demo id (omit or 'list' to list demos)",
+            Arity = ArgumentArity.ZeroOrOne,
+        };
+        demoCommand.Arguments.Add(scenarioArg);
+        demoCommand.Options.Add(opts.Json);
+        demoCommand.Options.Add(opts.Markdown);
+        demoCommand.Options.Add(opts.PlainText);
+        opts.AddTableOptionsTo(demoCommand);
+        demoCommand.Options.Add(opts.Limit);
+
+        var listCommand = new Command("list", "List product home demos");
+        listCommand.Options.Add(opts.Json);
+        listCommand.Options.Add(opts.Markdown);
+        listCommand.Options.Add(opts.PlainText);
+        opts.AddTableOptionsTo(listCommand);
+        listCommand.Options.Add(opts.Limit);
+        listCommand.SetAction(parseResult =>
+        {
+            var format = opts.ResolveFormat(parseResult);
+            var noHeader = parseResult.GetValue(opts.NoHeaders);
+            return DemoCommand.ExecuteList(format, noHeader);
+        });
+        demoCommand.Subcommands.Add(listCommand);
+
+        demoCommand.SetAction(async (parseResult, _) =>
+        {
+            var format = opts.ResolveFormat(parseResult);
+            var noHeader = parseResult.GetValue(opts.NoHeaders);
+            var scenario = parseResult.GetValue(scenarioArg);
+            if (string.IsNullOrWhiteSpace(scenario))
+                return DemoCommand.ExecuteList(format, noHeader);
+
+            return await DemoCommand.ExecuteScenarioAsync(scenario, format, noHeader);
+        });
+
+        return demoCommand;
+    }
 }

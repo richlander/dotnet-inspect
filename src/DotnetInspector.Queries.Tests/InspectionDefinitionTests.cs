@@ -828,7 +828,7 @@ public class InspectionDefinitionTests
             callGraph.View!.Type);
         Assert.Equal("74b6b4b321", callGraph.View.MemberAnchor);
         Assert.Equal("method:TryAddEnumerable", callGraph.View.MemberKey);
-        Assert.Equal("call-graph", callGraph.View.Section);
+        Assert.Equal(ProductDemoSections.CallGraph, callGraph.View.Section);
         Assert.Null(callGraph.View.MemberSignature);
 
         Assert.NotNull(callGraph.Navigation);
@@ -846,6 +846,7 @@ public class InspectionDefinitionTests
     {
         var stj = ProductInspectionDemos.ResolveHomeScenario("stj-serializer");
         Assert.Equal("System.Text.Json.JsonSerializer", stj.View!.Type);
+        Assert.Equal(ProductDemoSections.Methods, stj.View.Section);
         var stjPackage = Assert.IsType<WorkspaceMemberCoordinate.PackageMember>(
             stj.SelectedContext!.Members[0]);
         Assert.Equal("System.Text.Json", stjPackage.PackageId);
@@ -853,6 +854,7 @@ public class InspectionDefinitionTests
         var platform = ProductInspectionDemos.ResolveHomeScenario("platform-list");
         Assert.Equal("System.Collections.Generic.List`1", platform.View!.Type);
         Assert.Equal("System.Private.CoreLib", platform.View.Library);
+        Assert.Equal(ProductDemoSections.Methods, platform.View.Section);
         Assert.Equal(2, platform.SelectedContext!.Members.Count);
         Assert.Contains(
             platform.SelectedContext.Members,
@@ -862,6 +864,18 @@ public class InspectionDefinitionTests
         Assert.Equal("runtime", platform.Navigation!.FocusTabId);
         Assert.IsType<WorkspaceMemberCoordinate.PlatformMember>(
             platform.Navigation.FocusTab.Coordinate);
+    }
+
+    [Fact]
+    public void ProductHomeDemos_AllBindKnownProductSections()
+    {
+        foreach (var entry in ProductInspectionDemos.Entries)
+        {
+            var resolved = ProductInspectionDemos.ResolveHomeScenario(entry.Id);
+            Assert.True(
+                ProductDemoSections.IsKnown(resolved.View!.Section),
+                $"Home demo '{entry.Id}' section '{resolved.View.Section}' is outside ProductDemoSections.Known.");
+        }
     }
 
     [Fact]

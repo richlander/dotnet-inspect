@@ -208,6 +208,9 @@ public static class CommandLineBuilder
         // Skill command
         rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateSkillCommand(opts));
 
+        // Product home demos (run closed section presets)
+        rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateDemoCommand(opts));
+
         // Override S.CL's built-in --help to use our own renderer
         var helpOption = rootCommand.Options.OfType<System.CommandLine.Help.HelpOption>().FirstOrDefault();
         if (helpOption != null)
