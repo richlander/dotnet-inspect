@@ -3111,6 +3111,7 @@ public sealed partial class CSharpPrinter
 
     string? Statement(IrNode node) => node switch
     {
+        LabelAnchor => ";",
         ExpressionStatement
         {
             Expression: Call { Callee: { Name: ".ctor", HasThis: true } callee } call,
