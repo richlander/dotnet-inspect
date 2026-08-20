@@ -9,96 +9,131 @@ namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
 /// Pins every place in <c>ILInspector.Decompiler</c> that participates in
-/// core-library identity trust: the methods that construct a
-/// <see cref="PEReader"/>, and the methods that grant identity through
+/// core-library identity trust: the methods that obtain a
+/// <see cref="MetadataReader"/>, and the methods that grant identity through
 /// <c>CoreLibraryIdentityTrust</c>.
 /// <para>
-/// <see cref="PlantedCoreLibraryIdentityTests.EveryPublicFactory_ClassifiesTheReaderItCreates"/>
+/// <c>PlantedCoreLibraryIdentityTests.EveryPublicFactory_ClassifiesTheReaderItCreates</c>
 /// enumerates <em>factory signatures</em>, and three consecutive review rounds
 /// on PR #4428 escaped it along a different cosmetic dimension each time: the
-/// method name (round 4), the declared return type (round 5), then visibility
-/// and <c>Task</c> wrapping (round 6, issue #4464). A signature has unboundedly
-/// many such dimensions, so patching one per round does not converge.
+/// method name, then the declared return type, then visibility and <c>Task</c>
+/// wrapping (issue #4464). A signature has unboundedly many such dimensions, so
+/// patching one per round does not converge.
 /// </para>
 /// <para>
-/// This gate reads the compiled IL instead. A method that builds a reader
-/// contains <c>newobj PEReader::.ctor</c> whatever it is called, however it is
-/// declared, and whether or not its result is wrapped — so the observation
-/// survives every escape above, and any future one of the same kind. Both
-/// directions fail: an unpinned site that appears is an unreviewed way to
-/// obtain a reader, and a pinned site that disappears is a stale entry.
+/// This gate reads the compiled IL instead, and keys on the operation that
+/// actually produces the thing trust attaches to. Core-library identity is
+/// recorded per <see cref="MetadataReader"/> instance, and a reader can only
+/// come from a <c>GetMetadataReader</c> call or from constructing one directly —
+/// so a site is visible whatever its method is called, however it is declared,
+/// and whether or not its result is wrapped. Both directions fail: an unpinned
+/// site is an unreviewed way to obtain a reader, and a pinned site that stops
+/// obtaining or granting is a stale entry.
 /// </para>
 /// <para>
-/// Being listed here is not approval. <see cref="Grants"/> records whether a
-/// site classifies the reader it creates, and most sites deliberately do not:
-/// an unclassified reader loses core-library identity, which is the fail-closed
-/// half of the design that <c>CoreLibraryIdentityTrust</c> documents. What the
-/// pin buys is that adding either kind of site forces someone to say which it
-/// is.
+/// Being listed here is not approval. <see cref="TrustRole.GrantsIdentity"/>
+/// records whether a site classifies the reader it obtains, and most sites
+/// deliberately do not: an unclassified reader loses core-library identity,
+/// which is the fail-closed half of the design that
+/// <c>CoreLibraryIdentityTrust</c> documents. What the pin buys is that adding
+/// either kind of site forces someone to say which it is.
+/// </para>
+/// <para>
+/// <strong>What this gate does not cover.</strong> It answers "where do readers
+/// come from, and which of them are classified", not "is each grant deserved". A
+/// method that passed a discovered path into the raw-path designation overload
+/// would launder discovery into designation while neither obtaining a reader nor
+/// granting identity itself, so it would not appear here. That property belongs
+/// to provenance, and <c>PlantedCoreLibraryIdentityTests</c> gates it — see
+/// <c>DiscoveredSibling_FollowsTheHostPolicy</c> and
+/// <c>PlantedSibling_OpenedThroughMetadataSource_LosesCoreLibraryIdentity</c>.
+/// The bound is stated deliberately: review of PR #4469 found an earlier,
+/// unbounded phrasing of this claim to be false.
 /// </para>
 /// </summary>
 public sealed class ReaderConstructionSiteTests
 {
     /// <summary>
-    /// Whether a trust-relevant site constructs a reader, grants core-library
+    /// The trust type itself. Its own helpers call the grant they implement, and
+    /// reporting them would pin the mechanism as one of its own consumers.
+    /// Compared by exact type identity: a <c>StartsWith</c> prefix test on the
+    /// display name was escaped in review by declaring a namespace with this
+    /// name.
+    /// </summary>
+    const string TrustTypeFullName = "ILInspector.Decompiler.Pipeline.CoreLibraryIdentityTrust";
+
+    /// <summary>
+    /// Whether a trust-relevant site obtains a reader, grants core-library
     /// identity, or does both.
     /// </summary>
     [Flags]
     enum TrustRole
     {
         None = 0,
-        ConstructsReader = 1,
+        ObtainsReader = 1,
         GrantsIdentity = 2,
     }
 
     /// <summary>
     /// Every trust-relevant method in <c>ILInspector.Decompiler</c>, with the
-    /// role it plays and why. Update this table in the same commit that moves a
-    /// site, and say in the reason which half of the design the new entry is
-    /// on.
+    /// role it plays and why. Keys carry the parameter list, so overloads stay
+    /// distinct. Update this table in the same commit that moves a site, and say
+    /// in the reason which half of the design the new entry is on.
     /// </summary>
     static readonly ImmutableDictionary<string, (TrustRole Role, string Reason)> s_pinned =
         new Dictionary<string, (TrustRole, string)>(StringComparer.Ordinal)
         {
-            ["Pipeline.MetadataContext.OpenDesignated"] =
+            ["Pipeline.MetadataContext.OpenDesignated(String)"] =
                 (TrustRole.GrantsIdentity,
-                 "A raw path is an explicit caller designation, so the reader "
-                 + "MetadataSource returns is trusted. This is the route that "
-                 + "opens System.Private.CoreLib.dll from a dotnet/runtime "
-                 + "build layout."),
-            ["Pipeline.MetadataContext.OpenResolved"] =
+                 "A raw path is an explicit caller designation, so the reader it "
+                 + "opens is trusted. This is the route that opens "
+                 + "System.Private.CoreLib.dll from a dotnet/runtime build layout."),
+            ["Pipeline.MetadataContext.OpenResolved(ResolvedAssemblyReference)"] =
                 (TrustRole.GrantsIdentity,
-                 "Discovery. Grants only when the acquisition entitles it, "
-                 + "through CoreLibraryIdentityTrust.GrantIfEntitled."),
-            ["Pipeline.OpenedAssembly.TryOpen"] =
-                (TrustRole.ConstructsReader,
-                 "Deliberately unclassified: a best-effort probe that carries "
-                 + "no acquisition evidence, so anything opened through it "
-                 + "fails closed and cannot mint core-library identity."),
-            ["Pipeline.MetadataSource.OpenCore"] =
-                (TrustRole.ConstructsReader | TrustRole.GrantsIdentity,
-                 "Both OpenCore overloads land here. The raw-path overload "
-                 + "grants unconditionally as an explicit designation; the "
-                 + "ResolvedAssemblyReference overload defers to "
-                 + "GrantIfEntitled because it was reached by discovery."),
-            ["Pipeline.MetadataSource.OpenFromPrefetchedImage"] =
-                (TrustRole.ConstructsReader | TrustRole.GrantsIdentity,
-                 "Designation by path plus caller-supplied bytes; its one "
-                 + "product caller, LibrarySections.ScanBodyShapes, passes the "
-                 + "designated target's own path and image."),
-            ["MemberBodyProducer.ComposeCore"] =
-                (TrustRole.ConstructsReader,
-                 "Deliberately unclassified: opens the assembly a located type "
-                 + "came from to read method bodies. This is the sibling path "
-                 + "from issue #4411, and it must not mint core-library identity."),
-            ["MemberBodyProducer.ComposeMemberCore"] =
-                (TrustRole.ConstructsReader,
-                 "Deliberately unclassified, for the same reason as "
-                 + "ComposeCore: a sibling opened to read one member's body."),
-            ["MemberBodyProducer.ComposeMembersBatch"] =
-                (TrustRole.ConstructsReader,
-                 "Deliberately unclassified, for the same reason as "
-                 + "ComposeCore: a sibling opened to read a batch of bodies."),
+                 "Discovery. Grants only when the acquisition entitles it, through "
+                 + "CoreLibraryIdentityTrust.GrantIfEntitled."),
+            ["Pipeline.OpenedAssembly.TryOpen(Func`1<Stream>)"] =
+                (TrustRole.ObtainsReader,
+                 "Obtains the reader but classifies nothing itself. Its callers "
+                 + "decide: MetadataContext.OpenDesignated grants the reader this "
+                 + "returns, because a raw path is a designation, while OpenResolved "
+                 + "defers to provenance. Reaching it any other way leaves the "
+                 + "reader unclassified, which fails closed."),
+            ["Pipeline.MetadataSource.OpenCore(String, String, Boolean, IAssemblyReferenceResolver, MetadataContext)"] =
+                (TrustRole.ObtainsReader | TrustRole.GrantsIdentity,
+                 "The raw-path overload. Grants unconditionally, as an explicit "
+                 + "caller designation."),
+            ["Pipeline.MetadataSource.OpenCore(ResolvedAssemblyReference, String, Boolean, IAssemblyBindingPolicy, MetadataContext)"] =
+                (TrustRole.ObtainsReader | TrustRole.GrantsIdentity,
+                 "The discovery overload. Defers to GrantIfEntitled, so identity "
+                 + "follows the reference's provenance and a planted sibling "
+                 + "reached by resolution gets nothing."),
+            ["Pipeline.MetadataSource.OpenFromPrefetchedImage(String, ImmutableArray`1<Byte>, String, IAssemblyReferenceResolver, MetadataContext)"] =
+                (TrustRole.ObtainsReader | TrustRole.GrantsIdentity,
+                 "Designation by path plus caller-supplied bytes; its one product "
+                 + "caller, LibrarySections.ScanBodyShapes, passes the designated "
+                 + "target's own path and image."),
+            ["Pipeline.MetadataSource.PdbReader()"] =
+                (TrustRole.ObtainsReader,
+                 "A portable PDB reader, embedded or sidecar. Deliberately "
+                 + "unclassified: a PDB carries no assembly identity, and this "
+                 + "reader is a different instance from the assembly's, so it can "
+                 + "never be mistaken for one. Surfaced only once the predicate "
+                 + "widened from PEReader construction to reader acquisition, "
+                 + "which is the point of that widening."),
+            ["MemberBodyProducer.ComposeCore(ApiType, Func`1<ResolvedTypeDefinition>, Func`3<ResolvedTypeDefinition, MetadataContext, MetadataSource>, MetadataContext, PrinterOptions)"] =
+                (TrustRole.ObtainsReader,
+                 "Deliberately unclassified: opens the assembly a located type came "
+                 + "from to read method bodies. This is the sibling path from issue "
+                 + "#4411, and it must not mint core-library identity."),
+            ["MemberBodyProducer.ComposeMemberCore(ApiType, ApiMember, Func`1<ResolvedTypeDefinition>, Func`3<ResolvedTypeDefinition, MetadataContext, MetadataSource>, MetadataContext, PrinterOptions, MemberRenderAttributeMode)"] =
+                (TrustRole.ObtainsReader,
+                 "Deliberately unclassified, for the same reason as ComposeCore: a "
+                 + "sibling opened to read one member's body."),
+            ["MemberBodyProducer.ComposeMembersBatch(ApiType, Func`1<ResolvedTypeDefinition>, Func`3<ResolvedTypeDefinition, MetadataContext, MetadataSource>, MetadataContext, MemberRenderAttributeMode)"] =
+                (TrustRole.ObtainsReader,
+                 "Deliberately unclassified, for the same reason as ComposeCore: a "
+                 + "sibling opened to read a batch of bodies."),
         }.ToImmutableDictionary(StringComparer.Ordinal);
 
     [Fact]
@@ -120,18 +155,18 @@ public sealed class ReaderConstructionSiteTests
 
             differences.Add(
                 actual == TrustRole.None
-                    ? $"  {site}: pinned as {pinned}, but no longer constructs a "
-                      + "reader or grants identity. Remove the stale entry."
+                    ? $"  {site}: pinned as {pinned}, but no longer obtains a reader "
+                      + "or grants identity. Remove the stale entry."
                     : pinned == TrustRole.None
-                        ? $"  {site}: {actual}, but is not pinned. Add it to "
-                          + "s_pinned and state whether it may mint core-library identity."
+                        ? $"  {site}: {actual}, but is not pinned. Add it to s_pinned "
+                          + "and state whether it may mint core-library identity."
                         : $"  {site}: pinned as {pinned}, observed {actual}.");
         }
 
         Assert.True(
             differences.Count == 0,
             "The core-library trust surface of ILInspector.Decompiler no longer "
-            + "matches its pin. Every method that constructs a PEReader or "
+            + "matches its pin. Every method that obtains a MetadataReader or "
             + "grants core-library identity has to be listed, because an "
             + "unreviewed one is an unreviewed way to obtain a reader:"
             + Environment.NewLine
@@ -140,31 +175,78 @@ public sealed class ReaderConstructionSiteTests
 
     /// <summary>
     /// Non-vacuity gate for <see cref="TrustRelevantSites_MatchThePin"/>. That
-    /// test compares a scan against a table, and it would pass just as happily
-    /// if the scanner silently observed nothing — a broken token comparison or
-    /// a renamed trust type would empty both sides of a set difference. This
-    /// asserts the scanner still finds the two things it looks for, so the
-    /// pin cannot go quietly vacuous.
+    /// test compares a scan against a table, and it would pass just as happily if
+    /// the scanner silently observed nothing — a broken token comparison or a
+    /// renamed trust type would empty both sides of a set difference. This
+    /// asserts the scanner still finds both things it looks for, so the pin
+    /// cannot go quietly vacuous.
     /// </summary>
     [Fact]
-    public void Scanner_ObservesBothConstructionAndGrantSites()
+    public void Scanner_ObservesBothAcquisitionAndGrantSites()
     {
         var observed = ScanTrustRelevantSites();
 
-        Assert.Contains(
-            observed,
-            e => e.Value.HasFlag(TrustRole.ConstructsReader));
-        Assert.Contains(
-            observed,
-            e => e.Value.HasFlag(TrustRole.GrantsIdentity));
+        Assert.Contains(observed, e => e.Value.HasFlag(TrustRole.ObtainsReader));
+        Assert.Contains(observed, e => e.Value.HasFlag(TrustRole.GrantsIdentity));
     }
 
     /// <summary>
-    /// Reads the compiled <c>ILInspector.Decompiler</c> assembly and reports
-    /// every method whose IL constructs a <see cref="PEReader"/> or calls into
+    /// Guards the property that makes the pin an identity rather than a label:
+    /// two distinct methods must never collapse onto one key. Review of PR #4469
+    /// escaped an earlier version twice this way — by adding an overload, and by
+    /// adding a local function whose lowered name was unmangled back to its
+    /// enclosing method — with the new method silently inheriting the pinned
+    /// approval of the one it collided with.
+    /// </summary>
+    [Fact]
+    public void SiteKeys_AreUniquePerMethod()
+    {
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        foreach (var (_, key) in EnumerateMethods())
+            counts[key] = counts.TryGetValue(key, out int count) ? count + 1 : 1;
+
+        var collisions = counts
+            .Where(e => e.Value > 1)
+            .Select(e => $"  {e.Key} ({e.Value} methods)")
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(
+            collisions.Count == 0,
+            "Distinct methods share a site key, so one could inherit another's "
+            + "pinned approval:"
+            + Environment.NewLine
+            + string.Join(Environment.NewLine, collisions));
+    }
+
+    /// <summary>
+    /// Reads the compiled <c>ILInspector.Decompiler</c> assembly and reports every
+    /// method whose IL obtains a <see cref="MetadataReader"/> or calls into
     /// <c>CoreLibraryIdentityTrust</c> to grant identity.
     /// </summary>
     static ImmutableDictionary<string, TrustRole> ScanTrustRelevantSites()
+    {
+        var sites = new Dictionary<string, TrustRole>(StringComparer.Ordinal);
+
+        foreach (var (method, key) in EnumerateMethods())
+        {
+            if (method.Role == TrustRole.None || method.DeclaringTypeFullName == TrustTypeFullName)
+                continue;
+
+            Assert.False(
+                sites.ContainsKey(key),
+                $"Two trust-relevant methods share the site key '{key}'.");
+
+            sites[key] = method.Role;
+        }
+
+        return sites.ToImmutableDictionary(StringComparer.Ordinal);
+    }
+
+    readonly record struct ScannedMethod(TrustRole Role, string DeclaringTypeFullName);
+
+    static IEnumerable<(ScannedMethod Method, string Key)> EnumerateMethods()
     {
         string assemblyPath = typeof(MetadataSource).Assembly.Location;
         Assert.True(
@@ -175,37 +257,21 @@ public sealed class ReaderConstructionSiteTests
         using var pe = new PEReader(stream);
         var reader = pe.GetMetadataReader();
 
-        var sites = new Dictionary<string, TrustRole>(StringComparer.Ordinal);
-
         foreach (var handle in reader.MethodDefinitions)
         {
             var method = reader.GetMethodDefinition(handle);
             if (method.RelativeVirtualAddress == 0)
                 continue;
 
-            var body = pe.GetMethodBody(method.RelativeVirtualAddress);
-            byte[] il = body.GetILBytes() ?? [];
+            byte[] il = pe.GetMethodBody(method.RelativeVirtualAddress).GetILBytes() ?? [];
             if (il.Length == 0)
                 continue;
 
-            TrustRole role = RoleOf(reader, il);
-            if (role == TrustRole.None)
-                continue;
-
-            string name = SiteName(reader, method);
-
-            // The trust type's own helpers call the grant they implement.
-            // Reporting them would pin the mechanism as one of its own
-            // consumers, which says nothing about where readers come from.
-            if (name.StartsWith("Pipeline.CoreLibraryIdentityTrust.", StringComparison.Ordinal))
-                continue;
-
-            sites[name] = sites.TryGetValue(name, out TrustRole existing)
-                ? existing | role
-                : role;
+            string declaringType = FullName(reader, method.GetDeclaringType());
+            yield return (
+                new ScannedMethod(RoleOf(reader, il), declaringType),
+                SiteKey(reader, method, declaringType));
         }
-
-        return sites.ToImmutableDictionary(StringComparer.Ordinal);
     }
 
     static TrustRole RoleOf(MetadataReader reader, byte[] il)
@@ -221,13 +287,21 @@ public sealed class ReaderConstructionSiteTests
             if (!TryDescribeMember(reader, operand, out string declaringType, out string member))
                 continue;
 
+            // Trust attaches to a MetadataReader instance, so key on the ways one
+            // can be obtained rather than on PEReader, which is merely the usual
+            // container. Review of PR #4469 escaped a PEReader-only scan through
+            // MetadataReaderProvider and through the unsafe MetadataReader
+            // constructor, neither of which constructs a PEReader.
+            if (member == "GetMetadataReader")
+                role |= TrustRole.ObtainsReader;
+
             if (instruction.OpCode == ILOpCode.Newobj
-                && declaringType == "System.Reflection.PortableExecutable.PEReader")
+                && declaringType == "System.Reflection.Metadata.MetadataReader")
             {
-                role |= TrustRole.ConstructsReader;
+                role |= TrustRole.ObtainsReader;
             }
 
-            if (declaringType.EndsWith("CoreLibraryIdentityTrust", StringComparison.Ordinal)
+            if (declaringType == TrustTypeFullName
                 && member.StartsWith("Grant", StringComparison.Ordinal))
             {
                 role |= TrustRole.GrantsIdentity;
@@ -272,15 +346,21 @@ public sealed class ReaderConstructionSiteTests
         }
     }
 
-    static string TypeNameOf(MetadataReader reader, EntityHandle handle) =>
-        handle.Kind switch
+    static string TypeNameOf(MetadataReader reader, EntityHandle handle)
+    {
+        switch (handle.Kind)
         {
-            HandleKind.TypeReference => Join(
-                reader.GetString(reader.GetTypeReference((TypeReferenceHandle)handle).Namespace),
-                reader.GetString(reader.GetTypeReference((TypeReferenceHandle)handle).Name)),
-            HandleKind.TypeDefinition => FullName(reader, (TypeDefinitionHandle)handle),
-            _ => "",
-        };
+            case HandleKind.TypeReference:
+            {
+                var reference = reader.GetTypeReference((TypeReferenceHandle)handle);
+                return Join(reader.GetString(reference.Namespace), reader.GetString(reference.Name));
+            }
+            case HandleKind.TypeDefinition:
+                return FullName(reader, (TypeDefinitionHandle)handle);
+            default:
+                return "";
+        }
+    }
 
     static string FullName(MetadataReader reader, TypeDefinitionHandle handle)
     {
@@ -295,40 +375,70 @@ public sealed class ReaderConstructionSiteTests
         string.IsNullOrEmpty(@namespace) ? name : $"{@namespace}.{name}";
 
     /// <summary>
-    /// Names a site by declaring type and method, with the root namespace
-    /// trimmed for readability. Compiler-generated members are attributed to
-    /// the method they were lowered from, so an iterator or a lambda does not
-    /// read as an unrelated site.
+    /// Identifies a site by declaring type, method name, and parameter types,
+    /// with the root namespace trimmed for readability. The parameter list is
+    /// what keeps overloads distinct, and
+    /// <see cref="SiteKeys_AreUniquePerMethod"/> is the gate on that.
+    /// Compiler-generated names are reported verbatim, so a local function or
+    /// lambda that obtains a reader becomes its own site rather than inheriting
+    /// the approval of the method it was lowered from. That makes the key
+    /// sensitive to compiler-assigned ordinals, which is the intended trade: a
+    /// trust-relevant site should not be compiler-generated, and if one ever is,
+    /// it deserves the explicit pin and the review that churn forces.
     /// </summary>
-    static string SiteName(MetadataReader reader, MethodDefinition method)
+    static string SiteKey(MetadataReader reader, MethodDefinition method, string declaringType)
     {
-        string type = FullName(reader, method.GetDeclaringType());
-        string name = reader.GetString(method.Name);
-
         const string RootNamespace = "ILInspector.Decompiler.";
-        if (type.StartsWith(RootNamespace, StringComparison.Ordinal))
-            type = type[RootNamespace.Length..];
+        string type = declaringType.StartsWith(RootNamespace, StringComparison.Ordinal)
+            ? declaringType[RootNamespace.Length..]
+            : declaringType;
 
-        return $"{Unmangle(type)}.{Unmangle(name)}";
+        var signature = method.DecodeSignature(SignatureTypeNames.Instance, genericContext: null);
+        return $"{type}.{reader.GetString(method.Name)}({string.Join(", ", signature.ParameterTypes)})";
     }
 
     /// <summary>
-    /// Recovers the authored name a compiler-generated name was lowered from.
-    /// Roslyn spells these <c>&lt;Origin&gt;g__Local|1_0</c>,
-    /// <c>&lt;Origin&gt;b__2_0</c>, or <c>&lt;Origin&gt;d__7</c>, all of which
-    /// carry ordinals that shift when unrelated members are added nearby. The
-    /// pin names the authored method so it does not churn on edits that have
-    /// nothing to do with trust.
+    /// Spells signature types by simple name — enough to separate overloads in a
+    /// site key and to stay readable in a failure message.
     /// </summary>
-    static string Unmangle(string name)
+    sealed class SignatureTypeNames : ISignatureTypeProvider<string, object?>
     {
-        if (!name.StartsWith('<'))
-            return name;
+        internal static readonly SignatureTypeNames Instance = new();
 
-        int end = name.IndexOf('>');
-        if (end <= 1)
-            return name;
+        public string GetArrayType(string elementType, ArrayShape shape) => $"{elementType}[]";
 
-        return name[1..end];
+        public string GetByReferenceType(string elementType) => $"{elementType}&";
+
+        public string GetFunctionPointerType(MethodSignature<string> signature) => "method";
+
+        public string GetGenericInstantiation(string genericType, ImmutableArray<string> typeArguments)
+            => $"{genericType}<{string.Join(", ", typeArguments)}>";
+
+        public string GetGenericMethodParameter(object? genericContext, int index) => $"!!{index}";
+
+        public string GetGenericTypeParameter(object? genericContext, int index) => $"!{index}";
+
+        public string GetModifiedType(string modifier, string unmodifiedType, bool isRequired) => unmodifiedType;
+
+        public string GetPinnedType(string elementType) => elementType;
+
+        public string GetPointerType(string elementType) => $"{elementType}*";
+
+        public string GetPrimitiveType(PrimitiveTypeCode typeCode) => typeCode.ToString();
+
+        public string GetSZArrayType(string elementType) => $"{elementType}[]";
+
+        public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
+            => reader.GetString(reader.GetTypeDefinition(handle).Name);
+
+        public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
+            => reader.GetString(reader.GetTypeReference(handle).Name);
+
+        public string GetTypeFromSpecification(
+            MetadataReader reader,
+            object? genericContext,
+            TypeSpecificationHandle handle,
+            byte rawTypeKind)
+            => reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
     }
 }

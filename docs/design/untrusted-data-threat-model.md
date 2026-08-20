@@ -361,17 +361,29 @@ unboundedly many cosmetic dimensions. Three consecutive review rounds on the
 fix escaped it along a different one each time: the method name, then the
 declared return type, then visibility and `Task` wrapping (issue #4464).
 `ReaderConstructionSiteTests.TrustRelevantSites_MatchThePin` replaces that with
-an observation the escapes cannot reach. It reads the compiled IL of
-`ILInspector.Decompiler` and pins every method that constructs a `PEReader` or
-calls a grant on `CoreLibraryIdentityTrust`, so a site is visible whatever it
-is called, however it is declared, and whether or not its result is wrapped.
-Both directions fail: an unpinned site is an unreviewed way to obtain a reader,
-and a pinned site that stops constructing or granting is a stale entry. Listing
-is not approval — most pinned sites deliberately do *not* classify, and the
-table records which half of the design each one is on.
-`ReaderConstructionSiteTests.Scanner_ObservesBothConstructionAndGrantSites` is
+an observation those escapes cannot reach. It reads the compiled IL of
+`ILInspector.Decompiler` and pins every method that obtains a `MetadataReader`
+or calls a grant on `CoreLibraryIdentityTrust`. Trust attaches to a reader
+instance, and a reader can only come from a `GetMetadataReader` call or from
+constructing one directly, so a site is visible whatever it is called, however
+it is declared, and whether or not its result is wrapped. Both directions fail:
+an unpinned site is an unreviewed way to obtain a reader, and a pinned site
+that stops obtaining or granting is a stale entry. Listing is not approval —
+most pinned sites deliberately do *not* classify, and the table records which
+half of the design each one is on.
+`ReaderConstructionSiteTests.Scanner_ObservesBothAcquisitionAndGrantSites` is
 its non-vacuity check, since a scan compared against a table would pass just as
-happily if the scan silently observed nothing.
+happily if the scan silently observed nothing, and
+`ReaderConstructionSiteTests.SiteKeys_AreUniquePerMethod` keeps each site key an
+identity rather than a label, so an added overload or a lowered local function
+cannot inherit an existing entry's approval.
+
+The pin is deliberately bounded: it answers where readers come from and which of
+them are classified, not whether each grant is deserved. A method that passed a
+discovered path into the raw-path designation overload would launder discovery
+into designation while neither obtaining a reader nor granting identity itself,
+so it would not appear in the pin. That property belongs to provenance, and
+`PlantedCoreLibraryIdentityTests` gates it.
 
 ### Restored manifest paths remain within their owning roots
 

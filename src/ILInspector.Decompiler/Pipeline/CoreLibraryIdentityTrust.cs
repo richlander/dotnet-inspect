@@ -45,8 +45,10 @@ namespace ILInspector.Decompiler.Pipeline;
 /// halves — the grant and the check — and covers the resolved, designated,
 /// raw-path, and unclassified open paths, and by
 /// <c>ReaderConstructionSiteTests</c>, which pins every method in this assembly
-/// whose IL constructs a <c>PEReader</c> or calls a grant here, so a new way to
-/// obtain a reader cannot be added without saying which half it is on.
+/// whose IL obtains a <c>MetadataReader</c> or calls a grant here, so a new way
+/// to obtain a reader cannot be added without saying which half it is on. That
+/// pin covers reader acquisition and granting, not provenance: whether a grant
+/// is deserved remains <c>PlantedCoreLibraryIdentityTests</c>'s property.
 /// </para>
 /// </summary>
 static class CoreLibraryIdentityTrust
