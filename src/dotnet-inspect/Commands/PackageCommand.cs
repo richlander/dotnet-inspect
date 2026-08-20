@@ -164,7 +164,6 @@ public class PackageCommand
                 var lensName = options.ListVersions ? "--versions"
                     : options.ListLayout ? "--layout"
                     : options.ListTfms ? "--tfms"
-                    : options.ShowDependencies ? "--dependencies"
                     : "--content";
                 if (options.ShowDependencies)
                     CommandError.Write($"--dependencies cannot be combined with {lensName}.");
@@ -680,7 +679,10 @@ public class PackageCommand
             version.Length > 0 ? $"package {packageName}@{version}" : $"package {packageName}",
             "package inspect");
 
-        if (options.Tree && options.Discover == null && !packageLibraryMode)
+        if (options.Tree
+            && options.Discover == null
+            && !packageLibraryMode
+            && (!options.Count || options.ShowDependencies))
         {
             if (options.ShowDependencies)
                 CommandError.WriteLine("Tip: use 'depends --package' for dependency trees.");
@@ -1880,11 +1882,17 @@ public class PackageCommand
 
     private static bool ValidateDependencyTreeProjection(InspectionOptions options)
     {
-        if (!options.Tree || options.Discover != null)
+        bool dependencyTreeProjection =
+            options.IncludeSections is { Count: 1 }
+            && options.IncludeSections.Contains(PackageSections.Dependencies);
+        if (!options.Tree
+            || options.Discover != null
+            || (options.Count
+                && !options.ShowDependencies
+                && !dependencyTreeProjection))
             return true;
 
-        if (options.IncludeSections is not { Count: 1 }
-            || !options.IncludeSections.Contains(PackageSections.Dependencies))
+        if (!dependencyTreeProjection)
         {
             CommandError.Write(
                 options.ShowDependencies
@@ -3503,6 +3511,7 @@ public class PackageCommand
     private static bool ValidatePackageLibraryMode(InspectionOptions options)
     {
         if (options.Tree
+            && !options.Count
             && options.Discover == null
             && (options.Format != OutputFormat.Markdown
                 || options.Bare
@@ -3544,7 +3553,7 @@ public class PackageCommand
         if (options.Print) conflicts.Add("--print");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         if (options.Discover != null) conflicts.Add("-D/--discover");
-        if (options.Tree && options.Discover == null) conflicts.Add("--tree");
+        if (options.Tree && options.Discover == null && !options.Count) conflicts.Add("--tree");
         if (options.Columns != null) conflicts.Add("--columns");
         if (options.Fields != null) conflicts.Add("--fields");
 
