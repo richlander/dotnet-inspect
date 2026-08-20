@@ -611,9 +611,14 @@ export function graphMemberShareTarget(
     || (target.metadataToken != null && !Number.isInteger(target.metadataToken))) {
     return null;
   }
+  const assemblyVersion = Object.prototype.hasOwnProperty.call(
+      target,
+      "assemblyVersion")
+    ? target.assemblyVersion ?? null
+    : "";
   return [
     target.assembly,
-    target.assemblyVersion ?? null,
+    assemblyVersion,
     target.assemblyCulture ?? null,
     target.assemblyPublicKeyToken ?? null,
     target.typeDefinitionId,
@@ -710,7 +715,7 @@ export function graphMemberTargetFromShare(
   }
   return {
     assembly: value[0],
-    assemblyVersion: value[1],
+    ...(value[1] !== "" ? { assemblyVersion: value[1] } : {}),
     assemblyCulture: value[2],
     assemblyPublicKeyToken: value[3],
     typeDefinitionId: value[4],
@@ -1093,6 +1098,15 @@ export function graphTargetBlockedReason(
   if (candidate?.status === "resident")
     return `the exact target type is not projected from the loaded ${owner} assembly`;
   return `the exact ${owner} target identity matched multiple loaded types`;
+}
+
+export function graphOnlyBodyTarget<TTarget>(
+  overload: {
+    graphOnly?: boolean;
+    graphTarget?: TTarget | null;
+  } | null | undefined,
+): TTarget | null {
+  return overload?.graphOnly ? overload.graphTarget ?? null : null;
 }
 
 export interface CallGraphDiagnostics {

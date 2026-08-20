@@ -18,6 +18,7 @@ import {
   callGraphDiagnosticsMessage,
   callGraphTargetMatchesType,
   callGraphTargetTypeId,
+  combinedGraphTargetNavigationDisposition,
   createDependencyGraphPendingState,
   createDependencyGraphRenderSequence,
   dependencyCoordinateCandidates,
@@ -35,6 +36,7 @@ import {
   graphMemberSelection,
   graphMemberTargetFromPacket,
   graphMemberTargetFromShare,
+  graphOnlyBodyTarget,
   MARKDOWN_SANITIZE_OPTIONS,
   MAX_SHARE_STATE_CHARACTERS,
   MAX_WORKSPACE_PACKAGES,
@@ -2963,6 +2965,45 @@ test("graph-only member targets round-trip through shared URLs", () => {
     /shared graph member target is invalid/);
 });
 
+test("legacy graph targets preserve absent assembly versions when shared", () => {
+  const target = {
+    assembly: "Example",
+    typeDefinitionId: "Example.Widget",
+    typeMetadataId: "Example.Widget",
+    memberName: "Run",
+    selectorKey: "opaque-selector",
+    metadataToken: 0x06000001
+  };
+  const restored = graphMemberTargetFromShare(graphMemberShareTarget(target));
+  const pkg = {
+    types: [{
+      assembly: "Example",
+      definitionId: "Example.Widget"
+    }]
+  };
+
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(restored, "assemblyVersion"),
+    false);
+  assert.equal(restored.assembly, target.assembly);
+  assert.equal(restored.typeDefinitionId, target.typeDefinitionId);
+  assert.equal(
+    resolveLoadedGraphTargetCandidate([pkg], target).status,
+    "unique");
+  assert.equal(
+    resolveLoadedGraphTargetCandidate([pkg], restored).status,
+    "unique");
+
+  const explicitUnknown = {
+    ...target,
+    assemblyVersion: null
+  };
+  assert.equal(
+    graphMemberTargetFromShare(
+      graphMemberShareTarget(explicitUnknown)).assemblyVersion,
+    null);
+});
+
 test("graph-only members open through the typed member surface", () => {
   const binding =
     appSource.match(/if \(bindCallGraphNodes\)[\s\S]*?\n  fit\(\);/)?.[0]
@@ -3157,8 +3198,8 @@ test("shared graph projection validates before committing API state", () => {
   assert.doesNotMatch(restoration, /staged\.selection\.overloadIndex !== pendingOverloadIndex/);
   assert.match(
     appSource,
-    /group\?\.overloads\.length === 1 && group\.overloads\[0\]\.graphOnly/);
-  assert.match(
+    /group\?\.overloads\.length === 1\s*\? graphOnlyBodyTarget\(group\.overloads\[0\]\)/);
+  assert.doesNotMatch(
     appSource,
     /group\.overloads\[overloadIndex\]\.graphTarget = bodyTarget/);
 });
@@ -3187,10 +3228,10 @@ test("platform graph borders reflect actual resident lookup", () => {
   assert.match(binding, /else \{\s*startPlatformDrill\(target\)/);
   assert.match(
     packageBinding,
-    /const runtimeCandidate = candidate\.status === "missing" && pack\s*\? resolveRuntimeGraphTargetCandidate\(pack, target\)/);
+    /const runtimeCandidate = \(candidate\.status === "missing"[\s\S]*?\|\| candidate\.status === "skew"\) && pack\s*\? resolveRuntimeGraphTargetCandidate\(pack, target\)/);
   assert.match(
     packageBinding,
-    /const runtimeResident = runtimeCandidate\.status === "unique"\s*\|\| runtimeGraphTargetAssemblyIsResident\(pack, target\);[\s\S]*?if \(disposition === "blocked"/);
+    /const disposition = combinedGraphTargetNavigationDisposition\(\s*candidate,\s*runtimeCandidate,\s*target,\s*runtimeResident\);[\s\S]*?if \(disposition === "blocked"/);
   assert.match(
     packageBinding,
     /else if \(disposition === "resident"\) \{\s*if \(resident\) \{[\s\S]*?navigateToRuntimeMember\([\s\S]*?\} else \{\s*startPlatformDrill\(target\)/);
@@ -3753,6 +3794,66 @@ test("call graph navigation rejects assembly identity skew", () => {
   assert.equal(
     graphTargetBlockedReason(residentCandidate, "package"),
     "the exact target type is not projected from the loaded package assembly");
+});
+
+test("an exact resident runtime target wins over package identity skew", () => {
+  const target = {
+    assembly: "Example",
+    assemblyVersion: "1.0.0.0",
+    assemblyCulture: null,
+    assemblyPublicKeyToken: null,
+    typeMetadataId: "Example.Widget",
+    kind: "external"
+  };
+
+  assert.equal(
+    combinedGraphTargetNavigationDisposition(
+      { status: "skew" },
+      { status: "unique" },
+      target,
+      true),
+    "resident");
+  assert.equal(
+    combinedGraphTargetNavigationDisposition(
+      { status: "skew" },
+      { status: "resident" },
+      target,
+      true),
+    "resident");
+  assert.equal(
+    combinedGraphTargetNavigationDisposition(
+      { status: "skew" },
+      { status: "missing" },
+      target),
+    "blocked");
+  assert.equal(
+    combinedGraphTargetNavigationDisposition(
+      { status: "skew" },
+      { status: "ambiguous" },
+      target),
+    "blocked");
+  assert.equal(
+    combinedGraphTargetNavigationDisposition(
+      { status: "missing" },
+      { status: "unique" },
+      { ...target, assemblyVersion: null },
+      true),
+    "none");
+});
+
+test("only graph-only overloads retain graph body identity", () => {
+  const target = {
+    memberName: "get_Item",
+    selectorKey: "getter-selector"
+  };
+
+  assert.equal(
+    graphOnlyBodyTarget({ graphOnly: false, graphTarget: target }),
+    null);
+  assert.equal(graphOnlyBodyTarget({ graphOnly: true, graphTarget: target }), target);
+  assert.doesNotMatch(
+    appSource,
+    /group\.overloads\[overloadIndex\]\.graphTarget = bodyTarget/);
 });
 
 test("call graph navigation keeps identity-unknown targets inert", () => {

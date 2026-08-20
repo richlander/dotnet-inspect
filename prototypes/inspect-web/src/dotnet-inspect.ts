@@ -5,6 +5,7 @@ import {
   pdbSourceLimitationHtml,
   callGraphDiagnosticsMessage,
   callGraphTargetTypeId,
+  combinedGraphTargetNavigationDisposition,
   createDependencyGraphPendingState,
   createDependencyGraphRenderSequence,
   dependencyCoordinateCandidates,
@@ -1834,8 +1835,8 @@ function resetMemberSectionState() {
 function openMemberGroup(key: string) {
   const group = memberGroups(selectedType()).find(candidate => candidate.key === key);
   const graphOnlyTarget =
-    group?.overloads.length === 1 && group.overloads[0].graphOnly
-      ? group.overloads[0].graphTarget ?? null
+    group?.overloads.length === 1
+      ? graphOnlyBodyTarget(group.overloads[0])
       : null;
   state.memberBrowseTypeId = selectedType()?.id ?? "";
   state.selectedMemberKey = key;
@@ -1881,8 +1882,8 @@ function normalizeMemberSelection() {
 }
 
 function openOverload(index: number) {
-  const graphTarget =
-    selectedMember(selectedType())?.overloads[index]?.graphTarget ?? null;
+  const graphTarget = graphOnlyBodyTarget(
+    selectedMember(selectedType())?.overloads[index]);
   state.selectedOverloadIndex = index;
   resetMemberSectionState();
   observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
@@ -1896,7 +1897,7 @@ function applyMemberSection(id: MemberSection) {
   const member = selectedMember(selectedType());
   if (member && member.overloads.length > 1 && state.selectedOverloadIndex == null) {
     state.selectedOverloadIndex = 0;
-    state.selectedBodyTarget = member.overloads[0].graphTarget ?? null;
+    state.selectedBodyTarget = graphOnlyBodyTarget(member.overloads[0]);
   }
   if (state.memberSection === "call-graph" && id !== "call-graph") {
     invalidateMemberCallGraphWork(state);
@@ -7490,9 +7491,6 @@ function navigateToMember(
   bodyTarget: BodyTarget | null = null,
 ) {
   invalidateGraphMemberNavigation();
-  if (bodyTarget && overloadIndex != null && group.overloads[overloadIndex]) {
-    group.overloads[overloadIndex].graphTarget = bodyTarget;
-  }
   activatePackage(pkg);
   state.typeFilter = "";
   state.namespaceFilter = "";
