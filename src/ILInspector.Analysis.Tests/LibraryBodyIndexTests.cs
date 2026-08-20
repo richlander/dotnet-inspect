@@ -4026,6 +4026,14 @@ public class LibraryBodyIndexTests
                 full.Methods,
                 method => method.Name == "MoveNext"
                     && method.ParameterTypes.IsDefaultOrEmpty);
+            Assert.Contains(
+                full.OptimizationOpportunities,
+                opportunity => opportunity.Method.MetadataToken
+                    == moveNext.MetadataToken);
+            Assert.Contains(
+                full.AllocationFanoutOpportunities,
+                opportunity => opportunity.Method.MetadataToken
+                    == moveNext.MetadataToken);
             var scoped = LibraryBodyIndex.Open(
                 path,
                 LibraryBodyAnalysisFeatures
@@ -4155,12 +4163,61 @@ public class LibraryBodyIndexTests
             call => call.Callee.Name == "Read");
     }
 
+    [Fact]
+    public void
+        OptimizationOpportunities_ScopedSkippedAsyncSourceFailsClosed()
+    {
+        byte[] image =
+            BuildMalformedAsyncSourceAssembly(
+                moveNextSmallArray: true,
+                malformedAnalyzeSignature: true);
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"SkippedAsyncOwner-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(path, image);
+            var full = LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities);
+            MethodIdentity moveNext = Assert.Single(
+                full.Methods,
+                method => method.Name == "MoveNext"
+                    && method.ParameterTypes.IsDefaultOrEmpty);
+            var scoped = LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+                bodyTypeScope:
+                    type => type.Equals(
+                        moveNext.DeclaringType));
+
+            Assert.Contains(
+                scoped.GetAllocationOccurrences(),
+                pair => pair.Key == moveNext.MetadataToken);
+            Assert.DoesNotContain(
+                scoped.OptimizationOpportunities,
+                opportunity => opportunity.Method.MetadataToken
+                    == moveNext.MetadataToken);
+            Assert.DoesNotContain(
+                scoped.AllocationFanoutOpportunities,
+                opportunity => opportunity.Method.MetadataToken
+                    == moveNext.MetadataToken);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     static byte[] BuildMalformedAsyncSourceAssembly(
         bool ambiguousSource = false,
         bool malformedMoveNextMethodImpl = false,
         int extraMethodCount = 0,
         bool moveNextSmallArray = false,
-        bool unresolvedLiftedSource = false)
+        bool unresolvedLiftedSource = false,
+        bool malformedAnalyzeSignature = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -4343,7 +4400,10 @@ public class LibraryBodyIndexTests
                     unresolvedLiftedSource
                         ? "<Outer>b__0_0"
                         : "AnalyzeAsync"),
-                taskSignature,
+                malformedAnalyzeSignature
+                    ? metadata.GetOrAddBlob(
+                        new byte[] { 0x00 })
+                    : taskSignature,
                 AddRetBody(bodyEncoder),
                 MetadataTokens.ParameterHandle(1));
         MethodDefinitionHandle read =
@@ -10407,6 +10467,27 @@ public class LibraryBodyIndexTests
         Assert.DoesNotContain(
             scoped.AllocationFanoutOpportunities,
             candidate => candidate.Method == kickoff);
+    }
+
+    [Fact]
+    public void
+        AllocationFanout_TypeScopeAdmittingEveryTypeMatchesFullBuild()
+    {
+        string path =
+            typeof(PdbContext).Assembly.Location;
+        var full = LibraryBodyIndex.Open(path);
+        var scoped = LibraryBodyIndex.Open(
+            path,
+            bodyTypeScope: _ => true);
+
+        Assert.Contains(
+            full.AllocationFanoutOpportunities,
+            opportunity => opportunity.Method.Name.StartsWith(
+                "<EnumerateTypeDocuments>g__AddDocument|",
+                StringComparison.Ordinal));
+        Assert.Equal(
+            full.AllocationFanoutOpportunities,
+            scoped.AllocationFanoutOpportunities);
     }
 
     [Fact]
