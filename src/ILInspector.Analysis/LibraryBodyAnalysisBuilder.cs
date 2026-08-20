@@ -537,6 +537,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                             methodHandle,
                             methodDefinition,
                             scope);
+                    // Resolve every lifted owner before applying TypeScope so
+                    // generated bodies can be admitted by their source type.
                     if (_liftedSourceOwnerResolver.TryResolve(
                             methodHandle,
                             methodDefinition,
@@ -544,7 +546,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                             out MethodIdentity? sourceOwner,
                             out _,
                             plan.MethodScope,
-                            plan.TypeScope,
+                            ownerTypeScope: null,
                             plan.RequestedMethodScope?.Contains(
                                 MetadataTokens.GetToken(
                                     methodHandle))

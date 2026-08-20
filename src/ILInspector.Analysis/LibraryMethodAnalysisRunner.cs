@@ -154,6 +154,7 @@ internal sealed class LibraryMethodAnalysisRunner(
             LibraryBodyAnalysisFeatures.Allocations);
         bool includeOpportunities = plan.Includes(
             LibraryBodyAnalysisFeatures.OptimizationOpportunities);
+        bool collectOpportunities = includeOpportunities;
         bool includeLeakTriage = plan.Includes(
             LibraryBodyAnalysisFeatures.LeakTriage);
         bool includeOwnershipFlow = plan.Includes(
@@ -255,12 +256,21 @@ internal sealed class LibraryMethodAnalysisRunner(
                             caller.MetadataToken,
                             out sourceType)
                     == true;
-                TypeRef scopedType =
+                bool physicalTypeSelected =
+                    bodyTypeScope(caller.DeclaringType);
+                bool sourceTypeSelected =
                     mappedEvidence
-                        ? sourceType!
-                        : caller.DeclaringType;
-                if (!bodyTypeScope(scopedType))
+                    && bodyTypeScope(sourceType!);
+                if (!physicalTypeSelected
+                    && !sourceTypeSelected)
+                {
                     return result;
+                }
+                if (mappedEvidence
+                    && !sourceTypeSelected)
+                {
+                    collectOpportunities = false;
+                }
             }
             try
             {
@@ -271,11 +281,13 @@ internal sealed class LibraryMethodAnalysisRunner(
                         caller,
                         typeSourceGenerated,
                         bodyScope,
-                        bodyTypeScope,
-                        requestedMethodScope,
-                        requestedMethodScope?.Contains(
-                            caller.MetadataToken)
-                            == true);
+                        ownerTypeScope: null,
+                        requestedMethodScope:
+                            requestedMethodScope,
+                        directlySelectedBody:
+                            requestedMethodScope?.Contains(
+                                caller.MetadataToken)
+                                == true);
                 result.DeclaredMethod = declaredMethod;
                 result.DeclaredSource = declaredMethod;
             }
@@ -389,7 +401,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                 result.Signals = signals;
                 result.HasSignals = true;
             }
-            if (includeOpportunities)
+            if (collectOpportunities)
             {
                 var methodAttributes =
                     methodDefinition.GetCustomAttributes();
@@ -468,7 +480,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                     hasUnsafeApiMember
                     || hasUnsafeSignature
                     || hasUnsafeLocals);
-            if (includeOpportunities)
+            if (collectOpportunities)
             {
                 MethodIdentity? asyncSource = null;
                 try
