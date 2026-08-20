@@ -779,6 +779,19 @@ function filteredTypes() {
   });
 }
 
+// The type the type list would land on by default: the first type the CURRENT
+// accessibility filter admits, not merely the first type the backend happens to return.
+// Package/library roots otherwise land on whatever type sorts first server-side — often an
+// internal compiler-generated type (e.g. an FxResources.*.SR resource shim) — while the type
+// list itself (filteredTypes) hides it, splitting the landing type from the visible list.
+// Callers must reset any stale type/namespace/kind/library filters (and the accessibility
+// filter, via activatePackage) before calling this so it reflects the incoming package.
+function defaultVisibleTypeId(pkg) {
+  if (!pkg) return "";
+  const visible = pkg.types.find(item => state.accessibilityFilter.has(item.accessibilityId));
+  return visible ? visible.id : (pkg.types[0]?.id || "");
+}
+
 // The "Filter types" box matches, within the active scope, on the type's own identity
 // (name/namespace/kind), the owning library (assembly) name, and — so a member you
 // remember surfaces its declaring type — any member name on the type. The member scan
@@ -952,13 +965,13 @@ function selectPackageTab(pkg) {
   if (!pkg) return;
   activatePackage(pkg, { resetAccessibility: true });
   state.home = false;
-  state.selectedTypeId = pkg.types[0]?.id || "";
-  state.selectedMemberKey = "";
-  state.selectedOverloadIndex = null;
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
   state.libraryScope = null;
+  state.selectedTypeId = defaultVisibleTypeId(pkg);
+  state.selectedMemberKey = "";
+  state.selectedOverloadIndex = null;
   resetMemberSectionState();
   render();
 }
@@ -4185,12 +4198,12 @@ async function switchPlatformVersion(tfm, retryPackage = null) {
   state.loading = false;
   state.atPackageRoot = true;
   state.packageLens = "overview";
-  state.selectedTypeId = loaded.types[0]?.id || "";
-  state.selectedMemberKey = "";
-  state.selectedOverloadIndex = null;
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
+  state.selectedTypeId = defaultVisibleTypeId(loaded);
+  state.selectedMemberKey = "";
+  state.selectedOverloadIndex = null;
   render();
   loadSelectionData();
 }
@@ -4545,7 +4558,19 @@ function applyDeepLink(deep) {
   state.platformDrillLoading = false;
   state.platformDrillError = "";
   const restoreType = deep?.type && pkg.types.some(item => item.id === deep.type);
-  state.selectedTypeId = restoreType ? deep.type : (pkg.types[0]?.id || "");
+  state.selectedTypeId = restoreType ? deep.type : defaultVisibleTypeId(pkg);
+  // A deep-linked type may sit in an accessibility bucket the default filter hides (e.g. an
+  // internal type reached via a shared link). Widen the filter so the type list and the
+  // displayed type stay aligned instead of showing an unrelated first type while the pane
+  // renders the restored one.
+  if (restoreType) {
+    const restored = pkg.types.find(item => item.id === deep.type);
+    if (restored && !state.accessibilityFilter.has(restored.accessibilityId)) {
+      const next = new Set(state.accessibilityFilter);
+      next.add(restored.accessibilityId);
+      state.accessibilityFilter = next;
+    }
+  }
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
   state.memberSection = "overview";
@@ -4797,7 +4822,7 @@ async function openRuntimePackFromHome() {
   }
   state.atPackageRoot = true;
   state.packageLens = "overview";
-  state.selectedTypeId = pack.types[0]?.id || "";
+  state.selectedTypeId = defaultVisibleTypeId(pack);
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
   render();
@@ -5396,7 +5421,7 @@ function switchToPackageForDependencies(packageKey) {
   activatePackage(target, { resetAccessibility: true });
   state.atPackageRoot = true;
   state.packageLens = "dependencies";
-  state.selectedTypeId = target.types[0]?.id || "";
+  state.selectedTypeId = defaultVisibleTypeId(target);
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
   render();
@@ -6484,7 +6509,7 @@ async function loadPackage(packageId, version, framework, options = {}) {
     if (deep && (deep.type || deep.member)) {
       applyDeepLink(deep);
     } else {
-      state.selectedTypeId = packageModel.types[0]?.id || "";
+      state.selectedTypeId = defaultVisibleTypeId(packageModel);
       state.selectedMemberKey = "";
       state.selectedOverloadIndex = null;
       state.memberSection = "overview";
