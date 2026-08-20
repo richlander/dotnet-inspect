@@ -269,6 +269,15 @@ internal sealed class LibraryBodyAsyncSourceResolver
         _ = _localTypeDefinitions();
     }
 
+    /// <summary>
+    /// MoveNext token → declared async source. Unique mappings only;
+    /// ambiguous state-machine types are omitted. Safe to call after a
+    /// completed analysis — it does not throw on those omissions.
+    /// </summary>
+    internal IReadOnlyDictionary<int, MethodIdentity>
+        SourceMethodsByMoveNextToken()
+        => AsyncStateMachineSourceMethods();
+
     IReadOnlyDictionary<
         int,
         MethodIdentity> AsyncStateMachineSourceMethods()

@@ -54,6 +54,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
             ImmutableArray.CreateBuilder<LeakTriageFailure>();
         var ownershipFlow =
             ImmutableArray.CreateBuilder<ArrayPoolOwnershipMethodEvidence>();
+        var declaredSources = new Dictionary<int, MethodIdentity>();
         int none = 0, impl = 0, expl = 0;
 
         // Merge per-method results in metadata order, reproducing the exact sequence of appends
@@ -110,6 +111,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 bodySignals[r.Token] = r.Signals;
             if (r.Diagnostic is not null)
                 diagnostics.Add(r.Diagnostic);
+            if (r.DeclaredSource is { } declaredSource)
+                declaredSources[r.Token] = declaredSource;
         }
 
         var methodArray = methods.ToImmutable();
@@ -139,7 +142,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
                         (string Namespace, string Name),
                         bool>(),
                 NonHeapNewObjOperandTokens:
-                    nonHeapNewObjOperandTokens),
+                    nonHeapNewObjOperandTokens,
+                DeclaredSources: declaredSources),
             Safety: new(
                 Evidence: unsafeEvidence.ToImmutable(),
                 LeverageMethods: unsafeLeverageMethods.ToImmutable(),
