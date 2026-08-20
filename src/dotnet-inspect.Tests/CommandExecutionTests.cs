@@ -14617,6 +14617,33 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_BareNameCallerScope_EffectiveDiscoveryIncludesAggregatedCallers()
+    {
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        string[] common =
+        [
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            nameof(MemberCallsFixture.Overloaded),
+            "--library",
+            TestAssemblyPath,
+            "--bin",
+            testDirectory
+        ];
+
+        var all = await RunAppAsync([.. common, "-D", "--tips", "q"]);
+        var named = await RunAppAsync(
+            [.. common, "-D", SectionNames.Callers, "--tips", "q"]);
+
+        Assert.Equal(0, all.Exit);
+        Assert.Contains(SectionNames.Callers, all.Output);
+        Assert.Empty(all.Error);
+        Assert.Equal(0, named.Exit);
+        Assert.NotEqual(string.Empty, named.Output.Trim());
+        Assert.Empty(named.Error);
+    }
+
+    [Fact]
     public async Task Member_BareNameCallerScope_EmptyAggregateRendersEmptyState()
     {
         var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;

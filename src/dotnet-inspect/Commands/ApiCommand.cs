@@ -3565,6 +3565,15 @@ public class ApiCommand
             filteredType,
             options.IncludeSections,
             explicitInclude: options is MemberOptions { MemberSectionsPreResolved: true });
+        if (ApiMemberSectionPipelines.ShouldAggregateImplicitCallers(
+                filteredType,
+                options)
+            && !effective.Contains(
+                SectionNames.Callers,
+                StringComparer.OrdinalIgnoreCase))
+        {
+            effective.Add(SectionNames.Callers);
+        }
         if (!options.BodyKindQuery.HasFilter)
         {
             effective = effective
