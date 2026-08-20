@@ -333,7 +333,13 @@ public static class FqnParser
     {
         count = 0;
         if (typeParams.IsEmpty || typeParams.IsWhiteSpace())
-            return false;
+        {
+            if (nestingValidated)
+                return false;
+
+            count = 1;
+            return true;
+        }
         if (!nestingValidated
             && !HasSupportedGenericNesting(typeParams))
         {

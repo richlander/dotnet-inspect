@@ -3257,7 +3257,6 @@ public partial class CommandExecutionTests
     [InlineData("List<T,U>.Add")]
     [InlineData("System.Collections.Generic.List<T,U>.Add")]
     [InlineData("System.Collections.Generic.List`2.Add")]
-    [InlineData("System.Collections.Generic.List<>")]
     [InlineData("System.Collections.Generic.List`0.Add")]
     [InlineData("System.Collections.Generic.List`.Add")]
     [InlineData("System.Collections.Generic.List`999999999999999999999.Add")]
@@ -3331,6 +3330,25 @@ public partial class CommandExecutionTests
         Assert.Equal(direct, routed);
         Assert.Equal(0, routed.Exit);
         Assert.Equal("1", routed.Output.Trim());
+    }
+
+    [Theory]
+    [InlineData("System.Collections.Generic.List<>")]
+    [InlineData("System.Collections.Generic.Dictionary<,>")]
+    public async Task Router_UnboundGenericTypeResolvesItsDeclaredArity(
+        string target)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            target,
+            "-S",
+            "Type Info",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out var count) && count > 0);
+        Assert.Empty(error);
     }
 
     [Fact]
@@ -3749,6 +3767,29 @@ public partial class CommandExecutionTests
         Assert.Contains("Select value 'DefinitelyNotASection' not found.", direct.Error);
         Assert.Contains("Select value 'DefinitelyNotASection' not found.", deferred.Error);
         Assert.DoesNotContain("File not found", deferred.Error);
+    }
+
+    [Fact]
+    public async Task Member_DottedTargetRejectsUniversallyInvalidSectionBeforeAcquisition()
+    {
+        string missingAssembly = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "Missing.Type.Member",
+            "--library",
+            missingAssembly,
+            "-S",
+            "DefinitelyNotASection",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Select value 'DefinitelyNotASection' not found.", error);
+        Assert.DoesNotContain("File not found", error);
     }
 
     [Fact]
@@ -22043,6 +22084,34 @@ public partial class CommandExecutionTests
             ]);
         var routed = await RunAppAsync(
             [$"System.DateTime.{memberSelector}", .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+    }
+
+    [Fact]
+    public async Task Router_LocalLibraryAngleOperator_StaticSchemaUsesMemberPipeline()
+    {
+        string[] tail =
+        [
+            "--library",
+            typeof(DateTime).Assembly.Location,
+            "-D",
+            SectionNames.Signature,
+            "--schema",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            [
+                "member",
+                "System.DateTime",
+                "-m",
+                "operator>",
+                .. tail
+            ]);
+        var routed = await RunAppAsync(
+            ["System.DateTime.operator>", .. tail]);
 
         Assert.Equal(direct, routed);
         Assert.Equal(0, routed.Exit);

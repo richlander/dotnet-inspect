@@ -31,7 +31,7 @@ public static class MemberCommand
             return 1;
         }
 
-        if (ApiCommand.RejectUniversallyInvalidDeferredSelect(options))
+        if (ApiCommand.RejectUniversallyInvalidMemberSelect(options))
             return 1;
         if (ApiCommand.RejectRouteIndependentOptionShape(options))
             return 1;

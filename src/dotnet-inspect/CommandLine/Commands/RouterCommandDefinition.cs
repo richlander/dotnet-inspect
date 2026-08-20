@@ -224,6 +224,22 @@ public static class RouterCommandDefinition
                         && hasExplicitApiSource)))
                 return ["member", target, .. tail];
 
+            if (hasExplicitApiSource
+                && TrySplitOperatorMemberTarget(
+                    target,
+                    out var operatorType,
+                    out var operatorMember))
+            {
+                return
+                [
+                    "member",
+                    operatorType,
+                    "-m",
+                    operatorMember,
+                    .. tail
+                ];
+            }
+
             if (ContainsOption(tokens, "--library")
                 && !(GetOptionValue(tail, "--library") is { Length: > 0 }
                     && TypeMatcher.HasExplicitGenericNotation(target)))
@@ -242,22 +258,6 @@ public static class RouterCommandDefinition
                 || ContainsOption(tokens, "--versions-with-feed");
             if (hasVersionQuery || target.Contains('@'))
                 return ["package", .. tokens];
-
-            if (hasExplicitApiSource
-                && TrySplitOperatorMemberTarget(
-                    target,
-                    out var operatorType,
-                    out var operatorMember))
-            {
-                return
-                [
-                    "member",
-                    operatorType,
-                    "-m",
-                    operatorMember,
-                    .. tail
-                ];
-            }
 
             if (hasExplicitGenericNotation
                 && IsStaticSchemaDiscovery(tokens))

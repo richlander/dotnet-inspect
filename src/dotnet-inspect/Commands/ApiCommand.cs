@@ -115,11 +115,11 @@ public class ApiCommand
         };
     }
 
-    internal static bool RejectUniversallyInvalidDeferredSelect(
+    internal static bool RejectUniversallyInvalidMemberSelect(
         MemberOptions options)
     {
-        if (!options.RouterDeferredTypeOrMember
-            || options.Discover is not null
+        if (options.Discover is not null
+            || options.IncludeSections is not null
             || options.Select is not { Length: > 0 })
         {
             return false;
