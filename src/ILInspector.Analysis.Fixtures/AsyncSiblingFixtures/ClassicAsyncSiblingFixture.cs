@@ -70,6 +70,36 @@ public static class ClassicAsyncSiblingFixture
             return items;
         };
 
+    internal static Func<int, Task<object>>
+        ScopedAsyncAllocationHotspotLambdaOwner() =>
+        async count =>
+        {
+            var items = new List<object>();
+            await Task.Yield();
+            for (int i = 0; i < count; i++)
+            {
+                items.Add(new object());
+                items.Add(new object());
+                items.Add(new object());
+                items.Add(new object());
+                items.Add(new object());
+                items.Add(new object());
+                items.Add(new object());
+                items.Add(new object());
+                items.Add(new object());
+                items.Add(new object());
+                items.Add(new object());
+                items.Add(new object());
+                items.Add(new object());
+                items.Add(new object());
+                items.Add(new object());
+                items.Add(new object());
+                Action capture = () => GC.KeepAlive(i);
+                capture();
+            }
+            return items;
+        };
+
     public static Task ScopedAsyncLambdaOwner(int marker) =>
         Task.CompletedTask;
 

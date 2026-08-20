@@ -10254,6 +10254,9 @@ public class LibraryBodyIndexTests
         Assert.Contains(
             scoped.DirectCalls,
             call => call == expectedCall);
+        Assert.Equal(
+            owner,
+            scoped.ResolveDeclaredMethod(evidence));
         Assert.DoesNotContain(
             scoped.OptimizationOpportunities,
             candidate => candidate.Shape
@@ -10310,6 +10313,68 @@ public class LibraryBodyIndexTests
             candidate => candidate.Shape
                     == "allocation-hotspot"
                 && candidate.Method == kickoff);
+    }
+
+    [Fact]
+    public void
+        OptimizationOpportunities_ClosureTypeScopeSuppressesAsyncDerivedRows()
+    {
+        const string ownerName =
+            "ScopedAsyncAllocationHotspotLambdaOwner";
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        var full = LibraryBodyIndex.Open(path);
+        MethodIdentity kickoff = Assert.Single(
+            full.Methods,
+            method => method.Name.StartsWith(
+                $"<{ownerName}>b__",
+                StringComparison.Ordinal)
+                && method.ReturnType
+                    .ToQualifiedDisplayString()
+                    .StartsWith(
+                        "System.Threading.Tasks.Task<",
+                        StringComparison.Ordinal));
+        OptimizationOpportunity shaped = Assert.Single(
+            full.OptimizationOpportunities,
+            candidate => candidate.Shape
+                    == "capturing-delegate"
+                && candidate.Method.Name == "MoveNext"
+                && candidate.Method.DeclaringType
+                    .ToQualifiedDisplayString()
+                    .Contains(
+                        ownerName,
+                        StringComparison.Ordinal));
+        MethodIdentity evidence = shaped.Method;
+        Assert.True(
+            full.GetAllocationOccurrences().TryGetValue(
+                evidence.MetadataToken,
+                out ImmutableArray<AllocationOccurrence>
+                    fullAllocations));
+        Assert.True(
+            fullAllocations.Count(
+                allocation => allocation.CountsAsHeapAllocation
+                    && allocation.InLoop) >= 16);
+        Assert.DoesNotContain(
+            full.OptimizationOpportunities,
+            candidate => candidate.Shape
+                    == "allocation-hotspot"
+                && candidate.Method == evidence);
+
+        var scoped = LibraryBodyIndex.Open(
+            path,
+            bodyTypeScope:
+                type => type.Equals(
+                    kickoff.DeclaringType));
+        Assert.True(
+            scoped.GetAllocationOccurrences().TryGetValue(
+                evidence.MetadataToken,
+                out ImmutableArray<AllocationOccurrence>
+                    scopedAllocations));
+        Assert.Equal(fullAllocations, scopedAllocations);
+
+        Assert.DoesNotContain(
+            scoped.OptimizationOpportunities,
+            candidate => candidate.Method == evidence);
     }
 
     [Fact]

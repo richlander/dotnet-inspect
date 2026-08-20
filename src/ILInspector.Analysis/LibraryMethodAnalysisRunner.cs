@@ -297,6 +297,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                             requestedMethodScope: null,
                             directlySelectedBody: false);
                     opportunityDeclaredMethodResolved = true;
+                    result.DeclaredSource =
+                        opportunityDeclaredMethod;
                 }
             }
             catch (Exception ex)
@@ -451,7 +453,9 @@ internal sealed class LibraryMethodAnalysisRunner(
                     || sourceGenerated
                     || compilerGenerated
                     || IsBlazorRenderMethod(caller);
-                result.Suppressed = suppressOpportunities;
+                result.Suppressed =
+                    suppressOpportunities
+                    || !collectScopedOpportunities;
                 if (collectScopedOpportunities
                     && !suppressOpportunities)
                 {
