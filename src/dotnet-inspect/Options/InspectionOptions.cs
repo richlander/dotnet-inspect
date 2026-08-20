@@ -19,7 +19,7 @@ public record InspectionOptions : IProjectionOptions
     public string? ExplicitVersion { get; init; }
 
     /// <summary>
-    /// Show package dependencies as a tree view with transitive resolution.
+    /// Legacy alias for selecting the package Dependencies section as a tree.
     /// </summary>
     public bool ShowDependencies { get; init; }
 
@@ -159,6 +159,11 @@ public record InspectionOptions : IProjectionOptions
     public bool JsonOutput { get; init; }
 
     /// <summary>
+    /// Effective output format after CLI and environment precedence.
+    /// </summary>
+    public OutputFormat Format { get; init; } = OutputFormat.Markdown;
+
+    /// <summary>
     /// Print a single selected payload without headings, fences, separators, or tips.
     /// </summary>
     public bool Bare { get; init; }
@@ -293,7 +298,7 @@ public record InspectionOptions : IProjectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => Bare || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || Print || Value || Urls || Paths || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
+    public bool IsRawOutput => Bare || Format != OutputFormat.Markdown || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || Print || Value || Urls || Paths || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
 
     /// <summary>
     /// All inspection features enabled.

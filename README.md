@@ -184,11 +184,17 @@ Use the same predicate with one exact member name or stable selector to inspect
 only that member's MethodDef body:
 
 ```bash
+dnx dotnet-inspect -y -- type JsonDocument \
+  --platform System.Text.Json \
+  --where "Kind=ObjectCreationExpression" --jsonl
+
 dnx dotnet-inspect -y -- member JsonDocument RootElement:1 \
   --platform System.Text.Json \
   --where "Kind=ObjectCreationExpression" --jsonl
 ```
 
+Type scope searches the MethodDef and accessor bodies owned by exactly one
+resolved type. Member scope narrows that set to one selected body.
 An unambiguous method or single-accessor member is auto-selected. Overloaded
 names require `Name:N` or `Name~digest`. A property or event with multiple body
 accessors requires an accessor selector; use the durable
@@ -208,7 +214,7 @@ permits a selected non-public member.
 | Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. Add `--project` to search project-referenced packages. |
 | Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"Original Source"` | SourceLink URLs, member file/line locations, checksum-verified source fetching with final-origin redirect validation, token+IL-offset to source-line resolution. |
 | Performance analysis *(experimental)* | `library -S @Performance` (kind sections: `"Performance: Boxing"`, `"Performance: Arrays"`, …), `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly call-graph leverage ranking — direct callers, root reach, fanout, depth, loop calls — with opt-in per-node cost signals (alloc, copy, unsafe, reflection, throw/exception, catch/finally), actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
-| Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `Original Source`, `Source Diff`, `IL`); `member M --where "Kind=ObjectCreationExpression"`; `library X --where "Kind=ObjectCreationExpression"`; `body-shape Kind --library path/to.dll` | Raises method bodies to C#, interleaves IL and hidden-fact annotations, searches one selected member or one assembly for exact stable rendered-syntax kinds and ranges, diffs SourceLink-backed source against decompiled source, and exposes typed `DEC####` fidelity causes rather than emitting plausible-but-wrong source. |
+| Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `Original Source`, `Source Diff`, `IL`); `member M --where "Kind=ObjectCreationExpression"`; `type T --where "Kind=ObjectCreationExpression"`; `library X --where "Kind=ObjectCreationExpression"`; `body-shape Kind --library path/to.dll` | Raises method bodies to C#, interleaves IL and hidden-fact annotations, searches one selected member, type, or assembly for exact stable rendered-syntax kinds and ranges, diffs SourceLink-backed source against decompiled source, and exposes typed `DEC####` fidelity causes rather than emitting plausible-but-wrong source. |
 | Raw metadata | `library -S @Metadata` (table sections: `"Metadata: TypeDef"`, `"Metadata: MethodDef"`, …, plus `"Metadata: Image"`, the heap sections, and `--heap "#Strings:0x1a4"`) | The ECMA-335 metadata tables of an assembly, with handles resolved to the rows they point at and heap offsets to their values. Opt-in only: the tables are unbounded, so no verbosity renders them. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--plaintext`, `--json`, Mermaid diagrams, section/field projection, `--count`, table row limiting, built-in head/tail limiting. |
 
@@ -231,10 +237,11 @@ permits a selected non-public member.
 | `cache` | Inspect or clear dotnet-inspect caches. |
 | `skill` | Print the base LLM skill; routes to focused skills (`skill list`, `skill source`, `skill performance`). |
 
-Remote dependency trees requested with `depends --package` or the legacy
-`package --dependencies` option resolve from nuspec manifests without
-downloading package archives. Local `.nupkg` inputs, wildcard selectors, and
-.NET tool redirects retain archive acquisition.
+Remote dependency trees requested with `depends --package`,
+`package -S Dependencies --tree`, or the legacy `package --dependencies` alias
+resolve from nuspec manifests without downloading package archives. Local
+`.nupkg` inputs, wildcard selectors, and .NET tool redirects retain archive
+acquisition.
 
 Single-type `type X` output is tree-shaped by default. Use `-v:n` or `-v:d`
 to grow that tree to overload leaves; use `--markdown -v:q` when you want the
@@ -386,10 +393,11 @@ targets. Exact allocation and call-site rows also retain a `Candidate` id, their
 native `Finding` descriptor, `Provenance=exact`, `Operation`, and metadata
 `Token`. Aggregate rows are marked `Provenance=aggregate`; `unmatched`
 identifies an instruction-level row that could not be joined to a producer
-occurrence. `Assembly` + `MethodToken` + `IL` form the allocation-trace join
-coordinate; `ModuleVersionId` distinguishes physical module builds when static
-inputs carry it. `Token` is the operand of the reported IL operation and must
-not be used as the declaring method token. Those fields let trace and
+occurrence. `Assembly` + (`EvidenceMethod` when present, otherwise
+`MethodToken`) + `IL` form the allocation-trace join coordinate;
+`ModuleVersionId` distinguishes physical module builds when static inputs carry
+it. `Token` is the operand of the reported IL operation and must not be used as
+the declaring method token. Those fields let trace and
 version-diff tooling join a triage row to
 `analysis.allocation` or `analysis.call-site` evidence without parsing
 `Evidence` prose. Use `--top`, `--loop`, `--min-confidence`, and
@@ -428,7 +436,12 @@ runfaster correlate --triage triage.json --trace workload.nettrace
 The compact `Performance:* --jsonl` table intentionally carries only the tight
 human-facing columns and therefore cannot support an exact trace join.
 `runfaster` reports those rows as not runtime-correlatable rather than treating
-them as negative workload evidence.
+them as negative workload evidence. For nested rows, it preserves the
+source-facing `MethodToken` but uses `EvidenceMethod` as the physical body token
+when supplied. Blank flattened cells are treated as absent; invalid non-empty
+or conflicting supplied evidence-method tokens fail visibly.
+Method-name samples can still establish method-level heat, but only a complete
+runtime coordinate can produce an exact `confirmed-hot` result.
 For filtered triage exports, allocation-stack correlation stops at the first
 frame in the represented assembly. If that method has no exported row, the
 allocation remains unattributed rather than being credited to an outer caller.
