@@ -518,27 +518,49 @@ public static class PackageContentAudit
             }
             scannedMappings++;
 
-            string evidence = mapping.Url is null
-                ? mapping.Document
-                : $"{mapping.Document} => {mapping.Url}";
-            InertString encoded = EncodeSourceLinkEvidence(evidence);
-            if (encoded.RequiredContainment)
+            InertString documentEvidence =
+                EncodeSourceLinkEvidenceOperand(mapping.Document);
+            InertString? urlEvidence = mapping.Url is null
+                ? null
+                : EncodeSourceLinkEvidenceOperand(mapping.Url);
+            TextConcern concerns = documentEvidence.Concerns
+                | (urlEvidence?.Concerns ?? TextConcern.None);
+            if (concerns != TextConcern.None)
             {
+                bool documentHasConcern = documentEvidence.RequiredContainment;
+                InertString evidence = BuildSourceLinkEvidence(
+                    documentEvidence,
+                    urlEvidence,
+                    documentHasConcern,
+                    documentHasConcern
+                        ? Math.Max(0, documentEvidence.IndexOfFirstConcern())
+                        : Math.Max(0, urlEvidence!.Value.IndexOfFirstConcern()));
                 collector.TryAdd(new PackageContentAuditFinding(
                     evidencePath,
                     PackageContentFindingKind.NonGraphicSourceLinkText,
-                    encoded.Concerns,
-                    BoundAroundFirstConcern(encoded)));
+                    concerns,
+                    evidence));
             }
 
             if (ContainsParentPathReference(mapping.Document)
                 || ContainsParentPathReference(mapping.Url))
             {
+                bool documentHasParent =
+                    ContainsParentPathReference(mapping.Document);
+                InertString evidence = BuildSourceLinkEvidence(
+                    documentEvidence,
+                    urlEvidence,
+                    documentHasParent,
+                    Math.Max(
+                        0,
+                        (documentHasParent ? documentEvidence : urlEvidence!.Value)
+                            .ToString()
+                            .IndexOf("../", StringComparison.Ordinal)));
                 collector.TryAdd(new PackageContentAuditFinding(
                     evidencePath,
                     PackageContentFindingKind.SourceLinkParentPathSegment,
                     TextConcern.None,
-                    BoundAroundLiteral(encoded, "../")));
+                    evidence));
             }
 
             if (rejected.Contains(mapping.Document))
@@ -547,7 +569,11 @@ public static class PackageContentAudit
                     evidencePath,
                     PackageContentFindingKind.RejectedSourceLinkMapping,
                     TextConcern.None,
-                    BoundAroundFirstConcern(encoded)));
+                    BuildSourceLinkEvidence(
+                        documentEvidence,
+                        urlEvidence,
+                        documentIsPrimary: true,
+                        Math.Max(0, documentEvidence.IndexOfFirstConcern()))));
             }
 
             if (collector.Saturated)
@@ -705,8 +731,79 @@ public static class PackageContentAudit
         return [.. normalized];
     }
 
-    internal static InertString EncodeSourceLinkEvidence(string evidence)
-        => new(TextPolicy.Field, evidence);
+    internal static InertString EncodeSourceLinkEvidence(
+        string document,
+        string? url)
+        => BuildSourceLinkEvidence(
+            EncodeSourceLinkEvidenceOperand(document),
+            url is null ? null : EncodeSourceLinkEvidenceOperand(url),
+            documentIsPrimary: true,
+            primaryIndex: 0);
+
+    private static InertString EncodeSourceLinkEvidenceOperand(string value)
+    {
+        StringBuilder? escaped = null;
+        for (int index = 0; index < value.Length; index++)
+        {
+            char character = value[index];
+            if (character is not ('\\' or '"'))
+            {
+                escaped?.Append(character);
+                continue;
+            }
+
+            escaped ??= new StringBuilder(value.Length + 8)
+                .Append(value, 0, index);
+            escaped.Append('\\');
+            escaped.Append(character);
+        }
+
+        return new InertString(TextPolicy.Field, escaped?.ToString() ?? value);
+    }
+
+    private static InertString BuildSourceLinkEvidence(
+        InertString document,
+        InertString? url,
+        bool documentIsPrimary,
+        int primaryIndex)
+    {
+        const int SingleFramingLength = 11; // document=""
+        const int PairFramingLength = 22; // document="" => url=""
+        if (url is null)
+        {
+            InertString bounded = BoundAroundIndex(
+                document,
+                primaryIndex,
+                MaxEncodedTextLength - SingleFramingLength);
+            return InertString.Format(
+                TextPolicy.Field,
+                $"document=\"{bounded}\"");
+        }
+
+        InertString urlValue = url.Value;
+        int available = MaxEncodedTextLength - PairFramingLength;
+        int primaryBudget = available * 2 / 3;
+        int secondaryBudget = available - primaryBudget;
+        int documentBudget = documentIsPrimary ? primaryBudget : secondaryBudget;
+        int urlBudget = documentIsPrimary ? secondaryBudget : primaryBudget;
+
+        int unusedDocument = Math.Max(0, documentBudget - document.Length);
+        int unusedUrl = Math.Max(0, urlBudget - urlValue.Length);
+        documentBudget += unusedUrl;
+        urlBudget += unusedDocument;
+
+        InertString boundedDocument = BoundAroundIndex(
+            document,
+            documentIsPrimary ? primaryIndex : 0,
+            documentBudget);
+        InertString boundedUrl = BoundAroundIndex(
+            urlValue,
+            documentIsPrimary ? 0 : primaryIndex,
+            urlBudget);
+        return InertString.Format(
+            TextPolicy.Field,
+            $"document=\"{boundedDocument}\" => url=\"{boundedUrl}\"");
+    }
 
     private static bool IsTextBearingPath(string path)
     {
@@ -799,13 +896,25 @@ public static class PackageContentAudit
             Math.Max(0, encoded.ToString().IndexOf(literal, StringComparison.Ordinal)));
 
     private static InertString BoundAroundIndex(InertString encoded, int first)
+        => BoundAroundIndex(encoded, first, MaxEncodedTextLength);
+
+    private static InertString BoundAroundIndex(
+        InertString encoded,
+        int first,
+        int maximumLength)
     {
-        if (encoded.Length <= MaxEncodedTextLength)
+        if (encoded.Length <= maximumLength)
             return encoded;
 
-        int start = Math.Max(0, first - (MaxEncodedTextLength / 3));
-        int end = Math.Min(encoded.Length, start + MaxEncodedTextLength);
-        start = Math.Max(0, end - MaxEncodedTextLength);
+        int contentLength = Math.Max(1, maximumLength - 2);
+        int start = Math.Max(0, first - (contentLength / 3));
+        int end = Math.Min(encoded.Length, start + contentLength);
+        start = Math.Max(0, end - contentLength);
+        int markerLength = (start > 0 ? 1 : 0) + (end < encoded.Length ? 1 : 0);
+        contentLength = Math.Max(1, maximumLength - markerLength);
+        start = Math.Max(0, first - (contentLength / 3));
+        end = Math.Min(encoded.Length, start + contentLength);
+        start = Math.Max(0, end - contentLength);
         InertString window = encoded.Truncate(start..end);
 
         return (start > 0, end < encoded.Length) switch

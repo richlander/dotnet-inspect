@@ -23,8 +23,12 @@ public static class PackageSignatureVerifier
     private const string AuthorCommitmentOid = "1.2.840.113549.1.9.16.6.1";     // proof of origin
     private const string RepositoryCommitmentOid = "1.2.840.113549.1.9.16.6.2";  // proof of receipt
     private const string RepositoryServiceIndexOid = "1.3.6.1.4.1.311.84.2.1.1.1";
+    private const string SigningTimeOid = "1.2.840.113549.1.9.5";
+    private const string SigningCertificateOid = "1.2.840.113549.1.9.16.2.12";
+    private const string SigningCertificateV2Oid = "1.2.840.113549.1.9.16.2.47";
     private const string TimestampTokenOid = "1.2.840.113549.1.9.16.2.14";
     private const string TimestampInfoContentTypeOid = "1.2.840.113549.1.9.16.1.4";
+    private const string BaselineTimestampPolicyOid = "0.4.0.2023.1.1";
     private const string CodeSigningEkuOid = "1.3.6.1.5.5.7.3.3";
     private const string TimestampingEkuOid = "1.3.6.1.5.5.7.3.8";
     private const string LifetimeSigningEkuOid = "1.3.6.1.4.1.311.10.3.13";
@@ -35,8 +39,10 @@ public static class PackageSignatureVerifier
     private const string Sha256WithRsaOid = "1.2.840.113549.1.1.11";
     private const string Sha384WithRsaOid = "1.2.840.113549.1.1.12";
     private const string Sha512WithRsaOid = "1.2.840.113549.1.1.13";
+    private const uint LocalFileHeaderSignature = 0x04034B50;
     private const uint CentralDirectoryHeaderSignature = 0x02014B50;
     private const uint EndOfCentralDirectorySignature = 0x06054B50;
+    private const int LocalFileHeaderFixedLength = 30;
     private const int CentralDirectoryFixedLength = 46;
     private const int EndOfCentralDirectoryFixedLength = 22;
     private const int MaximumZipCommentLength = ushort.MaxValue;
@@ -118,18 +124,97 @@ public static class PackageSignatureVerifier
 
     private static byte[]? ExtractSignature(Stream nupkgStream)
     {
-        using ZipArchive archive = new(nupkgStream, ZipArchiveMode.Read, leaveOpen: true);
-        ZipArchiveEntry? signatureEntry = archive.GetEntry(SignatureFileName);
+        if (!nupkgStream.CanSeek)
+            throw new InvalidDataException("Package stream must be seekable.");
 
-        if (signatureEntry is null)
+        ZipEndRecord end = ReadZipEndRecord(nupkgStream);
+        List<ZipEntryRecord> entries = ReadCentralDirectory(nupkgStream, end);
+        ZipEntryRecord? signature = null;
+        foreach (ZipEntryRecord entry in entries)
+        {
+            if (!entry.IsSignature)
+                continue;
+            if (signature is not null)
+                throw new InvalidDataException("Package contains multiple signature entries.");
+            signature = entry;
+        }
+
+        if (signature is null)
             return null;
-        if (signatureEntry.Length > MaximumSignatureBytes)
+        if (!HasValidSignatureCentralDirectoryProfile(signature))
+            throw new InvalidDataException("Package signature entry profile is invalid.");
+        if (signature.UncompressedSize > MaximumSignatureBytes)
+        {
             throw new InvalidDataException("Package signature entry is too large.");
+        }
 
-        using Stream entryStream = signatureEntry.Open();
-        using MemoryStream ms = new((int)signatureEntry.Length);
-        entryStream.CopyTo(ms);
-        return ms.ToArray();
+        return ReadStoredSignatureEntry(nupkgStream, signature, end);
+    }
+
+    private static bool HasValidSignatureCentralDirectoryProfile(
+        ZipEntryRecord signature)
+        => signature.GeneralPurposeBitFlags == 0
+            && signature.CompressionMethod == 0
+            && signature.CompressedSize == signature.UncompressedSize
+            && signature.ExternalFileAttributes == 0;
+
+    private static byte[] ReadStoredSignatureEntry(
+        Stream stream,
+        ZipEntryRecord signature,
+        ZipEndRecord end)
+    {
+        if (signature.LocalOffset < 0
+            || signature.LocalOffset + LocalFileHeaderFixedLength
+                > end.CentralDirectoryOffset)
+        {
+            throw new InvalidDataException("Invalid signature local header bounds.");
+        }
+
+        byte[] header = new byte[LocalFileHeaderFixedLength];
+        stream.Position = signature.LocalOffset;
+        stream.ReadExactly(header);
+        if (BinaryPrimitives.ReadUInt32LittleEndian(header)
+                != LocalFileHeaderSignature
+            || BinaryPrimitives.ReadUInt16LittleEndian(header.AsSpan(6)) != 0
+            || BinaryPrimitives.ReadUInt16LittleEndian(header.AsSpan(8)) != 0)
+        {
+            throw new InvalidDataException("Invalid signature local header profile.");
+        }
+
+        uint compressedSize =
+            BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(18));
+        uint uncompressedSize =
+            BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(22));
+        if (compressedSize != uncompressedSize
+            || compressedSize != signature.CompressedSize
+            || uncompressedSize != signature.UncompressedSize)
+        {
+            throw new InvalidDataException("Inconsistent signature entry sizes.");
+        }
+
+        ushort fileNameLength =
+            BinaryPrimitives.ReadUInt16LittleEndian(header.AsSpan(26));
+        ushort extraLength =
+            BinaryPrimitives.ReadUInt16LittleEndian(header.AsSpan(28));
+        long dataOffset = checked(
+            signature.LocalOffset
+            + LocalFileHeaderFixedLength
+            + fileNameLength
+            + extraLength);
+        long dataEnd = checked(dataOffset + compressedSize);
+        if (dataEnd > end.CentralDirectoryOffset)
+            throw new InvalidDataException("Invalid signature entry bounds.");
+
+        byte[] fileName = new byte[fileNameLength];
+        stream.ReadExactly(fileName);
+        if (!fileName.AsSpan().SequenceEqual(".signature.p7s"u8))
+            throw new InvalidDataException("Signature local header name does not match.");
+
+        stream.Position = dataOffset;
+        byte[] signatureBytes =
+            GC.AllocateUninitializedArray<byte>((int)uncompressedSize);
+        stream.ReadExactly(signatureBytes);
+        return signatureBytes;
     }
 
     private static SignatureVerificationResult VerifySignature(byte[] signatureBytes)
@@ -197,6 +282,12 @@ public static class PackageSignatureVerifier
         {
             return new SignatureVerificationResult(
                 SignatureStatus.Invalid, "Could not extract signing certificate.");
+        }
+        if (!HasValidNuGetSignerAttributes(signerInfo, signerCert))
+        {
+            return new SignatureVerificationResult(
+                SignatureStatus.Invalid,
+                "Package signature has an invalid NuGet signer-attribute profile.");
         }
         SignatureVerificationResult? profileFailure =
             ValidateCertificateProfile(signerCert, rejectLifetimeSigning: true);
@@ -569,7 +660,12 @@ public static class PackageSignatureVerifier
                 position,
                 localOffset,
                 headerSize,
-                isSignature));
+                isSignature,
+                BinaryPrimitives.ReadUInt16LittleEndian(header.AsSpan(8)),
+                BinaryPrimitives.ReadUInt16LittleEndian(header.AsSpan(10)),
+                BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(20)),
+                BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(24)),
+                BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(38))));
         }
 
         if (stream.Position != end.Position || entries.Count == 0)
@@ -619,6 +715,240 @@ public static class PackageSignatureVerifier
         Span<byte> bytes = stackalloc byte[sizeof(uint)];
         BinaryPrimitives.WriteUInt32LittleEndian(bytes, value);
         hash.AppendData(bytes);
+    }
+
+    private static bool HasValidNuGetSignerAttributes(
+        SignerInfo signerInfo,
+        X509Certificate2 certificate)
+    {
+        if (HasSignedAttribute(signerInfo, SigningCertificateOid)
+            || !TryGetSingleSignedAttribute(
+                signerInfo,
+                SigningTimeOid,
+                out AsnEncodedData signingTime)
+            || !IsValidSigningTime(signingTime.RawData)
+            || !TryGetSingleSignedAttribute(
+                signerInfo,
+                SigningCertificateV2Oid,
+                out AsnEncodedData signingCertificateV2))
+        {
+            return false;
+        }
+
+        return SigningCertificateV2Matches(
+            signingCertificateV2.RawData,
+            certificate);
+    }
+
+    private static bool HasSignedAttribute(SignerInfo signerInfo, string oid)
+    {
+        foreach (CryptographicAttributeObject attribute in signerInfo.SignedAttributes)
+        {
+            if (attribute.Oid?.Value == oid)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryGetSingleSignedAttribute(
+        SignerInfo signerInfo,
+        string oid,
+        out AsnEncodedData value)
+    {
+        value = null!;
+        foreach (CryptographicAttributeObject attribute in signerInfo.SignedAttributes)
+        {
+            if (attribute.Oid?.Value != oid)
+                continue;
+            if (value is not null || attribute.Values.Count != 1)
+                return false;
+            value = attribute.Values[0];
+        }
+
+        return value is not null;
+    }
+
+    private static bool IsValidSigningTime(byte[] rawData)
+    {
+        try
+        {
+            AsnReader reader = new(rawData, AsnEncodingRules.DER);
+            Asn1Tag tag = reader.PeekTag();
+            if (tag.HasSameClassAndValue(
+                    new Asn1Tag(UniversalTagNumber.UtcTime)))
+            {
+                _ = reader.ReadUtcTime();
+            }
+            else if (tag.HasSameClassAndValue(
+                         new Asn1Tag(UniversalTagNumber.GeneralizedTime)))
+            {
+                _ = reader.ReadGeneralizedTime();
+            }
+            else
+            {
+                return false;
+            }
+
+            reader.ThrowIfNotEmpty();
+            return true;
+        }
+        catch (AsnContentException)
+        {
+            return false;
+        }
+    }
+
+    private static bool SigningCertificateV2Matches(
+        byte[] rawData,
+        X509Certificate2 certificate)
+    {
+        try
+        {
+            AsnReader reader = new(rawData, AsnEncodingRules.DER);
+            AsnReader signingCertificate = reader.ReadSequence();
+            AsnReader certificates = signingCertificate.ReadSequence();
+            bool first = true;
+            bool firstMatches = false;
+            while (certificates.HasData)
+            {
+                if (!TryReadEssCertIdV2(
+                        certificates,
+                        out string hashAlgorithmOid,
+                        out byte[] certificateHash,
+                        out ReadOnlyMemory<byte>? issuerName,
+                        out BigInteger? serialNumber))
+                {
+                    return false;
+                }
+
+                if (!IsSupportedHashAlgorithm(hashAlgorithmOid))
+                    return false;
+
+                if (first)
+                {
+                    if (issuerName is null || serialNumber is null)
+                        return false;
+
+                    byte[] actualHash = hashAlgorithmOid switch
+                    {
+                        Sha256Oid => certificate.GetCertHash(HashAlgorithmName.SHA256),
+                        Sha384Oid => certificate.GetCertHash(HashAlgorithmName.SHA384),
+                        Sha512Oid => certificate.GetCertHash(HashAlgorithmName.SHA512),
+                        _ => [],
+                    };
+                    BigInteger expectedSerial = new(
+                        certificate.GetSerialNumber(),
+                        isUnsigned: true,
+                        isBigEndian: false);
+                    firstMatches = actualHash.Length == certificateHash.Length
+                        && CryptographicOperations.FixedTimeEquals(
+                            actualHash,
+                            certificateHash)
+                        && issuerName.Value.Span.SequenceEqual(
+                            certificate.IssuerName.RawData)
+                        && serialNumber.Value == expectedSerial;
+                    first = false;
+                }
+            }
+
+            if (first || !firstMatches)
+                return false;
+
+            if (signingCertificate.HasData
+                && !TryReadSigningCertificatePolicies(
+                    signingCertificate.ReadSequence()))
+            {
+                return false;
+            }
+            signingCertificate.ThrowIfNotEmpty();
+            reader.ThrowIfNotEmpty();
+            return true;
+        }
+        catch (AsnContentException)
+        {
+            return false;
+        }
+        catch (CryptographicException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryReadEssCertIdV2(
+        AsnReader certificates,
+        out string hashAlgorithmOid,
+        out byte[] certificateHash,
+        out ReadOnlyMemory<byte>? issuerName,
+        out BigInteger? serialNumber)
+    {
+        AsnReader certificate = certificates.ReadSequence();
+        if (certificate.HasData
+            && certificate.PeekTag().HasSameClassAndValue(Asn1Tag.Sequence))
+        {
+            AsnReader algorithm = certificate.ReadSequence();
+            hashAlgorithmOid = algorithm.ReadObjectIdentifier();
+            if (algorithm.HasData)
+                algorithm.ReadNull();
+            algorithm.ThrowIfNotEmpty();
+        }
+        else
+        {
+            hashAlgorithmOid = Sha256Oid;
+        }
+
+        certificateHash = certificate.ReadOctetString();
+        issuerName = null;
+        serialNumber = null;
+        if (certificate.HasData)
+        {
+            AsnReader issuerSerial = certificate.ReadSequence();
+            AsnReader generalNames = issuerSerial.ReadSequence();
+            if (!generalNames.HasData)
+                return false;
+
+            var directoryNameTag = new Asn1Tag(
+                TagClass.ContextSpecific,
+                4,
+                isConstructed: true);
+            AsnReader directoryName = generalNames.ReadSequence(directoryNameTag);
+            issuerName = directoryName.ReadEncodedValue();
+            directoryName.ThrowIfNotEmpty();
+            generalNames.ThrowIfNotEmpty();
+            serialNumber = issuerSerial.ReadInteger();
+            issuerSerial.ThrowIfNotEmpty();
+        }
+
+        certificate.ThrowIfNotEmpty();
+        return true;
+    }
+
+    private static bool TryReadSigningCertificatePolicies(AsnReader policies)
+    {
+        if (!policies.HasData)
+            return false;
+
+        while (policies.HasData)
+        {
+            AsnReader policy = policies.ReadSequence();
+            _ = policy.ReadObjectIdentifier();
+            if (policy.HasData)
+            {
+                AsnReader qualifiers = policy.ReadSequence();
+                if (!qualifiers.HasData)
+                    return false;
+                while (qualifiers.HasData)
+                {
+                    AsnReader qualifier = qualifiers.ReadSequence();
+                    _ = qualifier.ReadObjectIdentifier();
+                    _ = qualifier.ReadEncodedValue();
+                    qualifier.ThrowIfNotEmpty();
+                }
+            }
+            policy.ThrowIfNotEmpty();
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -784,8 +1114,11 @@ public static class PackageSignatureVerifier
             }
 
             X509Certificate2? cert = counterSigner.Certificate;
-            if (cert is null)
+            if (cert is null
+                || !HasValidNuGetSignerAttributes(counterSigner, cert))
+            {
                 continue;
+            }
             SignatureVerificationResult? profileFailure =
                 ValidateCertificateProfile(cert, rejectLifetimeSigning: true);
             if (profileFailure is not null)
@@ -883,6 +1216,10 @@ public static class PackageSignatureVerifier
         {
             return null;
         }
+        catch (ArgumentOutOfRangeException)
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -890,7 +1227,7 @@ public static class PackageSignatureVerifier
     /// TSTInfo ::= SEQUENCE { version INTEGER, policy OBJECT IDENTIFIER,
     ///   messageImprint MessageImprint, serialNumber INTEGER, genTime GeneralizedTime, ... }
     /// </summary>
-    private static TimestampInfo? TryExtractTimestampInfo(byte[]? tstInfoBytes)
+    internal static TimestampInfo? TryExtractTimestampInfo(byte[]? tstInfoBytes)
     {
         if (tstInfoBytes is null || tstInfoBytes.Length == 0)
             return null;
@@ -899,7 +1236,7 @@ public static class PackageSignatureVerifier
         AsnReader sequence = reader.ReadSequence();
         if (sequence.ReadInteger() != 1)
             return null;
-        _ = sequence.ReadObjectIdentifier();
+        string policyOid = sequence.ReadObjectIdentifier();
         AsnReader imprint = sequence.ReadSequence();
         AsnReader algorithm = imprint.ReadSequence();
         string algorithmOid = algorithm.ReadObjectIdentifier();
@@ -910,7 +1247,9 @@ public static class PackageSignatureVerifier
         imprint.ThrowIfNotEmpty();
         _ = sequence.ReadInteger();
         DateTimeOffset timestamp = sequence.ReadGeneralizedTime();
-        TimeSpan accuracy = TimeSpan.Zero;
+        TimeSpan accuracy = policyOid == BaselineTimestampPolicyOid
+            ? TimeSpan.FromSeconds(1)
+            : TimeSpan.Zero;
         if (sequence.HasData
             && sequence.PeekTag().HasSameClassAndValue(Asn1Tag.Sequence))
         {
@@ -945,13 +1284,22 @@ public static class PackageSignatureVerifier
         if (!IsSupportedHashAlgorithm(algorithmOid))
             return null;
 
+        DateTimeOffset lowerBound;
+        DateTimeOffset upperBound;
+        try
+        {
+            lowerBound = timestamp.Subtract(accuracy);
+            upperBound = timestamp.Add(accuracy);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return null;
+        }
+
         return new TimestampInfo(
             algorithmOid,
             messageHash,
-            new VerifiedTimestamp(
-                timestamp,
-                timestamp.Subtract(accuracy),
-                timestamp.Add(accuracy)));
+            new VerifiedTimestamp(timestamp, lowerBound, upperBound));
     }
 
     private static TimeSpan ReadTimestampAccuracy(AsnReader accuracy)
@@ -1158,12 +1506,12 @@ public static class PackageSignatureVerifier
         string AlgorithmOid,
         string Value);
 
-    private readonly record struct TimestampInfo(
+    internal readonly record struct TimestampInfo(
         string AlgorithmOid,
         byte[] MessageHash,
         VerifiedTimestamp Timestamp);
 
-    private readonly record struct VerifiedTimestamp(
+    internal readonly record struct VerifiedTimestamp(
         DateTimeOffset Time,
         DateTimeOffset LowerBound,
         DateTimeOffset UpperBound);
@@ -1179,12 +1527,22 @@ public static class PackageSignatureVerifier
         long centralPosition,
         long localOffset,
         int centralHeaderSize,
-        bool isSignature)
+        bool isSignature,
+        ushort generalPurposeBitFlags,
+        ushort compressionMethod,
+        uint compressedSize,
+        uint uncompressedSize,
+        uint externalFileAttributes)
     {
         public long CentralPosition { get; } = centralPosition;
         public long LocalOffset { get; } = localOffset;
         public int CentralHeaderSize { get; } = centralHeaderSize;
         public bool IsSignature { get; } = isSignature;
+        public ushort GeneralPurposeBitFlags { get; } = generalPurposeBitFlags;
+        public ushort CompressionMethod { get; } = compressionMethod;
+        public uint CompressedSize { get; } = compressedSize;
+        public uint UncompressedSize { get; } = uncompressedSize;
+        public uint ExternalFileAttributes { get; } = externalFileAttributes;
         public long LocalSize { get; set; }
         public long OffsetChange { get; set; }
     }

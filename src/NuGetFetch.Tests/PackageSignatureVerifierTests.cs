@@ -23,7 +23,12 @@ public class PackageSignatureVerifierTests : IDisposable
     private const string LifetimeSigningEkuOid = "1.3.6.1.4.1.311.10.3.13";
     private const string RepositoryCommitmentOid = "1.2.840.113549.1.9.16.6.2";
     private const string ServerAuthenticationEkuOid = "1.3.6.1.5.5.7.3.1";
+    private const string Sha256Oid = "2.16.840.1.101.3.4.2.1";
+    private const string SigningCertificateV2Oid = "1.2.840.113549.1.9.16.2.47";
+    private const string SigningTimeOid = "1.2.840.113549.1.9.5";
+    private const string TimestampInfoContentTypeOid = "1.2.840.113549.1.9.16.1.4";
     private const string TimestampTokenOid = "1.2.840.113549.1.9.16.2.14";
+    private const string BaselineTimestampPolicyOid = "0.4.0.2023.1.1";
 
     private readonly HttpClient _http = new();
     private readonly NuGetClient _client;
@@ -213,6 +218,81 @@ public class PackageSignatureVerifierTests : IDisposable
 
             Assert.False(result.IsValid);
             Assert.Contains("commitment type", result.Reason, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(signaturePath);
+        }
+    }
+
+    [Fact]
+    public void VerifySignatureFile_RejectsMissingSigningTime()
+    {
+        string hash = Convert.ToBase64String(new byte[32]);
+        string signaturePath = CreateTestSignature(
+            $"Version:1\n\n{Sha256Oid}-Hash:{hash}\n\n",
+            AuthorCommitmentOid,
+            includeSigningTime: false);
+        try
+        {
+            SignatureVerificationResult result =
+                PackageSignatureVerifier.VerifySignatureFile(signaturePath);
+
+            Assert.False(result.IsValid);
+            Assert.Contains(
+                "signer-attribute profile",
+                result.Reason,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(signaturePath);
+        }
+    }
+
+    [Fact]
+    public void VerifySignatureFile_RejectsMissingSigningCertificateV2()
+    {
+        string hash = Convert.ToBase64String(new byte[32]);
+        string signaturePath = CreateTestSignature(
+            $"Version:1\n\n{Sha256Oid}-Hash:{hash}\n\n",
+            AuthorCommitmentOid,
+            includeSigningCertificateV2: false);
+        try
+        {
+            SignatureVerificationResult result =
+                PackageSignatureVerifier.VerifySignatureFile(signaturePath);
+
+            Assert.False(result.IsValid);
+            Assert.Contains(
+                "signer-attribute profile",
+                result.Reason,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(signaturePath);
+        }
+    }
+
+    [Fact]
+    public void VerifySignatureFile_RejectsMismatchedSigningCertificateV2()
+    {
+        string hash = Convert.ToBase64String(new byte[32]);
+        string signaturePath = CreateTestSignature(
+            $"Version:1\n\n{Sha256Oid}-Hash:{hash}\n\n",
+            AuthorCommitmentOid,
+            mismatchSigningCertificateHash: true);
+        try
+        {
+            SignatureVerificationResult result =
+                PackageSignatureVerifier.VerifySignatureFile(signaturePath);
+
+            Assert.False(result.IsValid);
+            Assert.Contains(
+                "signer-attribute profile",
+                result.Reason,
+                StringComparison.Ordinal);
         }
         finally
         {
@@ -444,13 +524,117 @@ public class PackageSignatureVerifierTests : IDisposable
 
             Assert.False(result.IsValid);
             Assert.Contains(
-                "content hash",
+                "signature entry",
                 result.Reason,
                 StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
             File.Delete(nupkgPath);
+        }
+    }
+
+    [Fact]
+    public async Task VerifyPackage_RejectsInvalidSignatureEntryProfiles()
+    {
+        string nupkgPath = await DownloadPackageAsync("Newtonsoft.Json", "13.0.3");
+        byte[] original = File.ReadAllBytes(nupkgPath);
+        (int central, int local) = FindSignatureHeaders(original);
+        (string Name, Action<byte[]> Mutate)[] mutations =
+        [
+            ("central flags", bytes =>
+                BinaryPrimitives.WriteUInt16LittleEndian(
+                    bytes.AsSpan(central + 8), 1)),
+            ("central compression", bytes =>
+                BinaryPrimitives.WriteUInt16LittleEndian(
+                    bytes.AsSpan(central + 10), 8)),
+            ("central external attributes", bytes =>
+                BinaryPrimitives.WriteUInt32LittleEndian(
+                    bytes.AsSpan(central + 38), 1)),
+            ("local flags", bytes =>
+                BinaryPrimitives.WriteUInt16LittleEndian(
+                    bytes.AsSpan(local + 6), 1)),
+            ("local compression", bytes =>
+                BinaryPrimitives.WriteUInt16LittleEndian(
+                    bytes.AsSpan(local + 8), 8)),
+            ("central/local size mismatch", bytes =>
+            {
+                uint size = BinaryPrimitives.ReadUInt32LittleEndian(
+                    bytes.AsSpan(central + 20));
+                BinaryPrimitives.WriteUInt32LittleEndian(
+                    bytes.AsSpan(central + 20), size + 1);
+                BinaryPrimitives.WriteUInt32LittleEndian(
+                    bytes.AsSpan(central + 24), size + 1);
+            }),
+        ];
+
+        try
+        {
+            foreach ((string name, Action<byte[]> mutate) in mutations)
+            {
+                byte[] package = (byte[])original.Clone();
+                mutate(package);
+                File.WriteAllBytes(nupkgPath, package);
+
+                SignatureVerificationResult result =
+                    PackageSignatureVerifier.VerifyPackage(nupkgPath);
+
+                Assert.False(result.IsValid, name);
+                Assert.Contains(
+                    "entry is invalid",
+                    result.Reason,
+                    StringComparison.Ordinal);
+            }
+        }
+        finally
+        {
+            File.Delete(nupkgPath);
+        }
+    }
+
+    [Fact]
+    public void TryExtractTimestampInfo_BaselinePolicyDefaultsToOneSecond()
+    {
+        DateTimeOffset timestamp = new(
+            2026,
+            8,
+            20,
+            3,
+            0,
+            0,
+            TimeSpan.Zero);
+        byte[] tstInfo = CreateTimestampInfo(
+            SHA256.HashData([1, 2, 3]),
+            timestamp,
+            accuracySeconds: null);
+
+        PackageSignatureVerifier.TimestampInfo info = Assert.IsType<
+            PackageSignatureVerifier.TimestampInfo>(
+                PackageSignatureVerifier.TryExtractTimestampInfo(tstInfo));
+
+        Assert.Equal(timestamp, info.Timestamp.Time);
+        Assert.Equal(timestamp.AddSeconds(-1), info.Timestamp.LowerBound);
+        Assert.Equal(timestamp.AddSeconds(1), info.Timestamp.UpperBound);
+    }
+
+    [Fact]
+    public void VerifySignatureFile_UnrepresentableTimestampAccuracyIsInvalid()
+    {
+        string hash = Convert.ToBase64String(new byte[32]);
+        string signaturePath = CreateTestSignature(
+            $"Version:1\n\n{Sha256Oid}-Hash:{hash}\n\n",
+            AuthorCommitmentOid,
+            timestampAccuracySeconds: 500_000_000_000);
+        try
+        {
+            SignatureVerificationResult result =
+                PackageSignatureVerifier.VerifySignatureFile(signaturePath);
+
+            Assert.False(result.IsValid);
+        }
+        finally
+        {
+            File.Delete(signaturePath);
         }
     }
 
@@ -644,7 +828,11 @@ public class PackageSignatureVerifierTests : IDisposable
         string content,
         string? commitmentOid,
         int keySize = 2048,
-        bool includeLifetimeSigningEku = false)
+        bool includeLifetimeSigningEku = false,
+        bool includeSigningTime = true,
+        bool includeSigningCertificateV2 = true,
+        bool mismatchSigningCertificateHash = false,
+        long? timestampAccuracySeconds = null)
     {
         using RSA key = RSA.Create(keySize);
         var request = new CertificateRequest(
@@ -689,13 +877,148 @@ public class PackageSignatureVerifierTests : IDisposable
                         new Oid(CommitmentTypeIndicationOid),
                         writer.Encode()))));
         }
+        if (includeSigningTime)
+        {
+            var signingTime = new Pkcs9SigningTime(DateTime.UtcNow);
+            signer.SignedAttributes.Add(new CryptographicAttributeObject(
+                new Oid(SigningTimeOid),
+                new AsnEncodedDataCollection(signingTime)));
+        }
+        if (includeSigningCertificateV2)
+        {
+            AsnEncodedData signingCertificateV2 =
+                CreateSigningCertificateV2(
+                    certificate,
+                    mismatchSigningCertificateHash);
+            signer.SignedAttributes.Add(new CryptographicAttributeObject(
+                new Oid(SigningCertificateV2Oid),
+                new AsnEncodedDataCollection(signingCertificateV2)));
+        }
         cms.ComputeSignature(signer);
+        if (timestampAccuracySeconds.HasValue)
+        {
+            SignerInfo primarySigner = Assert.Single(
+                cms.SignerInfos.Cast<SignerInfo>());
+            byte[] token = CreateTimestampToken(
+                primarySigner.GetSignature(),
+                timestampAccuracySeconds.Value);
+            primarySigner.AddUnsignedAttribute(new AsnEncodedData(
+                new Oid(TimestampTokenOid),
+                token));
+        }
 
         string path = Path.Combine(
             Path.GetTempPath(),
             $"package-signature-{Guid.NewGuid():N}.p7s");
         File.WriteAllBytes(path, cms.Encode());
         return path;
+    }
+
+    private static AsnEncodedData CreateSigningCertificateV2(
+        X509Certificate2 certificate,
+        bool mismatchHash)
+    {
+        byte[] certificateHash = certificate.GetCertHash(HashAlgorithmName.SHA256);
+        if (mismatchHash)
+            certificateHash[0] ^= 0xFF;
+
+        var writer = new AsnWriter(AsnEncodingRules.DER);
+        writer.PushSequence();
+        writer.PushSequence();
+        writer.PushSequence();
+        writer.PushSequence();
+        writer.WriteObjectIdentifier(Sha256Oid);
+        writer.WriteNull();
+        writer.PopSequence();
+        writer.WriteOctetString(certificateHash);
+        writer.PushSequence();
+        writer.PushSequence();
+        var directoryNameTag = new Asn1Tag(
+            TagClass.ContextSpecific,
+            4,
+            isConstructed: true);
+        writer.PushSequence(directoryNameTag);
+        writer.WriteEncodedValue(certificate.IssuerName.RawData);
+        writer.PopSequence(directoryNameTag);
+        writer.PopSequence();
+        byte[] serialNumber = certificate.GetSerialNumber();
+        Array.Reverse(serialNumber);
+        writer.WriteIntegerUnsigned(serialNumber);
+        writer.PopSequence();
+        writer.PopSequence();
+        writer.PopSequence();
+        writer.PopSequence();
+        return new AsnEncodedData(
+            new Oid(SigningCertificateV2Oid),
+            writer.Encode());
+    }
+
+    private static byte[] CreateTimestampToken(
+        byte[] parentSignature,
+        long accuracySeconds)
+    {
+        using RSA key = RSA.Create(2048);
+        var request = new CertificateRequest(
+            "CN=Test timestamp signer",
+            key,
+            HashAlgorithmName.SHA256,
+            RSASignaturePadding.Pkcs1);
+        request.CertificateExtensions.Add(
+            new X509BasicConstraintsExtension(
+                certificateAuthority: false,
+                hasPathLengthConstraint: false,
+                pathLengthConstraint: 0,
+                critical: true));
+        request.CertificateExtensions.Add(
+            new X509KeyUsageExtension(
+                X509KeyUsageFlags.DigitalSignature,
+                critical: true));
+        var usages = new OidCollection
+        {
+            new Oid("1.3.6.1.5.5.7.3.8"),
+        };
+        request.CertificateExtensions.Add(
+            new X509EnhancedKeyUsageExtension(usages, critical: true));
+        using X509Certificate2 certificate = request.CreateSelfSigned(
+            DateTimeOffset.UtcNow.AddDays(-1),
+            DateTimeOffset.UtcNow.AddDays(1));
+
+        byte[] tstInfo = CreateTimestampInfo(
+            SHA256.HashData(parentSignature),
+            DateTimeOffset.UtcNow,
+            accuracySeconds);
+        var timestampCms = new SignedCms(
+            new ContentInfo(new Oid(TimestampInfoContentTypeOid), tstInfo));
+        timestampCms.ComputeSignature(new CmsSigner(certificate));
+        return timestampCms.Encode();
+    }
+
+    private static byte[] CreateTimestampInfo(
+        byte[] messageHash,
+        DateTimeOffset timestamp,
+        long? accuracySeconds)
+    {
+        var writer = new AsnWriter(AsnEncodingRules.DER);
+        writer.PushSequence();
+        writer.WriteInteger(1);
+        writer.WriteObjectIdentifier(BaselineTimestampPolicyOid);
+        writer.PushSequence();
+        writer.PushSequence();
+        writer.WriteObjectIdentifier(Sha256Oid);
+        writer.WriteNull();
+        writer.PopSequence();
+        writer.WriteOctetString(messageHash);
+        writer.PopSequence();
+        writer.WriteInteger(1);
+        writer.WriteGeneralizedTime(timestamp, omitFractionalSeconds: true);
+        if (accuracySeconds.HasValue)
+        {
+            writer.PushSequence();
+            writer.WriteInteger(accuracySeconds.Value);
+            writer.PopSequence();
+        }
+        writer.PopSequence();
+        return writer.Encode();
     }
 
     private static int FindEndRecord(byte[] package)
@@ -710,6 +1033,41 @@ public class PackageSignatureVerifierTests : IDisposable
         }
 
         throw new InvalidDataException("ZIP end record was not found.");
+    }
+
+    private static (int Central, int Local) FindSignatureHeaders(byte[] package)
+    {
+        int endRecord = FindEndRecord(package);
+        int central = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(
+            package.AsSpan(endRecord + 16)));
+        ushort entries = BinaryPrimitives.ReadUInt16LittleEndian(
+            package.AsSpan(endRecord + 10));
+        for (int index = 0; index < entries; index++)
+        {
+            Assert.Equal(
+                0x02014B50u,
+                BinaryPrimitives.ReadUInt32LittleEndian(package.AsSpan(central)));
+            ushort fileNameLength = BinaryPrimitives.ReadUInt16LittleEndian(
+                package.AsSpan(central + 28));
+            ushort extraLength = BinaryPrimitives.ReadUInt16LittleEndian(
+                package.AsSpan(central + 30));
+            ushort commentLength = BinaryPrimitives.ReadUInt16LittleEndian(
+                package.AsSpan(central + 32));
+            ReadOnlySpan<byte> fileName = package.AsSpan(
+                central + 46,
+                fileNameLength);
+            if (fileName.SequenceEqual(".signature.p7s"u8))
+            {
+                int local = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(
+                    package.AsSpan(central + 42)));
+                return (central, local);
+            }
+
+            central = checked(
+                central + 46 + fileNameLength + extraLength + commentLength);
+        }
+
+        throw new InvalidDataException("Signature entry was not found.");
     }
 
     private async Task<string> DownloadPackageAsync(string id, string version)

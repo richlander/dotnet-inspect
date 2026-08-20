@@ -750,11 +750,33 @@ public sealed class PackageContentAuditTests
     public void SourceLinkEvidence_UsesSingleFieldControlPolicy()
     {
         InertString encoded = PackageContentAudit.EncodeSourceLinkEvidence(
-            "document\nkey => https://example.test/\tpath");
+            "document\nkey",
+            "https://example.test/\tpath");
 
         Assert.Equal(TextConcern.Control, encoded.Concerns);
         Assert.Contains(@"\^J", encoded.ToString(), StringComparison.Ordinal);
         Assert.Contains(@"\^I", encoded.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SourceLinkEvidence_FramesAndBoundsBothOperands()
+    {
+        string document = "src/\"quoted\"\\path => " + new string('d', 600);
+        string url = "https://example.test/\"quoted\"\\path/../\u202E"
+            + new string('u', 600);
+
+        InertString encoded =
+            PackageContentAudit.EncodeSourceLinkEvidence(document, url);
+        string evidence = encoded.ToString();
+
+        Assert.StartsWith("document=\"", evidence, StringComparison.Ordinal);
+        Assert.Contains("\" => url=\"", evidence, StringComparison.Ordinal);
+        Assert.EndsWith("\"", evidence, StringComparison.Ordinal);
+        Assert.Contains("\\\"", evidence, StringComparison.Ordinal);
+        Assert.Contains("\\\\", evidence, StringComparison.Ordinal);
+        Assert.Contains("\\u202E", evidence, StringComparison.Ordinal);
+        Assert.DoesNotContain('\u202E', evidence);
+        Assert.True(evidence.Length <= 512, $"Evidence length was {evidence.Length}.");
     }
 
     [Fact]

@@ -128,7 +128,10 @@ row. That row means “certainly take a look,” not “certainly malicious”:
 legitimate mappings can contain parent references, while HTTP clients can
 canonicalize them to a different repository path. Evidence is bounded around
 the first rendering hazard and is always visually encoded before it reaches a
-terminal.
+terminal. Document and URL evidence are separately labeled and quoted;
+artifact-authored quotes and backslashes are escaped before the bounded row is
+formed, so either operand may contain the displayed separator without
+impersonating the tool-owned boundary.
 When a candidate-path cap prevents an exact eligible-file total, partial-scan
 evidence renders the known denominator with a `+` suffix instead of claiming
 complete cardinality.
@@ -142,8 +145,13 @@ archive. A timestamp can extend signer validity only when its time-stamping
 chain and full uncertainty interval are valid and its message imprint matches
 that package signer's signature. NuGet V1 certificate profiles, repository
 service-index identity, and unique repository countersignature cardinality are
-required. Offline custom-root chain construction does not download missing
-certificates.
+required. The signature entry must use NuGet's stored-entry local and central
+header profile, and each package or repository signer must carry one valid
+signing-time and signing-certificate-v2 attribute bound to its certificate.
+The RFC 3161 baseline policy supplies its defined one-second uncertainty when
+the token omits accuracy; unrepresentable timestamp bounds are rejected as an
+invalid timestamp. Offline custom-root chain construction does not download
+missing certificates.
 These remain observations rather than a trust verdict.
 
 ```bash
@@ -191,6 +199,13 @@ identity.
 `ConfigureCertificateChainPolicy_DisablesCertificateDownloads`, and the
 certificate-profile and repository-profile tests gate typed malformed-ZIP
 rejection, offline verification, and NuGet V1 trust constraints.
+`VerifyPackage_RejectsInvalidSignatureEntryProfiles`, the
+missing/mismatched signer-attribute tests,
+`TryExtractTimestampInfo_BaselinePolicyDefaultsToOneSecond`, and
+`VerifySignatureFile_UnrepresentableTimestampAccuracyIsInvalid` gate the
+signature-entry, signer-identity, and timestamp-profile boundaries.
+`PackageContentAuditTests.SourceLinkEvidence_FramesAndBoundsBothOperands`
+gates structurally distinct bounded SourceLink operands.
 `InspectionResultTests.Signed_PreservesUnestablishedVerificationState` gates
 Package Info and `--value signed` tri-state parity, while
 `Package_QuietSignedValuePerformsExplicitVerification` gates explicit quiet
