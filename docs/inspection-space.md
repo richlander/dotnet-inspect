@@ -653,12 +653,26 @@ the definition without running a preset or acquiring its inputs.
 
 Product-resident home demos ship as a static id→factory registry
 (`DotnetInspector.Queries.Definitions.ProductInspectionDemos`, smooth-markdown-table
-`RendererRegistry` style); hosts activate one demo via
-`ProductInspectionDemos.ResolveHomeScenario`, which allocates only that demo.
-Group-subscription grammar and share-packet transposition remain design-ahead
-of that loader. Selecting a scenario lowers into the same acquisition and typed query paths
-used by an interactive request; it does not create a second demo-only execution
-path.
+`RendererRegistry` style); hosts resolve one demo via
+`ProductInspectionDemos.ResolveHomeScenario`, which allocates only that demo's
+peer records (coordinates and view focus today). The **target** run model is a
+closed preset over the open query/section product: the registry fixes inputs
+and names **existing product section(s)**; the host runs the normal section
+pipeline and returns those sections in ordinary formats. That full section
+binding and run path are not implemented yet—current plans are a partial
+binding (see the workspace-definitions residual). Demos must not call past
+sections into ad hoc inspection APIs; a capability that is not a product
+section is not a home demo until the section exists. Once section binding and
+run exist, CLI argv, definition plans, and browser engine operations (including
+a generated TypeScript binding of that engine surface) must be encodings of the
+same preset—not parallel demo systems. Group-subscription grammar and
+share-packet transposition remain design-ahead of that loader. When run exists,
+selecting a scenario must lower into the same acquisition and typed query paths
+used by an interactive request—it must not create a second demo-only execution
+path. Today resolve stops at the plan (`ResolvedScenario`); acquisition and
+section execution are still host/future work on top of that plan. Detail:
+[workspace-definitions.md — Product demos are closed section
+presets](design/workspace-definitions.md#product-demos-are-closed-section-presets).
 
 A bundle contains no live streams, `PEReader` instances, sessions, acquisition
 registrations, candidate ids, catalog generations, join tokens, cached verdicts,

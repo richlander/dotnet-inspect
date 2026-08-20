@@ -1709,8 +1709,14 @@ public static class ApiOutputFormatter
                 memberCode.CallGraph = CallGraphSectionAdapter.ToGraph(
                     projection,
                     FormatCallee,
-                    GetRequestedCallGraphFields(options),
-                    renderedRows);
+                    analysisInspection.CallGraphFields,
+                    analysisInspection.HasCallGraphFieldProjection,
+                    renderedRows,
+                    analysisInspection.IncludesCallGraphOpportunities
+                        ? BuildCallGraphOpportunityAnnotations(
+                            projection,
+                            analysisInspection.CallGraphBodyIndexes)
+                        : null);
                 hasCode = true;
             }
             else if (ExplicitlySelected(SectionNames.CallGraph)
@@ -2206,12 +2212,54 @@ public static class ApiOutputFormatter
         return FormatMember(member.DeclaringType, member.Name, member.ParameterTypes, member.TypeArguments);
     }
 
-    static IReadOnlyList<string> GetRequestedCallGraphFields(ApiOptions? options)
-        => options?.Fields is { Length: > 0 } fields
-            ? fields
-            : options?.Columns is { Length: > 0 } columns
-                ? columns
-                : [];
+    static IReadOnlyDictionary<int, CallGraphOpportunityAnnotations>
+        BuildCallGraphOpportunityAnnotations(
+            ILInspector.CallGraph.CallGraphProjection projection,
+            IReadOnlyList<Analysis.LibraryBodyIndex> indexes)
+    {
+        var candidatesByNode =
+            new Dictionary<int, HashSet<string>>();
+        foreach (Analysis.LibraryBodyIndex index in indexes)
+        {
+            IReadOnlySet<Analysis.TypeRef> generatedFrameworkTypes =
+                index.GeneratedFrameworkTypes;
+            foreach (Analysis.OptimizationOpportunity opportunity in
+                index.OptimizationOpportunities.Where(opportunity =>
+                    opportunity.Shape == "sync-call-in-async"
+                    && LibraryMetadataService.IncludePerformanceOpportunity(
+                        opportunity,
+                        generatedFrameworkTypes)))
+            {
+                if (projection.FindNode(
+                        opportunity.Method,
+                        out ILInspector.CallGraph.CallGraphNode node)
+                    != ILInspector.CallGraph.CallGraphNodeMatch.Found)
+                {
+                    continue;
+                }
+
+                string candidate = opportunity.CandidateId
+                    ?? $"{opportunity.Method.ModuleVersionId:N}:"
+                        + $"{opportunity.Method.MetadataToken:X8}:"
+                        + $"{opportunity.EvidenceMethodToken:X8}:"
+                        + $"{opportunity.ILOffset:X4}:"
+                        + $"{opportunity.OperandToken:X8}";
+                if (!candidatesByNode.TryGetValue(
+                    node.Id,
+                    out HashSet<string>? candidates))
+                {
+                    candidates = new HashSet<string>(
+                        StringComparer.Ordinal);
+                    candidatesByNode.Add(node.Id, candidates);
+                }
+                candidates.Add(candidate);
+            }
+        }
+        return candidatesByNode.ToDictionary(
+            pair => pair.Key,
+            pair => new CallGraphOpportunityAnnotations(
+                pair.Value.Count));
+    }
 
     internal static void PopulateUnsafeMembers(TypeView view, ApiType type, Analysis.LibraryBodyIndex index)
     {
