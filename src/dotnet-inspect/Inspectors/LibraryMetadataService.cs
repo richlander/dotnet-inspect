@@ -97,6 +97,9 @@ internal static class LibraryMetadataService
                         ? SourceLinkService.Open(path, logger.Log)
                         : SourceLinkService.OpenPrefetched(path, logger.Log);
             var pdbContext = service.Context;
+            bool projectOptimizationOpportunities =
+                options.IncludeSections is null
+                || options.IncludeSections.Overlaps(PerformanceKinds.Sections);
             var sourceLinkQueryContext = new SourceLinkQueryContext(
                 service,
                 FindingSubjectFor(path),
@@ -145,6 +148,7 @@ internal static class LibraryMetadataService
                         queryRegistry,
                         requiredQueries,
                         queryContext,
+                        projectOptimizationOpportunities,
                         trace).ConfigureAwait(false);
                 }
 
@@ -285,6 +289,7 @@ internal static class LibraryMetadataService
                         queryRegistry,
                         requiredQueries,
                         scannerContext,
+                        projectOptimizationOpportunities,
                         trace).ConfigureAwait(false);
                 }
 
@@ -2054,7 +2059,8 @@ internal static class LibraryMetadataService
         LibraryInspection inspection,
         VerboseLogger logger,
         InspectionQueryResults results,
-        ScannerContext scannerContext)
+        ScannerContext scannerContext,
+        bool projectOptimizationOpportunities)
     {
         if (results.TryGet(MetadataImageQuery.Definition, out MetadataImageResult? metadata))
         {
@@ -2098,7 +2104,8 @@ internal static class LibraryMetadataService
                 path,
                 inspection,
                 logger,
-                optimizationOpportunities);
+                optimizationOpportunities,
+                projectOptimizationOpportunities);
         }
 
         if (results.TryGet(
@@ -2274,7 +2281,8 @@ internal static class LibraryMetadataService
         string path,
         LibraryInspection inspection,
         VerboseLogger logger,
-        OptimizationOpportunitiesResult result)
+        OptimizationOpportunitiesResult result,
+        bool projectCompatibilityRows = true)
     {
         inspection.OptimizationOpportunitiesQueryResult = result;
         inspection.PerformanceTriageOpportunities = [];
@@ -2295,11 +2303,14 @@ internal static class LibraryMetadataService
                         inspection.PerformanceTriageOptions),
                 ];
                 inspection.PerformanceTriageOpportunities = opportunities;
-                var rows = opportunities
-                    .Select(ProjectOptimizationOpportunity)
-                    .ToList();
-                inspection.OptimizationOpportunities =
-                    rows.Count > 0 ? rows : null;
+                if (projectCompatibilityRows)
+                {
+                    var rows = opportunities
+                        .Select(ProjectOptimizationOpportunity)
+                        .ToList();
+                    inspection.OptimizationOpportunities =
+                        rows.Count > 0 ? rows : null;
+                }
                 break;
 
             case OptimizationOpportunitiesResult.NoMetadata:
@@ -2777,6 +2788,7 @@ internal static class LibraryMetadataService
         InspectionQueryRegistry<ScannerContext> queryRegistry,
         HashSet<InspectionQueryDefinition> requiredQueries,
         ScannerContext scannerContext,
+        bool projectOptimizationOpportunities,
         Sections.InspectionTrace? trace)
     {
         Action<InspectionQueryDefinition, TimeSpan>? recordQuery = trace is null
@@ -2807,7 +2819,13 @@ internal static class LibraryMetadataService
             throw new InspectionQueryException("Typed query execution failed.", ex);
         }
 
-        ApplyQueryResults(path, inspection, logger, results, scannerContext);
+        ApplyQueryResults(
+            path,
+            inspection,
+            logger,
+            results,
+            scannerContext,
+            projectOptimizationOpportunities);
     }
 
     static FindingInspection<T> FailedInspection<T>(

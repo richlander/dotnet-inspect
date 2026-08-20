@@ -104,7 +104,12 @@ The eight Performance sections share `OptimizationOpportunitiesQuery`, which
 retains raw `OptimizationOpportunity`, generated-framework `TypeRef` identity,
 and Analysis diagnostics. The CLI owns generated-code suppression, row
 filtering, ranking, kind bucketing, MVID-preserving compatibility JSON, and
-presentation containment.
+presentation containment. Body Shapes may demand the same typed result to
+compose method candidates without selecting a Performance section. In that
+case the filtered typed opportunities remain available to the scanner, but the
+compatibility Performance JSON projection is not materialized;
+`ComposedBodyShapesJson_OmitsUnselectedPerformanceProjection` gates that
+section-isolation contract.
 
 The residual `ScannerRegistry` now contains only Resource Triage and Body
 Shapes.

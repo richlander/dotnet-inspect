@@ -316,6 +316,67 @@ public sealed class BodyShapesSectionTests
     }
 
     [Fact]
+    public async Task ComposedBodyShapesJson_OmitsUnselectedPerformanceProjection()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "library",
+                    FixturePath,
+                    "-S",
+                    SectionNames.BodyShapes,
+                    "--where",
+                    "Kind=ArrayCreationExpression",
+                    "--where",
+                    "Shape=small-array",
+                    "--json",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        using var document = JsonDocument.Parse(result.Output);
+        Assert.NotEmpty(
+            document.RootElement.GetProperty("body_shapes").EnumerateArray());
+        Assert.False(
+            document.RootElement.TryGetProperty("performance", out _));
+    }
+
+    [Fact]
+    public async Task ComposedBodyShapesJson_PreservesSelectedPerformanceProjection()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(CommandLineBuilder.PreprocessArgs(
+                [
+                    "library",
+                    FixturePath,
+                    "-S",
+                    SectionNames.BodyShapes,
+                    "-S",
+                    SectionNames.PerformanceArrays,
+                    "--where",
+                    "Kind=ArrayCreationExpression",
+                    "--where",
+                    "Shape=small-array",
+                    "--json",
+                ]))
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        using var document = JsonDocument.Parse(result.Output);
+        Assert.NotEmpty(
+            document.RootElement.GetProperty("body_shapes").EnumerateArray());
+        Assert.NotEmpty(
+            document.RootElement
+                .GetProperty("performance")
+                .GetProperty("arrays")
+                .EnumerateArray());
+    }
+
+    [Fact]
     public async Task LibraryKindPredicate_IntersectsAllPerformancePredicates()
     {
         var root = CommandLineBuilder.CreateRootCommand();
