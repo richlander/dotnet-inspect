@@ -68,6 +68,14 @@ public static partial class FixtureExports
         JsonSerializer.Serialize(
             new WidgetDto[] { new("widget", 0, [], null) },
             FixtureJsonContext.Default.WidgetDtoArray);
+
+    // Exercises enum discovery: WidgetSummary's Status property references WidgetStatus, an enum
+    // reachable only transitively (never independently registered on FixtureJsonContext).
+    [JSExport]
+    public static string GetWidgetSummary() =>
+        JsonSerializer.Serialize(
+            new WidgetSummary("widget", WidgetStatus.Published),
+            FixtureJsonContext.Default.WidgetSummary);
 }
 
 public sealed record WidgetDto(string Name, int Count, int[] Tags, WidgetOwner? Owner);
@@ -79,8 +87,22 @@ public sealed record WidgetOwner(string DisplayName);
 // ExtractCandidateTypeNames, which must walk every top-level generic argument, not just the first.
 public sealed record WidgetCatalog(Dictionary<string, WidgetOwner> OwnersByKey);
 
+// Exercises enum discovery: a nested-record-referenced enum backed by JsonStringEnumConverter
+// (STJ serializes it as its member name, a string) must be routed to JsExportSurface.Enums and
+// rendered as a TS string-literal union, not silently treated as a record with zero properties.
+[JsonConverter(typeof(JsonStringEnumConverter<WidgetStatus>))]
+public enum WidgetStatus
+{
+    Draft,
+    Published,
+    Archived,
+}
+
+public sealed record WidgetSummary(string Name, WidgetStatus Status);
+
 [JsonSerializable(typeof(WidgetDto))]
 [JsonSerializable(typeof(WidgetDto[]))]
 [JsonSerializable(typeof(WidgetCatalog))]
+[JsonSerializable(typeof(WidgetSummary))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 public sealed partial class FixtureJsonContext : JsonSerializerContext;

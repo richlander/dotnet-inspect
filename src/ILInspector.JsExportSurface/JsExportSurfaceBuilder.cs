@@ -115,6 +115,7 @@ public static class JsExportSurfaceBuilder
         // [JsonSerializable(typeof(T))] on it compiles to a JsonTypeInfo<T> property, so T's name
         // is readable directly from that property's return-type text.
         var records = new List<ApiType>();
+        var enums = new List<ApiType>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var queue = new Queue<string>();
 
@@ -155,11 +156,27 @@ public static class JsExportSurfaceBuilder
                 continue;
             }
 
+            // An enum has no properties to project as an interface — STJ's JsonStringEnumConverter
+            // serializes it as one of its member names (a string), not an object. Route it to
+            // Enums instead of emitting a property-less {} interface for it, and skip the property
+            // walk below (an enum's members are its values, not properties to traverse for further
+            // nested-type roots).
+            if (type.Kind == "enum")
+            {
+                enums.Add(type);
+                continue;
+            }
+
             records.Add(type);
 
             foreach (ApiMember member in type.Members)
             {
-                if (member.Kind != "property")
+                if (member.Kind != "property"
+                    // Compiler-synthesized record infrastructure (e.g. a positional record's
+                    // `EqualityContract` getter) is never intended as wire-contract shape: it is
+                    // never public, so it is only reachable here when includeAll surfaces
+                    // non-public members alongside the type's real, public data properties.
+                    || member.Accessibility is not null)
                 {
                     continue;
                 }
@@ -172,7 +189,7 @@ public static class JsExportSurfaceBuilder
             }
         }
 
-        return new JsExportSurface { Functions = functions, Records = records };
+        return new JsExportSurface { Functions = functions, Records = records, Enums = enums };
     }
 
     static bool HasJsExportAttribute(ApiMember member) =>

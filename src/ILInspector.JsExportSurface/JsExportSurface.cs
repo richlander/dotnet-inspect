@@ -15,6 +15,15 @@ public sealed class JsExportSurface
     public IReadOnlyList<JsExportFunction> Functions { get; init; } = [];
 
     public IReadOnlyList<ApiType> Records { get; init; } = [];
+
+    /// <summary>
+    /// Enum roots discovered the same way as <see cref="Records"/> (via the assembly's
+    /// <c>JsonSerializerContext</c>-registered shapes and their transitive property references),
+    /// but kept separate: an <c>enum</c> has no properties to project as an interface, and STJ's
+    /// <c>JsonStringEnumConverter</c> serializes it as one of its member names, not an object —
+    /// the correct TS shape is a string-literal union, not <c>{}</c>.
+    /// </summary>
+    public IReadOnlyList<ApiType> Enums { get; init; } = [];
 }
 
 /// <summary>

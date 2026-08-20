@@ -26,13 +26,14 @@ public sealed class JsExportSurfaceBuilderTests
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
         var names = surface.Functions.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(6, surface.Functions.Count);
+        Assert.Equal(7, surface.Functions.Count);
         Assert.Contains("GetWidget", names);
         Assert.Contains("GetWidgetAsync", names);
         Assert.Contains("Ping", names);
         Assert.Contains("RenameWidget", names);
         Assert.Contains("GetWidgetOrOwner", names);
         Assert.Contains("GetWidgetArray", names);
+        Assert.Contains("GetWidgetSummary", names);
     }
 
     [Fact]
@@ -58,14 +59,28 @@ public sealed class JsExportSurfaceBuilderTests
     {
         // WidgetDto and WidgetCatalog are the JsonSerializable roots on FixtureJsonContext;
         // WidgetOwner is only reachable transitively (through WidgetDto's Owner property and
-        // WidgetCatalog's OwnersByKey dictionary value type).
+        // WidgetCatalog's OwnersByKey dictionary value type). WidgetSummary is a separate
+        // JsonSerializable root.
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
         var recordNames = surface.Records.Select(r => r.Name).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(3, surface.Records.Count);
+        Assert.Equal(4, surface.Records.Count);
         Assert.Contains("WidgetDto", recordNames);
         Assert.Contains("WidgetOwner", recordNames);
         Assert.Contains("WidgetCatalog", recordNames);
+        Assert.Contains("WidgetSummary", recordNames);
+    }
+
+    [Fact]
+    public void Build_RoutesEnumRootsToEnumsNotRecords()
+    {
+        // WidgetStatus is only reachable transitively, through WidgetSummary.Status — never
+        // independently registered on FixtureJsonContext — verifying the enum branch applies
+        // during the transitive-closure walk, not just to directly-registered roots.
+        ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
+
+        Assert.Contains(surface.Enums, e => e.Name == "WidgetStatus");
+        Assert.DoesNotContain(surface.Records, r => r.Name == "WidgetStatus");
     }
 
     [Fact]

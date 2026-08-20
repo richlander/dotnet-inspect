@@ -175,4 +175,35 @@ public sealed class DtsEmitterTests
             dts,
             StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Emit_ProjectsEnumAsStringLiteralUnionNotEmptyInterface()
+    {
+        // WidgetStatus is backed by JsonStringEnumConverter (serialized as its member name, a
+        // string) — must render as a TS string-literal union, not export interface WidgetStatus {}
+        // (which is what treating it as a zero-property record would produce).
+        string dts = EmitFixtureDts();
+
+        Assert.Contains(
+            "export type WidgetStatus = \"Draft\" | \"Published\" | \"Archived\";",
+            dts,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("export interface WidgetStatus", dts, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_WithIncludeAllExcludesCompilerSynthesizedNonPublicRecordMembers()
+    {
+        // A positional record's compiler-synthesized EqualityContract getter is never public;
+        // includeAll: true surfaces it in ApiType.Members alongside the record's real, public
+        // data properties, but it must never reach .d.ts output as a fake "equalityContract"
+        // property on every record.
+        using FileStream stream = File.OpenRead(typeof(FixtureExports).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        ILInspector.JsExportSurface.JsExportSurface surface = JsExportSurfaceBuilder.Build(apiSurface);
+        string dts = DtsEmitter.Emit(surface);
+
+        Assert.DoesNotContain("equalityContract", dts, StringComparison.Ordinal);
+    }
 }
