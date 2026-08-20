@@ -7353,14 +7353,15 @@ async function runCallGraphDemo() {
   }
 
   state.selectedTypeId = type.id;
+  state.atPackageRoot = false;
+  state.lens = "api";
+  state.packageLens = "overview";
   resetMemberFilters();
+  resetMemberSectionState();
   state.memberBrowseTypeId = type.id;
   state.selectedMemberKey = member.key;
   state.selectedOverloadIndex = overloadIndex;
   state.memberSection = "call-graph";
-  state.memberCallGraph = null;
-  state.memberCallGraphError = "";
-  state.memberCallGraphKey = "";
   state.loading = false;
   render();
   await loadSelectedMemberCallGraph();
