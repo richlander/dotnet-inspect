@@ -7,7 +7,7 @@ import { buildAnnotatedView, MEDIA, MEDIUM_LABELS } from "./annotated-source-vie
 export interface AnnotatedSourceResult {
   document: AnnotatedSourceDocument;
   provenance: string;
-  contextLimitation?: string;
+  contextLimitation?: string | null;
 }
 
 export interface RenderAnnotatedSourceOptions {

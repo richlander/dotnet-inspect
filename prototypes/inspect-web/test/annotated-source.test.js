@@ -78,6 +78,18 @@ test("no context limitation renders no narrowing message", () => {
   assert.doesNotMatch(html, /annotated-limitation/);
 });
 
+test("an explicit null context limitation (as the backend serializes an absent narrowing) renders no narrowing message", () => {
+  const html = renderAnnotatedSource({
+    result: { ...result, contextLimitation: null },
+    media: undefined,
+    selectedFactId: null,
+    selectedNodeIds: [],
+    escapeHtml,
+  });
+
+  assert.doesNotMatch(html, /annotated-limitation/);
+});
+
 test("facts render their descriptor, category, detail, and anchored target count", () => {
   const html = renderAnnotatedSource({
     result,
