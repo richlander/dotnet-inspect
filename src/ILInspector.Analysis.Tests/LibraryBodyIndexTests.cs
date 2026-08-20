@@ -4012,44 +4012,53 @@ public class LibraryBodyIndexTests
             BuildMalformedAsyncSourceAssembly(
                 ambiguousSource: true,
                 moveNextSmallArray: true);
-        ImmutableArray<byte> bytes = [.. image];
-        var full =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
-                "AmbiguousAsyncArray.dll",
-                bytes,
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"AmbiguousAsyncArray-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(path, image);
+            var full = LibraryBodyIndex.Open(
+                path,
                 LibraryBodyAnalysisFeatures
                     .OptimizationOpportunities);
-        MethodIdentity moveNext = Assert.Single(
-            full.Methods,
-            method => method.Name == "MoveNext"
-                && method.ParameterTypes.IsDefaultOrEmpty);
-
-        var scoped =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
-                "AmbiguousAsyncArray.dll",
-                bytes,
+            MethodIdentity moveNext = Assert.Single(
+                full.Methods,
+                method => method.Name == "MoveNext"
+                    && method.ParameterTypes.IsDefaultOrEmpty);
+            var scoped = LibraryBodyIndex.Open(
+                path,
                 LibraryBodyAnalysisFeatures
                     .OptimizationOpportunities,
                 bodyTypeScope:
                     type => type.Equals(
                         moveNext.DeclaringType));
 
-        Assert.Contains(
-            full.OptimizationOpportunities,
-            opportunity => opportunity.Shape == "small-array"
-                && opportunity.Method.MetadataToken
+            Assert.Contains(
+                full.OptimizationOpportunities,
+                opportunity => opportunity.Shape == "small-array"
+                    && opportunity.Method.MetadataToken
+                        == moveNext.MetadataToken);
+            Assert.Contains(
+                scoped.Diagnostics,
+                diagnostic => diagnostic.MethodToken
+                        == moveNext.MetadataToken
+                    && diagnostic.Message.Contains(
+                        "Multiple async source methods",
+                        StringComparison.Ordinal));
+            Assert.DoesNotContain(
+                scoped.OptimizationOpportunities,
+                opportunity => opportunity.Method.MetadataToken
                     == moveNext.MetadataToken);
-        Assert.Contains(
-            scoped.Diagnostics,
-            diagnostic => diagnostic.MethodToken
-                    == moveNext.MetadataToken
-                && diagnostic.Message.Contains(
-                    "Multiple async source methods",
-                    StringComparison.Ordinal));
-        Assert.DoesNotContain(
-            scoped.OptimizationOpportunities,
-            opportunity => opportunity.Method.MetadataToken
-                == moveNext.MetadataToken);
+            Assert.DoesNotContain(
+                scoped.AllocationFanoutOpportunities,
+                opportunity => opportunity.Method.MetadataToken
+                    == moveNext.MetadataToken);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -4060,44 +4069,53 @@ public class LibraryBodyIndexTests
             BuildMalformedAsyncSourceAssembly(
                 moveNextSmallArray: true,
                 unresolvedLiftedSource: true);
-        ImmutableArray<byte> bytes = [.. image];
-        var full =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
-                "UnresolvedLiftedAsyncArray.dll",
-                bytes,
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"UnresolvedLiftedAsyncArray-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(path, image);
+            var full = LibraryBodyIndex.Open(
+                path,
                 LibraryBodyAnalysisFeatures
                     .OptimizationOpportunities);
-        MethodIdentity moveNext = Assert.Single(
-            full.Methods,
-            method => method.Name == "MoveNext"
-                && method.ParameterTypes.IsDefaultOrEmpty);
-        MethodIdentity kickoff = Assert.Single(
-            full.Methods,
-            method => method.Name
-                == "<Outer>b__0_0");
-
-        var scoped =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
-                "UnresolvedLiftedAsyncArray.dll",
-                bytes,
+            MethodIdentity moveNext = Assert.Single(
+                full.Methods,
+                method => method.Name == "MoveNext"
+                    && method.ParameterTypes.IsDefaultOrEmpty);
+            MethodIdentity kickoff = Assert.Single(
+                full.Methods,
+                method => method.Name
+                    == "<Outer>b__0_0");
+            var scoped = LibraryBodyIndex.Open(
+                path,
                 LibraryBodyAnalysisFeatures
                     .OptimizationOpportunities,
                 bodyTypeScope:
                     type => type.Equals(
                         kickoff.DeclaringType));
 
-        Assert.Contains(
-            full.OptimizationOpportunities,
-            opportunity => opportunity.Shape == "small-array"
-                && opportunity.Method.MetadataToken
+            Assert.Contains(
+                full.OptimizationOpportunities,
+                opportunity => opportunity.Shape == "small-array"
+                    && opportunity.Method.MetadataToken
+                        == moveNext.MetadataToken);
+            Assert.Contains(
+                scoped.GetAllocationOccurrences(),
+                pair => pair.Key == moveNext.MetadataToken);
+            Assert.DoesNotContain(
+                scoped.OptimizationOpportunities,
+                opportunity => opportunity.Method.MetadataToken
                     == moveNext.MetadataToken);
-        Assert.Contains(
-            scoped.GetAllocationOccurrences(),
-            pair => pair.Key == moveNext.MetadataToken);
-        Assert.DoesNotContain(
-            scoped.OptimizationOpportunities,
-            opportunity => opportunity.Method.MetadataToken
-                == moveNext.MetadataToken);
+            Assert.DoesNotContain(
+                scoped.AllocationFanoutOpportunities,
+                opportunity => opportunity.Method.MetadataToken
+                    == moveNext.MetadataToken);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -10347,6 +10365,9 @@ public class LibraryBodyIndexTests
             candidate => candidate.Shape
                     == "allocation-hotspot"
                 && candidate.Method == kickoff);
+        Assert.Contains(
+            full.AllocationFanoutOpportunities,
+            candidate => candidate.Method == kickoff);
 
         var scoped = LibraryBodyIndex.Open(
             path,
@@ -10365,6 +10386,9 @@ public class LibraryBodyIndexTests
             candidate => candidate.Shape
                     == "allocation-hotspot"
                 && candidate.Method == kickoff);
+        Assert.DoesNotContain(
+            scoped.AllocationFanoutOpportunities,
+            candidate => candidate.Method == kickoff);
     }
 
     [Fact]
@@ -10411,6 +10435,9 @@ public class LibraryBodyIndexTests
             candidate => candidate.Shape
                     == "allocation-hotspot"
                 && candidate.Method == evidence);
+        Assert.Contains(
+            full.AllocationFanoutOpportunities,
+            candidate => candidate.Method == evidence);
 
         var scoped = LibraryBodyIndex.Open(
             path,
@@ -10426,6 +10453,9 @@ public class LibraryBodyIndexTests
 
         Assert.DoesNotContain(
             scoped.OptimizationOpportunities,
+            candidate => candidate.Method == evidence);
+        Assert.DoesNotContain(
+            scoped.AllocationFanoutOpportunities,
             candidate => candidate.Method == evidence);
     }
 

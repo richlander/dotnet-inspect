@@ -123,6 +123,7 @@ internal sealed class LibraryMethodAnalysisResult
     public ImmutableArray<UnsafetyOccurrence> Unsafety;
     public ImmutableArray<OptimizationOpportunity> Opportunities;
     public bool Suppressed;
+    public bool ScopeExcluded;
     public bool HasSignals;
     public BodySignals Signals;
     public LeakTriageResult? LeakTriage;
@@ -237,6 +238,9 @@ internal sealed class LibraryMethodAnalysisRunner(
             // so classification below replaces this pessimistic state only
             // after its metadata and scope checks complete.
             result.Suppressed = includeOpportunities;
+            result.ScopeExcluded =
+                includeOpportunities
+                && bodyTypeScope is not null;
             // Scoped builds decode only selected method bodies; every other method is still
             // indexed as an identity (above) but its body is not decoded/scanned. MethodScope
             // selects by method token; TypeScope selects by declaring type. Reverse/aggregate
@@ -428,6 +432,10 @@ internal sealed class LibraryMethodAnalysisRunner(
                             || bodyTypeScope(
                                 opportunityDeclaredMethod
                                     .DeclaringType)));
+            result.ScopeExcluded =
+                includeOpportunities
+                && bodyTypeScope is not null
+                && !collectScopedOpportunities;
             if (includeOpportunities)
             {
                 var methodAttributes =
