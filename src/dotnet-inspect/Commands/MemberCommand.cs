@@ -41,7 +41,8 @@ public static class MemberCommand
             return 1;
         if (options.RouterDeferredTypeOrMember
             && (ApiCommand.RejectUnsupportedCallerDocumentJson(options)
-                || ApiCommand.RejectUnsupportedAnnotatedSourceDocumentJson(options)))
+                || ApiCommand.RejectUnsupportedAnnotatedSourceDocumentJson(options)
+                || ApiCommand.RejectUnsupportedMemberInfoDocumentJson(options)))
         {
             return 1;
         }
@@ -54,7 +55,8 @@ public static class MemberCommand
             if (error.HasValue) return error.Value;
             options = (MemberOptions)preamble.Options;
             if (ApiCommand.RejectUnsupportedCallerDocumentJson(options)
-                || ApiCommand.RejectUnsupportedAnnotatedSourceDocumentJson(options))
+                || ApiCommand.RejectUnsupportedAnnotatedSourceDocumentJson(options)
+                || ApiCommand.RejectUnsupportedMemberInfoDocumentJson(options))
             {
                 return 1;
             }
@@ -272,7 +274,8 @@ public static class MemberCommand
                 return 1;
 
             if (ApiCommand.RejectUnsupportedCallerDocumentJson(options)
-                || ApiCommand.RejectUnsupportedAnnotatedSourceDocumentJson(options))
+                || ApiCommand.RejectUnsupportedAnnotatedSourceDocumentJson(options)
+                || ApiCommand.RejectUnsupportedMemberInfoDocumentJson(options))
             {
                 return 1;
             }

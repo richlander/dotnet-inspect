@@ -9607,6 +9607,34 @@ public partial class CommandExecutionTests
         Assert.Contains("--jsonl", error, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(SectionNames.MemberInfo)]
+    [InlineData("Member I?fo")]
+    public async Task Member_MemberInfo_RejectsWholeDocumentJsonBeforeSourceAcquisition(
+        string selector)
+    {
+        string missingAssembly = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "Missing.Type",
+            "--library",
+            missingAssembly,
+            "-S",
+            selector,
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"section '{SectionNames.MemberInfo}' cannot be represented by whole-document --json.",
+            error);
+        Assert.DoesNotContain("File not found", error);
+    }
+
     [Fact]
     public async Task Member_MemberInfo_ExactMixedSelectionRejectsWholeDocumentJson()
     {

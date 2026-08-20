@@ -2805,13 +2805,8 @@ public class ApiCommand
             // payload projection (--value/--print) does compose, and is handled above.
             if (IsColumnProjectionRequested(options))
                 return RejectColumnProjectionUnderJson(suggestPayloadProjection: true);
-            if (HasUnsupportedMemberInfoDocumentJsonSelection(options))
-            {
-                CommandError.Write(
-                    $"section '{SectionNames.MemberInfo}' cannot be represented by whole-document --json.",
-                    "Use --jsonl, --tsv, or --table for the census rows.");
+            if (RejectUnsupportedMemberInfoDocumentJson(options))
                 return 1;
-            }
             WriteJsonTypeOutput(type, options);
             return 0;
         }
@@ -4360,24 +4355,82 @@ public class ApiCommand
         return null;
     }
 
-    private static bool HasUnsupportedMemberInfoDocumentJsonSelection(
+    internal static bool RejectUnsupportedMemberInfoDocumentJson(
         ApiOptions options)
     {
-        if (options.IncludeSections is not { } sections
-            || !sections.Contains(SectionNames.MemberInfo))
+        if (!options.JsonOutput
+            || options.Count
+            || options.Discover is not null
+            || IsProjectionRequested(options)
+            || !HasUnsupportedMemberInfoDocumentJsonSelection(options))
         {
             return false;
         }
 
-        return sections.Count == 1
-               || options is MemberOptions
-               {
-                   MemberSectionsPreResolved: true
-               }
-               || options.Select?.Any(selector => selector.Equals(
-                   SectionNames.MemberInfo,
-                   StringComparison.OrdinalIgnoreCase)) == true;
+        CommandError.Write(
+            $"section '{SectionNames.MemberInfo}' cannot be represented by whole-document --json.",
+            "Use --jsonl, --tsv, or --table for the census rows.");
+        return true;
     }
+
+    private static bool HasUnsupportedMemberInfoDocumentJsonSelection(
+        ApiOptions options)
+    {
+        if (options.IncludeSections is { } sections
+            && sections.Contains(SectionNames.MemberInfo))
+        {
+            return sections.Count == 1
+                   || options is MemberOptions
+                   {
+                       MemberSectionsPreResolved: true
+                   }
+                   || HasExactMemberInfoSelector(options);
+        }
+
+        if (options.Select is not { Length: > 0 })
+            return false;
+        if (HasExactMemberInfoSelector(options))
+            return true;
+
+        var pipelines = new[]
+        {
+            ApiMemberSectionDescriptors.CreateBroadMemberPipeline(),
+            ApiMemberOverloadSectionDescriptors.CreatePipeline(),
+            ApiMemberDetailSectionDescriptors.CreatePipeline(),
+        };
+        var knownSections = pipelines
+            .SelectMany(static pipeline => pipeline.SelectableSectionNames)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        Dictionary<string, string[]> categories =
+            new(StringComparer.OrdinalIgnoreCase);
+        foreach (var pipeline in pipelines)
+        {
+            foreach (var (name, categorySections) in pipeline.GetCategoryMap())
+            {
+                categories[name] = categories.TryGetValue(name, out var existing)
+                    ? existing.Concat(categorySections)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToArray()
+                    : categorySections;
+            }
+        }
+
+        var result = SelectResolver.ResolveSelectAsSections(
+            options.Select,
+            knownSections,
+            infoSections: [],
+            categories,
+            selectDefault: false);
+        return !result.HasError
+               && result.Sections is { Count: 1 } singleton
+               && singleton.Contains(SectionNames.MemberInfo);
+    }
+
+    private static bool HasExactMemberInfoSelector(ApiOptions options)
+        => options.Select?.Any(selector => selector.Equals(
+            SectionNames.MemberInfo,
+            StringComparison.OrdinalIgnoreCase)) == true;
 
     private static bool ShouldRenderMemberIndex(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.MemberIndex) == true;
