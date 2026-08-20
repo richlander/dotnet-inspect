@@ -402,27 +402,39 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
     public ExplicitInterfaceTypeIdentity GetFunctionPointerType(
         MethodSignature<ExplicitInterfaceTypeIdentity> signature)
     {
-        long projectedCharacters =
-            "method ".Length
+        string header = signature.Header.RawValue.ToString();
+        string genericParameterCount =
+            signature.GenericParameterCount.ToString();
+        string requiredParameterCount =
+            signature.RequiredParameterCount.ToString();
+        long projectedWork =
+            1L
+            + ProjectedNodePartWork("fnptr")
+            + ProjectedNodePartWork(header)
+            + ProjectedNodePartWork(genericParameterCount)
+            + ProjectedNodePartWork(requiredParameterCount)
+            + ProjectedNodePartWork(signature.ReturnType.Key)
+            + 64L
+            + "method ".Length
             + signature.ReturnType.MetadataName.Length
             + " *(".Length
-            + ")".Length
-            + signature.ReturnType.Key.Length
-            + 64;
+            + ")".Length;
         foreach (ExplicitInterfaceTypeIdentity parameter in signature.ParameterTypes)
         {
-            projectedCharacters +=
-                parameter.Key.Length + parameter.MetadataName.Length + 1L;
-            EnsureWorkAvailable(projectedCharacters);
+            projectedWork +=
+                ProjectedNodePartWork(parameter.Key)
+                + parameter.MetadataName.Length
+                + 1L;
+            EnsureWorkAvailable(projectedWork);
         }
-        EnsureWorkAvailable(projectedCharacters);
+        EnsureWorkAvailable(projectedWork);
 
         string key = Node(
             "fnptr",
             [
-                signature.Header.RawValue.ToString(),
-                signature.GenericParameterCount.ToString(),
-                signature.RequiredParameterCount.ToString(),
+                header,
+                genericParameterCount,
+                requiredParameterCount,
                 signature.ReturnType.Key,
                 .. signature.ParameterTypes.Select(parameter => parameter.Key)
             ]);
@@ -435,6 +447,15 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
             IsDegraded: signature.ReturnType.IsDegraded
                 || signature.ParameterTypes.Any(parameter => parameter.IsDegraded),
             IsInterface: false));
+    }
+
+    static long ProjectedNodePartWork(string value)
+    {
+        int byteCount = Encoding.UTF8.GetByteCount(value);
+        return value.Length
+            + (long)byteCount
+            - Math.Min(byteCount, value.Length)
+            + sizeof(int);
     }
 
     /// <summary>

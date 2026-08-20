@@ -2717,6 +2717,10 @@ public static class ApiSurfaceExtractor
                 return cached;
 
             var body = reader.GetMethodDefinition(bodyHandle);
+            int genericParameterCount = ValidateGenericParameters(
+                bodyHandle,
+                body,
+                "body");
             var result = GuardedProviderDecode.MethodResult(
                 reader,
                 body,
@@ -2733,8 +2737,7 @@ public static class ApiSurfaceExtractor
                 throw new BadImageFormatException(
                     "The MethodImpl body signature could not be decoded.");
             }
-            if (result.Value.GenericParameterCount
-                != body.GetGenericParameters().Count)
+            if (result.Value.GenericParameterCount != genericParameterCount)
             {
                 throw new BadImageFormatException(
                     "The MethodImpl body generic arity does not match its GenericParam rows.");
@@ -2757,6 +2760,10 @@ public static class ApiSurfaceExtractor
                         return cachedMethod;
 
                     var method = reader.GetMethodDefinition(handle);
+                    int genericParameterCount = ValidateGenericParameters(
+                        handle,
+                        method,
+                        "declaration");
                     var declaringType = reader.GetTypeDefinition(method.GetDeclaringType());
                     var methodResult = GuardedProviderDecode.MethodResult(
                         reader,
@@ -2777,8 +2784,7 @@ public static class ApiSurfaceExtractor
                         throw new BadImageFormatException(
                             "The MethodImpl declaration signature could not be decoded.");
                     }
-                    if (methodResult.Value.GenericParameterCount
-                        != method.GetGenericParameters().Count)
+                    if (methodResult.Value.GenericParameterCount != genericParameterCount)
                     {
                         throw new BadImageFormatException(
                             "The MethodImpl declaration generic arity does not match its GenericParam rows.");
@@ -2822,6 +2828,28 @@ public static class ApiSurfaceExtractor
                     throw new BadImageFormatException(
                         "The MethodImpl declaration kind is unsupported.");
             }
+        }
+
+        int ValidateGenericParameters(
+            MethodDefinitionHandle methodHandle,
+            MethodDefinition method,
+            string role)
+        {
+            int expectedIndex = 0;
+            foreach (GenericParameterHandle parameterHandle in
+                method.GetGenericParameters())
+            {
+                GenericParameter parameter =
+                    reader.GetGenericParameter(parameterHandle);
+                if (parameter.Parent != methodHandle
+                    || parameter.Index != expectedIndex++)
+                {
+                    throw new BadImageFormatException(
+                        $"The MethodImpl {role} GenericParam rows are not a contiguous zero-based sequence.");
+                }
+            }
+
+            return expectedIndex;
         }
 
         HashSet<string> GetImplementedInterfaces()

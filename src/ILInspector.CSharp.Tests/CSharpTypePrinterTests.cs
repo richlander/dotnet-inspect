@@ -753,6 +753,54 @@ public sealed class CSharpTypePrinterTests
 
             public interface IReabstractedSurface
             {
+                void Reset();
+                int Value { get; }
+                event System.Action Changed;
+            }
+            """);
+    }
+
+    [Fact]
+    public void ReabstractedExplicitInterfaceMethodsCompileBack()
+    {
+        using var peReader = new PEReader(
+            File.OpenRead(typeof(ReabstractedExplicitSurface).Assembly.Location));
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = reader.TypeDefinitions.Single(handle =>
+        {
+            var definition = reader.GetTypeDefinition(handle);
+            return reader.GetString(definition.Namespace) == "ILInspector.CSharp.Tests"
+                && reader.GetString(definition.Name) == nameof(ReabstractedExplicitSurface);
+        });
+        var type = MetadataDeclarationQuery.GetTypeSurface(
+            reader,
+            typeHandle,
+            includeNonPublicMembers: true);
+        type.Interfaces = [Assert.Single(type.Interfaces)];
+        type.Members =
+        [
+            Assert.Single(type.Members, member =>
+                member.Kind == "explicit-interface-implementation"
+                && member.Name.EndsWith(".Reset", StringComparison.Ordinal)),
+        ];
+
+        ApiMember method = Assert.Single(type.Members);
+        Assert.True(method.IsAbstract);
+        Assert.True(method.IsVirtual);
+        Assert.False(method.IsOverride);
+        Assert.False(method.IsSealed);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.Contains("abstract void", result.Source, StringComparison.Ordinal);
+        AssertCompiles(
+            result.Source,
+            """
+            namespace ILInspector.CSharp.Tests;
+
+            public interface IReabstractedSurface
+            {
+                void Reset();
                 int Value { get; }
                 event System.Action Changed;
             }
@@ -5414,12 +5462,14 @@ public sealed class InitOnlyExplicitSurface : IInitOnlySurface
 
 public interface IReabstractedSurface
 {
+    void Reset();
     int Value { get; }
     event Action Changed;
 }
 
 public interface ReabstractedExplicitSurface : IReabstractedSurface
 {
+    abstract void IReabstractedSurface.Reset();
     abstract int IReabstractedSurface.Value { get; }
     abstract event Action IReabstractedSurface.Changed;
 }

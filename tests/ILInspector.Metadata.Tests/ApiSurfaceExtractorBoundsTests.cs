@@ -1006,18 +1006,51 @@ public sealed class ApiSurfaceExtractorBoundsTests
             $"function-pointer rejection allocated {allocated:N0} bytes");
     }
 
+    [Fact]
+    public void ExplicitInterfaceFunctionPointerDisplay_PreflightsNodeFramingAtBoundary()
+    {
+        var provider = new ExplicitInterfaceTypeIdentityProvider();
+        var parameter = new ExplicitInterfaceTypeIdentity(
+            new string('K', 64),
+            new string('P', 4_095));
+        ImmutableArray<ExplicitInterfaceTypeIdentity> parameters =
+            ImmutableArray.CreateRange(
+                Enumerable.Repeat(parameter, 2_014));
+        var signature = new MethodSignature<ExplicitInterfaceTypeIdentity>(
+            new SignatureHeader(
+                SignatureKind.Method,
+                SignatureCallingConvention.Default,
+                SignatureAttributes.None),
+            parameter,
+            requiredParameterCount: parameters.Length,
+            genericParameterCount: 0,
+            parameters);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        Assert.Throws<BadImageFormatException>(
+            () => provider.GetFunctionPointerType(signature));
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.True(
+            allocated < 8L * 1024 * 1024,
+            $"function-pointer boundary rejection allocated {allocated:N0} bytes");
+    }
+
     [Theory]
-    [InlineData(0, 0, false)]
-    [InlineData(1, 1, false)]
-    [InlineData(1, 0, true)]
+    [InlineData(0, 0, 0, false)]
+    [InlineData(1, 1, 0, false)]
+    [InlineData(1, 0, 0, true)]
+    [InlineData(1, 0, 1, false)]
     public void MethodImplGenericSignature_AuthenticatesOnlyOwnedGenericParameters(
         int genericParameterRows,
         int methodParameterIndex,
+        int genericParameterNumberOffset,
         bool expectedMatch)
     {
         byte[] image = BuildMalformedGenericMethodImplImage(
             genericParameterRows,
-            methodParameterIndex);
+            methodParameterIndex,
+            genericParameterNumberOffset);
         using var stream = new MemoryStream(image, writable: false);
         using var peReader = new PEReader(stream);
         MetadataReader reader = peReader.GetMetadataReader();
@@ -2313,7 +2346,8 @@ public sealed class ApiSurfaceExtractorBoundsTests
     /// </summary>
     static byte[] BuildMalformedGenericMethodImplImage(
         int genericParameterRows,
-        int methodParameterIndex)
+        int methodParameterIndex,
+        int genericParameterNumberOffset)
     {
         var metadata = Metadata("MalformedGenericMethodImpl");
         AssemblyReferenceHandle contracts = metadata.AddAssemblyReference(
@@ -2357,7 +2391,7 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 body,
                 GenericParameterAttributes.None,
                 metadata.GetOrAddString($"T{index}"),
-                index);
+                genericParameterNumberOffset + index);
         }
         MemberReferenceHandle declaration = metadata.AddMemberReference(
             interfaceType,

@@ -1091,6 +1091,11 @@ public sealed class MetadataDeclarationQueryTests
             MetadataDeclarationQuery.GetTypeSurface(
                 reader,
                 GetTypeDefinitionHandle(reader, "Fixtures.AbstractBody"),
+                includeNonPublicMembers: false));
+        Assert.Throws<BadImageFormatException>(() =>
+            MetadataDeclarationQuery.GetTypeSurface(
+                reader,
+                GetTypeDefinitionHandle(reader, "Fixtures.AbstractBody"),
                 includeNonPublicMembers: true));
     }
 
@@ -2511,7 +2516,7 @@ public sealed class MetadataDeclarationQueryTests
             .MethodSignature(isInstanceMethod: true)
             .Parameters(0, returnType => returnType.Type().Int32(), _ => { });
         MethodDefinitionHandle getter = metadata.AddMethodDefinition(
-            MethodAttributes.Public
+            MethodAttributes.Private
                 | MethodAttributes.Abstract
                 | MethodAttributes.Virtual
                 | MethodAttributes.NewSlot

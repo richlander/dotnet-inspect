@@ -167,16 +167,16 @@ public static class MetadataDeclarationQuery
         {
             var property = reader.GetPropertyDefinition(propertyHandle);
             var declaration = GetProperty(reader, typeDef, property);
-            if (!includeNonPublicMembers && declaration.Accessibility != "public")
-                continue;
-
-            string propertyName = declaration.MetadataName;
             RejectMalformedAccessorAbstraction(
                 reader,
                 isInterfaceTypeDefinition,
                 "property",
                 declaration.Getter,
                 declaration.Setter);
+            if (!includeNonPublicMembers && declaration.Accessibility != "public")
+                continue;
+
+            string propertyName = declaration.MetadataName;
             bool isExplicitInterfaceImplementation =
                 ApiSurfaceExtractor.IsExplicitInterfaceAggregate(
                     propertyName,
@@ -404,6 +404,10 @@ public static class MetadataDeclarationQuery
                 continue;
 
             var signatureText = MethodSignatureText(declaration);
+            bool explicitMethodIsAbstract = isExplicitInterfaceImplementation
+                && (method.Attributes & MethodAttributes.Abstract) != 0;
+            bool explicitMethodIsVirtual = isExplicitInterfaceImplementation
+                && (method.Attributes & MethodAttributes.Virtual) != 0;
             type.Members.Add(new ApiMember
             {
                 Name = declaration.MetadataName,
@@ -419,10 +423,16 @@ public static class MetadataDeclarationQuery
                 SignatureDecodeStatus = declaration.SignatureDecodeStatus,
                 MetadataToken = MetadataTokens.GetToken(methodHandle),
                 IsStatic = declaration.IsStatic,
-                IsAbstract = declaration.IsAbstract,
-                IsVirtual = declaration.IsVirtual,
-                IsOverride = declaration.IsOverride,
-                IsSealed = declaration.IsSealed,
+                IsAbstract = isExplicitInterfaceImplementation
+                    ? explicitMethodIsAbstract
+                    : declaration.IsAbstract,
+                IsVirtual = isExplicitInterfaceImplementation
+                    ? explicitMethodIsVirtual
+                    : declaration.IsVirtual,
+                IsOverride = !isExplicitInterfaceImplementation
+                    && declaration.IsOverride,
+                IsSealed = !isExplicitInterfaceImplementation
+                    && declaration.IsSealed,
                 IsFinalizer = isFinalizer,
                 HasMethodBody = method.RelativeVirtualAddress != 0,
                 IsUnsafe = ApiSurfaceExtractor.HasUnsafeSignature(reader, method)
