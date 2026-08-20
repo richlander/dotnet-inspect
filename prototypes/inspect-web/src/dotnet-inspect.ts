@@ -902,11 +902,18 @@ function applyView(view: WorkspaceView) {
   const member = type
     ? memberGroups(type).find(group => group.key === view.selectedMemberKey)
     : null;
+  const graphSelection = type && view.bodyTarget
+    ? findGraphMemberSelection(type, view.bodyTarget)
+    : null;
+  const hasSelectedBody =
+    graphSelection?.group.key === view.selectedMemberKey;
   const memberHistory = restoreMemberHistoryState(
     view,
     type,
     member,
-    member ? memberSectionIdsFor(member, pkg.isRuntimePack) : []);
+    member
+      ? memberSectionIdsFor(member, pkg.isRuntimePack, hasSelectedBody)
+      : []);
   state.lens = view.lens;
   state.selectedTypeId = type?.id ?? pkg.types[0]?.id ?? "";
   state.selectedMemberKey = memberHistory.selectedMemberKey;
@@ -4795,11 +4802,12 @@ function platformLibraryRoster(query: string) {
 
 // Which shared framework an assembly ships in. Product-supplied provenance from
 // a surface or graph target wins, followed by the resident model, current index,
-// and recent history; CoreCLR remains the last compatibility fallback.
+// and recent history. Unknown families remain unknown so product acquisition can
+// resolve or visibly refuse them rather than guessing CoreCLR.
 function platformPackForAssembly(
   key: string,
   exactPack: unknown = null,
-): PlatformPack {
+): PlatformPack | null {
   const resident = runtimePackPackage();
   return platformPackFromProvenance(
     key,
@@ -4812,12 +4820,13 @@ function platformPackForAssembly(
 // Remember an opened platform library at the front of the recent list (most-recent
 // first, deduped, capped) and persist it. Recent duplicates the .NET / ASP.NET Core
 // catalog groups by design — no cross-group de-dupe.
-function recordPlatformRecent(assembly: string, pack: string) {
+function recordPlatformRecent(assembly: string, pack: string | null) {
   const key = (assembly || "").replace(/\.dll$/i, "");
   if (!key) return;
   const normPack = pack === "aspnetcore.app" ? "aspnetcore.app"
     : pack === "netcore.app" ? "netcore.app"
     : platformPackForAssembly(key);
+  if (!normPack) return;
   const rest = (state.platformRecent || []).filter(entry => entry.assembly !== key);
   state.platformRecent = [{ assembly: key, pack: normPack }, ...rest].slice(0, PLATFORM_RECENT_MAX);
   try {
@@ -5695,6 +5704,9 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
       state.selectedMemberKey = localGraphSelection.group.key;
       state.selectedOverloadIndex = localGraphSelection.overloadIndex;
       state.selectedBodyTarget = deep.graphTarget;
+      retainGraphOnlyBodyTarget(
+        localGraphSelection.group.overloads[localGraphSelection.overloadIndex],
+        deep.graphTarget);
       state.memberSection = deep.section
         && isMemberSection(deep.section)
         && memberSectionIdsFor(
@@ -5737,16 +5749,21 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
         && overloadIndex < group.overloads.length) {
         state.selectedOverloadIndex = overloadIndex;
       }
+      const restoredOverload = group.overloads[
+        state.selectedOverloadIndex ?? (group.overloads.length === 1 ? 0 : -1)];
+      const hasSelectedBody = bodyTargetMatchesOverload(
+        deep.bodyTarget,
+        group,
+        restoredOverload);
       if (deep.section
         && isMemberSection(deep.section)
         && memberSectionIdsFor(
           group,
-          state.package?.isRuntimePack).includes(deep.section)) {
+          state.package?.isRuntimePack,
+          hasSelectedBody).includes(deep.section)) {
         state.memberSection = deep.section;
       }
-      const restoredOverload = group.overloads[
-        state.selectedOverloadIndex ?? (group.overloads.length === 1 ? 0 : -1)];
-      if (bodyTargetMatchesOverload(deep.bodyTarget, group, restoredOverload)) {
+      if (hasSelectedBody) {
         state.selectedBodyTarget = deep.bodyTarget ?? null;
       }
     }
@@ -6898,7 +6915,7 @@ function commitGraphMemberSelection(
     type.api ??= [];
     type.api.push(staged.member);
   }
-  staged.member.graphTarget = target;
+  retainGraphOnlyBodyTarget(staged.member, target);
   const selection = resolveLoadedGraphTarget(
     target,
     { status: "unique", pkg, type });
@@ -8443,13 +8460,13 @@ async function applyPlatformLibraryScope(
   // The pack (CoreCLR vs ASP.NET Core) is resolved from the static index roster; ensure it
   // is loaded on a cold shared/refreshed link so the right assembly is fetched.
   if (!state.platformIndex) {
-    try { state.platformIndex = await loadPlatformIndex(); } catch { /* best effort; defaults to CoreCLR */ }
+    try { state.platformIndex = await loadPlatformIndex(); } catch { /* product acquisition can resolve an unknown pack */ }
   }
   if (navigationSeq != null && !navigationSequence.isCurrent(navigationSeq))
     return undefined;
   return Boolean(await openPlatformLibrary(
     key,
-    platformPackForAssembly(key, libraryPack),
+    platformPackForAssembly(key, libraryPack) ?? "",
     {
       ...(navigationSeq === null ? {} : { navigationSeq }),
       retryAction,

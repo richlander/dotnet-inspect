@@ -102,7 +102,7 @@ export function platformPackFromProvenance(
   loadedAssemblies: readonly PlatformPackAssembly[] | null | undefined,
   recent: readonly PlatformPackHint[] | null | undefined,
   roster: readonly PlatformPackHint[] | null | undefined,
-): PlatformPack {
+): PlatformPack | null {
   const exact = platformPackToken(exactPack);
   if (exact) return exact;
   const normalized = assembly.replace(/\.dll$/i, "");

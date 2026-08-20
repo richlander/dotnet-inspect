@@ -706,6 +706,9 @@ kbd {
 .graph-viewport g.node.nav-node { cursor: pointer; }
 .graph-viewport g.node.nav-node:hover rect,
 .graph-viewport g.node.nav-node:hover polygon { stroke: var(--blue); stroke-width: 2px; }
+.graph-viewport g.node.nav-node:focus-visible { outline: none; }
+.graph-viewport g.node.nav-node:focus-visible rect,
+.graph-viewport g.node.nav-node:focus-visible polygon { stroke: var(--blue); stroke-width: 3px; }
 .graph-viewport g.node.non-nav { cursor: help; }
 .graph-viewport g.node.non-nav rect,
 .graph-viewport g.node.non-nav polygon { stroke-dasharray: 4 3; opacity: .85; }

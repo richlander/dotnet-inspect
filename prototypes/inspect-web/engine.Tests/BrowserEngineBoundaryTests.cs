@@ -329,6 +329,122 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PlatformWorkspace_ResolvesUnknownFamilyFromProductPacks()
+    {
+        const string version = "11.0.101";
+        byte[] runtimeNupkg = PlatformPackage(
+            ("System.Private.CoreLib.dll",
+                File.ReadAllBytes(typeof(object).Assembly.Location)));
+        byte[] aspNetNupkg = PlatformPackage(
+            ("InspectWeb.Engine.Tests.dll",
+                File.ReadAllBytes(
+                    typeof(BrowserEngineBoundaryTests).Assembly.Location)));
+        var handler = new MultiplePlatformVersionHandler(
+            version,
+            new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["microsoft.netcore.app.runtime.linux-x64"] = runtimeNupkg,
+                ["microsoft.aspnetcore.app.runtime.linux-x64"] = aspNetNupkg,
+            });
+        using var client = new HttpClient(handler);
+        var authorization =
+            new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
+
+        using BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                "net11.0-auto-family-resolution",
+                "InspectWeb.Engine.Tests.dll",
+                "",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal("aspnetcore", resolution.Coordinate.Family);
+        Assert.Equal(
+            "aspnetcore.app",
+            resolution.Scope.PlatformPackForAssembly(
+                "InspectWeb.Engine.Tests"));
+    }
+
+    [Fact]
+    public async Task PlatformWorkspace_UnknownFamilyRefusesMissingAssembly()
+    {
+        const string version = "11.0.102";
+        byte[] runtimeNupkg = PlatformPackage(
+            ("System.Private.CoreLib.dll",
+                File.ReadAllBytes(typeof(object).Assembly.Location)));
+        byte[] aspNetNupkg = PlatformPackage(
+            ("Microsoft.AspNetCore.Http.dll",
+                File.ReadAllBytes(
+                    typeof(BrowserEngineBoundaryTests).Assembly.Location)));
+        var handler = new MultiplePlatformVersionHandler(
+            version,
+            new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["microsoft.netcore.app.runtime.linux-x64"] = runtimeNupkg,
+                ["microsoft.aspnetcore.app.runtime.linux-x64"] = aspNetNupkg,
+            });
+        using var client = new HttpClient(handler);
+        var authorization =
+            new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
+
+        InvalidOperationException error =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => BrowserPlatformWorkspace.OpenAssemblyAsync(
+                    "net11.0-auto-family-missing",
+                    "Missing.Platform.Assembly.dll",
+                    "",
+                    client,
+                    authorization,
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            "not carried by any supported platform family",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PlatformWorkspace_UnknownFamilyRefusesAmbiguousAssembly()
+    {
+        const string version = "11.0.103";
+        byte[] sharedImage =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] runtimeNupkg = PlatformPackage(
+            ("InspectWeb.Engine.Tests.dll", sharedImage));
+        byte[] aspNetNupkg = PlatformPackage(
+            ("InspectWeb.Engine.Tests.dll", sharedImage));
+        var handler = new MultiplePlatformVersionHandler(
+            version,
+            new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["microsoft.netcore.app.runtime.linux-x64"] = runtimeNupkg,
+                ["microsoft.aspnetcore.app.runtime.linux-x64"] = aspNetNupkg,
+            });
+        using var client = new HttpClient(handler);
+        var authorization =
+            new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
+
+        InvalidOperationException error =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => BrowserPlatformWorkspace.OpenAssemblyAsync(
+                    "net11.0-auto-family-ambiguous",
+                    "InspectWeb.Engine.Tests.dll",
+                    "",
+                    client,
+                    authorization,
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            "more than one supported platform family",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task PlatformWorkspace_LeasesArchivesUntilCandidateRegistration()
     {
         const string runtimePackage =

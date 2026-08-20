@@ -425,6 +425,14 @@ test("platform call graphs carry the target pack into lazy acquisition", () => {
     platformPackFromProvenance(
       "Microsoft.AspNetCore.Http",
       null,
+      [],
+      [],
+      []),
+    null);
+  assert.equal(
+    platformPackFromProvenance(
+      "Microsoft.AspNetCore.Http",
+      null,
       [{
         name: "Microsoft.AspNetCore.Http",
         platformPack: "aspnetcore.app"
@@ -1997,7 +2005,7 @@ test("shared member views retain scope and filter state", () => {
   assert.match(appSource, /if \(deep\.memberBrowse && groups\.length\)\s*state\.memberBrowseTypeId = type\.id/);
   assert.match(
     deepLink,
-    /state\.memberSection = "overview";[\s\S]*else if \(restoreType && deep\)[\s\S]*else if \(disposition === "public"\)[\s\S]*bodyTargetMatchesOverload\(deep\.bodyTarget, group, restoredOverload\)[\s\S]*state\.selectedBodyTarget = deep\.bodyTarget/);
+    /state\.memberSection = "overview";[\s\S]*else if \(restoreType && deep\)[\s\S]*else if \(disposition === "public"\)[\s\S]*const hasSelectedBody = bodyTargetMatchesOverload\(\s*deep\.bodyTarget,\s*group,\s*restoredOverload\)[\s\S]*if \(hasSelectedBody\) \{\s*state\.selectedBodyTarget = deep\.bodyTarget/);
   assert.match(
     appSource,
     /function selectMemberNavEntry\(entry: MemberNavEntry, focusList: boolean\) \{\s*const preservedFocus = captureMemberFocus\(document\);[\s\S]*memberFocusRestorer\.schedule\(\s*document,\s*preservedFocus/);
@@ -3508,6 +3516,18 @@ test("history rebuilds graph-only members through exact pending identity", () =>
     apply,
     /const requestedOverloadIndex = view\.selectedOverloadIndex;[\s\S]*?overload: requestedOverloadIndex/);
   assert.match(
+    apply,
+    /const hasSelectedBody =\s*graphSelection\?\.group\.key === view\.selectedMemberKey;[\s\S]*?memberSectionIdsFor\(member, pkg\.isRuntimePack, hasSelectedBody\)/);
+  assert.match(
+    apply,
+    /retainGraphOnlyBodyTarget\(\s*graphSelection\.group\.overloads\[graphSelection\.overloadIndex\],\s*view\.bodyTarget\)/);
+  assert.match(
+    apply,
+    /memberSectionIdsFor\(\s*graphSelection\.group,\s*pkg\.isRuntimePack,\s*true\)\.includes\(view\.memberSection\)/);
+  assert.match(
+    appSource,
+    /const hasSelectedBody = bodyTargetMatchesOverload\([\s\S]*?memberSectionIdsFor\(\s*group,\s*state\.package\?\.isRuntimePack,\s*hasSelectedBody\)/);
+  assert.match(
     appSource,
     /function renderMember\(type, member\) \{[\s\S]*?const hasSelectedOverload =[\s\S]*?state\.selectedOverloadIndex < member\.overloads\.length[\s\S]*?const overloadIndex = hasSelectedOverload \? state\.selectedOverloadIndex : 0;/);
 });
@@ -3638,7 +3658,7 @@ test("ambiguous call graph targets expose a visible refusal", () => {
     3);
   assert.match(
     binding,
-    /node\.setAttribute\(\s*"aria-label",\s*`Cannot open \$\{target\.typeFullName\}\.\$\{target\.memberName\}: \$\{reason\}`\)/);
+    /bindCallGraphNodeActivation\(\s*node,\s*`Cannot open \$\{target\.typeFullName\}\.\$\{target\.memberName\}: \$\{reason\}`,\s*refuse\)/);
   assert.match(
     binding,
     /showPlatformTargetError\(target, reason\)/);
@@ -3650,7 +3670,23 @@ test("ambiguous call graph targets expose a visible refusal", () => {
     /node\.setAttribute\("tabindex", "0"\);\s*node\.setAttribute\("role", "button"\)/);
   assert.match(
     binding,
-    /node\.addEventListener\("keydown", event => \{[\s\S]*?event\.key !== "Enter" && event\.key !== " "[\s\S]*?refuse\(\)/);
+    /function bindCallGraphNodeActivation[\s\S]*?node\.addEventListener\("click"[\s\S]*?node\.addEventListener\("keydown", event => \{[\s\S]*?event\.key !== "Enter" && event\.key !== " "[\s\S]*?activate\(\)/);
+});
+
+test("navigable call graph targets share mouse and keyboard activation", () => {
+  const binding =
+    appSource.match(/if \(bindCallGraphNodes\)[\s\S]*?\n  fit\(\);/)?.[0]
+    ?? "";
+
+  assert.equal(
+    binding.match(/`Open \$\{target\.typeFullName\}\.\$\{target\.memberName\}`/g)?.length,
+    2);
+  assert.match(
+    binding,
+    /function bindCallGraphNodeActivation\(node, label, activate\) \{[\s\S]*?node\.setAttribute\("tabindex", "0"\);[\s\S]*?node\.setAttribute\("role", "button"\);[\s\S]*?node\.setAttribute\("aria-label", label\)/);
+  assert.match(
+    stylesSource,
+    /\.graph-viewport g\.node\.nav-node:focus-visible rect,[\s\S]*?stroke: var\(--blue\); stroke-width: 3px;/);
 });
 
 test("async graph work uses one source-view ownership contract", () => {
@@ -3875,6 +3911,9 @@ test("graph-only overloads retain the latest graph-selected body", () => {
   assert.match(
     appSource,
     /retainGraphOnlyBodyTarget\(group\.overloads\[overloadIndex\], bodyTarget\)/);
+  assert.match(
+    appSource,
+    /retainGraphOnlyBodyTarget\(staged\.member, target\)/);
   assert.doesNotMatch(
     appSource,
     /group\.overloads\[overloadIndex\]\.graphTarget = bodyTarget/);
