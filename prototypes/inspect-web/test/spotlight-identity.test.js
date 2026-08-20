@@ -34,6 +34,8 @@ import {
   packageIdentityKey,
   parameterTitleHtml,
   removeWorkspacePackage,
+  removeAppendedNotice,
+  replaceCurrentNavigationEntry,
   retainWorkspacePackage,
   resolveLoadedGraphTargetCandidate,
   shareStateLengthError,
@@ -116,6 +118,42 @@ test("dependency graph node insertion is bounded", () => {
   assert.equal(
     ensureBoundedGraphNode(nodes, "node-1", () => null, 80).node,
     nodes.get("node-1"));
+});
+
+test("a successful retry removes only its appended failure notice", () => {
+  const prior = "The workspace was truncated.";
+  const failed = `${prior} Couldn’t load System.Net.Http: unavailable.`;
+
+  assert.equal(removeAppendedNotice(failed, prior, failed), prior);
+  assert.equal(
+    removeAppendedNotice(
+      `${failed} A later warning remains.`,
+      prior,
+      failed),
+    `${prior} A later warning remains.`);
+  assert.equal(
+    removeAppendedNotice("A replacement warning.", prior, failed),
+    "A replacement warning.");
+});
+
+test("normalizing a history entry keeps its consumed position and later entries", () => {
+  const nav = {
+    index: 1,
+    stack: [
+      { sig: "older", view: { id: "older" } },
+      { sig: "stale", view: { id: "stale" } },
+      { sig: "newer", view: { id: "newer" } },
+    ],
+  };
+
+  replaceCurrentNavigationEntry(nav, "normalized", { id: "normalized" });
+
+  assert.equal(nav.index, 1);
+  assert.deepEqual(nav.stack, [
+    { sig: "older", view: { id: "older" } },
+    { sig: "normalized", view: { id: "normalized" } },
+    { sig: "newer", view: { id: "newer" } },
+  ]);
 });
 
 const appSource = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
@@ -499,7 +537,7 @@ test("lens-scoped Platform library changes reset type-specific member state", ()
     ?? "";
   assert.match(
     picker,
-    /const openLibrary = async \([\s\S]*originPackage = state\.package,[\s\S]*noticeRetryAction = null[\s\S]*if \(!state\.packages\.includes\(originPackage\)[\s\S]*!packageIdentityEquals\(state\.package, originPackage\)[\s\S]*const loaded = await loadRuntimePackAssembly\([\s\S]*\(\) => state\.packages\.includes\(originPackage\)\);[\s\S]*const retryAction = \(\) =>\s*openLibrary\(name, pack, originPackage, retryAction\);[\s\S]*appendQueryNotice\([\s\S]*retryAction\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*state\.libraryScope = new Set\(\[key\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*state\.queryNoticeRetryAction === noticeRetryAction[\s\S]*state\.queryNotice = "";[\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*loader\(\)/);
+    /const openLibrary = async \([\s\S]*originPackage = state\.package,[\s\S]*noticeRetryState = null[\s\S]*if \(!state\.packages\.includes\(originPackage\)[\s\S]*!packageIdentityEquals\(state\.package, originPackage\)[\s\S]*state\.queryNoticeRetryAction === noticeRetryState\.action[\s\S]*state\.queryNotice = removeAppendedNotice\([\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*const loaded = await loadRuntimePackAssembly\([\s\S]*\(\) => state\.packages\.includes\(originPackage\)\);[\s\S]*previous: state\.queryNotice[\s\S]*const retryAction = \(\) =>\s*openLibrary\(name, pack, originPackage, noticeState\);[\s\S]*noticeState\.appended = state\.queryNotice;[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*state\.libraryScope = new Set\(\[key\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*loader\(\)/);
   assert.doesNotMatch(picker, /select\.isConnected/);
   assert.match(
     appSource,
@@ -516,7 +554,7 @@ test("authoritative location restore clears filters and applies aggregate Platfo
   assert.match(workspaceRestore, /resetLocationFilters\(\);\s*clearWorkspacePackages\(\)/);
   assert.match(
     workspaceRestore,
-    /if \(isRuntimePackId\(targetModel\.id\)\) \{\s*await applyPlatformLibraryScope\(\s*loc\.library/);
+    /if \(isRuntimePackId\(targetModel\.id\)\) \{\s*const scoped = await applyPlatformLibraryScope\(\s*loc\.library/);
   const popstate =
     appSource.match(/window\.addEventListener\("popstate",[\s\S]*?\n}\);/)?.[0]
     ?? "";
@@ -563,13 +601,35 @@ test("history validates saved type and member identity before restoring Member s
     ?? "";
   assert.match(
     applyView,
-    /const type = pkg\.types\.find\(item => item\.id === view\.selectedTypeId\);[\s\S]*const restoreMemberScope = Boolean\(type\)[\s\S]*view\.memberBrowseTypeId === type\.id[\s\S]*\(!view\.selectedMemberKey \|\| member\)/);
+    /const type = pkg\.types\.find\(item => item\.id === view\.selectedTypeId\);[\s\S]*const memberHistory = restoreMemberHistoryState\(\s*view,\s*type,\s*member/);
   assert.match(
     applyView,
-    /state\.selectedTypeId = type\?\.id \?\? pkg\.types\[0\]\?\.id \?\? "";[\s\S]*state\.selectedMemberKey = restoreMemberScope && member \? member\.key : "";[\s\S]*state\.memberBrowseTypeId = restoreMemberScope \? type\.id : ""/);
+    /state\.selectedTypeId = type\?\.id \?\? pkg\.types\[0\]\?\.id \?\? "";[\s\S]*state\.selectedMemberKey = memberHistory\.selectedMemberKey;[\s\S]*state\.memberBrowseTypeId = memberHistory\.memberBrowseTypeId;[\s\S]*state\.memberKindFilter = memberHistory\.memberKindFilter;[\s\S]*state\.memberAccessibilityFilter = memberHistory\.memberAccessibilityFilter;[\s\S]*state\.memberTraitFilter = memberHistory\.memberTraitFilter;[\s\S]*state\.memberTextFilter = memberHistory\.memberTextFilter/);
+  assert.match(
+    applyView,
+    /state\.selectedOverloadIndex = memberHistory\.selectedOverloadIndex;[\s\S]*state\.memberSection = memberHistory\.memberSection;[\s\S]*state\.selectedBodyTarget = memberHistory\.selectedBodyTarget/);
+  assert.match(
+    applyView,
+    /normalizeCurrentNavEntry\(\);[\s\S]*loadSelectedMemberSource\(\)[\s\S]*else \{\s*render\(\)/);
+  assert.match(
+    appSource,
+    /function normalizeCurrentNavEntry\(\) \{\s*replaceCurrentNavigationEntry\(nav, viewSignature\(\), captureView\(\)\)/);
   assert.match(
     appSource,
     /else if \(state\.selectedTypeId !== current\.id\) \{\s*state\.selectedTypeId = current\.id;\s*state\.selectedMemberKey = "";\s*state\.memberBrowseTypeId = "";\s*state\.selectedOverloadIndex = null;\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\)/);
+});
+
+test("Platform scope restoration defers selection, rendering, and data loading", () => {
+  const openPlatformLibrary =
+    appSource.match(/async function openPlatformLibrary\([\s\S]*?\n}\n\nfunction pickSpotlightLoadedPackage/)?.[0]
+    ?? "";
+  assert.match(
+    openPlatformLibrary,
+    /const scopeOnly = options\.scopeOnly === true;[\s\S]*state\.libraryScope = hasLib \? new Set\(\[key\]\) : null;[\s\S]*if \(scopeOnly\) return pkg;[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*render\(\);/);
+  const applyScope =
+    appSource.match(/async function applyPlatformLibraryScope\([\s\S]*?\n}\n\n\/\/ History/)?.[0]
+    ?? "";
+  assert.match(applyScope, /scopeOnly: true/);
 });
 
 test("Type Source completion settles behind workbench overlays", () => {

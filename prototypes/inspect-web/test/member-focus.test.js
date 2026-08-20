@@ -76,7 +76,7 @@ test("navigation focus and scroll survive completion before loading focus restor
     captureMemberFocus(document, value => value),
     initial,
   );
-  assert.equal(current.selector, "");
+  assert.equal(current.selector, "#unrelated");
   assert.equal(current.focusLost, false);
   assert.equal(elements.get("#type-list").scrollTop, 87);
 });
@@ -190,6 +190,47 @@ test("type-filter selection survives a replacement render", () => {
     restoredSelection,
     { start: 2, end: 5, direction: "backward" },
   );
+});
+
+test("stable workbench controls survive a replacement render", () => {
+  const { document, element } = createDocument();
+  const initialButton = element("#copy-name", { id: "copy-name" });
+  document.activeElement = initialButton;
+  const snapshot = captureMemberFocus(document, value => value);
+
+  const replacementButton = element("#copy-name", { id: "copy-name" });
+  document.activeElement = document.body;
+  restoreMemberFocus(document, snapshot, callback => {
+    callback(0);
+    return 1;
+  });
+
+  assert.equal(document.activeElement, replacementButton);
+});
+
+test("scope and lens controls survive a replacement render", () => {
+  const cases = [
+    ["[data-scope=\"member\"]", { scope: "member" }],
+    ["[data-lens=\"metadata\"]", { lens: "metadata" }],
+    ["[data-member-section=\"facts\"]", { memberSection: "facts" }],
+    ["[data-package-lens=\"analysis\"]", { packageLens: "analysis" }],
+  ];
+
+  for (const [selector, dataset] of cases) {
+    const { document, element } = createDocument();
+    const initialButton = element(selector, { dataset });
+    document.activeElement = initialButton;
+    const snapshot = captureMemberFocus(document, value => value);
+
+    const replacementButton = element(selector, { dataset });
+    document.activeElement = document.body;
+    restoreMemberFocus(document, snapshot, callback => {
+      callback(0);
+      return 1;
+    });
+
+    assert.equal(document.activeElement, replacementButton);
+  }
 });
 
 test("deferred restoration does not steal intentionally moved focus", () => {

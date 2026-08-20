@@ -47,3 +47,69 @@ export function memberNavTargetIndex(currentIndex, entryCount, delta) {
   if (currentIndex < 0) return delta < 0 ? entryCount - 1 : 0;
   return Math.max(0, Math.min(entryCount - 1, currentIndex + delta));
 }
+
+export function bodyTargetMatchesOverload(target, member, overload) {
+  if (!target || !overload
+    || (target.metadataToken == null && !target.selectorKey && !target.memberName)) {
+    return false;
+  }
+  const candidates = [{
+    memberName: member.name,
+    selectorKey: overload.graphSelectorKey,
+    metadataToken: overload.metadataToken,
+  }, ...(overload.bodySelectors ?? []).map(body => ({
+    memberName: body.memberName,
+    selectorKey: body.selectorKey,
+    metadataToken: body.token,
+  }))];
+  return candidates.some(candidate =>
+    (target.memberName == null || target.memberName === candidate.memberName)
+    && (target.selectorKey == null || target.selectorKey === candidate.selectorKey)
+    && (target.metadataToken == null || target.metadataToken === candidate.metadataToken));
+}
+
+export function restoreMemberHistoryState(
+  view,
+  type,
+  member,
+  memberSectionIds = []) {
+  const restoreMemberScope = Boolean(type)
+    && view.memberBrowseTypeId === type.id
+    && (!view.selectedMemberKey || member);
+  const savedOverloadIndex = view.selectedOverloadIndex;
+  const overloadIndex = member
+    && Number.isInteger(savedOverloadIndex)
+    && savedOverloadIndex >= 0
+    && savedOverloadIndex < member.overloads.length
+    ? savedOverloadIndex
+    : null;
+  const invalidOverload =
+    savedOverloadIndex != null && overloadIndex == null;
+  const overload = member
+    ? member.overloads[overloadIndex ?? (member.overloads.length === 1 ? 0 : -1)]
+    : null;
+  const requestedSection =
+    restoreMemberScope && member && !invalidOverload
+      ? view.memberSection
+      : "overview";
+
+  return {
+    selectedMemberKey: restoreMemberScope && member ? member.key : "",
+    memberBrowseTypeId: restoreMemberScope ? type.id : "",
+    memberKindFilter: type ? (view.memberKindFilter ?? "all") : "all",
+    memberAccessibilityFilter:
+      type ? (view.memberAccessibilityFilter ?? "all") : "all",
+    memberTraitFilter: type ? (view.memberTraitFilter ?? "") : "",
+    memberTextFilter: type ? (view.memberTextFilter ?? "") : "",
+    selectedOverloadIndex: restoreMemberScope ? overloadIndex : null,
+    memberSection: memberSectionIds.includes(requestedSection)
+      ? requestedSection
+      : "overview",
+    selectedBodyTarget:
+      restoreMemberScope
+        && !invalidOverload
+        && bodyTargetMatchesOverload(view.bodyTarget, member, overload)
+        ? view.bodyTarget
+        : null,
+  };
+}

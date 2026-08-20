@@ -1,11 +1,109 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  bodyTargetMatchesOverload,
   filterMemberGroups,
   memberGroupMatches,
   memberNavTargetIndex,
   memberScopeIsActive,
+  restoreMemberHistoryState,
 } from "../src/member-filtering.js";
+
+test("body targets must identify the selected overload or one of its accessor bodies", () => {
+  const member = { name: "Value" };
+  const overload = {
+    metadataToken: 10,
+    graphSelectorKey: "property",
+    bodySelectors: [
+      { token: 11, memberName: "get_Value", selectorKey: "getter" },
+      { token: 12, memberName: "set_Value", selectorKey: "setter" },
+    ],
+  };
+
+  assert.equal(
+    bodyTargetMatchesOverload(
+      { metadataToken: 10, memberName: "Value", selectorKey: "property" },
+      member,
+      overload),
+    true);
+  assert.equal(
+    bodyTargetMatchesOverload(
+      { metadataToken: null, memberName: "get_Value", selectorKey: "getter" },
+      member,
+      overload),
+    true);
+  assert.equal(
+    bodyTargetMatchesOverload(
+      { metadataToken: 99, memberName: "get_Value", selectorKey: "getter" },
+      member,
+      overload),
+    false);
+  assert.equal(bodyTargetMatchesOverload({}, member, overload), false);
+});
+
+test("history restores type filters independently of Member browse scope", () => {
+  const type = { id: "Example.Widget" };
+  const restored = restoreMemberHistoryState({
+    memberBrowseTypeId: "",
+    selectedMemberKey: "",
+    memberKindFilter: "method",
+    memberAccessibilityFilter: "protected",
+    memberTraitFilter: "isStatic",
+    memberTextFilter: "build",
+  }, type, null);
+
+  assert.equal(restored.memberBrowseTypeId, "");
+  assert.equal(restored.selectedMemberKey, "");
+  assert.equal(restored.memberKindFilter, "method");
+  assert.equal(restored.memberAccessibilityFilter, "protected");
+  assert.equal(restored.memberTraitFilter, "isStatic");
+  assert.equal(restored.memberTextFilter, "build");
+});
+
+test("history rejects a missing member and stale overload body", () => {
+  const type = { id: "Example.Widget" };
+  const member = {
+    key: "method:Build",
+    name: "Build",
+    overloads: [{
+      metadataToken: 10,
+      graphSelectorKey: "build",
+      bodySelectors: [],
+    }],
+  };
+  const baseView = {
+    memberBrowseTypeId: type.id,
+    selectedMemberKey: member.key,
+    memberKindFilter: "all",
+    memberAccessibilityFilter: "all",
+    memberTraitFilter: "",
+    memberTextFilter: "",
+    selectedOverloadIndex: 4,
+    memberSection: "source",
+    bodyTarget: {
+      metadataToken: 99,
+      memberName: "Build",
+      selectorKey: "build",
+    },
+  };
+
+  assert.deepEqual(
+    restoreMemberHistoryState(baseView, type, member, ["overview", "source"]),
+    {
+      selectedMemberKey: member.key,
+      memberBrowseTypeId: type.id,
+      memberKindFilter: "all",
+      memberAccessibilityFilter: "all",
+      memberTraitFilter: "",
+      memberTextFilter: "",
+      selectedOverloadIndex: null,
+      memberSection: "overview",
+      selectedBodyTarget: null,
+    });
+  assert.equal(
+    restoreMemberHistoryState(baseView, type, null, []).memberBrowseTypeId,
+    "");
+});
 
 const groups = [
   {

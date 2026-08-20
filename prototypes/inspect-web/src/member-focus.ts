@@ -50,8 +50,19 @@ export function captureMemberFocus(
   } else if (active?.dataset.memberTraitFilter !== undefined) {
     selector =
       `[data-member-trait-filter="${escapeSelectorValue(active.dataset.memberTraitFilter)}"]`;
+  } else if (active?.dataset.packageLens !== undefined) {
+    selector = `[data-package-lens="${escapeSelectorValue(active.dataset.packageLens)}"]`;
+  } else if (active?.dataset.lens !== undefined) {
+    selector = `[data-lens="${escapeSelectorValue(active.dataset.lens)}"]`;
+  } else if (active?.dataset.memberSection !== undefined) {
+    selector =
+      `[data-member-section="${escapeSelectorValue(active.dataset.memberSection)}"]`;
+  } else if (active?.dataset.scope !== undefined) {
+    selector = `[data-scope="${escapeSelectorValue(active.dataset.scope)}"]`;
   } else if (active?.id === "type-list") {
     selector = "#type-list";
+  } else if (active?.id && /^[A-Za-z][A-Za-z0-9_-]*$/.test(active.id)) {
+    selector = `#${active.id}`;
   }
 
   return {

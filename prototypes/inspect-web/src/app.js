@@ -27,6 +27,8 @@ import {
   packageLenses,
   parameterTitleHtml,
   removeWorkspacePackage,
+  removeAppendedNotice,
+  replaceCurrentNavigationEntry,
   retainWorkspacePackage,
   resolveLoadedGraphTargetCandidate,
   shareStateLengthError,
@@ -44,7 +46,8 @@ import {
   filterMemberGroups,
   MEMBER_TRAITS,
   memberNavTargetIndex,
-  memberScopeIsActive
+  memberScopeIsActive,
+  restoreMemberHistoryState,
 } from "./member-filtering.js";
 import {
   captureMemberFocus,
@@ -438,6 +441,10 @@ function recordNav() {
   nav.index = nav.stack.length - 1;
 }
 
+function normalizeCurrentNavEntry() {
+  replaceCurrentNavigationEntry(nav, viewSignature(), captureView());
+}
+
 function applyView(view) {
   const pkg = packageForView(state.packages, view);
   if (!pkg) return false;
@@ -446,21 +453,21 @@ function applyView(view) {
   const member = type
     ? memberGroups(type).find(group => group.key === view.selectedMemberKey)
     : null;
-  const restoreMemberScope = Boolean(type)
-    && view.memberBrowseTypeId === type.id
-    && (!view.selectedMemberKey || member);
+  const memberHistory = restoreMemberHistoryState(
+    view,
+    type,
+    member,
+    member ? memberSectionIdsFor(member) : []);
   state.lens = view.lens;
   state.selectedTypeId = type?.id ?? pkg.types[0]?.id ?? "";
-  state.selectedMemberKey = restoreMemberScope && member ? member.key : "";
-  state.memberBrowseTypeId = restoreMemberScope ? type.id : "";
-  state.memberKindFilter = restoreMemberScope ? (view.memberKindFilter ?? "all") : "all";
-  state.memberAccessibilityFilter =
-    restoreMemberScope ? (view.memberAccessibilityFilter ?? "all") : "all";
-  state.memberTraitFilter = restoreMemberScope ? (view.memberTraitFilter ?? "") : "";
-  state.memberTextFilter = restoreMemberScope ? (view.memberTextFilter ?? "") : "";
-  state.selectedOverloadIndex =
-    restoreMemberScope && member ? view.selectedOverloadIndex : null;
-  state.memberSection = restoreMemberScope && member ? view.memberSection : "overview";
+  state.selectedMemberKey = memberHistory.selectedMemberKey;
+  state.memberBrowseTypeId = memberHistory.memberBrowseTypeId;
+  state.memberKindFilter = memberHistory.memberKindFilter;
+  state.memberAccessibilityFilter = memberHistory.memberAccessibilityFilter;
+  state.memberTraitFilter = memberHistory.memberTraitFilter;
+  state.memberTextFilter = memberHistory.memberTextFilter;
+  state.selectedOverloadIndex = memberHistory.selectedOverloadIndex;
+  state.memberSection = memberHistory.memberSection;
   state.atPackageRoot = view.atPackageRoot ?? false;
   state.packageLens = view.packageLens ?? "overview";
   state.memberSource = null;
@@ -472,12 +479,8 @@ function applyView(view) {
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
-  state.selectedBodyTarget =
-    restoreMemberScope && member ? (view.bodyTarget ?? null) : null;
-  if (member
-    && !memberSectionIdsFor(member).includes(state.memberSection)) {
-    state.memberSection = "overview";
-  }
+  state.selectedBodyTarget = memberHistory.selectedBodyTarget;
+  normalizeCurrentNavEntry();
   if (!state.atPackageRoot && state.lens === "api" && state.selectedMemberKey && member) {
     if (state.memberSection === "source") loadSelectedMemberSource();
     else if (state.memberSection === "annotated") loadSelectedMemberAnnotatedSource();
@@ -3763,13 +3766,21 @@ function bindEvents() {
       name,
       pack,
       originPackage = state.package,
-      noticeRetryAction = null) => {
+      noticeRetryState = null) => {
       if (!state.packages.includes(originPackage)
         || !packageIdentityEquals(state.package, originPackage)
         || state.home
         || !state.atPackageRoot
         || state.packageLens !== lens) {
         return;
+      }
+      if (noticeRetryState
+        && state.queryNoticeRetryAction === noticeRetryState.action) {
+        state.queryNotice = removeAppendedNotice(
+          state.queryNotice,
+          noticeRetryState.previous,
+          noticeRetryState.appended);
+        state.queryNoticeRetryAction = null;
       }
       const navigationSeq = ++state.navigationSeq;
       const isCurrent = () =>
@@ -3788,11 +3799,18 @@ function bindEvents() {
           () => state.packages.includes(originPackage));
         if (!loaded) {
           if (isCurrent()) {
+            const noticeState = {
+              action: null,
+              previous: state.queryNotice,
+              appended: "",
+            };
             const retryAction = () =>
-              openLibrary(name, pack, originPackage, retryAction);
+              openLibrary(name, pack, originPackage, noticeState);
+            noticeState.action = retryAction;
             appendQueryNotice(
               `Couldn’t load ${key}: ${state.runtimePackError || "runtime pack acquisition failed."}`,
               retryAction);
+            noticeState.appended = state.queryNotice;
             render();
           }
           return;
@@ -3807,11 +3825,6 @@ function bindEvents() {
       state.typeFilter = "";
       state.kindFilter = "";
       normalizeLibrarySelection();
-      if (noticeRetryAction
-        && state.queryNoticeRetryAction === noticeRetryAction) {
-        state.queryNotice = "";
-        state.queryNoticeRetryAction = null;
-      }
       loader();
     };
     document.querySelectorAll(`[${dataAttr}]`).forEach(select => select.addEventListener("change", () => {
@@ -4685,7 +4698,8 @@ function activateRuntimePack() {
 // its type list. The download happens only here, on demand — selecting the Platform scope
 // itself never downloads.
 async function openPlatformLibrary(assembly, pack, options = {}) {
-  const focusGeneration = beginSpotlightNavigation();
+  const scopeOnly = options.scopeOnly === true;
+  const focusGeneration = scopeOnly ? null : beginSpotlightNavigation();
   const navigationSeq = options.navigationSeq ?? ++state.navigationSeq;
   if (navigationSeq !== state.navigationSeq) return;
   spotlight.reset();
@@ -4723,10 +4737,11 @@ async function openPlatformLibrary(assembly, pack, options = {}) {
   if (!pkg) { render(); return; }
   activatePackage(pkg, { resetAccessibility: true });
   state.home = false;
-  state.loading = false;
   const hasLib = pkg.types.some(type => libraryKey(type) === key);
   state.libraryScope = hasLib ? new Set([key]) : null;
   if (hasLib) recordPlatformRecent(key, pack);
+  if (scopeOnly) return pkg;
+  state.loading = false;
   state.atPackageRoot = !hasLib; // scoped → jump straight to the type list; otherwise the overview
   state.packageLens = "overview";
   state.namespaceFilter = "";
@@ -7398,11 +7413,12 @@ async function restoreWorkspaceFromLocation(
     // Restore the platform library scope captured in the share packet before applying the
     // deep link, so a refreshed/shared platform-library link lands on that library.
     if (isRuntimePackId(targetModel.id)) {
-      await applyPlatformLibraryScope(
+      const scoped = await applyPlatformLibraryScope(
         loc.library,
         navigationSeq,
         () => restoreWorkspaceFromLocation(loc, deep));
       if (navigationSeq !== state.navigationSeq) return;
+      if (!scoped) return;
       applyLocationView(loc);
     }
     applyDeepLink(deep);
@@ -7746,13 +7762,15 @@ window.addEventListener("popstate", () => {
 // (lazily loading that assembly if needed via the same drill-in path as clicking it), or
 // clear the scope for the aggregate platform, then restore the deep-linked selection.
 async function restorePlatformScopeThenDeepLink(loc, navigationSeq) {
-  await applyPlatformLibraryScope(
+  const scoped = await applyPlatformLibraryScope(
     loc.library,
     navigationSeq,
     () => restorePlatformScopeThenDeepLink(loc, state.navigationSeq));
   if (navigationSeq !== state.navigationSeq) return;
+  if (!scoped) return;
   applyLocationView(loc);
   applyDeepLink(loc);
+  state.loading = false;
   render();
   loadSelectionData();
 }
@@ -7765,17 +7783,17 @@ async function applyPlatformLibraryScope(
   retryAction = null) {
   if (navigationSeq != null && navigationSeq !== state.navigationSeq) return;
   const key = String(libraryKey || "").replace(/\.dll$/i, "");
-  if (!key) { state.libraryScope = null; return; }
+  if (!key) { state.libraryScope = null; return true; }
   // The pack (CoreCLR vs ASP.NET Core) is resolved from the static index roster; ensure it
   // is loaded on a cold shared/refreshed link so the right assembly is fetched.
   if (!state.platformIndex) {
     try { state.platformIndex = await loadPlatformIndex(); } catch { /* best effort; defaults to CoreCLR */ }
   }
   if (navigationSeq != null && navigationSeq !== state.navigationSeq) return;
-  await openPlatformLibrary(
+  return Boolean(await openPlatformLibrary(
     key,
     platformPackForAssembly(key),
-    { navigationSeq, retryAction });
+    { navigationSeq, retryAction, scopeOnly: true }));
 }
 
 // History (back/forward) landed on a .NET Platform state. Its resident pseudo-package
@@ -7789,7 +7807,7 @@ async function restoreRuntimePackFromHistory(loc, deep, navigationSeq) {
   if (navigationSeq !== state.navigationSeq) return;
   if (pack) {
     activatePackage(pack, { resetAccessibility: true });
-    await applyPlatformLibraryScope(
+    const scoped = await applyPlatformLibraryScope(
       loc.library,
       navigationSeq,
       () => restoreRuntimePackFromHistory(
@@ -7797,8 +7815,10 @@ async function restoreRuntimePackFromHistory(loc, deep, navigationSeq) {
         deep,
         state.navigationSeq));
     if (navigationSeq !== state.navigationSeq) return;
+    if (!scoped) return;
     applyLocationView(loc);
     applyDeepLink(deep);
+    state.loading = false;
   } else {
     appendQueryNotice(
       `Workspace restore was incomplete: ${loc.package}: ${state.runtimePackError || "runtime pack acquisition failed."}`);
