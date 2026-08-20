@@ -61,6 +61,33 @@ public class CallerLoopCensusTests
     }
 
     [Fact]
+    public void Analyze_UsesPhysicalEvidenceMethodForWitnesses()
+    {
+        var owner = Method(1, "Owner");
+        var lifted = Method(2, "<Owner>b__0");
+        var target = Method(3, "Target");
+        DirectCall normalized = Call(
+            owner,
+            target,
+            4,
+            inLoop: true) with
+        {
+            EvidenceMethod = lifted,
+        };
+
+        var row = Assert.Single(CallerLoopCensus.Analyze(
+            "Fixture.dll",
+            [owner, lifted, target],
+            [normalized],
+            [Opportunity(target, "c1")]));
+
+        Assert.Contains(
+            "<Owner>b__0",
+            Assert.Single(row.Witness).Caller,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Analyze_ReportsWitnessBeyondConfiguredBound()
     {
         var loop = Method(1, "Loop");

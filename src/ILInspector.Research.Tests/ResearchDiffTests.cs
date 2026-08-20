@@ -11,6 +11,7 @@ using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using ILInspector.Instructions;
 using ILInspector.Text;
+using ILInspector.Research.Tests.TypeFixtures;
 using DecompilerMetadataSource = ILInspector.Decompiler.Pipeline.MetadataSource;
 
 namespace ILInspector.Research.Tests;
@@ -1269,6 +1270,62 @@ public class ResearchDiffTests
         Assert.Contains(comparison.Pairs, pair =>
             pair is PairFinding<DirectCall>.Added added
             && added.New.Payload.Callee.Name == "Add");
+    }
+
+    [Fact]
+    public void
+        CompareAssemblies_CallSitesRetainPhysicalBodyProvenance()
+    {
+        string path =
+            typeof(ResearchComposite).Assembly.Location;
+        var diff = ResearchDiff.CompareAssemblies(
+            path,
+            path,
+            new ResearchDiffOptions(
+                ResearchChangeMechanism.BodySignals,
+                TypeFilters:
+                    new HashSet<string>(
+                        StringComparer.Ordinal)
+                    {
+                        typeof(ResearchComposite).FullName!,
+                    })
+            {
+                RetainedComparisonDescriptorIds =
+                    ImmutableHashSet.Create(
+                        StringComparer.Ordinal,
+                        AnalysisFindings
+                            .CallSiteDescriptor.Id),
+            });
+
+        var retained = Assert.Single(
+            diff.RetainedComparisons.Get<DirectCall>(
+                AnalysisFindings.CallSiteDescriptor),
+            comparison => comparison.Subject.Display.Contains(
+                nameof(ResearchComposite.DoWorkAsync),
+                StringComparison.Ordinal));
+        var comparison = retained.Comparison switch
+        {
+            FindingComparison<DirectCall>.Complete complete =>
+                complete,
+            _ => throw new InvalidOperationException(
+                "Expected a complete call-site comparison."),
+        };
+        DirectCall[] calls = comparison.Pairs
+            .Select(pair =>
+                Assert.IsType<
+                    PairFinding<DirectCall>.Present>(
+                    pair.Value).New.Payload)
+            .ToArray();
+
+        Assert.NotEmpty(calls);
+        Assert.All(
+            calls,
+            call => Assert.Equal(
+                call.Caller,
+                call.EvidenceMethod));
+        Assert.DoesNotContain(
+            calls,
+            call => call.Callee.Name == "Yield");
     }
 
     [Fact]
