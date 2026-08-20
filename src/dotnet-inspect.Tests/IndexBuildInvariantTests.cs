@@ -4,6 +4,11 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Sections;
 using ILInspector.Findings;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Emit;
+using Microsoft.CodeAnalysis.Text;
+using System.Text;
 using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspector.Tests;
@@ -24,6 +29,69 @@ public class IndexBuildGuardCollection;
 public class IndexBuildInvariantTests
 {
     static string FixtureAssembly => typeof(IndexBuildGuardFixture).Assembly.Location;
+
+    static (string AssemblyPath, string Directory)
+        CreateEmbeddedPdbAssembly()
+    {
+        const string source =
+            """
+            namespace EmbeddedPdbFixture;
+
+            public static class Sample
+            {
+                public static int Value() => 42;
+            }
+            """;
+        string directory = Path.Combine(
+            AppContext.BaseDirectory,
+            $"embedded-pdb-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string assemblyPath =
+                Path.Combine(directory, "EmbeddedPdbFixture.dll");
+            var references =
+                ((string)AppContext.GetData(
+                    "TRUSTED_PLATFORM_ASSEMBLIES")!)
+                .Split(Path.PathSeparator)
+                .Select(path =>
+                    MetadataReference.CreateFromFile(path));
+            var compilation = CSharpCompilation.Create(
+                "EmbeddedPdbFixture",
+                [
+                    CSharpSyntaxTree.ParseText(
+                        SourceText.From(source, Encoding.UTF8),
+                        new CSharpParseOptions(
+                            LanguageVersion.Preview),
+                        path: "/_/EmbeddedPdbFixture.cs")
+                ],
+                references,
+                new CSharpCompilationOptions(
+                    OutputKind.DynamicallyLinkedLibrary,
+                    optimizationLevel: OptimizationLevel.Release,
+                    deterministic: true));
+            using var assembly = File.Create(assemblyPath);
+            EmitResult result = compilation.Emit(
+                assembly,
+                options: new EmitOptions(
+                    debugInformationFormat:
+                        DebugInformationFormat.Embedded,
+                    pdbFilePath: "EmbeddedPdbFixture.pdb"));
+            Assert.True(
+                result.Success,
+                string.Join(
+                    Environment.NewLine,
+                    result.Diagnostics));
+            return (assemblyPath, directory);
+        }
+        catch
+        {
+            Directory.Delete(
+                directory,
+                recursive: true);
+            throw;
+        }
+    }
 
     [Fact]
     public async Task MemberCommand_MultipleIndexSections_BuildsIndexOnce()
@@ -255,24 +323,34 @@ public class IndexBuildInvariantTests
                 .IsDefaultOrEmpty);
         Assert.False(descriptorPrefetched.HasPdb);
 
-        string embeddedAssembly =
-            typeof(LibraryCommand).Assembly.Location;
-        using (var embedded =
-            ILInspector.SourceLink.SourceLinkService.Open(
-                embeddedAssembly))
+        var (embeddedAssembly, embeddedDirectory) =
+            CreateEmbeddedPdbAssembly();
+        try
         {
-            Assert.True(embedded.Context.HasEmbeddedPdb);
-            Assert.True(embedded.HasPdb);
-        }
+            using (var embedded =
+                ILInspector.SourceLink.SourceLinkService.Open(
+                    embeddedAssembly))
+            {
+                Assert.True(
+                    embedded.Context.HasEmbeddedPdb);
+                Assert.True(embedded.HasPdb);
+            }
 
-        using var embeddedPrefetched =
-            ILInspector.SourceLink.SourceLinkService
-                .OpenMetadataOnlyPrefetched(
-                    embeddedAssembly);
-        Assert.True(
-            embeddedPrefetched.Context.HasEmbeddedPdb);
-        Assert.False(embeddedPrefetched.HasPdb);
-        Assert.False(embeddedPrefetched.HasSourceLink);
+            using var embeddedPrefetched =
+                ILInspector.SourceLink.SourceLinkService
+                    .OpenMetadataOnlyPrefetched(
+                        embeddedAssembly);
+            Assert.True(
+                embeddedPrefetched.Context.HasEmbeddedPdb);
+            Assert.False(embeddedPrefetched.HasPdb);
+            Assert.False(embeddedPrefetched.HasSourceLink);
+        }
+        finally
+        {
+            Directory.Delete(
+                embeddedDirectory,
+                recursive: true);
+        }
     }
 }
 
