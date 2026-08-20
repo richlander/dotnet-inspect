@@ -64,7 +64,9 @@ internal static class BrowserPackageWorkspace
     internal static TimeSpan PackageOperationTimeout { get; } =
         TimeSpan.FromSeconds(30);
 
-    static readonly HttpClient Http = new()
+    static readonly BrowserMsdlProxyHandler MsdlProxyHandler =
+        new(new HttpClientHandler());
+    static readonly HttpClient Http = new(MsdlProxyHandler)
     {
         Timeout = Timeout.InfiniteTimeSpan,
     };
@@ -96,6 +98,8 @@ internal static class BrowserPackageWorkspace
     static long _clock;
 
     internal static HttpClient NetworkClient => Http;
+    internal static void ConfigureMsdlProxy(string origin) =>
+        MsdlProxyHandler.Configure(origin);
     internal static IPackageSourceAuthorization PackageSourceAuthorization =>
         SourceAuthorization;
 

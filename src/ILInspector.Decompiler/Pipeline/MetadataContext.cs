@@ -64,6 +64,14 @@ public sealed class MetadataContext : IDisposable
     readonly IAssemblyBindingPolicy _bindingPolicy;
     readonly IAssemblyReferenceResolver? _resolver;
 
+    /// <summary>
+    /// How much this context trusts DISCOVERED assemblies to claim
+    /// core-library identity. Defaults to the safe setting; a host whose
+    /// surrounding directory is as trusted as the target may relax it.
+    /// </summary>
+    internal CoreLibraryTrustPolicy CoreLibraryTrust { get; init; }
+        = CoreLibraryTrustPolicy.DesignatedAndPlatform;
+
     public MetadataContext(IAssemblyReferenceResolver resolver)
     {
         ArgumentNullException.ThrowIfNull(resolver);
@@ -94,15 +102,49 @@ public sealed class MetadataContext : IDisposable
     /// </summary>
     internal OpenedAssembly? Open(string path)
     {
-        return _opened.GetOrAdd(path, p => new Lazy<OpenedAssembly?>(() => OpenedAssembly.TryOpen(p))).Value;
+        return _opened.GetOrAdd(path, p => new Lazy<OpenedAssembly?>(() => OpenDesignated(p))).Value;
+    }
+
+    /// <summary>
+    /// Opens a path the caller named directly. Naming an exact file is a
+    /// designation, so the result keeps core-library identity; see
+    /// <see cref="CoreLibraryIdentityTrust"/>.
+    /// </summary>
+    static OpenedAssembly? OpenDesignated(string path)
+    {
+        OpenedAssembly? opened = OpenedAssembly.TryOpen(path);
+        if (opened is not null)
+        {
+            CoreLibraryIdentityTrust.GrantCoreLibraryIdentity(opened.Reader);
+        }
+        return opened;
     }
 
     internal OpenedAssembly? Open(ResolvedAssemblyReference assembly)
         => _openedRegistrations.GetOrAdd(
             assembly.Registration,
             _ => new Lazy<OpenedAssembly?>(
-                () => OpenedAssembly.TryOpen(assembly.OpenRead),
+                () => OpenResolved(assembly),
                 LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+
+    /// <summary>
+    /// Opens an assembly that reference resolution selected, and records
+    /// whether its acquisition entitles it to core-library identity. Discovery
+    /// is trusted only by provenance or host policy; see
+    /// <see cref="CoreLibraryIdentityTrust"/>.
+    /// </summary>
+    OpenedAssembly? OpenResolved(ResolvedAssemblyReference assembly)
+    {
+        OpenedAssembly? opened = OpenedAssembly.TryOpen(assembly.OpenRead);
+        if (opened is not null)
+        {
+            CoreLibraryIdentityTrust.GrantIfEntitled(
+                opened.Reader,
+                assembly.Provenance,
+                CoreLibraryTrust);
+        }
+        return opened;
+    }
 
     internal OpenedAssembly? Open(
         ResolvedTypeDefinition definition,

@@ -93,6 +93,60 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task MsdlProxy_RewritesExactSymbolRequestToCurrentSwaApi()
+    {
+        var inner = new RequestRecordingHandler();
+        using var handler = new BrowserMsdlProxyHandler(inner);
+        handler.Configure("https://dotnet-inspect.ca");
+        using var client = new HttpClient(handler);
+
+        using HttpResponseMessage response =
+            await client.GetAsync(
+                "https://msdl.microsoft.com/download/symbols/"
+                + "System.Text.Json.pdb/"
+                + "00112233445566778899AABBCCDDEEFF1/"
+                + "System.Text.Json.pdb",
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            "https://dotnet-inspect.ca/api/msdl/"
+            + "System.Text.Json.pdb/"
+            + "00112233445566778899AABBCCDDEEFF1",
+            inner.RequestUri?.AbsoluteUri);
+    }
+
+    [Fact]
+    public async Task MsdlProxy_LeavesEveryOtherDestinationUnchanged()
+    {
+        var inner = new RequestRecordingHandler();
+        using var handler = new BrowserMsdlProxyHandler(inner);
+        handler.Configure("https://dotnet-inspect.ca");
+        using var client = new HttpClient(handler);
+
+        using HttpResponseMessage response =
+            await client.GetAsync(
+                "https://api.nuget.org/v3/index.json",
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            "https://api.nuget.org/v3/index.json",
+            inner.RequestUri?.AbsoluteUri);
+    }
+
+    [Theory]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("https://dotnet-inspect.ca/path")]
+    [InlineData("https://user@example.com")]
+    public void MsdlProxy_RejectsValuesThatAreNotHttpOrigins(string origin)
+    {
+        using var handler =
+            new BrowserMsdlProxyHandler(
+                new RequestRecordingHandler());
+        Assert.Throws<ArgumentException>(() => handler.Configure(origin));
+        Assert.Throws<ArgumentException>(() => handler.Configure(origin));
+    }
+
+    [Fact]
     public void SourceContexts_UseFreshMemoryOnlyPdbStores()
     {
         AssemblyContextSourceQueryContext first =
@@ -2089,6 +2143,21 @@ public sealed class BrowserEngineBoundaryTests
 
         public void Dispose()
         {
+        }
+    }
+
+    sealed class RequestRecordingHandler : HttpMessageHandler
+    {
+        internal Uri? RequestUri { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            RequestUri = request.RequestUri;
+            return Task.FromResult(
+                new HttpResponseMessage(
+                    System.Net.HttpStatusCode.NotFound));
         }
     }
 
