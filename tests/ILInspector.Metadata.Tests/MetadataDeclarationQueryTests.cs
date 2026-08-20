@@ -956,6 +956,10 @@ public sealed class MetadataDeclarationQueryTests
             Assert.Contains(
                 surface.InspectionFailures,
                 failure => failure.Operation == "event modifiers");
+            ApiSurface publicSurface = ApiSurfaceExtractor.Extract(peReader);
+            Assert.Contains(
+                publicSurface.InspectionFailures,
+                failure => failure.Operation == "event modifiers");
             ApiSurface summary = ApiSurfaceExtractor.ExtractSummary(peReader);
             ApiType summarized = Assert.Single(
                 summary.Types,
@@ -2377,7 +2381,11 @@ public sealed class MetadataDeclarationQueryTests
             | MethodAttributes.SpecialName
             | MethodAttributes.HideBySig;
 
-        void DefineAggregates(string typeName, bool abstractGetter, bool abstractSetter)
+        void DefineAggregates(
+            string typeName,
+            bool abstractGetter,
+            bool abstractSetter,
+            bool publicEvent = true)
         {
             var builder = module.DefineType(
                 typeName,
@@ -2411,9 +2419,15 @@ public sealed class MetadataDeclarationQueryTests
             property.SetGetMethod(getter);
             property.SetSetMethod(setter);
 
+            MethodAttributes eventAttributes = publicEvent
+                ? Shared
+                : (Shared & ~MethodAttributes.MemberAccessMask)
+                    | MethodAttributes.Private;
             var adder = builder.DefineMethod(
                 "add_Changed",
-                abstractGetter ? Shared | MethodAttributes.Abstract : Shared,
+                abstractGetter
+                    ? eventAttributes | MethodAttributes.Abstract
+                    : eventAttributes,
                 typeof(void),
                 [typeof(Action)]);
             if (!abstractGetter)
@@ -2421,7 +2435,9 @@ public sealed class MetadataDeclarationQueryTests
 
             var remover = builder.DefineMethod(
                 "remove_Changed",
-                abstractSetter ? Shared | MethodAttributes.Abstract : Shared,
+                abstractSetter
+                    ? eventAttributes | MethodAttributes.Abstract
+                    : eventAttributes,
                 typeof(void),
                 [typeof(Action)]);
             if (!abstractSetter)
@@ -2433,7 +2449,11 @@ public sealed class MetadataDeclarationQueryTests
             builder.CreateType();
         }
 
-        DefineAggregates("MixedAbstraction", abstractGetter: true, abstractSetter: false);
+        DefineAggregates(
+            "MixedAbstraction",
+            abstractGetter: true,
+            abstractSetter: false,
+            publicEvent: false);
         DefineAggregates("UniformAbstract", abstractGetter: true, abstractSetter: true);
         DefineAggregates("UniformConcrete", abstractGetter: false, abstractSetter: false);
 

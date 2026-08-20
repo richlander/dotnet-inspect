@@ -1419,6 +1419,62 @@ public static class ApiSurfaceExtractor
                 if (malformedAccessibility)
                     continue;
 
+                bool isStaticEvent = false;
+                bool isVirtualEvent = false;
+                bool isOverrideEvent = false;
+                bool hasFinalEventAccessor = false;
+                foreach (var accessorHandle in new[] { accessors.Adder, accessors.Remover })
+                {
+                    if (accessorHandle.IsNil)
+                        continue;
+                    var accessorAttributes = reader.GetMethodDefinition(accessorHandle).Attributes;
+                    bool accessorVirtual = (accessorAttributes & MethodAttributes.Virtual) != 0;
+                    isStaticEvent |= (accessorAttributes & MethodAttributes.Static) != 0;
+                    isVirtualEvent |= accessorVirtual;
+                    isOverrideEvent |= accessorVirtual
+                        && (accessorAttributes & MethodAttributes.NewSlot) == 0;
+                    hasFinalEventAccessor |= (accessorAttributes & MethodAttributes.Final) != 0;
+                }
+                bool isAbstractEvent = MetadataAccessorSemantics.AreAllAbstract(
+                    reader,
+                    accessors.Adder,
+                    accessors.Remover);
+                if (MetadataAccessorSemantics.ValidateAbstraction(
+                        reader,
+                        requireUniformAbstraction: !isInterfaceTypeDefinition,
+                        accessors.Adder,
+                        accessors.Remover)
+                    is var eventAbstractionFault and not AccessorAbstractionFault.None)
+                {
+                    AddInspectionFailure(
+                        surface,
+                        budget,
+                        "event modifiers",
+                        eventHandle,
+                        MetadataTypeNameFailure.Malformed(
+                            eventHandle,
+                            eventAbstractionFault == AccessorAbstractionFault.AbstractAccessorHasBody
+                                ? "The event has an abstract accessor that declares an IL body."
+                                : "The event has inconsistent abstract accessor metadata."));
+                    continue;
+                }
+                if (!MetadataAccessorSemantics.TryGetUniformSealedOverride(
+                        reader,
+                        out bool isSealedEvent,
+                        accessors.Adder,
+                        accessors.Remover))
+                {
+                    AddInspectionFailure(
+                        surface,
+                        budget,
+                        "event modifiers",
+                        eventHandle,
+                        MetadataTypeNameFailure.Malformed(
+                            eventHandle,
+                            "The event has inconsistent sealed accessor metadata."));
+                    continue;
+                }
+
                 string? eventAccessibility = MetadataAccessibility.Get(bestAccess);
                 if (eventAccessibility is not null && !includeAll)
                     continue;
@@ -1488,61 +1544,6 @@ public static class ApiSurfaceExtractor
                         eventNode.ApplyTupleNames(eventTupleNames);
                         eventType = eventNode.Render();
                     }
-                }
-                bool isStaticEvent = false;
-                bool isVirtualEvent = false;
-                bool isOverrideEvent = false;
-                bool hasFinalEventAccessor = false;
-                foreach (var accessorHandle in new[] { accessors.Adder, accessors.Remover })
-                {
-                    if (accessorHandle.IsNil)
-                        continue;
-                    var accessorAttributes = reader.GetMethodDefinition(accessorHandle).Attributes;
-                    bool accessorVirtual = (accessorAttributes & MethodAttributes.Virtual) != 0;
-                    isStaticEvent |= (accessorAttributes & MethodAttributes.Static) != 0;
-                    isVirtualEvent |= accessorVirtual;
-                    isOverrideEvent |= accessorVirtual
-                        && (accessorAttributes & MethodAttributes.NewSlot) == 0;
-                    hasFinalEventAccessor |= (accessorAttributes & MethodAttributes.Final) != 0;
-                }
-                bool isAbstractEvent = MetadataAccessorSemantics.AreAllAbstract(
-                    reader,
-                    accessors.Adder,
-                    accessors.Remover);
-                if (MetadataAccessorSemantics.ValidateAbstraction(
-                        reader,
-                        requireUniformAbstraction: !isInterfaceTypeDefinition,
-                        accessors.Adder,
-                        accessors.Remover)
-                    is var eventAbstractionFault and not AccessorAbstractionFault.None)
-                {
-                    AddInspectionFailure(
-                        surface,
-                        budget,
-                        "event modifiers",
-                        eventHandle,
-                        MetadataTypeNameFailure.Malformed(
-                            eventHandle,
-                            eventAbstractionFault == AccessorAbstractionFault.AbstractAccessorHasBody
-                                ? "The event has an abstract accessor that declares an IL body."
-                                : "The event has inconsistent abstract accessor metadata."));
-                    continue;
-                }
-                if (!MetadataAccessorSemantics.TryGetUniformSealedOverride(
-                        reader,
-                        out bool isSealedEvent,
-                        accessors.Adder,
-                        accessors.Remover))
-                {
-                    AddInspectionFailure(
-                        surface,
-                        budget,
-                        "event modifiers",
-                        eventHandle,
-                        MetadataTypeNameFailure.Malformed(
-                            eventHandle,
-                            "The event has inconsistent sealed accessor metadata."));
-                    continue;
                 }
                 bool isCSharpVirtualEvent =
                     apiType.Kind == "class"
