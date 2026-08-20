@@ -10,9 +10,8 @@
 ## Status
 
 Design. Tracking: [#4472](https://github.com/richlander/dotnet-inspect/issues/4472).
-Not implemented. r1 at `61dda3681` and r2 at `b7ccb8476` were BLOCKED;
-this revision is the replacement after integrating `origin/main`
-`98067bbb2`.
+Not implemented. r1–r3 were BLOCKED; this revision is the replacement
+after integrating `origin/main` `3e54e7e5b`.
 
 `ClassicAsyncReconstructionPass` remains the current fixture-shaped raise.
 
@@ -21,13 +20,12 @@ this revision is the replacement after integrating `origin/main`
 A declared classic-async method has two physical bodies:
 
 ```text
-kickoff MethodDef     — Create builder, copy args, Start<TStateMachine>, return Task
+kickoff MethodDef     — Create builder, copy args, Start<TStateMachine>, return Task (void: no return)
 <M>d__N.MoveNext      — user logic, awaiter protocol, SetResult / SetException
 ```
 
 The source the user wrote lives in `MoveNext`. The MethodDef they ask
-`member` about is the kickoff. On `main` at `239ef9e48` (still true after
-`98067bbb2`), the Analysis fixture
+`member` about is the kickoff. The Analysis fixture
 
 ```csharp
 public static async Task<int> CallsSyncSiblingFromAsync(int value)
@@ -37,7 +35,7 @@ public static async Task<int> CallsSyncSiblingFromAsync(int value)
 }
 ```
 
-decompiles to
+decompiles to the kickoff printed under an `async` signature:
 
 ```csharp
 public static async System.Threading.Tasks.Task<int> CallsSyncSiblingFromAsync(int value)
@@ -52,12 +50,21 @@ public static async System.Threading.Tasks.Task<int> CallsSyncSiblingFromAsync(i
 }
 ```
 
-That render is not a decompiler crash and not an Analysis regression. It
-is the kickoff printed under an `async` signature, at **Full** fidelity.
-The same hole exists on the official ClassicAsync overlay: `NoAwait()`
-stays a stub. Decompiling `MoveNext` is worse —
-`TryAcknowledgeSupportMethod` replaces a recognized state-machine
-`MoveNext` with `return;`, so the user logic is nowhere.
+That render is **already Partial**: `FidelityRemarks` keys on
+`CSharpSpellability.InspectUnrepresentableMetadataName`, and every
+`<…>d__N` spelling emits DEC0009. It is not Full. The lie is an
+`async` method that still shows compiler handoff plumbing, with no
+`UnsupportedNode` / DEC0004-class marker that the yield body was not
+reconstructed. Official `NoAwait()` is the same shape. Async void
+(`Async_VoidBuilder`) is the same shape without `return …Task`.
+
+Decompiling `MoveNext` through the decompiler library / corpus
+importer is worse: `TryAcknowledgeSupportMethod` replaces a
+recognized state-machine `MoveNext` with `return;`. The shipped CLI
+`member` / `type` surface does **not** show that type
+(`ApiSurfaceExtractor` skips compiler-generated names unless tests
+opt in). Un-hollowing is therefore a library-and-corpus change, not
+a default CLI `member` change.
 
 [#4466](https://github.com/richlander/dotnet-inspect/pull/4466) exposed
 `LibraryBodyIndex.ResolveDeclaredMethod`; it did not raise the body.
@@ -67,87 +74,75 @@ depend on that Caller rewrite.
 
 ## Why the current pass cannot grow
 
-`ClassicAsyncReconstructionPass` is a family of `TryBuild*` matchers for
-the ClassicAsync overlay. `CallsSyncSiblingFromAsync` is none of those.
+`ClassicAsyncReconstructionPass` is a family of `TryBuild*` matchers
+for the ClassicAsync overlay. `CallsSyncSiblingFromAsync` is none of
+those. It is **void await, then statements, then return a non-await
+expression**. No current matcher models that.
 
-The #4472 fixture has **one** reconstruction decline: `HasUnexpectedStore`.
+`TryBuildSingleAwaitReturn` is the only candidate with a single
+`GetResult` and a valued `SetResult`. It declines **before**
+`HasUnexpectedStore`:
 
-1. `Task.Yield()` returns a `YieldAwaitable` struct temp.
-2. The compiler emits `stloc` / `ldloca` before `GetAwaiter`.
-3. That `stloc` trips `HasUnexpectedStore` (allow list: state stores,
-   `GetAwaiter` stores, `<>u__` loads).
-4. `AwaitForGetResult` already matches `GetAwaiter` by name. The
-   decline is not a `GetResult` return-type check.
+1. `HasUnexpectedExpressionStatement(moveNext)` with an empty allow
+   list. Void `await Task.Yield()` leaves a standalone
+   `awaiter.GetResult();` statement. The allow list is only
+   `AwaitUnsafeOnCompleted` / `SetException` / `SetResult`.
+2. The `SetResult` operand must be a local whose store **contains**
+   that `GetResult`. The fixture stores `ReadValue(this.value)`,
+   which contains no await.
+3. Only then would `HasUnexpectedStore` see the Yield temp
+   (`stloc` / `ldloca` before `GetAwaiter`).
 
-`HasHoistedUserState` is **not** a second decline on this fixture. It
-fires only on `StoreField` whose name is `<…>5__` or `<>7__wrap`. The
-fixture's hoisted parameter is the plain field `value`, stored in the
-kickoff; `MoveNext` only loads it. `RemapInPlace` already maps
-`LoadField` of that name through `TryGetParameter`.
+`HasHoistedUserState` does not fire: it requires `<…>5__` or
+`<>7__wrap` stores. The fixture's parameter field is plain `value`,
+stored in the kickoff; `RemapInPlace` already maps it through
+`TryGetParameter`.
 
-`RemapInPlace` has no `LoadLocalAddress` case. Unmatched nodes fall
-through to walking children and leave `ok == true`, so a
-`LoadLocalAddress` carrying a `MoveNext` local index would splice
-into the kickoff as silent corruption. That path is currently
-unreachable only because `HasUnexpectedStore` fires first. Relaxing
-the store allow list without an explicit `LoadLocalAddress` decline
-(or proven remap) is wrong output, not a raise.
+`RemapInPlace` has no `LoadLocalAddress` case. Unmatched nodes walk
+children and leave `ok == true`, so a `MoveNext` local address would
+splice into the kickoff as silent corruption. That path is currently
+unreachable on this fixture because the earlier declines fire first.
+Any raise of Yield must add an explicit `LoadLocalAddress` decline
+before a proven remap.
 
 Adding `TryBuildYieldThenReturn` would be another fixture, not an
 inverse.
 
-Recognition currently trusts compiler-reserved names (`<>t__builder`,
-`<...>d__N`) plus `DeclaringTypeCompilerGenerated`.
-`LooksLikeClassicAsyncStateMachine` matches any `<>t__builder` field,
-including async-iterator `AsyncIteratorMethodBuilder`. That is a
-known deficiency (`AwaitRecoveryFacts`: Start and `.Task` are
-name-matched, not builder-correlated). Recognition and reconstruction
-are one function.
+`TryGetKickoff` requires `Return { Value: LoadProperty { PropertyName:
+"Task" } }`. Async-void kickoffs have no `.Task` and are never
+recognized as kickoffs, while `LooksLikeClassicAsyncStateMachine`
+still matches any `<>t__builder` field and hollows their `MoveNext`.
+
+`LooksLikeClassicAsyncStateMachine` is name-only `<>t__builder`, so
+async-iterator `AsyncIteratorMethodBuilder` matches too.
 
 ## Where `async` is actually stamped
 
 CSharp cannot own a reconstruction-driven `async` keyword.
 `ILInspector.Decompiler` references `ILInspector.CSharp`; the reverse
-edge does not exist. `TypeShellProducer` is contractually SRM-only and
-must stay that way (API skeletons omit `async` because it is not part
-of the callable surface).
+edge does not exist. `TypeShellProducer` is contractually SRM-only
+(API skeletons omit `async`).
 
 `MemberCodeProvider` currently computes **one** metadata flag
 (`TypeShellProducer.RequiresAsyncBodyModifier(selection)`) and
-`ApiOutputFormatter` feeds that same bit to every member C# view:
-
-| View | Consumer |
-| --- | --- |
-| Decompiled Source | `FormatCSharpResult(..., requiresAsyncBodyModifier: code.RequiresAsyncBodyModifier)` |
-| Annotated Source | same |
-| Cost Overlay | same |
-| Semantics Overlay | same |
-| Whole-type listing | `MemberBodyProducer.FormatMemberWithBody` restamps from metadata |
+`ApiOutputFormatter` feeds that same bit to Decompiled Source,
+Annotated Source, Cost Overlay, and Semantics Overlay. Whole-type
+listings restamp from metadata in `MemberBodyProducer`.
 
 Each of those projections already has a `DecompilerResult`. Slice 0
-makes every `FormatCSharpResult` call (and the whole-type listing)
-read **that projection's** `DecompilerResult.RequiresAsyncBodyModifier`.
-It does not restamp from the shared metadata bit.
+makes every `FormatCSharpResult` call and the whole-type listing read
+**that projection's** `DecompilerResult.RequiresAsyncBodyModifier`.
 
-The decompiler flag is already set when a `TryBuild*` succeeds, and
-is already consumed when composing a `CSharpBlockBody` from a
-projection and by `BodyShapeSearch`. Declaration formatting ignores
-it. That is why a declined kickoff still says `async`.
+`TypeShellProducer.RequiresAsyncBodyModifier` is true for
+`StateMachineAsync` plus `HasAsyncStateMachineAttribute`, including
+async void.
 
-`TypeShellProducer.RequiresAsyncBodyModifier` withholds `async` for
-`AsyncIteratorStateMachineAttribute` by **attribute-name
-discrimination**, unconditionally, reconstruction-blind. It is not a
-"withhold until reconstructed" mechanism to copy.
-
-The in-repo honesty precedent for an unreconstructed kickoff is
-`IteratorAcknowledgmentPass`: replace the plausible handoff with
-`UnsupportedNode`, drop fidelity to `Partial` (DEC0004), and **only
-when the body is exactly the compiler handoff**
-(`IteratorShapes.IsNarrowKickoffHandoff`). Extra observable
-statements stay visible. A declined classic-async kickoff today stays
-Full because the kickoff IR contains none of the node kinds
-`FidelityRemarks` keys on. `TryGetKickoff` also ignores unmatched
-statements; honesty must not inherit that hole.
+The honesty precedent is `IteratorAcknowledgmentPass`: replace the
+plausible handoff with `UnsupportedNode`, emit a DEC0004-class
+diagnostic, and **only when the body is exactly the compiler
+handoff**. Extra observable statements stay visible. Fidelity is
+already Partial on these kickoffs; the new signal is the marker, not
+a Full→Partial transition.
 
 ## Design lessons
 
@@ -158,59 +153,45 @@ Same structured-system moves as
 ### Put the property on the value that already crosses the boundary
 
 "`async` on this full body" is `DecompilerResult.RequiresAsyncBodyModifier`.
-Slice 0 makes every member C# view and the whole-type listing read
-that flag. No new CSharp→Decompiler edge. Skeletons stay metadata-only
-and stay without `async`.
+No new CSharp→Decompiler edge.
 
 ### Do not pretend an Analysis walk is a Metadata fact
 
-`MethodClassificationScanner.ClassifyAsyncMethod` detects the
-attribute **name**. The unique trusted state-machine type argument in
-`LibraryBodyAsyncSourceResolver` is not liftable as-is: it is written
-against Analysis `MemberRef` / `MemberResolver` / `FrameworkIdentity`,
-and uniqueness is computed **after** skipping source-generated types,
-`[GeneratedCode]` / `[CompilerGenerated]` methods, and Blazor render
-methods. A Metadata-owned descriptor that absorbed those filters would
-depend upward. A Metadata-owned descriptor that omitted them would
-disagree with Analysis on `AmbiguousStateMachineType`.
+Trusted SM uniqueness in `LibraryBodyAsyncSourceResolver` uses
+Analysis types and attribution filters (source-gen, GeneratedCode,
+Blazor). Slice 0 does **not** lift that walk. Kickoff acknowledgment
+identifies the state machine from kickoff IR.
 
-Slice 0 does **not** lift that walk. Kickoff acknowledgment identifies
-the state machine from kickoff IR (`TryGetKickoff`'s local type), the
-same way iterators identify theirs from the handoff constructor.
-
-A later Metadata fact, if needed for a listing filter, is **structural
-only**: decode the attribute type argument, require a same-assembly
-TypeDef, and report uniqueness among methods that carry the attribute.
-Analysis keeps attribution filters on top. The two populations are
-allowed to differ; consumers name which one they use. Decompiler
-pipeline types stay Decompiler `TypeRef`; Metadata does not grow a
-third `TypeRef`.
+A later Metadata fact, if needed, is structural only (attribute
+type-arg decode, same-assembly TypeDef, uniqueness among methods that
+carry the attribute). Analysis keeps attribution filters. The two
+populations may differ.
 
 ### Degradation is data
 
-A declined machine is still a machine. The outcome names why. The
-kickoff body does not remain a Full, plausible method. `MoveNext` is
+A declined kickoff is not a plausible `async` method. `MoveNext` is
 not hollowed as a substitute for a missing reverse index.
 
 ### Do not depend upward
 
-Analysis maps `MoveNext` → source for call-site attribution
-(`ResolveDeclaredMethod`, now also used by #4461). That stays
-Analysis. Reconstruction does not assume rewritten `DirectCall.Caller`.
+Analysis maps `MoveNext` → source for call-site attribution. That
+stays Analysis. Reconstruction does not assume rewritten
+`DirectCall.Caller`.
 
 ## The value
 
-Working name: `ClassicAsyncMachine`. Types inside the pipeline stay
-Decompiler `TypeRef`, not raw TypeDef tokens.
+Working name: `ClassicAsyncMachine`. Pipeline types stay Decompiler
+`TypeRef`.
 
 ```text
 ClassicAsyncMachine
   Kickoff              MethodRef
-  StateMachineType     TypeRef (from kickoff IR / structural attribute arg)
+  StateMachineType     TypeRef (from kickoff IR)
   MoveNext             MethodRef
   Kind                 Struct | Class
-  BuilderField         FieldRef (<>t__builder)
-  StateField           FieldRef (<>1__state)
+  BuilderField         FieldRef
+  BuilderKind          Task | TaskOfT | ValueTask | ValueTaskOfT | Void
+  StateField           FieldRef
   HoistedFields        { FieldRef, Kind, BoundKickoffArgument?, SourceName? }*
   AwaitPoints          { State, AwaiterField, AwaitedOperand, OperandStorage,
                          GetAwaiter, IsCompleted, GetResult,
@@ -221,44 +202,42 @@ ClassicAsyncMachine
   Outcome              Reconstructed | Declined(Reason)
 ```
 
-`HoistedFields.Kind` is a closed set: `Builder`, `State`, `This`,
-`Parameter`, `Local`, `Awaiter`, `Wrap`. Parameter fields bind to a
-kickoff argument (plain `value` is already remappable). Source names
-come from reserved spelling only when present; otherwise the bound
-argument name or unnamed.
+`BuilderKind` is observed from `FieldRef.Type` at acknowledgment
+time (`IsAsyncMethodBuilder` today omits non-generic
+`AsyncValueTaskMethodBuilder` and `AsyncVoidMethodBuilder`; slice 0
+widens that set).
 
-`AwaitPoints` describe the awaiter protocol plus the operand that was
-awaited and where it was stored. That is the Yield hole: the operand
-is a by-ref temp, not a `Task` field.
+`AwaitPoints` carry the awaited operand and its storage. Void
+`GetResult` is a statement, not a value inside `SetResult`.
 
-`UserRegions` is a consumption ledger. A raise that cannot name every
-remaining `MoveNext` block, edge, unmatched resume, unowned
-state/awaiter use, external entry, continuation multiplicity, or
-user/shell exception-region overlap declines. The current
-`HasUnexpectedStore` `<>`-prefix allow list is not that ledger.
+`UserRegions` is a consumption ledger. The current
+`HasUnexpectedStore` / empty `HasUnexpectedExpressionStatement`
+allow lists are not that ledger.
 
 `Outcome = Reconstructed` in slice 0 means **a current `TryBuild*`
-succeeded**. Adapters are not rewritten onto a fully populated machine
-until a later slice that has been designed from a census.
+succeeded**.
 
 `Declined` reasons include `NoMoveNext`, `NotNarrowKickoffHandoff`,
 `UnrecognizedAwaiterProtocol`, `UnconsumedMoveNextRegion`,
-`LoadLocalAddressUnmapped`, `ClassStateMachine` (Debug / reference SM;
-out of the Release-struct domain until a later slice takes it).
-
-Building the machine may walk `MoveNext` IR. After
-`Outcome = Reconstructed`, printers consume the materialized value.
+`LoadLocalAddressUnmapped`, `ClassStateMachine`.
 
 ## Inverse
 
 Roslyn's forward construct is `AsyncRewriter` /
 `AsyncMethodToStateMachineRewriter` under `runtime-async=off`. The
-declared domain is compiler-produced classic **struct** state machines
-with a single `MoveNext`. Debug class state machines decline until a
-slice names them.
+declared domain is compiler-produced classic **struct** state
+machines whose builder is one of:
 
-Runtime-async (`MethodImplAttributes.Async`, `AsyncHelpers.Await`) is
-a different lowering and a different pass.
+- `AsyncTaskMethodBuilder`
+- `AsyncTaskMethodBuilder<TResult>`
+- `AsyncValueTaskMethodBuilder`
+- `AsyncValueTaskMethodBuilder<TResult>`
+- `AsyncVoidMethodBuilder`
+
+Debug class state machines decline until a slice names them.
+Runtime-async is a different lowering. Async iterators
+(`AsyncIteratorMethodBuilder`) are out of domain; their `MoveNext`
+stays hollow.
 
 Changing this inverse invalidates the two
 `state-machine.classic-async-*` fact primitives in
@@ -267,110 +246,98 @@ Changing this inverse invalidates the two
 ## Honesty contract (slice 0)
 
 Slice 0 ships **no new accepted raise**. It changes how a declined
-kickoff is presented, and it stops erasing classic-async `MoveNext`.
+kickoff is presented, and it stops erasing in-domain `MoveNext` in
+the decompiler library and corpus.
 
-1. **Declaration `async` follows each projection's decompiler flag.**
-   For a method classified `StateMachineAsync` with
-   `AsyncStateMachineAttribute`, Decompiled Source, Annotated Source,
-   Cost Overlay, Semantics Overlay, and whole-type listings take that
-   projection's `DecompilerResult.RequiresAsyncBodyModifier` (already
-   set by today's successful `TryBuild*`). They do not restamp from
-   `TypeShellProducer` / the shared `MemberCodeProvider` metadata bit.
-   API skeletons are unchanged (no `async`).
-2. **A declined kickoff is Partial only when the body is the narrow
-   compiler handoff.** Follow `IteratorAcknowledgmentPass`: replace
-   with `UnsupportedNode` + DEC0004-class diagnostic naming the state
-   machine and that `MoveNext` was not reconstructed, **and only if**
-   every statement is kickoff plumbing (builder `Create`, argument
-   copies onto the SM local, `Start`, `return …Task`). Extra
-   observable calls or stores: leave the lowered body visible at
-   Partial; do not delete work. Removing `async` while leaving Full
-   `Start<TStateMachine>` plumbing would make the lie more believable.
-3. **By-token classic-async `MoveNext` is the physical body.** Stop
-   hollowing `MoveNext` when the builder type is
-   `AsyncTaskMethodBuilder`, `AsyncTaskMethodBuilder<TResult>`,
-   `AsyncValueTaskMethodBuilder`, or `AsyncValueTaskMethodBuilder<TResult>`.
-   Do **not** un-hollow async-iterator`MoveNext`
-   (`AsyncIteratorMethodBuilder` still matches `<>t__builder` by
-   name today). `SetStateMachine` may still be acknowledged as empty
-   support. This is a printer change: raise-discipline A/B render
-   evidence applies even though no new raise is accepted.
-4. **Whole-type duplicate suppression is residual, not slice 0.**
-   After stop-hollowing, a whole-type listing may show both a
-   reconstructed kickoff and the physical `MoveNext` until a later
-   listing filter exists. That filter needs a structural
-   kickoff↔`MoveNext` pair; it is not this slice. The filter does
-   not rewrite the body a by-token request would print.
-5. **One hop.** An async local-function `MoveNext` maps to that local
-   function's stub, not the owning method. Same non-goal as #4466.
+1. **Declaration `async` follows each projection's decompiler flag**
+   for every in-domain method, including async void. Decompiled
+   Source, Annotated Source, Cost Overlay, Semantics Overlay, and
+   whole-type listings take that projection's
+   `DecompilerResult.RequiresAsyncBodyModifier`. Skeletons stay
+   without `async`.
+2. **A declined in-domain kickoff gets `UnsupportedNode` + a
+   DEC0004-class diagnostic only when the body is the narrow
+   compiler handoff.** Allowed statements, as a *permitted subset*
+   (not a required set):
+   - builder `Create` store
+   - initial `<>1__state` store (typically `-1`)
+   - copies of `this` / arguments onto SM fields (absent on
+     `NoAwait`)
+   - `Start`
+   - `return` of `builder.Task` / `builder.Task` equivalent —
+     **Task and ValueTask builders only**
+   Async-void kickoffs have no return. Extra observable calls or
+   stores: leave the lowered body visible; do not delete work.
+   Dropping `async` without the marker would make the lie more
+   believable.
+3. **In-domain `MoveNext` is the physical body** in the decompiler
+   library and corpus. Stop hollowing `MoveNext` when
+   `BuilderKind` is one of the five builders above. Do **not**
+   un-hollow `AsyncIteratorMethodBuilder`. `SetStateMachine` may
+   still be empty support. This is a printer/corpus change:
+   raise-discipline A/B and corpus-sensor evidence apply. The
+   shipped CLI `member`/`type` surface omits compiler-generated
+   types, so these gates are decompiler-library tests plus corpus
+   A/B, not `dotnet-inspect member '…+<M>d__N'`.
+4. **No product-surface listing filter.** Nested SM types are not
+   on the default API surface, so whole-type listings do not print
+   a second copy of `MoveNext`. Do not reserve a listing-filter
+   slice for a non-problem.
+5. **One hop.** An async local-function `MoveNext` maps to that
+   local function's stub, not the owning method.
 
 A concrete observation that would falsify slice 0: any of the four
-member C# views of `CallsSyncSiblingFromAsync` or `NoAwait` still
-prints `async` over `Start<TStateMachine>` at Full; or by-token
-classic-async `MoveNext` still lacks `ReadValue` / `Yield`; or
+member C# views of `CallsSyncSiblingFromAsync`, `NoAwait`, or
+`Async_VoidBuilder` still prints `async` over `Start<` **without**
+`UnsupportedNode` / DEC0004-class diagnostic; or an in-domain
+library `MoveNext` still lacks distinctive user logic; or an
 async-iterator `MoveNext` is no longer hollow.
 
 `MemberBodyProducerAsyncTests.ClassicAsyncWithoutAwait_UsesResolvedMethodBodyModifier`
 currently asserts `async` on `NoAwait()`. Slice 0 flips that
-assertion. Deleting the formatter change must fail the member-view /
-whole-type renders, not a `TypeShellProducer` predicate test.
+assertion.
 
 ## Fidelity subject
 
-Raised source recompiles to a *new* kickoff + `MoveNext`, not the
-original kickoff IL (`Create` / `Start` / `get_Task`). Opcode
-fidelity against the kickoff MethodDef is the wrong subject.
+Kickoff IL Exact is the wrong subject: raised source recompiles to a
+new kickoff + `MoveNext`. Current declined kickoffs are already
+Partial (DEC0009). Slice 0 does not claim a fidelity-level change;
+it claims a marker.
 
 **No new accepted raise ships until a named measurement exists.**
-The intended contract is: compile the raised method with Roslyn,
-Release, `runtime-async=off`, and compare the regenerated `MoveNext`
-(or an equivalent behavioral execution covering result, exception,
-suspension, and side effects). Until that harness exists, this gap
-is unverified and slices after 0 are blocked. Slice 0 does not
-accept a new raise; it **does** change printer output (honesty
-markers and un-hollowed classic-async `MoveNext`) and owes
-raise-discipline A/B evidence for those renders.
-
-Validity of declined output is the Partial/`UnsupportedNode` path,
-already gated by existing fidelity-level machinery.
+Intended contract: compile the raised method with Roslyn, Release,
+`runtime-async=off`, and compare the regenerated `MoveNext` (or
+behavioral execution covering result, exception, suspension, and
+side effects). Until that harness exists, slices after 0 are
+blocked. Slice 0 owes A/B for honesty markers and un-hollowed
+in-domain `MoveNext` (library + corpus).
 
 ## Slices
 
-This issue was opened from a named product failure. Raise discipline
-requires measurement before **defining** further raise slices. Slice 2
-from r1/r2 is not a slice; it is residual. After slice 1, take a
-classic-async shape census on the pinned corpus before writing another
-raise slice. Do not invent more `TryBuild*` methods from this document.
+Slice 1 is the named product failure that opened #4472. Further
+raise slices are not designed here. After slice 1, take a
+classic-async shape census on the pinned corpus before **defining**
+another raise. Do not invent more `TryBuild*` methods.
 
 | Slice | Claim | Residual after it |
 | --- | --- | --- |
-| 0. Honesty | Per-projection `async` flag. Narrow-handoff `UnsupportedNode` + Partial. Stop hollowing classic-async `MoveNext` only. `Reconstructed` means current `TryBuild*` succeeded. Printer A/B. | #4472 fixture still declined, but honest. Async-iterator `MoveNext` still hollow. Whole-type may duplicate `MoveNext`. No Metadata lift. |
-| 1. Yield operand + post-await statements | Accept `await Task.Yield(); return ReadValue(value);`. Requires: `HasUnexpectedStore` allow-list for the Yield temp store; explicit `LoadLocalAddress` decline in `RemapInPlace` before any remap; then a proven remap; statements after the await. Hoisted parameter binding is already present. The smaller `await Task.Yield();` (no later statements) is the accepted boundary of the same slice. Blocked until the Correct measurement in [Fidelity subject](#fidelity-subject) exists. | General multi-state dispatch, class SM, custom awaiters beyond Yield/`ValueTask`/`Task`, listing filter, structural Metadata descriptor, census-defined raises. |
-
-Slice 0 is independently shippable: it wraps today's success set and
-fixes presentation of the failure set. It does not include a Metadata
-substrate migration.
+| 0. Honesty | Per-projection `async` flag, including async void. Narrow-handoff `UnsupportedNode` + DEC0004-class diagnostic (permitted-subset handoff, including `<>1__state` and void-no-return). Stop hollowing in-domain `MoveNext` only; library + corpus A/B. `Reconstructed` means current `TryBuild*` succeeded. | #4472 fixture still declined, but honest. Async-iterator `MoveNext` still hollow. No Metadata lift. |
+| 1. Void-await then statements then return | Accept `await Task.Yield(); return ReadValue(value);` as the first inverse raise from `AwaitPoints` + `UserRegions`, not as a new `TryBuild*` and not as a `HasUnexpectedStore` allow-list tweak. Must consume void `GetResult` as a statement, following statements, a non-await `SetResult` operand, the Yield operand temp, and an explicit `LoadLocalAddress` decline-then-remap. Hoisted parameter binding is already present. The smaller `await Task.Yield();` (no later statements) is the accepted boundary of the same slice. Blocked until the Correct measurement exists. | General multi-state dispatch, class SM, custom awaiters, structural Metadata descriptor, census-defined raises. |
 
 ## Proof obligations (every raise slice)
 
 1. **Lowering shell.** C# async method, Roslyn, `runtime-async=off`,
-   Release. Compiler-produced fixture required. #4472
-   `CallsSyncSiblingFromAsync` is the first real witness for slice 1;
-   ClassicAsync overlay remains the accepted-raise pins.
-2. **Consumed ownership.** Kickoff stores into the state-machine
-   local, `Start`, and `get_Task` are consumed when replacing the
-   kickoff body. Each await point consumes its awaiter field, operand
-   storage, state transition, and `GetResult`. Unconsumed `MoveNext`
-   regions are a decline, recorded on `UserRegions`. Extra kickoff
-   statements are `NotNarrowKickoffHandoff`, not silent deletion.
+   Release. Compiler-produced fixture required.
+2. **Consumed ownership.** Narrow-handoff statements are consumed
+   when replacing the kickoff. Each await point consumes awaiter
+   field, operand storage, state transition, and `GetResult`.
+   Unconsumed `MoveNext` regions decline. Extra kickoff statements
+   are `NotNarrowKickoffHandoff`.
 3. **Control-flow contract.** Await points are sequencing barriers.
-   Successor identity across an await is the resume state, not
-   fallthrough. Exception paths through `SetException` stay on the
-   builder unless a later slice proves ownership.
+   Successor identity across an await is the resume state.
 4. **Replacement contract.** Valid on the accepted fixture family.
-   Correctness uses the kickoff-aware measurement in
-   [Fidelity subject](#fidelity-subject). IL Exact against the
-   original kickoff MethodDef is not claimed.
+   Correctness uses the kickoff-aware measurement. IL Exact against
+   the original kickoff MethodDef is not claimed.
 
 ### Fixture family (slice 1)
 
@@ -378,61 +345,59 @@ substrate migration.
 - Smallest accepted boundary: `await Task.Yield();` with no later
   statements.
 - Keep: every ClassicAsync overlay method that already reconstructs.
-- Still-flat negatives: existing
-  `ClassicAsyncReconstructionPassTests` lookalikes; extra kickoff
+- Still-flat negatives: existing lookalikes; extra kickoff
   statements; unmatched `LoadLocalAddress` before remap exists;
   class state machine.
 - Nested-function negative: async local function (one hop only).
+- Slice-0 honesty witnesses (not slice-1 raises): `NoAwait`,
+  `Async_VoidBuilder`.
 - Pinned real witness: the #4472 `member` render, Before/After from
   `dotnet-inspect`, structural review per the decompiler PR template.
-
-`NoAwait` is a slice-0 honesty witness, not a slice-1 raise unless a
-later slice explicitly takes empty async methods.
 
 ## Non-goals
 
 - Runtime-async reconstruction (`AwaitRecoveryPass`).
 - Iterator / async-iterator reconstruction. Async-iterator `MoveNext`
-  stays hollow in slice 0.
-- Depending on #4461's `DirectCall.Caller` rewrite. #4466 already
-  exposes declared-method lookup for Analysis attribution.
+  stays hollow.
+- Depending on #4461's `DirectCall.Caller` rewrite.
 - Chaining an async local-function `MoveNext` to the owning method.
-- Sharing a live `MetadataReader` or Analysis index across the
-  decompiler boundary.
 - Moving Analysis `MemberRef` / `MemberResolver` / `FrameworkIdentity`
   / attribution filters into Metadata.
-- A second state-machine detector in Analysis, CLI, or Research.
+- A product-surface listing filter for nested SM types.
 - Teaching `TypeShellProducer` about reconstruction outcomes.
 - Designing a state-dispatch raise before a corpus census.
+- Another `TryBuild*` matcher.
 
 ## Layer ownership
 
 | Fact | Owner |
 | --- | --- |
 | Attribute name classification (`StateMachineAsync`) | Metadata (already) |
-| Structural attribute type-arg decode + same-assembly TypeDef uniqueness | Metadata residual, not slice 0 |
-| Attribution filters (source-gen, GeneratedCode, Blazor) | Analysis, stays Analysis |
+| Structural attribute type-arg decode | Metadata residual, not slice 0 |
+| Attribution filters | Analysis |
 | `ClassicAsyncMachine` and the raise | Decompiler |
-| `async` on a full-body render | Each projection's decompiler result flag, consumed by CLI member views and `MemberBodyProducer` listings |
-| `async` on an API skeleton | Omitted. `TypeShellProducer` stays SRM-only |
-| `MoveNext` → declared source for call-site attribution | Analysis (`ResolveDeclaredMethod`) |
-| Presentation of Calls / Decompiled Source / overlays | CLI |
+| `async` on a full-body render | Each projection's decompiler result flag |
+| `async` on an API skeleton | Omitted |
+| `MoveNext` → declared source | Analysis (`ResolveDeclaredMethod`) |
+| CLI member / overlay presentation | CLI |
+| Corpus / library `MoveNext` rendering | Decompiler |
 
 ## Gates
 
 Honesty is unverified until these exist. They must exercise the
-**render**, not the metadata predicate.
+**render** or the named library/corpus surface, not the metadata
+predicate. They must not assume current kickoffs are Full.
 
-| Gate | Fails if |
-| --- | --- |
-| Decompiled Source, Annotated Source, Cost Overlay, and Semantics Overlay of `NoAwait` / `CallsSyncSiblingFromAsync` | Still contain `async` together with `Start<` |
-| Same renders | Fidelity is Full (narrow handoff must be Partial + `UnsupportedNode`) |
-| Kickoff with an extra observable statement | Body replaced (must remain visible at Partial) |
-| By-token `MoveNext` of a declined classic-async SM | Distinctive user logic (`ReadValue` / `Yield`) is absent |
-| By-token `MoveNext` of an async-iterator SM | No longer hollow (`return;`) |
-| Whole-type listing of `AsyncFixtures` | `NoAwait` still spelled `async` over the stub |
-| `ClassicAsyncWithoutAwait_UsesResolvedMethodBodyModifier` | Still expects `async Task NoAwait()` (must flip) |
-| Raise-discipline A/B for un-hollowed classic-async `MoveNext` | Unrecorded printer delta |
+| Gate | Surface | Fails if |
+| --- | --- | --- |
+| Four member C# views of `NoAwait`, `CallsSyncSiblingFromAsync`, and `Async_VoidBuilder` | CLI `member` | Still contain `async` together with `Start<` and no `UnsupportedNode` / DEC0004-class diagnostic |
+| Kickoff with an extra observable statement | Decompiler library | Body replaced |
+| In-domain `MoveNext` of a declined classic-async SM | Decompiler library (CLI type surface omits `d__` types) | Distinctive user logic absent |
+| Async-iterator `MoveNext` | Decompiler library | No longer hollow |
+| Whole-type listing of `AsyncFixtures` | `MemberBodyProducer` | `NoAwait` still spelled `async` over the stub without the marker |
+| `ClassicAsyncWithoutAwait_UsesResolvedMethodBodyModifier` | Existing test | Still expects `async Task NoAwait()` |
+| Corpus A/B for un-hollowed in-domain `MoveNext` | `CorpusSensor` / `IrImporter.ImportAssembly` | Unrecorded fidelity or coverage delta |
 
 Deleting the formatter change must fail the four member views and the
 whole-type listing. A green `TypeShellProducer` test is not this gate.
+A green "fidelity is not Full" check is not this gate.
