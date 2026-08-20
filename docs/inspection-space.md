@@ -655,17 +655,20 @@ Product-resident home demos ship as a static id→factory registry
 (`DotnetInspector.Queries.Definitions.ProductInspectionDemos`, smooth-markdown-table
 `RendererRegistry` style); hosts resolve one demo via
 `ProductInspectionDemos.ResolveHomeScenario`, which allocates only that demo's
-peer records. **Run** is a closed preset over the open query/section product:
-the registry fixes coordinates and names existing section(s); the host runs the
-normal section pipeline and returns those sections in ordinary formats. Demos
-must not call past sections into ad hoc inspection APIs; a capability that is
-not a product section is not a home demo until the section exists. CLI argv,
-definition plans, and browser engine operations (including a generated
-TypeScript binding of that engine surface) are encodings of the same preset—
-not parallel demo systems. Group-subscription grammar and share-packet
-transposition remain design-ahead of that loader. Selecting a scenario lowers
-into the same acquisition and typed query paths used by an interactive request;
-it does not create a second demo-only execution path. Detail:
+peer records (coordinates and view focus today). The **target** run model is a
+closed preset over the open query/section product: the registry fixes inputs
+and names **existing product section(s)**; the host runs the normal section
+pipeline and returns those sections in ordinary formats. That full section
+binding and run path are not implemented yet—current plans are a partial
+binding (see the workspace-definitions residual). Demos must not call past
+sections into ad hoc inspection APIs; a capability that is not a product
+section is not a home demo until the section exists. CLI argv, definition
+plans, and browser engine operations (including a generated TypeScript binding
+of that engine surface) are encodings of the same preset—not parallel demo
+systems. Group-subscription grammar and share-packet transposition remain
+design-ahead of that loader. Selecting a scenario lowers into the same
+acquisition and typed query paths used by an interactive request; it does not
+create a second demo-only execution path. Detail:
 [workspace-definitions.md — Product demos are closed section
 presets](design/workspace-definitions.md#product-demos-are-closed-section-presets).
 

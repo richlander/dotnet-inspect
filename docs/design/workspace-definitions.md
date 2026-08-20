@@ -403,12 +403,20 @@ Hard constraints:
    preset; they are not a second demo system.
 
 The product registry (`ProductInspectionDemos`) stays a static id→metadata
-table plus the closed binding (today: peer definition records lowered to a
-`ResolvedScenario`). Listing remains metadata-only. **Run** is the small
-expansion: apply the binding through the section pipeline. The browser home
-buttons and any imperative call-graph path converge on the same registry and
-sections once run exists; TypeScript export of the engine surface can land on
-its own schedule before the web host switches buttons over.
+table plus peer definition records lowered to a `ResolvedScenario`. Listing
+remains metadata-only. **Today's binding is not yet a full closed section
+preset:** the three home scenarios fix coordinates and view focus (type,
+member anchor/key, library), but STJ and platform views name no `section`,
+and the call-graph view's `section: "call-graph"` is an illustrative token
+until the product-owned section/view-facet registry binds demo selections
+(see the view-facet registry gate above). The residual is therefore two
+tight steps, not "run only": (1) bind each home demo to stable existing
+section ids through that registry, then (2) **run** — realize the binding,
+execute those sections, return ordinary formatted section output. The
+browser home buttons and any imperative call-graph path converge on the
+same registry and sections once both steps exist; TypeScript export of the
+engine surface can land on its own schedule before the web host switches
+buttons over.
 
 ### Member coordinates
 
@@ -913,9 +921,11 @@ Implementation must add, at minimum:
 - a demo-section constraint (design rule under
   [Product demos are closed section presets](#product-demos-are-closed-section-presets)):
   each product home demo names only existing section/view ids and runs through
-  the normal section pipeline — **unverified** until a run path and gate exist
-  that fail registration of a demo whose selected sections are unknown or that
-  bypasses sections.
+  the normal section pipeline — **unverified** until (a) home-demo views bind
+  stable product section ids (today STJ/platform omit `section`; call-graph's
+  token is not registry-validated), and (b) a run path and gate fail
+  registration of a demo whose selected sections are unknown or that bypasses
+  sections.
 
 The shell-safety elimination above is the one asserted property no
 repository gate can reach — it is a claim about external tools, verified
@@ -941,12 +951,14 @@ Definition records and product demos (this slice):
   demo-parity, null nested-array rejection, whole-record coordinate budget,
   dual `rid`/`runtimeIdentifier` rejection, and fail-closed subscribe /
   filesystem / cross-kind peer resolution; and
-- **not yet:** demo **run** as closed section presets
-  ([above](#product-demos-are-closed-section-presets)) — realize the resolved
-  binding, execute the named product sections, return formatted section output
-  on CLI and (via the engine / generated TS surface) on inspect-web; replace
-  hand-authored home links and imperative call-graph load once that path
-  exists. A resolve-only plan dump is not the user-facing demo command.
+- **not yet:** closed section presets + **run**
+  ([above](#product-demos-are-closed-section-presets)) — bind each home demo to
+  product-owned section ids (not merely coordinates/type focus); realize the
+  binding; execute those sections; return formatted section output on CLI and
+  (via the engine / generated TS surface) on inspect-web; replace hand-authored
+  home links and imperative call-graph load once that path exists. Today's
+  `ResolvedScenario` plans are a partial binding. A resolve-only plan dump is
+  not the user-facing demo command.
 
 The coordinate-realization slice implements the `package`, `platform`, and
 `embedded` member coordinates
