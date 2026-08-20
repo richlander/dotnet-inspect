@@ -711,6 +711,18 @@ public static class MetadataDeclarationQuery
         if (methodReturnType is "object" or "System.Object")
             return false;
 
+        OverrideCompatibility structuredCompatibility =
+            CompareStructuredReturnTypes(
+                reader,
+                methodReturnNode,
+                candidateReturnNode);
+        if (structuredCompatibility
+            != OverrideCompatibility.Unknown)
+        {
+            return structuredCompatibility
+                == OverrideCompatibility.Compatible;
+        }
+
         var hasMethodReturnDefinition =
             TryFindTypeDefinitionByRenderedName(
                 reader,
@@ -731,6 +743,215 @@ public static class MetadataDeclarationQuery
         }
 
         return IsSameOrDerivedOrImplements(reader, methodReturnHandle, candidateReturnHandle);
+    }
+
+    enum OverrideCompatibility
+    {
+        Unknown,
+        Compatible,
+        Incompatible,
+    }
+
+    static OverrideCompatibility CompareStructuredReturnTypes(
+        MetadataReader reader,
+        TypeNode method,
+        TypeNode candidate)
+    {
+        if (method.StructuralIdentity()
+            == candidate.StructuralIdentity())
+        {
+            return OverrideCompatibility.Compatible;
+        }
+
+        if (method is SZArrayTypeNode methodSz
+            && candidate is SZArrayTypeNode candidateSz)
+        {
+            if (!methodSz.ElementType.IsReferenceType
+                || !candidateSz.ElementType.IsReferenceType)
+            {
+                return OverrideCompatibility.Incompatible;
+            }
+            return CompareVariantTypeArguments(
+                reader,
+                methodSz.ElementType,
+                candidateSz.ElementType);
+        }
+
+        if (method is MDArrayTypeNode methodMd
+            && candidate is MDArrayTypeNode candidateMd)
+        {
+            return methodMd.Rank == candidateMd.Rank
+                && methodMd.ElementType.IsReferenceType
+                && candidateMd.ElementType.IsReferenceType
+                ? CompareVariantTypeArguments(
+                    reader,
+                    methodMd.ElementType,
+                    candidateMd.ElementType)
+                : OverrideCompatibility.Incompatible;
+        }
+
+        if (method is not GenericTypeNode methodGeneric
+            || candidate is not GenericTypeNode candidateGeneric
+            || NormalizeGenericDefinitionName(
+                   methodGeneric.DefinitionName)
+                != NormalizeGenericDefinitionName(
+                   candidateGeneric.DefinitionName)
+            || methodGeneric.Arguments.Length
+                != candidateGeneric.Arguments.Length
+            || !TryFindGenericTypeDefinition(
+                reader,
+                methodGeneric.DefinitionName,
+                methodGeneric.Arguments.Length,
+                out TypeDefinitionHandle genericDefinitionHandle))
+        {
+            return OverrideCompatibility.Unknown;
+        }
+
+        var genericParameters = reader
+            .GetTypeDefinition(genericDefinitionHandle)
+            .GetGenericParameters()
+            .Select(reader.GetGenericParameter)
+            .ToArray();
+        if (genericParameters.Length
+            != methodGeneric.Arguments.Length)
+        {
+            return OverrideCompatibility.Unknown;
+        }
+
+        bool hasUnknown = false;
+        for (int index = 0;
+            index < genericParameters.Length;
+            index++)
+        {
+            TypeNode methodArgument =
+                methodGeneric.Arguments[index];
+            TypeNode candidateArgument =
+                candidateGeneric.Arguments[index];
+            GenericParameterAttributes variance =
+                genericParameters[index].Attributes
+                & GenericParameterAttributes.VarianceMask;
+            OverrideCompatibility argumentCompatibility =
+                variance switch
+                {
+                    GenericParameterAttributes.None =>
+                        methodArgument.StructuralIdentity()
+                            == candidateArgument
+                                .StructuralIdentity()
+                            ? OverrideCompatibility.Compatible
+                            : OverrideCompatibility.Incompatible,
+                    GenericParameterAttributes.Covariant =>
+                        CompareVariantTypeArguments(
+                            reader,
+                            methodArgument,
+                            candidateArgument),
+                    GenericParameterAttributes.Contravariant =>
+                        CompareVariantTypeArguments(
+                            reader,
+                            candidateArgument,
+                            methodArgument),
+                    _ => OverrideCompatibility.Incompatible,
+                };
+            if (argumentCompatibility
+                == OverrideCompatibility.Incompatible)
+            {
+                return OverrideCompatibility.Incompatible;
+            }
+            hasUnknown |= argumentCompatibility
+                == OverrideCompatibility.Unknown;
+        }
+
+        return hasUnknown
+            ? OverrideCompatibility.Unknown
+            : OverrideCompatibility.Compatible;
+    }
+
+    static OverrideCompatibility CompareVariantTypeArguments(
+        MetadataReader reader,
+        TypeNode method,
+        TypeNode candidate)
+    {
+        OverrideCompatibility structured =
+            CompareStructuredReturnTypes(
+                reader,
+                method,
+                candidate);
+        if (structured != OverrideCompatibility.Unknown)
+            return structured;
+
+        if (!TryFindTypeDefinitionByRenderedName(
+                reader,
+                method.RenderCanonical(),
+                out TypeDefinitionHandle methodHandle)
+            || !TryFindTypeDefinitionByRenderedName(
+                reader,
+                candidate.RenderCanonical(),
+                out TypeDefinitionHandle candidateHandle))
+        {
+            return OverrideCompatibility.Unknown;
+        }
+
+        return IsSameOrDerivedOrImplements(
+                reader,
+                methodHandle,
+                candidateHandle)
+            ? OverrideCompatibility.Compatible
+            : OverrideCompatibility.Incompatible;
+    }
+
+    static bool TryFindGenericTypeDefinition(
+        MetadataReader reader,
+        string metadataName,
+        int arity,
+        out TypeDefinitionHandle handle)
+    {
+        string normalized =
+            NormalizeGenericDefinitionName(metadataName);
+        foreach (TypeDefinitionHandle candidateHandle
+            in reader.TypeDefinitions)
+        {
+            TypeDefinition definition =
+                reader.GetTypeDefinition(candidateHandle);
+            if (definition.GetGenericParameters().Count != arity
+                || NormalizeGenericDefinitionName(
+                    TypeResolver.GetFullName(
+                        reader,
+                        definition))
+                    != normalized)
+            {
+                continue;
+            }
+
+            handle = candidateHandle;
+            return true;
+        }
+
+        handle = default;
+        return false;
+    }
+
+    static string NormalizeGenericDefinitionName(
+        string typeName)
+    {
+        var result = new StringBuilder(typeName.Length);
+        for (int index = 0; index < typeName.Length; index++)
+        {
+            if (typeName[index] != '`')
+            {
+                result.Append(typeName[index] == '+'
+                    ? '.'
+                    : typeName[index]);
+                continue;
+            }
+
+            index++;
+            while (index < typeName.Length
+                && char.IsDigit(typeName[index]))
+            {
+                index++;
+            }
+            index--;
+        }
+        return result.ToString();
     }
 
     static bool HasByRefReturnModifier(string returnType)

@@ -4659,7 +4659,13 @@ public static class CompileBackSourceComposer
                     {
                         var method = reader.GetMethodDefinition(methodHandle);
                         if ((method.Attributes & MethodAttributes.Virtual) != 0
-                            && (method.Attributes & MethodAttributes.NewSlot) == 0
+                            && ((method.Attributes
+                                    & MethodAttributes.NewSlot) == 0
+                                || MetadataDeclarationQuery
+                                    .GetSameAssemblyOverrideSlot(
+                                        reader,
+                                        typeHandle,
+                                        methodHandle) is not null)
                             && CanIncludeClosureOverrideMember(reader, typeDef, methodHandle))
                         {
                             pending.Enqueue(methodHandle);
@@ -5329,7 +5335,6 @@ public static class CompileBackSourceComposer
             if (kind == CompileBackTypeKind.Class
                 && members.Any(member => member.Kind == CompileBackMemberKind.Constructor)
                 && !HasParameterlessConstructorSignature(members)
-                && !HasParameterlessInstanceConstructor(reader, typeDef)
                 && NeedsSyntheticParameterlessConstructor(reader, requirement, requirementsByMetadataName, useFullBodies))
             {
                 members.Add(SyntheticParameterlessConstructor(requirement.Type));
@@ -6178,7 +6183,6 @@ public static class CompileBackSourceComposer
                 && !TypeShellProducer.IsStaticType(typeDef)
                 && requirement.PrimaryConstructor is null
                 && !HasParameterlessConstructorSignature(members)
-                && !HasParameterlessInstanceConstructor(reader, typeDef)
                 && NeedsSyntheticParameterlessConstructor(reader, requirement, requirementsByMetadataName, useFullBodies))
             {
                 members.Add(new CompileBackMemberRequirement(
@@ -6372,34 +6376,6 @@ public static class CompileBackSourceComposer
             }
 
             return null;
-        }
-
-        static bool HasParameterlessInstanceConstructor(
-            MetadataReader reader,
-            TypeDefinition typeDef)
-        {
-            foreach (var methodHandle in typeDef.GetMethods())
-            {
-                var method = reader.GetMethodDefinition(methodHandle);
-                if (reader.GetString(method.Name) != ".ctor"
-                    || method.Attributes.HasFlag(MethodAttributes.Static))
-                {
-                    continue;
-                }
-
-                try
-                {
-                    var signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
-                    if (signature.ParameterTypes.Length == 0)
-                        return true;
-                }
-                catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
-                {
-                    continue;
-                }
-            }
-
-            return false;
         }
 
         static bool HasConcreteBody(MetadataReader reader, int token)

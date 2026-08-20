@@ -313,6 +313,57 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_AllFullPreservesUnrelatedCovariantMethodImpl()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Base
+            {
+                public virtual object Value() => "base";
+            }
+
+            public class Derived : Base
+            {
+                public override string Value() => "derived";
+
+                public int Call() => 1;
+            }
+            """);
+        string? rebuiltPath = null;
+        try
+        {
+            AssertCovariantMethodImpl(assemblyPath);
+
+            var result = Assert.Single(
+                ReturnToSender.CompileBackTargets(
+                    assemblyPath,
+                    [new ReturnToSender.RequestedTarget(
+                        "Derived",
+                        "Call",
+                        0)],
+                    RoundTripScope.All,
+                    RoundTripBodyPolicy.Full));
+
+            Assert.Contains(
+                "public override string Value()",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.True(
+                result.Status
+                    == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Source}{Environment.NewLine}{result.Detail}");
+
+            rebuiltPath = CompileFixture(result.Source);
+            AssertCovariantMethodImpl(rebuiltPath);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            if (rebuiltPath is not null)
+                DeleteFixture(rebuiltPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_AllFullDoesNotIntroduceFilteredGenericOverrideObligation()
     {
         var assemblyPath = CompileFixture("""
@@ -5505,6 +5556,73 @@ public class ReturnToSenderPrototypeTests
 
             Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
             Assert.Contains("class Widget : Base", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Theory]
+    [InlineData("private")]
+    [InlineData("internal")]
+    public void CompileBackTargets_SelectedSynthesizesConstructorWhenMetadataSignatureIsOmitted(
+        string accessibility)
+    {
+        var assemblyPath = CompileFixture($$"""
+            public class Base
+            {
+                {{accessibility}} Base()
+                {
+                }
+
+                public Base(int seed)
+                {
+                    Seed = seed;
+                }
+
+                public int Seed { get; }
+            }
+
+            public class Widget : Base
+            {
+                public Widget(int seed) : base(seed)
+                {
+                }
+            }
+
+            public static class Factory
+            {
+                public static Widget Create()
+                {
+                    Base value = new Base(1);
+                    _ = value.Seed;
+                    return new Widget(21);
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(
+                ReturnToSender.CompileBackTargets(
+                    assemblyPath,
+                    [new ReturnToSender.RequestedTarget(
+                        "Factory",
+                        "Create",
+                        0)],
+                    RoundTripScope.Cluster,
+                    RoundTripBodyPolicy.Selected));
+
+            Assert.False(
+                result.UsedCompileBackFloor,
+                $"{result.Source}{Environment.NewLine}{result.Detail}");
+            Assert.NotEqual(
+                FidelityCheck.CompileBackStatus.RecompileFail,
+                result.Status);
+            Assert.Contains(
+                "public Base()",
+                result.Source,
+                StringComparison.Ordinal);
         }
         finally
         {

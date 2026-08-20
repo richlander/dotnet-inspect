@@ -449,15 +449,19 @@ Recompiled targets are found by canonical member signature rather than their ori
 ordinal, so scaffold changes cannot shift a target onto a sibling overload.
 Closure constructor surfaces retain each metadata overload. A synthetic parameterless constructor
 is added only when no parameterless instance-constructor signature already occupies the C# member
-set; private accessibility can make an existing constructor unusable to a derived shell, but it
-cannot authorize a duplicate signature.
+set. A private or internal metadata constructor omitted from that emitted shell does not occupy
+its member set and therefore does not suppress synthesis; a non-public constructor that is emitted
+still prevents a duplicate signature.
 Same-assembly override closure also authenticates Roslyn's covariant-return encoding: a virtual
 `NewSlot` method or property/indexer accessor is still a source `override` when an unambiguous
 `MethodImpl` maps its body to a source-declarable virtual method on its base-class chain with
 compatible declaration shape. Locally resolved return types must prove covariance; when
 reference-type returns are external `TypeRef`s, the authenticated slot is preserved and the C#
 compiler validates the referenced hierarchy during compile-back rather than silently severing
-the slot.
+the slot. Local arrays and constructed generic returns are compared structurally, including array
+element covariance and the declared variance of local generic parameters. Full member-surface
+closure queues authenticated `NewSlot` class-MethodImpl members even when they are not the selected
+target, so an unrelated target cannot sever their rebuilt slots.
 Interface, unrelated-class, external, malformed, and ambiguous `MethodImpl` declarations do not
 materialize a class override slot. The reconstructed source must compile back to the same
 `NewSlot` plus class-`MethodImpl` relationship, not merely reproduce the target body.
@@ -549,9 +553,14 @@ and ambiguous class declarations, and
 `CompileBackTargets_PreservesCompilerProducedCovariantMethodImpl`,
 `CompileBackTargets_PreservesExternalCovariantMethodImpl`,
 `CompileBackTargets_PreservesCovariantPropertyMethodImpl`, and
-`CompileBackTargets_PreservesCovariantIndexerMethodImpl` gate rebuilt metadata relationships.
-`CompileBackTargets_AllFullDoesNotDuplicatePrivateParameterlessConstructor` gates constructor
-overload retention and signature-safe synthesis. `SkeletonEmitsExplicitInterfaceTargets` gates
+`CompileBackTargets_PreservesCovariantIndexerMethodImpl`, and
+`CompileBackTargets_AllFullPreservesUnrelatedCovariantMethodImpl` gate rebuilt metadata
+relationships. `SameAssemblyOverrideSlot_DeclinesIncompatibleStructuredReturn` gates local
+structured-return rejection.
+`CompileBackTargets_AllFullDoesNotDuplicatePrivateParameterlessConstructor` and
+`CompileBackTargets_SelectedSynthesizesConstructorWhenMetadataSignatureIsOmitted` gate constructor
+overload retention and emitted-signature-safe synthesis. `SkeletonEmitsExplicitInterfaceTargets`
+gates
 selected explicit methods and
 accessors,
 `SkeletonExplicitInterfaceWholeMemberHonorsRequestedView` gates whole-member production rendering

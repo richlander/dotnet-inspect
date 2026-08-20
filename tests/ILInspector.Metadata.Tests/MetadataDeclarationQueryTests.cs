@@ -435,6 +435,46 @@ public sealed class MetadataDeclarationQueryTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SameAssemblyOverrideSlot_DeclinesIncompatibleStructuredReturn(
+        bool arrayReturn)
+    {
+        string path =
+            EmitIncompatibleStructuredReturnOverride(
+                arrayReturn);
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            var reader = peReader.GetMetadataReader();
+            var derivedHandle =
+                reader.TypeDefinitions.Single(handle =>
+                    reader.GetString(
+                        reader.GetTypeDefinition(handle).Name)
+                    == "Derived");
+            var derived =
+                reader.GetTypeDefinition(derivedHandle);
+            var methodHandle =
+                derived.GetMethods().Single(handle =>
+                    reader.GetString(
+                        reader.GetMethodDefinition(handle).Name)
+                    == "Value");
+
+            Assert.Null(
+                MetadataDeclarationQuery
+                    .GetSameAssemblyOverrideSlot(
+                        reader,
+                        derivedHandle,
+                        methodHandle));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public void StaticAbstractInterfaceMethod_IsNotClassifiedAsOverride()
     {
@@ -965,6 +1005,80 @@ public sealed class MetadataDeclarationQueryTests
         derivedType.CreateType();
 
         string path = Path.Combine(Path.GetTempPath(), $"IncompatibleReturnOverride-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
+    static string EmitIncompatibleStructuredReturnOverride(
+        bool arrayReturn)
+    {
+        var assemblyName = new AssemblyName(
+            "IncompatibleStructuredReturnOverride");
+        var assembly = new PersistedAssemblyBuilder(
+            assemblyName,
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(
+            assemblyName.Name!);
+
+        Type first = module
+            .DefineType("First", TypeAttributes.Public)
+            .CreateType();
+        Type second = module
+            .DefineType("Second", TypeAttributes.Public)
+            .CreateType();
+        Type baseReturn;
+        Type derivedReturn;
+        if (arrayReturn)
+        {
+            baseReturn = first.MakeArrayType();
+            derivedReturn = second.MakeArrayType();
+        }
+        else
+        {
+            var boxBuilder = module.DefineType(
+                "Box`1",
+                TypeAttributes.Public);
+            boxBuilder.DefineGenericParameters("T");
+            Type box = boxBuilder.CreateType();
+            baseReturn = box.MakeGenericType(first);
+            derivedReturn = box.MakeGenericType(second);
+        }
+
+        var baseBuilder = module.DefineType(
+            "Base",
+            TypeAttributes.Public);
+        var baseMethod = baseBuilder.DefineMethod(
+            "Value",
+            MethodAttributes.Public
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot,
+            baseReturn,
+            Type.EmptyTypes);
+        baseMethod.GetILGenerator().Emit(OpCodes.Ldnull);
+        baseMethod.GetILGenerator().Emit(OpCodes.Ret);
+        Type baseType = baseBuilder.CreateType();
+
+        var derivedBuilder = module.DefineType(
+            "Derived",
+            TypeAttributes.Public,
+            baseType);
+        var derivedMethod = derivedBuilder.DefineMethod(
+            "Value",
+            MethodAttributes.Public
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot,
+            derivedReturn,
+            Type.EmptyTypes);
+        derivedMethod.GetILGenerator().Emit(OpCodes.Ldnull);
+        derivedMethod.GetILGenerator().Emit(OpCodes.Ret);
+        derivedBuilder.DefineMethodOverride(
+            derivedMethod,
+            baseMethod);
+        derivedBuilder.CreateType();
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"IncompatibleStructuredReturnOverride-{Guid.NewGuid():N}.dll");
         assembly.Save(path);
         return path;
     }
