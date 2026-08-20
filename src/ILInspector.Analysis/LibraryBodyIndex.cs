@@ -89,6 +89,8 @@ public sealed class LibraryBodyIndex
             analysis.Methods.InAssemblyTypeIsException;
         _suppressedOpportunityTokens =
             analysis.Optimizations.SuppressedMethodTokens;
+        _scopeExcludedOpportunityTokens =
+            analysis.Optimizations.ScopeExcludedMethodTokens;
         _exceptionTypeNames = analysis.Optimizations.ExceptionTypeNames;
         _nonHeapNewObjOperandTokens =
             analysis.Methods.NonHeapNewObjOperandTokens;
@@ -272,6 +274,10 @@ public sealed class LibraryBodyIndex
                                 _physicalDirectCalls,
                                 Methods),
                             _allocationOccurrences)
+                        .Where(summary =>
+                            !_scopeExcludedOpportunityTokens
+                                .Contains(
+                                    summary.Method.MetadataToken))
                         .Select(summary => new OptimizationOpportunity(
                             summary.Method,
                             "allocation-fanout",
@@ -721,6 +727,8 @@ public sealed class LibraryBodyIndex
     readonly IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> _unsafetyOccurrences;
     readonly IReadOnlyDictionary<(string Namespace, string Name), bool> _inAssemblyTypeIsException;
     readonly IReadOnlySet<int> _suppressedOpportunityTokens;
+    readonly IReadOnlySet<int>
+        _scopeExcludedOpportunityTokens;
     readonly IReadOnlySet<string> _exceptionTypeNames;
     readonly IReadOnlySet<int> _nonHeapNewObjOperandTokens;
 
@@ -967,6 +975,8 @@ public sealed class LibraryBodyIndex
                 Optimizations: new(
                     Opportunities: [],
                     SuppressedMethodTokens: new HashSet<int>(),
+                    ScopeExcludedMethodTokens:
+                        new HashSet<int>(),
                     ExceptionTypeNames:
                         new HashSet<string>(StringComparer.Ordinal)),
                 OwnershipFlow: new(Methods: []),
