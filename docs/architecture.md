@@ -782,7 +782,9 @@ Research overlay bridge, and the application layer:
   bodies, and top-level entry-point authentication. Authenticated async
   `MoveNext` bodies from the async-source resolver seed the same closure as
   ordinary owner bodies. It consumes primary metadata identity, generated-code
-  judgments, and async execution mapping rather than duplicating them.
+  judgments, and async execution mapping rather than duplicating them. Scoped
+  closure failures are retained as analysis diagnostics rather than becoming
+  success-shaped partial evidence.
   `OptimizationOpportunities_DuplicateMemberRefsResolveStructuralIdentityOnce`,
   `OptimizationOpportunities_SharedMemberRefDecodesOnceAcrossOwnerBodies`, and
   `LiftedOwnerMemberIdentity_RetainsExactAssemblyReferenceScope` gate cache
@@ -791,8 +793,11 @@ Research overlay bridge, and the application layer:
   `ResolveDeclaredMethod_MapsSiblingReferencedLocalFunctionToOwner`,
   `ResolveDeclaredMethod_MapsAsyncOwnerLocalFunctionToOwner`,
   `ResolveDeclaredMethod_MapsAsyncLiftedFunctionSiblingToOwner`,
+  `DirectCalls_AsyncLiftedMoveNextComposesToDeclaredOwner`,
   `AsyncMoveNextResolution_UsesExplicitInterfaceImplementation`,
   `DirectCalls_DirectLiftedTypeScopeRetainsDeclaredCaller`,
+  `OptimizationOpportunities_DirectLiftedTypeScopeRetainsSourceOwner`,
+  `OptimizationOpportunities_MalformedMethodSpecCannotAuthenticateOwner`,
   `TypeTargetedBuild_MatchesFullBuild_ForEveryMethodOfTheType`,
   `OptimizationOpportunities_ClassicAsyncTypeDefinitionsAreIndexedOnce`, and
   the top-level local-function tests gate the lifted-owner caches, closure, and
@@ -800,9 +805,13 @@ Research overlay bridge, and the application layer:
   `LibraryBodyAsyncSourceResolver` owns acquisition-scoped runtime/classic
   async source resolution, classic source-to-`MoveNext` mapping, state-machine
   attribute authentication, generated lifted-source execution mapping, and
-  scoped evidence expansion. It reuses primary metadata identity and
-  generated-code judgments plus the builder's shared local type-definition
-  index.
+  scoped evidence expansion. Generated kickoff intermediates compose through
+  lifted owners, while non-IL or runtime-async kickoff bodies cannot
+  authenticate classic state machines.
+  `AsyncSource_MethodImplRequiresValidSourceMethodShape` gates the kickoff and
+  state-machine body requirements. The resolver reuses primary metadata
+  identity and generated-code judgments plus the builder's shared local
+  type-definition index.
   `OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate`,
   `AsyncStateMachineAttribute_RequiresFrameworkOrigin`,
   `ScopedStateMachineExpansion_RequiresTrustedClassicSource`, and

@@ -1488,6 +1488,36 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void
+        DirectCalls_AsyncLiftedMoveNextComposesToDeclaredOwner()
+    {
+        string path = typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        var index = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity owner = Assert.Single(
+            index.DeclaredMethods,
+            method => method.Name
+                == nameof(
+                    ClassicAsyncSiblingFixture
+                        .AsyncLiftedFunctionCallsSibling));
+        DirectCall call = Assert.Single(
+            index.DirectCalls,
+            call => call.Caller == owner
+                && call.EvidenceMethod.Name == "MoveNext"
+                && call.EvidenceMethod.DeclaringType.Name.Contains(
+                    "AsyncLiftedFunctionCallsSibling",
+                    StringComparison.Ordinal)
+                && call.Callee.Name.StartsWith(
+                    "<AsyncLiftedFunctionCallsSibling>g__Inner|",
+                    StringComparison.Ordinal));
+
+        Assert.Equal(
+            owner,
+            index.ResolveDeclaredMethod(call.EvidenceMethod));
+    }
+
+    [Fact]
     public void ResolveDeclaredMethod_MapsAsyncOwnerLocalFunctionToOwner()
     {
         string path = typeof(ClassicAsyncSiblingFixture).Assembly.Location;
@@ -2351,6 +2381,27 @@ public class LibraryBodyIndexTests
                         == "AnalyzeAsync");
             Assert.Contains(
                 malformedAttributeConstructor.Diagnostics,
+                diagnostic => diagnostic.Method.Contains(
+                    "AnalyzeAsync",
+                    StringComparison.Ordinal));
+
+            File.WriteAllBytes(
+                path,
+                BuildMethodImplAsyncSourceAssembly(
+                    includeMethodImpl: false,
+                    sourceImplementation:
+                        MethodImplAttributes.Native));
+            var nativeClassicAsync =
+                LibraryBodyIndex.Open(path);
+            Assert.DoesNotContain(
+                nativeClassicAsync
+                    .OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method.Name
+                        == "AnalyzeAsync");
+            Assert.Contains(
+                nativeClassicAsync.Diagnostics,
                 diagnostic => diagnostic.Method.Contains(
                     "AnalyzeAsync",
                     StringComparison.Ordinal));
@@ -9868,6 +9919,34 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void
+        OptimizationOpportunities_DirectLiftedTypeScopeRetainsSourceOwner()
+    {
+        string path =
+            typeof(OptimizationOpportunityFixtures).Assembly.Location;
+        var full = LibraryBodyIndex.Open(path);
+        OptimizationOpportunity expected = Assert.Single(
+            full.OptimizationOpportunities,
+            opportunity => opportunity.Method.Name.Contains(
+                    nameof(OptimizationOpportunityFixtures
+                        .GenericObjectEqualsLambda),
+                    StringComparison.Ordinal)
+                && opportunity.Shape
+                    == "generic-parameter-object-box");
+
+        var scoped = LibraryBodyIndex.Open(
+            path,
+            bodyTypeScope: type =>
+                type.Equals(expected.Method.DeclaringType));
+        OptimizationOpportunity actual = Assert.Single(
+            scoped.OptimizationOpportunities,
+            opportunity => opportunity.Method == expected.Method
+                && opportunity.Shape == expected.Shape);
+
+        Assert.Equal(expected.SourceOwner, actual.SourceOwner);
+    }
+
+    [Fact]
     public void DirectCalls_AttributeLiftedBodiesButNotIterators()
     {
         var index = LibraryBodyIndex.Open(
@@ -10642,6 +10721,7 @@ public class LibraryBodyIndexTests
     {
         byte[] image = File.ReadAllBytes(
             typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        int liftedToken;
         using (var stream = new MemoryStream(image, writable: false))
         using (var peReader = new PEReader(stream))
         {
@@ -10683,6 +10763,12 @@ public class LibraryBodyIndexTests
                                         + "g__EqualsCore|",
                                     StringComparison.Ordinal);
                     });
+            EntityHandle lifted =
+                reader.GetMethodSpecification(specification).Method;
+            Assert.Equal(
+                HandleKind.MethodDefinition,
+                lifted.Kind);
+            liftedToken = MetadataTokens.GetToken(lifted);
             BlobHandle signature =
                 reader.GetMethodSpecification(specification).Signature;
             int blobStream = MetadataStreamOffset(
@@ -10713,6 +10799,19 @@ public class LibraryBodyIndexTests
                         .GenericObjectEqualsLocalFunction),
                     StringComparison.Ordinal));
         Assert.NotEmpty(index.Diagnostics);
+
+        LibraryBodyIndex scoped =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "MalformedMethodSpec.dll",
+                ImmutableArray.Create(image),
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+                bodyScope: new HashSet<int> { liftedToken });
+        Assert.Contains(
+            scoped.Diagnostics,
+            diagnostic => diagnostic.Method.Contains(
+                "<GenericObjectEqualsLocalFunction>g__EqualsCore|",
+                StringComparison.Ordinal));
     }
 
     [Fact]
@@ -12575,6 +12674,9 @@ public class OptimizationOpportunityFixtures
 
         static bool EqualsCore(T x, T y) => x!.Equals(y);
     }
+
+    public static Func<T, T, bool> GenericObjectEqualsLambda<T>() =>
+        (left, right) => left!.Equals(right);
 
     public static int MultipleLiftedFunctions(int value)
     {

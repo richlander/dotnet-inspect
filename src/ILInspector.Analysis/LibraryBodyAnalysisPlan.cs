@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace ILInspector.Analysis;
 
 internal sealed record LibraryBodyAnalysisPlan(
@@ -6,7 +8,9 @@ internal sealed record LibraryBodyAnalysisPlan(
     Func<TypeRef, bool>? TypeScope,
     IReadOnlyDictionary<int, TypeRef>?
         TypeScopeEvidenceSources = null,
-    IReadOnlySet<int>? RequestedMethodScope = null)
+    IReadOnlySet<int>? RequestedMethodScope = null,
+    ImmutableArray<AnalysisDiagnostic>
+        ScopeExpansionDiagnostics = default)
 {
     internal bool IsScoped
         => MethodScope is not null || TypeScope is not null;
