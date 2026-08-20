@@ -63,24 +63,31 @@ internal static class MetadataNamedTypeSignatureDecoder
     internal static MetadataNamedTypeReference? DecodeType(
         MetadataReader reader,
         EntityHandle handle,
-        GenericContext? context) =>
+        GenericContext? context,
+        Action<int>? beforeDecodeWork = null)
+    {
+        var provider = beforeDecodeWork is null
+            ? MetadataNamedTypeProvider.Instance
+            : new MetadataNamedTypeProvider(beforeDecodeWork);
+        return
         handle.Kind switch
         {
-            HandleKind.TypeDefinition => MetadataNamedTypeProvider.Instance.GetTypeFromDefinition(
+            HandleKind.TypeDefinition => provider.GetTypeFromDefinition(
                 reader,
                 (TypeDefinitionHandle)handle,
                 rawTypeKind: 0),
-            HandleKind.TypeReference => MetadataNamedTypeProvider.Instance.GetTypeFromReference(
+            HandleKind.TypeReference => provider.GetTypeFromReference(
                 reader,
                 (TypeReferenceHandle)handle,
                 rawTypeKind: 0),
-            HandleKind.TypeSpecification => MetadataNamedTypeProvider.Instance.GetTypeFromSpecification(
+            HandleKind.TypeSpecification => provider.GetTypeFromSpecification(
                 reader,
                 context,
                 (TypeSpecificationHandle)handle,
                 rawTypeKind: 0),
             _ => null,
         };
+    }
 
     internal static MethodSignature<MetadataNamedTypeReference?>? DecodeMethod(
         MetadataReader reader,
@@ -116,6 +123,12 @@ internal static class MetadataNamedTypeSignatureDecoder
             GenericContext?>
     {
         internal static MetadataNamedTypeProvider Instance { get; } = new();
+        readonly Action<int>? beforeDecodeWork;
+
+        internal MetadataNamedTypeProvider(Action<int>? beforeDecodeWork = null)
+        {
+            this.beforeDecodeWork = beforeDecodeWork;
+        }
 
         public MetadataNamedTypeReference? GetPrimitiveType(
             PrimitiveTypeCode typeCode) =>
@@ -149,7 +162,10 @@ internal static class MetadataNamedTypeSignatureDecoder
             MetadataReader reader,
             TypeDefinitionHandle handle,
             byte rawTypeKind) =>
-            MetadataTypeDefinitionNameReader.Read(reader, handle)
+            MetadataTypeDefinitionNameReader.Read(
+                reader,
+                handle,
+                beforeDecodeWork)
                 is MetadataTypeDefinitionNameReadResult.Read read
                     ? new MetadataNamedTypeReference(
                         new MetadataTypeReferenceScope.CurrentAssembly(),
@@ -161,7 +177,10 @@ internal static class MetadataNamedTypeSignatureDecoder
             TypeReferenceHandle handle,
             byte rawTypeKind)
         {
-            if (MetadataTypeDefinitionNameReader.Read(reader, handle)
+            if (MetadataTypeDefinitionNameReader.Read(
+                    reader,
+                    handle,
+                    beforeDecodeWork)
                 is not MetadataTypeDefinitionNameReadResult.Read read)
             {
                 return null;
@@ -186,7 +205,7 @@ internal static class MetadataNamedTypeSignatureDecoder
             {
                 HandleKind.AssemblyReference =>
                     new MetadataTypeReferenceScope.AssemblyReference(
-                        AssemblyReferenceIdentity.From(
+                        AssemblyReference(
                             reader,
                             (AssemblyReferenceHandle)terminal)),
                 HandleKind.ModuleReference =>
@@ -215,8 +234,11 @@ internal static class MetadataNamedTypeSignatureDecoder
 
             using (scope)
             {
-                return reader.GetTypeSpecification(handle)
-                    .DecodeSignature(this, context);
+                TypeSpecification specification =
+                    reader.GetTypeSpecification(handle);
+                beforeDecodeWork?.Invoke(
+                    reader.GetBlobReader(specification.Signature).Length);
+                return specification.DecodeSignature(this, context);
             }
         }
 
@@ -277,12 +299,26 @@ internal static class MetadataNamedTypeSignatureDecoder
                     ? new MetadataNamedTypeReference(scope, valid.Name)
                     : null;
 
-        static MetadataTypeReferenceScope? ModuleScope(
+        AssemblyReferenceIdentity AssemblyReference(
+            MetadataReader reader,
+            AssemblyReferenceHandle handle)
+        {
+            System.Reflection.Metadata.AssemblyReference reference =
+                reader.GetAssemblyReference(handle);
+            beforeDecodeWork?.Invoke(reader.GetBlobReader(reference.Name).Length);
+            beforeDecodeWork?.Invoke(reader.GetBlobReader(reference.Culture).Length);
+            beforeDecodeWork?.Invoke(
+                reader.GetBlobReader(reference.PublicKeyOrToken).Length);
+            return AssemblyReferenceIdentity.From(reader, handle);
+        }
+
+        MetadataTypeReferenceScope? ModuleScope(
             MetadataReader reader,
             ModuleReferenceHandle handle)
         {
-            string name = reader.GetString(
-                reader.GetModuleReference(handle).Name);
+            StringHandle nameHandle = reader.GetModuleReference(handle).Name;
+            beforeDecodeWork?.Invoke(reader.GetBlobReader(nameHandle).Length);
+            string name = reader.GetString(nameHandle);
             return string.IsNullOrWhiteSpace(name)
                 ? null
                 : new MetadataTypeReferenceScope.ModuleReference(name);

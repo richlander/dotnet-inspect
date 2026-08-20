@@ -487,7 +487,7 @@ public class OutputFormatterTests
                     "-m",
                     $"{nameof(AccessorSmallArrayOpportunity)}:2",
                     "-S",
-                    SectionNames.PerformanceTriage,
+                    $"{SectionNames.TopLeverage},{SectionNames.PerformanceTriage}",
                     "--tips",
                     "q",
                 ])
@@ -501,6 +501,35 @@ public class OutputFormatterTests
         Assert.DoesNotContain(
             $"get_{nameof(AccessorSmallArrayOpportunity)}",
             result.Output);
+        Assert.Contains(
+            $"set_{nameof(AccessorSmallArrayOpportunity)}",
+            result.Output);
+
+        var structured = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "member",
+                    typeof(OutputFormatterTests).FullName!,
+                    "--library",
+                    typeof(OutputFormatterTests).Assembly.Location,
+                    "--all",
+                    "-m",
+                    $"{nameof(AccessorSmallArrayOpportunity)}:2",
+                    "-S",
+                    SectionNames.TopLeverage,
+                    "--jsonl",
+                    "--tips",
+                    "q",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, structured.ExitCode);
+        Assert.DoesNotContain(
+            $"get_{nameof(AccessorSmallArrayOpportunity)}",
+            structured.Output);
+        Assert.Contains(
+            $"set_{nameof(AccessorSmallArrayOpportunity)}",
+            structured.Output);
     }
 
     [Fact]

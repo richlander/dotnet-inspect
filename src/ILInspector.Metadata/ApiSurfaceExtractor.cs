@@ -677,7 +677,10 @@ public static class ApiSurfaceExtractor
 
             var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
             var explicitInterfaceImplementationBodies =
-                GetExplicitInterfaceImplementationBodies(reader, typeDef);
+                GetExplicitInterfaceImplementationBodies(
+                    reader,
+                    typeDef,
+                    observeDecodeWork);
             var accessorMethods = GetAccessorMethods(reader, typeDef);
             var canonicalAccessorMethods =
                 GetCanonicalAccessorMethods(reader, typeDef, observeDecodeWork);
@@ -1925,7 +1928,9 @@ public static class ApiSurfaceExtractor
     }
 
     internal static HashSet<MethodDefinitionHandle> GetExplicitInterfaceImplementationBodies(
-        MetadataReader reader, TypeDefinition typeDef)
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        Action<int>? beforeDecodeWork = null)
     {
         var context = GenericContext.ForType(reader, typeDef);
         HashSet<MetadataNamedTypeReference> implementedInterfaces = [];
@@ -1935,12 +1940,14 @@ public static class ApiSurfaceExtractor
             var interfaceIdentity = MetadataNamedTypeSignatureDecoder.DecodeType(
                 reader,
                 interfaceType,
-                context);
+                context,
+                beforeDecodeWork);
             if (interfaceIdentity is not null)
                 implementedInterfaces.Add(interfaceIdentity);
         }
 
         HashSet<MethodDefinitionHandle> handles = [];
+        Dictionary<EntityHandle, MetadataNamedTypeReference?> declarationTypes = [];
         foreach (var implementationHandle in typeDef.GetMethodImplementations())
         {
             var implementation = reader.GetMethodImplementation(implementationHandle);
@@ -1949,7 +1956,9 @@ public static class ApiSurfaceExtractor
                     reader,
                     implementation.MethodDeclaration,
                     implementedInterfaces,
-                    context))
+                    context,
+                    declarationTypes,
+                    beforeDecodeWork))
             {
                 handles.Add((MethodDefinitionHandle)implementation.MethodBody);
             }
@@ -1962,7 +1971,9 @@ public static class ApiSurfaceExtractor
         MetadataReader reader,
         EntityHandle declaration,
         IReadOnlySet<MetadataNamedTypeReference> implementedInterfaces,
-        GenericContext context)
+        GenericContext context,
+        Dictionary<EntityHandle, MetadataNamedTypeReference?> declarationTypes,
+        Action<int>? beforeDecodeWork)
     {
         EntityHandle declaringType = declaration.Kind switch
         {
@@ -1979,10 +1990,17 @@ public static class ApiSurfaceExtractor
                 & TypeAttributes.Interface) != 0;
         }
 
-        var declaringTypeIdentity = MetadataNamedTypeSignatureDecoder.DecodeType(
-            reader,
-            declaringType,
-            context);
+        if (!declarationTypes.TryGetValue(
+                declaringType,
+                out MetadataNamedTypeReference? declaringTypeIdentity))
+        {
+            declaringTypeIdentity = MetadataNamedTypeSignatureDecoder.DecodeType(
+                reader,
+                declaringType,
+                context,
+                beforeDecodeWork);
+            declarationTypes.Add(declaringType, declaringTypeIdentity);
+        }
         return declaringTypeIdentity is not null
             && implementedInterfaces.Contains(declaringTypeIdentity);
     }

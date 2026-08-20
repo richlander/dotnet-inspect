@@ -440,6 +440,34 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void RepeatedMethodImplParentIdentity_StopsBeforeLargeAllocationAmplification()
+    {
+        byte[] image = BuildRepeatedMethodImplParentImage(
+            methodImplCount: 10_000,
+            nameLength: 4_000);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        ApiSurfaceExtractionResult result = ApiSurfaceExtractor.ExtractBounded(
+            peReader,
+            ApiSurfaceExtractionScope.Public,
+            new ApiSurfaceExtractionBounds(
+                maxTypes: 10,
+                maxMembers: 10,
+                maxInspectionFailures: 10,
+                maxTypeForwarders: 10,
+                maxMetadataRows: 30_000,
+                maxRetainedTextCharacters: 1_024));
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.IsType<ApiSurfaceExtractionResult.Extracted>(result);
+        Assert.True(
+            allocated < 64L * 1024 * 1024,
+            $"bounded extraction allocated {allocated:N0} bytes");
+    }
+
+    [Fact]
     public void RepeatedLongSkippedAccessorName_StopsBeforeLargeAllocationAmplification()
     {
         AssertTextAmplificationIsBounded(
@@ -1398,6 +1426,49 @@ public sealed class ApiSurfaceExtractorBoundsTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    static byte[] BuildRepeatedMethodImplParentImage(
+        int methodImplCount,
+        int nameLength)
+    {
+        var metadata = Metadata("MethodImplParentAmplification");
+        AssemblyReferenceHandle assembly = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle declarationParent = metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("Contracts"),
+            metadata.GetOrAddString(new string('I', nameLength)));
+        TypeDefinitionHandle type = AddModuleAndPublicType(metadata, "Implementer");
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(isInstanceMethod: true)
+            .Parameters(0, returnType => returnType.Void(), _ => { });
+        BlobHandle signatureHandle = metadata.GetOrAddBlob(signature);
+        MethodDefinitionHandle body = metadata.AddMethodDefinition(
+            MethodAttributes.Private
+                | MethodAttributes.Virtual
+                | MethodAttributes.Final
+                | MethodAttributes.NewSlot
+                | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            signatureHandle,
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        MemberReferenceHandle declaration = metadata.AddMemberReference(
+            declarationParent,
+            metadata.GetOrAddString("M"),
+            signatureHandle);
+        for (int index = 0; index < methodImplCount; index++)
+            metadata.AddMethodImplementation(type, body, declaration);
+
+        return Serialize(metadata);
     }
 
     static byte[] BuildRepeatedLongFieldNameImage(

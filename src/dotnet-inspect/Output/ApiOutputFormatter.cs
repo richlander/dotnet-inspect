@@ -2957,6 +2957,9 @@ public static class ApiOutputFormatter
     internal static void PopulateTopLeverage(TypeView view, ApiType type, Analysis.LibraryBodyIndex index, bool restrictToModelMembers = false)
     {
         var drillByToken = BuildMemberDrillMap(type);
+        HashSet<int>? admittedTokens = restrictToModelMembers
+            ? AnalysisMethodTokens(type).ToHashSet()
+            : null;
 
         // Rank every method declared on this type; fanin is still measured across all
         // callers in the assembly. The full ranked set is emitted and the generic row
@@ -2964,7 +2967,7 @@ public static class ApiOutputFormatter
         // contexts `type.Members` is narrowed to the selected member(s), so restrict the
         // ranked rows to those tokens (mirrors PopulateOptimizationOpportunities).
         var rows = index.TopLeverage(count: int.MaxValue, scope: method => ApiAnalysisInspection.SameType(method.DeclaringType, type))
-            .Where(entry => !restrictToModelMembers || drillByToken.ContainsKey(entry.Method.MetadataToken))
+            .Where(entry => admittedTokens is null || admittedTokens.Contains(entry.Method.MetadataToken))
             .Select(entry =>
             {
                 drillByToken.TryGetValue(entry.Method.MetadataToken, out var drill);
