@@ -121,6 +121,29 @@ test("the type nav reports no matches for an empty filtered group", () => {
   assert.match(html, /No public types match this filter\./);
 });
 
+test("the type nav handles a package with no projected types", () => {
+  const html = renderTypeNav({
+    current: null,
+    visible: [],
+    typeGroups: new Map(),
+    typeFilter: "",
+    namespaceFilter: "",
+    kindFilter: "",
+    namespaceCount: 0,
+    namespaceOptionsHtml: "",
+    kindFilters: [],
+    accessibilityControlHtml: "",
+    libraryControlHtml: "",
+    escapeHtml,
+    typeDisplayName,
+    kindIcon,
+    shortKind,
+  });
+
+  assert.match(html, /data-nav-selection=""/);
+  assert.match(html, /No public types match this filter\./);
+});
+
 test("the member nav marks the active group and its selected overload", () => {
   const group = {
     key: "method:Serialize",

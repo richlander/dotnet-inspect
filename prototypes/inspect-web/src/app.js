@@ -282,6 +282,7 @@ const state = {
   typeMetadataLoading: false,
   typeMetadataError: "",
   typeMetadataKey: "",
+  typeMetadataGeneration: 0,
   packageDependencies: null,
   packageDependenciesLoading: false,
   packageDependenciesError: "",
@@ -1014,6 +1015,15 @@ function clearWorkspacePackages() {
   state.package = null;
   for (const packageModel of discarded)
     releasePackageModelCaches(packageModel);
+}
+
+function resetLocationFilters() {
+  state.typeFilter = "";
+  state.namespaceFilter = "";
+  state.kindFilter = "";
+  state.libraryScope = null;
+  state.typeCursor = 0;
+  resetMemberFilters();
 }
 
 function selectPackageTab(pkg) {
@@ -3737,6 +3747,14 @@ function bindEvents() {
   const bindPlatformLensPicker = (dataAttr, lens, loader) => {
     document.querySelectorAll(`[${dataAttr}]`).forEach(select => select.addEventListener("change", async () => {
       const navigationSeq = ++state.navigationSeq;
+      const originPackage = state.package;
+      const isCurrent = () =>
+        navigationSeq === state.navigationSeq
+        && select.isConnected
+        && !state.home
+        && state.atPackageRoot
+        && state.packageLens === lens
+        && packageIdentityEquals(state.package, originPackage);
       const name = select.value;
       if (!name) return;
       const key = name.replace(/\.dll$/i, "");
@@ -3747,9 +3765,9 @@ function bindEvents() {
           platformScopeTfm(),
           `${key}.dll`,
           pack,
-          () => navigationSeq === state.navigationSeq);
-        if (navigationSeq !== state.navigationSeq) return;
+          isCurrent);
       }
+      if (!isCurrent()) return;
       state.libraryScope = new Set([key]);
       recordPlatformRecent(key, pack);
       state.atPackageRoot = true;
@@ -5466,12 +5484,12 @@ function memberRequestIsCurrent(
 
 async function loadSelectedTypeSource() {
   if (activeSourceOperationKind(state) !== "type") {
-    render();
+    renderPreservingMemberFocus();
     return;
   }
   const type = selectedType();
   if (!type) {
-    render();
+    renderPreservingMemberFocus();
     return;
   }
   const signature = typeSourceSignature(type, state.package, state.taste, memberRequestKey);
@@ -5480,7 +5498,7 @@ async function loadSelectedTypeSource() {
       state.typeSourceLoading,
       state.typeSource,
       state.typeSourceError)) {
-    render();
+    renderPreservingMemberFocus();
     return;
   }
   const generation = beginSourceRequestState(state);
@@ -5488,7 +5506,7 @@ async function loadSelectedTypeSource() {
   state.typeSource = null;
   state.typeSourceError = "";
   state.typeSourceLoading = true;
-  render();
+  const preservedFocus = renderPreservingMemberFocus();
   try {
     const result = await inspectTypeSource({
       packageId: state.package.id,
@@ -5509,30 +5527,44 @@ async function loadSelectedTypeSource() {
       state.typeSourceError = String(error?.message || error);
     }
   } finally {
-    if (generation === state.sourceRequestGeneration
-      && state.typeSourceKey === signature) {
+    const current = generation === state.sourceRequestGeneration
+      && state.typeSourceKey === signature;
+    if (current) {
       state.typeSourceLoading = false;
+      renderPreservingMemberFocus(preservedFocus);
     }
-    render();
   }
 }
 
 async function loadSelectedTypeMetadata() {
   const type = selectedType();
   if (!type) {
-    render();
+    renderPreservingMemberFocus();
     return;
   }
   const signature = typeMetadataSignature(type, state.package);
-  if (state.typeMetadataKey === signature && (state.typeMetadata || state.typeMetadataError)) {
-    render();
+  if (state.typeMetadataKey === signature
+    && (state.typeMetadataLoading || state.typeMetadata || state.typeMetadataError)) {
+    renderPreservingMemberFocus();
     return;
   }
+  const generation = ++state.typeMetadataGeneration;
   state.typeMetadataKey = signature;
   state.typeMetadata = null;
   state.typeMetadataError = "";
   state.typeMetadataLoading = true;
-  render();
+  const preservedFocus = renderPreservingMemberFocus();
+  const ownsRequest = () =>
+    generation === state.typeMetadataGeneration
+    && state.typeMetadataKey === signature;
+  const isCurrent = () => {
+    const currentType = selectedType();
+    return ownsRequest()
+      && state.lens === "metadata"
+      && !state.atPackageRoot
+      && currentType
+      && typeMetadataSignature(currentType, state.package) === signature;
+  };
   try {
     const result = await inspectTypeProjection({
       packageId: state.package.id,
@@ -5541,13 +5573,17 @@ async function loadSelectedTypeMetadata() {
       assembly: type.assembly,
       type: type.queryId ?? type.id
     });
-    if (state.typeMetadataKey === signature) state.typeMetadata = result;
+    if (ownsRequest()) state.typeMetadata = result;
   } catch (error) {
-    if (state.typeMetadataKey === signature) state.typeMetadataError = String(error?.message || error);
+    if (ownsRequest()) state.typeMetadataError = String(error?.message || error);
   } finally {
-    if (state.typeMetadataKey === signature) state.typeMetadataLoading = false;
-    render();
-    if (state.typeMetadata?.graphNodes?.length > 1) renderTypeGraph();
+    if (ownsRequest()) {
+      state.typeMetadataLoading = false;
+      if (isCurrent()) {
+        renderPreservingMemberFocus(preservedFocus);
+        if (state.typeMetadata?.graphNodes?.length > 1) renderTypeGraph();
+      }
+    }
   }
 }
 
@@ -7236,6 +7272,7 @@ async function restoreWorkspaceFromLocation(
   state.loading = true;
   state.error = "";
   state.retryAction = null;
+  resetLocationFilters();
   clearWorkspacePackages();
   render();
   const target = {
@@ -7300,7 +7337,7 @@ async function restoreWorkspaceFromLocation(
     activatePackage(targetModel, { resetAccessibility: true });
     // Restore the platform library scope captured in the share packet before applying the
     // deep link, so a refreshed/shared platform-library link lands on that library.
-    if (isRuntimePackId(targetModel.id) && loc.library) {
+    if (isRuntimePackId(targetModel.id)) {
       await applyPlatformLibraryScope(
         loc.library,
         navigationSeq,
@@ -7600,6 +7637,7 @@ window.addEventListener("popstate", () => {
     render();
     return;
   }
+  resetLocationFilters();
   const deep = loc;
   if (!state.package) {
     restoreWorkspaceFromLocation(loc, deep, navigationSeq);
@@ -7691,16 +7729,14 @@ async function restoreRuntimePackFromHistory(loc, deep, navigationSeq) {
   if (navigationSeq !== state.navigationSeq) return;
   if (pack) {
     activatePackage(pack, { resetAccessibility: true });
-    if (loc.library) {
-      await applyPlatformLibraryScope(
-        loc.library,
-        navigationSeq,
-        () => restoreRuntimePackFromHistory(
-          loc,
-          deep,
-          state.navigationSeq));
-      if (navigationSeq !== state.navigationSeq) return;
-    }
+    await applyPlatformLibraryScope(
+      loc.library,
+      navigationSeq,
+      () => restoreRuntimePackFromHistory(
+        loc,
+        deep,
+        state.navigationSeq));
+    if (navigationSeq !== state.navigationSeq) return;
     applyLocationView(loc);
     applyDeepLink(deep);
   } else {

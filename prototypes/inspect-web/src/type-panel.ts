@@ -81,7 +81,7 @@ type EscapeHtml = (value: unknown) => string;
 // -- Type selector (the "PUBLIC TYPES" / "MEMBERS" nav pane) -----------------------------
 
 export interface TypeNavOptions {
-  current: TypeSummary;
+  current?: TypeSummary | null;
   visible: readonly TypeSummary[];
   typeGroups: ReadonlyMap<string, readonly TypeSummary[]>;
   typeFilter: string;
@@ -132,7 +132,7 @@ export function renderTypeNav(options: TypeNavOptions): string {
         ${accessibilityControlHtml}
         ${libraryControlHtml}
       </div>
-      <div class="type-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="types" data-nav-selection="type:${escapeHtml(current.id)}">
+      <div class="type-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="types" data-nav-selection="${current ? `type:${escapeHtml(current.id)}` : ""}">
         ${[...typeGroups].map(([namespace, types]) => `
           <section class="type-group">
             <button class="namespace-row" data-namespace="${escapeHtml(namespace)}">
@@ -141,7 +141,7 @@ export function renderTypeNav(options: TypeNavOptions): string {
               <small>${types.length}</small>
             </button>
             ${types.map(item => {
-              const selected = item.id === current.id;
+              const selected = item.id === current?.id;
               return `<button class="type-row ${selected ? "selected" : ""}" data-type="${escapeHtml(item.id)}" role="option" aria-selected="${selected}">
                 <span class="kind-icon">${kindIcon(item.kind)}</span>
                 <span class="type-name">${escapeHtml(typeDisplayName(item))}</span>

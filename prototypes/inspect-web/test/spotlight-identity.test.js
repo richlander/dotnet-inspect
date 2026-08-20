@@ -499,10 +499,49 @@ test("lens-scoped Platform library changes reset type-specific member state", ()
     ?? "";
   assert.match(
     picker,
-    /state\.libraryScope = new Set\(\[key\]\);[\s\S]*state\.atPackageRoot = true;\s*state\.packageLens = lens;\s*state\.namespaceFilter = "";\s*state\.typeFilter = "";\s*state\.kindFilter = "";\s*normalizeLibrarySelection\(\);\s*loader\(\)/);
+    /const originPackage = state\.package;[\s\S]*select\.isConnected[\s\S]*state\.atPackageRoot[\s\S]*state\.packageLens === lens[\s\S]*packageIdentityEquals\(state\.package, originPackage\)[\s\S]*loadRuntimePackAssembly\([\s\S]*isCurrent\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*state\.libraryScope = new Set\(\[key\]\);[\s\S]*state\.atPackageRoot = true;\s*state\.packageLens = lens;\s*state\.namespaceFilter = "";\s*state\.typeFilter = "";\s*state\.kindFilter = "";\s*normalizeLibrarySelection\(\);\s*loader\(\)/);
   assert.match(
     appSource,
     /function normalizeLibrarySelection\(\) \{[\s\S]*state\.selectedTypeId = first\?\.id \|\| "";[\s\S]*state\.selectedMemberKey = "";[\s\S]*state\.selectedOverloadIndex = null;[\s\S]*resetMemberFilters\(\)[\s\S]*function afterLibraryScopeChange\(\) \{\s*normalizeLibrarySelection\(\);\s*render\(\)/);
+});
+
+test("authoritative location restore clears filters and applies aggregate Platform scope", () => {
+  assert.match(
+    appSource,
+    /function resetLocationFilters\(\) \{\s*state\.typeFilter = "";\s*state\.namespaceFilter = "";\s*state\.kindFilter = "";\s*state\.libraryScope = null;\s*state\.typeCursor = 0;\s*resetMemberFilters\(\)/);
+  const workspaceRestore =
+    appSource.match(/async function restoreWorkspaceFromLocation\([\s\S]*?\n}\n\nfunction applyLocationView/)?.[0]
+    ?? "";
+  assert.match(workspaceRestore, /resetLocationFilters\(\);\s*clearWorkspacePackages\(\)/);
+  assert.match(
+    workspaceRestore,
+    /if \(isRuntimePackId\(targetModel\.id\)\) \{\s*await applyPlatformLibraryScope\(\s*loc\.library/);
+  const popstate =
+    appSource.match(/window\.addEventListener\("popstate",[\s\S]*?\n}\);/)?.[0]
+    ?? "";
+  assert.match(popstate, /if \(bareHome\)[\s\S]*resetLocationFilters\(\);\s*const deep = loc/);
+  const runtimeHistory =
+    appSource.match(/async function restoreRuntimePackFromHistory\([\s\S]*?\n}\n\nbootstrap\(\);/)?.[0]
+    ?? "";
+  assert.match(
+    runtimeHistory,
+    /activatePackage\(pack,[\s\S]*await applyPlatformLibraryScope\(\s*loc\.library,[\s\S]*applyLocationView\(loc\)/);
+});
+
+test("type projection completions render only while current and preserve navigation focus", () => {
+  const typeSource =
+    appSource.match(/async function loadSelectedTypeSource\([\s\S]*?\n}\n\nasync function loadSelectedTypeMetadata/)?.[0]
+    ?? "";
+  assert.match(
+    typeSource,
+    /const preservedFocus = renderPreservingMemberFocus\(\);[\s\S]*const current = generation === state\.sourceRequestGeneration[\s\S]*if \(current\) \{\s*state\.typeSourceLoading = false;\s*renderPreservingMemberFocus\(preservedFocus\);\s*}/);
+  assert.doesNotMatch(typeSource, /finally \{[\s\S]*\n\s*render\(\);\s*}/);
+  const typeMetadata =
+    appSource.match(/async function loadSelectedTypeMetadata\([\s\S]*?\n}\n\n\/\/ Projects/)?.[0]
+    ?? "";
+  assert.match(
+    typeMetadata,
+    /const generation = \+\+state\.typeMetadataGeneration;[\s\S]*const preservedFocus = renderPreservingMemberFocus\(\);[\s\S]*generation === state\.typeMetadataGeneration[\s\S]*typeMetadataSignature\(currentType, state\.package\) === signature[\s\S]*if \(isCurrent\(\)\) \{[\s\S]*renderPreservingMemberFocus\(preservedFocus\)/);
 });
 
 test("settings keep a viewport-bounded scroll region", () => {
