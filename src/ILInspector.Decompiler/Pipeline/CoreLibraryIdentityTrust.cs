@@ -47,8 +47,10 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <c>ReaderConstructionSiteTests</c>, which pins every method in this assembly
 /// whose IL obtains a <c>MetadataReader</c> or calls a grant here, so a new way
 /// to obtain a reader cannot be added without saying which half it is on. That
-/// pin covers reader acquisition and granting, not provenance: whether a grant
-/// is deserved remains <c>PlantedCoreLibraryIdentityTests</c>'s property.
+/// pin covers reader creation and granting, not provenance and not receipt:
+/// whether a grant is deserved remains <c>PlantedCoreLibraryIdentityTests</c>'s
+/// property, and a reader arriving by delegate or reflection is simply
+/// unclassified, which is the fail-closed answer.
 /// </para>
 /// </summary>
 static class CoreLibraryIdentityTrust

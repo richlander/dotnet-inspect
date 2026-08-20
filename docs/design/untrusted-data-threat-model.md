@@ -364,9 +364,10 @@ declared return type, then visibility and `Task` wrapping (issue #4464).
 an observation those escapes cannot reach. It reads the compiled IL of
 `ILInspector.Decompiler` and pins every method that obtains a `MetadataReader`
 or calls a grant on `CoreLibraryIdentityTrust`. Trust attaches to a reader
-instance, and a reader can only come from a `GetMetadataReader` call or from
-constructing one directly, so a site is visible whatever it is called, however
-it is declared, and whether or not its result is wrapped. Both directions fail:
+instance, and this assembly creates one only by calling `GetMetadataReader` or
+by constructing a reader directly, so a site is visible whatever it is called,
+however it is declared, and whether or not its result is wrapped. Both
+directions fail:
 an unpinned site is an unreviewed way to obtain a reader, and a pinned site
 that stops obtaining or granting is a stale entry. Listing is not approval —
 most pinned sites deliberately do *not* classify, and the table records which
@@ -384,6 +385,16 @@ discovered path into the raw-path designation overload would launder discovery
 into designation while neither obtaining a reader nor granting identity itself,
 so it would not appear in the pin. That property belongs to provenance, and
 `PlantedCoreLibraryIdentityTests` gates it.
+
+The scan also sees creation rather than receipt, so a method handed a reader
+through a delegate, an interface, or a reflective invoke is invisible to it.
+That is sound for two reasons. A reader created outside the assembly was never
+classified, and unclassified means no core-library identity, so laundering one
+inward loses the privilege rather than gaining it. And the grant is a direct
+call into `CoreLibraryIdentityTrust` at five sites, every one of which the scan
+reports, so a reflectively-obtained reader cannot be granted identity
+invisibly. Reflection costs the completeness of the acquisition inventory, not
+the trust boundary.
 
 ### Restored manifest paths remain within their owning roots
 

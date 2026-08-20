@@ -23,12 +23,25 @@ namespace ILInspector.Decompiler.Tests;
 /// <para>
 /// This gate reads the compiled IL instead, and keys on the operation that
 /// actually produces the thing trust attaches to. Core-library identity is
-/// recorded per <see cref="MetadataReader"/> instance, and a reader can only
-/// come from a <c>GetMetadataReader</c> call or from constructing one directly —
-/// so a site is visible whatever its method is called, however it is declared,
-/// and whether or not its result is wrapped. Both directions fail: an unpinned
-/// site is an unreviewed way to obtain a reader, and a pinned site that stops
-/// obtaining or granting is a stale entry.
+/// recorded per <see cref="MetadataReader"/> instance, and this assembly creates
+/// one only by calling <c>GetMetadataReader</c> or by constructing a reader
+/// directly — so a site is visible whatever its method is called, however it is
+/// declared, and whether or not its result is wrapped. Both directions fail: an
+/// unpinned site is an unreviewed way to obtain a reader, and a pinned site that
+/// stops obtaining or granting is a stale entry.
+/// </para>
+/// <para>
+/// The scan sees <em>creation</em>, not receipt. A method handed a reader —
+/// through a delegate, an interface, or a reflective invoke whose IL never
+/// mentions <c>GetMetadataReader</c> — does not appear here, and round 2 of PR
+/// #4469 demonstrated exactly that. It stays sound for two reasons worth stating
+/// rather than assuming. A reader created outside this assembly was never
+/// classified, and unclassified means no core-library identity, so laundering one
+/// inward loses the privilege rather than gaining it. And the grant itself is a
+/// direct call into <c>CoreLibraryIdentityTrust</c> at five sites, every one of
+/// which this scan reports, so a reflectively-obtained reader still cannot be
+/// granted identity invisibly. What reflection defeats is the completeness of the
+/// acquisition inventory, which is a review convenience, not the trust boundary.
 /// </para>
 /// <para>
 /// Being listed here is not approval. <see cref="TrustRole.GrantsIdentity"/>
@@ -203,7 +216,7 @@ public sealed class ReaderConstructionSiteTests
     {
         var counts = new Dictionary<string, int>(StringComparer.Ordinal);
 
-        foreach (var (_, key) in EnumerateMethods())
+        foreach (var (_, key) in EnumerateMethods(typeof(MetadataSource).Assembly.Location))
             counts[key] = counts.TryGetValue(key, out int count) ? count + 1 : 1;
 
         var collisions = counts
@@ -221,6 +234,49 @@ public sealed class ReaderConstructionSiteTests
     }
 
     /// <summary>
+    /// Arms both halves of the acquisition predicate. Round 2 of PR #4469 found
+    /// that the direct-construction branch asserted nothing: no production site
+    /// constructs a <see cref="MetadataReader"/> from a pointer, so deleting that
+    /// branch left every test green even though it is the branch that closes the
+    /// unsafe-constructor escape. These specimens are never called; they exist so
+    /// the compiled IL of this test assembly contains one instance of each shape,
+    /// and <see cref="Scanner_DetectsBothAcquisitionShapes"/> fails if the
+    /// scanner stops recognising either.
+    /// </summary>
+    static class AcquisitionSpecimens
+    {
+        internal static MetadataReader ThroughGetMetadataReader(ImmutableArray<byte> image)
+            => MetadataReaderProvider.FromMetadataImage(image).GetMetadataReader();
+
+        internal static unsafe MetadataReader ThroughConstructor(byte* metadata, int length)
+            => new(metadata, length);
+    }
+
+    /// <summary>
+    /// Non-vacuity gate for the acquisition predicate itself, as distinct from
+    /// <see cref="Scanner_ObservesBothAcquisitionAndGrantSites"/>, which only
+    /// proves the scan of the product assembly is not empty. Deleting either
+    /// branch of the predicate fails this test.
+    /// </summary>
+    [Fact]
+    public void Scanner_DetectsBothAcquisitionShapes()
+    {
+        const string SpecimenType = "Tests.ReaderConstructionSiteTests+AcquisitionSpecimens";
+
+        var observed = EnumerateMethods(typeof(ReaderConstructionSiteTests).Assembly.Location)
+            .Where(e => e.Key.StartsWith($"{SpecimenType}.", StringComparison.Ordinal))
+            .ToDictionary(e => e.Key, e => e.Method.Role, StringComparer.Ordinal);
+
+        Assert.Equal(
+            TrustRole.ObtainsReader,
+            observed[$"{SpecimenType}.ThroughGetMetadataReader(ImmutableArray`1<Byte>)"]);
+
+        Assert.Equal(
+            TrustRole.ObtainsReader,
+            observed[$"{SpecimenType}.ThroughConstructor(Byte*, Int32)"]);
+    }
+
+    /// <summary>
     /// Reads the compiled <c>ILInspector.Decompiler</c> assembly and reports every
     /// method whose IL obtains a <see cref="MetadataReader"/> or calls into
     /// <c>CoreLibraryIdentityTrust</c> to grant identity.
@@ -229,7 +285,7 @@ public sealed class ReaderConstructionSiteTests
     {
         var sites = new Dictionary<string, TrustRole>(StringComparer.Ordinal);
 
-        foreach (var (method, key) in EnumerateMethods())
+        foreach (var (method, key) in EnumerateMethods(typeof(MetadataSource).Assembly.Location))
         {
             if (method.Role == TrustRole.None || method.DeclaringTypeFullName == TrustTypeFullName)
                 continue;
@@ -246,9 +302,8 @@ public sealed class ReaderConstructionSiteTests
 
     readonly record struct ScannedMethod(TrustRole Role, string DeclaringTypeFullName);
 
-    static IEnumerable<(ScannedMethod Method, string Key)> EnumerateMethods()
+    static IEnumerable<(ScannedMethod Method, string Key)> EnumerateMethods(string assemblyPath)
     {
-        string assemblyPath = typeof(MetadataSource).Assembly.Location;
         Assert.True(
             File.Exists(assemblyPath),
             $"Cannot scan the decompiler assembly at '{assemblyPath}'.");
