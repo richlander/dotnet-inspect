@@ -4101,12 +4101,30 @@ public class LibraryBodyIndexTests
                     && opportunity.Method.MetadataToken
                         == moveNext.MetadataToken);
             Assert.Contains(
+                full.OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method == kickoff
+                    && opportunity.EvidenceMethodToken
+                        == moveNext.MetadataToken);
+            Assert.Null(
+                full.ResolveDeclaredMethod(moveNext));
+            Assert.Contains(
                 scoped.GetAllocationOccurrences(),
                 pair => pair.Key == moveNext.MetadataToken);
             Assert.DoesNotContain(
                 scoped.OptimizationOpportunities,
                 opportunity => opportunity.Method.MetadataToken
                     == moveNext.MetadataToken);
+            Assert.DoesNotContain(
+                scoped.OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method == kickoff
+                    && opportunity.EvidenceMethodToken
+                        == moveNext.MetadataToken);
+            Assert.Null(
+                scoped.ResolveDeclaredMethod(moveNext));
             Assert.DoesNotContain(
                 scoped.AllocationFanoutOpportunities,
                 opportunity => opportunity.Method.MetadataToken

@@ -293,8 +293,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             IReadOnlySet<int>? ownerMethodScope,
             Func<TypeRef, bool>? ownerTypeScope,
             IReadOnlySet<int>? requestedMethodScope,
-            bool directlySelectedBody,
-            out bool ultimateOwnerResolved)
+            bool directlySelectedBody)
     {
         if (_liftedSourceOwnerResolver.TryResolve(
                 methodHandle,
@@ -306,15 +305,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 ownerTypeScope,
                 directlySelectedBody))
         {
-            ultimateOwnerResolved = true;
             return sourceOwner;
         }
 
-        bool requiresDeclaredOwner =
-            CompilerGeneratedNames.IsLocalFunctionOrLambda(
-                method.Name)
-            || typeSourceGenerated
-                && method.Name == "MoveNext";
         MethodIdentity? asyncSource =
             _asyncSourceResolver.ResolveSourceMethod(
                 method,
@@ -322,11 +315,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 typeSourceGenerated);
         if (asyncSource is null
             || asyncSource == method)
-        {
-            ultimateOwnerResolved =
-                !requiresDeclaredOwner;
             return asyncSource;
-        }
 
         EntityHandle asyncSourceHandle =
             MetadataTokens.EntityHandle(
@@ -347,15 +336,114 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                         asyncSource.MetadataToken)
                         == true))
         {
-            ultimateOwnerResolved = true;
             return sourceOwner;
         }
 
-        ultimateOwnerResolved =
-            !CompilerGeneratedNames.IsLocalFunctionOrLambda(
-                asyncSource.Name);
         return asyncSource;
     }
+
+    bool ILibraryMethodAnalysisInfrastructure
+        .TryResolveUltimateDeclaredMethod(
+            MethodDefinitionHandle methodHandle,
+            MethodDefinition methodDefinition,
+            MethodIdentity method,
+            bool typeSourceGenerated,
+            out MethodIdentity? ultimateOwner)
+    {
+        MethodIdentity? current =
+            ((ILibraryMethodAnalysisInfrastructure)this)
+                .ResolveDeclaredMethod(
+                    methodHandle,
+                    methodDefinition,
+                    method,
+                    typeSourceGenerated,
+                    ownerMethodScope: null,
+                    ownerTypeScope: null,
+                    requestedMethodScope: null,
+                    directlySelectedBody: false);
+        if (current is null
+            || current == method)
+        {
+            ultimateOwner = null;
+            return !RequiresDeclaredOwner(method);
+        }
+
+        return TryResolveUltimateLiftedOwner(
+            current,
+            out ultimateOwner);
+    }
+
+    bool TryResolveUltimateLiftedOwner(
+        MethodIdentity source,
+        out MethodIdentity? ultimateOwner)
+    {
+        MethodIdentity current = source;
+        Span<int> visited =
+            stackalloc int[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        int count = 0;
+        while (CompilerGeneratedNames
+            .IsLocalFunctionOrLambda(current.Name))
+        {
+            if (count == visited.Length)
+            {
+                ultimateOwner = null;
+                return false;
+            }
+            for (int i = 0; i < count; i++)
+            {
+                if (visited[i]
+                    == current.MetadataToken)
+                {
+                    ultimateOwner = null;
+                    return false;
+                }
+            }
+            visited[count++] = current.MetadataToken;
+            EntityHandle currentHandle =
+                MetadataTokens.EntityHandle(
+                    current.MetadataToken);
+            if (currentHandle.Kind
+                    != HandleKind.MethodDefinition)
+            {
+                ultimateOwner = null;
+                return false;
+            }
+            var currentDefinition =
+                _reader.GetMethodDefinition(
+                    (MethodDefinitionHandle)currentHandle);
+            if (!_liftedSourceOwnerResolver.TryResolve(
+                    (MethodDefinitionHandle)currentHandle,
+                    currentDefinition,
+                    current,
+                    out MethodIdentity? sourceOwner,
+                    out _,
+                    ownerMethodScope: null,
+                    ownerTypeScope: null,
+                    directlySelectedBody: false)
+                || sourceOwner is null)
+            {
+                ultimateOwner = null;
+                return false;
+            }
+            current = sourceOwner;
+        }
+
+        ultimateOwner = current;
+        return true;
+    }
+
+    static bool RequiresDeclaredOwner(
+        MethodIdentity method)
+        => CompilerGeneratedNames
+                .IsLocalFunctionOrLambda(method.Name)
+            || method.Name == "MoveNext"
+                && CompilerGeneratedNames
+                    .LeafName(method.DeclaringType)
+                    .Contains(
+                        CompilerGeneratedNames
+                            .StateMachineInfix,
+                        StringComparison.Ordinal);
 
     bool ILibraryMethodAnalysisInfrastructure.DispatchCanTargetOverride(
         TypeDefinition declaringType,
@@ -506,7 +594,18 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         var declaredSources = new Dictionary<int, MethodIdentity>(
             analysis.Methods.DeclaredSources);
         foreach ((int token, MethodIdentity source) in asyncSources)
-            declaredSources.TryAdd(token, source);
+        {
+            if (!declaredSources.ContainsKey(token)
+                && TryResolveUltimateLiftedOwner(
+                    source,
+                    out MethodIdentity? ultimateOwner)
+                && ultimateOwner is not null)
+            {
+                declaredSources.Add(
+                    token,
+                    ultimateOwner);
+            }
+        }
         return analysis with
         {
             Methods = analysis.Methods with

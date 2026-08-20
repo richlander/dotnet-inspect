@@ -97,8 +97,14 @@ internal interface ILibraryMethodAnalysisInfrastructure
         IReadOnlySet<int>? ownerMethodScope,
         Func<TypeRef, bool>? ownerTypeScope,
         IReadOnlySet<int>? requestedMethodScope,
-        bool directlySelectedBody,
-        out bool ultimateOwnerResolved);
+        bool directlySelectedBody);
+
+    bool TryResolveUltimateDeclaredMethod(
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition methodDefinition,
+        MethodIdentity method,
+        bool typeSourceGenerated,
+        out MethodIdentity? ultimateOwner);
 
     bool DispatchCanTargetOverride(
         TypeDefinition declaringType,
@@ -288,30 +294,27 @@ internal sealed class LibraryMethodAnalysisRunner(
                         bodyScope,
                         bodyTypeScope,
                         requestedMethodScope,
-                        directlySelectedBody,
-                        out _);
+                        directlySelectedBody);
                 result.DeclaredMethod = declaredMethod;
-                result.DeclaredSource = declaredMethod;
+                bool ultimateOwnerResolved =
+                    _infrastructure
+                        .TryResolveUltimateDeclaredMethod(
+                            methodHandle,
+                            methodDefinition,
+                            caller,
+                            typeSourceGenerated,
+                            out MethodIdentity?
+                                ultimateOwner);
+                if (ultimateOwnerResolved)
+                    result.DeclaredSource = ultimateOwner;
                 if (bodyTypeScope is not null)
                 {
                     // Evidence admission follows the selected type, but a
                     // recommendation belongs to the ultimate declared owner.
                     opportunityDeclaredMethod =
-                        _infrastructure.ResolveDeclaredMethod(
-                            methodHandle,
-                            methodDefinition,
-                            caller,
-                            typeSourceGenerated,
-                            ownerMethodScope: null,
-                            ownerTypeScope: null,
-                            requestedMethodScope: null,
-                            directlySelectedBody: false,
-                            out opportunityDeclaredMethodResolved);
-                    if (opportunityDeclaredMethodResolved)
-                    {
-                        result.DeclaredSource =
-                            opportunityDeclaredMethod;
-                    }
+                        ultimateOwner;
+                    opportunityDeclaredMethodResolved =
+                        ultimateOwnerResolved;
                 }
             }
             catch (Exception ex)
