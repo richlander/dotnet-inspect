@@ -705,6 +705,9 @@ public class ApiType
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool HasJsonStringEnumConverter { get; set; }
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public JsonWireNamingPolicy? JsonPropertyNamingPolicy { get; set; }
+
     public bool IsSealed { get; set; }
     public bool IsAbstract { get; set; }
     public bool IsStatic { get; set; }
@@ -914,6 +917,12 @@ public class ApiMember
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool HasJsonInclude { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool HasJsonIgnore { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? JsonPropertyName { get; set; }
 
     /// <summary>
     /// True if the member carries an [Obsolete] attribute.

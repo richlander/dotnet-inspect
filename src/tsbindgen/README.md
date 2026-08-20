@@ -26,11 +26,12 @@ target-language rewriting: a `Task<T>` return type is reported as `Task<T>`,
 not unwrapped to a target-language "promise" concept.
 
 All TypeScript-specific opinion — `Task<T>`/`ValueTask<T>` unwrapping to
-`Promise<T>`, camelCase property naming (matching
-`JsonKnownNamingPolicy.CamelCase`), array/nullable syntax, and `.d.ts`
-layout — lives entirely in this tool (`TsTypeMapper`, `CamelCase`,
-`DtsEmitter`). A future binding-generation target besides TypeScript would add
-its own "personality" layer here without needing to touch the OM.
+`Promise<T>`, property naming based on the owning `JsonSerializerContext`'s
+`[JsonSourceGenerationOptions(PropertyNamingPolicy = ...)]`, array/nullable
+syntax, and `.d.ts` layout — lives entirely in this tool (`TsTypeMapper`,
+`CamelCase`, `DtsEmitter`). A future binding-generation target besides
+TypeScript would add its own "personality" layer here without needing to touch
+the OM.
 
 ### Record shape discovery
 
@@ -45,9 +46,20 @@ fast (non-reflection) serialization path requires every (de)serialized type to
 be registered there, so it is exactly the set of shapes that can flow across
 the `[JSExport]` boundary via this pattern.
 
-`DriftDetector`'s current check is intentionally crude (line-membership only,
-not a structural diff) — sufficient to prove the generate-and-diff CI gate
-shape; see its doc comment.
+### Drift detection
+
+`DriftDetector` compares generated and checked-in declarations as the exact
+ordered sequence of trimmed, non-blank lines. Reordered declarations, moved
+members, missing lines, and extra structure all count as drift; blank-line and
+indentation-only differences do not.
+
+### Unmapped types
+
+When `tsbindgen` cannot map a C# type to TypeScript, it still emits `unknown`
+in the generated declaration so the partial output remains inspectable, but it
+also prints a diagnostic to stderr for every unmapped occurrence and exits
+non-zero. That keeps CI from treating a lossy projection as success-shaped
+output.
 
 ## Testing
 
@@ -60,4 +72,5 @@ dotnet run --project tests/ILInspector.JsExportSurface.Tests -c Release
 Tests validate both `ILInspector.JsExportSurface` and `tsbindgen` against
 `ILInspector.JsExportSurface.Fixtures`, a small purpose-built `[JSExport]`
 surface (not a real product surface) covering nested records, arrays,
-nullables, and sync/async/non-generic-`Task` exports.
+nullables, JSON naming-policy variance, and sync/async/non-generic-`Task`
+exports.

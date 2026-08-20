@@ -92,12 +92,20 @@ public static class TsBindGenCommand
                 return 1;
             }
 
-            string generated = DtsEmitter.Emit(jsExportSurface);
+            var diagnostics = new TsBindGenDiagnostics();
+            string generated = DtsEmitter.Emit(jsExportSurface, diagnostics);
+            int exitCode = diagnostics.HasUnmappedTypes ? 1 : 0;
+
+            foreach (TsBindGenDiagnostic diagnostic in diagnostics.UnmappedTypes)
+            {
+                stderr.WriteLine(
+                    $"tsbindgen: {diagnostic.Location}: {diagnostic.CSharpType} has no TypeScript mapping.");
+            }
 
             if (diffAgainst is null)
             {
                 stdout.Write(generated);
-                return 0;
+                return exitCode;
             }
 
             if (!File.Exists(diffAgainst))
@@ -107,17 +115,17 @@ public static class TsBindGenCommand
             }
 
             string handWritten = File.ReadAllText(diffAgainst);
-            if (DriftDetector.IsCovered(generated, handWritten))
+            if (!DriftDetector.IsCovered(generated, handWritten))
             {
-                stdout.WriteLine($"tsbindgen: no drift detected against {diffAgainst}.");
-                return 0;
+                stderr.WriteLine($"tsbindgen: drift detected against {diffAgainst}.");
+                stderr.WriteLine();
+                stderr.WriteLine("--- generated ---");
+                stderr.WriteLine(generated);
+                return 1;
             }
 
-            stderr.WriteLine($"tsbindgen: drift detected against {diffAgainst}.");
-            stderr.WriteLine();
-            stderr.WriteLine("--- generated ---");
-            stderr.WriteLine(generated);
-            return 1;
+            stdout.WriteLine($"tsbindgen: no drift detected against {diffAgainst}.");
+            return exitCode;
         });
 
         return rootCommand;

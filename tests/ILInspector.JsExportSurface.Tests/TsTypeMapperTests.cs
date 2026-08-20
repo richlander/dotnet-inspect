@@ -78,9 +78,20 @@ public sealed class TsTypeMapperTests
     }
 
     [Fact]
-    public void Map_UnknownTypeMapsToUnknown()
+    public void Map_UnknownTypeMapsToUnknownAndReportsDiagnostic()
     {
-        Assert.Equal("unknown", TsTypeMapper.MapParameterType("SomeUnmappedType", RecordNames));
+        var diagnostics = new TsBindGenDiagnostics();
+
+        Assert.Equal(
+            "unknown",
+            TsTypeMapper.MapParameterType("SomeUnmappedType", RecordNames, diagnostics, "WidgetDto.Property"));
+        Assert.Collection(
+            diagnostics.UnmappedTypes,
+            d =>
+            {
+                Assert.Equal("WidgetDto.Property", d.Location);
+                Assert.Equal("SomeUnmappedType", d.CSharpType);
+            });
     }
 
     [Fact]
@@ -115,4 +126,30 @@ public sealed class TsTypeMapperTests
     {
         Assert.Equal(expected, TsTypeMapper.MapParameterType(csharpType, RecordNames));
     }
+
+    [Fact]
+    public void Map_DictionaryOfStringKeysMapsToRecord()
+    {
+        Assert.Equal(
+            "Record<string, string>",
+            TsTypeMapper.MapParameterType("IReadOnlyDictionary<string, string>", RecordNames));
+    }
+
+    [Fact]
+    public void Map_DictionaryWithNonStringKeyReportsUnmappedType()
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+
+        Assert.Equal(
+            "unknown",
+            TsTypeMapper.MapParameterType(
+                "Dictionary<int, string>",
+                RecordNames,
+                diagnostics,
+                "WidgetCatalog.OwnersByKey"));
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            d => d.Location == "WidgetCatalog.OwnersByKey" && d.CSharpType == "Dictionary<int, string>");
+    }
+
 }

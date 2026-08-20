@@ -119,12 +119,16 @@ public static class JsExportSurfaceBuilder
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var queue = new Queue<string>();
 
+        JsonWireNamingPolicy? defaultContextNamingPolicy = null;
+        var contextPoliciesByRootTypeName = new Dictionary<string, JsonWireNamingPolicy?>(StringComparer.Ordinal);
         foreach (ApiType type in surface.Types)
         {
             if (type.BaseType != JsonSerializerContextBaseType)
             {
                 continue;
             }
+
+            defaultContextNamingPolicy ??= type.JsonPropertyNamingPolicy;
 
             foreach (ApiMember member in type.Members)
             {
@@ -140,6 +144,7 @@ public static class JsExportSurfaceBuilder
                 foreach (string candidate in ExtractCandidateTypeNames(rootTypeName))
                 {
                     queue.Enqueue(candidate);
+                    contextPoliciesByRootTypeName[candidate] = type.JsonPropertyNamingPolicy;
                 }
             }
         }
@@ -163,22 +168,25 @@ public static class JsExportSurfaceBuilder
             // nested-type roots).
             if (type.Kind == "enum")
             {
+                if (contextPoliciesByRootTypeName.TryGetValue(type.Name, out JsonWireNamingPolicy? enumPolicy))
+                    type.JsonPropertyNamingPolicy ??= enumPolicy;
+                else
+                    type.JsonPropertyNamingPolicy ??= defaultContextNamingPolicy;
                 enums.Add(type);
                 continue;
             }
 
+            if (contextPoliciesByRootTypeName.TryGetValue(type.Name, out JsonWireNamingPolicy? recordPolicy))
+                type.JsonPropertyNamingPolicy ??= recordPolicy;
+            else
+                type.JsonPropertyNamingPolicy ??= defaultContextNamingPolicy;
             records.Add(type);
 
             foreach (ApiMember member in type.Members)
             {
                 if (member.Kind != "property"
-                    // Compiler-synthesized record infrastructure (e.g. a positional record's
-                    // `EqualityContract` getter) is never intended as wire-contract shape.
-                    // Detected directly via [CompilerGenerated] rather than accessibility, since a
-                    // legitimate non-public property opted into the wire contract via
-                    // [JsonInclude] would otherwise look identical (non-null Accessibility) to
-                    // synthesized infrastructure.
                     || member.IsCompilerGenerated
+                    || member.HasJsonIgnore
                     || (member.Accessibility is not null && !member.HasJsonInclude))
                 {
                     continue;

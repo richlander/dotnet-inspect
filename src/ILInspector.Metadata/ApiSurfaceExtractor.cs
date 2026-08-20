@@ -622,17 +622,26 @@ public static class ApiSurfaceExtractor
             // it is [Flags] (STJ serializes a combination as a comma-joined string, not a single
             // declared name) and whether it carries a JsonStringEnumConverter (STJ serializes by
             // declared name rather than by numeric value only when this converter is present).
+            var jsonTypeAttributes = typeDef.GetCustomAttributes();
             if (apiType.Kind == "enum")
             {
-                var enumAttributes = typeDef.GetCustomAttributes();
                 apiType.IsFlagsEnum = AttributeReader.HasFlagsAttribute(
                     reader,
-                    enumAttributes,
+                    jsonTypeAttributes,
                     observeDecodeWork);
                 apiType.HasJsonStringEnumConverter = AttributeReader.HasJsonStringEnumConverterAttribute(
                     reader,
-                    enumAttributes,
+                    jsonTypeAttributes,
                     observeDecodeWork);
+            }
+
+            if (AttributeReader.TryGetJsonSourceGenerationPropertyNamingPolicy(
+                    reader,
+                    jsonTypeAttributes,
+                    out JsonWireNamingPolicy? namingPolicy,
+                    observeDecodeWork))
+            {
+                apiType.JsonPropertyNamingPolicy = namingPolicy;
             }
 
             // Check if this is an extension class (static class with [Extension] attribute)
@@ -959,6 +968,17 @@ public static class ApiSurfaceExtractor
                         reader,
                         prop.GetCustomAttributes(),
                         observeDecodeWork),
+                    HasJsonIgnore = AttributeReader.HasJsonIgnoreAttribute(
+                        reader,
+                        prop.GetCustomAttributes(),
+                        observeDecodeWork),
+                    JsonPropertyName = AttributeReader.TryGetJsonPropertyName(
+                        reader,
+                        prop.GetCustomAttributes(),
+                        out string? jsonPropertyName,
+                        observeDecodeWork)
+                        ? jsonPropertyName
+                        : null,
                     Attributes = RenderMemberAttributes(
                         reader,
                         prop.GetCustomAttributes(),

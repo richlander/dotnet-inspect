@@ -11,20 +11,24 @@ namespace tsbindgen;
 /// </summary>
 static class TsTypeMapper
 {
-    public static string MapReturnType(string csharpType, IReadOnlySet<string> recordNames)
+    public static string MapReturnType(
+        string csharpType,
+        IReadOnlySet<string> recordNames,
+        TsBindGenDiagnostics? diagnostics = null,
+        string? location = null)
     {
         string trimmed = csharpType.Trim();
 
         if (TryUnwrapGeneric(trimmed, "System.Threading.Tasks.Task", out string? taskArg)
             || TryUnwrapGeneric(trimmed, "Task", out taskArg))
         {
-            return $"Promise<{Map(taskArg!, recordNames)}>";
+            return $"Promise<{Map(taskArg!, recordNames, diagnostics, location)}>";
         }
 
         if (TryUnwrapGeneric(trimmed, "System.Threading.Tasks.ValueTask", out string? valueTaskArg)
             || TryUnwrapGeneric(trimmed, "ValueTask", out valueTaskArg))
         {
-            return $"Promise<{Map(valueTaskArg!, recordNames)}>";
+            return $"Promise<{Map(valueTaskArg!, recordNames, diagnostics, location)}>";
         }
 
         if (trimmed is "System.Threading.Tasks.Task" or "Task"
@@ -33,7 +37,7 @@ static class TsTypeMapper
             return "Promise<void>";
         }
 
-        return Map(trimmed, recordNames);
+        return Map(trimmed, recordNames, diagnostics, location);
     }
 
     /// <summary>
@@ -46,10 +50,14 @@ static class TsTypeMapper
     /// callers actually receive after JSON-parsing the string.
     /// </summary>
     public static string MapReturnEnvelope(
-        string csharpType, string wireDtoName, IReadOnlySet<string> recordNames)
+        string csharpType,
+        string wireDtoName,
+        IReadOnlySet<string> recordNames,
+        TsBindGenDiagnostics? diagnostics = null,
+        string? location = null)
     {
         string trimmed = csharpType.Trim();
-        string dtoType = Map(wireDtoName, recordNames);
+        string dtoType = Map(wireDtoName, recordNames, diagnostics, location);
 
         if ((TryUnwrapGeneric(trimmed, "System.Threading.Tasks.Task", out string? taskArg)
                 || TryUnwrapGeneric(trimmed, "Task", out taskArg))
@@ -70,26 +78,28 @@ static class TsTypeMapper
             return dtoType;
         }
 
-        // The resolved DTO doesn't correspond to a string-shaped envelope this method knows how
-        // to substitute into (an unexpected shape) — fall back to the raw signature mapping
-        // rather than silently applying the DTO to something it wasn't resolved against.
-        return MapReturnType(csharpType, recordNames);
+        return MapReturnType(csharpType, recordNames, diagnostics, location);
     }
 
-    public static string MapParameterType(string csharpType, IReadOnlySet<string> recordNames) =>
-        Map(csharpType.Trim(), recordNames);
+    public static string MapParameterType(
+        string csharpType,
+        IReadOnlySet<string> recordNames,
+        TsBindGenDiagnostics? diagnostics = null,
+        string? location = null) =>
+        Map(csharpType.Trim(), recordNames, diagnostics, location);
 
-    static string Map(string csharpType, IReadOnlySet<string> recordNames)
+    static string Map(
+        string csharpType,
+        IReadOnlySet<string> recordNames,
+        TsBindGenDiagnostics? diagnostics,
+        string? location)
     {
         string trimmed = csharpType.Trim();
 
         if (trimmed.EndsWith("[]", StringComparison.Ordinal))
         {
             string element = trimmed[..^2];
-            string mappedElement = Map(element, recordNames);
-            // Parenthesize a union element (e.g. "T | null") before appending "[]": TS applies
-            // "[]" tighter than "|", so an unparenthesized "T | null[]" means "T, or an array of
-            // null" rather than the intended "an array of (T or null)".
+            string mappedElement = Map(element, recordNames, diagnostics, location);
             return mappedElement.Contains(" | ", StringComparison.Ordinal)
                 ? $"({mappedElement})[]"
                 : $"{mappedElement}[]";
@@ -98,13 +108,18 @@ static class TsTypeMapper
         if (trimmed.EndsWith("?", StringComparison.Ordinal))
         {
             string inner = trimmed[..^1];
-            return $"{Map(inner, recordNames)} | null";
+            return $"{Map(inner, recordNames, diagnostics, location)} | null";
         }
 
         if (TryUnwrapGeneric(trimmed, "System.Nullable", out string? nullableArg)
             || TryUnwrapGeneric(trimmed, "Nullable", out nullableArg))
         {
-            return $"{Map(nullableArg!, recordNames)} | null";
+            return $"{Map(nullableArg!, recordNames, diagnostics, location)} | null";
+        }
+
+        if (TryMapDictionary(trimmed, recordNames, diagnostics, location, out string? dictionaryType))
+        {
+            return dictionaryType!;
         }
 
         string simpleName = LastSegment(trimmed);
@@ -114,7 +129,7 @@ static class TsTypeMapper
             return simpleName;
         }
 
-        return trimmed switch
+        string mapped = trimmed switch
         {
             "string" or "System.String" or "char" or "System.Char" => "string",
             "bool" or "System.Boolean" => "boolean",
@@ -127,6 +142,83 @@ static class TsTypeMapper
             "void" or "System.Void" => "void",
             _ => "unknown",
         };
+
+        if (mapped == "unknown")
+        {
+            diagnostics?.ReportUnmappedType(location ?? trimmed, trimmed);
+        }
+
+        return mapped;
+    }
+
+    static bool TryMapDictionary(
+        string typeName,
+        IReadOnlySet<string> recordNames,
+        TsBindGenDiagnostics? diagnostics,
+        string? location,
+        out string? mappedType)
+    {
+        if (!TryUnwrapGeneric(typeName, "System.Collections.Generic.Dictionary", out string? dictionaryArgs)
+            && !TryUnwrapGeneric(typeName, "Dictionary", out dictionaryArgs)
+            && !TryUnwrapGeneric(typeName, "System.Collections.Generic.IReadOnlyDictionary", out dictionaryArgs)
+            && !TryUnwrapGeneric(typeName, "IReadOnlyDictionary", out dictionaryArgs))
+        {
+            mappedType = null;
+            return false;
+        }
+
+        if (!TrySplitTopLevelGenericArguments(dictionaryArgs!, out string? keyType, out string? valueType))
+        {
+            diagnostics?.ReportUnmappedType(location ?? typeName, typeName);
+            mappedType = "unknown";
+            return true;
+        }
+
+        string mappedKey = Map(keyType!, recordNames, diagnostics, location);
+        string mappedValue = Map(valueType!, recordNames, diagnostics, location);
+        if (mappedKey != "string")
+        {
+            diagnostics?.ReportUnmappedType(location ?? typeName, typeName);
+            mappedType = "unknown";
+            return true;
+        }
+
+        mappedType = $"Record<string, {mappedValue}>";
+        return true;
+    }
+
+    static bool TrySplitTopLevelGenericArguments(
+        string arguments,
+        out string? first,
+        out string? second)
+    {
+        int depth = 0;
+        for (int i = 0; i < arguments.Length; i++)
+        {
+            char c = arguments[i];
+            if (c == '<')
+            {
+                depth++;
+                continue;
+            }
+
+            if (c == '>')
+            {
+                depth--;
+                continue;
+            }
+
+            if (c == ',' && depth == 0)
+            {
+                first = arguments[..i].Trim();
+                second = arguments[(i + 1)..].Trim();
+                return first.Length > 0 && second.Length > 0;
+            }
+        }
+
+        first = null;
+        second = null;
+        return false;
     }
 
     static string LastSegment(string typeName)

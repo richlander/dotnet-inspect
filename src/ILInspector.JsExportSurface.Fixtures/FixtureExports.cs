@@ -153,13 +153,33 @@ public sealed record WidgetPrioritySummary(string Name, WidgetPriority Priority)
 // shape, distinct from a record's compiler-synthesized (and always non-public) EqualityContract.
 public sealed record WidgetAudit(string Name)
 {
+    [JsonPropertyName("wire_name")]
+    public string DisplayName { get; init; } = "";
+
+    [JsonIgnore]
+    public string IgnoredAtWire { get; init; } = "";
+
     [JsonInclude]
     internal string LastEditedBy { get; init; } = "";
 
     public WidgetAudit(string name, string lastEditedBy) : this(name)
     {
+        DisplayName = name;
+        IgnoredAtWire = lastEditedBy;
         LastEditedBy = lastEditedBy;
     }
+}
+
+public sealed record InternalContextPascalWidget(string Name, int Count);
+
+[SupportedOSPlatform("browser")]
+public static partial class InternalContextPascalFixtureExports
+{
+    [JSExport]
+    public static string GetInternalContextPascalWidget(string name) =>
+        JsonSerializer.Serialize(
+            new InternalContextPascalWidget(name, 2),
+            InternalContextFixtureJsonContext.Default.InternalContextPascalWidget);
 }
 
 
@@ -192,4 +212,21 @@ public static partial class InternalContextFixtureExports
 }
 
 [JsonSerializable(typeof(InternalContextWidget))]
+[JsonSerializable(typeof(InternalContextPascalWidget))]
 internal sealed partial class InternalContextFixtureJsonContext : JsonSerializerContext;
+
+public sealed record NeedsUnmappedTypeFixture(Guid Unmapped);
+
+[SupportedOSPlatform("browser")]
+public static partial class NeedsUnmappedTypeFixtureExports
+{
+    [JSExport]
+    public static string GetNeedsUnmappedType() =>
+        JsonSerializer.Serialize(
+            new NeedsUnmappedTypeFixture(Guid.Empty),
+            NeedsUnmappedTypeFixtureJsonContext.Default.NeedsUnmappedTypeFixture);
+}
+
+[JsonSerializable(typeof(NeedsUnmappedTypeFixture))]
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+public sealed partial class NeedsUnmappedTypeFixtureJsonContext : JsonSerializerContext;

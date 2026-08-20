@@ -2,7 +2,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text;
-
+ 
 namespace ILInspector.Metadata;
 
 /// <summary>
@@ -18,6 +18,9 @@ public static partial class AttributeReader
     private const string JsonStringEnumConverterTypeName = "System.Text.Json.Serialization.JsonStringEnumConverter";
     private const string FlagsAttributeName = "System.FlagsAttribute";
     private const string JsonIncludeAttributeName = "System.Text.Json.Serialization.JsonIncludeAttribute";
+    private const string JsonIgnoreAttributeName = "System.Text.Json.Serialization.JsonIgnoreAttribute";
+    private const string JsonPropertyNameAttributeName = "System.Text.Json.Serialization.JsonPropertyNameAttribute";
+    private const string JsonSourceGenerationOptionsAttributeName = "System.Text.Json.Serialization.JsonSourceGenerationOptionsAttribute";
     private const string RequiredMembersFeatureName = "RequiredMembers";
     private const string RequiredMembersConstructorObsoleteMessage =
         "Constructors of types with required members are not supported in this version of your compiler.";
@@ -381,6 +384,62 @@ public static partial class AttributeReader
         Action<int>? beforeMaterialize = null)
         => HasAttribute(reader, attributes, JsonIncludeAttributeName, beforeMaterialize);
 
+
+    /// <summary>
+    /// Checks if the member has the <c>[JsonIgnore]</c> attribute. For tsbindgen's static wire-shape
+    /// projection, any presence is treated as excluded: conditional forms such as
+    /// <c>WhenWritingDefault</c> and <c>WhenWritingNull</c> still mean callers cannot rely on the
+    /// property being present in the serialized payload, and the generator has no runtime value
+    /// to decide those conditions.
+    /// </summary>
+    public static bool HasJsonIgnoreAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize = null)
+        => HasAttribute(reader, attributes, JsonIgnoreAttributeName, beforeMaterialize);
+
+    public static bool TryGetJsonPropertyName(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        out string? propertyName,
+        Action<int>? beforeMaterialize = null)
+    {
+        foreach (var attrHandle in attributes)
+        {
+            var attr = reader.GetCustomAttribute(attrHandle);
+            var attrName = GetAttributeTypeName(reader, attr.Constructor, beforeMaterialize);
+            if (attrName != JsonPropertyNameAttributeName)
+                continue;
+
+            if (TryGetSingleStringFixedArgument(reader, attr, out propertyName, beforeMaterialize))
+                return true;
+        }
+
+        propertyName = null;
+        return false;
+    }
+
+    public static bool TryGetJsonSourceGenerationPropertyNamingPolicy(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        out JsonWireNamingPolicy? namingPolicy,
+        Action<int>? beforeMaterialize = null)
+    {
+        foreach (var attrHandle in attributes)
+        {
+            var attr = reader.GetCustomAttribute(attrHandle);
+            var attrName = GetAttributeTypeName(reader, attr.Constructor, beforeMaterialize);
+            if (attrName != JsonSourceGenerationOptionsAttributeName)
+                continue;
+
+            namingPolicy = ReadJsonKnownNamingPolicy(reader, attr, beforeMaterialize);
+            return true;
+        }
+
+        namingPolicy = null;
+        return false;
+    }
+
     /// <summary>
     /// Checks whether the enum carries <c>[JsonConverter(typeof(JsonStringEnumConverter&lt;...&gt;))]</c> (or
     /// the non-generic <c>JsonStringEnumConverter</c>) — the marker that makes STJ serialize this enum's values
@@ -418,6 +477,108 @@ public static partial class AttributeReader
             if (baseName == JsonStringEnumConverterTypeName)
                 return true;
         }
+        return false;
+    }
+
+
+
+    static JsonWireNamingPolicy ReadJsonKnownNamingPolicy(
+        MetadataReader reader,
+        CustomAttribute attr,
+        Action<int>? beforeMaterialize)
+    {
+        if (AttributeDecoder.TryDecode(reader, attr, beforeMaterialize) is not { } decoded)
+            return JsonWireNamingPolicy.Unsupported;
+
+        foreach (var named in decoded.NamedArguments)
+        {
+            if (named.Name != "PropertyNamingPolicy")
+                continue;
+
+            if (named.Value is null)
+                return JsonWireNamingPolicy.None;
+
+            int rawValue = named.Value switch
+            {
+                byte b => b,
+                sbyte sb => sb,
+                short s => s,
+                ushort us => us,
+                int i => i,
+                uint ui => unchecked((int)ui),
+                long l => unchecked((int)l),
+                ulong ul => unchecked((int)ul),
+                _ => -1,
+            };
+
+            return rawValue switch
+            {
+                0 => JsonWireNamingPolicy.None,
+                1 => JsonWireNamingPolicy.CamelCase,
+                2 => JsonWireNamingPolicy.SnakeCaseLower,
+                3 => JsonWireNamingPolicy.SnakeCaseUpper,
+                4 => JsonWireNamingPolicy.KebabCaseLower,
+                5 => JsonWireNamingPolicy.KebabCaseUpper,
+                _ => JsonWireNamingPolicy.Unsupported,
+            };
+        }
+
+        return JsonWireNamingPolicy.None;
+    }
+
+    static bool TryGetSingleStringFixedArgument(
+        MetadataReader reader,
+        CustomAttribute attr,
+        out string? value,
+        Action<int>? beforeMaterialize)
+    {
+        if (AttributeDecoder.TryDecode(reader, attr, beforeMaterialize) is { FixedArguments.Length: 1 } decoded
+            && decoded.FixedArguments[0].Value is string text
+            && !string.IsNullOrEmpty(text))
+        {
+            value = text;
+            return true;
+        }
+
+        value = null;
+        return false;
+    }
+
+    static bool TryGetNamedArgumentString(
+        MetadataReader reader,
+        CustomAttribute attr,
+        string name,
+        out string? value,
+        Action<int>? beforeMaterialize)
+    {
+        if (AttributeDecoder.TryDecode(reader, attr, beforeMaterialize) is { } decoded)
+        {
+            foreach (var named in decoded.NamedArguments)
+            {
+                if (named.Name != name)
+                    continue;
+
+                if (named.Value is not null)
+                {
+                    value = named.Value switch
+                    {
+                        string text => text,
+                        _ => named.Value.ToString(),
+                    };
+
+                    if (string.IsNullOrEmpty(value))
+                        return false;
+
+                    int lastDot = value.LastIndexOf('.');
+                    if (lastDot >= 0)
+                        value = value[(lastDot + 1)..];
+
+                    return true;
+                }
+            }
+        }
+
+        value = null;
         return false;
     }
 

@@ -4,88 +4,83 @@ using tsbindgen;
 namespace ILInspector.JsExportSurface.Tests;
 
 /// <summary>
-/// Verifies <see cref="TsBindGenCommand"/> end to end: generate mode, a matching
-/// <c>--diff-against</c> file (exit 0), and a deliberately mismatched one (exit 1, with generated
-/// output printed to stderr).
+/// Verifies <see cref="TsBindGenCommand"/> end to end.
 /// </summary>
 public sealed class TsBindGenCommandTests
 {
     private static string FixtureAssemblyPath => typeof(FixtureExports).Assembly.Location;
 
     [Fact]
-    public void Invoke_WithoutDiffAgainst_PrintsGeneratedDtsAndReturnsZero()
+    public void Invoke_WithoutDiffAgainst_PrintsGeneratedDtsAndReturnsOneForUnmappedTypes()
     {
         var output = new StringWriter();
         var error = new StringWriter();
 
         int exitCode = TsBindGenCommand.Invoke([FixtureAssemblyPath], output, error);
 
-        Assert.Equal(0, exitCode);
+        Assert.Equal(1, exitCode);
         Assert.Contains("export interface WidgetDto {", output.ToString(), StringComparison.Ordinal);
-        Assert.Equal(string.Empty, error.ToString());
+        Assert.Contains("NeedsUnmappedTypeFixture.Unmapped: System.Guid has no TypeScript mapping.", error.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
     public void Invoke_ResolvesRecordFromInternalJsonSerializerContext()
     {
-        // Regression test: ApiSurfaceExtractor.Extract must run with includeAll: true. An
-        // internal JsonSerializerContext (as InternalContextFixtureJsonContext deliberately is,
-        // matching InspectWeb.Engine's real BrowserJsonContext) would otherwise never appear in
-        // the extracted surface, so JsExportSurfaceBuilder's record discovery would find zero
-        // records and getInternalContextWidget would collapse to "unknown" instead of the real
-        // InternalContextWidget interface.
         var output = new StringWriter();
         var error = new StringWriter();
 
         int exitCode = TsBindGenCommand.Invoke([FixtureAssemblyPath], output, error);
 
-        Assert.Equal(0, exitCode);
-        Assert.Contains(
-            "export interface InternalContextWidget {",
-            output.ToString(),
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "export declare function getInternalContextWidget(name: string): InternalContextWidget;",
-            output.ToString(),
-            StringComparison.Ordinal);
+        Assert.Equal(1, exitCode);
+        Assert.Contains("export interface InternalContextWidget {", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("export declare function getInternalContextWidget(name: string): InternalContextWidget;", output.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Invoke_UsesPascalCaseWhenContextDeclaresNoPropertyNamingPolicy()
+    {
+        var output = new StringWriter();
+        var error = new StringWriter();
+
+        int exitCode = TsBindGenCommand.Invoke([FixtureAssemblyPath], output, error);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("export interface InternalContextPascalWidget {", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("  name: string;", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("  count: number;", output.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
     public void Invoke_ResolvesWireContractsFromBodyEvidence()
     {
-        // The CLI must open a LibraryBodyIndex and pass it through so the emitted return type is
-        // the resolved WidgetDto, not the erased string envelope declared on GetWidget itself.
         var output = new StringWriter();
         var error = new StringWriter();
 
         int exitCode = TsBindGenCommand.Invoke([FixtureAssemblyPath], output, error);
 
-        Assert.Equal(0, exitCode);
-        Assert.Contains(
-            "export declare function getWidget(name: string, count: number): WidgetDto;",
-            output.ToString(),
-            StringComparison.Ordinal);
+        Assert.Equal(1, exitCode);
+        Assert.Contains("export declare function getWidget(name: string, count: number): WidgetDto;", output.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Invoke_WithMatchingDiffAgainstFile_ReturnsZero()
+    public void Invoke_WithMatchingDiffAgainstFile_ReturnsOneWhenDiagnosticsExist()
     {
         var generateOutput = new StringWriter();
-        Assert.Equal(0, TsBindGenCommand.Invoke([FixtureAssemblyPath], generateOutput, new StringWriter()));
+        var generateError = new StringWriter();
+        Assert.Equal(1, TsBindGenCommand.Invoke([FixtureAssemblyPath], generateOutput, generateError));
 
-        string tempFile = Path.GetTempFileName();
+        string tempFile = Path.Combine(AppContext.BaseDirectory, "tsbindgen-command-match.d.ts");
         try
         {
             File.WriteAllText(tempFile, generateOutput.ToString());
 
             var output = new StringWriter();
             var error = new StringWriter();
-            int exitCode = TsBindGenCommand.Invoke(
-                [FixtureAssemblyPath, "--diff-against", tempFile], output, error);
+            int exitCode = TsBindGenCommand.Invoke([FixtureAssemblyPath, "--diff-against", tempFile], output, error);
 
-            Assert.Equal(0, exitCode);
+            Assert.Equal(1, exitCode);
             Assert.Contains("no drift detected", output.ToString(), StringComparison.Ordinal);
-            Assert.Equal(string.Empty, error.ToString());
+            Assert.Contains("NeedsUnmappedTypeFixture.Unmapped: System.Guid has no TypeScript mapping.", error.ToString(), StringComparison.Ordinal);
         }
         finally
         {
@@ -96,15 +91,14 @@ public sealed class TsBindGenCommandTests
     [Fact]
     public void Invoke_WithMismatchedDiffAgainstFile_ReturnsOneAndPrintsGeneratedOutput()
     {
-        string tempFile = Path.GetTempFileName();
+        string tempFile = Path.Combine(AppContext.BaseDirectory, "tsbindgen-command-mismatch.d.ts");
         try
         {
             File.WriteAllText(tempFile, "export interface WidgetDto {\n  tags: string[];\n}\n");
 
             var output = new StringWriter();
             var error = new StringWriter();
-            int exitCode = TsBindGenCommand.Invoke(
-                [FixtureAssemblyPath, "--diff-against", tempFile], output, error);
+            int exitCode = TsBindGenCommand.Invoke([FixtureAssemblyPath, "--diff-against", tempFile], output, error);
 
             Assert.Equal(1, exitCode);
             Assert.Contains("drift detected", error.ToString(), StringComparison.Ordinal);
@@ -122,8 +116,7 @@ public sealed class TsBindGenCommandTests
         var output = new StringWriter();
         var error = new StringWriter();
 
-        int exitCode = TsBindGenCommand.Invoke(
-            ["/nonexistent/path/does-not-exist.dll"], output, error);
+        int exitCode = TsBindGenCommand.Invoke(["/nonexistent/path/does-not-exist.dll"], output, error);
 
         Assert.Equal(1, exitCode);
         Assert.Contains("assembly not found", error.ToString(), StringComparison.Ordinal);
@@ -135,8 +128,7 @@ public sealed class TsBindGenCommandTests
         var output = new StringWriter();
         var error = new StringWriter();
 
-        int exitCode = TsBindGenCommand.Invoke(
-            [FixtureAssemblyPath, "--diff-against", "/nonexistent/hand-written.d.ts"], output, error);
+        int exitCode = TsBindGenCommand.Invoke([FixtureAssemblyPath, "--diff-against", "/nonexistent/hand-written.d.ts"], output, error);
 
         Assert.Equal(1, exitCode);
         Assert.Contains("--diff-against file not found", error.ToString(), StringComparison.Ordinal);
@@ -145,16 +137,12 @@ public sealed class TsBindGenCommandTests
     [Fact]
     public void Invoke_WithMalformedAssembly_ReturnsOneAndReportsErrorInsteadOfCrashing()
     {
-        // A file that exists but is not a valid PE image must fail cleanly, not throw an
-        // unhandled BadImageFormatException out of the CLI.
-        string notAnAssembly = Path.GetTempFileName();
+        string notAnAssembly = Path.Combine(AppContext.BaseDirectory, "tsbindgen-not-an-assembly.txt");
         try
         {
             File.WriteAllText(notAnAssembly, "this is not a .NET assembly");
-
             var output = new StringWriter();
             var error = new StringWriter();
-
             int exitCode = TsBindGenCommand.Invoke([notAnAssembly], output, error);
 
             Assert.Equal(1, exitCode);
@@ -164,5 +152,18 @@ public sealed class TsBindGenCommandTests
         {
             File.Delete(notAnAssembly);
         }
+    }
+
+    [Fact]
+    public void Invoke_PrintsDiagnosticsAndReturnsOneForUnmappedTypes()
+    {
+        var output = new StringWriter();
+        var error = new StringWriter();
+
+        int exitCode = TsBindGenCommand.Invoke([typeof(NeedsUnmappedTypeFixtureExports).Assembly.Location], output, error);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("NeedsUnmappedTypeFixture.Unmapped: System.Guid has no TypeScript mapping.", error.ToString(), StringComparison.Ordinal);
+        Assert.Contains("unknown", output.ToString(), StringComparison.Ordinal);
     }
 }
