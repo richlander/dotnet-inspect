@@ -1600,6 +1600,11 @@ public static class ApiOutputFormatter
                 .OrderBy(call => call.ILOffset)
                 .Select(call => new CallSiteRow(
                     MarkoutInline.Code($"IL_{call.ILOffset:X4}"),
+                    call.Caller == call.EvidenceMethod
+                        ? null
+                        : MarkoutInline.Code(
+                            $"{FormatMethod(call.EvidenceMethod)} "
+                            + $"[0x{call.EvidenceMethod.MetadataToken:X8}]"),
                     string.IsNullOrEmpty(call.Opcode) ? FormatOpcode(call.Kind) : call.Opcode,
                     FormatCallsiteKind(call.Kind),
                     MarkoutInline.Code(FormatCallee(call.Callee)),
@@ -1639,22 +1644,34 @@ public static class ApiOutputFormatter
         if (request.Callers && bodyMethods.Count > 0)
         {
             RequestTelemetry.Breadcrumb("il-analysis.callers", $"{bodyMethods.Count} member(s)");
-            var rows = new List<CallerSiteRow>();
+            var edges = new List<(
+                string Source,
+                Analysis.DirectCall Call)>();
 
             // Collect callers for each method (all overloads if multiple methods selected)
             foreach (var method in bodyMethods.Where(m => m.MetadataToken.HasValue))
             {
                 var targetToken = method.MetadataToken!.Value;
-                rows.AddRange(analysisInspection.CallerEdges(targetToken)
-                    .Select(edge => CreateCallerRow(edge.Source, edge.Call)));
+                edges.AddRange(
+                    analysisInspection.CallerEdges(targetToken)
+                        .Select(edge => (edge.Source, edge.Call)));
             }
 
-            // Deduplicate and sort
-            rows = rows
-                .GroupBy(row => (row.Source, row.Caller, row.ILOffset, row.OperandToken))
-                .Select(g => g.First())
+            var rows = edges
+                .GroupBy(edge => (
+                    edge.Source,
+                    edge.Call.EvidenceMethod.ModuleVersionId,
+                    edge.Call.EvidenceMethod.MetadataToken,
+                    edge.Call.ILOffset,
+                    edge.Call.OperandToken))
+                .Select(group => group.First())
+                .Select(edge =>
+                    CreateCallerRow(edge.Source, edge.Call))
                 .OrderBy(row => row.Source, StringComparer.Ordinal)
                 .ThenBy(row => row.Caller, StringComparer.Ordinal)
+                .ThenBy(
+                    row => row.EvidenceMethod,
+                    StringComparer.Ordinal)
                 .ThenBy(row => row.ILOffset, StringComparer.Ordinal)
                 .ToList();
 
@@ -1792,7 +1809,8 @@ public static class ApiOutputFormatter
             if (requestedSections.Contains(SectionNames.CostFacts))
             {
                 var rows = Analysis.SemanticFactProjection.CostFacts(
-                        analysisInspection.BodyIndex.GetDirectCallsByCaller(),
+                        analysisInspection.BodyIndex
+                            .GetDirectCallsByEvidenceMethod(),
                         semanticToken)
                     .Select(fact => ToCostFactRow(fact, includeMember: false))
                     .ToList();
@@ -2359,7 +2377,8 @@ public static class ApiOutputFormatter
 
         if (requestedSections?.Contains(SectionNames.CostFacts) == true)
         {
-            var directCallsByCaller = index.GetDirectCallsByCaller();
+            var directCallsByCaller =
+                index.GetDirectCallsByEvidenceMethod();
             var rows = methodTokens
                 .SelectMany(token => Analysis.SemanticFactProjection.CostFacts(directCallsByCaller, token))
                 .Select(fact => ToCostFactRow(fact, includeMember: true))
@@ -2720,6 +2739,11 @@ public static class ApiOutputFormatter
         => new(
             source,
             MarkoutInline.Code(FormatMethod(call.Caller)),
+            call.Caller == call.EvidenceMethod
+                ? null
+                : MarkoutInline.Code(
+                    $"{FormatMethod(call.EvidenceMethod)} "
+                    + $"[0x{call.EvidenceMethod.MetadataToken:X8}]"),
             MarkoutInline.Code($"IL_{call.ILOffset:X4}"),
             string.IsNullOrEmpty(call.Opcode) ? FormatOpcode(call.Kind) : call.Opcode,
             FormatCallsiteKind(call.Kind),

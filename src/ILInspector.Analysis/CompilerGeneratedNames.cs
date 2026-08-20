@@ -103,4 +103,13 @@ public static class CompilerGeneratedNames
     static bool IsGeneratedTypeName(string name)
         => name.StartsWith('<')
             || name.StartsWith("__", StringComparison.Ordinal);
+
+    internal static bool RequiresDeclaredOwner(
+        MethodIdentity method)
+        => IsLocalFunctionOrLambda(method.Name)
+            || method.Name == "MoveNext"
+                && LeafName(method.DeclaringType)
+                    .Contains(
+                        StateMachineInfix,
+                        StringComparison.Ordinal);
 }

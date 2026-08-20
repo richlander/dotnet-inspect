@@ -336,6 +336,11 @@ method analysis.
 `OptimizationOpportunities_AsyncStateMachineTypesArePrewarmedBeforeParallelAnalysis`
 gate projection, authentication, close-negative scope behavior, and
 read-only parallel cache consumption.
+`LibraryBodyAsyncSiblingSignatureMatcher` supplies the async-sibling
+subsystem's stateless signature decoding, exact identity/comparison, async
+return compatibility, optional cancellation matching, and bounded finding
+display. Reader-relative lookup, caches, accessibility, and dispatch
+suppression remain assembly-builder policy.
 `CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn`,
 `OptimizationOpportunities_AsyncStateMachine_IsAmortized`, and
 `Allocations_ClassifiesCrossAndInAssemblyValueTypeNewobj_ByShape` gate

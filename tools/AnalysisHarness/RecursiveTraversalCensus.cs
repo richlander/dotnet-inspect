@@ -125,6 +125,7 @@ public static class RecursiveTraversalCensus
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maxDepth, 0);
 
+        directCalls = DirectCallEvidence.Physicalize(directCalls);
         var methodTokens = methods
             .Select(static method => method.MetadataToken)
             .ToHashSet();

@@ -47,10 +47,10 @@ public class MemberIdentityValueEqualityTests
         Assert.Equal(left, right);
         Assert.Equal(left.GetHashCode(), right.GetHashCode());
         Assert.True(
-            LibraryBodyAnalysisBuilder
+            LibraryBodyAsyncSiblingSignatureMatcher
                 .AsyncSiblingTypesMatch(left, right));
         Assert.True(
-            LibraryBodyAnalysisBuilder
+            LibraryBodyAsyncSiblingSignatureMatcher
                 .AsyncSiblingTypeIdentity(left)
                 .Length < 10_000);
     }
@@ -234,9 +234,9 @@ public class MemberIdentityValueEqualityTests
 
         Assert.Equal(versionOne, versionTwo);
         Assert.NotEqual(
-            LibraryBodyAnalysisBuilder
+            LibraryBodyAsyncSiblingSignatureMatcher
                 .AsyncSiblingTypeIdentity(shared),
-            LibraryBodyAnalysisBuilder
+            LibraryBodyAsyncSiblingSignatureMatcher
                 .AsyncSiblingTypeIdentity(mixed));
     }
 
@@ -250,7 +250,7 @@ public class MemberIdentityValueEqualityTests
             value = TypeRef.GenericInstance(pair, [value, value]);
 
         var exception = Assert.Throws<BadImageFormatException>(
-            () => LibraryBodyAnalysisBuilder
+            () => LibraryBodyAsyncSiblingSignatureMatcher
                 .EnsureAsyncSiblingDisplayIsBounded(value));
         Assert.Contains(
             "output limit",
@@ -268,7 +268,7 @@ public class MemberIdentityValueEqualityTests
             TypeRef.CoreLib("System", "Void"),
             MemberKind.Method);
 
-        LibraryBodyAnalysisBuilder
+        LibraryBodyAsyncSiblingSignatureMatcher
             .EnsureAsyncSiblingDisplayIsBounded(member);
     }
 
@@ -284,7 +284,7 @@ public class MemberIdentityValueEqualityTests
             MemberKind.Method);
 
         Assert.Throws<BadImageFormatException>(
-            () => LibraryBodyAnalysisBuilder
+            () => LibraryBodyAsyncSiblingSignatureMatcher
                 .EnsureAsyncSiblingDisplayIsBounded(member));
     }
 
@@ -312,22 +312,22 @@ public class MemberIdentityValueEqualityTests
                 [1]));
 
         Assert.False(
-            LibraryBodyAnalysisBuilder.AsyncSiblingTypesMatch(
+            LibraryBodyAsyncSiblingSignatureMatcher.AsyncSiblingTypesMatch(
                 baseline,
                 differentSize));
         Assert.False(
-            LibraryBodyAnalysisBuilder.AsyncSiblingTypesMatch(
+            LibraryBodyAsyncSiblingSignatureMatcher.AsyncSiblingTypesMatch(
                 baseline,
                 differentLowerBound));
         Assert.NotEqual(
-            LibraryBodyAnalysisBuilder.AsyncSiblingTypeIdentity(
+            LibraryBodyAsyncSiblingSignatureMatcher.AsyncSiblingTypeIdentity(
                 baseline),
-            LibraryBodyAnalysisBuilder.AsyncSiblingTypeIdentity(
+            LibraryBodyAsyncSiblingSignatureMatcher.AsyncSiblingTypeIdentity(
                 differentSize));
         Assert.NotEqual(
-            LibraryBodyAnalysisBuilder.AsyncSiblingTypeIdentity(
+            LibraryBodyAsyncSiblingSignatureMatcher.AsyncSiblingTypeIdentity(
                 baseline),
-            LibraryBodyAnalysisBuilder.AsyncSiblingTypeIdentity(
+            LibraryBodyAsyncSiblingSignatureMatcher.AsyncSiblingTypeIdentity(
                 differentLowerBound));
     }
 
@@ -339,7 +339,7 @@ public class MemberIdentityValueEqualityTests
             rank: 1_000_000);
 
         Assert.Throws<BadImageFormatException>(
-            () => LibraryBodyAnalysisBuilder
+            () => LibraryBodyAsyncSiblingSignatureMatcher
                 .EnsureAsyncSiblingDisplayIsBounded(array));
     }
 
@@ -351,7 +351,7 @@ public class MemberIdentityValueEqualityTests
             array = TypeRef.MdArray(array, rank: 60_000);
 
         Assert.Throws<BadImageFormatException>(
-            () => LibraryBodyAnalysisBuilder
+            () => LibraryBodyAsyncSiblingSignatureMatcher
                 .EnsureAsyncSiblingDisplayIsBounded(array));
     }
 
@@ -365,7 +365,7 @@ public class MemberIdentityValueEqualityTests
             value = TypeRef.GenericInstance(pair, [value, value]);
 
         Assert.True(
-            LibraryBodyAnalysisBuilder
+            LibraryBodyAsyncSiblingSignatureMatcher
                 .IsSupportedAsyncSiblingType(value));
     }
 
@@ -402,7 +402,7 @@ public class MemberIdentityValueEqualityTests
                     name));
 
         Assert.False(
-            LibraryBodyAnalysisBuilder.AsyncSiblingTypesMatch(
+            LibraryBodyAsyncSiblingSignatureMatcher.AsyncSiblingTypesMatch(
                 Create(assembly, literal),
                 Create(assembly, nested)));
     }
