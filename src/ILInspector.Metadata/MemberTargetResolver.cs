@@ -213,7 +213,15 @@ public static class MemberTargetResolver
         IReadOnlyCollection<string>? kindFilter = null)
     {
         var declaringMembers = type.Members
-            .Where(member => TypeMatcher.MatchesMemberName(member.Name, selector.Name));
+            .Where(member =>
+                selector.Name.Contains('*')
+                    || selector.Name.Contains('?')
+                    ? TypeMatcher.MatchesGlob(
+                        member.Name,
+                        selector.Name)
+                    : TypeMatcher.MatchesMemberName(
+                        member.Name,
+                        selector.Name));
 
         if (selector.Kind is { Length: > 0 })
             declaringMembers = declaringMembers.Where(member => string.Equals(member.Kind, selector.Kind, StringComparison.OrdinalIgnoreCase));

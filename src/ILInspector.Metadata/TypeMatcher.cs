@@ -297,9 +297,6 @@ public static class TypeMatcher
 
     public static bool MatchesMemberName(string name, string pattern)
     {
-        if (pattern.Contains('*') || pattern.Contains('?'))
-            return MatchesGlob(name, pattern);
-
         if (pattern.Equals("this[]", StringComparison.OrdinalIgnoreCase))
             return name.Equals("Item", StringComparison.OrdinalIgnoreCase)
                 || name.Equals("Chars", StringComparison.OrdinalIgnoreCase);
