@@ -286,6 +286,13 @@ dispatch for HTTPS URLs on GitHub, Azure DevOps, GitLab, and Bitbucket source
 hosts, and the Browser transport refuses redirects; unsupported hosts visibly
 fall back to decompilation.
 
+MSDL's redirect omits CORS headers, so the Browser host rewrites only the exact
+MSDL symbol-request shape to the current site's absolute `/api/msdl/...` URL.
+Each Free Static Web App deploys the small anonymous managed Function in
+`msdl-proxy`; the fixed upstream host and independent path-segment validator
+keep it from becoming a caller-directed proxy. The function enforces the same
+8 MiB portable-PDB ceiling as the Browser consumer.
+
 Source operations are exclusive across the Browser process: a new request
 cancels the previous request, and leaving every source view cancels hidden work.
 The operation holds its workspace and package archives until its fresh bounded
@@ -519,15 +526,106 @@ Package tabs and the framework selector are workspace identity, not display
 state: changing either resolves a different workspace. Lenses this engine does
 not answer report the engine's failure rather than fixture results.
 
-`src/command-bar.ts` owns command completion, suggestion rendering, editing,
-and keyboard interaction. `app.js` supplies the package-navigation effects so
-the component does not acquire engine or workspace authority.
-`test/command-bar.test.js` gates the completion grammar, replacement behavior,
-bounded suggestions, command metadata, selection, and escaping.
+`src/spotlight.ts` owns the modal workbench search, embedded home search,
+scope/result rendering, selection, and keyboard interaction.
+`src/command-bar.ts` supplies its typed Commands-scope grammar and results;
+`app.js` retains package queries, navigation, network acquisition, and command
+effects so the components do not acquire engine or workspace authority.
+`test/spotlight.test.js` and `test/command-bar.test.js` gate both presentation
+modes, scope ownership, completion and replacement behavior, bounded results,
+command metadata, and escaping.
 
-- `Cmd/Ctrl+K` focuses the persistent command prompt.
+The typed `src/status-bar.ts` component renders both the full-width workspace
+data bar and the home readiness bar. The workspace bar occupies the bottom row
+formerly used by the persistent command prompt, giving diagnostics, cache
+state, package source, active assembly, and framework the full viewport width.
+Package source is shown only in a workspace. Current browser acquisition
+distinguishes NuGet.org from the .NET platform; the typed model also reserves
+local-file and custom-feed provenance for future acquisition paths. Missing or
+malformed provenance is shown as `Unknown` rather than omitted so acquisition
+failures stay diagnosable.
+
+`src/type-panel.ts` owns the type selector (the "PUBLIC TYPES" / "MEMBERS" nav
+pane) and the type viewer (the type heading, metadata, and source sections
+shown for the "type" scope) as pure, dependency-injected render functions.
+`app.js` still owns the type index, filtering, member grouping, and
+click/keyboard navigation, and passes each computed slice in explicitly; the
+shared text helpers used well beyond the type panel (`kindIcon`, `shortKind`,
+`typeDisplayName`, `highlight`, `highlightCSharp`, `factRows`,
+`relatedTypeChip`) stay in `app.js` and are injected the same way.
+`test/type-panel.test.js` gates namespace grouping and selection in the type
+list, active-group and overload selection in the member list, the type
+heading's package/library fields, the metadata- and source-signature cache
+keys, and the metadata/source panels' loading, error, and loaded states.
+
+`src/package-bar.ts` owns the package tab strip (including the always-present
+Platform tab), the open-package query form, and their keyboard/mouse/wheel
+interaction. `app.js` supplies the workspace effects — selecting, closing, and
+opening a package or the runtime pack — so the component acquires no engine or
+workspace authority. `test/package-bar.test.js` gates tab markup, active/close
+state, escaping, and open-package query parsing.
+
+`src/settings-panel.ts` owns the Settings page and the decompiler "taste"
+popover it shares its style catalog with, as pure, dependency-injected render
+functions. `app.js` still owns `state`, localStorage persistence for theme and
+taste, and event wiring (`setTheme`, `toggleTaste`, `clearTaste`), and passes
+each computed slice in explicitly. `test/settings-panel.test.js` gates the
+style catalog's tier grouping, byte-divergent badges, and checked state; the
+taste popover's active/default states; and the Settings page's theme segment,
+close-button label, and active-style-count states.
+
+`src/scope-bar.ts` owns the scope switcher and lens strip (the segmented
+Package/Types/Member control and the buttons beside it for the active scope's
+lenses or member sections) as a pure, dependency-injected render function.
+`app.js` still owns the current scope, the package/type/member lens
+definitions, and the active lens/section per scope, and passes each computed
+slice in explicitly. `test/scope-bar.test.js` gates the active scope segment,
+the active lens/section marking per scope, keyboard-shortcut indices, and
+label escaping.
+
+`src/metadata-viewer.ts` owns the Metadata lens (the image-level summary of each
+assembly — format stamp, heap sizes, ECMA-335 table row counts, and PE/CLI
+headers) and the Metadata Explorer (the spatial table/heap drill-down laid over
+it) as pure, dependency-injected render functions; both describe the metadata
+image rather than the API surface within it, so they share one module the way
+`type-panel.ts` combines the type selector and the type viewer. `app.js` still
+owns `state`, the engine calls that fetch an image, a table row window, or a
+heap listing, the explorer's focus/history stack, the DOM event binding, the
+`IntersectionObserver` that hydrates cards lazily, the resize listener, and the
+global keydown handler, and passes each computed slice in explicitly; the shared
+helpers used well beyond these views (`escapeHtml`, `fmtBytes`,
+`platformLensPicker`, `scopedPlatformLibrary`, `packageScopeSignature`) stay in
+`app.js` and are injected the same way. `test/metadata-viewer.test.js` gates the
+lens's picker, loading, failure, stale-scope, partial-read, and empty-image
+states and its heap/table ordering; the explorer's chips, history-button
+enablement, overview versus focus lightbox, lazy-load hooks, pager bounds, row
+highlight and selection, ref->def jump targets, cell escaping, heap addressing
+and coverage notes, and the row inspector.
+
+`src/doc-viewer.ts` owns the package document modal (the Markdown reader
+opened from a package's documents list) as a pure, dependency-injected render
+function. `app.js` still owns `state`, fetching and rendering the document's
+Markdown and frontmatter, and the sequence-guarded async load/close
+lifecycle, and passes each computed slice in explicitly. `test/doc-viewer.test.js`
+gates the closed/no-document fallback, loading and error states, the
+frontmatter card's presence and fields, and title/subtitle/frontmatter-name
+escaping (the rendered document body is trusted, pre-sanitized Markdown HTML
+and is not escaped).
+
+`src/graph-source.ts` owns the member source modal (the code viewer opened
+from a call graph node) as a pure, dependency-injected render function.
+`app.js` still owns `state`, the sequence-guarded async source-inspection
+lifecycle, and the `highlightCSharp` Prism wrapper, and passes each computed
+slice in explicitly. `test/graph-source.test.js` gates the loading state, the
+original-versus-decompiled provenance labels, the open-source link's presence
+only when a `url` is provided, the error state's fallback message, and title
+escaping in both the header and loading status.
+
+- `Cmd/Ctrl+K` opens Spotlight in the Commands scope.
+- `Cmd/Ctrl+P` opens Spotlight in the All scope.
 - `Cmd/Ctrl+F` or `/` focuses the type filter.
-- Arrow keys select a completion, `Tab` accepts it, and `Enter` runs it.
+- Arrow keys select a Spotlight result, `Tab` cycles scopes, and `Enter`
+  completes or runs a command.
 - Arrow keys or `j`/`k` navigate the type index.
 - Number keys switch the active scope's lenses when an input is not focused.
 - `share` copies the package, version, framework, type, and lens selection.
@@ -538,13 +636,15 @@ bounded suggestions, command metadata, selection, and escaping.
 ## Deploy
 
 `.github/workflows/deploy-inspect-web.yml` publishes every `main` commit,
-archives the resulting `wwwroot` as the run-scoped `inspect-web-site` GitHub
-artifact, then uses a fresh environment-gated job to download that artifact by
-ID with digest mismatch configured as an error and deploy it to the public
-staging site at `https://dotnet-inspect.ca`. Candidate build code never runs in
-the staging deployment job. The separate `inspect-web-staging` GitHub
-environment accepts only `main` and holds a deployment token scoped to the
-staging Azure Static Web App.
+archives the resulting `wwwroot` and prebuilt managed API as the run-scoped
+`inspect-web-site` GitHub artifact, then uses a fresh environment-gated job to
+download that artifact by ID with digest mismatch configured as an error and
+deploy it to the public staging site at `https://dotnet-inspect.ca`. The upload
+includes the managed API's hidden `.azurefunctions` dependencies, and the
+post-download gate requires its extension loader before deployment. Candidate
+build code never runs in the staging deployment job. The separate
+`inspect-web-staging` GitHub environment accepts only `main` and holds a
+deployment token scoped to the staging Azure Static Web App.
 
 `.github/workflows/deploy-inspect-web-coreclr.yml` publishes the same `main`
 commit to the isolated comparison site at
@@ -592,8 +692,10 @@ commit and pin their checkout, SDK setup, and artifact actions to exact
 commits. The workflow contract gate enforces those references. Azure's pinned
 action still pulls Microsoft's `staticappsclient:stable` image; that
 vendor-controlled deployment dependency is not immutable and remains inside
-the Azure trust boundary. All three workflows disable Azure's own app build
-and require the published artifact to contain `staticwebapp.config.json`.
+the Azure trust boundary. All three workflows disable Azure's own app and API
+builds and require the published artifact to contain
+`staticwebapp.config.json`, `host.json`, `functions.metadata`, and
+`worker.config.json`.
 Trusted build and deployment steps also verify that Vite preserved the authored
 .NET placeholders, that every file in Vite's generated manifest exists and is
 loaded by the index where required, that the SDK injected a mapping to the

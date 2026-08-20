@@ -538,6 +538,10 @@ public static class IrImporter
         {
             AssemblyPath = source.FilePath,
             MetadataToken = method.MetadataToken,
+            DeclaringTypeGenericParameterNames =
+                method.DeclaringTypeGenericParameterNames.IsDefault
+                    ? []
+                    : method.DeclaringTypeGenericParameterNames,
             BaseType = source.ResolveBaseType(method.DeclaringType),
             MethodKind = ClassifyMethodKind(method.Name),
             Regions = method.Body.Handlers,
@@ -1596,7 +1600,10 @@ public static class IrImporter
                     int target = reader.ReadBranchDestination(opcode);
                     if (!PropagateAndSpill(source, function, body, stack, state, [target, end], offset))
                         return false;
-                    body.Add(new ConditionalBranch(condition, target));
+                    body.Add(new ConditionalBranch(
+                        condition,
+                        target,
+                        ConditionalBranchOrigin.Imported));
                     break;
                 }
 
@@ -1608,7 +1615,10 @@ public static class IrImporter
                     var (kind, isUnsigned) = ComparisonOf(opcode);
                     if (!PropagateAndSpill(source, function, body, stack, state, [target, end], offset))
                         return false;
-                    body.Add(new ConditionalBranch(new Comparison(kind, isUnsigned, left, right), target));
+                    body.Add(new ConditionalBranch(
+                        new Comparison(kind, isUnsigned, left, right),
+                        target,
+                        ConditionalBranchOrigin.Imported));
                     break;
                 }
 

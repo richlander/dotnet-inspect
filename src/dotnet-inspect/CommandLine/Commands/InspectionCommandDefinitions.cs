@@ -418,11 +418,11 @@ public static class InspectionCommandDefinitions
                 CommandError.Write(triageShapeError);
                 return 1;
             }
-            if (bodyKindQuery.HasFilter && performanceTriage.HasFilters)
+            if (bodyKindQuery.HasFilter && performanceTriage.HasRanking)
             {
                 CommandError.Write(
-                    "A Body Shapes predicate cannot be combined with Performance Triage "
-                    + "filters or --order-by in one query.");
+                    "Body Shapes composition accepts Performance Triage filters, "
+                    + "but not --top or --order-by. Use --rows to limit rendered matches.");
                 return 1;
             }
             if (!string.IsNullOrWhiteSpace(typeFilter))
@@ -440,7 +440,10 @@ public static class InspectionCommandDefinitions
             // directly. Otherwise select the homogeneous performance kind family, not the broader
             // @Performance category (which also contains Top Leverage and Resource Triage and
             // therefore cannot render as one tabular stream).
-            if (performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult) && !hasExplicitSelect)
+            if (performanceTriage.HasFilters
+                && !bodyKindQuery.HasFilter
+                && !opts.IsDiscoveryMode(parseResult)
+                && !hasExplicitSelect)
             {
                 string[] targets = PerformanceKinds.Sections;
                 if (performanceTriage.Shapes is { Length: > 0 })
