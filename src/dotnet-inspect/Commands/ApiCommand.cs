@@ -4358,10 +4358,7 @@ public class ApiCommand
     internal static bool RejectUnsupportedMemberInfoDocumentJson(
         ApiOptions options)
     {
-        if (!options.JsonOutput
-            || options.Count
-            || options.Discover is not null
-            || IsProjectionRequested(options)
+        if (!IsWholeDocumentJson(options)
             || !HasUnsupportedMemberInfoDocumentJsonSelection(options))
         {
             return false;
