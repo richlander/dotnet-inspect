@@ -10,6 +10,9 @@
   property and event accessors, and, at library scope, compose with Performance
   Triage predicates without widening the selected source MethodDefs (#4312,
   #4370, #4390, #4410, #4435, #4442).
+- **Breaking:** Removes the standalone `body-shape` command without a
+  compatibility alias. Use `--where "Kind=<C# Body Kinds ID>"` with `library`,
+  one exact `type`, or one exact `member` (#4460).
 - Adds package dependency-tree projection and avoids package archive downloads
   when nuspec or dependency-only evidence is sufficient.
   `package --all-libraries` bare selection preserves its fixed overview and
@@ -60,6 +63,9 @@
 - Bounds custom-attribute decoding and metadata type-name construction before
   allocation, rejecting amplified element counts, excessive nesting, and
   oversized names (#4234, #4345).
+- Grants core-library identity from acquisition provenance instead of
+  self-declaration, preventing planted assemblies from minting trusted core
+  definitions (#4428).
 
 ### Decompiler and analysis correctness
 
