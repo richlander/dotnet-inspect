@@ -25668,7 +25668,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_DependencyLensJsonDoesNotUseTypedDocumentValidation()
+    public async Task Package_DependencyAliasJsonRejectsBeforeTypedDocumentValidation()
     {
         var (packagePath, tempDir) = CreateLocalDependencyPackage();
         try
@@ -25685,10 +25685,11 @@ public partial class CommandExecutionTests
                 "--tips",
                 "q");
 
-            Assert.Equal(0, exit);
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
             Assert.Contains(
-                "Test.DependencyGroups 1.0.0",
-                output,
+                "--dependencies cannot be combined with row projections or non-Markdown formats",
+                error,
                 StringComparison.Ordinal);
             Assert.DoesNotContain(
                 "No fields matched projection",
