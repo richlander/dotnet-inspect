@@ -31,6 +31,16 @@ namespace ILInspector.Decompiler.Tests;
 /// stops obtaining or granting is a stale entry.
 /// </para>
 /// <para>
+/// Grants are recognised the same way, by identity rather than by spelling. A
+/// call into <c>CoreLibraryIdentityTrust</c> grants unless its member is named
+/// in <see cref="s_nonGrantingTrustMembers"/>, and
+/// <see cref="TrustTypeMembers_AreClassified"/> fails when the type gains a
+/// member that set does not account for. Round 3 of PR #4469 escaped an earlier
+/// <c>StartsWith("Grant")</c> test with a member named <c>Classify</c> that
+/// forwarded to the grant: recognising a grant by its name reproduced, on the
+/// grant half, the very non-convergence this gate exists to end.
+/// </para>
+/// <para>
 /// The scan sees <em>creation</em>, not receipt. A method handed a reader —
 /// through a delegate, an interface, or a reflective invoke whose IL never
 /// mentions <c>GetMetadataReader</c> — does not appear here, and round 2 of PR
@@ -74,6 +84,41 @@ public sealed class ReaderConstructionSiteTests
     /// name.
     /// </summary>
     const string TrustTypeFullName = "ILInspector.Decompiler.Pipeline.CoreLibraryIdentityTrust";
+
+    /// <summary>
+    /// The members of the trust type that answer a question without conferring
+    /// anything. Every other member is treated as granting, so a new member is
+    /// grant-relevant until someone classifies it here.
+    /// </summary>
+    /// <remarks>
+    /// The polarity is deliberate and was itself a review finding. Round 3 of PR
+    /// #4469 escaped a <c>StartsWith("Grant")</c> test by adding a member named
+    /// <c>Classify</c> that forwarded to the grant, and calling it from a site
+    /// pinned as acquisition-only: every test stayed green while every opened
+    /// reader gained identity. Recognising grants by their name reproduced, on
+    /// the grant half, the cosmetic non-convergence that issue #4464 exists to
+    /// end — a name is one more unbounded dimension. Listing the members that do
+    /// <em>not</em> grant is bounded, because <see cref="TrustTypeMembers_AreClassified"/>
+    /// fails when the type gains a member this set does not name.
+    /// </remarks>
+    static readonly ImmutableHashSet<string> s_nonGrantingTrustMembers =
+        ImmutableHashSet.Create(
+            StringComparer.Ordinal,
+            "MayMint",
+            "MayMintCoreLibraryIdentity");
+
+    /// <summary>
+    /// The members of the trust type that confer core-library identity. This set
+    /// is not what <see cref="RoleOf"/> tests — it treats everything outside
+    /// <see cref="s_nonGrantingTrustMembers"/> as granting — but naming it lets
+    /// <see cref="TrustTypeMembers_AreClassified"/> require that every declared
+    /// member be a deliberate entry on one side or the other.
+    /// </summary>
+    static readonly ImmutableHashSet<string> s_grantingTrustMembers =
+        ImmutableHashSet.Create(
+            StringComparer.Ordinal,
+            "GrantCoreLibraryIdentity",
+            "GrantIfEntitled");
 
     /// <summary>
     /// Whether a trust-relevant site obtains a reader, grants core-library
@@ -201,6 +246,64 @@ public sealed class ReaderConstructionSiteTests
 
         Assert.Contains(observed, e => e.Value.HasFlag(TrustRole.ObtainsReader));
         Assert.Contains(observed, e => e.Value.HasFlag(TrustRole.GrantsIdentity));
+    }
+
+    /// <summary>
+    /// Keeps <see cref="s_nonGrantingTrustMembers"/> honest by deriving the
+    /// question from the type instead of restating it. A member added to
+    /// <c>CoreLibraryIdentityTrust</c> is grant-relevant to
+    /// <see cref="RoleOf"/> until it is named here, and this test says so out
+    /// loud rather than letting the omission read as approval. Set equality, so
+    /// a stale entry for a deleted member fails too.
+    /// </summary>
+    [Fact]
+    public void TrustTypeMembers_AreClassified()
+    {
+        using var stream = File.OpenRead(typeof(MetadataSource).Assembly.Location);
+        using var pe = new PEReader(stream);
+        var reader = pe.GetMetadataReader();
+
+        var declared = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            var type = reader.GetTypeDefinition(handle);
+            if (FullName(reader, handle) != TrustTypeFullName)
+                continue;
+
+            foreach (var methodHandle in type.GetMethods())
+            {
+                string name = reader.GetString(reader.GetMethodDefinition(methodHandle).Name);
+
+                // The static constructor is emitted for the trust table itself and
+                // is never a callable grant vector, so it is not a classification
+                // anyone has to make.
+                if (name == ".cctor")
+                    continue;
+
+                declared.Add(name);
+            }
+        }
+
+        Assert.NotEmpty(declared);
+
+        var classified = s_grantingTrustMembers.Union(s_nonGrantingTrustMembers);
+
+        Assert.True(
+            declared.SetEquals(classified),
+            "The members of CoreLibraryIdentityTrust no longer match their "
+            + "classification. Every member has to be named as granting or as "
+            + "non-granting, because RoleOf treats an unclassified one as a "
+            + "grant and the pin will fail until someone decides which it is."
+            + Environment.NewLine
+            + $"  Declared but unclassified: {Format(declared.Except(classified))}"
+            + Environment.NewLine
+            + $"  Classified but not declared: {Format(classified.Except(declared))}");
+
+        static string Format(IEnumerable<string> names)
+        {
+            string joined = string.Join(", ", names.Order(StringComparer.Ordinal));
+            return joined.Length == 0 ? "(none)" : joined;
+        }
     }
 
     /// <summary>
@@ -357,7 +460,7 @@ public sealed class ReaderConstructionSiteTests
             }
 
             if (declaringType == TrustTypeFullName
-                && member.StartsWith("Grant", StringComparison.Ordinal))
+                && !s_nonGrantingTrustMembers.Contains(member))
             {
                 role |= TrustRole.GrantsIdentity;
             }
