@@ -859,6 +859,8 @@ public sealed class CSharpTypePrinter
             Signature = member.Signature,
             SignatureModel = signatureModel is null ? null : SnapshotSignature(signatureModel),
             CSharpOperatorDeclaration = member.CSharpOperatorDeclaration,
+            HasCSharpOperatorDeclarationClassification =
+                member.HasCSharpOperatorDeclarationClassification,
             SignatureDecodeStatus = member.SignatureDecodeStatus,
             IsStatic = member.IsStatic,
             IsVirtual = member.IsVirtual,

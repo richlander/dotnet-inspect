@@ -562,6 +562,32 @@ public sealed class CSharpPrinterReceiverTests
     }
 
     [Fact]
+    public void ConditionalRightOperand_InstanceAssignmentPreservesObjectTarget()
+    {
+        string body = PrintFixture(
+            typeof(ConditionalInstanceAssignmentBox),
+            nameof(ConditionalInstanceAssignmentBox.InvokeObject));
+
+        Assert.Contains(
+            "ConditionalInstanceAssignmentBox __receiver = this;",
+            body);
+        Assert.Contains(
+            "__receiver += (object)(choose ? null : \"\");",
+            body);
+        AssertCompiles(
+            "public void InvokeObject(bool choose)",
+            Indent(body),
+            """
+            public sealed partial class ConditionalInstanceAssignmentBox
+            {
+                public void operator +=(object? value) { }
+                public void operator +=(string? value) { }
+            }
+            """,
+            gateType: "ConditionalInstanceAssignmentBox");
+    }
+
+    [Fact]
     public void DynamicRightOperand_InstanceAssignment_PreservesSelectedOverload()
     {
         var box = TypeRef.Definition("synthetic", "", "DynamicAssignmentBox");
@@ -852,5 +878,18 @@ public sealed partial class CollectionInstanceAssignmentBox
     {
         CollectionInstanceAssignmentBox receiver = this;
         receiver += (Span<int>)[1, 2];
+    }
+}
+
+public sealed partial class ConditionalInstanceAssignmentBox
+{
+    public void operator +=(object? value) { }
+
+    public void operator +=(string? value) { }
+
+    public void InvokeObject(bool choose)
+    {
+        ConditionalInstanceAssignmentBox receiver = this;
+        receiver += (object?)(choose ? null : "");
     }
 }

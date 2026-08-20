@@ -87,6 +87,9 @@ public sealed class OperatorApiSurfaceTests
         var member = Assert.Single(image.Members, candidate => candidate.Name == name);
         Assert.Equal(expectedKind, member.Kind);
         Assert.Equal(expectedCSharpDeclaration, member.CSharpOperatorDeclaration);
+        Assert.Equal(
+            expectedKind == "operator",
+            member.HasCSharpOperatorDeclarationClassification);
         Assert.StartsWith(
             expectedKind == "operator" ? $"operator:{name}~" : $"{name}~",
             image.Anchor(name).StableSelector,
@@ -234,6 +237,36 @@ public sealed class OperatorApiSurfaceTests
             wellFormed.IsCSharpOperatorDeclaration("op_Addition"));
         Assert.False(
             malformed.IsCSharpOperatorDeclaration("op_Addition"));
+    }
+
+    [Fact]
+    public void CSharpOperatorDeclaration_TreatsCoreLibraryEnumAsAClass()
+    {
+        using var stream = File.OpenRead(typeof(object).Assembly.Location);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        TypeDefinitionHandle typeHandle = Assert.Single(
+            reader.TypeDefinitions,
+            handle =>
+                reader.GetString(
+                    reader.GetTypeDefinition(handle).Name)
+                == "EventSourcePrimitive");
+        MethodDefinition[] conversions = reader
+            .GetTypeDefinition(typeHandle)
+            .GetMethods()
+            .Select(reader.GetMethodDefinition)
+            .Where(method =>
+                reader.GetString(method.Name) == "op_Implicit")
+            .ToArray();
+
+        Assert.NotEmpty(conversions);
+        Assert.All(
+            conversions,
+            method => Assert.Equal(
+                OperatorMetadata.DeclarationClassification.Yes,
+                OperatorMetadata.ClassifyCSharpOperatorDeclaration(
+                    reader,
+                    method)));
     }
 
     [Fact]

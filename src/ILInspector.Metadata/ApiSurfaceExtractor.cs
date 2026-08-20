@@ -833,6 +833,8 @@ public static class ApiSurfaceExtractor
                             _ => null,
                         }
                         : null,
+                    HasCSharpOperatorDeclarationClassification =
+                        isOperator,
                     SignatureDecodeStatus = signature.IsDegraded
                         ? SignatureDecodeStatus.Degraded
                         : null,
@@ -4507,9 +4509,11 @@ public static class ApiSurfaceExtractor
             OperatorMetadata.OperatorSignatureType type)
             => ResolveDefinition(reader, type, _source)
                 is { } definition
-                    ? definition.IsValueType
-                        ? OperatorMetadata.TypeRelationship.Yes
-                        : OperatorMetadata.TypeRelationship.No
+                    ? KnownKind(definition)
+                        ? definition.IsValueType
+                            ? OperatorMetadata.TypeRelationship.Yes
+                            : OperatorMetadata.TypeRelationship.No
+                        : OperatorMetadata.TypeRelationship.Unknown
                     : OperatorMetadata.TypeRelationship.Unknown;
 
         public OperatorMetadata.TypeRelationship InterfaceRelationship(
@@ -4517,9 +4521,11 @@ public static class ApiSurfaceExtractor
             OperatorMetadata.OperatorSignatureType type)
             => ResolveDefinition(reader, type, _source)
                 is { } definition
-                    ? definition.IsInterface
-                        ? OperatorMetadata.TypeRelationship.Yes
-                        : OperatorMetadata.TypeRelationship.No
+                    ? KnownKind(definition)
+                        ? definition.IsInterface
+                            ? OperatorMetadata.TypeRelationship.Yes
+                            : OperatorMetadata.TypeRelationship.No
+                        : OperatorMetadata.TypeRelationship.Unknown
                     : OperatorMetadata.TypeRelationship.Unknown;
 
         public OperatorMetadata.TypeRelationship
@@ -4548,6 +4554,7 @@ public static class ApiSurfaceExtractor
                     candidate,
                     candidateOrigin);
                 if (definition is null
+                    || !KnownKind(definition)
                     || !visited.Add(definition.Address)
                     || Plan.Context is not { } context
                     || context.Open(
@@ -4672,11 +4679,25 @@ public static class ApiSurfaceExtractor
         {
             TypeResolutionRequest? request =
                 CreateRequest(reader, type, origin);
-            return Plan.ResolveRequest(request, _operatorSubject)
-                is TypeResolutionOutcome.Resolved resolved
-                    ? resolved.Definition
-                    : null;
+            if (Plan.ResolveRequest(request, _operatorSubject)
+                is not TypeResolutionOutcome.Resolved resolved)
+            {
+                return null;
+            }
+            if (request is not null)
+            {
+                Plan.RecordDefinitionKindFailure(
+                    request,
+                    resolved.Definition,
+                    _operatorSubject);
+            }
+            return resolved.Definition;
         }
+
+        static bool KnownKind(ResolvedTypeDefinition definition)
+            => definition.Kind
+                    != MetadataTypeDefinitionKind.Unknown
+                && definition.KindResolutionFailure is null;
 
         internal OperatorMetadata.DeclarationClassification
             ClassifyOperator(MethodDefinitionHandle handle)

@@ -10,6 +10,14 @@ namespace DotnetInspector.Tests;
 /// </summary>
 public partial class CommandExecutionTests
 {
+    public sealed class IncrementSelection
+    {
+        public void operator ++() { }
+
+        public static IncrementSelection operator ++(
+            IncrementSelection value) => value;
+    }
+
     public readonly struct OperatorSelectionMoney
     {
         public OperatorSelectionMoney(decimal amount) => Amount = amount;
@@ -51,5 +59,32 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("operator ==(", output);
         Assert.DoesNotContain("bool op_Equality(", output);
+    }
+
+    [Fact]
+    public async Task Member_IncrementToken_SelectsStaticAndInstanceShapes()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            $"{typeof(IncrementSelection).FullName}.++",
+            "--library",
+            TestAssemblyPath,
+            "--markdown",
+            "-v:d");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(
+            2,
+            output.Split("operator ++(", StringSplitOptions.None)
+                .Length - 1);
+        Assert.Contains(
+            "public void operator ++()",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "public static ",
+            output,
+            StringComparison.Ordinal);
     }
 }

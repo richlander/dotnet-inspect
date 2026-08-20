@@ -75,6 +75,9 @@ public class FqnParserTests
     [InlineData("operator +=", "op_AdditionAssignment")]
     [InlineData("operator checked +=", "op_CheckedAdditionAssignment")]
     [InlineData("operator +", "op_Addition")]
+    [InlineData("operator ++", "op_Increment*")]
+    [InlineData("operator checked ++", "op_CheckedIncrement*")]
+    [InlineData("operator --", "op_Decrement*")]
     public void OperatorMember_NormalizesToMetadataName(
         string input,
         string expectedMember)

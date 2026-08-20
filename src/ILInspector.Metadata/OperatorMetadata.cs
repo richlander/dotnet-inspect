@@ -641,15 +641,21 @@ public static class OperatorMetadata
                 : TypeRelationship.Unknown;
         }
 
-        var definition = reader.GetTypeDefinition((TypeDefinitionHandle)type.Identity);
-        if (definition.BaseType.IsNil)
-            return TypeRelationship.No;
-        var baseType =
-            ReadSignatureType(reader, definition.BaseType);
-        return IsTrustedSystemType(baseType, "ValueType")
-            || IsTrustedSystemType(baseType, "Enum")
-            ? TypeRelationship.Yes
-            : TypeRelationship.No;
+        MetadataTypeDefinitionKind kind =
+            MetadataTypeDeclarationProbe.ClassifyDefinitionKind(
+                reader,
+                (TypeDefinitionHandle)type.Identity,
+                CoreLibraryRootAuthentication
+                    .DeclaresUniqueTopLevelCoreLibraryRoot(reader));
+        return kind switch
+        {
+            MetadataTypeDefinitionKind.ValueType =>
+                TypeRelationship.Yes,
+            MetadataTypeDefinitionKind.Class
+                or MetadataTypeDefinitionKind.Interface =>
+                TypeRelationship.No,
+            _ => TypeRelationship.Unknown,
+        };
     }
 
     static bool IsTrustedSystemType(

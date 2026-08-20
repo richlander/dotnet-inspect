@@ -706,6 +706,7 @@ public class ApiOutputFormatterTests
                     Kind = "operator",
                     Signature = "int op_Multiply(int left, int right)",
                     CSharpOperatorDeclaration = false,
+                    HasCSharpOperatorDeclarationClassification = true,
                 },
             ],
         };
@@ -723,6 +724,59 @@ public class ApiOutputFormatterTests
             System.StringComparison.Ordinal);
         Assert.Contains(
             "\"c_sharp_operator_declaration\":false",
+            compactJson,
+            System.StringComparison.Ordinal);
+        Assert.Contains(
+            "\"has_c_sharp_operator_declaration_classification\": true",
+            json,
+            System.StringComparison.Ordinal);
+        Assert.Contains(
+            "\"has_c_sharp_operator_declaration_classification\":true",
+            compactJson,
+            System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ApiTypeJson_PersistsUnknownCSharpOperatorProof()
+    {
+        var type = new ApiType
+        {
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "op_Explicit",
+                    Kind = "operator",
+                    Signature =
+                        "IContract op_Explicit(Widget value)",
+                    HasCSharpOperatorDeclarationClassification = true,
+                },
+            ],
+        };
+
+        string json = System.Text.Json.JsonSerializer.Serialize(
+            type,
+            ApiTypeJsonContext.Default.ApiType);
+        string compactJson = System.Text.Json.JsonSerializer.Serialize(
+            type,
+            ApiTypeCompactJsonContext.Default.ApiType);
+
+        Assert.DoesNotContain(
+            "\"c_sharp_operator_declaration\"",
+            json,
+            System.StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "\"c_sharp_operator_declaration\"",
+            compactJson,
+            System.StringComparison.Ordinal);
+        Assert.Contains(
+            "\"has_c_sharp_operator_declaration_classification\": true",
+            json,
+            System.StringComparison.Ordinal);
+        Assert.Contains(
+            "\"has_c_sharp_operator_declaration_classification\":true",
             compactJson,
             System.StringComparison.Ordinal);
     }

@@ -1381,6 +1381,44 @@ public class ConstraintResolutionHardeningTests
     }
 
     [Fact]
+    public void OperatorKindAuthenticationFailureRemainsUnknownAndVisible()
+    {
+        byte[] dependencyImage =
+            BuildSimpleType("Dependency", "Base`1");
+        byte[] derivedImage =
+            BuildDerivedWithExternalConstructedBase();
+        byte[] sourceImage =
+            BuildOperatorConsumer();
+        ResolvedAssemblyReference source = Descriptor(sourceImage);
+        ResolvedAssemblyReference derived = Descriptor(derivedImage);
+        ResolvedAssemblyReference dependency =
+            UnreadableDescriptor(dependencyImage);
+        using var pe = Reader(sourceImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MappingPolicy(derived, dependency));
+
+        ApiMember member = Assert.Single(
+            Assert.Single(surface.Types).Members,
+            static candidate =>
+                candidate.Name == "op_Addition");
+        Assert.True(
+            member.HasCSharpOperatorDeclarationClassification);
+        Assert.Null(member.CSharpOperatorDeclaration);
+        Assert.Contains(
+            surface.InspectionFailures,
+            failure =>
+                failure.SubjectToken == 0x06000001
+                && failure.Detail.Contains(
+                    "dependency could not be opened",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void MultiHopKindFailureRemainsVisibleAndPreservesResolvedIdentity()
     {
         byte[] terminalImage =
@@ -1997,6 +2035,41 @@ public class ConstraintResolutionHardeningTests
             genericDefinition: false,
             "Dependency",
             "Base`1");
+
+    static byte[] BuildOperatorConsumer()
+    {
+        MetadataBuilder metadata = NewMetadata("Source");
+        AssemblyReferenceHandle reference =
+            AddReference(metadata, "Derived");
+        TypeReferenceHandle derived =
+            metadata.AddTypeReference(
+                reference,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Derived"));
+        AddModule(metadata);
+        AddType(metadata, "Box");
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(2);
+        signature.WriteByte((byte)SignatureTypeKind.Class);
+        signature.WriteCompressedInteger(2 << 2);
+        signature.WriteByte((byte)SignatureTypeKind.Class);
+        signature.WriteCompressedInteger(2 << 2);
+        signature.WriteByte((byte)SignatureTypeKind.Class);
+        signature.WriteCompressedInteger(
+            (MetadataTokens.GetRowNumber(derived) << 2) | 1);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.SpecialName,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("op_Addition"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
 
     static byte[] BuildSameImageConstructedBaseHop(
         bool includeConsumer = false)

@@ -76,13 +76,17 @@ of repeated in every row.
 | `MetadataNamedTypeReference` | One decoded signature detached from its reader | Which exact named type definition and metadata scope the signature denotes | Resolution to an acquired assembly, constructed-type shape, or display spelling |
 
 `ApiMember.CSharpOperatorDeclaration` persists metadata's structural
-representability proof. Declaration consumers must not replace that proof after
-a JSON round-trip by inferring declaring-type participation from display text.
+representability proof.
+`ApiMember.HasCSharpOperatorDeclarationClassification` distinguishes an
+extracted `Unknown` from an older or shell-produced surface that never carried
+the fact. Declaration consumers must not replace an extracted `Unknown` after a
+JSON round-trip by inferring declaring-type participation from display text.
 `ApiMember.SignatureModel` likewise persists parameter and return-type structure;
 required operator pairs and other declaration consumers compare that model
 rather than treating missing structure as a wildcard.
 `ApiOutputFormatterTests.ApiTypeJson_PersistsStructuredSignatureModel` and the
-operator-pair JSON tests in `CSharpDeclarationWriterTests` gate this contract.
+operator proof and pair JSON tests in `ApiOutputFormatterTests` and
+`CSharpDeclarationWriterTests` gate this contract.
 
 #### `DotnetInspector.Queries`
 

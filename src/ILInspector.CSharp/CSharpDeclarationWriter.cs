@@ -2227,17 +2227,24 @@ internal static class CSharpDeclarationWriter
         // Extraction proves declaring-type participation structurally. A
         // shell-produced member may lack that fact, so its fallback remains
         // shape-only; extracted facts survive JSON round-trips.
-        bool isCSharpDeclaration = member.CSharpOperatorDeclaration
-            ?? OperatorNames.IsCSharpOperatorDeclaration(
-                methodName,
-                member.IsStatic,
-                isPublic,
-                returnType,
-                parameterCount,
-                hasRefOrOutParameter,
-                hasByRefReturn:
-                    returnType.StartsWith("ref ", StringComparison.Ordinal)
-                    || returnType.Contains("] ref ", StringComparison.Ordinal));
+        bool isCSharpDeclaration =
+            member.HasCSharpOperatorDeclarationClassification
+                ? member.CSharpOperatorDeclaration == true
+                : member.CSharpOperatorDeclaration
+                    ?? OperatorNames.IsCSharpOperatorDeclaration(
+                        methodName,
+                        member.IsStatic,
+                        isPublic,
+                        returnType,
+                        parameterCount,
+                        hasRefOrOutParameter,
+                        hasByRefReturn:
+                            returnType.StartsWith(
+                                "ref ",
+                                StringComparison.Ordinal)
+                            || returnType.Contains(
+                                "] ref ",
+                                StringComparison.Ordinal));
         if (!isCSharpDeclaration || !HasRequiredOperatorSibling(type, member))
             return signature;
 
@@ -2267,7 +2274,9 @@ internal static class CSharpDeclarationWriter
         return (type.DeclaringMembers ?? type.Members).Any(candidate =>
             candidate.Kind == "operator"
             && candidate.Name == siblingName
-            && candidate.CSharpOperatorDeclaration is not false
+            && (candidate.HasCSharpOperatorDeclarationClassification
+                ? candidate.CSharpOperatorDeclaration == true
+                : candidate.CSharpOperatorDeclaration is not false)
             && SameOperatorSignature(member.SignatureModel, candidate.SignatureModel));
     }
 

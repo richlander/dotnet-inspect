@@ -555,6 +555,33 @@ internal static class TypeParameterKindClassifier
                     detail));
         }
 
+        internal bool RecordDefinitionKindFailure(
+            TypeResolutionRequest request,
+            ResolvedTypeDefinition definition,
+            EntityHandle subject)
+        {
+            if (definition.KindResolutionFailure is not { } kindFailure)
+                return false;
+
+            if (kindFailure
+                is TypeResolutionFailure.RequestBudgetExceeded budget)
+            {
+                RecordAuthenticationBudgetFailure(
+                    subject,
+                    budget.Budget);
+            }
+            else
+            {
+                RecordResolutionFailure(
+                    subject,
+                    kindFailure,
+                    request,
+                    dependencyAssembly:
+                        definition.KindResolutionDependencyAssembly);
+            }
+            return true;
+        }
+
         void RecordResolutionFailure(
             EntityHandle handle,
             TypeResolutionFailure failure,

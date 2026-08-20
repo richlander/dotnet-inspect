@@ -5710,7 +5710,13 @@ public sealed partial class CSharpPrinter
             || argument is Lambda
                 or DelegateCreation
                 or AddressOfMethod
-                or CollectionExpression;
+                or CollectionExpression
+                or Conditional
+                or Coalesce
+                or SwitchExpression
+                or UnionSwitchExpression
+                or TupleSwitchExpression
+                or PatternSwitchExpression;
 
     /// <summary>
     /// An operand of a user-defined operator call. The operator's parameters may

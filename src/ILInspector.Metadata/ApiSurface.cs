@@ -848,6 +848,14 @@ public class ApiMember
     public bool? CSharpOperatorDeclaration { get; set; }
 
     /// <summary>
+    /// True when <see cref="CSharpOperatorDeclaration"/> came from metadata
+    /// classification. This distinguishes an extracted Unknown result from an
+    /// older or shell-produced surface that never carried the fact.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool HasCSharpOperatorDeclarationClassification { get; set; }
+
+    /// <summary>
     /// Set when guarded metadata decoding substituted part of this member's signature.
     /// Null means the signature decoded completely, including for older serialized surfaces.
     /// </summary>

@@ -1640,6 +1640,63 @@ public sealed class CSharpDeclarationWriterTests
             CSharpDeclarationWriter.RenderMemberDeclaration(roundTripped, member));
     }
 
+    [Fact]
+    public void MemberDeclaration_DoesNotPromoteExtractedUnknownOperatorProof()
+    {
+        var member = new ApiMember
+        {
+            Name = "op_Explicit",
+            Kind = "operator",
+            Signature =
+                "Samples.IContract op_Explicit(Samples.Widget value)",
+            IsStatic = true,
+            HasCSharpOperatorDeclarationClassification = true,
+        };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+            Members = [member],
+        };
+        var roundTripped = JsonSerializer.Deserialize<ApiType>(
+            JsonSerializer.Serialize(type))!;
+        ApiMember restored = Assert.Single(roundTripped.Members);
+
+        Assert.True(
+            restored.HasCSharpOperatorDeclarationClassification);
+        Assert.Null(restored.CSharpOperatorDeclaration);
+        Assert.Equal(
+            "public static Samples.IContract op_Explicit(Samples.Widget value)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                roundTripped,
+                restored));
+    }
+
+    [Fact]
+    public void MemberDeclaration_LegacyOperatorWithoutProofKeepsShapeFallback()
+    {
+        var member = new ApiMember
+        {
+            Name = "op_Implicit",
+            Kind = "operator",
+            Signature =
+                "Samples.Widget op_Implicit(int value)",
+            IsStatic = true,
+        };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+            Members = [member],
+        };
+
+        Assert.Equal(
+            "public static implicit operator Samples.Widget(int value)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+    }
+
     [Theory]
     [InlineData(
         "op_AdditionAssignment",
