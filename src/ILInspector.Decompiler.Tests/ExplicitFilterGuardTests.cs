@@ -76,6 +76,7 @@ public class ExplicitFilterGuardTests
             "ILInspector.Decompiler.Tests.GateArgumentExpanderTests.NoGateFlag_PassesArgumentsThroughUnchanged";
         const string missingMethod =
             "ILInspector.Decompiler.Tests.GateArgumentExpanderTests.ThisMethodDoesNotExist";
+        const string missingTestCaseId = "definitely-not-a-test-case-id";
 
         ProcessResult valid = await RunHostAsync("-method", validMethod);
         const string simulatedPreflightFailurePrefix =
@@ -112,7 +113,7 @@ public class ExplicitFilterGuardTests
             "-class", validClass,
             "-id", TestContext.Current.TestCase!.UniqueID);
         ProcessResult missingId = await RunHostAsync(
-            "-id", "definitely-not-a-test-case-id");
+            "-id", missingTestCaseId);
         ProcessResult invalidRun = await RunHostAsync(
             "-run", "definitely-not-a-serialized-test-case");
         ProcessResult explicitOnly = await RunHostAsync(
@@ -146,6 +147,12 @@ public class ExplicitFilterGuardTests
             "-preEnumerateTheories",
             "-id",
             customId);
+        ProcessResult mixedIdRun = await RunHostAsync(
+            "-preEnumerateTheories",
+            "-id",
+            customId,
+            "-id",
+            missingTestCaseId);
         ProcessResult customSerializationRun = await RunHostAsync(
             "-preEnumerateTheories",
             "-run",
@@ -214,11 +221,12 @@ public class ExplicitFilterGuardTests
         Assert.DoesNotContain("TEST EXECUTION SUMMARY", emptyIntersection.Output);
 
         Assert.Equal(2, disjointId.ExitCode);
-        Assert.Contains("combined xUnit selectors matched no runnable tests", disjointId.Error);
+        Assert.Contains("-id test-case IDs matched no discovered tests", disjointId.Error);
         Assert.DoesNotContain("TEST EXECUTION SUMMARY", disjointId.Output);
 
         Assert.Equal(2, missingId.ExitCode);
-        Assert.Contains("combined xUnit selectors matched no runnable tests", missingId.Error);
+        Assert.Contains("-id test-case IDs matched no discovered tests", missingId.Error);
+        Assert.Contains(missingTestCaseId, missingId.Error);
         Assert.DoesNotContain("TEST EXECUTION SUMMARY", missingId.Output);
 
         Assert.Equal(2, invalidRun.ExitCode);
@@ -238,6 +246,10 @@ public class ExplicitFilterGuardTests
         Assert.Equal(0, customSerializationList.ExitCode);
         Assert.Equal(0, customIdRun.ExitCode);
         Assert.Contains("Total: 1,", customIdRun.Output);
+        Assert.Equal(2, mixedIdRun.ExitCode);
+        Assert.Contains("-id test-case IDs matched no discovered tests", mixedIdRun.Error);
+        Assert.Contains(missingTestCaseId, mixedIdRun.Error);
+        Assert.DoesNotContain("TEST EXECUTION SUMMARY", mixedIdRun.Output);
         Assert.Equal(0, customSerializationRun.ExitCode);
         Assert.Contains("Total: 1,", customSerializationRun.Output);
         Assert.DoesNotContain("already supported", customSerializationRun.Output);

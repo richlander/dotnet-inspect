@@ -271,6 +271,22 @@ internal static class ExplicitFilterGuard
                             filter => $"  {filter.Option} \"{filter.Query}\"")));
             }
 
+            HashSet<string> filteredTestCaseIds = testCases
+                .Where(testCase => testCase.PassedFilter)
+                .Select(testCase => testCase.TestCase.UniqueID)
+                .ToHashSet(StringComparer.Ordinal);
+            string[] unmatchedIds = projectAssembly.TestCaseIDsToRun
+                .Where(id => !filteredTestCaseIds.Contains(id))
+                .ToArray();
+            if (unmatchedIds.Length > 0)
+            {
+                return PreflightResult.Reject(
+                    "error: one or more -id test-case IDs matched no discovered tests:\n"
+                    + string.Join(
+                        '\n',
+                        unmatchedIds.Select(id => $"  \"{id}\"")));
+            }
+
             DeserializedRunTests runSelection = DeserializeRunTestCases(projectAssembly);
             try
             {

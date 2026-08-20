@@ -141,13 +141,14 @@ entry gate invalidates every later result, so run it first and report it.
    `… -c Release -- -filter "/*/*/IteratorAcknowledgmentPassTests/*"`.
    The decompiler test host rejects an explicit `-class`, `-method`, or
    `-filter` selector that matches no discovered test, including one unmatched
-   selector alongside valid selectors. It also rejects standalone or combined
-   test-case IDs and serialized `-run` selections that resolve to no runnable
-   test, including through explicit-test mode, and reports stale or malformed
-   `-run` serializations directly. A misspelled targeted gate therefore fails
-   instead of reporting a successful zero-test or partial run. Preflight
-   discovery runs in a short-lived child process so its serializer registration
-   and disposable theory data cannot alter the real runner process.
+   selector alongside valid selectors. Every requested `-id` must resolve
+   after the other filters, even when another ID is valid. The host also
+   rejects standalone or combined direct selections that resolve to no
+   runnable test, including through explicit-test mode, and reports stale or
+   malformed `-run` serializations directly. A misspelled targeted gate
+   therefore fails instead of reporting a successful zero-test or partial run.
+   Preflight discovery runs in a short-lived child process so its serializer
+   registration and disposable theory data cannot alter the real runner process.
    `ExplicitFilterGuardTests.TestHost_RejectsEveryUnmatchedExplicitFilter` is
    the subprocess gate for both the rejection and isolation contracts.
    `ExplicitFilterGuardTests.AppHostAlias_ConcurrentProcessesAreIsolated`
