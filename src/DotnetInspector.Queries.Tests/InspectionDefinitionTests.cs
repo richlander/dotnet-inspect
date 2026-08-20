@@ -860,7 +860,7 @@ public class InspectionDefinitionTests
             platform.SelectedContext.Members,
             member => member is WorkspaceMemberCoordinate.PlatformMember platformMember
                 && platformMember.Family == "runtime"
-                && platformMember.Version == "10.0.10");
+                && string.IsNullOrEmpty(platformMember.Version));
         Assert.Equal("runtime", platform.Navigation!.FocusTabId);
         Assert.IsType<WorkspaceMemberCoordinate.PlatformMember>(
             platform.Navigation.FocusTab.Coordinate);
