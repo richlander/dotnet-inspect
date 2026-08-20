@@ -54,6 +54,8 @@ export function captureMemberFocus(
     selector = `[data-nav-member="${escapeSelectorValue(active.dataset.navMember)}"]`;
   } else if (active?.dataset.navOverload !== undefined) {
     selector = `[data-nav-overload="${escapeSelectorValue(active.dataset.navOverload)}"]`;
+  } else if (active?.dataset.taste !== undefined) {
+    selector = `[data-taste="${escapeSelectorValue(active.dataset.taste)}"]`;
   } else if (active?.dataset.packageLens !== undefined) {
     selector = `[data-package-lens="${escapeSelectorValue(active.dataset.packageLens)}"]`;
   } else if (active?.dataset.lens !== undefined) {

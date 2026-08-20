@@ -407,6 +407,7 @@ function viewSignature() {
     ma: state.memberAccessibilityFilter,
     mr: state.memberTraitFilter,
     o: state.selectedOverloadIndex,
+    b: encodeBodyTarget(state.selectedBodyTarget),
     s: state.memberSection,
     pr: state.atPackageRoot,
     pl: state.packageLens
@@ -804,6 +805,12 @@ function beginSpotlightNavigation() {
 function isTextEntry(element = document.activeElement) {
   return ["INPUT", "SELECT", "TEXTAREA"].includes(element?.tagName)
     || element?.isContentEditable;
+}
+
+function isInteractiveElement(element) {
+  return Boolean(element?.matches?.(
+    "button, a[href], input, select, textarea, summary, "
+    + "[role=button], [role=link], [role=checkbox]"));
 }
 
 function isContainedBrowserShortcut(event) {
@@ -4938,10 +4945,14 @@ function renderPreservingMemberFocus(fallback = null) {
 }
 
 function workbenchOverlayOwnsFocus() {
+  return workbenchModalOwnsFocus()
+    || state.tasteOpen;
+}
+
+function workbenchModalOwnsFocus() {
   return state.spotlightOpen
     || state.graphSourceOpen
-    || state.docViewerOpen
-    || state.tasteOpen;
+    || state.docViewerOpen;
 }
 
 function buildStateUrl(base = location.href) {
@@ -5613,7 +5624,7 @@ async function loadSelectedTypeSource() {
   const isCurrent = () =>
     ownsRequest()
     && activeSourceOperationKind(state) === "type"
-    && !workbenchOverlayOwnsFocus();
+    && !workbenchModalOwnsFocus();
   try {
     const result = await inspectTypeSource({
       packageId: state.package.id,
@@ -7702,7 +7713,8 @@ document.addEventListener("keydown", event => {
     event.preventDefault();
     stepHorizontal(event.key === "ArrowRight" ? 1 : -1);
   } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
-      && !state.spotlightOpen && event.key === "Enter") {
+      && !state.spotlightOpen && !isInteractiveElement(event.target)
+      && event.key === "Enter") {
     event.preventDefault();
     drillIn();
   } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey

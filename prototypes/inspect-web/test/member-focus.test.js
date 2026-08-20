@@ -252,6 +252,27 @@ test("member and overload rows survive activation renders", () => {
       return 1;
     });
 
+    test("taste controls survive source completion renders", () => {
+      const { document, element } = createDocument();
+      const selector = "[data-taste=\"prefer-var\"]";
+      const initialCheckbox = element(selector, {
+        dataset: { taste: "prefer-var" },
+      });
+      document.activeElement = initialCheckbox;
+      const snapshot = captureMemberFocus(document, value => value);
+
+      const replacementCheckbox = element(selector, {
+        dataset: { taste: "prefer-var" },
+      });
+      document.activeElement = document.body;
+      restoreMemberFocus(document, snapshot, callback => {
+        callback(0);
+        return 1;
+      });
+
+      assert.equal(document.activeElement, replacementCheckbox);
+    });
+
     assert.equal(document.activeElement, replacementButton);
   }
 });
