@@ -81,6 +81,11 @@ interface LineIntersection {
   end: number;
 }
 
+interface IndexedLine {
+  intersections: LineIntersection[];
+  media: Set<SourceMedium>;
+}
+
 export interface AnnotatedViewSegment extends SourceSegment {
   selected: boolean;
 }
@@ -154,13 +159,13 @@ export function prepareAnnotatedView(
 ): PreparedAnnotatedView {
   validateAnnotatedSourceDocument(document);
   const sourceLines = getLines(document.text);
-  const intersectionsByLine = indexLineIntersections(sourceLines, document.nodes);
+  const indexedLines = indexLines(sourceLines, document.nodes);
   const lines = sourceLines.map((line, index) => ({
     number: line.number,
-    medium: mediumForIntersections(intersectionsByLine[index]),
+    medium: mediumForLine(indexedLines[index].media),
     start: line.start,
     end: line.end,
-    segments: segmentsForIntersections(document.text, line, intersectionsByLine[index]),
+    segments: segmentsForIntersections(document.text, line, indexedLines[index].intersections),
   }));
   const nodeIdsByFact = document.facts.map((): number[] => []);
   for (const target of document.targets) nodeIdsByFact[target.fact_id].push(target.node_id);
@@ -269,11 +274,14 @@ function isVisible(
   return media[medium] === true;
 }
 
-function indexLineIntersections(
+function indexLines(
   lines: readonly SourceLine[],
   nodes: readonly AnnotatedSourceNode[],
-): LineIntersection[][] {
-  const indexed = lines.map((): LineIntersection[] => []);
+): IndexedLine[] {
+  const indexed = lines.map((): IndexedLine => ({
+    intersections: [],
+    media: new Set<SourceMedium>(),
+  }));
   for (const node of nodes) {
     for (const span of node.spans) {
       const spanEnd = span.start + span.length;
@@ -283,9 +291,12 @@ function indexLineIntersections(
         lineIndex++
       ) {
         const line = lines[lineIndex];
+        if (span.start < line.end && line.start < spanEnd) {
+          indexed[lineIndex].media.add(node.medium);
+        }
         const start = Math.max(line.start, span.start);
         const end = Math.min(line.end, spanEnd);
-        if (start < end) indexed[lineIndex].push({ node, start, end });
+        if (start < end) indexed[lineIndex].intersections.push({ node, start, end });
       }
     }
   }
@@ -303,13 +314,9 @@ function firstLineEndingAfter(lines: readonly SourceLine[], offset: number): num
   return low;
 }
 
-function mediumForIntersections(intersections: readonly LineIntersection[]): LineMedium {
-  let medium: SourceMedium | null = null;
-  for (const intersection of intersections) {
-    if (medium && medium !== intersection.node.medium) return "Mixed";
-    medium = intersection.node.medium;
-  }
-  return medium === "Il" ? "Il" : "CSharp";
+function mediumForLine(media: ReadonlySet<SourceMedium>): LineMedium {
+  if (media.size > 1) return "Mixed";
+  return media.has("Il") ? "Il" : "CSharp";
 }
 
 function segmentsForIntersections(

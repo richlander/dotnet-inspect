@@ -3228,6 +3228,7 @@ function bindAnnotatedSourceExplorerEvents() {
     updateAnnotatedSourceExplorer({ type: "clear-selection" }, false, "#ase-node-kind");
   });
   document.querySelector(".ase-code-scroll")?.addEventListener("keydown", event => {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
     const spans = [...event.currentTarget.querySelectorAll("[data-ase-offset]")];
     if (spans.length === 0) return;
     const currentIndex = spans.indexOf(document.activeElement);
@@ -3260,6 +3261,7 @@ function captureAnnotatedSourceExplorerRenderState() {
   if (!document.querySelector(".annotated-explorer")) return null;
   return {
     codeScroll: document.querySelector(".ase-code-scroll")?.scrollTop ?? 0,
+    codeScrollLeft: document.querySelector(".ase-code-scroll")?.scrollLeft ?? 0,
     inspectorScroll: document.querySelector(".ase-inspector")?.scrollTop ?? 0,
     focusSelector: annotatedSourceExplorerFocusSelector(),
   };
@@ -3271,6 +3273,7 @@ function restoreAnnotatedSourceExplorerRenderState(renderState) {
     const code = document.querySelector(".ase-code-scroll");
     const inspector = document.querySelector(".ase-inspector");
     if (code) code.scrollTop = renderState.codeScroll;
+    if (code) code.scrollLeft = renderState.codeScrollLeft;
     if (inspector) inspector.scrollTop = renderState.inspectorScroll;
     if (renderState.focusSelector) {
       document.querySelector(renderState.focusSelector)?.focus({ preventScroll: true });

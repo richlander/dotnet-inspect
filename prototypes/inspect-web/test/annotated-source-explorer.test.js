@@ -167,6 +167,10 @@ test("addressable source uses one tab stop and roving keyboard navigation", () =
   assert.match(html, /class="ase-code-scroll" tabindex="0"/);
   assert.match(html, /<button type="button" tabindex="-1" class="annotated-span addressable"/);
   assert.match(appSource, /case "ArrowRight":/);
+  assert.match(
+    appSource,
+    /if \(event\.altKey \|\| event\.ctrlKey \|\| event\.metaKey \|\| event\.shiftKey\) return;/,
+  );
   assert.match(appSource, /spans\[nextIndex\]\.focus\(\{ preventScroll: true \}\)/);
 });
 
@@ -174,8 +178,28 @@ test("all explorer renders preserve focus and scroll while home invalidates the 
   assert.match(appSource, /captureAnnotatedSourceExplorerRenderState\(\)/);
   assert.match(appSource, /restoreAnnotatedSourceExplorerRenderState\(renderState\)/);
   assert.match(appSource, /code\.scrollTop = renderState\.codeScroll/);
+  assert.match(appSource, /code\.scrollLeft = renderState\.codeScrollLeft/);
   assert.match(appSource, /document\.querySelector\(renderState\.focusSelector\)\?\.focus/);
   assert.match(appSource, /!state\.annotatedExplorer \|\| state\.home/);
+});
+
+test("fact buttons expose their toggle state", () => {
+  const initial = createAnnotatedSourceExplorerState(sampleDocument);
+  const selected = reduceAnnotatedSourceExplorerState(
+    sampleDocument,
+    initial,
+    { type: "select-fact", factId: 0 },
+  );
+  const html = renderAnnotatedSourceExplorer({
+    result,
+    state: selected,
+    title: "Example.Run",
+    subtitle: "public object Run()",
+    escapeHtml,
+  });
+
+  assert.match(html, /data-ase-fact="0" aria-pressed="true"/);
+  assert.match(html, /data-ase-fact="1" aria-pressed="false"/);
 });
 
 test("reopening an unchanged document reuses its prepared projection", () => {

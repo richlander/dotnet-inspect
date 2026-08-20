@@ -307,7 +307,7 @@ function factListHtml(
 }
 
 function factHtml(fact: AnnotatedViewFact, escapeHtml: EscapeHtml): string {
-  return `<button type="button" class="annotated-fact${fact.selected ? " selected" : ""}${fact.anchored ? "" : " unanchored"}" data-ase-fact="${fact.id}">
+  return `<button type="button" class="annotated-fact${fact.selected ? " selected" : ""}${fact.anchored ? "" : " unanchored"}" data-ase-fact="${fact.id}" aria-pressed="${fact.selected}">
       <span class="annotated-fact-descriptor">${escapeHtml(fact.descriptor)}</span>
       <span class="annotated-fact-category">${escapeHtml(fact.category)}</span>
       ${fact.detail ? `<span class="annotated-fact-detail">${escapeHtml(fact.detail)}</span>` : ""}

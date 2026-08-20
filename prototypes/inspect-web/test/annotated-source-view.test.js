@@ -153,6 +153,36 @@ test("indexed preparation preserves the portable model's segmentation", () => {
   assert.deepEqual(prepared.lines, expected);
 });
 
+test("indexed preparation preserves blank-line media for LF and CRLF text", () => {
+  for (const text of ["a\n\nb", "a\r\n\r\nb"]) {
+    const document = {
+      text,
+      nodes: [{
+        id: 0,
+        kind: "Block",
+        medium: "Il",
+        spans: [{ start: 0, length: text.length }],
+        il_offset: null,
+      }],
+      regions: [],
+      facts: [],
+      targets: [],
+    };
+    const prepared = prepareAnnotatedView(document);
+    const sourceLines = buildLines(text);
+
+    assert.deepEqual(
+      prepared.lines.map(line => line.medium),
+      sourceLines.map(line => lineMedium(document, line)),
+    );
+    assert.deepEqual(
+      projectPreparedAnnotatedView(prepared, { media: { CSharp: false, Il: true } })
+        .lines.map(line => line.number),
+      sourceLines.map(line => line.number),
+    );
+  }
+});
+
 test("large line-oriented documents prepare within the interaction budget", () => {
   const lineCount = 8_000;
   const text = "x\n".repeat(lineCount);
