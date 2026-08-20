@@ -315,9 +315,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 typeSourceGenerated);
         if (asyncSource is null
             || asyncSource == method)
-        {
             return asyncSource;
-        }
 
         EntityHandle asyncSourceHandle =
             MetadataTokens.EntityHandle(
@@ -342,6 +340,98 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         }
 
         return asyncSource;
+    }
+
+    bool ILibraryMethodAnalysisInfrastructure
+        .TryResolveUltimateDeclaredMethod(
+            MethodDefinitionHandle methodHandle,
+            MethodDefinition methodDefinition,
+            MethodIdentity method,
+            bool typeSourceGenerated,
+            out MethodIdentity? ultimateOwner)
+    {
+        MethodIdentity? current =
+            ((ILibraryMethodAnalysisInfrastructure)this)
+                .ResolveDeclaredMethod(
+                    methodHandle,
+                    methodDefinition,
+                    method,
+                    typeSourceGenerated,
+                    ownerMethodScope: null,
+                    ownerTypeScope: null,
+                    requestedMethodScope: null,
+                    directlySelectedBody: false);
+        if (current is null
+            || current == method)
+        {
+            ultimateOwner = null;
+            return !CompilerGeneratedNames
+                .RequiresDeclaredOwner(method);
+        }
+
+        return TryResolveUltimateLiftedOwner(
+            current,
+            out ultimateOwner);
+    }
+
+    bool TryResolveUltimateLiftedOwner(
+        MethodIdentity source,
+        out MethodIdentity? ultimateOwner)
+    {
+        MethodIdentity current = source;
+        Span<int> visited =
+            stackalloc int[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        int count = 0;
+        while (CompilerGeneratedNames
+            .IsLocalFunctionOrLambda(current.Name))
+        {
+            if (count == visited.Length)
+            {
+                ultimateOwner = null;
+                return false;
+            }
+            for (int i = 0; i < count; i++)
+            {
+                if (visited[i]
+                    == current.MetadataToken)
+                {
+                    ultimateOwner = null;
+                    return false;
+                }
+            }
+            visited[count++] = current.MetadataToken;
+            EntityHandle currentHandle =
+                MetadataTokens.EntityHandle(
+                    current.MetadataToken);
+            if (currentHandle.Kind
+                    != HandleKind.MethodDefinition)
+            {
+                ultimateOwner = null;
+                return false;
+            }
+            var currentDefinition =
+                _reader.GetMethodDefinition(
+                    (MethodDefinitionHandle)currentHandle);
+            if (!_liftedSourceOwnerResolver.TryResolve(
+                    (MethodDefinitionHandle)currentHandle,
+                    currentDefinition,
+                    current,
+                    out MethodIdentity? sourceOwner,
+                    out _,
+                    ownerMethodScope: null,
+                    ownerTypeScope: null,
+                    directlySelectedBody: false)
+                || sourceOwner is null)
+            {
+                ultimateOwner = null;
+                return false;
+            }
+            current = sourceOwner;
+        }
+
+        ultimateOwner = current;
+        return true;
     }
 
     bool ILibraryMethodAnalysisInfrastructure.DispatchCanTargetOverride(
@@ -493,7 +583,18 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         var declaredSources = new Dictionary<int, MethodIdentity>(
             analysis.Methods.DeclaredSources);
         foreach ((int token, MethodIdentity source) in asyncSources)
-            declaredSources.TryAdd(token, source);
+        {
+            if (!declaredSources.ContainsKey(token)
+                && TryResolveUltimateLiftedOwner(
+                    source,
+                    out MethodIdentity? ultimateOwner)
+                && ultimateOwner is not null)
+            {
+                declaredSources.Add(
+                    token,
+                    ultimateOwner);
+            }
+        }
         return analysis with
         {
             Methods = analysis.Methods with
@@ -548,6 +649,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                             plan.RequestedMethodScope?.Contains(
                                 MetadataTokens.GetToken(
                                     methodHandle))
+                                == true
+                            || plan.TypeScope?.Invoke(
+                                method.DeclaringType)
                                 == true)
                         && sourceOwner is not null)
                     {
@@ -584,10 +688,13 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             methodScope = expanded;
         }
 
-        Dictionary<int, TypeRef>? evidenceSources =
+        Dictionary<int, ImmutableArray<TypeRef>>?
+            evidenceSources =
             plan.TypeScopeEvidenceSources is null
                 ? null
-                : new Dictionary<int, TypeRef>(
+                : new Dictionary<
+                    int,
+                    ImmutableArray<TypeRef>>(
                     plan.TypeScopeEvidenceSources);
         if (plan.TypeScope is not null)
         {
@@ -597,11 +704,21 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 MethodIdentity owner)
                 in ownersByBody)
             {
-                evidenceSources[body.MetadataToken] =
+                TypeRef declaredSourceType =
                     ResolveDeclaredMethod(
                         owner,
                         ownersByBody)
                     .DeclaringType;
+                ImmutableArray<TypeRef> existing =
+                    evidenceSources.GetValueOrDefault(
+                        body.MetadataToken);
+                if (existing.IsDefault)
+                    existing = [];
+                if (!existing.Contains(declaredSourceType))
+                {
+                    evidenceSources[body.MetadataToken] =
+                        existing.Add(declaredSourceType);
+                }
             }
         }
 
