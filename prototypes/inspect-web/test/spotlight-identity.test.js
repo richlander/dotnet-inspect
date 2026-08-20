@@ -238,7 +238,7 @@ test("global workbench shortcuts respect the topmost modal", () => {
     /if \(state\.loading \|\| state\.error\) \{\s*if \(isContainedBrowserShortcut\(event\) \|\| event\.key === "\/"\)[\s\S]*event\.preventDefault\(\);[\s\S]*return;/);
   assert.match(
     appSource,
-    /function focusFilter\(\) \{[\s\S]*const input = document\.querySelector\("#type-filter"\);\s*if \(!input\) return;/);
+    /function focusFilter\(\) \{[\s\S]*const input = document\.querySelector\("#member-filter, #type-filter"\);\s*if \(!input\) return;/);
 });
 
 test("Spotlight navigation waits for selection data before restoring focus", () => {
