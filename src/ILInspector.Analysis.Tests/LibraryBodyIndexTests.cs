@@ -1305,6 +1305,34 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void TopLeverage_UsesCallGraphDeclaredCallerCurrency()
+    {
+        var index = LibraryBodyIndex.Open(
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity target = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name
+                    == nameof(ClassicAsyncSiblingFixture.ReadValue));
+        MethodLeverage leverage = Assert.Single(
+            index.TopLeverage(
+                    int.MaxValue,
+                    method => method.DeclaringType.Name
+                        == nameof(ClassicAsyncSiblingFixture))
+                .Where(entry => entry.Method == target));
+        CallTreeNode callers = index.BuildCallerTree(
+            target.MetadataToken,
+            maxDepth: 1,
+            maxNodes: 100);
+
+        Assert.Equal(
+            callers.Perf!.Fanin,
+            leverage.DirectCallerCount);
+    }
+
+    [Fact]
     public void
         DirectCalls_TypeScopeIncludesAsyncLiftedBodies()
     {
@@ -5802,6 +5830,7 @@ public class LibraryBodyIndexTests
         string[] callGraphCaches =
         [
             "_directCallsByCaller",
+            "_directCallsByEvidenceMethod",
             "_distinctCallerEdgesByCallee",
             "_distinctCallersByCallee",
             "_methodMap",
@@ -5843,6 +5872,7 @@ public class LibraryBodyIndexTests
             int token = index.Methods.First().MetadataToken;
             index.BuildCallerTree(token, maxDepth: 2, maxNodes: 50);
             index.BuildCallTree(token, maxDepth: 2, maxNodes: 50);
+            _ = index.GetDirectCallsByEvidenceMethod();
             // The retained half of the contract is only gated on caches this workload actually
             // populates, and the call-tree builders alone reach just one of the seven. Touch the
             // evidence-domain producers too; OptimizationOpportunities is what pulls in
@@ -9919,6 +9949,52 @@ public class LibraryBodyIndexTests
             typeScope: null));
 
         Assert.Equal(1, resolved);
+    }
+
+    [Fact]
+    public void ScopedLiftedResolution_DoesNotAcquireUnselectedOverload()
+    {
+        string path =
+            typeof(MemberRefLiftedOverloadFixture<>).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition fixture = reader.TypeDefinitions
+            .Select(reader.GetTypeDefinition)
+            .Single(type => reader.StringComparer.Equals(
+                type.Name,
+                "MemberRefLiftedOverloadFixture`1"));
+        MethodDefinitionHandle[] owners = fixture.GetMethods()
+            .Where(handle => reader.StringComparer.Equals(
+                reader.GetMethodDefinition(handle).Name,
+                "Owner"))
+            .ToArray();
+        Assert.Equal(2, owners.Length);
+        int selectedIndexed = 0;
+        int unselectedIndexed = 0;
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader,
+            resolver: null,
+            methodBodyReferenceIndexed: handle =>
+            {
+                if (handle == owners[0])
+                    selectedIndexed++;
+                if (handle == owners[1])
+                    unselectedIndexed++;
+            });
+
+        _ = builder.Build(LibraryBodyAnalysisPlan.Create(
+            LibraryBodyAnalysisFeatures.MethodEvidence,
+            methodScope: new HashSet<int>
+            {
+                MetadataTokens.GetToken(owners[0]),
+            },
+            typeScope: null));
+
+        Assert.Equal(1, selectedIndexed);
+        Assert.Equal(0, unselectedIndexed);
     }
 
     [Fact]

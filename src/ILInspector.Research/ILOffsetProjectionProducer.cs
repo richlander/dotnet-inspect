@@ -328,15 +328,15 @@ public static class ILOffsetProjectionProducer
         Analysis.LibraryBodyIndex index,
         int methodToken,
         int ilOffset)
-        => Analysis.SemanticFactProjection.CostFacts(
-                index.DirectCalls
-                    .Where(call =>
-                        call.EvidenceMethod.MetadataToken
-                            == methodToken)
-                    .ToImmutableArray(),
+    {
+        index.GetDirectCallsByEvidenceMethod()
+            .TryGetValue(methodToken, out var calls);
+        return Analysis.SemanticFactProjection.CostFacts(
+                calls.IsDefault ? [] : calls,
                 ilOffset: ilOffset)
             .Select(ToILOffsetCostContext)
             .ToList();
+    }
 
     static ILOffsetSafetyContext ToILOffsetSafetyContext(Analysis.SafetyFact fact)
         => new()

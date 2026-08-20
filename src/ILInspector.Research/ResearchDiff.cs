@@ -547,12 +547,7 @@ public static class ResearchDiff
             var allocationsByToken = index.GetAllocationOccurrences();
             IReadOnlyDictionary<int, ImmutableArray<DirectCall>>?
                 callsByToken = includeCallSites
-                    ? index.DirectCalls
-                        .GroupBy(call =>
-                            call.EvidenceMethod.MetadataToken)
-                        .ToDictionary(
-                            group => group.Key,
-                            group => group.ToImmutableArray())
+                    ? index.GetDirectCallsByEvidenceMethod()
                     : null;
             var unsafetyByToken = includeUnsafety ? index.GetUnsafetyOccurrences() : null;
             foreach (var method in index.Methods)

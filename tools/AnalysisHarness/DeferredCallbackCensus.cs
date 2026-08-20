@@ -30,6 +30,7 @@ public sealed record DeferredCallbackSite(
     string Assembly,
     string Caller,
     int CallerToken,
+    int EvidenceMethodToken,
     string Target,
     int TargetToken,
     int FunctionLoadOffset,
@@ -148,15 +149,7 @@ public static class DeferredCallbackCensus
         ArgumentOutOfRangeException.ThrowIfLessThan(maxDepth, 0);
 
         ImmutableArray<DirectCall> physicalCalls =
-        [
-            .. directCalls.Select(static call =>
-                call.Caller == call.EvidenceMethod
-                    ? call
-                    : call with
-                    {
-                        Caller = call.EvidenceMethod,
-                    }),
-        ];
+            DirectCallEvidence.Physicalize(directCalls);
         var callsByCoordinate = physicalCalls.ToDictionary(
             static call =>
                 (call.EvidenceMethod.MetadataToken, call.ILOffset));
@@ -338,6 +331,7 @@ public static class DeferredCallbackCensus
             assembly,
             MethodDisplay(load.Caller),
             load.Caller.MetadataToken,
+            load.EvidenceMethod.MetadataToken,
             MemberDisplay(load.Callee),
             load.CalleeDefinitionToken,
             load.ILOffset,

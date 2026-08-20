@@ -270,27 +270,35 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         MethodDefinition liftedMethod,
         MethodIdentity liftedIdentity,
         out MethodIdentity? sourceOwner,
-        out bool sourceGenerated) =>
+        out bool sourceGenerated,
+        IReadOnlySet<int>? ownerMethodScope,
+        Func<TypeRef, bool>? ownerTypeScope) =>
         _liftedSourceOwnerResolver.TryResolve(
             liftedHandle,
             liftedMethod,
             liftedIdentity,
             out sourceOwner,
-            out sourceGenerated);
+            out sourceGenerated,
+            ownerMethodScope,
+            ownerTypeScope);
 
     MethodIdentity?
         ILibraryMethodAnalysisInfrastructure.ResolveDeclaredMethod(
             MethodDefinitionHandle methodHandle,
             MethodDefinition methodDefinition,
             MethodIdentity method,
-            bool typeSourceGenerated)
+            bool typeSourceGenerated,
+            IReadOnlySet<int>? ownerMethodScope,
+            Func<TypeRef, bool>? ownerTypeScope)
     {
         if (_liftedSourceOwnerResolver.TryResolve(
                 methodHandle,
                 methodDefinition,
                 method,
                 out MethodIdentity? sourceOwner,
-                out _))
+                out _,
+                ownerMethodScope,
+                ownerTypeScope))
         {
             return sourceOwner;
         }

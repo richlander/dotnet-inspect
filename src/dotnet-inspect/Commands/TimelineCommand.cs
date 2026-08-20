@@ -19,14 +19,6 @@ public static class TimelineCommand
     public const string EvaluationsSection = "Evaluations";
     public const string TransitionsSection = "Transitions";
 
-    static IReadOnlyDictionary<int, ImmutableArray<DirectCall>>
-        CallsByEvidenceMethod(LibraryBodyIndex index) =>
-        index.DirectCalls
-            .GroupBy(call => call.EvidenceMethod.MetadataToken)
-            .ToDictionary(
-                group => group.Key,
-                group => group.ToImmutableArray());
-
     public static async Task<int> ExecuteAsync(TimelineOptions options)
     {
         if (!TryValidate(options, out var range, out var descriptor, out var selectedSections, out var error))
@@ -190,7 +182,7 @@ public static class TimelineCommand
                         AnalysisFindings.CallSiteDescriptor,
                         static (index, token, subject) =>
                         {
-                            CallsByEvidenceMethod(index)
+                            index.GetDirectCallsByEvidenceMethod()
                                 .TryGetValue(token, out var calls);
                             return new FindingInspection<DirectCall>.Complete(
                                 AnalysisFindings.InspectCallSites(

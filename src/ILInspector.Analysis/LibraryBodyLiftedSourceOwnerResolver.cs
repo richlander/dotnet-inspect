@@ -146,7 +146,10 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                 liftedIdentity.DeclaringType,
                 liftedMethod.Signature);
         LiftedOwnerGroupEvidence ownerGroup =
-            LiftedOwnerGroup(ownerType, ownerName);
+            LiftedOwnerGroup(
+                ownerType,
+                ownerName,
+                ownerMethodScope);
         if (!ownerGroup.TryResolve(
                 MetadataTokens.GetToken(liftedHandle),
                 member,
@@ -176,18 +179,28 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
 
     LiftedOwnerGroupEvidence LiftedOwnerGroup(
         TypeDefinitionHandle ownerType,
-        string ownerName)
+        string ownerName,
+        IReadOnlySet<int>? ownerMethodScope)
     {
         var key = new LiftedOwnerGroupKey(ownerType, ownerName);
+        if (ownerMethodScope is not null)
+        {
+            return BuildLiftedOwnerGroup(
+                key,
+                ownerMethodScope);
+        }
         return _liftedOwnerGroups.GetOrAdd(
             key,
             group => new Lazy<LiftedOwnerGroupEvidence>(
-                () => BuildLiftedOwnerGroup(group),
+                () => BuildLiftedOwnerGroup(
+                    group,
+                    ownerMethodScope: null),
                 LazyThreadSafetyMode.ExecutionAndPublication)).Value;
     }
 
     LiftedOwnerGroupEvidence BuildLiftedOwnerGroup(
-        LiftedOwnerGroupKey group)
+        LiftedOwnerGroupKey group,
+        IReadOnlySet<int>? ownerMethodScope)
     {
         var evidence = new LiftedOwnerGroupEvidence();
         if (!MethodsByName(group.OwnerType).TryGetValue(
@@ -199,6 +212,12 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
 
         foreach (MethodDefinitionHandle ownerHandle in owners)
         {
+            if (ownerMethodScope is not null
+                && !ownerMethodScope.Contains(
+                    MetadataTokens.GetToken(ownerHandle)))
+            {
+                continue;
+            }
             MethodDefinitionHandle executionHandle = ownerHandle;
             TopLevelExecutionMethod execution = default;
             bool topLevel = group.OwnerName == "<Main>$"

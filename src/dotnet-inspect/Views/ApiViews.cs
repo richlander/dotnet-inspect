@@ -934,6 +934,7 @@ public class MemberCodeView
 
     [MarkoutSection(Name = "Callers", EmptyText = "No callers found in this assembly.")]
     [MarkoutIgnoreColumnWhen(nameof(CallerSourceIsUniform), nameof(CallerSiteRow.Source))]
+    [MarkoutIgnoreColumnWhen(nameof(CallerEvidenceMethodIsEmpty), nameof(CallerSiteRow.EvidenceMethod))]
     public List<CallerSiteRow>? CallerRows { get; set; }
 
     /// <summary>
@@ -943,6 +944,9 @@ public class MemberCodeView
     /// </summary>
     public static bool CallerSourceIsUniform(List<CallerSiteRow>? rows)
         => rows is null || rows.Select(r => r.Source).Distinct(StringComparer.Ordinal).Count() <= 1;
+
+    public static bool CallerEvidenceMethodIsEmpty(List<CallerSiteRow>? rows)
+        => rows is null || rows.All(row => string.IsNullOrEmpty(row.EvidenceMethod));
 
     public static bool CallEvidenceMethodIsEmpty(List<CallSiteRow>? rows)
         => rows is null || rows.All(row => string.IsNullOrEmpty(row.EvidenceMethod));
@@ -1184,12 +1188,38 @@ public record ExceptionRegionRow(
 public record CallerSiteRow(
     string Source,
     string Caller,
-    [property: MarkoutPropertyName("IL Offset")] string ILOffset,
+    string? EvidenceMethod,
+    string ILOffset,
     string Opcode,
-    [property: MarkoutPropertyName("Call Kind")] string CallKind,
-    [property: MarkoutPropertyName("Operand Token")] string OperandToken,
-    [property: MarkoutPropertyName("Return Address")]
-    [property: MarkoutSkipNull] string? ReturnAddress);
+    string CallKind,
+    string OperandToken,
+    string? ReturnAddress)
+{
+    public string Source { get; init; } = Source;
+
+    public string Caller { get; init; } = Caller;
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Evidence Method")]
+    [MarkoutSkipNull]
+    public string? EvidenceMethod { get; init; } =
+        LibraryViewText.Contain(EvidenceMethod);
+
+    [MarkoutPropertyName("IL Offset")]
+    public string ILOffset { get; init; } = ILOffset;
+
+    public string Opcode { get; init; } = Opcode;
+
+    [MarkoutPropertyName("Call Kind")]
+    public string CallKind { get; init; } = CallKind;
+
+    [MarkoutPropertyName("Operand Token")]
+    public string OperandToken { get; init; } = OperandToken;
+
+    [MarkoutPropertyName("Return Address")]
+    [MarkoutSkipNull]
+    public string? ReturnAddress { get; init; } = ReturnAddress;
+}
 
 [MarkoutSerializable]
 public record UnsafeOperationRow(

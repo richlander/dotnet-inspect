@@ -153,6 +153,8 @@ public sealed class LibraryBodyIndex
     IReadOnlyDictionary<int, CallerLoopEvidence>? _directCallerLoops;
     Dictionary<int, int>? _rootReachByToken;
     IReadOnlyDictionary<int, ImmutableArray<DirectCall>>? _directCallsByCaller;
+    IReadOnlyDictionary<int, ImmutableArray<DirectCall>>?
+        _directCallsByEvidenceMethod;
     IReadOnlyDictionary<int, ImmutableArray<UnsafeEvidence>>? _unsafeEvidenceByMember;
     MethodDefinitionMap? _methodMap;
     IReadOnlyDictionary<int, int>? _distinctCallersByCallee;
@@ -181,6 +183,7 @@ public sealed class LibraryBodyIndex
         _distinctCallersByCallee = null;
         _distinctCallerEdgesByCallee = null;
         _directCallsByCaller = null;
+        _directCallsByEvidenceMethod = null;
     }
 
     /// <summary>
@@ -744,6 +747,18 @@ public sealed class LibraryBodyIndex
             .ToDictionary(group => group.Key, group => group.ToImmutableArray());
 
     /// <summary>
+    /// Direct call sites grouped by the physical method body that owns their
+    /// IL coordinates. The calls retain their declared <see cref="DirectCall.Caller"/>.
+    /// </summary>
+    public IReadOnlyDictionary<int, ImmutableArray<DirectCall>>
+        GetDirectCallsByEvidenceMethod()
+        => _directCallsByEvidenceMethod ??= DirectCalls
+            .GroupBy(call => call.EvidenceMethod.MetadataToken)
+            .ToDictionary(
+                group => group.Key,
+                group => group.ToImmutableArray());
+
+    /// <summary>
     /// Maps a compiler-generated body — an async state-machine <c>MoveNext</c>,
     /// or a lifted local-function/lambda method — to the declared source method
     /// the existing Analysis resolvers already own. Returns null when
@@ -1234,7 +1249,7 @@ public sealed class LibraryBodyIndex
     /// </summary>
     public ImmutableArray<MethodLeverage> TopLeverage(int count = 25, Func<MethodIdentity, bool>? scope = null)
         => MethodLeverageRanking.Top(
-            _physicalDirectCalls,
+            DirectCalls,
             Methods,
             count,
             scope);

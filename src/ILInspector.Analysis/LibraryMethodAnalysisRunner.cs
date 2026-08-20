@@ -84,13 +84,17 @@ internal interface ILibraryMethodAnalysisInfrastructure
         MethodDefinition liftedMethod,
         MethodIdentity liftedIdentity,
         out MethodIdentity? sourceOwner,
-        out bool sourceGenerated);
+        out bool sourceGenerated,
+        IReadOnlySet<int>? ownerMethodScope,
+        Func<TypeRef, bool>? ownerTypeScope);
 
     MethodIdentity? ResolveDeclaredMethod(
         MethodDefinitionHandle methodHandle,
         MethodDefinition methodDefinition,
         MethodIdentity method,
-        bool typeSourceGenerated);
+        bool typeSourceGenerated,
+        IReadOnlySet<int>? ownerMethodScope,
+        Func<TypeRef, bool>? ownerTypeScope);
 
     bool DispatchCanTargetOverride(
         TypeDefinition declaringType,
@@ -255,7 +259,9 @@ internal sealed class LibraryMethodAnalysisRunner(
                         methodHandle,
                         methodDefinition,
                         caller,
-                        typeSourceGenerated);
+                        typeSourceGenerated,
+                        bodyScope,
+                        bodyTypeScope);
                 result.DeclaredMethod = declaredMethod;
                 result.DeclaredSource = declaredMethod;
             }
@@ -384,7 +390,9 @@ internal sealed class LibraryMethodAnalysisRunner(
                         methodDefinition,
                         caller,
                         out sourceOwner,
-                        out sourceOwnerGenerated);
+                        out sourceOwnerGenerated,
+                        bodyScope,
+                        bodyTypeScope);
                 bool sourceGenerated =
                     _infrastructure.HasGeneratedCodeAttribute(
                         methodAttributes)
