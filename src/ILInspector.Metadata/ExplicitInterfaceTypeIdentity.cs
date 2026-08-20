@@ -38,10 +38,15 @@ internal readonly record struct ExplicitInterfaceTypeIdentity(
 internal readonly record struct ExplicitInterfaceSignatureContext(
     GenericContext? Names,
     ImmutableArray<ExplicitInterfaceTypeIdentity> TypeArguments,
-    int TypeParameterCount)
+    int TypeParameterCount,
+    int MethodParameterCount = 0)
 {
     public static ExplicitInterfaceSignatureContext Open(GenericContext? names)
-        => new(names, [], names?.TypeParameters.Count ?? 0);
+        => new(
+            names,
+            [],
+            names?.TypeParameters.Count ?? 0,
+            names?.MethodParameters.Count ?? 0);
 
     public ExplicitInterfaceSignatureContext WithTypeArguments(
         ImmutableArray<ExplicitInterfaceTypeIdentity> typeArguments,
@@ -49,7 +54,12 @@ internal readonly record struct ExplicitInterfaceSignatureContext(
         => new(
             Names,
             typeArguments.IsDefault ? [] : typeArguments,
-            typeParameterCount);
+            typeParameterCount,
+            MethodParameterCount);
+
+    public ExplicitInterfaceSignatureContext WithMethodParameterCount(
+        int methodParameterCount)
+        => this with { MethodParameterCount = methodParameterCount };
 }
 
 /// <remarks>
@@ -62,7 +72,10 @@ internal readonly record struct ExplicitInterfaceSignatureContext(
 /// <see langword="null"/> observer keeps the unbounded query paths unchanged. Gated by
 /// <c>ApiSurfaceExtractorBoundsTests.ExplicitInterfaceProjection_SpendsDecodeWorkBudget</c>
 /// and
-/// <c>ApiSurfaceExtractorBoundsTests.RepeatedDeepGenericMethodImplParent_UsesBoundedUnboundedAllocation</c>.
+/// <c>ApiSurfaceExtractorBoundsTests.RepeatedDeepGenericMethodImplParent_UsesBoundedUnboundedAllocation</c>,
+/// while
+/// <c>ApiSurfaceExtractorBoundsTests.ExplicitInterfaceFunctionPointerDisplay_IsPreflightedBeforeAllocation</c>
+/// gates display construction before materialization.
 /// </remarks>
 internal sealed class ExplicitInterfaceTypeIdentityProvider(
     Action<int>? observeDecodeWork = null)
@@ -108,6 +121,15 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
         }
 
         remainingProjectionWork -= characters;
+    }
+
+    void EnsureWorkAvailable(long characters)
+    {
+        if (characters < 0 || characters > remainingProjectionWork)
+        {
+            throw new BadImageFormatException(
+                "The explicit-interface projection exceeds the metadata safety limit.");
+        }
     }
 
     public ExplicitInterfaceTypeIdentity GetPrimitiveType(PrimitiveTypeCode typeCode)
@@ -329,7 +351,12 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
         string name = context.Names is not null && index < context.Names.MethodParameters.Count
             ? context.Names.MethodParameters[index]
             : $"TM{index}";
-        return Observe(new ExplicitInterfaceTypeIdentity(Node("mvar", index.ToString()), name));
+        return Observe(index < context.MethodParameterCount
+            ? new ExplicitInterfaceTypeIdentity(Node("mvar", index.ToString()), name)
+            : new ExplicitInterfaceTypeIdentity(
+                Node("invalid-mvar", index.ToString()),
+                name,
+                IsDegraded: true));
     }
 
     public ExplicitInterfaceTypeIdentity GetGenericTypeParameter(
@@ -375,6 +402,21 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
     public ExplicitInterfaceTypeIdentity GetFunctionPointerType(
         MethodSignature<ExplicitInterfaceTypeIdentity> signature)
     {
+        long projectedCharacters =
+            "method ".Length
+            + signature.ReturnType.MetadataName.Length
+            + " *(".Length
+            + ")".Length
+            + signature.ReturnType.Key.Length
+            + 64;
+        foreach (ExplicitInterfaceTypeIdentity parameter in signature.ParameterTypes)
+        {
+            projectedCharacters +=
+                parameter.Key.Length + parameter.MetadataName.Length + 1L;
+            EnsureWorkAvailable(projectedCharacters);
+        }
+        EnsureWorkAvailable(projectedCharacters);
+
         string key = Node(
             "fnptr",
             [

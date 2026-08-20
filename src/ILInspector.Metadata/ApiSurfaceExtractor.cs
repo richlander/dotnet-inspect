@@ -1779,12 +1779,16 @@ public static class ApiSurfaceExtractor
                 reader,
                 typeDef)
             : [];
+        bool isInterfaceTypeDefinition =
+            (typeDef.Attributes & TypeAttributes.Interface) != 0;
 
         foreach (var methodHandle in typeDef.GetMethods())
         {
             var method = reader.GetMethodDefinition(methodHandle);
             var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
-            if (!MetadataAccessibility.TryGet(methodAccess, out _))
+            if (!MetadataAccessibility.TryGet(
+                    methodAccess,
+                    out string? methodAccessibility))
             {
                 AddInspectionFailure(
                     surface,
@@ -1843,9 +1847,15 @@ public static class ApiSurfaceExtractor
             var member = new ApiMember
             {
                 Name = methodName,
-                Kind = isFinalizer ? "finalizer" : "method",
+                Kind = isFinalizer
+                    ? "finalizer"
+                    : isExplicitImplementation
+                        ? "explicit-interface-implementation"
+                        : "method",
                 IsStatic = (method.Attributes & MethodAttributes.Static) != 0,
-                IsFinalizer = isFinalizer
+                IsFinalizer = isFinalizer,
+                IsExplicitInterfaceImplementation = isExplicitImplementation,
+                Accessibility = methodAccessibility
             };
             if (isExtensionClass
                 && member.IsStatic
@@ -1887,6 +1897,19 @@ public static class ApiSurfaceExtractor
         {
             var property = reader.GetPropertyDefinition(propertyHandle);
             var accessors = property.GetAccessors();
+            if (accessors.Getter.IsNil && accessors.Setter.IsNil)
+            {
+                AddInspectionFailure(
+                    surface,
+                    budget: null,
+                    "property accessors",
+                    propertyHandle,
+                    MetadataTypeNameFailure.Malformed(
+                        propertyHandle,
+                        "The property has no getter or setter."));
+                continue;
+            }
+
             MethodAttributes bestAccess = 0;
             if (!accessors.Getter.IsNil)
             {
@@ -1900,7 +1923,48 @@ public static class ApiSurfaceExtractor
                 if (setterAccess > bestAccess)
                     bestAccess = setterAccess;
             }
-            if (!MetadataAccessibility.TryGet(bestAccess, out _))
+            bool isAbstractProperty = MetadataAccessorSemantics.AreAllAbstract(
+                reader,
+                accessors.Getter,
+                accessors.Setter);
+            if (MetadataAccessorSemantics.ValidateAbstraction(
+                    reader,
+                    requireUniformAbstraction: !isInterfaceTypeDefinition,
+                    accessors.Getter,
+                    accessors.Setter)
+                is var abstractionFault and not AccessorAbstractionFault.None)
+            {
+                AddInspectionFailure(
+                    surface,
+                    budget: null,
+                    "property modifiers",
+                    propertyHandle,
+                    MetadataTypeNameFailure.Malformed(
+                        propertyHandle,
+                        abstractionFault == AccessorAbstractionFault.AbstractAccessorHasBody
+                            ? "The property has an abstract accessor that declares an IL body."
+                            : "The property has inconsistent abstract accessor metadata."));
+                continue;
+            }
+            if (!MetadataAccessorSemantics.TryGetUniformSealedOverride(
+                    reader,
+                    out bool isSealedProperty,
+                    accessors.Getter,
+                    accessors.Setter))
+            {
+                AddInspectionFailure(
+                    surface,
+                    budget: null,
+                    "property modifiers",
+                    propertyHandle,
+                    MetadataTypeNameFailure.Malformed(
+                        propertyHandle,
+                        "The property has inconsistent sealed accessor metadata."));
+                continue;
+            }
+            if (!MetadataAccessibility.TryGet(
+                    bestAccess,
+                    out string? propertyAccessibility))
             {
                 AddInspectionFailure(
                     surface,
@@ -1913,18 +1977,19 @@ public static class ApiSurfaceExtractor
                 continue;
             }
 
-            if (bestAccess != MethodAttributes.Public
-                || AttributeReader.HasEditorBrowsableNeverAttribute(reader, property.GetCustomAttributes()))
-            {
-                continue;
-            }
-
             string propertyName = reader.GetString(property.Name);
             bool isExplicitInterfaceImplementation = IsExplicitInterfaceAggregate(
                 propertyName,
                 methodImplementations,
                 (accessors.Getter, "get_"),
                 (accessors.Setter, "set_"));
+            if (propertyAccessibility is not null
+                || AttributeReader.HasEditorBrowsableNeverAttribute(
+                    reader,
+                    property.GetCustomAttributes()))
+            {
+                continue;
+            }
             if (isExplicitInterfaceImplementation
                 && ValidateExplicitPropertyRowSignature(
                     reader,
@@ -1945,7 +2010,12 @@ public static class ApiSurfaceExtractor
             apiType.Members.Add(new ApiMember
             {
                 Name = propertyName,
-                Kind = "property"
+                Kind = "property",
+                IsAbstract = isAbstractProperty,
+                IsSealed = isSealedProperty,
+                IsExplicitInterfaceImplementation =
+                    isExplicitInterfaceImplementation,
+                Accessibility = propertyAccessibility
             });
             surface.PublicPropertyCount++;
         }
@@ -1985,7 +2055,17 @@ public static class ApiSurfaceExtractor
             var evt = reader.GetEventDefinition(eventHandle);
             var accessors = evt.GetAccessors();
             if (accessors.Adder.IsNil && accessors.Remover.IsNil)
+            {
+                AddInspectionFailure(
+                    surface,
+                    budget: null,
+                    "event accessors",
+                    eventHandle,
+                    MetadataTypeNameFailure.Malformed(
+                        eventHandle,
+                        "The event has no adder or remover."));
                 continue;
+            }
 
             MethodAttributes bestAccess = 0;
             bool malformedAccessibility = false;
@@ -2020,11 +2100,46 @@ public static class ApiSurfaceExtractor
                 continue;
             }
 
-            if (bestAccess != MethodAttributes.Public
-                || AttributeReader.HasEditorBrowsableNeverAttribute(reader, evt.GetCustomAttributes()))
+            bool isAbstractEvent = MetadataAccessorSemantics.AreAllAbstract(
+                reader,
+                accessors.Adder,
+                accessors.Remover);
+            if (MetadataAccessorSemantics.ValidateAbstraction(
+                    reader,
+                    requireUniformAbstraction: !isInterfaceTypeDefinition,
+                    accessors.Adder,
+                    accessors.Remover)
+                is var eventAbstractionFault and not AccessorAbstractionFault.None)
             {
+                AddInspectionFailure(
+                    surface,
+                    budget: null,
+                    "event modifiers",
+                    eventHandle,
+                    MetadataTypeNameFailure.Malformed(
+                        eventHandle,
+                        eventAbstractionFault == AccessorAbstractionFault.AbstractAccessorHasBody
+                            ? "The event has an abstract accessor that declares an IL body."
+                            : "The event has inconsistent abstract accessor metadata."));
                 continue;
             }
+            if (!MetadataAccessorSemantics.TryGetUniformSealedOverride(
+                    reader,
+                    out bool isSealedEvent,
+                    accessors.Adder,
+                    accessors.Remover))
+            {
+                AddInspectionFailure(
+                    surface,
+                    budget: null,
+                    "event modifiers",
+                    eventHandle,
+                    MetadataTypeNameFailure.Malformed(
+                        eventHandle,
+                        "The event has inconsistent sealed accessor metadata."));
+                continue;
+            }
+            string? eventAccessibility = MetadataAccessibility.Get(bestAccess);
 
             string eventName = reader.GetString(evt.Name);
             bool isExplicitInterfaceImplementation = IsExplicitInterfaceAggregate(
@@ -2032,6 +2147,13 @@ public static class ApiSurfaceExtractor
                 methodImplementations,
                 (accessors.Adder, "add_"),
                 (accessors.Remover, "remove_"));
+            if (eventAccessibility is not null
+                || AttributeReader.HasEditorBrowsableNeverAttribute(
+                    reader,
+                    evt.GetCustomAttributes()))
+            {
+                continue;
+            }
             if (isExplicitInterfaceImplementation
                 && ValidateExplicitEventRowSignature(
                     reader,
@@ -2052,7 +2174,12 @@ public static class ApiSurfaceExtractor
             apiType.Members.Add(new ApiMember
             {
                 Name = eventName,
-                Kind = "event"
+                Kind = "event",
+                IsAbstract = isAbstractEvent,
+                IsSealed = isSealedEvent,
+                IsExplicitInterfaceImplementation =
+                    isExplicitInterfaceImplementation,
+                Accessibility = eventAccessibility
             });
             surface.PublicEventCount++;
         }
@@ -2606,6 +2733,12 @@ public static class ApiSurfaceExtractor
                 throw new BadImageFormatException(
                     "The MethodImpl body signature could not be decoded.");
             }
+            if (result.Value.GenericParameterCount
+                != body.GetGenericParameters().Count)
+            {
+                throw new BadImageFormatException(
+                    "The MethodImpl body generic arity does not match its GenericParam rows.");
+            }
 
             bodySignatures.Add(bodyHandle, result.Value);
             return result.Value;
@@ -2613,7 +2746,8 @@ public static class ApiSurfaceExtractor
 
         MethodSignature<ExplicitInterfaceTypeIdentity> GetDeclarationSignature(
             EntityHandle declaration,
-            ExplicitInterfaceTypeIdentity declaringTypeIdentity)
+            ExplicitInterfaceTypeIdentity declaringTypeIdentity,
+            int methodParameterCount)
         {
             switch (declaration.Kind)
             {
@@ -2643,6 +2777,12 @@ public static class ApiSurfaceExtractor
                         throw new BadImageFormatException(
                             "The MethodImpl declaration signature could not be decoded.");
                     }
+                    if (methodResult.Value.GenericParameterCount
+                        != method.GetGenericParameters().Count)
+                    {
+                        throw new BadImageFormatException(
+                            "The MethodImpl declaration generic arity does not match its GenericParam rows.");
+                    }
 
                     methodDefinitionSignatures.Add(handle, methodResult.Value);
                     return methodResult.Value;
@@ -2654,7 +2794,8 @@ public static class ApiSurfaceExtractor
                         .Open(typeContext)
                         .WithTypeArguments(
                             declaringTypeIdentity.GenericArguments,
-                            declaringTypeIdentity.GenericArity);
+                            declaringTypeIdentity.GenericArity)
+                        .WithMethodParameterCount(methodParameterCount);
                     var key = new MemberReferenceSignatureCacheKey(
                         member.Signature,
                         context);
@@ -3041,6 +3182,7 @@ public static class ApiSurfaceExtractor
         ExplicitInterfaceTypeIdentityProvider identityProvider,
         Action<int>? observeDecodeWork,
         Func<EntityHandle, ExplicitInterfaceTypeIdentity,
+            int,
             MethodSignature<ExplicitInterfaceTypeIdentity>> getDeclarationSignature,
         out ExplicitInterfaceMethodTarget target)
     {
@@ -3105,10 +3247,14 @@ public static class ApiSurfaceExtractor
         EntityHandle declaration,
         ExplicitInterfaceTypeIdentity declaringTypeIdentity,
         Func<EntityHandle, ExplicitInterfaceTypeIdentity,
+            int,
             MethodSignature<ExplicitInterfaceTypeIdentity>> getDeclarationSignature)
     {
         MethodSignature<ExplicitInterfaceTypeIdentity> declarationSignature =
-            getDeclarationSignature(declaration, declaringTypeIdentity);
+            getDeclarationSignature(
+                declaration,
+                declaringTypeIdentity,
+                bodySignature.GenericParameterCount);
         return MethodSignaturesMatch(bodySignature, declarationSignature);
     }
 
@@ -6227,8 +6373,11 @@ public static class ApiSurfaceExtractor
         void RetainPendingText(long characters)
         {
             long next = characters + _pendingTextCharacters;
-            if (next > bounds.MaxRetainedTextCharacters - _retainedTextCharacters
-                || next < 0)
+            long pendingTotal = next + _pendingProjectionTextCharacters;
+            if (pendingTotal
+                    > bounds.MaxRetainedTextCharacters - _retainedTextCharacters
+                || next < 0
+                || pendingTotal < 0)
             {
                 throw new ExtractionBoundExceededException(
                     ApiSurfaceExtractionBound.RetainedTextCharacters);

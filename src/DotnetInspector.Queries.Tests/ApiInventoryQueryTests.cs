@@ -159,7 +159,8 @@ public class ApiInventoryQueryTests
         ApiMember finalizer = Assert.Single(type.Members, member => member.Kind == "finalizer");
         ApiMember explicitImplementation = Assert.Single(
             type.Members,
-            member => member.Kind == "explicit-interface-implementation");
+            member => member.Kind == "explicit-interface-implementation"
+                && member.Name.EndsWith(".Explicit", StringComparison.Ordinal));
         Assert.Equal("protected", finalizer.Accessibility);
         Assert.Equal("private", explicitImplementation.Accessibility);
         Assert.DoesNotContain(finalizer, catalog.Members);
@@ -199,6 +200,48 @@ public class ApiInventoryQueryTests
             Assert.Single(
                 privateMethods.KindFacets,
                 facet => facet.Id == methodFacet.Id).Count);
+    }
+
+    [Fact]
+    public void ExtractSummary_PreservesExplicitInterfaceFacets()
+    {
+        using var stream = File.OpenRead(typeof(ApiInventoryQueryTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+
+        ApiSurface summary = ApiSurfaceExtractor.ExtractSummary(peReader);
+        ApiType type = Assert.Single(
+            summary.Types,
+            candidate => candidate.FullName == typeof(InventoryFixture).FullName);
+        ApiMember[] explicitMembers = type.Members
+            .Where(member => member.IsExplicitInterfaceImplementation)
+            .ToArray();
+
+        Assert.Equal(4, explicitMembers.Length);
+        Assert.All(
+            explicitMembers,
+            member => Assert.Equal("private", member.Accessibility));
+        Assert.Contains(
+            explicitMembers,
+            member => member.Kind == "explicit-interface-implementation"
+                && member.Name.EndsWith(".Explicit", StringComparison.Ordinal));
+        Assert.Contains(
+            explicitMembers,
+            member => member.Kind == "explicit-interface-implementation"
+                && member.Name.EndsWith(
+                    ".get_ExplicitProperty",
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            explicitMembers,
+            member => member.Kind == "explicit-interface-implementation"
+                && member.Name.EndsWith(
+                    ".add_ExplicitChanged",
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            explicitMembers,
+            member => member.Kind == "explicit-interface-implementation"
+                && member.Name.EndsWith(
+                    ".remove_ExplicitChanged",
+                    StringComparison.Ordinal));
     }
 
     [Fact]
@@ -459,6 +502,15 @@ public class ApiInventoryQueryTests
                 reader,
                 typeHandle,
                 includeNonPublicMembers: true));
+
+        ApiSurface summary = ApiSurfaceExtractor.ExtractSummary(peReader);
+        ApiType summarized = Assert.Single(
+            summary.Types,
+            candidate => candidate.Name == "AccessorlessHost");
+        Assert.Empty(summarized.Members);
+        ApiSurfaceInspectionFailure summaryFailure =
+            Assert.Single(summary.InspectionFailures);
+        Assert.Equal("property accessors", summaryFailure.Operation);
     }
 
     [Fact]
@@ -531,6 +583,26 @@ public class ApiInventoryQueryTests
                 includeNonPublicMembers: true));
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void FocusedQuery_ValidatesGeneratedNameAccessibilityBeforeSkipping(
+        bool method)
+    {
+        using var peReader = new PEReader(
+            new MemoryStream(BuildReservedGeneratedNameImage(method)));
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle typeHandle = reader.TypeDefinitions.Single(handle =>
+            reader.GetString(reader.GetTypeDefinition(handle).Name)
+                == "GeneratedNameHost");
+
+        Assert.Throws<BadImageFormatException>(
+            () => MetadataDeclarationQuery.GetTypeSurface(
+                reader,
+                typeHandle,
+                includeNonPublicMembers: true));
+    }
+
     [Fact]
     public void Extract_EventAccessibilityUsesBothAccessorsAndRetainsRemoveOnlyEvents()
     {
@@ -570,6 +642,34 @@ public class ApiInventoryQueryTests
             typeHandle,
             includeNonPublicMembers: true);
         Assert.Single(queried.Members, member => member.Name == "Broken");
+    }
+
+    [Fact]
+    public void ExtractSummary_InconsistentSealedAccessorsRecordVisibleFailures()
+    {
+        using var peReader = new PEReader(
+            new MemoryStream(BuildInconsistentSealedAccessorImage()));
+
+        ApiSurface summary = ApiSurfaceExtractor.ExtractSummary(peReader);
+        ApiType type = Assert.Single(
+            summary.Types,
+            candidate => candidate.Name == "InconsistentSealedHost");
+
+        Assert.DoesNotContain(
+            type.Members,
+            member => member.Kind is "property" or "event");
+        Assert.Equal(
+            ["event modifiers", "property modifiers"],
+            summary.InspectionFailures
+                .Select(failure => failure.Operation)
+                .Order()
+                .ToArray());
+        Assert.All(
+            summary.InspectionFailures,
+            failure => Assert.Contains(
+                "inconsistent sealed accessor",
+                failure.Detail,
+                StringComparison.Ordinal));
     }
 
     [Fact]
@@ -990,11 +1090,201 @@ public class ApiInventoryQueryTests
         pe.Serialize(image);
         return image.ToArray();
     }
+
+    private static byte[] BuildReservedGeneratedNameImage(bool method)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("GeneratedName.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("GeneratedName"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Fixtures"),
+            metadata.GetOrAddString("GeneratedNameHost"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        if (method)
+        {
+            metadata.AddMethodDefinition(
+                (MethodAttributes)0x0007 | MethodAttributes.Static,
+                MethodImplAttributes.Runtime,
+                metadata.GetOrAddString("<HiddenMethod>"),
+                metadata.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x01 }),
+                bodyOffset: 0,
+                parameterList: MetadataTokens.ParameterHandle(1));
+        }
+        else
+        {
+            metadata.AddFieldDefinition(
+                (FieldAttributes)0x0007 | FieldAttributes.Static,
+                metadata.GetOrAddString("<HiddenField>"),
+                metadata.GetOrAddBlob(new byte[] { 0x06, 0x08 }));
+        }
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    private static byte[] BuildInconsistentSealedAccessorImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("InconsistentSealed.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("InconsistentSealed"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle type = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Fixtures"),
+            metadata.GetOrAddString("InconsistentSealedHost"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        const MethodAttributes accessor =
+            MethodAttributes.Public
+            | MethodAttributes.Virtual
+            | MethodAttributes.SpecialName
+            | MethodAttributes.HideBySig;
+
+        var getterSignature = new BlobBuilder();
+        new BlobEncoder(getterSignature)
+            .MethodSignature(isInstanceMethod: true)
+            .Parameters(0, returnType => returnType.Type().Int32(), _ => { });
+        MethodDefinitionHandle getter = metadata.AddMethodDefinition(
+            accessor | MethodAttributes.Final,
+            MethodImplAttributes.Runtime,
+            metadata.GetOrAddString("get_Value"),
+            metadata.GetOrAddBlob(getterSignature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        var setterSignature = new BlobBuilder();
+        new BlobEncoder(setterSignature)
+            .MethodSignature(isInstanceMethod: true)
+            .Parameters(
+                1,
+                returnType => returnType.Void(),
+                parameters => parameters.AddParameter().Type().Int32());
+        MethodDefinitionHandle setter = metadata.AddMethodDefinition(
+            accessor,
+            MethodImplAttributes.Runtime,
+            metadata.GetOrAddString("set_Value"),
+            metadata.GetOrAddBlob(setterSignature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        var propertySignature = new BlobBuilder();
+        new BlobEncoder(propertySignature)
+            .PropertySignature(isInstanceProperty: true)
+            .Parameters(0, returnType => returnType.Type().Int32(), _ => { });
+        PropertyDefinitionHandle property = metadata.AddProperty(
+            PropertyAttributes.None,
+            metadata.GetOrAddString("Value"),
+            metadata.GetOrAddBlob(propertySignature));
+        metadata.AddPropertyMap(type, property);
+        metadata.AddMethodSemantics(
+            property,
+            MethodSemanticsAttributes.Getter,
+            getter);
+        metadata.AddMethodSemantics(
+            property,
+            MethodSemanticsAttributes.Setter,
+            setter);
+
+        var eventSignature = new BlobBuilder();
+        new BlobEncoder(eventSignature)
+            .MethodSignature(isInstanceMethod: true)
+            .Parameters(
+                1,
+                returnType => returnType.Void(),
+                parameters => parameters.AddParameter().Type().Type(
+                    type,
+                    isValueType: false));
+        BlobHandle eventSignatureHandle = metadata.GetOrAddBlob(eventSignature);
+        MethodDefinitionHandle adder = metadata.AddMethodDefinition(
+            accessor | MethodAttributes.Final,
+            MethodImplAttributes.Runtime,
+            metadata.GetOrAddString("add_Changed"),
+            eventSignatureHandle,
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle remover = metadata.AddMethodDefinition(
+            accessor,
+            MethodImplAttributes.Runtime,
+            metadata.GetOrAddString("remove_Changed"),
+            eventSignatureHandle,
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        EventDefinitionHandle changed = metadata.AddEvent(
+            EventAttributes.None,
+            metadata.GetOrAddString("Changed"),
+            type);
+        metadata.AddEventMap(type, changed);
+        metadata.AddMethodSemantics(
+            changed,
+            MethodSemanticsAttributes.Adder,
+            adder);
+        metadata.AddMethodSemantics(
+            changed,
+            MethodSemanticsAttributes.Remover,
+            remover);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
 }
 
 public interface IInventoryFixture
 {
     void Explicit();
+
+    int ExplicitProperty { get; }
+
+    event EventHandler ExplicitChanged;
 }
 
 public class InventoryFixture : IInventoryFixture
@@ -1025,6 +1315,14 @@ public class InventoryFixture : IInventoryFixture
     private int PrivateMethod() => s_privateField;
 
     void IInventoryFixture.Explicit() { }
+
+    int IInventoryFixture.ExplicitProperty => 42;
+
+    event EventHandler IInventoryFixture.ExplicitChanged
+    {
+        add { }
+        remove { }
+    }
 
     public static InventoryFixture operator +(InventoryFixture left, InventoryFixture right)
         => left;

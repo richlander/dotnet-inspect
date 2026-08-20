@@ -417,10 +417,12 @@ public sealed class MetadataDeclarationQueryTests
                 StringComparison.Ordinal));
         Assert.Contains(
             queried.Members,
-            member => member.Name.EndsWith(".get_Value", StringComparison.Ordinal));
+            member => member.Kind == "explicit-interface-implementation"
+                && member.Name.EndsWith(".get_Value", StringComparison.Ordinal));
         Assert.Contains(
             queried.Members,
-            member => member.Name.EndsWith(".add_Changed", StringComparison.Ordinal));
+            member => member.Kind == "explicit-interface-implementation"
+                && member.Name.EndsWith(".add_Changed", StringComparison.Ordinal));
         Assert.Contains(
             queried.Members,
             member => member is
@@ -954,6 +956,19 @@ public sealed class MetadataDeclarationQueryTests
             Assert.Contains(
                 surface.InspectionFailures,
                 failure => failure.Operation == "event modifiers");
+            ApiSurface summary = ApiSurfaceExtractor.ExtractSummary(peReader);
+            ApiType summarized = Assert.Single(
+                summary.Types,
+                type => type.Name == "MixedAbstraction");
+            Assert.DoesNotContain(
+                summarized.Members,
+                member => member.Kind is "property" or "event");
+            Assert.Contains(
+                summary.InspectionFailures,
+                failure => failure.Operation == "property modifiers");
+            Assert.Contains(
+                summary.InspectionFailures,
+                failure => failure.Operation == "event modifiers");
             Assert.Throws<BadImageFormatException>(() =>
                 MetadataDeclarationQuery.GetTypeSurface(
                     reader,
@@ -1059,6 +1074,19 @@ public sealed class MetadataDeclarationQueryTests
             surface.InspectionFailures,
             candidate => candidate.Operation == "property modifiers");
         Assert.Contains("abstract accessor", failure.Detail, StringComparison.Ordinal);
+        ApiSurface summary = ApiSurfaceExtractor.ExtractSummary(peReader);
+        ApiType summarized = Assert.Single(
+            summary.Types,
+            type => type.Name == "AbstractBody");
+        Assert.DoesNotContain(
+            summarized.Members,
+            member => member.Kind == "property");
+        Assert.Contains(
+            summary.InspectionFailures,
+            candidate => candidate.Operation == "property modifiers"
+                && candidate.Detail.Contains(
+                    "abstract accessor",
+                    StringComparison.Ordinal));
         Assert.Throws<BadImageFormatException>(() =>
             MetadataDeclarationQuery.GetTypeSurface(
                 reader,
@@ -1169,6 +1197,34 @@ public sealed class MetadataDeclarationQueryTests
             publicSurface.InspectionFailures.Select(
                 failure => (failure.Operation, failure.Detail)),
             summary.InspectionFailures.Select(failure => (failure.Operation, failure.Detail)));
+    }
+
+    [Fact]
+    public void ExtractSummary_PreservesPublicExplicitAggregateFacets()
+    {
+        byte[] image = BuildModifiedVoidExplicitAggregateImage(
+            MethodAttributes.Public,
+            modifiedReturns: false);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+
+        ApiSurface summary = ApiSurfaceExtractor.ExtractSummary(peReader);
+        ApiType host = Assert.Single(
+            summary.Types,
+            type => type.Name == "Host");
+        ApiMember[] aggregates = host.Members
+            .Where(member => member.Kind is "property" or "event")
+            .ToArray();
+
+        Assert.Equal(4, aggregates.Length);
+        Assert.All(
+            aggregates,
+            member =>
+            {
+                Assert.True(member.IsExplicitInterfaceImplementation);
+                Assert.Null(member.Accessibility);
+            });
+        Assert.Empty(summary.InspectionFailures);
     }
 
     /// <summary>
@@ -1355,7 +1411,11 @@ public sealed class MetadataDeclarationQueryTests
                 // Association alone must not hide it as compiler extension-property plumbing.
                 Assert.Contains(
                     surface.Members,
-                    member => member is { Name: "Read", Kind: "method" });
+                    member => member is
+                    {
+                        Name: "Read",
+                        Kind: "explicit-interface-implementation"
+                    });
             }
             Assert.Contains(
                 extracted.Members,
@@ -2108,7 +2168,8 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     static byte[] BuildModifiedVoidExplicitAggregateImage(
-        MethodAttributes accessorAccessibility)
+        MethodAttributes accessorAccessibility,
+        bool modifiedReturns = true)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -2264,8 +2325,13 @@ public sealed class MetadataDeclarationQueryTests
             var signature = new BlobBuilder();
             signature.WriteByte(0x20); // HASTHIS
             signature.WriteByte(0x01); // parameter count
-            signature.WriteByte(isRequiredModifier ? (byte)0x1F : (byte)0x20);
-            signature.WriteCompressedInteger(MetadataTokens.GetRowNumber(modifier) << 2 | 1);
+            if (modifiedReturns)
+            {
+                signature.WriteByte(
+                    isRequiredModifier ? (byte)0x1F : (byte)0x20);
+                signature.WriteCompressedInteger(
+                    MetadataTokens.GetRowNumber(modifier) << 2 | 1);
+            }
             signature.WriteByte(0x01); // VOID
             signature.WriteByte(parameterTypeCode);
             if (!parameterType.IsNil)

@@ -364,12 +364,12 @@ public static class MetadataDeclarationQuery
         foreach (var methodHandle in typeDef.GetMethods())
         {
             var method = reader.GetMethodDefinition(methodHandle);
-            var methodName = reader.GetString(method.Name);
             var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
+            string methodAccessibility = AccessibilityKeyword(methodAccess);
+            var methodName = reader.GetString(method.Name);
             if (methodName.StartsWith('<'))
                 continue;
 
-            string methodAccessibility = AccessibilityKeyword(methodAccess);
             bool isFinalizer = type.Kind == "class"
                 && ApiSurfaceExtractor.IsFinalizerMethod(reader, methodHandle);
             bool canBeExplicitInterfaceImplementation =
@@ -409,7 +409,11 @@ public static class MetadataDeclarationQuery
                 Name = declaration.MetadataName,
                 Kind = declaration.MetadataName == ".ctor"
                     ? "constructor"
-                    : isFinalizer ? "finalizer" : "method",
+                    : isFinalizer
+                        ? "finalizer"
+                        : isExplicitInterfaceImplementation
+                            ? "explicit-interface-implementation"
+                            : "method",
                 SignatureModel = declaration.Signature,
                 Signature = signatureText,
                 SignatureDecodeStatus = declaration.SignatureDecodeStatus,
@@ -432,6 +436,8 @@ public static class MetadataDeclarationQuery
         foreach (var fieldHandle in typeDef.GetFields())
         {
             var field = reader.GetFieldDefinition(fieldHandle);
+            var fieldAccess = field.Attributes & FieldAttributes.FieldAccessMask;
+            _ = AccessibilityKeyword(fieldAccess);
             var fieldName = reader.GetString(field.Name);
             if (fieldName.StartsWith("<", StringComparison.Ordinal))
                 continue;

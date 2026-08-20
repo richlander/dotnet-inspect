@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -510,7 +511,10 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 maxRetainedTextCharacters: 1_024));
 
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-        Assert.IsType<ApiSurfaceExtractionResult.Extracted>(result);
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(result);
+        Assert.Equal(
+            ApiSurfaceExtractionBound.RetainedTextCharacters,
+            exceeded.Bound);
         Assert.True(
             allocated < 64L * 1024 * 1024,
             $"bounded extraction allocated {allocated:N0} bytes");
@@ -925,10 +929,118 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void PendingProjectionAndRetainedMemberText_ShareOneOrderIndependentBound()
+    {
+        byte[] image = BuildMethodImplFloodImage(
+            methodImplCount: 1,
+            nameLength: 64,
+            includeMethodImpls: true);
+        using var baselineStream = new MemoryStream(image, writable: false);
+        using var baselineReader = new PEReader(baselineStream);
+        var baseline = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+            ApiSurfaceExtractor.ExtractBounded(
+                baselineReader,
+                ApiSurfaceExtractionScope.Public,
+                new ApiSurfaceExtractionBounds(
+                    maxTypes: 100,
+                    maxMembers: 100,
+                    maxInspectionFailures: 100,
+                    maxTypeForwarders: 100,
+                    maxMetadataRows: 1_000,
+                    maxRetainedTextCharacters: 8_000_000)));
+        int retainedText = baseline.RetainedTextCharacters;
+        using var boundedStream = new MemoryStream(image, writable: false);
+        using var boundedReader = new PEReader(boundedStream);
+
+        ApiSurfaceExtractionResult result = ApiSurfaceExtractor.ExtractBounded(
+            boundedReader,
+            ApiSurfaceExtractionScope.Public,
+            new ApiSurfaceExtractionBounds(
+                maxTypes: 100,
+                maxMembers: 100,
+                maxInspectionFailures: 100,
+                maxTypeForwarders: 100,
+                maxMetadataRows: 1_000,
+                maxRetainedTextCharacters: retainedText));
+
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(result);
+        Assert.Equal(
+            ApiSurfaceExtractionBound.RetainedTextCharacters,
+            exceeded.Bound);
+    }
+
+    [Fact]
     public void ExplicitInterfaceMethodImplHugeArrayRank_StopsBeforeLargeAllocationAmplification()
     {
         AssertTextAmplificationIsBounded(
             BuildMethodImplArrayRankImage(rank: 40_000_000));
+    }
+
+    [Fact]
+    public void ExplicitInterfaceFunctionPointerDisplay_IsPreflightedBeforeAllocation()
+    {
+        var provider = new ExplicitInterfaceTypeIdentityProvider();
+        var parameter = new ExplicitInterfaceTypeIdentity(
+            "parameter-key",
+            new string('P', 256));
+        ImmutableArray<ExplicitInterfaceTypeIdentity> parameters =
+            ImmutableArray.CreateRange(
+                Enumerable.Repeat(parameter, 100_000));
+        var signature = new MethodSignature<ExplicitInterfaceTypeIdentity>(
+            new SignatureHeader(
+                SignatureKind.Method,
+                SignatureCallingConvention.Default,
+                SignatureAttributes.None),
+            new ExplicitInterfaceTypeIdentity("void-key", "void"),
+            requiredParameterCount: parameters.Length,
+            genericParameterCount: 0,
+            parameters);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        Assert.Throws<BadImageFormatException>(
+            () => provider.GetFunctionPointerType(signature));
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.True(
+            allocated < 8L * 1024 * 1024,
+            $"function-pointer rejection allocated {allocated:N0} bytes");
+    }
+
+    [Theory]
+    [InlineData(0, 0, false)]
+    [InlineData(1, 1, false)]
+    [InlineData(1, 0, true)]
+    public void MethodImplGenericSignature_AuthenticatesOnlyOwnedGenericParameters(
+        int genericParameterRows,
+        int methodParameterIndex,
+        bool expectedMatch)
+    {
+        byte[] image = BuildMalformedGenericMethodImplImage(
+            genericParameterRows,
+            methodParameterIndex);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition type = reader.GetTypeDefinition(
+            reader.TypeDefinitions.Single(handle =>
+                reader.GetString(reader.GetTypeDefinition(handle).Name)
+                    == "Implementer"));
+        MethodDefinitionHandle body = Assert.Single(type.GetMethods());
+        var projection = new ApiSurfaceExtractor.MethodImplementationProjection(
+            reader,
+            type,
+            new ExplicitInterfaceTypeIdentityProvider(),
+            typeContext: GenericContext.ForType(reader, type));
+
+        if (expectedMatch)
+        {
+            Assert.True(projection.HasExplicitInterfaceTargets(body));
+        }
+        else
+        {
+            Assert.Throws<BadImageFormatException>(
+                () => projection.HasExplicitInterfaceTargets(body));
+        }
     }
 
     [Fact]
@@ -2199,6 +2311,62 @@ public sealed class ApiSurfaceExtractorBoundsTests
     /// a budget that notices the first and not the second is measuring the MethodImpl
     /// projection and not the surrounding walk.
     /// </summary>
+    static byte[] BuildMalformedGenericMethodImplImage(
+        int genericParameterRows,
+        int methodParameterIndex)
+    {
+        var metadata = Metadata("MalformedGenericMethodImpl");
+        AssemblyReferenceHandle contracts = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Contracts"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle interfaceType = metadata.AddTypeReference(
+            contracts,
+            metadata.GetOrAddString("Contracts"),
+            metadata.GetOrAddString("IContract"));
+        TypeDefinitionHandle type = AddModuleAndPublicType(
+            metadata,
+            "Implementer");
+        metadata.AddInterfaceImplementation(type, interfaceType);
+        BlobHandle signature = metadata.GetOrAddBlob(
+            new byte[]
+            {
+                0x30, // GENERIC | HASTHIS
+                0x01, // generic parameter count
+                0x00, // parameter count
+                0x1E, // MVAR
+                checked((byte)methodParameterIndex),
+            });
+        MethodDefinitionHandle body = metadata.AddMethodDefinition(
+            MethodAttributes.Private
+                | MethodAttributes.Virtual
+                | MethodAttributes.Final
+                | MethodAttributes.NewSlot
+                | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            signature,
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        for (int index = 0; index < genericParameterRows; index++)
+        {
+            metadata.AddGenericParameter(
+                body,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString($"T{index}"),
+                index);
+        }
+        MemberReferenceHandle declaration = metadata.AddMemberReference(
+            interfaceType,
+            metadata.GetOrAddString("M"),
+            signature);
+        metadata.AddMethodImplementation(type, body, declaration);
+        return Serialize(metadata);
+    }
+
     static byte[] BuildMethodImplFloodImage(
         int methodImplCount,
         int nameLength,
