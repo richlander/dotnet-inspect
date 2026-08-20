@@ -662,15 +662,15 @@ pipeline and returns those sections in ordinary formats. That full section
 binding and run path are not implemented yet—current plans are a partial
 binding (see the workspace-definitions residual). Demos must not call past
 sections into ad hoc inspection APIs; a capability that is not a product
-section is not a home demo until the section exists. CLI argv, definition
-plans, and browser engine operations (including a generated TypeScript binding
-of that engine surface) are encodings of the same preset—not parallel demo
-systems. Group-subscription grammar and share-packet transposition remain
-design-ahead of that loader. When run exists, selecting a scenario must lower
-into the same acquisition and typed query paths used by an interactive
-request—it must not create a second demo-only execution path. Today resolve
-stops at the plan (`ResolvedScenario`); acquisition and section execution are
-still host/future work on top of that plan. Detail:
+section is not a home demo until the section exists. Once section binding and
+run exist, CLI argv, definition plans, and browser engine operations (including
+a generated TypeScript binding of that engine surface) must be encodings of the
+same preset—not parallel demo systems. Group-subscription grammar and
+share-packet transposition remain design-ahead of that loader. When run exists,
+selecting a scenario must lower into the same acquisition and typed query paths
+used by an interactive request—it must not create a second demo-only execution
+path. Today resolve stops at the plan (`ResolvedScenario`); acquisition and
+section execution are still host/future work on top of that plan. Detail:
 [workspace-definitions.md — Product demos are closed section
 presets](design/workspace-definitions.md#product-demos-are-closed-section-presets).
 
