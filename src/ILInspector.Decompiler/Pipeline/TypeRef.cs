@@ -1051,13 +1051,15 @@ public sealed class TypeRef : IEquatable<TypeRef>
 
         if (Kind == TypeRefKind.GenericInstance)
         {
-            if (ElementType is not { Name: var name } || !name.Contains('+') || EnclosingInScope(scope))
+            if (ElementType is not { Name: var name }
+                || !name.Contains('+'))
+            {
                 return false;
+            }
 
-            int total = 0;
-            foreach (var segment in name.Split('+'))
-                total += ArityOf(segment);
-            return total == TypeArguments.Length;
+            long declaredArity = ElementType.DeclaredGenericArity();
+            return !EnclosingInScope(scope, declaredArity)
+                && declaredArity == TypeArguments.Length;
         }
 
         return Name.Contains('+')
