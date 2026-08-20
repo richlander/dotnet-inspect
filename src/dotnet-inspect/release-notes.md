@@ -52,6 +52,10 @@
 - Attributes async state-machine and lifted-body calls to their declared source
   methods in logical call output while retaining the physical `Evidence Method`
   and IL offset for each call-site receipt (#4466, #4461).
+- Type-targeted body analysis retains the async/lifted physical evidence needed
+  by the selected type while filtering performance opportunities and allocation
+  fanout by the authenticated ultimate source owner. Ambiguous or unresolved
+  ownership fails closed (#4481).
 
 ### Acquisition and safety
 
