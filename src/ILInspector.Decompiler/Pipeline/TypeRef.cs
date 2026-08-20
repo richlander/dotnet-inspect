@@ -1105,8 +1105,11 @@ public sealed class TypeRef : IEquatable<TypeRef>
                 parts.Add(CSharpNaming.ContainedIdentifier(segment));
                 continue;
             }
-            string name = CSharpNaming.TypeNameSegment(
-                StripArity(segment));
+            string stripped = StripArity(segment);
+            string name = stripped == segment
+                && segment.Contains('`', StringComparison.Ordinal)
+                    ? segment
+                    : CSharpNaming.TypeNameSegment(stripped);
             int arity = EffectiveSegmentArity(index, segment);
             if (arity > 0)
                 name = $"{name}<{new string(',', arity - 1)}>";

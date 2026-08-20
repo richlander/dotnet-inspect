@@ -373,6 +373,21 @@ internal sealed class GenericTypeNode(
             if (metadataName.Namespace.Length > 0)
                 result = $"{metadataName.Namespace}.{result}";
         }
+        else if (structuralMetadataName is not null)
+        {
+            var segments = new List<string>();
+            foreach (MetadataNameComponent component in
+                MetadataNameArity.EnumerateComponents(structuralMetadataName))
+            {
+                segments.Add(structuralMetadataName.Substring(
+                    component.Start,
+                    component.Length));
+            }
+            result = TypeResolver.ApplyGenericArguments(
+                segments,
+                renderedArguments,
+                preserveMismatchedArguments: canonicalTuples);
+        }
         else
         {
             result = arguments.Length == 0
