@@ -4255,6 +4255,26 @@ public class ApiCommand
             }
         }
 
+        if (options is MemberOptions
+            && options.Select is { Length: > 0 })
+        {
+            var pipeline = ApiMemberSectionPipelines.Create(options);
+            var resolved = SelectResolver.ResolveSelectAsSections(
+                options.Select,
+                pipeline.SelectableSectionNames,
+                pipeline.InfoSectionNames,
+                pipeline.GetCategoryMap(),
+                options.SelectDefault);
+            if (!resolved.HasError
+                && resolved.Sections is { Count: 1 } singleton)
+            {
+                if (singleton.Contains(SectionNames.Callers))
+                    return SectionNames.Callers;
+                if (singleton.Contains(SectionNames.CallGraph))
+                    return SectionNames.CallGraph;
+            }
+        }
+
         if (options is not MemberOptions
             {
                 MemberSectionsPreResolved: true,

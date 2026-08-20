@@ -14971,10 +14971,13 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData(SectionNames.Callers)]
-    [InlineData(SectionNames.CallGraph)]
+    [InlineData(SectionNames.Callers, SectionNames.Callers)]
+    [InlineData(SectionNames.CallGraph, SectionNames.CallGraph)]
+    [InlineData("Caller?", SectionNames.Callers)]
+    [InlineData("Call Grap?", SectionNames.CallGraph)]
     public async Task Member_DocumentJsonWithExplicitCallerAnalysis_FailsClosed(
-        string section)
+        string selector,
+        string expectedSection)
     {
         var missingDirectory = Path.Combine(
             Path.GetTempPath(),
@@ -14986,7 +14989,7 @@ public partial class CommandExecutionTests
             TestAssemblyPath,
             $"{nameof(MemberCallsFixture.Overloaded)}:1",
             "-S",
-            section,
+            selector,
             "--bin",
             missingDirectory,
             "--json",
@@ -14996,7 +14999,7 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            $"Document --json cannot represent {section} analysis.",
+            $"Document --json cannot represent {expectedSection} analysis.",
             error);
         Assert.DoesNotContain("Directory not found", error);
     }
