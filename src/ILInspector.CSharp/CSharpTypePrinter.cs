@@ -437,6 +437,16 @@ public sealed class CSharpTypePrinter
         ApiType type,
         ApiMember snapshot)
     {
+        if (policy.BodyPolicy == CSharpBodyPolicy.Skeleton
+            && type.Kind == "interface"
+            && IsExplicitInterfaceMethod(snapshot)
+            && !snapshot.IsAbstract)
+        {
+            return new CSharpMemberPolicy(
+                policy.Member,
+                CSharpBodyPolicy.Stub);
+        }
+
         if (policy.BodyPolicy != CSharpBodyPolicy.Skeleton
             || !IsExplicitInterfaceAggregate(snapshot))
         {
@@ -653,8 +663,7 @@ public sealed class CSharpTypePrinter
         string memberDeclaration = member.Body is null
             ? formatter.FormatMember(type.Type, member.Member)
             : formatter.FormatMemberWithBody(type.Type, member.Member, member.Body);
-        if (type.Type.Kind == "interface"
-            || member.Member.IsAbstract
+        if (member.Member.IsAbstract
             || member.Policy == CSharpBodyPolicy.Skeleton)
         {
             return new RenderedFragment(PadDeclaration(EnsureTerminated(memberDeclaration), pad));
@@ -1173,7 +1182,7 @@ public sealed class CSharpTypePrinter
         }
         if (type.Kind == "interface"
             && policy.BodyPolicy != CSharpBodyPolicy.Skeleton
-            && !IsExplicitInterfaceAggregate(member)
+            && !IsExplicitInterfaceMember(member)
             && !HasMixedAccessorAbstraction(member))
         {
             throw new ArgumentException(
@@ -1220,6 +1229,14 @@ public sealed class CSharpTypePrinter
                 && (member.Kind == "explicit-interface-implementation"
                     || member.IsExplicitInterfaceImplementation)
                 && member.Name.Contains('.', StringComparison.Ordinal);
+
+    static bool IsExplicitInterfaceMethod(ApiMember member)
+        => member.Kind == "explicit-interface-implementation"
+            && !IsExplicitInterfaceAggregate(member);
+
+    static bool IsExplicitInterfaceMember(ApiMember member)
+        => IsExplicitInterfaceAggregate(member)
+            || IsExplicitInterfaceMethod(member);
 
     static bool HasOnlyAccessors(ApiMember member, params string[] kinds)
         => member.SignatureModel?.Accessors is { Count: > 0 } accessors

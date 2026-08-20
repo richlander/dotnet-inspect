@@ -1978,12 +1978,6 @@ public static class ApiSurfaceExtractor
                 continue;
             }
 
-            string propertyName = reader.GetString(property.Name);
-            bool isExplicitInterfaceImplementation = IsExplicitInterfaceAggregate(
-                propertyName,
-                methodImplementations,
-                (accessors.Getter, "get_"),
-                (accessors.Setter, "set_"));
             if (propertyAccessibility is not null
                 || AttributeReader.HasEditorBrowsableNeverAttribute(
                     reader,
@@ -1991,6 +1985,12 @@ public static class ApiSurfaceExtractor
             {
                 continue;
             }
+            string propertyName = reader.GetString(property.Name);
+            bool isExplicitInterfaceImplementation = IsExplicitInterfaceAggregate(
+                propertyName,
+                methodImplementations,
+                (accessors.Getter, "get_"),
+                (accessors.Setter, "set_"));
             if (isExplicitInterfaceImplementation
                 && ValidateExplicitPropertyRowSignature(
                     reader,
@@ -2142,12 +2142,6 @@ public static class ApiSurfaceExtractor
             }
             string? eventAccessibility = MetadataAccessibility.Get(bestAccess);
 
-            string eventName = reader.GetString(evt.Name);
-            bool isExplicitInterfaceImplementation = IsExplicitInterfaceAggregate(
-                eventName,
-                methodImplementations,
-                (accessors.Adder, "add_"),
-                (accessors.Remover, "remove_"));
             if (eventAccessibility is not null
                 || AttributeReader.HasEditorBrowsableNeverAttribute(
                     reader,
@@ -2155,6 +2149,12 @@ public static class ApiSurfaceExtractor
             {
                 continue;
             }
+            string eventName = reader.GetString(evt.Name);
+            bool isExplicitInterfaceImplementation = IsExplicitInterfaceAggregate(
+                eventName,
+                methodImplementations,
+                (accessors.Adder, "add_"),
+                (accessors.Remover, "remove_"));
             if (isExplicitInterfaceImplementation
                 && ValidateExplicitEventRowSignature(
                     reader,

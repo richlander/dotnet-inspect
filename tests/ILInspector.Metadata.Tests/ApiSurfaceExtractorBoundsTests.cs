@@ -1230,6 +1230,33 @@ public sealed class ApiSurfaceExtractorBoundsTests
             $"failed extraction allocated {allocated:N0} bytes");
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Summary_FilteredExplicitAggregate_DoesNotProjectMethodImplFlood(
+        bool isEvent)
+    {
+        AccessorOwner owner = isEvent
+            ? AccessorOwner.Event
+            : AccessorOwner.Property;
+        byte[] image = BuildFilteredAggregateMethodImplFloodImage(
+            methodImplCount: 32_769,
+            owner);
+        using var fullStream = new MemoryStream(image, writable: false);
+        using var fullReader = new PEReader(fullStream);
+        ApiSurface full = ApiSurfaceExtractor.Extract(fullReader);
+
+        using var summaryStream = new MemoryStream(image, writable: false);
+        using var summaryReader = new PEReader(summaryStream);
+        ApiSurface summary = ApiSurfaceExtractor.ExtractSummary(summaryReader);
+
+        foreach (ApiSurface surface in new[] { full, summary })
+        {
+            Assert.Empty(surface.InspectionFailures);
+            Assert.Empty(Assert.Single(surface.Types).Members);
+        }
+    }
+
     [Fact]
     public void DiscardedMethodImplBodies_DoNotSpendProjectionBudget()
     {
@@ -2564,6 +2591,101 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 signature);
             metadata.AddMethodImplementation(type, body, declaration);
         }
+
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildFilteredAggregateMethodImplFloodImage(
+        int methodImplCount,
+        AccessorOwner owner)
+    {
+        var metadata = Metadata("FilteredAggregateMethodImplFlood");
+        AssemblyReferenceHandle contracts = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Contracts"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle interfaceType = metadata.AddTypeReference(
+            contracts,
+            metadata.GetOrAddString("Contracts"),
+            metadata.GetOrAddString("IFoo"));
+        TypeDefinitionHandle host = AddModuleAndPublicType(
+            metadata,
+            "Host",
+            TypeAttributes.Public);
+        metadata.AddInterfaceImplementation(host, interfaceType);
+
+        var accessorSignature = new BlobBuilder();
+        new BlobEncoder(accessorSignature)
+            .MethodSignature(isInstanceMethod: true)
+            .Parameters(
+                0,
+                returnType =>
+                {
+                    if (owner == AccessorOwner.Property)
+                        returnType.Type().Int32();
+                    else
+                        returnType.Void();
+                },
+                _ => { });
+        BlobHandle accessorSignatureHandle =
+            metadata.GetOrAddBlob(accessorSignature);
+        MethodDefinitionHandle accessor = metadata.AddMethodDefinition(
+            MethodAttributes.Private
+                | MethodAttributes.Virtual
+                | MethodAttributes.Final
+                | MethodAttributes.NewSlot
+                | MethodAttributes.HideBySig
+                | MethodAttributes.SpecialName,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("<hidden>"),
+            accessorSignatureHandle,
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+
+        string declarationName;
+        if (owner == AccessorOwner.Property)
+        {
+            var propertySignature = new BlobBuilder();
+            new BlobEncoder(propertySignature)
+                .PropertySignature(isInstanceProperty: true)
+                .Parameters(
+                    0,
+                    returnType => returnType.Type().Int32(),
+                    _ => { });
+            PropertyDefinitionHandle property = metadata.AddProperty(
+                PropertyAttributes.None,
+                metadata.GetOrAddString("IFoo.P"),
+                metadata.GetOrAddBlob(propertySignature));
+            metadata.AddPropertyMap(host, property);
+            metadata.AddMethodSemantics(
+                property,
+                MethodSemanticsAttributes.Getter,
+                accessor);
+            declarationName = "get_P";
+        }
+        else
+        {
+            EventDefinitionHandle @event = metadata.AddEvent(
+                EventAttributes.None,
+                metadata.GetOrAddString("IFoo.Changed"),
+                interfaceType);
+            metadata.AddEventMap(host, @event);
+            metadata.AddMethodSemantics(
+                @event,
+                MethodSemanticsAttributes.Adder,
+                accessor);
+            declarationName = "add_Changed";
+        }
+
+        MemberReferenceHandle declaration = metadata.AddMemberReference(
+            interfaceType,
+            metadata.GetOrAddString(declarationName),
+            accessorSignatureHandle);
+        for (int index = 0; index < methodImplCount; index++)
+            metadata.AddMethodImplementation(host, accessor, declaration);
 
         return Serialize(metadata);
     }
