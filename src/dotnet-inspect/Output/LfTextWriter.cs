@@ -2,17 +2,24 @@ using System.Text;
 
 namespace DotnetInspector.Output;
 
-internal sealed class LfTextWriter(TextWriter inner) : TextWriter
+internal sealed class LfTextWriter : TextWriter
 {
+    private readonly TextWriter _inner;
     private bool _pendingCarriageReturn;
 
-    public override Encoding Encoding => inner.Encoding;
+    public LfTextWriter(TextWriter inner)
+    {
+        _inner = inner;
+        NewLine = "\n";
+    }
+
+    public override Encoding Encoding => _inner.Encoding;
 
     public override void Write(char value)
     {
         if (_pendingCarriageReturn)
         {
-            inner.Write('\n');
+            _inner.Write('\n');
             _pendingCarriageReturn = false;
             if (value == '\n')
                 return;
@@ -21,7 +28,7 @@ internal sealed class LfTextWriter(TextWriter inner) : TextWriter
         if (value == '\r')
             _pendingCarriageReturn = true;
         else
-            inner.Write(value);
+            _inner.Write(value);
     }
 
     public override void Write(string? value)
@@ -57,11 +64,11 @@ internal sealed class LfTextWriter(TextWriter inner) : TextWriter
     {
         if (_pendingCarriageReturn)
         {
-            inner.Write('\n');
+            _inner.Write('\n');
             _pendingCarriageReturn = false;
         }
 
-        inner.Flush();
+        _inner.Flush();
     }
 
     public override Task FlushAsync()

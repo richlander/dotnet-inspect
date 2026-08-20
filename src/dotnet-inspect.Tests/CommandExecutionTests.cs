@@ -22032,7 +22032,7 @@ public partial class CommandExecutionTests
                 Assert.Empty(redirected.Output);
                 Assert.Equal(baseline.Output, File.ReadAllText(outputPath));
                 if (name == "json")
-                    Assert.EndsWith(Environment.NewLine, baseline.Output, StringComparison.Ordinal);
+                    Assert.EndsWith("\n", baseline.Output, StringComparison.Ordinal);
             }
         }
         finally

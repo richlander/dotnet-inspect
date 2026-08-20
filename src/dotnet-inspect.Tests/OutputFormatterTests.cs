@@ -61,7 +61,6 @@ public class OutputFormatterTests
     public void OutputDestination_NormalizesBufferedAndConsoleLineEndings()
     {
         var tempDirectory = Directory.CreateTempSubdirectory("output-destination-lf-");
-        var originalOutput = Console.Out;
         try
         {
             var path = Path.Combine(tempDirectory.FullName, "output.txt");
@@ -71,17 +70,14 @@ public class OutputFormatterTests
                 writer => writer.Write("first\r\nsecond\rthird\n"));
             Assert.Equal("first\nsecond\nthird\n", File.ReadAllText(path));
 
-            var console = new StringWriter { NewLine = "\r\n" };
-            Console.SetOut(console);
-            OutputDestination.Write(
-                outputPath: null,
-                rowWindow: null,
-                writer => writer.WriteLine("first\r\nsecond"));
-            Assert.Equal("first\nsecond\n", console.ToString());
+            var sink = new StringWriter { NewLine = "\r\n" };
+            var normalized = new LfTextWriter(sink);
+            normalized.WriteLine("first\r\nsecond".AsSpan());
+            normalized.Flush();
+            Assert.Equal("first\nsecond\n", sink.ToString());
         }
         finally
         {
-            Console.SetOut(originalOutput);
             tempDirectory.Delete(recursive: true);
         }
     }
