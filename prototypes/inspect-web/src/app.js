@@ -4822,6 +4822,10 @@ async function openRuntimePackFromHome() {
   }
   state.atPackageRoot = true;
   state.packageLens = "overview";
+  state.typeFilter = "";
+  state.namespaceFilter = "";
+  state.kindFilter = "";
+  state.libraryScope = null;
   state.selectedTypeId = defaultVisibleTypeId(pack);
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
@@ -5421,6 +5425,10 @@ function switchToPackageForDependencies(packageKey) {
   activatePackage(target, { resetAccessibility: true });
   state.atPackageRoot = true;
   state.packageLens = "dependencies";
+  state.typeFilter = "";
+  state.namespaceFilter = "";
+  state.kindFilter = "";
+  state.libraryScope = null;
   state.selectedTypeId = defaultVisibleTypeId(target);
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
