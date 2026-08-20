@@ -44,6 +44,23 @@ public class MemberCallersSectionTests
     }
 
     [Fact]
+    public async Task
+        CallersSection_PreservesDistinctGeneratedEvidenceBodies()
+    {
+        var result = await RunMemberCallersAsync(
+            typeof(MemberCallersFixture).FullName!,
+            nameof(MemberCallersFixture.GeneratedTarget));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("Evidence Method", result.Output);
+        Assert.Equal(
+            2,
+            CountOccurrences(
+                result.Output,
+                ">b__"));
+    }
+
+    [Fact]
     public async Task EffectiveDiscovery_ListsCallersForSelectedMember()
     {
         var result = await RunMemberCallersAsync(
@@ -247,12 +264,24 @@ public static class MemberCallersFixture
     {
     }
 
+    public static void GeneratedTarget()
+    {
+    }
+
     public static void CallsTargetOnce() => Target();
 
     public static void CallsTargetTwice()
     {
         Target();
         Target();
+    }
+
+    public static void CallsTargetFromTwoLambdas()
+    {
+        Action first = static () => GeneratedTarget();
+        Action second = static () => GeneratedTarget();
+        first();
+        second();
     }
 
     public static void InvokesSpeak(CallersBase thing) => thing.Speak();

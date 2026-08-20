@@ -1227,6 +1227,163 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void DirectCalls_AttributeAsyncCallSitesToSourceMethod()
+    {
+        var index = LibraryBodyIndex.Open(
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        DirectCall directCall = Assert.Single(
+            index.DirectCalls,
+            call => call.Caller.Name
+                    == nameof(ClassicAsyncSiblingFixture
+                        .CallsSyncSiblingFromAsync)
+                && call.Callee.Name
+                    == nameof(ClassicAsyncSiblingFixture.ReadValue));
+        DirectCall groupedCall = Assert.Single(
+            index.GetDirectCallsByCaller()[
+                directCall.Caller.MetadataToken],
+            call => call.ILOffset == directCall.ILOffset);
+        DirectCall foundCall = Assert.Single(
+            index.FindCalls(
+                MemberPattern.Method(
+                    directCall.Callee.DeclaringType,
+                    directCall.Callee.Name)),
+            call => call.Caller == directCall.Caller);
+
+        foreach (DirectCall call in
+            new[] { directCall, groupedCall, foundCall })
+        {
+            Assert.Equal(
+                nameof(ClassicAsyncSiblingFixture
+                    .CallsSyncSiblingFromAsync),
+                call.Caller.Name);
+            Assert.NotEqual(
+                call.Caller.MetadataToken,
+                call.EvidenceMethod.MetadataToken);
+            Assert.Equal("MoveNext", call.EvidenceMethod.Name);
+        }
+
+        Assert.DoesNotContain(
+            index.DirectCalls,
+            call => call.Caller.Name == "MoveNext"
+                && call.Caller.DeclaringType.Name.Contains(
+                    nameof(ClassicAsyncSiblingFixture
+                        .CallsSyncSiblingFromAsync),
+                    StringComparison.Ordinal));
+        Assert.NotEmpty(
+            index.DirectCalls.Where(
+                call => call.Caller.Name
+                    == nameof(
+                        ClassicAsyncSiblingFixture.ReadValueAsync)));
+        Assert.All(
+            index.DirectCalls.Where(
+                call => call.Caller.Name
+                    == nameof(
+                        ClassicAsyncSiblingFixture.ReadValueAsync)),
+            call => Assert.Equal(
+                call.Caller,
+                call.EvidenceMethod));
+
+        MethodIdentity sourceMethod = Assert.Single(
+            index.Methods,
+            method => method.Name
+                == nameof(ClassicAsyncSiblingFixture
+                    .CallsSyncSiblingFromAsync));
+        var scoped = LibraryBodyIndex.Open(
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence,
+            bodyScope: new HashSet<int>
+            {
+                sourceMethod.MetadataToken,
+            });
+        Assert.Contains(
+            scoped.DirectCalls,
+            call => call.Caller == sourceMethod
+                && call.EvidenceMethod.Name == "MoveNext"
+                && call.Callee.Name
+                    == nameof(ClassicAsyncSiblingFixture.ReadValue));
+    }
+
+    [Fact]
+    public void TopLeverage_UsesCallGraphDeclaredCallerCurrency()
+    {
+        var index = LibraryBodyIndex.Open(
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity target = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name
+                    == nameof(ClassicAsyncSiblingFixture.ReadValue));
+        MethodLeverage leverage = Assert.Single(
+            index.TopLeverage(
+                    int.MaxValue,
+                    method => method.DeclaringType.Name
+                        == nameof(ClassicAsyncSiblingFixture))
+                .Where(entry => entry.Method == target));
+        CallTreeNode callers = index.BuildCallerTree(
+            target.MetadataToken,
+            maxDepth: 1,
+            maxNodes: 100);
+
+        Assert.Equal(
+            callers.Perf!.Fanin,
+            leverage.DirectCallerCount);
+    }
+
+    [Fact]
+    public void
+        DirectCalls_TypeScopeIncludesAsyncLiftedBodies()
+    {
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        var full = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity sourceMethod = Assert.Single(
+            full.Methods,
+            method => method.Name
+                == nameof(ClassicAsyncSiblingFixture
+                    .AwaitTaskInAsyncLambda));
+        DirectCall expected = Assert.Single(
+            full.DirectCalls,
+            call => call.Caller == sourceMethod
+                && call.EvidenceMethod.Name == "MoveNext"
+                && call.Callee.Name
+                    == "GetAwaiter");
+        var memberScoped = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence,
+            bodyScope: new HashSet<int>
+            {
+                sourceMethod.MetadataToken,
+            });
+        var typeScoped = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence,
+            bodyTypeScope:
+                type => type.ToQualifiedDisplayString()
+                    == sourceMethod.DeclaringType
+                        .ToQualifiedDisplayString());
+
+        Assert.Contains(
+            memberScoped.DirectCalls,
+            call => call.Caller == expected.Caller
+                && call.EvidenceMethod
+                    == expected.EvidenceMethod
+                && call.ILOffset == expected.ILOffset
+                && call.Callee == expected.Callee);
+        Assert.Contains(
+            typeScoped.DirectCalls,
+            call => call.Caller == expected.Caller
+                && call.EvidenceMethod
+                    == expected.EvidenceMethod
+                && call.ILOffset == expected.ILOffset
+                && call.Callee == expected.Callee);
+    }
+
+    [Fact]
     public void ResolveDeclaredMethod_MapsClassicAsyncMoveNextToSource()
     {
         string path = typeof(ClassicAsyncSiblingFixture).Assembly.Location;
@@ -1241,10 +1398,12 @@ public class LibraryBodyIndexTests
                 MemberPattern.Method(
                     source.DeclaringType,
                     nameof(ClassicAsyncSiblingFixture.ReadValue))),
-            call => index.ResolveDeclaredMethod(call.Caller)?.MetadataToken
+            call => index.ResolveDeclaredMethod(
+                    call.EvidenceMethod)?.MetadataToken
                 == source.MetadataToken);
 
-        Assert.Equal("MoveNext", mapped.Caller.Name);
+        Assert.Equal(source, mapped.Caller);
+        Assert.Equal("MoveNext", mapped.EvidenceMethod.Name);
         Assert.Null(index.ResolveDeclaredMethod(source));
     }
 
@@ -1266,8 +1425,10 @@ public class LibraryBodyIndexTests
                 MemberPattern.Method(
                     source.DeclaringType,
                     nameof(ClassicAsyncSiblingFixture.ReadValue))),
-            call => call.Caller.Name == "MoveNext"
-                && index.ResolveDeclaredMethod(call.Caller)?.MetadataToken
+            call => call.Caller == source
+                && call.EvidenceMethod.Name == "MoveNext"
+                && index.ResolveDeclaredMethod(
+                    call.EvidenceMethod)?.MetadataToken
                     == source.MetadataToken);
     }
 
@@ -1286,12 +1447,16 @@ public class LibraryBodyIndexTests
                 MemberPattern.Method(
                     owner.DeclaringType,
                     nameof(ClassicAsyncSiblingFixture.ReadValue))),
-            call => call.Caller.Name.Contains(">g__", StringComparison.Ordinal));
+            call => call.Caller == owner
+                && call.EvidenceMethod.Name.Contains(
+                    ">g__",
+                    StringComparison.Ordinal));
 
         Assert.Equal(
             owner.MetadataToken,
             Assert.IsType<MethodIdentity>(
-                index.ResolveDeclaredMethod(liftedCall.Caller)).MetadataToken);
+                index.ResolveDeclaredMethod(
+                    liftedCall.EvidenceMethod)).MetadataToken);
     }
 
     [Fact]
@@ -5671,6 +5836,7 @@ public class LibraryBodyIndexTests
         string[] callGraphCaches =
         [
             "_directCallsByCaller",
+            "_directCallsByEvidenceMethod",
             "_distinctCallerEdgesByCallee",
             "_distinctCallersByCallee",
             "_methodMap",
@@ -5712,6 +5878,7 @@ public class LibraryBodyIndexTests
             int token = index.Methods.First().MetadataToken;
             index.BuildCallerTree(token, maxDepth: 2, maxNodes: 50);
             index.BuildCallTree(token, maxDepth: 2, maxNodes: 50);
+            _ = index.GetDirectCallsByEvidenceMethod();
             // The retained half of the contract is only gated on caches this workload actually
             // populates, and the call-tree builders alone reach just one of the seven. Touch the
             // evidence-domain producers too; OptimizationOpportunities is what pulls in
@@ -9576,6 +9743,67 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void DirectCalls_AttributeLiftedBodiesButNotIterators()
+    {
+        var index = LibraryBodyIndex.Open(
+            typeof(OptimizationOpportunityFixtures).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        DirectCall liftedCall = Assert.Single(
+            index.DirectCalls,
+            call => call.Caller.Name
+                    == nameof(OptimizationOpportunityFixtures
+                        .GenericObjectEqualsLocalFunction)
+                && call.EvidenceMethod.Name.StartsWith(
+                    "<GenericObjectEqualsLocalFunction>g__EqualsCore|",
+                    StringComparison.Ordinal)
+                && call.Callee.Name == "Equals");
+        Assert.NotEqual(
+            liftedCall.Caller,
+            liftedCall.EvidenceMethod);
+
+        DirectCall iteratorCall = Assert.Single(
+            index.DirectCalls,
+            call => call.Kind == CallKind.NewObject
+                && call.Caller.Name == "MoveNext"
+                && call.Caller.DeclaringType.Name.Contains(
+                    nameof(OptimizationOpportunityFixtures
+                        .YieldsPlainObject),
+                    StringComparison.Ordinal)
+                && !call.Caller.DeclaringType.Name.Contains(
+                    nameof(OptimizationOpportunityFixtures
+                        .YieldsPlainObjectAsync),
+                    StringComparison.Ordinal));
+        Assert.Equal(
+            iteratorCall.Caller,
+            iteratorCall.EvidenceMethod);
+
+        var scoped = LibraryBodyIndex.Open(
+            typeof(OptimizationOpportunityFixtures).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence,
+            bodyScope: new HashSet<int>
+            {
+                liftedCall.Caller.MetadataToken,
+            });
+        Assert.Contains(
+            scoped.DirectCalls,
+            call => call.Caller == liftedCall.Caller
+                && call.EvidenceMethod == liftedCall.EvidenceMethod
+                && call.Callee == liftedCall.Callee);
+        var evidenceScoped = LibraryBodyIndex.Open(
+            typeof(OptimizationOpportunityFixtures).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence,
+            bodyScope: new HashSet<int>
+            {
+                liftedCall.EvidenceMethod.MetadataToken,
+            });
+        Assert.Contains(
+            evidenceScoped.DirectCalls,
+            call => call.Caller == liftedCall.Caller
+                && call.EvidenceMethod == liftedCall.EvidenceMethod
+                && call.Callee == liftedCall.Callee);
+    }
+
+    [Fact]
     public void OptimizationOpportunities_LiftedOwnerBody_IsIndexedOnce()
     {
         string path =
@@ -9739,6 +9967,190 @@ public class LibraryBodyIndexTests
             typeScope: null));
 
         Assert.Equal(1, resolved);
+    }
+
+    [Fact]
+    public void ScopedLiftedResolution_DoesNotAcquireUnselectedOverload()
+    {
+        string path =
+            typeof(MemberRefLiftedOverloadFixture<>).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition fixture = reader.TypeDefinitions
+            .Select(reader.GetTypeDefinition)
+            .Single(type => reader.StringComparer.Equals(
+                type.Name,
+                "MemberRefLiftedOverloadFixture`1"));
+        MethodDefinitionHandle[] owners = fixture.GetMethods()
+            .Where(handle => reader.StringComparer.Equals(
+                reader.GetMethodDefinition(handle).Name,
+                "Owner"))
+            .ToArray();
+        Assert.Equal(2, owners.Length);
+        int selectedIndexed = 0;
+        int unselectedIndexed = 0;
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader,
+            resolver: null,
+            methodBodyReferenceIndexed: handle =>
+            {
+                if (handle == owners[0])
+                    selectedIndexed++;
+                if (handle == owners[1])
+                    unselectedIndexed++;
+            });
+
+        _ = builder.Build(LibraryBodyAnalysisPlan.Create(
+            LibraryBodyAnalysisFeatures.MethodEvidence,
+            methodScope: new HashSet<int>
+            {
+                MetadataTokens.GetToken(owners[0]),
+            },
+            typeScope: null));
+
+        Assert.Equal(1, selectedIndexed);
+        Assert.Equal(0, unselectedIndexed);
+    }
+
+    [Fact]
+    public void
+        ScopedAsyncLiftedResolution_DoesNotAcquireUnselectedOverload()
+    {
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition fixture = reader.TypeDefinitions
+            .Select(reader.GetTypeDefinition)
+            .Single(type => reader.StringComparer.Equals(
+                type.Name,
+                nameof(ClassicAsyncSiblingFixture)));
+        MethodDefinitionHandle[] owners = fixture.GetMethods()
+            .Where(handle => reader.StringComparer.Equals(
+                reader.GetMethodDefinition(handle).Name,
+                nameof(ClassicAsyncSiblingFixture
+                    .ScopedAsyncLambdaOwner)))
+            .ToArray();
+        MethodDefinitionHandle selected = owners.Single(handle =>
+            (reader.GetMethodDefinition(handle).Attributes
+                & MethodAttributes.MemberAccessMask)
+            == MethodAttributes.Assembly);
+        MethodDefinitionHandle unselected = owners.Single(handle =>
+            (reader.GetMethodDefinition(handle).Attributes
+                & MethodAttributes.MemberAccessMask)
+            == MethodAttributes.Public);
+        int selectedIndexed = 0;
+        int unselectedIndexed = 0;
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader,
+            resolver: null,
+            methodBodyReferenceIndexed: handle =>
+            {
+                if (handle == selected)
+                    selectedIndexed++;
+                if (handle == unselected)
+                    unselectedIndexed++;
+            });
+
+        LibraryBodyAnalysisResult analysis = builder.Build(
+            LibraryBodyAnalysisPlan.Create(
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                methodScope: new HashSet<int>
+                {
+                    MetadataTokens.GetToken(selected),
+                },
+                typeScope: null));
+
+        Assert.Equal(1, selectedIndexed);
+        Assert.Equal(0, unselectedIndexed);
+        Assert.Contains(
+            analysis.Methods.DirectCalls,
+            call => call.Caller.MetadataToken
+                    == MetadataTokens.GetToken(selected)
+                && call.EvidenceMethod.Name == "MoveNext"
+                && call.Callee.Name == "GetAwaiter");
+    }
+
+    [Fact]
+    public void
+        DirectCalls_DirectAsyncLiftedBodyScopeRetainsDeclaredCaller()
+    {
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        var full = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        DirectCall expected = Assert.Single(
+            full.DirectCalls,
+            call => call.Caller.Name
+                    == nameof(ClassicAsyncSiblingFixture
+                        .ScopedAsyncLambdaOwner)
+                && call.Caller.ParameterTypes.Length == 1
+                && call.Caller.ParameterTypes[0].Equals(
+                    TypeRef.CoreLib("System", "String"))
+                && call.EvidenceMethod.Name == "MoveNext"
+                && call.Callee.Name == "GetAwaiter");
+
+        var scoped = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence,
+            bodyScope: new HashSet<int>
+            {
+                expected.EvidenceMethod.MetadataToken,
+            });
+
+        Assert.Contains(
+            scoped.DirectCalls,
+            call => call.Caller == expected.Caller
+                && call.EvidenceMethod
+                    == expected.EvidenceMethod
+                && call.Callee == expected.Callee);
+    }
+
+    [Fact]
+    public void
+        ResolveDeclaredMethod_DirectAsyncLiftedKickoffScopeReturnsOwner()
+    {
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        var full = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity owner = Assert.Single(
+            full.DeclaredMethods,
+            method => method.Name
+                    == nameof(ClassicAsyncSiblingFixture
+                        .ScopedAsyncLambdaOwner)
+                && method.ParameterTypes.Length == 1
+                && method.ParameterTypes[0].Equals(
+                    TypeRef.CoreLib("System", "String")));
+        MethodIdentity kickoff = Assert.Single(
+            full.Methods,
+            method => method.Name.StartsWith(
+                "<ScopedAsyncLambdaOwner>b__",
+                StringComparison.Ordinal));
+        var scoped = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence,
+            bodyScope: new HashSet<int>
+            {
+                kickoff.MetadataToken,
+            });
+        DirectCall call = Assert.Single(
+            scoped.DirectCalls,
+            call => call.EvidenceMethod.Name == "MoveNext"
+                && call.Callee.Name == "GetAwaiter");
+
+        Assert.Equal(
+            owner,
+            scoped.ResolveDeclaredMethod(
+                call.EvidenceMethod));
     }
 
     [Fact]
