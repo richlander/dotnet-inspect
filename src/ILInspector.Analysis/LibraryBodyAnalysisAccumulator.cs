@@ -14,6 +14,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
     readonly LibraryBodyPrimaryMetadataResolver _primaryMetadataResolver;
     readonly bool _includeMethodEvidence;
     readonly bool _includeLeakTriage;
+    readonly Func<TypeRef, bool>? _typeScope;
     readonly IReadOnlySet<string> _exceptionTypeNames;
 
     internal LibraryBodyAnalysisAccumulator(
@@ -27,6 +28,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
             LibraryBodyAnalysisFeatures.MethodEvidence);
         _includeLeakTriage = plan.Includes(
             LibraryBodyAnalysisFeatures.LeakTriage);
+        _typeScope = plan.TypeScope;
         _exceptionTypeNames = _includeMethodEvidence
             ? ComputeExceptionTypeNames()
             : new HashSet<string>(StringComparer.Ordinal);
@@ -111,17 +113,23 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 methods.Add(r.Caller!);
             if (!r.Calls.IsDefaultOrEmpty)
             {
-                calls.AddRange(
-                    r.Calls.Select(call =>
+                foreach (DirectCall call in r.Calls)
+                {
+                    MethodIdentity declared =
+                        ResolveDeclaredMethod(
+                            call.Caller,
+                            declaredMethodsByBody);
+                    if (_typeScope is not null
+                        && !_typeScope(
+                            declared.DeclaringType))
                     {
-                        MethodIdentity declared =
-                            ResolveDeclaredMethod(
-                                call.Caller,
-                                declaredMethodsByBody);
-                        return declared == call.Caller
+                        continue;
+                    }
+                    calls.Add(
+                        declared == call.Caller
                             ? call
-                            : call with { Caller = declared };
-                    }));
+                            : call with { Caller = declared });
+                }
             }
             if (!r.Allocations.IsDefaultOrEmpty)
                 allocationOccurrences[r.Token] = r.Allocations;

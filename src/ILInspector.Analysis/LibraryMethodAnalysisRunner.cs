@@ -270,6 +270,9 @@ internal sealed class LibraryMethodAnalysisRunner(
                         requestedMethodScope,
                         requestedMethodScope?.Contains(
                             caller.MetadataToken)
+                            == true
+                        || bodyTypeScope?.Invoke(
+                            caller.DeclaringType)
                             == true);
                 result.DeclaredMethod = declaredMethod;
                 result.DeclaredSource = declaredMethod;

@@ -72,4 +72,51 @@ public class TypeTargetedDecodeTests
         // At least one method of the target type actually decoded (the type has bodies with calls).
         Assert.NotEmpty(targeted.GetDirectCallsByCaller());
     }
+
+    [Fact]
+    public void TypeTargetedBuild_KeepsLiftedPhysicalFactsWithoutOutOfScopeDeclaredCalls()
+    {
+        var full = Analysis.LibraryBodyIndex.Open(SelfPath);
+        Analysis.MethodIdentity evidenceMethod = Assert.Single(
+            full.DirectCalls
+                .Where(call =>
+                    call.EvidenceMethod.DeclaringType
+                        .ToQualifiedDisplayString()
+                        .EndsWith(
+                            "StructuralCloneComparisonDocumentJsonContext.<>c",
+                            StringComparison.Ordinal)
+                    && call.EvidenceMethod.Name
+                        == "<Create_StructuralCloneAlignment>b__7_0")
+                .Select(call => call.EvidenceMethod)
+                .Distinct());
+        Analysis.MethodIdentity declaredCaller = Assert.Single(
+            full.DirectCalls
+                .Where(call => call.EvidenceMethod == evidenceMethod)
+                .Select(call => call.Caller)
+                .Distinct());
+        int evidenceToken = evidenceMethod.MetadataToken;
+        Analysis.TypeRef evidenceType =
+            evidenceMethod.DeclaringType;
+        Assert.NotEqual(
+            evidenceType,
+            declaredCaller.DeclaringType);
+
+        var targeted = Analysis.LibraryBodyIndex.Open(
+            SelfPath,
+            bodyTypeScope: type => type.Equals(evidenceType));
+
+        Assert.NotEmpty(
+            full.GetDirectCallsByEvidenceMethod()[evidenceToken]);
+        Assert.False(
+            targeted.GetDirectCallsByEvidenceMethod()
+                .ContainsKey(evidenceToken));
+        Assert.Equal(
+            Facts(full.GetAllocationOccurrences(), evidenceToken),
+            Facts(targeted.GetAllocationOccurrences(), evidenceToken));
+        Assert.NotEmpty(
+            targeted.GetAllocationOccurrences()[evidenceToken]);
+        Assert.DoesNotContain(
+            targeted.DirectCalls,
+            call => call.Caller == declaredCaller);
+    }
 }
