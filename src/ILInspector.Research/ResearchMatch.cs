@@ -103,16 +103,29 @@ public static class ResearchMatch
     /// Compares two methods from one retained module by structural clone equivalence and
     /// projects the result onto the discrete <see cref="ResearchMatchOutcome"/> model.
     /// </summary>
+    /// <remarks>
+    /// The module identity is derived from <paramref name="image"/> itself
+    /// (<see cref="StructuralCloneModuleIdentity.Create(string, PEReader, MetadataReader)"/>)
+    /// rather than accepted from the caller. A caller-supplied identity could carry a stale or
+    /// mismatched content hash that <see cref="StructuralCloneComparisonDocument.Create"/> would
+    /// not catch, since it validates only module version id equality against the comparison, not
+    /// the hash against actual image bytes. Deriving the identity here, from the same image the
+    /// comparison itself reads, closes that gap at the source instead of relying on caller
+    /// discipline.
+    /// </remarks>
     public static ResearchMatchResult Compare(
+        string fileName,
         PEReader image,
         MethodDefinitionHandle left,
         MethodDefinitionHandle right,
-        StructuralCloneModuleIdentity moduleIdentity,
         StructuralCloneComparisonLimits? limits = null)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
         ArgumentNullException.ThrowIfNull(image);
-        ArgumentNullException.ThrowIfNull(moduleIdentity);
 
+        MetadataReader reader = image.GetMetadataReader();
+        StructuralCloneModuleIdentity moduleIdentity =
+            StructuralCloneModuleIdentity.Create(fileName, image, reader);
         StructuralCloneComparison comparison = StructuralCloneAnalysis.Compare(image, left, right, limits);
         StructuralCloneComparisonDocument document =
             StructuralCloneComparisonDocument.Create(comparison, moduleIdentity, moduleIdentity);

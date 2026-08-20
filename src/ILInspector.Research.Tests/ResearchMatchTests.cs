@@ -13,13 +13,12 @@ public class ResearchMatchTests
     {
         using PEReader image = OpenFixture();
         MetadataReader reader = image.GetMetadataReader();
-        StructuralCloneModuleIdentity identity = MakeIdentity(image, reader);
 
         ResearchMatchResult result = ResearchMatch.Compare(
+            "fixture.dll",
             image,
             Method(reader, nameof(StructuralCloneFixture.ExactPositiveA)),
-            Method(reader, nameof(StructuralCloneFixture.ExactPositiveB)),
-            identity);
+            Method(reader, nameof(StructuralCloneFixture.ExactPositiveB)));
 
         Assert.Equal(StructuralCloneDisposition.Completed, result.Document.Disposition);
         Assert.Equal(ResearchMatchOutcome.RenamedOrMoved, result.Outcome);
@@ -30,13 +29,12 @@ public class ResearchMatchTests
     {
         using PEReader image = OpenFixture();
         MetadataReader reader = image.GetMetadataReader();
-        StructuralCloneModuleIdentity identity = MakeIdentity(image, reader);
 
         ResearchMatchResult result = ResearchMatch.Compare(
+            "fixture.dll",
             image,
             Method(reader, nameof(StructuralCloneFixture.EdgeRoleNegativeA)),
-            Method(reader, nameof(StructuralCloneFixture.EdgeRoleNegativeB)),
-            identity);
+            Method(reader, nameof(StructuralCloneFixture.EdgeRoleNegativeB)));
 
         Assert.Equal(StructuralCloneRelation.Different, result.Document.Relation);
         Assert.Equal(ResearchMatchOutcome.Unrelated, result.Outcome);
@@ -47,13 +45,12 @@ public class ResearchMatchTests
     {
         using PEReader image = OpenFixture();
         MetadataReader reader = image.GetMetadataReader();
-        StructuralCloneModuleIdentity identity = MakeIdentity(image, reader);
 
         ResearchMatchResult result = ResearchMatch.Compare(
+            "fixture.dll",
             image,
             Method(reader, nameof(StructuralCloneFixture.NearConstantA)),
-            Method(reader, nameof(StructuralCloneFixture.NearConstantB)),
-            identity);
+            Method(reader, nameof(StructuralCloneFixture.NearConstantB)));
 
         Assert.Equal(StructuralCloneRelation.Near, result.Document.Relation);
         Assert.Equal(ResearchMatchOutcome.Near, result.Outcome);
@@ -66,13 +63,32 @@ public class ResearchMatchTests
         // slice's single-module boundary can produce a same-declared-identity Exact clone.
         using PEReader image = OpenFixture();
         MetadataReader reader = image.GetMetadataReader();
-        StructuralCloneModuleIdentity identity = MakeIdentity(image, reader);
         MethodDefinitionHandle method = Method(reader, nameof(StructuralCloneFixture.ExactPositiveA));
 
-        ResearchMatchResult result = ResearchMatch.Compare(image, method, method, identity);
+        ResearchMatchResult result = ResearchMatch.Compare("fixture.dll", image, method, method);
 
         Assert.Equal(StructuralCloneRelation.Exact, result.Document.Relation);
         Assert.Equal(ResearchMatchOutcome.Unchanged, result.Outcome);
+    }
+
+    [Fact]
+    public void Compare_LimitReached_ProjectsNullOutcomeWithoutThrowing()
+    {
+        // A non-completed disposition must stay visible through Document rather than
+        // becoming an empty or guessed outcome: Outcome is null, not a fabricated relation.
+        using PEReader image = OpenFixture();
+        MetadataReader reader = image.GetMetadataReader();
+        StructuralCloneComparisonLimits limits = new(MaximumInstructions: 1);
+
+        ResearchMatchResult result = ResearchMatch.Compare(
+            "fixture.dll",
+            image,
+            Method(reader, nameof(StructuralCloneFixture.NearConstantA)),
+            Method(reader, nameof(StructuralCloneFixture.NearConstantB)),
+            limits);
+
+        Assert.Equal(StructuralCloneDisposition.LimitReached, result.Document.Disposition);
+        Assert.Null(result.Outcome);
     }
 
     [Fact]
@@ -93,6 +109,7 @@ public class ResearchMatchTests
         Assert.Same(document, result.Document);
         Assert.Equal(ResearchMatchOutcome.Near, result.Outcome);
     }
+
 
     static StructuralCloneModuleIdentity MakeIdentity(PEReader image, MetadataReader reader)
         => StructuralCloneModuleIdentity.Create("fixture.dll", image, reader);
