@@ -606,6 +606,16 @@ enablement, overview versus focus lightbox, lazy-load hooks, pager bounds, row
 highlight and selection, ref->def jump targets, cell escaping, heap addressing
 and coverage notes, and the row inspector.
 
+`src/doc-viewer.ts` owns the package document modal (the Markdown reader
+opened from a package's documents list) as a pure, dependency-injected render
+function. `app.js` still owns `state`, fetching and rendering the document's
+Markdown and frontmatter, and the sequence-guarded async load/close
+lifecycle, and passes each computed slice in explicitly. `test/doc-viewer.test.js`
+gates the closed/no-document fallback, loading and error states, the
+frontmatter card's presence and fields, and title/subtitle/frontmatter-name
+escaping (the rendered document body is trusted, pre-sanitized Markdown HTML
+and is not escaped).
+
 - `Cmd/Ctrl+K` opens Spotlight in the Commands scope.
 - `Cmd/Ctrl+P` opens Spotlight in the All scope.
 - `Cmd/Ctrl+F` or `/` focuses the type filter.
