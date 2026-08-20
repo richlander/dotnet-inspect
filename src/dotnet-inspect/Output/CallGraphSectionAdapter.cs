@@ -1,8 +1,11 @@
-using System.Text;
+using DotnetInspector.Options;
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
 
 namespace DotnetInspector.Output;
+
+internal readonly record struct CallGraphOpportunityAnnotations(
+    int AsyncAlternatives);
 
 /// <summary>
 /// Turns the format-neutral <see cref="CallGraphProjection"/> into the generic
@@ -34,14 +37,22 @@ internal static class CallGraphSectionAdapter
     /// uses the same spelling rather than a second one.
     /// </param>
     /// <param name="requestedFields">
-    /// The <c>--fields</c>/<c>-D</c> selection. When empty, a default set of scale cues is used, the
-    /// same defaulting the tree rendering has always applied.
+    /// Call Graph fields resolved from the <c>--fields</c>/<c>-D</c>
+    /// selection.
+    /// </param>
+    /// <param name="hasFieldProjection">
+    /// Whether the command has an explicit field or column projection. An
+    /// empty <paramref name="requestedFields"/> then means the projection did
+    /// not request graph fields, not that default graph cues were requested.
     /// </param>
     public static Markout.Graph ToGraph(
         CallGraphProjection projection,
         Func<MemberRef, string> spellMember,
-        IReadOnlyList<string>? requestedFields = null,
-        IReadOnlyList<CallGraphRow>? rows = null)
+        IReadOnlyList<CallGraphField>? requestedFields = null,
+        bool hasFieldProjection = false,
+        IReadOnlyList<CallGraphRow>? rows = null,
+        IReadOnlyDictionary<int, CallGraphOpportunityAnnotations>?
+            opportunityAnnotations = null)
     {
         ArgumentNullException.ThrowIfNull(projection);
         ArgumentNullException.ThrowIfNull(spellMember);
@@ -65,7 +76,14 @@ internal static class CallGraphSectionAdapter
             if (selectedNodeIds is not null && !selectedNodeIds.Contains(node.Id))
                 continue;
 
-            nodes.Add(new Markout.GraphNode(Key(node.Id), Label(node, spellMember, requestedFields))
+            nodes.Add(new Markout.GraphNode(
+                Key(node.Id),
+                Label(
+                    node,
+                    spellMember,
+                    requestedFields,
+                    hasFieldProjection,
+                    opportunityAnnotations))
             {
                 Group = Group(node),
                 // The selected member is what the reader asked about; every sink that can
@@ -114,7 +132,13 @@ internal static class CallGraphSectionAdapter
         _ => null,
     };
 
-    private static string Label(CallGraphNode node, Func<MemberRef, string> spellMember, IReadOnlyList<string>? requestedFields)
+    private static string Label(
+        CallGraphNode node,
+        Func<MemberRef, string> spellMember,
+        IReadOnlyList<CallGraphField>? requestedFields,
+        bool hasFieldProjection,
+        IReadOnlyDictionary<int, CallGraphOpportunityAnnotations>?
+            opportunityAnnotations)
     {
         var member = spellMember(node.Member);
         var suffixes = new List<string>();
@@ -133,12 +157,22 @@ internal static class CallGraphSectionAdapter
                 break;
         }
 
-        if (requestedFields is { Count: > 0 })
+        if (hasFieldProjection)
         {
-            foreach (var field in requestedFields)
+            foreach (CallGraphField field in requestedFields ?? [])
             {
                 if (Annotation(node.Perf, field) is { } annotation)
                     suffixes.Add(annotation);
+                if (opportunityAnnotations is not null
+                    && opportunityAnnotations.TryGetValue(
+                        node.Id,
+                        out CallGraphOpportunityAnnotations opportunities)
+                    && OpportunityAnnotation(
+                        opportunities,
+                        field) is { } opportunityAnnotation)
+                {
+                    suffixes.Add(opportunityAnnotation);
+                }
             }
         }
         else if (node.Perf is { } perf)
@@ -158,6 +192,14 @@ internal static class CallGraphSectionAdapter
         return suffixes.Count > 0 ? $"{member} ({string.Join(", ", suffixes)})" : member;
     }
 
+    static string? OpportunityAnnotation(
+        CallGraphOpportunityAnnotations opportunities,
+        CallGraphField field) =>
+        field == CallGraphField.AsyncAlternatives
+            && opportunities.AsyncAlternatives > 0
+                ? $"async alternatives {opportunities.AsyncAlternatives}"
+                : null;
+
     private static string? RootAnnotation(CallTreePerf perf)
     {
         // The Root field combines the reverse-graph classification (target/entrypoint) with the
@@ -171,32 +213,50 @@ internal static class CallGraphSectionAdapter
         return parts.Count > 0 ? string.Join(" ", parts) : null;
     }
 
-    private static string? Annotation(CallTreePerf? perf, string fieldName)
+    private static string? Annotation(
+        CallTreePerf? perf,
+        CallGraphField field)
     {
         if (perf is null)
             return null;
 
-        var normalized = NormalizeField(fieldName);
         var signals = perf.SignalsOrNone;
-        return normalized switch
+        return field switch
         {
-            "fanin" or "fanincount" => $"fanin {perf.Fanin}",
-            "fanout" or "fanoutcount" => $"fanout {perf.Fanout}",
-            "depth" or "maxdepth" => $"depth {perf.MaxDepth}",
-            "loop" or "inloop" or "looping" => perf.InLoop ? (perf.LoopHint ?? "loop") : null,
-            "root" or "rootkind" or "classification" => RootAnnotation(perf),
-            "source" or "assembly" => perf.Source is { } source ? $"from {source}" : null,
-            "alloc" or "allocs" or "allocations" => signals.Allocations > 0 ? $"alloc {signals.Allocations}" : null,
-            "copy" or "copies" => signals.Copies > 0 ? $"copy {signals.Copies}" : null,
-            "unsafe" => signals.Unsafe ? "unsafe" : null,
-            "reflection" or "reflect" => signals.Reflection > 0 ? $"reflection {signals.Reflection}" : null,
-            "throw" or "throws" or "throwsites" => signals.Throws > 0 ? $"throw {signals.Throws}" : null,
-            "catch" or "catches" => signals.Catches > 0 ? $"catch {signals.Catches}" : null,
-            "finally" or "finallys" => signals.Finallys > 0 ? $"finally {signals.Finallys}" : null,
-            "exceptions" or "exceptiontypes" or "constructedexceptions" => signals.ExceptionTypes.Length > 0
+            CallGraphField.Fanin => $"fanin {perf.Fanin}",
+            CallGraphField.Fanout => $"fanout {perf.Fanout}",
+            CallGraphField.Depth => $"depth {perf.MaxDepth}",
+            CallGraphField.Loop => perf.InLoop
+                ? perf.LoopHint ?? "loop"
+                : null,
+            CallGraphField.Root => RootAnnotation(perf),
+            CallGraphField.Source => perf.Source is { } source
+                ? $"from {source}"
+                : null,
+            CallGraphField.Allocations => signals.Allocations > 0
+                ? $"alloc {signals.Allocations}"
+                : null,
+            CallGraphField.Copies => signals.Copies > 0
+                ? $"copy {signals.Copies}"
+                : null,
+            CallGraphField.Unsafe => signals.Unsafe ? "unsafe" : null,
+            CallGraphField.Reflection => signals.Reflection > 0
+                ? $"reflection {signals.Reflection}"
+                : null,
+            CallGraphField.Throws => signals.Throws > 0
+                ? $"throw {signals.Throws}"
+                : null,
+            CallGraphField.Catches => signals.Catches > 0
+                ? $"catch {signals.Catches}"
+                : null,
+            CallGraphField.Finallys => signals.Finallys > 0
+                ? $"finally {signals.Finallys}"
+                : null,
+            CallGraphField.ExceptionTypes =>
+                signals.ExceptionTypes.Length > 0
                 ? "exceptions " + string.Join(",", signals.ExceptionTypes)
                 : null,
-            "evidenceil" or "evidence" or "il" => EvidenceIL(signals),
+            CallGraphField.EvidenceIL => EvidenceIL(signals),
             _ => null,
         };
     }
@@ -209,16 +269,5 @@ internal static class CallGraphSectionAdapter
         if (offsets.Length == 0)
             return null;
         return "il " + string.Join(",", offsets.Select(offset => $"IL_{offset:X4}"));
-    }
-
-    private static string NormalizeField(string fieldName)
-    {
-        var builder = new StringBuilder();
-        foreach (var ch in fieldName)
-        {
-            if (char.IsLetterOrDigit(ch))
-                builder.Append(char.ToLowerInvariant(ch));
-        }
-        return builder.ToString();
     }
 }
