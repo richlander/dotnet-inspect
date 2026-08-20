@@ -95,6 +95,7 @@ public sealed class LibraryBodyIndex
         Features = features;
         _leakTriage = analysis.Resources.LeakTriage;
         ArrayPoolOwnership = analysis.OwnershipFlow.Methods;
+        _declaredSources = analysis.Methods.DeclaredSources;
     }
 
     public string Path { get; }
@@ -711,6 +712,7 @@ public sealed class LibraryBodyIndex
     public UnsafeModeBreakdown UnsafeModes { get; }
 
     Dictionary<int, MethodSignals>? _signals;
+    readonly IReadOnlyDictionary<int, MethodIdentity> _declaredSources;
     readonly IReadOnlyDictionary<int, BodySignals> _bodySignals;
     readonly IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> _allocationOccurrences;
     readonly IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> _unsafetyOccurrences;
@@ -740,6 +742,34 @@ public sealed class LibraryBodyIndex
         => _directCallsByCaller ??= DirectCalls
             .GroupBy(call => call.Caller.MetadataToken)
             .ToDictionary(group => group.Key, group => group.ToImmutableArray());
+
+    /// <summary>
+    /// Maps a compiler-generated body — an async state-machine <c>MoveNext</c>,
+    /// or a lifted local-function/lambda method — to the declared source method
+    /// the existing Analysis resolvers already own. Returns null when
+    /// <paramref name="caller"/> is not such a body.
+    /// <c>ResolveDeclaredMethod_MapsClassicAsyncMoveNextToSource</c> and
+    /// <c>ResolveDeclaredMethod_MapsLiftedLocalFunctionToOwner</c> gate this
+    /// contract.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="DirectCalls"/>, <see cref="FindCalls"/>, and
+    /// <see cref="GetDirectCallsByCaller"/> already expose the declared caller.
+    /// Pass <see cref="DirectCall.EvidenceMethod"/> when a consumer also needs
+    /// to resolve the physical body explicitly.
+    /// </remarks>
+    public MethodIdentity? ResolveDeclaredMethod(MethodIdentity caller)
+    {
+        if (_declaredSources.TryGetValue(
+                caller.MetadataToken,
+                out MethodIdentity? source)
+            && source.MetadataToken != caller.MetadataToken)
+        {
+            return source;
+        }
+
+        return null;
+    }
 
     /// <summary>
     /// Token/signature resolution over this assembly's defined methods. Depends only on
@@ -895,7 +925,8 @@ public sealed class LibraryBodyIndex
                     BodySignals: new Dictionary<int, BodySignals>(),
                     InAssemblyTypeIsException:
                         new Dictionary<(string Namespace, string Name), bool>(),
-                    NonHeapNewObjOperandTokens: new HashSet<int>()),
+                    NonHeapNewObjOperandTokens: new HashSet<int>(),
+                    DeclaredSources: new Dictionary<int, MethodIdentity>()),
                 Safety: new(
                     Evidence: unsafeEvidence,
                     LeverageMethods: [],

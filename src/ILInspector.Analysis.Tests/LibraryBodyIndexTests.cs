@@ -1356,6 +1356,82 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void ResolveDeclaredMethod_MapsClassicAsyncMoveNextToSource()
+    {
+        string path = typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        var index = LibraryBodyIndex.Open(path);
+
+        var source = Assert.Single(
+            index.DeclaredMethods,
+            method => method.Name
+                == nameof(ClassicAsyncSiblingFixture.CallsSyncSiblingFromAsync));
+        var mapped = Assert.Single(
+            index.FindCalls(
+                MemberPattern.Method(
+                    source.DeclaringType,
+                    nameof(ClassicAsyncSiblingFixture.ReadValue))),
+            call => index.ResolveDeclaredMethod(
+                    call.EvidenceMethod)?.MetadataToken
+                == source.MetadataToken);
+
+        Assert.Equal(source, mapped.Caller);
+        Assert.Equal("MoveNext", mapped.EvidenceMethod.Name);
+        Assert.Null(index.ResolveDeclaredMethod(source));
+    }
+
+    [Fact]
+    public void ResolveDeclaredMethod_MapsClassicAsyncMoveNextWithoutOpportunities()
+    {
+        string path = typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        var index = LibraryBodyIndex.Open(
+            path,
+            includeAllocations: false,
+            includeOpportunities: false);
+
+        var source = Assert.Single(
+            index.DeclaredMethods,
+            method => method.Name
+                == nameof(ClassicAsyncSiblingFixture.CallsSyncSiblingFromAsync));
+        Assert.Contains(
+            index.FindCalls(
+                MemberPattern.Method(
+                    source.DeclaringType,
+                    nameof(ClassicAsyncSiblingFixture.ReadValue))),
+            call => call.Caller == source
+                && call.EvidenceMethod.Name == "MoveNext"
+                && index.ResolveDeclaredMethod(
+                    call.EvidenceMethod)?.MetadataToken
+                    == source.MetadataToken);
+    }
+
+    [Fact]
+    public void ResolveDeclaredMethod_MapsLiftedLocalFunctionToOwner()
+    {
+        string path = typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        var index = LibraryBodyIndex.Open(path);
+
+        var owner = Assert.Single(
+            index.DeclaredMethods,
+            method => method.Name
+                == nameof(ClassicAsyncSiblingFixture.CallsThroughLocalFunction));
+        var liftedCall = Assert.Single(
+            index.FindCalls(
+                MemberPattern.Method(
+                    owner.DeclaringType,
+                    nameof(ClassicAsyncSiblingFixture.ReadValue))),
+            call => call.Caller == owner
+                && call.EvidenceMethod.Name.Contains(
+                    ">g__",
+                    StringComparison.Ordinal));
+
+        Assert.Equal(
+            owner.MetadataToken,
+            Assert.IsType<MethodIdentity>(
+                index.ResolveDeclaredMethod(
+                    liftedCall.EvidenceMethod)).MetadataToken);
+    }
+
+    [Fact]
     public void
         OptimizationOpportunities_PrivateAccessIsDirectionalAcrossNestedTypes()
     {

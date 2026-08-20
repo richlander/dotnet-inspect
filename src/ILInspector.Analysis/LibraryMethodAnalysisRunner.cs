@@ -120,6 +120,7 @@ internal sealed class LibraryMethodAnalysisResult
     public LeakTriageResult? LeakTriage;
     public ArrayPoolOwnershipMethodEvidence? OwnershipFlow;
     public AnalysisDiagnostic? Diagnostic;
+    public MethodIdentity? DeclaredSource;
 }
 
 /// <summary>
@@ -249,12 +250,14 @@ internal sealed class LibraryMethodAnalysisRunner(
             }
             try
             {
-                result.DeclaredMethod =
+                MethodIdentity? declaredMethod =
                     _infrastructure.ResolveDeclaredMethod(
                         methodHandle,
                         methodDefinition,
                         caller,
                         typeSourceGenerated);
+                result.DeclaredMethod = declaredMethod;
+                result.DeclaredSource = declaredMethod;
             }
             catch (Exception ex)
                 when (IsRecoverableMethodFailure(ex))
