@@ -54,7 +54,17 @@ public static class TsBindGenCommand
             {
                 using FileStream stream = File.OpenRead(assemblyPath);
                 using var peReader = new PEReader(stream);
-                apiSurface = ApiSurfaceExtractor.Extract(peReader, includeAll: false);
+
+                // includeAll: true, not false. The [JSExport] wire boundary is not "public API" in
+                // the documentation sense: a consuming assembly commonly keeps its
+                // JsonSerializerContext (and the DTOs it roots) internal, since nothing outside the
+                // assembly ever touches them in C# — the wasm/JS boundary is their only external
+                // consumer. JsExportSurfaceBuilder's record/enum discovery walks surface.Types
+                // looking for a JsonSerializerContext-derived type; extracting public-only silently
+                // drops that type (and therefore every DTO it roots) whenever it's internal, which
+                // collapses every JSON-shaped return/parameter to "unknown" instead of a real
+                // interface.
+                apiSurface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
             }
             catch (Exception ex) when (
                 ex is BadImageFormatException or IOException or UnauthorizedAccessException)
