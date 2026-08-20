@@ -58,10 +58,14 @@ internal sealed class LibraryBodyAsyncSourceResolver
         LibraryBodyAnalysisPlan plan)
     {
         IReadOnlySet<int>? bodyScope = plan.MethodScope;
-        IReadOnlyDictionary<int, TypeRef>?
-            typeScopeEvidenceSources = null;
+        Dictionary<int, TypeRef>?
+            typeScopeEvidenceSources =
+                plan.TypeScopeEvidenceSources is null
+                    ? null
+                    : new Dictionary<int, TypeRef>(
+                        plan.TypeScopeEvidenceSources);
         if (plan.Includes(
-                LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities)
+                LibraryBodyAnalysisFeatures.MethodEvidence)
             && (bodyScope is not null
                 || plan.TypeScope is not null))
         {
@@ -76,16 +80,20 @@ internal sealed class LibraryBodyAsyncSourceResolver
                     bodyScope is null
                         ? new HashSet<int>()
                         : new HashSet<int>(bodyScope);
-                var evidenceSources =
-                    new Dictionary<int, TypeRef>();
+                typeScopeEvidenceSources ??= [];
                 foreach ((
                     int moveNextToken,
                     MethodIdentity source)
                     in AsyncStateMachineSourceMethods())
                 {
-                    evidenceSources.Add(
-                        moveNextToken,
-                        source.DeclaringType);
+                    TypeRef declaredSourceType =
+                        typeScopeEvidenceSources.TryGetValue(
+                            source.MetadataToken,
+                            out TypeRef? liftedSourceType)
+                            ? liftedSourceType
+                            : source.DeclaringType;
+                    typeScopeEvidenceSources[moveNextToken] =
+                        declaredSourceType;
                     if (bodyScope?.Contains(
                             source.MetadataToken)
                         == true)
@@ -95,8 +103,6 @@ internal sealed class LibraryBodyAsyncSourceResolver
                 }
                 if (bodyScope is not null)
                     bodyScope = expandedScope;
-                typeScopeEvidenceSources =
-                    evidenceSources;
             }
         }
         return plan with
