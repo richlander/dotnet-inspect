@@ -2803,11 +2803,6 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - Per-path legacy resolver instances feed one per-inspection adapter set and
   cannot mint independent registrations for the same owner-selected entry.
 
-The opener-instance and source-specific provenance gates above are current
-migration gates, not target artifact-contract gates. Their replacements are the
-authorization, guarded-content, adapter-correspondence, and generation-scoping
-gates named in
-[artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md#required-gates).
 - A user path found in the platform inventory and a forwarder binding to that
   entry share the platform registration; an unowned copied path remains local.
 - An external policy receives only the requesting registration, can use
@@ -2836,6 +2831,12 @@ gates named in
   `TypeReferenceOrigin`.
 - Type name, assembly identity, assembly candidate, provenance, and hop evidence
   remain separate fields.
+
+The opener-instance and source-specific provenance gates in this list are
+current migration gates, not target artifact-contract gates. Their replacements
+are the authorization, guarded-content, adapter-correspondence, and
+generation-scoping gates named in
+[artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md#required-gates).
 
 ### Metadata gates
 

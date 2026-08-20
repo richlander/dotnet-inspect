@@ -826,10 +826,17 @@ The architecture is the contract above and the ownership of each transition.
 
 ### Identity and provenance
 
-Resolution returns a descriptor such as `ResolvedAssemblyReference`: identity,
-an opener for the selected content, and structured resolution provenance.
-Inspection does not discard that information into a bare path and later
-reconstruct it.
+The current implementation returns a descriptor such as
+`ResolvedAssemblyReference`: identity, an opener for the selected content, and
+structured resolution provenance. Inspection does not discard that information
+into a bare path and later reconstruct it.
+
+The target
+[artifact acquisition design](design/artifact-acquisition-and-workspaces.md)
+makes that descriptor source-neutral: artifact/acquisition identity plus
+owner-guarded content access. Source adapters retain typed source-specific
+provenance beside the workspace participant rather than extending a
+Metadata-owned provenance hierarchy.
 
 Identity, correspondence, provenance, and display remain separate. Joins use
 the typed currencies; presentation chooses spelling afterward.

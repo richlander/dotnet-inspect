@@ -195,13 +195,21 @@ reopens content. A mutable path or expiring download URL is not sufficient
 identity. If the recorded content can no longer be opened, the operation fails
 visibly rather than reading replacement bytes.
 
-Workspace disposal first prevents new group and query admission, then disposes
-groups. A group may already have an active callback that has not performed its
-first lazy content open. Artifact leases therefore outlive `Dispose()` and are
-released only after every dependent group reports quiescence. Synchronous
-disposal may initiate this deferred release; it must not invalidate content
-under an active callback. Cleanup failures compose with, and never replace, the
-active operation failure.
+The workspace registers an admission operation before its first asynchronous
+adapter call and owns that operation through atomic group publication.
+Workspace disposal first closes admission, requests cancellation of in-flight
+operations, and prevents a late result from publishing a session or group. A
+late acquisition outcome transfers directly to cleanup: every returned lease
+is disposed even when the adapter did not observe cancellation. This rule also
+handles single-threaded Browser/Wasm reentrancy; it does not depend on a
+parallel thread reaching a lock.
+
+Disposal then disposes published groups. A group may already have an active
+callback that has not performed its first lazy content open. Artifact leases
+therefore outlive `Dispose()` and are released only after every dependent group
+reports quiescence. Synchronous disposal may initiate this deferred release; it
+must not invalidate content under an active callback. Cleanup failures compose
+with, and never replace, the active operation failure.
 
 Retaining content does not retain authority. The artifact owner issues two
 different source-neutral access leases:
@@ -209,26 +217,30 @@ different source-neutral access leases:
 - an **admission lease** authorizes the context loader to project sealed
   artifacts into assembly identities and participants while constructing the
   group. It is issued under the first authorized query plan that demands that
-  context; loading an inert definition alone cannot obtain one;
+  context; loading an inert definition alone cannot obtain one. The lease
+  expires when group publication succeeds or the admission attempt aborts.
+  Neither the group nor its participants retain it;
 - a **query lease** revalidates the current query plan's capabilities and
   source policy before it can select participants, observe binding or
   correspondence answers, receive content, or use a retained snapshot.
 
-Changed or revoked authorization rejects the query before catalog or
-participant selection even when the bytes and prior binding answers remain in
-memory. Reuse of a group also requires that its binding-policy and
-correspondence generation be compatible with the current plan's authorization
-scope. Reauthorizing only the image is insufficient because catalog membership
-and binding answers can themselves reveal unauthorized candidates.
+Changed, narrowed, or revoked authorization rejects the query before catalog or
+participant selection even when the selected image remains authorized and the
+bytes and prior binding answers remain in memory. Reuse of a group also
+requires that its binding-policy and correspondence generation be compatible
+with the current plan's complete authorization scope. Reauthorizing only the
+image is insufficient because catalog membership and binding answers can
+themselves reveal unauthorized candidates.
 
-Only an admission or query access lease exposes content. An artifact catalog
-descriptor or `ResolvedAssemblyReference` cannot bypass the owner with a bare
-`Func<Stream>` or readable path. Its guarded open requires the current lease.
-A path on a target descriptor is inert location evidence, not read authority;
-when a producer genuinely requires a path, the lease may provide a
-lease-scoped path to the exact retained snapshot. This is a target change from
-the current parameterless `ResolvedAssemblyReference.OpenRead` and public
-readable `Path`.
+During construction, only the current admission lease exposes content. After
+group publication, guarded content access rejects that expired lease and
+accepts only a current query lease. An artifact catalog descriptor or
+`ResolvedAssemblyReference` cannot bypass the owner with a bare `Func<Stream>`
+or readable path. A path on a target descriptor is inert location evidence, not
+read authority; when a producer genuinely requires a path, the current lease
+may provide a lease-scoped path to the exact retained snapshot. This is a
+target change from the current parameterless
+`ResolvedAssemblyReference.OpenRead` and public readable `Path`.
 
 It does not:
 
@@ -572,9 +584,11 @@ properties:
    package companion rather than core assembly Queries;
 7. platform correspondence is minted by the platform adapter and projected
    without a package or Metadata provenance dependency;
-8. neutral symbol/PDB storage and source-access contracts do not reference
+8. the platform adapter and graph projection reference neither package/NuGet
+   implementations nor the package companion;
+9. neutral symbol/PDB storage and source-access contracts do not reference
    package source policy;
-9. hosts choose adapters through project references and capabilities.
+10. hosts choose adapters through project references and capabilities.
 
 ## Current mismatches
 
@@ -602,8 +616,10 @@ Several current types are migration inputs, not target precedent:
   closed Metadata provenance hierarchy.
 - `type-forwarding-resolution.md` currently calls that hierarchy authoritative
   and gates the parameterless opener shape.
-- `IPackageContent` correctly provides a pathless package-content seam, but it
-  is package-specific and must not become the generic artifact contract.
+- `IPackageContent` provides path-optional package entry access, but also
+  exposes `RootPath`, `NupkgPath`, and unguarded archive/entry openers for
+  compatibility with current desktop consumers. It is a package-specific
+  migration input, not the generic guarded artifact contract.
 
 These types need not move in one change. The design requires each migration
 slice to reduce the forbidden dependency closure rather than add another
@@ -661,15 +677,21 @@ The target remains unverified until tests equivalent to these exist:
 - `MetadataClosure_ExcludesPackageAndStorageImplementations`
 - `CoreAssemblyQueries_ExcludePackageImplementations`
 - `CoreAssemblySourceQueries_ExcludePackageSymbolCapabilities`
+- `PlatformProjectionClosure_ExcludesPackageNuGetAndPackageCompanion`
 - `ArtifactSetSession_ComposesArtifactsFromMultipleSources`
 - `ArtifactSetSession_SealedGenerationCannotMutate`
 - `ArtifactIdentity_IsScopedToOwningGeneration`
 - `ArtifactSetSession_DisposesEveryContributingLease`
 - `ArtifactSetSession_ReleasesLeasesOnlyAfterDependentGroupsQuiesce`
 - `ArtifactSetSession_PreservesPrimaryFailureWhenCleanupFails`
+- `WorkspaceDisposal_CancelsAdmissionAndDisposesLateOutcome`
+- `BrowserWorkspace_DisposalDuringAwaitedAdmissionCannotPublish`
 - `ArtifactAdmission_ProjectsAssembliesThroughAuthorizedLease`
+- `AdmissionLease_CannotOpenContentAfterGroupPublication`
 - `ArtifactAccess_RejectsChangedOrRevokedQueryAuthorization`
 - `ArtifactCatalog_RejectsRevokedPolicyBeforeParticipantSelection`
+- `ArtifactCatalog_NarrowedPolicyCannotReusePriorGeneration`
+- `DefinitionLoadAndScenarioResolution_PerformNoAcquisition`
 - `ArtifactDescriptor_ExposesNoUnguardedContentRoute`
 - `ArtifactOpen_RejectsContentSubstitutionAfterAdmission`
 - `LocalArtifactSnapshot_MutationCannotChangeInspectionBytes`
@@ -686,7 +708,7 @@ The target remains unverified until tests equivalent to these exist:
 - `CrossProviderCiArtifacts_CompareAcrossSealedAuthorizedContexts`
 - `BrowserWorkspace_ComposesSequentiallyWithoutFilesystemOrThreads`
 
-The first seven are structural edge/closure gates derived from the actual project
+The first eight are structural edge/closure gates derived from the actual project
 graph, not a hand-maintained allow list. The remainder are behavior and lifetime
 gates. The local-only query gate covers metadata and authored-source query
 families so a metadata-only success cannot hide package-owned source
