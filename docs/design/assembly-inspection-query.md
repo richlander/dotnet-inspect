@@ -236,6 +236,10 @@ public abstract record AssemblyResolutionProvenance
         string declaredName) =>
         new EmbeddedAsset(contentRef, digest, declaredName);
 
+    public static AssemblyResolutionProvenance Designated(
+        string resolverSource) =>
+        new DesignatedAsset(resolverSource);
+
     public sealed record PackageAsset(
         string PackageId,
         string PackageVersion,
@@ -273,6 +277,12 @@ public abstract record AssemblyResolutionProvenance
         string DeclaredName) : AssemblyResolutionProvenance
     {
         private protected override int Discriminator => 4;
+    }
+
+    public sealed record DesignatedAsset(
+        string ResolverSource) : AssemblyResolutionProvenance
+    {
+        private protected override int Discriminator => 5;
     }
 }
 
@@ -867,10 +877,13 @@ During the current migration, provenance breadth is resolved by
 `AssemblyResolutionProvenance`: package assets carry package/version/tfm/rid,
 platform assets carry framework/version/source, project assets carry
 project/tfm/rid, local assets carry resolver source, and embedded assets carry
-content reference/digest/declared name. This is the minimum current consumers
-read back. The target artifact design moves those records to their adapters
-instead of widening this hierarchy; either way, adding a field requires a named
-consumer rather than turning provenance into a grab bag.
+content reference/digest/declared name. `DesignatedAsset` additionally carries
+the caller's explicit corpus/build-layout designation used by current
+core-library trust policy. This is the minimum current consumers read back. The
+target artifact design moves source records to their adapters and designation
+to authorized workspace-role evidence instead of widening this hierarchy;
+either way, adding a field requires a named consumer rather than turning
+provenance into a grab bag.
 
 ## Open questions
 

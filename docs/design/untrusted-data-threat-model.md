@@ -322,6 +322,15 @@ explicitly (a corpus path, or a directory the user named) carries
 `DesignatedAsset` and keeps core-library identity; one the resolver discovered
 beside the target does not.
 
+That describes the current carrier. The target
+[artifact acquisition design](artifact-acquisition-and-workspaces.md)
+preserves the same allow-list decision but moves caller designation and
+platform trust onto authorized workspace admission-role evidence. Source
+adapters retain acquisition provenance separately, and Metadata no longer owns
+the trust arm. The decompiler still receives an explicit owner-issued trust
+grant; no path, assembly name, public-key blob, or source-provenance display
+field can reconstruct it.
+
 The residual case is a host policy, `CoreLibraryTrustPolicy`. The default,
 `DesignatedAndPlatform`, is correct for any host that inspects untrusted
 uploads. A host whose surrounding directory is as trusted as the target — a
@@ -330,11 +339,13 @@ local tool pointed at a build layout the user controls — may select
 planted-sibling exposure. That trade is the host's to make explicitly; it is
 never inferred.
 
-Because trust is read off provenance, provenance must not understate a genuine
-platform acquisition. Resolvers that hand back files taken from the host's
-trusted-platform-assembly list, and the intrinsic core-library binding that
-returns the designated target when that target is itself the core library,
-report `PlatformAsset` for that reason.
+Because current trust is read off provenance, current provenance must not
+understate a genuine platform acquisition. Resolvers that hand back files taken
+from the host's trusted-platform-assembly list, and the intrinsic core-library
+binding that returns the designated target when that target is itself the core
+library, report `PlatformAsset` for that reason. In the target architecture,
+the platform adapter mints the corresponding authorized platform-trust role
+instead.
 
 `PlantedCoreLibraryIdentityTests.PlantedPlatformKey_DoesNotMintCoreLibraryIdentity`
 gates the boundary with a real planted assembly carrying the verbatim ECMA

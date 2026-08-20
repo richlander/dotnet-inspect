@@ -850,7 +850,9 @@ The target
 makes that descriptor source-neutral: artifact/acquisition identity plus
 owner-guarded content access. Source adapters retain typed source-specific
 provenance beside the workspace participant rather than extending a
-Metadata-owned provenance hierarchy.
+Metadata-owned provenance hierarchy. Caller designation and other trust inputs
+remain separate authorized workspace roles rather than provenance inferred from
+paths or assembly names.
 
 Identity, correspondence, provenance, and display remain separate. Joins use
 the typed currencies; presentation chooses spelling afterward.

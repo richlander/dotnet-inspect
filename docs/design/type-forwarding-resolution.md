@@ -472,6 +472,12 @@ authoritative shape.
 > contracts supersede this document's opener/provenance shape during migration;
 > the catalog identity and correspondence rules remain authoritative.
 
+The current `DesignatedAsset` provenance arm carries an explicit caller
+designation into core-library trust decisions. In the target artifact design,
+that designation becomes an authorized workspace admission role, separate from
+the local/project adapter's source provenance. The trust distinction remains;
+its Metadata provenance representation does not.
+
 ### Resolution start
 
 There are four legitimate starts and they stay explicit:

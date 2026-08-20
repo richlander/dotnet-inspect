@@ -158,6 +158,15 @@ only inside their owning artifact generation. A digest and immutable source
 coordinate can provide durable content evidence, but neither recreates the
 owner-issued registration after that generation ends.
 
+Caller designation is a policy input, not source provenance or assembly
+identity. The current `AssemblyResolutionProvenance.DesignatedAsset` carries the
+fact that a caller explicitly enumerated a corpus/build-layout assembly so the
+decompiler can grant core-library identity trust. In the target architecture,
+the local/project adapter records how the artifact was acquired, while the
+authorized admission records an explicit designation role on the workspace
+registration. A producer may consume that role under the current plan's trust
+policy; it cannot infer designation from a path or metadata name.
+
 ## `ArtifactSetSession`
 
 `ArtifactSetSession` is one acquisition lifetime and consistency boundary owned
@@ -611,7 +620,9 @@ Several current types are migration inputs, not target precedent:
   correspondence by pattern matching Metadata-owned provenance and parsing
   package versions inside core Queries.
 - `AssemblyResolutionProvenance` is defined by Metadata but enumerates package,
-  project, platform, local, and embedded source concepts.
+  project, platform, local, embedded, and caller-designated concepts. The
+  `DesignatedAsset` arm also combines acquisition provenance with a trust-policy
+  role.
 - `workspace-definitions.md` currently maps member kinds directly onto that
   closed Metadata provenance hierarchy.
 - `type-forwarding-resolution.md` currently calls that hierarchy authoritative
@@ -637,7 +648,8 @@ The migration is intentionally incremental:
    contracts in a package- and Metadata-free project.
 3. **Prove local acquisition.** Adapt explicit local files/directories into the
    contracts with admission-time content identity and form a workspace without
-   any package reference.
+   any package reference. Preserve explicit caller designation as authorized
+   workspace-role evidence rather than Metadata provenance.
 4. **Extract neutral symbol capabilities.** Move PDB content storage and
    source-access authorization below core assembly Queries; keep NuGet symbol
    source policy in an optional companion.
@@ -681,6 +693,7 @@ The target remains unverified until tests equivalent to these exist:
 - `ArtifactSetSession_ComposesArtifactsFromMultipleSources`
 - `ArtifactSetSession_SealedGenerationCannotMutate`
 - `ArtifactIdentity_IsScopedToOwningGeneration`
+- `DesignatedArtifactTrust_RequiresAuthorizedAdmissionRole`
 - `ArtifactSetSession_DisposesEveryContributingLease`
 - `ArtifactSetSession_ReleasesLeasesOnlyAfterDependentGroupsQuiesce`
 - `ArtifactSetSession_PreservesPrimaryFailureWhenCleanupFails`
