@@ -168,9 +168,9 @@ public static class MemberCommand
                     OverloadIndex =
                         mergeOptions.OverloadIndex
                         ?? impliedSelector.OverloadIndex,
-                    MemberDigest =
-                        mergeOptions.MemberDigest
-                        ?? impliedSelector.DigestPrefix
+                    MemberDigest = MergeDigestPrefixes(
+                        mergeOptions.MemberDigest,
+                        impliedSelector.DigestPrefix)
                 };
                 if (options.RouterDeferredTypeOrMember)
                     unresolvedOptions = mergeOptions;
@@ -655,15 +655,32 @@ public static class MemberCommand
         if (explicitOptions.MemberDigest is { Length: > 0 } explicitDigest
             && impliedSelector.DigestPrefix is { Length: > 0 } impliedDigest)
         {
-            return !explicitDigest.Equals(
-                impliedDigest,
-                StringComparison.OrdinalIgnoreCase);
+            return !explicitDigest.StartsWith(
+                       impliedDigest,
+                       StringComparison.OrdinalIgnoreCase)
+                   && !impliedDigest.StartsWith(
+                       explicitDigest,
+                       StringComparison.OrdinalIgnoreCase);
         }
 
         return (explicitOptions.OverloadIndex.HasValue
                 && impliedSelector.DigestPrefix is { Length: > 0 })
             || (explicitOptions.MemberDigest is { Length: > 0 }
                 && impliedSelector.OverloadIndex.HasValue);
+    }
+
+    private static string? MergeDigestPrefixes(
+        string? explicitDigest,
+        string? impliedDigest)
+    {
+        if (string.IsNullOrEmpty(explicitDigest))
+            return impliedDigest;
+        if (string.IsNullOrEmpty(impliedDigest))
+            return explicitDigest;
+
+        return explicitDigest.Length >= impliedDigest.Length
+            ? explicitDigest
+            : impliedDigest;
     }
 
     private static int BodyAccessorCount(ApiMember member)

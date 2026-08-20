@@ -243,6 +243,14 @@ public static class RouterCommandDefinition
             if (hasVersionQuery || target.Contains('@'))
                 return ["package", .. tokens];
 
+            if (hasExplicitGenericNotation
+                && IsStaticSchemaDiscovery(tokens))
+            {
+                return target.Contains('.')
+                    ? RouteDeferredTypeOrMember(target, tail)
+                    : ["type", target, .. tail];
+            }
+
             var context = new CommandContext(verbose: false);
             if (PlatformResolver.IsPlatformCandidate(target))
             {
@@ -461,6 +469,11 @@ public static class RouterCommandDefinition
         private static bool ContainsOption(string[] tokens, string option)
             => tokens.Any(token => token.Equals(option, StringComparison.Ordinal)
                                    || token.StartsWith(option + "=", StringComparison.Ordinal));
+
+        private static bool IsStaticSchemaDiscovery(string[] tokens)
+            => (ContainsOption(tokens, "--discover")
+                || ContainsOption(tokens, "-D"))
+               && ContainsOption(tokens, "--schema");
 
         private static string? GetOptionValue(
             string[] tokens,

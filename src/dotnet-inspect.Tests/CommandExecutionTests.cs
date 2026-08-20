@@ -3651,6 +3651,59 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
     }
 
+    [Theory]
+    [InlineData(
+        "System.Collections.Generic.List<T>.Add~590da2",
+        "Add~590da203f0")]
+    [InlineData(
+        "System.Collections.Generic.List<T>.Add~590da203f0",
+        "Add~590da2")]
+    public async Task Router_DeferredMemberAcceptsCompatibleDigestPrefixes(
+        string target,
+        string explicitSelector)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            target,
+            "--platform",
+            "System.Collections",
+            "-m",
+            explicitSelector,
+            "-S",
+            "Signature",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Add", output);
+        Assert.Empty(error);
+    }
+
+    [Theory]
+    [InlineData(
+        "System.Collections.Generic.List<T>",
+        "Type Info")]
+    [InlineData(
+        "System.Collections.Generic.List<T>.Add:1",
+        "Signature")]
+    public async Task Router_GenericStaticSchemaDoesNotResolveFramework(
+        string target,
+        string expectedSchemaItem)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            target,
+            "--framework",
+            "runtime@0.0.0",
+            "-D",
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(expectedSchemaItem, output);
+        Assert.Empty(error);
+    }
+
     [Fact]
     public async Task Router_GenericPlatformMethod_UserFrameworkIsNotDuplicated()
     {
