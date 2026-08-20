@@ -275,8 +275,8 @@ public class PdbContext : IDisposable
         => Open(assemblyPath, log, PEStreamOptions.Default);
 
     /// <summary>
-    /// Opens the PE image and reads its debug directory without loading an embedded or adjacent
-    /// PDB. Used by latency-bounded metadata discovery that does not need source documents.
+    /// Opens the PE image and reads its debug directory, including an embedded PDB when present,
+    /// without probing for an adjacent PDB.
     /// </summary>
     public static PdbContext OpenMetadataOnly(string assemblyPath, Action<string>? log = null)
         => Open(assemblyPath, log, PEStreamOptions.Default, loadLocalPdb: false);
@@ -296,11 +296,12 @@ public class PdbContext : IDisposable
             log,
             PEStreamOptions.PrefetchEntireImage
                 | PEStreamOptions.LeaveOpen,
-            loadLocalPdb: false);
+            loadLocalPdb: false,
+            loadEmbeddedPdb: false);
 
     /// <summary>
-    /// Opens descriptor-owned PE metadata without loading an embedded or
-    /// adjacent PDB.
+    /// Opens descriptor-owned PE metadata, including an embedded PDB when present, without
+    /// probing for an adjacent PDB.
     /// </summary>
     public static PdbContext OpenMetadataOnly(
         ResolvedAssemblyReference assembly,
@@ -337,7 +338,8 @@ public class PdbContext : IDisposable
             PEStreamOptions.PrefetchEntireImage
                 | PEStreamOptions.LeaveOpen,
             assembly.LastWriteTimeUtc,
-            loadLocalPdb: false);
+            loadLocalPdb: false,
+            loadEmbeddedPdb: false);
     }
 
     /// <summary>
@@ -415,7 +417,8 @@ public class PdbContext : IDisposable
         string assemblyPath,
         Action<string>? log,
         PEStreamOptions streamOptions,
-        bool loadLocalPdb = true)
+        bool loadLocalPdb = true,
+        bool loadEmbeddedPdb = true)
         => Open(
             File.OpenRead(assemblyPath),
             assemblyPath,
@@ -423,7 +426,8 @@ public class PdbContext : IDisposable
             log,
             streamOptions,
             lastWriteTimeUtc: null,
-            loadLocalPdb);
+            loadLocalPdb,
+            loadEmbeddedPdb);
 
     static PdbContext Open(
         Stream stream,
@@ -432,7 +436,8 @@ public class PdbContext : IDisposable
         Action<string>? log,
         PEStreamOptions streamOptions,
         DateTime? lastWriteTimeUtc,
-        bool loadLocalPdb = true)
+        bool loadLocalPdb = true,
+        bool loadEmbeddedPdb = true)
     {
         PEReader? peReader = null;
         PdbContext? context = null;
@@ -453,7 +458,7 @@ public class PdbContext : IDisposable
             if (!peReader.HasMetadata)
                 return context;
 
-            context.ReadDebugDirectory(loadEmbeddedPdb: loadLocalPdb);
+            context.ReadDebugDirectory(loadEmbeddedPdb);
             if (loadLocalPdb)
                 context.TryLoadLocalPdb();
 

@@ -68,7 +68,7 @@ public sealed class SourceLinkService : IDisposable
         => new(PdbContext.Open(assemblyPath, log), cache ?? DefaultCache, log);
 
     /// <summary>
-    /// Opens only the PE metadata and debug directory. Embedded and adjacent PDBs are not loaded.
+    /// Opens the PE metadata and an embedded PDB when present without probing for an adjacent PDB.
     /// </summary>
     public static SourceLinkService OpenMetadataOnly(
         string assemblyPath,
