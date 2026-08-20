@@ -234,6 +234,7 @@ function loadPlatformRecent() {
 let spotlightCache = null;
 const state = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
+  statusBarExpanded: false,
   packages: [],
   package: null,
   home: false,
@@ -1452,6 +1453,7 @@ function render() {
         source: state.package.source,
         assembly: current?.assembly ?? state.package.assembly,
         framework: state.package.activeFramework,
+        expanded: state.statusBarExpanded,
       }, escapeHtml)}
       ${state.spotlightOpen ? spotlight.modalHtml() : ""}
       ${state.graphSourceOpen ? renderGraphSource() : ""}
@@ -3168,7 +3170,23 @@ function highlightCSharp(value) {
   return escapeHtml(value);
 }
 
+function bindStatusBarToggle() {
+  document.querySelectorAll("[data-status-bar-toggle]").forEach(bar => {
+    bar.addEventListener("click", () => {
+      state.statusBarExpanded = !state.statusBarExpanded;
+      render();
+    });
+    bar.addEventListener("keydown", event => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      state.statusBarExpanded = !state.statusBarExpanded;
+      render();
+    });
+  });
+}
+
 function bindEvents() {
+  bindStatusBarToggle();
   packageBar.bind(document);
   document.querySelectorAll("[data-scope]").forEach(button => button.addEventListener("click", () => {
     const target = button.dataset.scope;
@@ -4693,6 +4711,7 @@ function renderHomeView() {
         buildIdentity: state.buildIdentity,
         diagnostics: state.diag,
         compactDiagnostics: true,
+        expanded: state.statusBarExpanded,
       }, escapeHtml)}
     </div>`;
   bindHomeEvents();
@@ -4706,6 +4725,7 @@ function homeArtSvg() {
 }
 
 function bindHomeEvents() {
+  bindStatusBarToggle();
   document.querySelector("#home-theme")?.addEventListener("click", toggleTheme);
   document.querySelector("#home-settings")?.addEventListener("click", () => openSettings("home"));
   document.querySelector("#dismiss-notice")?.addEventListener("click", () => {

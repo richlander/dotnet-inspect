@@ -1038,7 +1038,8 @@ kbd {
 .empty-document code { color: var(--yellow); font-family: var(--mono); }
 .large-glyph { color: var(--dim); font: 33px var(--mono); }
 
-.statusbar { min-width: 0; min-height: 44px; display: flex; align-items: center; gap: 8px; overflow-x: auto; padding: 0 13px; border-top: 1px solid var(--line-strong); background: var(--chrome); color: var(--dim); font: 10px var(--mono); scrollbar-width: thin; }
+.statusbar { min-width: 0; min-height: 44px; display: flex; align-items: center; gap: 8px; overflow-x: auto; padding: 0 13px; border-top: 1px solid var(--line-strong); background: var(--chrome); color: var(--dim); font: 10px var(--mono); scrollbar-width: thin; cursor: pointer; }
+.statusbar.expanded { flex-wrap: wrap; overflow-x: visible; min-height: auto; padding: 6px 13px; row-gap: 4px; }
 .ready-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--green); box-shadow: 0 0 7px rgba(142,187,118,.5); }
 .status-spacer { flex: 1; }
 .diag { color: var(--dim); white-space: nowrap; cursor: help; }
@@ -1048,6 +1049,10 @@ kbd {
 .build-identity::before { content: "·"; margin-right: 8px; color: var(--line-strong); }
 .build-identity a { color: var(--blue); text-decoration: none; }
 .build-identity a:hover { text-decoration: underline; }
+.provenance { color: var(--dim); white-space: nowrap; }
+.provenance::before { content: "·"; margin-right: 8px; color: var(--line-strong); }
+.build-date { color: var(--dim); white-space: nowrap; }
+.build-date::before { content: "·"; margin-right: 8px; color: var(--line-strong); }
 
 .toast {
   position: fixed;
@@ -1722,7 +1727,9 @@ kbd {
   border-top: 1px solid var(--line);
   color: var(--muted);
   font: 11px var(--mono);
+  cursor: pointer;
 }
+.home-foot.expanded { flex-wrap: wrap; row-gap: 4px; }
 .home-foot .diag { color: var(--dim); }
 .home-wasm-spinner {
   width: 9px;
