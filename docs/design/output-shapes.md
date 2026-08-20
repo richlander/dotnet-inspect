@@ -71,11 +71,13 @@ Integration graph edge rows carry `source`, `source_assembly`, `source_group`,
 and `evidence`. Assembly and group fields preserve endpoint identity within a
 multi-assembly package and package ownership across package contexts;
 plain-text and graph node labels carry the same context. JSON nodes also carry
-assembly identity. JSON and JSONL keep occurrence counts numeric and absent
-values null; JSON edges carry projected evidence rather than exposing
+assembly identity, and failure target labels retain it. JSON and JSONL keep
+occurrence counts numeric and absent values null; JSON edges carry projected
+evidence rather than exposing
 document-local occurrence ids without the occurrence collection that owns
 them. `ProductionShapedEndpoints_RetainPackageOwnership`,
-`AcquiredEndpoints_RetainAssemblyWithinOnePackage`, and
+`AcquiredEndpoints_RetainAssemblyWithinOnePackage`,
+`AcquiredFailureTargets_RetainAssemblyWithinOnePackage`, and
 `OutputModes_UseTheSameWindowedLogicalEdges` gate these contracts.
 
 ## Flag families

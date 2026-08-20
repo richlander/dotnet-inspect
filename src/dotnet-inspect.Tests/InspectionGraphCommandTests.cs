@@ -494,6 +494,50 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
+    public async Task AcquiredFailureTargets_RetainAssemblyWithinOnePackage()
+    {
+        Execution markdown = await ExecuteAsync(
+            documentFactory:
+                GraphWithDuplicateAcquiredTypeLabelFailures);
+        Execution json = await ExecuteAsync(
+            ["--json"],
+            documentFactory:
+                GraphWithDuplicateAcquiredTypeLabelFailures);
+
+        Assert.All(
+            [markdown, json],
+            static execution => Assert.Equal(1, execution.ExitCode));
+        string failures = markdown.Output[
+            markdown.Output.IndexOf(
+                "## Failures",
+                StringComparison.Ordinal)..];
+        Assert.Contains("dotnet-inspect.Tests, Version=", failures);
+        Assert.Contains("dotnet-inspect, Version=", failures);
+
+        using JsonDocument parsed = JsonDocument.Parse(json.Output);
+        string?[] targets =
+        [
+            .. parsed.RootElement.GetProperty("failures")
+                .EnumerateArray()
+                .Select(static failure =>
+                    failure.GetProperty("target").GetString()),
+        ];
+        Assert.Equal(2, targets.Length);
+        Assert.All(targets, static target => Assert.NotNull(target));
+        Assert.NotEqual(targets[0], targets[1]);
+        Assert.Contains(
+            targets,
+            static target => target!.Contains(
+                "dotnet-inspect.Tests, Version=",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            targets,
+            static target => target!.Contains(
+                "dotnet-inspect, Version=",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task RowWindow_DoesNotReidentifyEdgesFromDuplicateLabels()
     {
         InspectionGraphDocument document = GraphWithDuplicateLabels();
@@ -967,6 +1011,32 @@ public sealed class InspectionGraphCommandTests
                         new InspectionGraphInducedSubjectBoundEvidence(1)),
             ],
             []);
+    }
+
+    static InspectionGraphDocument GraphWithDuplicateAcquiredTypeLabelFailures(
+        WorkspaceContextLoadOutcome.Loaded context,
+        InspectionGraphInducedSetRequest request)
+    {
+        InspectionGraphDocument graph =
+            GraphWithDuplicateAcquiredTypeLabels(context, request);
+        return new InspectionGraphDocument(
+            graph.Scope,
+            graph.InducedSetRequest!,
+            graph.Nodes,
+            graph.Groups,
+            graph.Edges,
+            graph.Occurrences,
+            graph.Characteristics,
+            graph.Seeds,
+            graph.Limits,
+            [
+                new InspectionGraphFailure(
+                    InspectionGraphIntegrationsCatalog.ProjectionFailure,
+                    InspectionGraphTarget.Node(0)),
+                new InspectionGraphFailure(
+                    InspectionGraphIntegrationsCatalog.ProjectionFailure,
+                    InspectionGraphTarget.Node(1)),
+            ]);
     }
 
     static InspectionGraphDocument EdgeFreeGraph()

@@ -690,7 +690,7 @@ internal sealed class InspectionGraphOutputAdapter
         {
             null => "graph",
             { Kind: InspectionGraphTargetKind.Node, Id: var id } =>
-                Label(document.Nodes[id].Subject),
+                EndpointLabel(document.Nodes[id].Subject),
             { Kind: InspectionGraphTargetKind.Group, Id: var id } =>
                 Label(document.Groups[id].Subject),
             { Kind: InspectionGraphTargetKind.Edge, Id: var id } =>
