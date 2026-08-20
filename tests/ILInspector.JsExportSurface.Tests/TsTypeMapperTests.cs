@@ -152,4 +152,19 @@ public sealed class TsTypeMapperTests
             d => d.Location == "WidgetCatalog.OwnersByKey" && d.CSharpType == "Dictionary<int, string>");
     }
 
+    [Theory]
+    [InlineData("System.Text.Json.JsonElement")]
+    [InlineData("JsonElement")]
+    public void Map_JsonElementMapsToUnknownWithoutReportingAsUnmapped(string csharpType)
+    {
+        // JsonElement is STJ's own representation of arbitrary/untyped JSON: "unknown" is the
+        // deliberately correct TS shape here, not a gap the way an unrecognized type (Guid,
+        // DateTime, an unmappable Dictionary) is — so it must not be recorded as an unmapped type.
+        var diagnostics = new TsBindGenDiagnostics();
+
+        Assert.Equal(
+            "unknown",
+            TsTypeMapper.MapParameterType(csharpType, RecordNames, diagnostics, "BrowserAnnotatedSource.Document"));
+        Assert.Empty(diagnostics.UnmappedTypes);
+    }
 }

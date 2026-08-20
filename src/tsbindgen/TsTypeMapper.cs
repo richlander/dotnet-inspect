@@ -129,6 +129,14 @@ static class TsTypeMapper
             return simpleName;
         }
 
+        // JsonElement is STJ's own representation of arbitrary/untyped JSON — there is no more
+        // specific TS shape to recover here, so "unknown" is the deliberately correct mapping
+        // (not a reporting gap the way an unrecognized type like Guid/DateTime/Dictionary is).
+        if (trimmed is "System.Text.Json.JsonElement" or "JsonElement")
+        {
+            return "unknown";
+        }
+
         string mapped = trimmed switch
         {
             "string" or "System.String" or "char" or "System.Char" => "string",
