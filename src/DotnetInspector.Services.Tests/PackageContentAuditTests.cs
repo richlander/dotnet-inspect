@@ -497,18 +497,35 @@ public sealed class PackageContentAuditTests
                 + string.Concat(Enumerable.Repeat("</wrapper>", Depth))
                 + "</configuration>";
             Write(root, "build/nuget.config", content);
+            Write(
+                root,
+                "zzz/nuget.config",
+                """
+                <configuration>
+                  <packageSources>
+                    <add key="later" value="https://later.example/v3/index.json" />
+                  </packageSources>
+                </configuration>
+                """);
 
             PackageContentAuditResult result = PackageContentAudit.Scan(
                 root,
-                ["build/nuget.config"]);
+                ["build/nuget.config", "zzz/nuget.config"]);
 
             Assert.False(result.Complete);
-            PackageContentAuditFinding finding = Assert.Single(result.Findings);
-            Assert.Equal(PackageContentFindingKind.ScanLimit, finding.Kind);
+            Assert.Equal(2, result.EligibleFiles);
+            Assert.Equal(2, result.ScannedFiles);
+            PackageContentAuditFinding limit = Assert.Single(
+                result.Findings,
+                finding => finding.Kind == PackageContentFindingKind.ScanLimit);
             Assert.Contains(
                 "XML depth limit",
-                finding.EncodedText.ToString(),
+                limit.EncodedText.ToString(),
                 StringComparison.Ordinal);
+            Assert.Contains(
+                result.Findings,
+                finding => finding.Kind == PackageContentFindingKind.PackageSourceDeclared
+                    && finding.Path == "zzz/nuget.config");
         }
         finally
         {

@@ -134,7 +134,9 @@ When the scan runs, Signals adds `Audit | Findings` with `Detected`, `None`, or
 `Partial`. Registry-backed package Signals also distinguish an
 unlisted exact version and author-, repository-, unsigned-, and unverified
 signature states. Author or repository verification requires both a valid
-signer chain and a signed content hash matching the inspected package archive.
+code-signing chain and a signed content hash matching the inspected package
+archive. A timestamp can extend signer validity only when its time-stamping
+chain is valid and its message imprint matches that package signer's signature.
 These remain observations rather than a trust verdict.
 
 ```bash
@@ -159,7 +161,7 @@ gate namespace-safe attributes and NuGet-compatible qualified elements.
 `PackageContentAuditTests.NuGetConfiguration_IgnoresNestedAndMiscasedSections`
 gates the active section hierarchy and casing, while
 `PackageContentAuditTests.NuGetConfiguration_DeepXmlReportsScanLimit` gates the
-fail-visible depth bound.
+fail-visible per-file depth bound without suppressing later package findings.
 `PdbContextDescriptorTests.EmbeddedPdbAndSourceLinkLimits_PrecedePayloadMaterialization`
 and
 `SourceLinkMapConformanceTests.MappingLimit_StopsBeforeRetainingAnOverBudgetInventory`
@@ -173,7 +175,11 @@ package-local PDB census and visible incompleteness.
 `PackageContentOutput_ContainsNoLiveControlsOnStdoutAndPreservesExplicitFileExport`
 gates encoded stdout and byte-exact `--out` export.
 `PackageSignatureVerifierTests.VerifyPackage_MutatedSignedPackageFailsContentHash`
-gates signer trust against the signed archive bytes, and
+gates signer trust against the signed archive bytes.
+`PackageSignatureVerifierTests.VerifyCertificateChain_RejectsTlsOnlyLeafForCodeSigning`,
+`VerifySignatureFile_TransplantedTimestampIsNotTrusted`, and the malformed
+signed-content tests gate signer usage, timestamp binding, and NuGet signature
+identity.
 `InspectionResultTests.Signed_PreservesUnestablishedVerificationState` gates
 Package Info and `--value signed` tri-state parity.
 

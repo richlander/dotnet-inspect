@@ -17,10 +17,14 @@ public static class PackageSignatureVerifier
     private const string SignatureFileName = ".signature.p7s";
 
     // NuGet signing OIDs
+    private const string DataContentTypeOid = "1.2.840.113549.1.7.1";
     private const string CommitmentTypeIndicationOid = "1.2.840.113549.1.9.16.2.16";
     private const string AuthorCommitmentOid = "1.2.840.113549.1.9.16.6.1";     // proof of origin
     private const string RepositoryCommitmentOid = "1.2.840.113549.1.9.16.6.2";  // proof of receipt
     private const string TimestampTokenOid = "1.2.840.113549.1.9.16.2.14";
+    private const string TimestampInfoContentTypeOid = "1.2.840.113549.1.9.16.1.4";
+    private const string CodeSigningEkuOid = "1.3.6.1.5.5.7.3.3";
+    private const string TimestampingEkuOid = "1.3.6.1.5.5.7.3.8";
     private const string Sha256Oid = "2.16.840.1.101.3.4.2.1";
     private const string Sha384Oid = "2.16.840.1.101.3.4.2.2";
     private const string Sha512Oid = "2.16.840.1.101.3.4.2.3";
@@ -92,7 +96,16 @@ public static class PackageSignatureVerifier
     /// </summary>
     public static SignatureVerificationResult VerifySignatureFile(string signaturePath)
     {
-        byte[] signatureBytes = File.ReadAllBytes(signaturePath);
+        using FileStream stream = File.OpenRead(signaturePath);
+        if (stream.Length > MaximumSignatureBytes)
+        {
+            return new SignatureVerificationResult(
+                SignatureStatus.Invalid,
+                "Package signature entry is too large.");
+        }
+
+        byte[] signatureBytes = GC.AllocateUninitializedArray<byte>((int)stream.Length);
+        stream.ReadExactly(signatureBytes);
         return VerifySignature(signatureBytes);
     }
 
@@ -138,20 +151,40 @@ public static class PackageSignatureVerifier
                 SignatureStatus.Invalid,
                 $"Package signature integrity check failed: {ex.Message}");
         }
+        if (signedCms.ContentInfo.ContentType.Value != DataContentTypeOid)
+        {
+            return new SignatureVerificationResult(
+                SignatureStatus.Invalid,
+                "Package signature has an invalid signed-content type.");
+        }
 
         // Parse the signed content hash that binds the CMS identity to the package archive.
         // The CMS ContentInfo contains "Version:1\n\n{OID}-Hash:{base64}\n\n".
         SignedContentHash? signedContentHash = TryExtractSignedHash(
             signedCms.ContentInfo.Content);
-
-        // Extract the signing certificate
-        if (signedCms.SignerInfos.Count == 0)
+        if (signedContentHash is null)
         {
             return new SignatureVerificationResult(
-                SignatureStatus.Invalid, "Package signature contains no signer information.");
+                SignatureStatus.Invalid,
+                "Package signed content does not use the NuGet V1 format.");
+        }
+
+        // Extract the signing certificate
+        if (signedCms.SignerInfos.Count != 1)
+        {
+            return new SignatureVerificationResult(
+                SignatureStatus.Invalid,
+                "Package signature must contain exactly one primary signer.");
         }
 
         SignerInfo signerInfo = signedCms.SignerInfos[0];
+        if (!IsSupportedHashAlgorithm(signerInfo.DigestAlgorithm.Value ?? string.Empty))
+        {
+            return new SignatureVerificationResult(
+                SignatureStatus.Invalid,
+                "Package signature uses an unsupported digest algorithm.");
+        }
+
         X509Certificate2? signerCert = signerInfo.Certificate;
         if (signerCert is null)
         {
@@ -164,7 +197,12 @@ public static class PackageSignatureVerifier
         string thumbprint = signerCert.GetCertHashString(HashAlgorithmName.SHA256);
 
         // Detect author vs repository signature type
-        SignatureType signatureType = DetectSignatureType(signerInfo);
+        if (!TryDetectSignatureType(signerInfo, out SignatureType signatureType))
+        {
+            return new SignatureVerificationResult(
+                SignatureStatus.Invalid,
+                "Package signature has an invalid commitment type.");
+        }
 
         // Verify timestamp first — needed to decide if expired certs are acceptable
         DateTimeOffset? timestamp = VerifyTimestamp(signerInfo);
@@ -174,19 +212,21 @@ public static class PackageSignatureVerifier
         // This matches NuGet client behavior for long-term signature validity.
         SignatureVerificationResult chainResult = VerifyCertificateChain(
             signerCert, signedCms.Certificates, TrustedRoots.CodeSigningRoots,
+            CodeSigningEkuOid,
             verificationTime: timestamp);
 
         if (!chainResult.IsValid)
             return chainResult;
 
+        SignedContentHash contentHash = signedContentHash.Value;
         return new SignatureVerificationResult(SignatureStatus.Valid, Reason: null)
         {
             Publisher = publisher,
             Thumbprint = thumbprint,
             SignatureType = signatureType,
             Timestamp = timestamp,
-            ContentHash = signedContentHash?.Value,
-            ContentHashAlgorithm = signedContentHash?.AlgorithmOid,
+            ContentHash = contentHash.Value,
+            ContentHashAlgorithm = contentHash.AlgorithmOid,
             CounterSignature = signatureType == SignatureType.Author
                 ? VerifyRepositoryCounterSignature(signerInfo, signedCms.Certificates)
                 : null,
@@ -204,18 +244,48 @@ public static class PackageSignatureVerifier
             return null;
         }
 
-        string text = System.Text.Encoding.UTF8.GetString(content);
-        const string hashMarker = "-Hash:";
-        int hashStart = text.IndexOf(hashMarker, StringComparison.Ordinal);
-        if (hashStart < 0)
+        string text;
+        try
+        {
+            text = new System.Text.UTF8Encoding(
+                encoderShouldEmitUTF8Identifier: false,
+                throwOnInvalidBytes: true).GetString(content);
+        }
+        catch (System.Text.DecoderFallbackException)
+        {
+            return null;
+        }
+
+        const string Header = "Version:1\n\n";
+        if (!text.StartsWith(Header, StringComparison.Ordinal)
+            || !text.EndsWith("\n\n", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        ReadOnlySpan<char> hashPair = text.AsSpan(
+            Header.Length,
+            text.Length - Header.Length - 2);
+        if (hashPair.Contains('\n') || hashPair.Contains('\r'))
             return null;
 
-        int algorithmStart = text.LastIndexOf('\n', hashStart);
-        algorithmStart = algorithmStart < 0 ? 0 : algorithmStart + 1;
-        string algorithmOid = text[algorithmStart..hashStart].Trim();
-        int valueStart = hashStart + hashMarker.Length;
-        int valueEnd = text.IndexOf('\n', valueStart);
-        string value = (valueEnd < 0 ? text[valueStart..] : text[valueStart..valueEnd]).Trim();
+        int separator = hashPair.IndexOf(':');
+        const string HashSuffix = "-Hash";
+        if (separator <= HashSuffix.Length)
+            return null;
+
+        ReadOnlySpan<char> key = hashPair[..separator];
+        if (!key.EndsWith(HashSuffix, StringComparison.Ordinal))
+            return null;
+
+        string algorithmOid = key[..^HashSuffix.Length].ToString();
+        if (!IsSupportedHashAlgorithm(algorithmOid))
+            return null;
+
+        string value = hashPair[(separator + 1)..].ToString();
+        if (value.Length == 0)
+            return null;
+
         try
         {
             _ = Convert.FromBase64String(value);
@@ -227,6 +297,9 @@ public static class PackageSignatureVerifier
 
         return new SignedContentHash(algorithmOid, value);
     }
+
+    private static bool IsSupportedHashAlgorithm(string algorithmOid)
+        => algorithmOid is Sha256Oid or Sha384Oid or Sha512Oid;
 
     private static bool VerifyPackageContentHash(
         Stream packageStream,
@@ -523,8 +596,12 @@ public static class PackageSignatureVerifier
     /// Detects whether the primary signature is an author or repository signature
     /// by checking the commitment type indication signed attribute.
     /// </summary>
-    private static SignatureType DetectSignatureType(SignerInfo signerInfo)
+    private static bool TryDetectSignatureType(
+        SignerInfo signerInfo,
+        out SignatureType signatureType)
     {
+        signatureType = default;
+        int recognizedValues = 0;
         foreach (CryptographicAttributeObject attr in signerInfo.SignedAttributes)
         {
             if (attr.Oid?.Value != CommitmentTypeIndicationOid)
@@ -534,14 +611,19 @@ public static class PackageSignatureVerifier
             {
                 string? oid = TryReadCommitmentTypeOid(value.RawData);
                 if (oid == AuthorCommitmentOid)
-                    return SignatureType.Author;
-                if (oid == RepositoryCommitmentOid)
-                    return SignatureType.Repository;
+                    signatureType = SignatureType.Author;
+                else if (oid == RepositoryCommitmentOid)
+                    signatureType = SignatureType.Repository;
+                else
+                    return false;
+
+                recognizedValues++;
+                if (recognizedValues > 1)
+                    return false;
             }
         }
 
-        // No commitment type found — treat as repository (nuget.org default)
-        return SignatureType.Repository;
+        return recognizedValues == 1;
     }
 
     /// <summary>
@@ -554,9 +636,27 @@ public static class PackageSignatureVerifier
         {
             AsnReader reader = new(rawData, AsnEncodingRules.DER);
             AsnReader sequence = reader.ReadSequence();
-            return sequence.ReadObjectIdentifier();
+            string oid = sequence.ReadObjectIdentifier();
+            if (sequence.HasData)
+            {
+                AsnReader qualifiers = sequence.ReadSequence();
+                if (!qualifiers.HasData)
+                    return null;
+
+                while (qualifiers.HasData)
+                {
+                    AsnReader qualifier = qualifiers.ReadSequence();
+                    _ = qualifier.ReadObjectIdentifier();
+                    if (qualifier.HasData)
+                        _ = qualifier.ReadEncodedValue();
+                    qualifier.ThrowIfNotEmpty();
+                }
+            }
+            sequence.ThrowIfNotEmpty();
+            reader.ThrowIfNotEmpty();
+            return oid;
         }
-        catch
+        catch (AsnContentException)
         {
             return null;
         }
@@ -575,7 +675,9 @@ public static class PackageSignatureVerifier
 
             foreach (AsnEncodedData value in attr.Values)
             {
-                DateTimeOffset? ts = VerifyTimestampToken(value.RawData);
+                DateTimeOffset? ts = VerifyTimestampToken(
+                    value.RawData,
+                    signerInfo.GetSignature());
                 if (ts.HasValue)
                     return ts;
             }
@@ -593,9 +695,13 @@ public static class PackageSignatureVerifier
     {
         foreach (SignerInfo counterSigner in primarySigner.CounterSignerInfos)
         {
-            SignatureType counterType = DetectSignatureType(counterSigner);
-            if (counterType != SignatureType.Repository)
+            if (!TryDetectSignatureType(counterSigner, out SignatureType counterType)
+                || counterType != SignatureType.Repository
+                || !IsSupportedHashAlgorithm(
+                    counterSigner.DigestAlgorithm.Value ?? string.Empty))
+            {
                 continue;
+            }
 
             X509Certificate2? cert = counterSigner.Certificate;
             if (cert is null)
@@ -607,6 +713,7 @@ public static class PackageSignatureVerifier
 
             SignatureVerificationResult chainResult = VerifyCertificateChain(
                 cert, extraCerts, TrustedRoots.CodeSigningRoots,
+                CodeSigningEkuOid,
                 verificationTime: timestamp);
 
             if (!chainResult.IsValid)
@@ -627,32 +734,51 @@ public static class PackageSignatureVerifier
     /// <summary>
     /// Decodes and verifies an RFC 3161 timestamp token (which is itself a CMS SignedData).
     /// </summary>
-    private static DateTimeOffset? VerifyTimestampToken(byte[] tokenBytes)
+    private static DateTimeOffset? VerifyTimestampToken(
+        byte[] tokenBytes,
+        byte[] parentSignature)
     {
         try
         {
             SignedCms timestampCms = new();
             timestampCms.Decode(tokenBytes);
             timestampCms.CheckSignature(verifySignatureOnly: true);
-
-            // Verify timestamp signer certificate chain against timestamping roots
-            if (timestampCms.SignerInfos.Count > 0)
+            if (timestampCms.ContentInfo.ContentType.Value != TimestampInfoContentTypeOid
+                || timestampCms.SignerInfos.Count != 1)
             {
-                X509Certificate2? tsCert = timestampCms.SignerInfos[0].Certificate;
-                if (tsCert is not null)
-                {
-                    SignatureVerificationResult tsChain = VerifyCertificateChain(
-                        tsCert, timestampCms.Certificates, TrustedRoots.TimestampingRoots);
-
-                    if (!tsChain.IsValid)
-                        return null;
-                }
+                return null;
+            }
+            if (!IsSupportedHashAlgorithm(
+                timestampCms.SignerInfos[0].DigestAlgorithm.Value ?? string.Empty))
+            {
+                return null;
             }
 
-            // Extract the timestamp from the TSTInfo content
-            return TryExtractTimestamp(timestampCms.ContentInfo.Content);
+            TimestampInfo? timestampInfo = TryExtractTimestampInfo(
+                timestampCms.ContentInfo.Content);
+            if (timestampInfo is null
+                || !VerifyTimestampImprint(timestampInfo.Value, parentSignature))
+            {
+                return null;
+            }
+
+            X509Certificate2? tsCert = timestampCms.SignerInfos[0].Certificate;
+            if (tsCert is null)
+                return null;
+
+            SignatureVerificationResult tsChain = VerifyCertificateChain(
+                tsCert,
+                timestampCms.Certificates,
+                TrustedRoots.TimestampingRoots,
+                TimestampingEkuOid,
+                verificationTime: timestampInfo.Value.Timestamp);
+            return tsChain.IsValid ? timestampInfo.Value.Timestamp : null;
         }
-        catch
+        catch (CryptographicException)
+        {
+            return null;
+        }
+        catch (AsnContentException)
         {
             return null;
         }
@@ -663,31 +789,54 @@ public static class PackageSignatureVerifier
     /// TSTInfo ::= SEQUENCE { version INTEGER, policy OBJECT IDENTIFIER,
     ///   messageImprint MessageImprint, serialNumber INTEGER, genTime GeneralizedTime, ... }
     /// </summary>
-    private static DateTimeOffset? TryExtractTimestamp(byte[]? tstInfoBytes)
+    private static TimestampInfo? TryExtractTimestampInfo(byte[]? tstInfoBytes)
     {
         if (tstInfoBytes is null || tstInfoBytes.Length == 0)
             return null;
 
-        try
-        {
-            AsnReader reader = new(tstInfoBytes, AsnEncodingRules.DER);
-            AsnReader sequence = reader.ReadSequence();
-            sequence.ReadInteger(); // version
-            sequence.ReadObjectIdentifier(); // policy
-            sequence.ReadSequence(); // messageImprint (skip)
-            sequence.ReadInteger(); // serialNumber
-            return sequence.ReadGeneralizedTime();
-        }
-        catch
-        {
+        AsnReader reader = new(tstInfoBytes, AsnEncodingRules.DER);
+        AsnReader sequence = reader.ReadSequence();
+        if (sequence.ReadInteger() != 1)
             return null;
-        }
+        _ = sequence.ReadObjectIdentifier();
+        AsnReader imprint = sequence.ReadSequence();
+        AsnReader algorithm = imprint.ReadSequence();
+        string algorithmOid = algorithm.ReadObjectIdentifier();
+        if (algorithm.HasData)
+            algorithm.ReadNull();
+        algorithm.ThrowIfNotEmpty();
+        byte[] messageHash = imprint.ReadOctetString();
+        imprint.ThrowIfNotEmpty();
+        _ = sequence.ReadInteger();
+        DateTimeOffset timestamp = sequence.ReadGeneralizedTime();
+        if (!IsSupportedHashAlgorithm(algorithmOid))
+            return null;
+
+        return new TimestampInfo(algorithmOid, messageHash, timestamp);
     }
 
-    private static SignatureVerificationResult VerifyCertificateChain(
+    private static bool VerifyTimestampImprint(
+        TimestampInfo timestampInfo,
+        byte[] parentSignature)
+    {
+        byte[] actual = timestampInfo.AlgorithmOid switch
+        {
+            Sha256Oid => SHA256.HashData(parentSignature),
+            Sha384Oid => SHA384.HashData(parentSignature),
+            Sha512Oid => SHA512.HashData(parentSignature),
+            _ => [],
+        };
+        return actual.Length == timestampInfo.MessageHash.Length
+            && CryptographicOperations.FixedTimeEquals(
+                actual,
+                timestampInfo.MessageHash);
+    }
+
+    internal static SignatureVerificationResult VerifyCertificateChain(
         X509Certificate2 signerCert,
         X509Certificate2Collection extraCerts,
         X509Certificate2Collection trustedRoots,
+        string applicationPolicyOid,
         DateTimeOffset? verificationTime = null)
     {
         using X509Chain chain = new();
@@ -695,6 +844,7 @@ public static class PackageSignatureVerifier
         chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
         chain.ChainPolicy.CustomTrustStore.AddRange(trustedRoots);
         chain.ChainPolicy.ExtraStore.AddRange(extraCerts);
+        chain.ChainPolicy.ApplicationPolicy.Add(new Oid(applicationPolicyOid));
 
         // Disable revocation checking — matches NuGet SDK behavior for offline scenarios
         chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
@@ -741,6 +891,11 @@ public static class PackageSignatureVerifier
     private readonly record struct SignedContentHash(
         string AlgorithmOid,
         string Value);
+
+    private readonly record struct TimestampInfo(
+        string AlgorithmOid,
+        byte[] MessageHash,
+        DateTimeOffset Timestamp);
 
     private readonly record struct ZipEndRecord(
         long Position,

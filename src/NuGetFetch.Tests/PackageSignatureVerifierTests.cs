@@ -1,3 +1,9 @@
+using System.Formats.Asn1;
+using System.IO.Compression;
+using System.Security.Cryptography;
+using System.Security.Cryptography.Pkcs;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using NuGetFetch;
 using Xunit;
 
@@ -10,6 +16,12 @@ namespace NuGetFetch.Tests;
 [Collection("NuGet Integration")]
 public class PackageSignatureVerifierTests : IDisposable
 {
+    private const string AuthorCommitmentOid = "1.2.840.113549.1.9.16.6.1";
+    private const string CodeSigningEkuOid = "1.3.6.1.5.5.7.3.3";
+    private const string CommitmentTypeIndicationOid = "1.2.840.113549.1.9.16.2.16";
+    private const string ServerAuthenticationEkuOid = "1.3.6.1.5.5.7.3.1";
+    private const string TimestampTokenOid = "1.2.840.113549.1.9.16.2.14";
+
     private readonly HttpClient _http = new();
     private readonly NuGetClient _client;
 
@@ -29,7 +41,7 @@ public class PackageSignatureVerifierTests : IDisposable
         {
             var result = PackageSignatureVerifier.VerifyPackage(nupkgPath);
 
-            Assert.True(result.IsValid);
+            Assert.True(result.IsValid, result.Reason);
             Assert.Equal(SignatureStatus.Valid, result.Status);
             Assert.NotNull(result.Publisher);
             Assert.Contains("Json.NET", result.Publisher);
@@ -101,6 +113,152 @@ public class PackageSignatureVerifierTests : IDisposable
         {
             File.Delete(nupkgPath);
         }
+    }
+
+    [Fact]
+    public async Task VerifySignatureFile_TransplantedTimestampIsNotTrusted()
+    {
+        string targetPath = await DownloadPackageAsync("System.Text.Json", "9.0.4");
+        string donorPath = await DownloadPackageAsync("Newtonsoft.Json", "13.0.3");
+        string signaturePath = Path.Combine(
+            Path.GetTempPath(),
+            $"transplanted-timestamp-{Guid.NewGuid():N}.p7s");
+        try
+        {
+            SignedCms target = DecodeSignature(targetPath);
+            SignedCms donor = DecodeSignature(donorPath);
+            SignerInfo targetSigner = Assert.Single(target.SignerInfos.Cast<SignerInfo>());
+            SignerInfo donorSigner = Assert.Single(donor.SignerInfos.Cast<SignerInfo>());
+            AsnEncodedData targetTimestamp = GetTimestampValue(targetSigner);
+            AsnEncodedData donorTimestamp = GetTimestampValue(donorSigner);
+
+            targetSigner.RemoveUnsignedAttribute(targetTimestamp);
+            targetSigner.AddUnsignedAttribute(new AsnEncodedData(
+                new Oid(TimestampTokenOid),
+                donorTimestamp.RawData));
+            File.WriteAllBytes(signaturePath, target.Encode());
+
+            SignatureVerificationResult result =
+                PackageSignatureVerifier.VerifySignatureFile(signaturePath);
+
+            Assert.True(result.IsValid, result.Reason);
+            Assert.Null(result.Timestamp);
+        }
+        finally
+        {
+            File.Delete(targetPath);
+            File.Delete(donorPath);
+            File.Delete(signaturePath);
+        }
+    }
+
+    [Fact]
+    public void VerifySignatureFile_RejectsLooseSignedContent()
+    {
+        string hash = Convert.ToBase64String(new byte[32]);
+        string signaturePath = CreateTestSignature(
+            $"2.16.840.1.101.3.4.2.1-Hash:{hash}",
+            AuthorCommitmentOid);
+        try
+        {
+            SignatureVerificationResult result =
+                PackageSignatureVerifier.VerifySignatureFile(signaturePath);
+
+            Assert.False(result.IsValid);
+            Assert.Contains("NuGet V1 format", result.Reason, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(signaturePath);
+        }
+    }
+
+    [Fact]
+    public void VerifySignatureFile_RejectsMissingCommitmentType()
+    {
+        string hash = Convert.ToBase64String(new byte[32]);
+        string signaturePath = CreateTestSignature(
+            $"Version:1\n\n2.16.840.1.101.3.4.2.1-Hash:{hash}\n\n",
+            commitmentOid: null);
+        try
+        {
+            SignatureVerificationResult result =
+                PackageSignatureVerifier.VerifySignatureFile(signaturePath);
+
+            Assert.False(result.IsValid);
+            Assert.Contains("commitment type", result.Reason, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(signaturePath);
+        }
+    }
+
+    [Fact]
+    public void VerifyCertificateChain_RejectsTlsOnlyLeafForCodeSigning()
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        using RSA rootKey = RSA.Create(2048);
+        var rootRequest = new CertificateRequest(
+            "CN=Package test root",
+            rootKey,
+            HashAlgorithmName.SHA256,
+            RSASignaturePadding.Pkcs1);
+        rootRequest.CertificateExtensions.Add(
+            new X509BasicConstraintsExtension(
+                certificateAuthority: true,
+                hasPathLengthConstraint: false,
+                pathLengthConstraint: 0,
+                critical: true));
+        rootRequest.CertificateExtensions.Add(
+            new X509KeyUsageExtension(
+                X509KeyUsageFlags.KeyCertSign | X509KeyUsageFlags.CrlSign,
+                critical: true));
+        using X509Certificate2 root = rootRequest.CreateSelfSigned(
+            now.AddDays(-1),
+            now.AddDays(2));
+
+        using RSA leafKey = RSA.Create(2048);
+        var leafRequest = new CertificateRequest(
+            "CN=TLS-only package signer",
+            leafKey,
+            HashAlgorithmName.SHA256,
+            RSASignaturePadding.Pkcs1);
+        leafRequest.CertificateExtensions.Add(
+            new X509BasicConstraintsExtension(
+                certificateAuthority: false,
+                hasPathLengthConstraint: false,
+                pathLengthConstraint: 0,
+                critical: true));
+        leafRequest.CertificateExtensions.Add(
+            new X509KeyUsageExtension(
+                X509KeyUsageFlags.DigitalSignature,
+                critical: true));
+        var usages = new OidCollection
+        {
+            new Oid(ServerAuthenticationEkuOid),
+        };
+        leafRequest.CertificateExtensions.Add(
+            new X509EnhancedKeyUsageExtension(usages, critical: true));
+        byte[] serial = RandomNumberGenerator.GetBytes(16);
+        using X509Certificate2 issuedLeaf = leafRequest.Create(
+            root,
+            now.AddHours(-1),
+            now.AddDays(1),
+            serial);
+        using X509Certificate2 leaf = issuedLeaf.CopyWithPrivateKey(leafKey);
+
+        var roots = new X509Certificate2Collection(root);
+        var extra = new X509Certificate2Collection(root);
+        SignatureVerificationResult result =
+            PackageSignatureVerifier.VerifyCertificateChain(
+                leaf,
+                extra,
+                roots,
+                CodeSigningEkuOid);
+
+        Assert.False(result.IsValid);
+        Assert.Contains("NotValidForUsage", result.Reason, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -319,6 +477,81 @@ public class PackageSignatureVerifierTests : IDisposable
         {
             File.Delete(nupkgPath);
         }
+    }
+
+    private static SignedCms DecodeSignature(string nupkgPath)
+    {
+        using ZipArchive archive = ZipFile.OpenRead(nupkgPath);
+        ZipArchiveEntry signature = Assert.IsType<ZipArchiveEntry>(
+            archive.GetEntry(".signature.p7s"));
+        using Stream stream = signature.Open();
+        using var buffer = new MemoryStream();
+        stream.CopyTo(buffer);
+        var cms = new SignedCms();
+        cms.Decode(buffer.ToArray());
+        return cms;
+    }
+
+    private static AsnEncodedData GetTimestampValue(SignerInfo signer)
+    {
+        CryptographicAttributeObject attribute = Assert.Single(
+            signer.UnsignedAttributes.Cast<CryptographicAttributeObject>(),
+            value => value.Oid?.Value == TimestampTokenOid);
+        return Assert.Single(attribute.Values.Cast<AsnEncodedData>());
+    }
+
+    private static string CreateTestSignature(
+        string content,
+        string? commitmentOid)
+    {
+        using RSA key = RSA.Create(2048);
+        var request = new CertificateRequest(
+            "CN=Test package signer",
+            key,
+            HashAlgorithmName.SHA256,
+            RSASignaturePadding.Pkcs1);
+        request.CertificateExtensions.Add(
+            new X509BasicConstraintsExtension(
+                certificateAuthority: false,
+                hasPathLengthConstraint: false,
+                pathLengthConstraint: 0,
+                critical: true));
+        request.CertificateExtensions.Add(
+            new X509KeyUsageExtension(
+                X509KeyUsageFlags.DigitalSignature,
+                critical: true));
+        var usages = new OidCollection
+        {
+            new Oid(CodeSigningEkuOid),
+        };
+        request.CertificateExtensions.Add(
+            new X509EnhancedKeyUsageExtension(usages, critical: true));
+        using X509Certificate2 certificate = request.CreateSelfSigned(
+            DateTimeOffset.UtcNow.AddDays(-1),
+            DateTimeOffset.UtcNow.AddDays(1));
+
+        var cms = new SignedCms(new ContentInfo(Encoding.UTF8.GetBytes(content)));
+        var signer = new CmsSigner(certificate);
+        if (commitmentOid is not null)
+        {
+            var writer = new AsnWriter(AsnEncodingRules.DER);
+            writer.PushSequence();
+            writer.WriteObjectIdentifier(commitmentOid);
+            writer.PopSequence();
+            signer.SignedAttributes.Add(new CryptographicAttributeObject(
+                new Oid(CommitmentTypeIndicationOid),
+                new AsnEncodedDataCollection(
+                    new AsnEncodedData(
+                        new Oid(CommitmentTypeIndicationOid),
+                        writer.Encode()))));
+        }
+        cms.ComputeSignature(signer);
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"package-signature-{Guid.NewGuid():N}.p7s");
+        File.WriteAllBytes(path, cms.Encode());
+        return path;
     }
 
     private async Task<string> DownloadPackageAsync(string id, string version)

@@ -835,9 +835,10 @@ public static class PackageContentAudit
             {
                 if (reader.Depth > MaxNuGetConfigurationDepth)
                 {
-                    collector.AddLimit(
+                    collector.AddIncomplete(ToolFinding(
                         path,
-                        $"NuGet configuration exceeded the {MaxNuGetConfigurationDepth}-level XML depth limit.");
+                        PackageContentFindingKind.ScanLimit,
+                        $"NuGet configuration exceeded the {MaxNuGetConfigurationDepth}-level XML depth limit."));
                     return;
                 }
 
