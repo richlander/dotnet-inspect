@@ -49,6 +49,9 @@
 - Adds the opt-in Call Graph `AsyncAlternatives` field for per-method
   `sync-call-in-async` opportunity counts while Performance Triage retains the
   exact call-site evidence and replacement (#4380).
+- Attributes async state-machine and lifted-body calls to their declared source
+  methods in logical call output while retaining the physical `Evidence Method`
+  and IL offset for each call-site receipt (#4466, #4461).
 
 ### Acquisition and safety
 
