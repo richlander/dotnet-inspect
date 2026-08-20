@@ -354,6 +354,25 @@ gates the build-layout and corpus workflow; and
 `PlantedCoreLibraryIdentityTests.DiscoveredSibling_FollowsTheHostPolicy`
 gates both settings of the host policy.
 
+The gate that has been hardest to get right is the one asserting that *no*
+reader-creation site was overlooked, because the obvious formulation — reflect
+over the factory methods — enumerates signatures, and a signature has
+unboundedly many cosmetic dimensions. Three consecutive review rounds on the
+fix escaped it along a different one each time: the method name, then the
+declared return type, then visibility and `Task` wrapping (issue #4464).
+`ReaderConstructionSiteTests.TrustRelevantSites_MatchThePin` replaces that with
+an observation the escapes cannot reach. It reads the compiled IL of
+`ILInspector.Decompiler` and pins every method that constructs a `PEReader` or
+calls a grant on `CoreLibraryIdentityTrust`, so a site is visible whatever it
+is called, however it is declared, and whether or not its result is wrapped.
+Both directions fail: an unpinned site is an unreviewed way to obtain a reader,
+and a pinned site that stops constructing or granting is a stale entry. Listing
+is not approval — most pinned sites deliberately do *not* classify, and the
+table records which half of the design each one is on.
+`ReaderConstructionSiteTests.Scanner_ObservesBothConstructionAndGrantSites` is
+its non-vacuity check, since a scan compared against a table would pass just as
+happily if the scan silently observed nothing.
+
 ### Restored manifest paths remain within their owning roots
 
 Paths read from `.deps.json` and `project.assets.json` are relative artifact

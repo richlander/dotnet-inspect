@@ -43,7 +43,10 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <para>
 /// Gated by <c>PlantedCoreLibraryIdentityTests</c>, which tamper-verifies both
 /// halves — the grant and the check — and covers the resolved, designated,
-/// raw-path, and unclassified open paths.
+/// raw-path, and unclassified open paths, and by
+/// <c>ReaderConstructionSiteTests</c>, which pins every method in this assembly
+/// whose IL constructs a <c>PEReader</c> or calls a grant here, so a new way to
+/// obtain a reader cannot be added without saying which half it is on.
 /// </para>
 /// </summary>
 static class CoreLibraryIdentityTrust
