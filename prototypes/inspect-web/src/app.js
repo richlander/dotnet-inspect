@@ -47,6 +47,7 @@ import {
 import { buildAnnotatedView, factsForNode, MEDIA, MEDIUM_LABELS, nodeAtOffset } from "/src/annotated-source-view.ts";
 import { renderScopeBar as renderScopeBarPure } from "/src/scope-bar.ts";
 import { renderDocViewer as renderDocViewerPure } from "/src/doc-viewer.ts";
+import { renderGraphSource as renderGraphSourcePure } from "/src/graph-source.ts";
 import {
   renderMemberNav,
   renderTypeMetadata,
@@ -6431,22 +6432,14 @@ function bindSettingsEvents() {
 }
 
 function renderGraphSource() {
-  const body = state.graphSourceLoading
-    ? `<div class="graph-source-status">Resolving source for ${escapeHtml(state.graphSourceTitle)}…</div>`
-    : state.graphSource
-      ? `<div class="source-provenance"><strong>${state.graphSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.graphSource.provenance)}</span>${state.graphSource.url ? `<a href="${escapeHtml(state.graphSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}</div>
-         <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(state.graphSource.text)}</code></pre>`
-      : `<div class="graph-source-status error">${escapeHtml(state.graphSourceError || "No source was returned.")}</div>`;
-  return `
-    <div class="graph-source-backdrop" id="graph-source-backdrop">
-      <div class="graph-source" role="dialog" aria-modal="true" aria-label="Member source">
-        <div class="graph-source-head">
-          <span class="graph-source-title">${escapeHtml(state.graphSourceTitle)}</span>
-          <button id="graph-source-close" type="button" aria-label="Close">esc</button>
-        </div>
-        <div class="graph-source-body">${body}</div>
-      </div>
-    </div>`;
+  return renderGraphSourcePure({
+    title: state.graphSourceTitle,
+    loading: state.graphSourceLoading,
+    source: state.graphSource,
+    error: state.graphSourceError,
+    escapeHtml,
+    highlightCSharp,
+  });
 }
 
 function navigateToMember(pkg, type, group, overloadIndex = null, bodyTarget = null) {
