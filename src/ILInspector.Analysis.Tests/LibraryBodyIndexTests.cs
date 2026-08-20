@@ -1000,7 +1000,7 @@ public class LibraryBodyIndexTests
                     type => type.Name.Contains(
                         ">d__",
                         StringComparison.Ordinal));
-        Assert.Single(
+        Assert.DoesNotContain(
             generatedTypeScoped
                 .OptimizationOpportunities,
             candidate => candidate.Shape

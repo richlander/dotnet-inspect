@@ -476,8 +476,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                         bodyTypeScope,
                         requestedMethodScope?.Contains(
                             caller.MetadataToken)
-                            == true
-                            || directlySelectedType);
+                            == true);
                 bool sourceGenerated =
                     _infrastructure.HasGeneratedCodeAttribute(
                         methodAttributes)
