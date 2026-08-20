@@ -1058,6 +1058,30 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         Assert.False(PackageCommand.RequiresPackageMetadata(
             options,
             pipeline));
+
+        options = options with
+        {
+            Discover = [PackageSections.PackageInfo],
+            IncludeSections =
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    PackageSections.PackageInfo,
+                    PackageSections.Manifest,
+                },
+        };
+
+        Assert.True(PackageCommand.RequestsSelectedOrDiscoveredSection(
+            options,
+            PackageSections.PackageInfo,
+            pipeline));
+        Assert.False(PackageCommand.RequestsSelectedOrDiscoveredSection(
+            options,
+            PackageSections.Manifest,
+            pipeline));
+        Assert.False(PackageCommand.RequestsRidPackageAvailability(
+            options,
+            isLocalFile: false,
+            pipeline));
     }
 
     [Theory]

@@ -1468,7 +1468,14 @@ public class PackageCommand
         SectionPipeline<InspectionResult> pipeline)
     {
         if (options.IncludeSections is { } selectedSections)
-            return selectedSections.Contains(sectionName);
+        {
+            return selectedSections.Contains(sectionName)
+                && (options.Discover is null
+                    || DiscoverRequestsSection(
+                        options.Discover,
+                        sectionName,
+                        pipeline));
+        }
 
         return DiscoverRequestsSection(
             options.Discover,
