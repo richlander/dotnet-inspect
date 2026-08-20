@@ -4540,6 +4540,16 @@ function syncUrl() {
 function applyDeepLink(deep) {
   const pkg = state.package;
   if (!pkg) return;
+  // Every caller reaches this from a URL/history-driven restore (initial load, workspace
+  // restore, back/forward, or an explicit deep link passed to loadPackage), never from an
+  // in-app link click that means to preserve the current type-list filter. Clear the
+  // type/namespace/kind filters so a value left over from Browse elsewhere doesn't hide the
+  // restored type from the list (library scope is deliberately left alone: for a platform
+  // link it is already restored by applyPlatformLibraryScope before this runs, and clearing
+  // it here would undo that restoration).
+  state.typeFilter = "";
+  state.namespaceFilter = "";
+  state.kindFilter = "";
   state.memberSource = null;
   state.memberSourceError = "";
   state.memberSourceKey = "";
@@ -4559,16 +4569,21 @@ function applyDeepLink(deep) {
   state.platformDrillError = "";
   const restoreType = deep?.type && pkg.types.some(item => item.id === deep.type);
   state.selectedTypeId = restoreType ? deep.type : defaultVisibleTypeId(pkg);
-  // A deep-linked type may sit in an accessibility bucket the default filter hides (e.g. an
-  // internal type reached via a shared link). Widen the filter so the type list and the
-  // displayed type stay aligned instead of showing an unrelated first type while the pane
-  // renders the restored one.
-  if (restoreType) {
-    const restored = pkg.types.find(item => item.id === deep.type);
-    if (restored && !state.accessibilityFilter.has(restored.accessibilityId)) {
+  // The restored/defaulted type may sit outside the current accessibility bucket or library
+  // scope (e.g. an internal type reached via a shared link, or a history entry for a type in
+  // a library the session had since scoped away from). Reconcile both filters against the
+  // actual selected type so the type list and the displayed type stay aligned, instead of
+  // showing an unrelated first type -- or an empty list -- while the pane renders the
+  // restored one.
+  const selected = pkg.types.find(item => item.id === state.selectedTypeId);
+  if (selected) {
+    if (!state.accessibilityFilter.has(selected.accessibilityId)) {
       const next = new Set(state.accessibilityFilter);
-      next.add(restored.accessibilityId);
+      next.add(selected.accessibilityId);
       state.accessibilityFilter = next;
+    }
+    if (state.libraryScope && !state.libraryScope.has(libraryKey(selected))) {
+      state.libraryScope = null;
     }
   }
   state.selectedMemberKey = "";
