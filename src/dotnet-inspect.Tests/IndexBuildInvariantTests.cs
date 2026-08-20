@@ -215,7 +215,7 @@ public class IndexBuildInvariantTests
     }
 
     [Fact]
-    public void PdbContext_MetadataOnlyPrefetch_RetainsImageWithoutLoadingAdjacentPdb()
+    public void PdbContext_MetadataOnlyPrefetch_RetainsImageWithoutLoadingPdb()
     {
         Assert.True(
             File.Exists(
@@ -254,6 +254,25 @@ public class IndexBuildInvariantTests
                 .GetPrefetchedImage()
                 .IsDefaultOrEmpty);
         Assert.False(descriptorPrefetched.HasPdb);
+
+        string embeddedAssembly =
+            typeof(LibraryCommand).Assembly.Location;
+        using (var embedded =
+            ILInspector.SourceLink.SourceLinkService.Open(
+                embeddedAssembly))
+        {
+            Assert.True(embedded.Context.HasEmbeddedPdb);
+            Assert.True(embedded.HasPdb);
+        }
+
+        using var embeddedPrefetched =
+            ILInspector.SourceLink.SourceLinkService
+                .OpenMetadataOnlyPrefetched(
+                    embeddedAssembly);
+        Assert.True(
+            embeddedPrefetched.Context.HasEmbeddedPdb);
+        Assert.False(embeddedPrefetched.HasPdb);
+        Assert.False(embeddedPrefetched.HasSourceLink);
     }
 }
 

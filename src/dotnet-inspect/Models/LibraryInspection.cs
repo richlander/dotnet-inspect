@@ -437,6 +437,10 @@ public class LibraryInspection
     [JsonIgnore]
     public bool? UnsafeEvidencePresent { get; set; }
 
+    /// <summary>Failure from the bounded discovery probe, kept separate from the full census.</summary>
+    [JsonIgnore]
+    public Exception? UnsafeEvidencePresenceError { get; set; }
+
     /// <summary>Per-method failures that made the unsafe-evidence census incomplete.</summary>
     [JsonIgnore]
     public ImmutableArray<AnalysisDiagnostic> UnsafeEvidenceDiagnostics { get; set; } = [];

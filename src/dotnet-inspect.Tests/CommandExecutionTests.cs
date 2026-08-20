@@ -973,6 +973,109 @@ public partial class CommandExecutionTests
         }
     }
 
+    private static (string AssemblyPath, string FixtureDir)
+        CreateIncompleteUnsafeDiscoveryAssembly()
+    {
+        const string source =
+            """
+            namespace DiscoveryFixtures;
+
+            public static class IncompleteUnsafeDiscovery
+            {
+                public static int Broken(int value)
+                {
+                    int local = value;
+                    return local + 1;
+                }
+            }
+            """;
+
+        var fixtureDir = Path.Combine(
+            AppContext.BaseDirectory,
+            $"incomplete-unsafe-discovery-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(fixtureDir);
+
+        try
+        {
+            var assemblyPath = Path.Combine(
+                fixtureDir,
+                "IncompleteUnsafeDiscovery.dll");
+            var references =
+                ((string)AppContext.GetData(
+                    "TRUSTED_PLATFORM_ASSEMBLIES")!)
+                .Split(Path.PathSeparator)
+                .Select(path =>
+                    MetadataReference.CreateFromFile(path));
+            var compilation = CSharpCompilation.Create(
+                "IncompleteUnsafeDiscovery",
+                [
+                    CSharpSyntaxTree.ParseText(
+                        SourceText.From(source, Encoding.UTF8),
+                        new CSharpParseOptions(
+                            LanguageVersion.Preview))
+                ],
+                references,
+                new CSharpCompilationOptions(
+                    OutputKind.DynamicallyLinkedLibrary,
+                    optimizationLevel: OptimizationLevel.Debug,
+                    deterministic: true));
+
+            using (var assembly = File.Create(assemblyPath))
+            {
+                EmitResult result =
+                    compilation.Emit(assembly);
+                Assert.True(
+                    result.Success,
+                    string.Join(
+                        Environment.NewLine,
+                        result.Diagnostics));
+            }
+
+            byte[] image = File.ReadAllBytes(assemblyPath);
+            using var peReader = new PEReader(
+                new MemoryStream(
+                    image,
+                    writable: false));
+            MetadataReader reader =
+                peReader.GetMetadataReader();
+            MethodDefinition method = reader.MethodDefinitions
+                .Select(reader.GetMethodDefinition)
+                .Single(method =>
+                    reader.GetString(method.Name) == "Broken");
+            MethodBodyBlock body =
+                peReader.GetMethodBody(
+                    method.RelativeVirtualAddress);
+            Assert.False(body.LocalSignature.IsNil);
+
+            int sectionIndex =
+                peReader.PEHeaders.GetContainingSectionIndex(
+                    method.RelativeVirtualAddress);
+            SectionHeader section =
+                peReader.PEHeaders.SectionHeaders[sectionIndex];
+            int headerOffset =
+                section.PointerToRawData
+                + method.RelativeVirtualAddress
+                - section.VirtualAddress;
+            Assert.Equal(3, image[headerOffset] & 3);
+            BinaryPrimitives.WriteInt32LittleEndian(
+                image.AsSpan(
+                    headerOffset + 8,
+                    sizeof(int)),
+                0x11FFFFFE);
+            File.WriteAllBytes(
+                assemblyPath,
+                image);
+            return (assemblyPath, fixtureDir);
+        }
+        catch
+        {
+            Directory.Delete(
+                fixtureDir,
+                recursive: true);
+            throw;
+        }
+    }
+
     private static (string PackagePath, string TempDir)
         CreateLocalIntegrationOpportunityPackage(string tfm = "net10.0")
     {
@@ -7327,6 +7430,36 @@ public partial class CommandExecutionTests
         finally
         {
             Directory.Delete(fixtureDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Discover_Bare_FailsVisiblyWhenUnsafePresenceIsIncomplete()
+    {
+        var (assemblyPath, fixtureDir) =
+            CreateIncompleteUnsafeDiscoveryAssembly();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                assemblyPath,
+                "-D",
+                "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                $"Could not determine {SectionNames.UnsafeMembers} applicability",
+                error);
+            Assert.Contains(
+                "Unsafe evidence presence is incomplete",
+                error);
+        }
+        finally
+        {
+            Directory.Delete(
+                fixtureDir,
+                recursive: true);
         }
     }
 

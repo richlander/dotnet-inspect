@@ -2310,6 +2310,14 @@ public class LibraryCommand
         // inspection already established from an embedded or adjacent PDB).
         inspection.HasSourceLink |= sourceLinkAvailable;
 
+        if (inspection.UnsafeEvidencePresenceError is { } presenceError)
+        {
+            CommandError.Write(
+                $"Could not determine {SectionNames.UnsafeMembers} applicability for " +
+                $"{assemblyPath}: {presenceError.Message}");
+            return 1;
+        }
+
         List<string> allEffective;
         if (fullEffectiveness)
         {

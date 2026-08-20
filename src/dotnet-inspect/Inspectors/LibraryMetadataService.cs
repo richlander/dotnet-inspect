@@ -2147,9 +2147,7 @@ internal static class LibraryMetadataService
                 out UnsafeEvidencePresenceResult? unsafeEvidencePresence))
         {
             ApplyUnsafeEvidencePresenceResult(
-                path,
                 inspection,
-                logger,
                 unsafeEvidencePresence);
         }
 
@@ -2625,9 +2623,7 @@ internal static class LibraryMetadataService
     }
 
     internal static void ApplyUnsafeEvidencePresenceResult(
-        string path,
         LibraryInspection inspection,
-        VerboseLogger logger,
         UnsafeEvidencePresenceResult result)
     {
         switch (result)
@@ -2635,14 +2631,13 @@ internal static class LibraryMetadataService
             case UnsafeEvidencePresenceResult.Available available:
                 inspection.UnsafeEvidencePresent =
                     available.HasEvidence;
+                inspection.UnsafeEvidencePresenceError = null;
                 break;
 
             case UnsafeEvidencePresenceResult.Failed failed:
-                ApplyUnsafeEvidenceResult(
-                    path,
-                    inspection,
-                    logger,
-                    new UnsafeEvidenceResult.Failed(failed.Error));
+                inspection.UnsafeEvidencePresent = null;
+                inspection.UnsafeEvidencePresenceError =
+                    failed.Error;
                 break;
 
             default:

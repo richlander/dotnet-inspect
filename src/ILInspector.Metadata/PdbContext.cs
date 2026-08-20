@@ -286,7 +286,7 @@ public class PdbContext : IDisposable
     /// </summary>
     /// <remarks>
     /// Gate:
-    /// <c>PdbContext_MetadataOnlyPrefetch_RetainsImageWithoutLoadingAdjacentPdb</c>.
+    /// <c>PdbContext_MetadataOnlyPrefetch_RetainsImageWithoutLoadingPdb</c>.
     /// </remarks>
     public static PdbContext OpenMetadataOnlyPrefetched(
         string assemblyPath,
@@ -322,7 +322,7 @@ public class PdbContext : IDisposable
     /// </summary>
     /// <remarks>
     /// Gate:
-    /// <c>PdbContext_MetadataOnlyPrefetch_RetainsImageWithoutLoadingAdjacentPdb</c>.
+    /// <c>PdbContext_MetadataOnlyPrefetch_RetainsImageWithoutLoadingPdb</c>.
     /// </remarks>
     public static PdbContext OpenMetadataOnlyPrefetched(
         ResolvedAssemblyReference assembly,
@@ -453,7 +453,7 @@ public class PdbContext : IDisposable
             if (!peReader.HasMetadata)
                 return context;
 
-            context.ReadDebugDirectory();
+            context.ReadDebugDirectory(loadEmbeddedPdb: loadLocalPdb);
             if (loadLocalPdb)
                 context.TryLoadLocalPdb();
 
@@ -1620,7 +1620,7 @@ public class PdbContext : IDisposable
 
     // --- Private implementation ---
 
-    private void ReadDebugDirectory()
+    private void ReadDebugDirectory(bool loadEmbeddedPdb)
     {
         CodeViewDebugDirectoryData? portableCodeView = null;
         CodeViewDebugDirectoryData? windowsCodeView = null;
@@ -1682,6 +1682,8 @@ public class PdbContext : IDisposable
                 HasEmbeddedPdb = true;
                 PdbFormat = "Portable";
                 PdbLocation = "Embedded";
+                if (!loadEmbeddedPdb)
+                    continue;
 
                 var provider = _peReader.ReadEmbeddedPortablePdbDebugDirectoryData(entry);
                 _disposables.Add(provider);
