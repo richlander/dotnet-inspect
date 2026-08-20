@@ -49,6 +49,8 @@ public class PackageCommand
         var queryRegistry = catalog.QueryRegistry;
         var sectionNames = pipeline.SelectableSectionNames;
         bool packageLibraryMode = options.PackageLibrary != null || options.AllLibraries;
+        if (!packageLibraryMode)
+            options = NormalizeDependencyProjection(options);
 
         if (packageArgs.Length > 1
             && !ValidateMultiPackageMode(options))
@@ -65,6 +67,33 @@ public class PackageCommand
         if (!packageLibraryMode && options.Discover != null && (options.Schema || packageArgs.Length < 1))
         {
             var schemaMap = PackageDiscoverySchema();
+            if (options.Schema)
+            {
+                var selectedSections = options.IncludeSections is { Count: > 0 }
+                    ? new HashSet<string>(
+                        options.IncludeSections,
+                        StringComparer.OrdinalIgnoreCase)
+                    : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var hasExplicitSelection = options.Select is { Length: > 0 };
+                if (hasExplicitSelection || options.SelectDefault)
+                {
+                    var selectResult = SelectResolver.ResolveSelectAsSections(
+                        options.Select,
+                        sectionNames,
+                        pipeline.BareSelectSectionNames,
+                        pipeline.GetCategoryMap(),
+                        selectDefault: options.SelectDefault
+                            && !hasExplicitSelection);
+                    if (SelectOutput.WriteUnresolved(selectResult))
+                        return 1;
+                    if (selectResult.Sections is { Count: > 0 })
+                        selectedSections.UnionWith(selectResult.Sections);
+                }
+
+                if (selectedSections.Count > 0)
+                    schemaMap = FilterDiscoverySchema(schemaMap, selectedSections);
+            }
+
             return DiscoverOutput.Execute(options.Discover, schemaMap,
                 tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
                 verbosity: (int)options.Verbosity,
@@ -114,7 +143,11 @@ public class PackageCommand
             // ignored. LensProjection answers the projection for those modes instead, and -S is
             // rejected outright below rather than silently dropped.
             var lensMode = options.ListVersions || options.ListLayout || options.ListTfms
-                || options.ShowContent || options.ShowDependencies;
+                || options.ShowContent;
+            var dependencyTreeProjection = options.Tree
+                && options.Discover == null
+                && options.IncludeSections is { Count: 1 }
+                && options.IncludeSections.Contains(PackageSections.Dependencies);
             // Discovery also renders its own payload, so it is exempt from the single-section
             // requirement below. It is deliberately not part of lensMode: unlike the lenses, -S
             // is meaningful with -D, which restricts discovery to the selected sections.
@@ -123,17 +156,28 @@ public class PackageCommand
             // and rejecting that would break the lens modes' normal use. The refusal is
             // unconditional rather than excusing --print: the lens prints its own document
             // without a selection, so accepting -S there would silently ignore it.
-            if (lensMode && options.SelectExplicitlySet)
+            if (lensMode
+                && (options.SelectExplicitlySet
+                    || options.ShowDependencies
+                    || dependencyTreeProjection))
             {
                 var lensName = options.ListVersions ? "--versions"
                     : options.ListLayout ? "--layout"
                     : options.ListTfms ? "--tfms"
                     : options.ShowDependencies ? "--dependencies"
                     : "--content";
-                CommandError.Write(
-                    $"-S/--select is not available with {lensName}, which renders its own payload rather than sections.");
+                if (options.ShowDependencies)
+                    CommandError.Write($"--dependencies cannot be combined with {lensName}.");
+                else if (dependencyTreeProjection && !options.SelectExplicitlySet)
+                    CommandError.Write($"--tree cannot be combined with {lensName}.");
+                else
+                    CommandError.Write(
+                        $"-S/--select is not available with {lensName}, which renders its own payload rather than sections.");
                 return 1;
             }
+
+            if (!ValidateDependencyTreeProjection(options))
+                return 1;
 
             // #3448 aligns the package gate with the library one: a count over several selected
             // sections is meaningful now that the file family is disjoint, so require a selection
@@ -636,9 +680,10 @@ public class PackageCommand
             version.Length > 0 ? $"package {packageName}@{version}" : $"package {packageName}",
             "package inspect");
 
-        if (options.ShowDependencies)
+        if (options.Tree && options.Discover == null && !packageLibraryMode)
         {
-            CommandError.WriteLine("Tip: use 'depends --package' for dependency trees.");
+            if (options.ShowDependencies)
+                CommandError.WriteLine("Tip: use 'depends --package' for dependency trees.");
             string packageReference = target.IsLocalFile
                 ? target.OriginalArgument
                 : version.Length > 0
@@ -1718,6 +1763,7 @@ public class PackageCommand
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.Print) conflicts.Add("--print");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
+        else if (options.Tree && options.Discover == null) conflicts.Add("--tree");
         if (options.PackageLibrary != null) conflicts.Add("--library");
         if (options.AllLibraries) conflicts.Add("--all-libraries");
         if (options.Discover != null) conflicts.Add("-D/--discover");
@@ -1733,13 +1779,6 @@ public class PackageCommand
     private static bool ValidatePackageContentMode(InspectionOptions options)
     {
         bool scopedContent = options.ContentScope != PackageFileContentScope.Full;
-        if (options.Tree && options.Discover == null && !options.Count)
-        {
-            CommandError.Write("package --tree is discovery-tree output and requires -D/--discover.");
-            CommandError.WriteLine("Use --layout to show the package file tree.");
-            return false;
-        }
-
         if (options.FrontmatterRequested && options.BodyRequested)
         {
             CommandError.Write("--frontmatter/--yaml-header cannot be combined with --body.");
@@ -1812,6 +1851,94 @@ public class PackageCommand
         }
 
         return true;
+    }
+
+    private static InspectionOptions NormalizeDependencyProjection(InspectionOptions options)
+    {
+        if (!options.ShowDependencies)
+            return options;
+
+        var select = options.Select?.ToList() ?? [];
+        if (options.IncludeSections is { Count: > 0 })
+        {
+            foreach (var section in options.IncludeSections)
+            {
+                if (!select.Contains(section, StringComparer.OrdinalIgnoreCase))
+                    select.Add(section);
+            }
+        }
+        if (!select.Contains(PackageSections.Dependencies, StringComparer.OrdinalIgnoreCase))
+            select.Add(PackageSections.Dependencies);
+
+        return options with
+        {
+            Select = [.. select],
+            SelectDefault = false,
+            Tree = true,
+        };
+    }
+
+    private static bool ValidateDependencyTreeProjection(InspectionOptions options)
+    {
+        if (!options.Tree || options.Discover != null)
+            return true;
+
+        if (options.IncludeSections is not { Count: 1 }
+            || !options.IncludeSections.Contains(PackageSections.Dependencies))
+        {
+            CommandError.Write(
+                options.ShowDependencies
+                    ? "--dependencies is an alias for -S Dependencies --tree and cannot be combined with other section selections."
+                    : "--tree requires exactly one tree-shaped section (-S Dependencies).");
+            return false;
+        }
+
+        bool typedDependencyCount = options.ShowDependencies && options.Count;
+        if (options.Print
+            || options.Value
+            || options.Urls
+            || options.Paths
+            || options.Columns is { Length: > 0 }
+            || options.Fields is { Length: > 0 }
+            || (!typedDependencyCount
+                && (options.Count
+                    || options.Rows is not null
+                    || options.Bare
+                    || options.JsonOutput
+                    || options.Format != OutputFormat.Markdown
+                    || options.Tabular
+                    || options.Tsv
+                    || options.Jsonl
+                    || options.JsonArray
+                    || options.NoHeader
+                    || options.TabularExplicitlySet)))
+        {
+            var optionName = options.ShowDependencies ? "--dependencies" : "--tree";
+            CommandError.Write($"{optionName} cannot be combined with row projections or non-Markdown formats.");
+            return false;
+        }
+
+        return true;
+    }
+
+    private static DocumentSchema FilterDiscoverySchema(
+        DocumentSchema schema,
+        IReadOnlySet<string> selectedSections)
+    {
+        var result = new DocumentSchema();
+        foreach (var name in schema.SectionNames)
+        {
+            if (!selectedSections.Contains(name))
+                continue;
+
+            var section = schema.GetSection(name);
+            if (section is { Items.Length: > 0 })
+                result.Add(name, section.ItemKind, section.Items.Select(item => item.Name).ToArray());
+            else
+                result.AddSection(name);
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -3375,6 +3502,20 @@ public class PackageCommand
 
     private static bool ValidatePackageLibraryMode(InspectionOptions options)
     {
+        if (options.Tree
+            && options.Discover == null
+            && (options.Format != OutputFormat.Markdown
+                || options.Bare
+                || options.Tabular
+                || options.Tsv
+                || options.Jsonl
+                || options.JsonArray
+                || options.NoHeader))
+        {
+            CommandError.Write("--tree cannot be combined with row projections or non-Markdown formats.");
+            return false;
+        }
+
         List<string> conflicts = [];
         if (options.AllLibraries) conflicts.Add("--all-libraries");
         if (options.ListLayout) conflicts.Add("--layout");
@@ -3403,6 +3544,7 @@ public class PackageCommand
         if (options.Print) conflicts.Add("--print");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         if (options.Discover != null) conflicts.Add("-D/--discover");
+        if (options.Tree && options.Discover == null) conflicts.Add("--tree");
         if (options.Columns != null) conflicts.Add("--columns");
         if (options.Fields != null) conflicts.Add("--fields");
 
@@ -3928,6 +4070,7 @@ public class PackageCommand
             TypeFilter = options.TypeFilter,
             BrowsableUrls = options.BrowsableUrls,
             JsonOutput = options.JsonOutput,
+            PlainText = options.Format == OutputFormat.PlainText,
             Tabular = options.Tabular,
             Tsv = options.Tsv,
             Jsonl = options.Jsonl,
@@ -4840,14 +4983,6 @@ public class PackageCommand
             {
                 return projectionExit;
             }
-
-            if (empty.Kind
-                == PackageDependencyGraphResult.EmptyKind.NoDependencyGroups)
-            {
-                CommandError.WriteLine(empty.Message);
-                return 0;
-            }
-
             var packageName =
                 new InertString(
                     TextPolicy.Field,
@@ -4865,9 +5000,12 @@ public class PackageCommand
                     $"{packageName} ({version})").ToString(),
                 Description = description.ToString()
             };
-            Console.WriteLine(
-                MarkoutSerializer.Serialize(
+            OutputDestination.Write(
+                options.OutputPath,
+                options.Rows,
+                writer => MarkoutSerializer.Serialize(
                     emptyView,
+                    writer,
                     InspectionContext.Default));
             return 0;
         }
@@ -4907,10 +5045,13 @@ public class PackageCommand
             Dependencies = ToTreeNodes(visibleNodes)
         };
 
-        MarkoutSerializer.Serialize(
-            view,
-            Console.Out,
-            PackageDependenciesContext.Default);
+        OutputDestination.Write(
+            options.OutputPath,
+            options.Rows,
+            writer => MarkoutSerializer.Serialize(
+                view,
+                writer,
+                PackageDependenciesContext.Default));
         return 0;
     }
 
