@@ -257,7 +257,7 @@ public sealed class AssemblyDependencyResolver :
                 continue;
 
             if (scope == AssemblyResolutionScope.Platform
-                && dependency.Provenance is not (AssemblyDependencyProvenance.TrustedPlatformAssembly or AssemblyDependencyProvenance.SharedFramework))
+                && dependency.Provenance is not (AssemblyDependencyProvenance.TrustedPlatformAssembly or AssemblyDependencyProvenance.SharedFramework or AssemblyDependencyProvenance.CorpusAssembly))
                 continue;
 
             CandidateTier tier = TierFor(dependency.Provenance);
@@ -436,7 +436,13 @@ public sealed class AssemblyDependencyResolver :
             _options.TargetAssemblyPath);
         AssemblyDescriptorResolution target = DescriptorResult(
             targetPath,
-            AssemblyResolutionProvenance.Local(
+            // Only returned as a binding when this file IS the core library
+            // facade, and it is the caller's designated target either way.
+            // Reporting it as a local asset understated the acquisition, which
+            // matters now that core-library identity is granted on acquisition.
+            AssemblyResolutionProvenance.Platform(
+                "Platform",
+                frameworkVersion: null,
                 "intrinsic core library"));
         return target.Assembly is null
             ? AssemblyBindingSelection.CannotSelect(
@@ -467,6 +473,11 @@ public sealed class AssemblyDependencyResolver :
                 AssemblyResolutionProvenance.Platform(
                     dependency.FrameworkName ?? "Platform",
                     frameworkVersion: null,
+                    dependency.Provenance.ToString()),
+            // Corpus paths are enumerated by the caller, not discovered beside
+            // the target, so they carry the caller's designation.
+            AssemblyDependencyProvenance.CorpusAssembly =>
+                AssemblyResolutionProvenance.Designated(
                     dependency.Provenance.ToString()),
             _ => AssemblyResolutionProvenance.Local(
                 dependency.Provenance.ToString()),

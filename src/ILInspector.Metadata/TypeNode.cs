@@ -375,7 +375,9 @@ internal sealed class GenericTypeNode(
         }
         else
         {
-            result = $"{baseName}<{string.Join(", ", renderedArguments)}>{nestedSuffix}";
+            result = arguments.Length == 0
+                ? $"{baseName}{nestedSuffix}"
+                : $"{baseName}<{string.Join(", ", renderedArguments)}>{nestedSuffix}";
         }
         return IsReferenceType && IsNullableAnnotated ? $"{result}?" : result;
     }

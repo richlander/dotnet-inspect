@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+using CSharpText;
 using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
@@ -19,9 +21,34 @@ internal static class CSharpSpellability
     internal readonly record struct NameIssue(string Discriminator, string Reason);
 
     enum PlaceKind { Argument, Local, StackSlot }
+    enum ExplicitTypeContext
+    {
+        Parameter,
+        Element,
+        GenericArgument,
+        ArrayElement,
+        PointerElement,
+        FunctionPointerParameter,
+        FunctionPointerReturn,
+    }
 
     public static bool HasUnrepresentableMetadataName(IrNode node)
         => InspectUnrepresentableMetadataName(node) is not null;
+
+    public static bool CanSpellExplicitParameterType(
+        TypeRef type,
+        IrFunction host,
+        ArgumentRefKind refKind,
+        bool isDynamic = false)
+        => !type.ContainsUnsupported
+            && (!isDynamic || IsDynamicParameterType(type, host))
+            && type.ExplicitParameterModifiersAreExact(refKind)
+            && HasExplicitParameterTypeShape(type, ExplicitTypeContext.Parameter, host)
+            && TypeIssue(type) is null
+            && !AnyDeclarationContextualNamePrintedBare(type)
+            && !AnyConstituentLeadingSegmentShadowed(type, host, [type])
+            && !AnyPrintedAliasInTypeShadowed(type, isDynamic, host, [type])
+            && !AnyBareNameInTypeShadowed(type, host, [type]);
 
     internal static NameIssue? InspectUnrepresentableMetadataName(IrNode node)
     {
@@ -440,6 +467,249 @@ internal static class CSharpSpellability
         }
     }
 
+    static bool HasExplicitParameterTypeShape(
+        TypeRef type,
+        ExplicitTypeContext context,
+        IrFunction host)
+    {
+        if (context is ExplicitTypeContext.ArrayElement
+                or ExplicitTypeContext.GenericArgument
+            && IsByRefLikeType(type, host))
+        {
+            return false;
+        }
+
+        switch (type.Kind)
+        {
+            case TypeRefKind.Definition:
+                return TryGetTotalGenericArity(type.Name, out int definitionArity)
+                    && definitionArity == 0
+                    && (AllowsVoid(context) || !IsCoreLibVoid(type))
+                    && (AllowsRestrictedSpecialType(context)
+                        || !IsRestrictedSpecialType(type))
+                    && !CollidesWithInScopeName(type, host);
+
+            case TypeRefKind.GenericInstance:
+                return type.ElementType is
+                    {
+                        Kind: TypeRefKind.Definition,
+                        Name: var definitionName,
+                    } definition
+                    && TryGetTotalGenericArity(definitionName, out int genericArity)
+                    && genericArity > 0
+                    && type.TypeArguments.Length == genericArity
+                    && TypeIssue(definition) is null
+                    && !CollidesWithInScopeName(type, host)
+                    && type.TypeArguments.All(
+                        argument => HasExplicitParameterTypeShape(
+                            argument,
+                            ExplicitTypeContext.GenericArgument,
+                            host));
+
+            case TypeRefKind.SzArray:
+                return type.ElementType is { } arrayElement
+                    && HasExplicitParameterTypeShape(
+                        arrayElement,
+                        ExplicitTypeContext.ArrayElement,
+                        host);
+
+            case TypeRefKind.Array:
+                return type.ArrayShapeIsExact
+                    && type.Rank is >= 2 and <= 32
+                    && type.ElementType is { } mdArrayElement
+                    && HasExplicitParameterTypeShape(
+                        mdArrayElement,
+                        ExplicitTypeContext.ArrayElement,
+                        host);
+
+            case TypeRefKind.ByRef:
+                return AllowsByRef(context)
+                    && type.ElementType is { } byRefElement
+                    && HasExplicitParameterTypeShape(
+                        byRefElement,
+                        ExplicitTypeContext.Element,
+                        host);
+
+            case TypeRefKind.Pointer:
+                return context != ExplicitTypeContext.GenericArgument
+                    && type.ElementType is { } pointerElement
+                    && HasExplicitParameterTypeShape(
+                        pointerElement,
+                        ExplicitTypeContext.PointerElement,
+                        host);
+
+            case TypeRefKind.Pinned:
+            case TypeRefKind.Unsupported:
+                return false;
+
+            case TypeRefKind.GenericParameter:
+                return GenericParameterIsInScope(
+                    type,
+                    host.DeclaringTypeGenericParameterNames,
+                    host.Signature.GenericParameterNames);
+
+            case TypeRefKind.MethodGenericParameter:
+                return GenericParameterIsInScope(
+                    type,
+                    host.Signature.GenericParameterNames);
+
+            case TypeRefKind.FunctionPointer:
+                return context != ExplicitTypeContext.GenericArgument
+                    && type.FunctionPointerSignatureIsExact
+                    && IsSpellableFunctionPointerCallingConvention(type.CallingConvention)
+                    && type.ElementType is { } returnType
+                    && HasExplicitParameterTypeShape(
+                        returnType,
+                        ExplicitTypeContext.FunctionPointerReturn,
+                        host)
+                    && FunctionPointerParametersHaveExactShapes(type, host);
+
+            default:
+                return false;
+        }
+    }
+
+    static bool FunctionPointerParametersHaveExactShapes(TypeRef type, IrFunction host)
+    {
+        if (type.FunctionPointerParameterRefKinds.Length != type.TypeArguments.Length)
+            return false;
+        for (int i = 0; i < type.TypeArguments.Length; i++)
+        {
+            var parameter = type.TypeArguments[i];
+            var refKind = type.FunctionPointerParameterRefKinds[i];
+            if ((parameter.Kind == TypeRefKind.ByRef) != (refKind != ArgumentRefKind.Value)
+                || !HasExplicitParameterTypeShape(
+                    parameter,
+                    ExplicitTypeContext.FunctionPointerParameter,
+                    host))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static bool AllowsByRef(ExplicitTypeContext context)
+        => context is ExplicitTypeContext.Parameter
+            or ExplicitTypeContext.FunctionPointerParameter
+            or ExplicitTypeContext.FunctionPointerReturn;
+
+    static bool AllowsVoid(ExplicitTypeContext context)
+        => context is ExplicitTypeContext.PointerElement
+            or ExplicitTypeContext.FunctionPointerReturn;
+
+    static bool AllowsRestrictedSpecialType(ExplicitTypeContext context)
+        => context is ExplicitTypeContext.Parameter
+            or ExplicitTypeContext.FunctionPointerParameter
+            or ExplicitTypeContext.PointerElement;
+
+    static bool GenericParameterIsInScope(
+        TypeRef type,
+        ImmutableArray<string> names,
+        ImmutableArray<string> shadowingNames = default)
+        => type.GenericParameterIndex >= 0
+            && type.GenericParameterIndex < names.Length
+            && type.GenericParameterName.Length > 0
+            && names.Count(name => string.Equals(
+                name,
+                type.GenericParameterName,
+                StringComparison.Ordinal)) == 1
+            && (shadowingNames.IsDefault
+                || !shadowingNames.Contains(
+                    type.GenericParameterName,
+                    StringComparer.Ordinal))
+            && string.Equals(
+                type.GenericParameterName,
+                names[type.GenericParameterIndex],
+                StringComparison.Ordinal);
+
+    static bool IsSpellableFunctionPointerCallingConvention(string convention)
+    {
+        if (convention.Length == 0 || convention == "unmanaged")
+            return true;
+        const string prefix = "unmanaged[";
+        if (!convention.StartsWith(prefix, StringComparison.Ordinal)
+            || !convention.EndsWith(']'))
+        {
+            return false;
+        }
+
+        var parts = convention[prefix.Length..^1]
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0 || parts.Length > 3)
+            return false;
+        bool sawConvention = false;
+        bool sawSuppressGcTransition = false;
+        bool sawMemberFunction = false;
+        foreach (var part in parts)
+        {
+            if (part == "SuppressGCTransition")
+            {
+                if (sawSuppressGcTransition)
+                    return false;
+                sawSuppressGcTransition = true;
+                continue;
+            }
+            if (part == "MemberFunction")
+            {
+                if (sawMemberFunction)
+                    return false;
+                sawMemberFunction = true;
+                continue;
+            }
+            if (part is not ("Cdecl" or "Stdcall" or "Thiscall" or "Fastcall")
+                || sawConvention)
+            {
+                return false;
+            }
+            sawConvention = true;
+        }
+        return true;
+    }
+
+    static bool TryGetTotalGenericArity(string metadataName, out int total)
+    {
+        total = 0;
+        foreach (var segment in metadataName.Split('+'))
+        {
+            int tick = segment.IndexOf('`');
+            if (tick < 0)
+                continue;
+            if (tick == segment.Length - 1
+                || segment.IndexOf('`', tick + 1) >= 0
+                || !TryParseCanonicalArity(
+                    segment.AsSpan(tick + 1),
+                    out int arity)
+                || total > int.MaxValue - arity)
+            {
+                total = 0;
+                return false;
+            }
+            total += arity;
+        }
+        return true;
+    }
+
+    static bool TryParseCanonicalArity(
+        ReadOnlySpan<char> text,
+        out int arity)
+    {
+        arity = 0;
+        if (text.IsEmpty || text[0] is < '1' or > '9')
+            return false;
+        foreach (char character in text)
+        {
+            if (character is < '0' or > '9'
+                || arity > (int.MaxValue - (character - '0')) / 10)
+            {
+                arity = 0;
+                return false;
+            }
+            arity = arity * 10 + character - '0';
+        }
+        return true;
+    }
+
     static string MethodNameDiscriminator(string name)
     {
         if (GeneratedCodeIdentity.IsSynthesizedLambdaMethodName(name))
@@ -481,6 +751,936 @@ internal static class CSharpSpellability
     // Only a canonical trailing `N is an arity suffix, so a segment whose backtick is
     // literal keeps it — and is then correctly reported as having no C# spelling
     // rather than silently truncated to a spellable name. See MetadataNameArity.
+    static bool IsCoreLibVoid(TypeRef type)
+        => type.Assembly == TypeRef.CoreLibrary
+            && type.Namespace == "System"
+            && type.Name == "Void";
+
+    static bool IsRestrictedSpecialType(TypeRef type)
+        => type.Assembly == TypeRef.CoreLibrary
+            && type.Namespace == "System"
+            && type.Name is "TypedReference" or "ArgIterator" or "RuntimeArgumentHandle";
+
+    static bool IsCoreLibObject(TypeRef type)
+        => type.Assembly == TypeRef.CoreLibrary
+            && type.Namespace == "System"
+            && type.Name == "Object";
+
+    static bool IsDynamicParameterType(TypeRef type, IrFunction host)
+        => !IsInScopeName("dynamic", host)
+            && IsCoreLibObject(
+                type.Kind == TypeRefKind.ByRef && type.ElementType is { } element
+                    ? element
+                    : type);
+
+    static bool CollidesWithInScopeName(TypeRef type, IrFunction host)
+    {
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+        if (definition is not { Kind: TypeRefKind.Definition })
+            return false;
+
+        bool genericInstance = type.Kind == TypeRefKind.GenericInstance;
+        bool nested = definition.Name.Contains('+');
+        bool qualified = nested && type.PrintsAsQualifiedNestedName(host.DeclaringType);
+
+        if (nested)
+        {
+            string first = StripArity(definition.Name.Split('+')[0]);
+            if (IsInScopeGenericParameterName(first, host))
+                return true;
+        }
+
+        if (!qualified
+            && !(genericInstance && !nested)
+            && IsInScopeGenericParameterName(SimpleMetadataName(definition.Name), host))
+        {
+            return true;
+        }
+
+        if (!qualified
+            && !genericInstance
+            && definition.Assembly == TypeRef.CoreLibrary
+            && definition.Namespace == "System"
+            && PrimitiveTypeNames.TryToKeywordForSystemType(definition.Name, out string? keyword)
+            && IsContextualTypeKeyword(keyword)
+            && IsInScopeGenericParameterName(keyword, host))
+        {
+            return true;
+        }
+
+        return CollidesWithDeclaringTypeSimpleName(definition, host, qualified)
+            || CollidesWithVisibleNestedName(type, host, [type]);
+    }
+
+    internal static bool AnyLeadingSegmentShadowedByKnownTypes(
+        IReadOnlyList<TypeRef> parameterTypes,
+        IrFunction host)
+    {
+        for (int i = 0; i < parameterTypes.Count; i++)
+        {
+            if (AnyConstituentLeadingSegmentShadowed(parameterTypes[i], host, parameterTypes))
+                return true;
+        }
+
+        return false;
+    }
+
+    internal static bool AnyPrintedAliasShadowedByKnownTypes(
+        IReadOnlyList<TypeRef> parameterTypes,
+        IReadOnlyList<bool> isDynamic,
+        IrFunction host)
+    {
+        for (int i = 0; i < parameterTypes.Count; i++)
+        {
+            bool parameterIsDynamic = i < isDynamic.Count && isDynamic[i];
+            if (AnyPrintedAliasInTypeShadowed(parameterTypes[i], parameterIsDynamic, host, parameterTypes))
+                return true;
+        }
+
+        return false;
+    }
+
+    internal static bool AnyBareNameShadowedByKnownTypes(
+        IReadOnlyList<TypeRef> parameterTypes,
+        IrFunction host)
+    {
+        for (int i = 0; i < parameterTypes.Count; i++)
+        {
+            if (AnyBareNameInTypeShadowed(parameterTypes[i], host, parameterTypes))
+                return true;
+        }
+
+        return false;
+    }
+
+    // TypeNameSegment uses body escape, so declaration-contextual keywords
+    // (scoped, file, record, required, init) print bare. In an explicit
+    // lambda parameter list those tokens parse as modifiers (CS0748/CS9048
+    // for scoped). Decline rather than emit the invalid spelling. Reserved
+    // keywords already print as @name and stay accepted.
+    static bool AnyDeclarationContextualNamePrintedBare(TypeRef type)
+    {
+        switch (type.Kind)
+        {
+            case TypeRefKind.Definition:
+                if (IsCoreLibPrimitive(type))
+                    return false;
+                foreach (var segment in type.Name.Split('+'))
+                {
+                    if (PrintsBareDeclarationContextualName(segment))
+                        return true;
+                }
+
+                return false;
+
+            case TypeRefKind.GenericInstance:
+                if (type.ElementType is { } definition
+                    && AnyDeclarationContextualNamePrintedBare(definition))
+                {
+                    return true;
+                }
+
+                return AnyDeclarationContextualNamePrintedBareList(type.TypeArguments);
+
+            case TypeRefKind.SzArray:
+            case TypeRefKind.Array:
+            case TypeRefKind.ByRef:
+            case TypeRefKind.Pointer:
+            case TypeRefKind.Pinned:
+                return type.ElementType is { } element
+                    && AnyDeclarationContextualNamePrintedBare(element);
+
+            case TypeRefKind.GenericParameter:
+            case TypeRefKind.MethodGenericParameter:
+                return PrintsBareDeclarationContextualName(type.GenericParameterName);
+
+            case TypeRefKind.FunctionPointer:
+                if (type.ElementType is { } returnType
+                    && AnyDeclarationContextualNamePrintedBare(returnType))
+                {
+                    return true;
+                }
+
+                return AnyDeclarationContextualNamePrintedBareList(type.TypeArguments);
+
+            default:
+                return false;
+        }
+    }
+
+    static bool AnyDeclarationContextualNamePrintedBareList(IReadOnlyList<TypeRef> types)
+    {
+        for (int i = 0; i < types.Count; i++)
+        {
+            if (AnyDeclarationContextualNamePrintedBare(types[i]))
+                return true;
+        }
+
+        return false;
+    }
+
+    static bool PrintsBareDeclarationContextualName(string metadataName)
+    {
+        if (metadataName.Length == 0)
+            return false;
+
+        string simple = StripArity(metadataName);
+        string printed = CSharpNaming.TypeNameSegment(simple);
+        return printed == simple
+            && CSharpIdentifier.ContainIdentifierForDeclaration(simple) != printed;
+    }
+
+    internal static bool AnyPrintedNameIdentityCollision(
+        IReadOnlyList<TypeRef> parameterTypes,
+        IReadOnlyList<bool> isDynamic,
+        IrFunction host)
+    {
+        var seen = new List<(string Name, int Arity, TypeRef Identity)>();
+        for (int i = 0; i < parameterTypes.Count; i++)
+        {
+            if (WalkPrintedNameIdentities(
+                    parameterTypes[i],
+                    i < isDynamic.Count && isDynamic[i],
+                    host,
+                    seen))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool WalkPrintedNameIdentities(
+        TypeRef type,
+        bool isDynamic,
+        IrFunction host,
+        List<(string Name, int Arity, TypeRef Identity)> seen)
+    {
+        if (TryGetPrintedContextualAlias(type, isDynamic, out string? alias)
+            && alias is not null
+            && RecordPrintedName(seen, alias, arity: 0, PrintedAliasIdentity(type)))
+        {
+            return true;
+        }
+
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+        if (definition is { Kind: TypeRefKind.Definition }
+            && !IsCoreLibPrimitive(definition)
+            && RecordDefinitionPrintedName(definition, type, host, seen))
+        {
+            return true;
+        }
+
+        switch (type.Kind)
+        {
+            case TypeRefKind.GenericInstance:
+                return WalkPrintedNameIdentityList(type.TypeArguments, host, seen);
+
+            case TypeRefKind.SzArray:
+            case TypeRefKind.Array:
+            case TypeRefKind.ByRef:
+            case TypeRefKind.Pointer:
+            case TypeRefKind.Pinned:
+                return type.ElementType is { } element
+                    && WalkPrintedNameIdentities(element, isDynamic: false, host, seen);
+
+            case TypeRefKind.FunctionPointer:
+                if (type.ElementType is { } returnType
+                    && WalkPrintedNameIdentities(returnType, isDynamic: false, host, seen))
+                {
+                    return true;
+                }
+
+                return WalkPrintedNameIdentityList(type.TypeArguments, host, seen);
+
+            default:
+                return false;
+        }
+    }
+
+    static bool WalkPrintedNameIdentityList(
+        IReadOnlyList<TypeRef> types,
+        IrFunction host,
+        List<(string Name, int Arity, TypeRef Identity)> seen)
+    {
+        for (int i = 0; i < types.Count; i++)
+        {
+            if (WalkPrintedNameIdentities(types[i], isDynamic: false, host, seen))
+                return true;
+        }
+
+        return false;
+    }
+
+    static bool RecordDefinitionPrintedName(
+        TypeRef definition,
+        TypeRef type,
+        IrFunction host,
+        List<(string Name, int Arity, TypeRef Identity)> seen)
+    {
+        if (definition.Name.Contains('+')
+            && type.PrintsAsQualifiedNestedName(host.DeclaringType))
+        {
+            string first = definition.Name.Split('+')[0];
+            return RecordPrintedName(
+                seen,
+                StripArity(first),
+                ArityOf(first),
+                TypeRef.Definition(definition.Assembly, definition.Namespace, first));
+        }
+
+        string last = definition.Name.Contains('+')
+            ? definition.Name[(definition.Name.LastIndexOf('+') + 1)..]
+            : definition.Name;
+        return RecordPrintedName(seen, StripArity(last), ArityOf(last), definition);
+    }
+
+    static TypeRef PrintedAliasIdentity(TypeRef type)
+    {
+        var underlying = type.Kind == TypeRefKind.ByRef && type.ElementType is { } byRefElement
+            ? byRefElement
+            : type;
+        return underlying.Kind == TypeRefKind.GenericInstance && underlying.ElementType is { } definition
+            ? definition
+            : underlying;
+    }
+
+    static bool RecordPrintedName(
+        List<(string Name, int Arity, TypeRef Identity)> seen,
+        string name,
+        int arity,
+        TypeRef identity)
+    {
+        for (int i = 0; i < seen.Count; i++)
+        {
+            if (seen[i].Name != name || seen[i].Arity != arity)
+                continue;
+            return !IsExactType(seen[i].Identity, identity);
+        }
+
+        seen.Add((name, arity, identity));
+        return false;
+    }
+
+    static bool AnyBareNameInTypeShadowed(
+        TypeRef type,
+        IrFunction host,
+        IReadOnlyList<TypeRef> knownTypes)
+    {
+        if (BarePrintedNameShadowed(type, host, knownTypes))
+            return true;
+
+        switch (type.Kind)
+        {
+            case TypeRefKind.GenericInstance:
+                if (type.ElementType is { } definition
+                    && AnyBareNameInTypeShadowed(definition, host, knownTypes))
+                {
+                    return true;
+                }
+
+                return AnyBareNameListShadowed(type.TypeArguments, host, knownTypes);
+
+            case TypeRefKind.SzArray:
+            case TypeRefKind.Array:
+            case TypeRefKind.ByRef:
+            case TypeRefKind.Pointer:
+            case TypeRefKind.Pinned:
+                return type.ElementType is { } element
+                    && AnyBareNameInTypeShadowed(element, host, knownTypes);
+
+            case TypeRefKind.FunctionPointer:
+                if (type.ElementType is { } returnType
+                    && AnyBareNameInTypeShadowed(returnType, host, knownTypes))
+                {
+                    return true;
+                }
+
+                return AnyBareNameListShadowed(type.TypeArguments, host, knownTypes);
+
+            default:
+                return false;
+        }
+    }
+
+    static bool AnyBareNameListShadowed(
+        IReadOnlyList<TypeRef> types,
+        IrFunction host,
+        IReadOnlyList<TypeRef> knownTypes)
+    {
+        for (int i = 0; i < types.Count; i++)
+        {
+            if (AnyBareNameInTypeShadowed(types[i], host, knownTypes))
+                return true;
+        }
+
+        return false;
+    }
+
+    static bool BarePrintedNameShadowed(
+        TypeRef type,
+        IrFunction host,
+        IReadOnlyList<TypeRef> knownTypes)
+    {
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+        if (definition is not { Kind: TypeRefKind.Definition } || IsCoreLibPrimitive(definition))
+            return false;
+        if (definition.Name.Contains('+') && type.PrintsAsQualifiedNestedName(host.DeclaringType))
+            return false;
+
+        var hostDefinition = HostDefinition(host);
+        if (hostDefinition is null)
+            return false;
+
+        string last = definition.Name.Contains('+')
+            ? definition.Name[(definition.Name.LastIndexOf('+') + 1)..]
+            : definition.Name;
+        return KnownTypesProveVisibleNestedName(
+            knownTypes,
+            hostDefinition,
+            StripArity(last),
+            ArityOf(last),
+            excludeExact: definition);
+    }
+
+    static bool CollidesWithDeclaringTypeSimpleName(
+        TypeRef definition,
+        IrFunction host,
+        bool qualified)
+    {
+        if (IsCoreLibPrimitive(definition))
+            return CollidesWithPrintedKeyword(definition, host);
+
+        var hostDefinition = host.DeclaringType.Kind == TypeRefKind.GenericInstance
+            ? host.DeclaringType.ElementType
+            : host.DeclaringType;
+        if (hostDefinition is not { Kind: TypeRefKind.Definition })
+            return false;
+
+        var hostSegments = hostDefinition.Name.Split('+');
+        if (qualified)
+        {
+            var siblingSegments = definition.Name.Split('+');
+            string first = siblingSegments[0];
+            string firstSimple = StripArity(first);
+            int firstArity = ArityOf(first);
+
+            // A later sibling-chain segment with the same simple name and
+            // arity is a nested type of some prefix. When that prefix is the
+            // host or an ancestor, C# binds the leading identifier to the
+            // nested type (Outer.Mid.Outer.Deep inside Outer.Mid).
+            for (int k = 1; k < siblingSegments.Length; k++)
+            {
+                if (StripArity(siblingSegments[k]) != firstSimple
+                    || ArityOf(siblingSegments[k]) != firstArity)
+                {
+                    continue;
+                }
+
+                string prefix = string.Join("+", siblingSegments, 0, k);
+                if (definition.Assembly == hostDefinition.Assembly
+                    && definition.Namespace == hostDefinition.Namespace
+                    && (hostDefinition.Name == prefix
+                        || hostDefinition.Name.StartsWith(prefix + "+", StringComparison.Ordinal)))
+                {
+                    return true;
+                }
+            }
+
+            for (int i = hostSegments.Length - 1; i >= 0; i--)
+            {
+                if (StripArity(hostSegments[i]) != firstSimple
+                    || ArityOf(hostSegments[i]) != firstArity)
+                {
+                    continue;
+                }
+
+                // Arity-aware lookup binds the leading segment to this host
+                // chain entry. That is the sibling's own outermost type only
+                // when it is the host's outermost type.
+                bool sameIdentity = i == 0
+                    && definition.Assembly == hostDefinition.Assembly
+                    && definition.Namespace == hostDefinition.Namespace
+                    && first == hostSegments[0];
+                return !sameIdentity;
+            }
+
+            return false;
+        }
+
+        string last = definition.Name.Contains('+')
+            ? definition.Name[(definition.Name.LastIndexOf('+') + 1)..]
+            : definition.Name;
+        string printed = StripArity(last);
+        int printedArity = ArityOf(last);
+        if (printed.Length == 0)
+            return false;
+
+        for (int i = hostSegments.Length - 1; i >= 0; i--)
+        {
+            if (StripArity(hostSegments[i]) != printed
+                || ArityOf(hostSegments[i]) != printedArity)
+                continue;
+
+            string hostPrefix = string.Join("+", hostSegments, 0, i + 1);
+            bool sameIdentity = definition.Assembly == hostDefinition.Assembly
+                && definition.Namespace == hostDefinition.Namespace
+                && definition.Name == hostPrefix;
+            if (!sameIdentity)
+                return true;
+            return false;
+        }
+
+        return false;
+    }
+
+    static string SimpleMetadataName(string metadataName)
+    {
+        int nested = metadataName.LastIndexOf('+');
+        return StripArity(nested < 0 ? metadataName : metadataName[(nested + 1)..]);
+    }
+
+    static int ArityOf(string metadataName)
+    {
+        int tick = metadataName.IndexOf('`');
+        return tick >= 0 && int.TryParse(metadataName[(tick + 1)..], out int arity) ? arity : 0;
+    }
+
+    static bool CollidesWithPrintedKeyword(TypeRef definition, IrFunction host)
+        => definition.Assembly == TypeRef.CoreLibrary
+            && definition.Namespace == "System"
+            && PrimitiveTypeNames.TryToKeywordForSystemType(definition.Name, out string? keyword)
+            && IsContextualTypeKeyword(keyword)
+            && IsInScopeName(keyword, host);
+
+    static bool IsContextualTypeKeyword(string keyword)
+        => keyword is "nint" or "nuint";
+
+    static bool AnyConstituentLeadingSegmentShadowed(
+        TypeRef type,
+        IrFunction host,
+        IReadOnlyList<TypeRef> knownTypes)
+    {
+        if (CollidesWithVisibleNestedName(type, host, knownTypes))
+            return true;
+
+        switch (type.Kind)
+        {
+            case TypeRefKind.GenericInstance:
+                if (type.ElementType is { } definition
+                    && AnyConstituentLeadingSegmentShadowed(definition, host, knownTypes))
+                {
+                    return true;
+                }
+
+                return AnyTypeListLeadingSegmentShadowed(type.TypeArguments, host, knownTypes);
+
+            case TypeRefKind.SzArray:
+            case TypeRefKind.Array:
+            case TypeRefKind.ByRef:
+            case TypeRefKind.Pointer:
+            case TypeRefKind.Pinned:
+                return type.ElementType is { } element
+                    && AnyConstituentLeadingSegmentShadowed(element, host, knownTypes);
+
+            case TypeRefKind.FunctionPointer:
+                if (type.ElementType is { } returnType
+                    && AnyConstituentLeadingSegmentShadowed(returnType, host, knownTypes))
+                {
+                    return true;
+                }
+
+                return AnyTypeListLeadingSegmentShadowed(type.TypeArguments, host, knownTypes);
+
+            default:
+                return false;
+        }
+    }
+
+    static bool AnyTypeListLeadingSegmentShadowed(
+        IReadOnlyList<TypeRef> types,
+        IrFunction host,
+        IReadOnlyList<TypeRef> knownTypes)
+    {
+        for (int i = 0; i < types.Count; i++)
+        {
+            if (AnyConstituentLeadingSegmentShadowed(types[i], host, knownTypes))
+                return true;
+        }
+
+        return false;
+    }
+
+    static bool AnyPrintedAliasInTypeShadowed(
+        TypeRef type,
+        bool isDynamic,
+        IrFunction host,
+        IReadOnlyList<TypeRef> knownTypes)
+    {
+        var hostDefinition = HostDefinition(host);
+        return hostDefinition is not null
+            && WalkPrintedAlias(type, isDynamic, hostDefinition, knownTypes);
+    }
+
+    static bool WalkPrintedAlias(
+        TypeRef type,
+        bool isDynamic,
+        TypeRef hostDefinition,
+        IReadOnlyList<TypeRef> knownTypes)
+    {
+        if (TryGetPrintedContextualAlias(type, isDynamic, out string? alias)
+            && alias is not null
+            && KnownTypesProveVisibleNestedName(knownTypes, hostDefinition, alias, arity: 0))
+        {
+            return true;
+        }
+
+        switch (type.Kind)
+        {
+            case TypeRefKind.GenericInstance:
+                if (type.ElementType is { } definition
+                    && WalkPrintedAlias(definition, isDynamic: false, hostDefinition, knownTypes))
+                {
+                    return true;
+                }
+
+                return WalkPrintedAliasList(type.TypeArguments, hostDefinition, knownTypes);
+
+            case TypeRefKind.SzArray:
+            case TypeRefKind.Array:
+            case TypeRefKind.ByRef:
+            case TypeRefKind.Pointer:
+            case TypeRefKind.Pinned:
+                return type.ElementType is { } element
+                    && WalkPrintedAlias(element, isDynamic: false, hostDefinition, knownTypes);
+
+            case TypeRefKind.FunctionPointer:
+                if (type.ElementType is { } returnType
+                    && WalkPrintedAlias(returnType, isDynamic: false, hostDefinition, knownTypes))
+                {
+                    return true;
+                }
+
+                return WalkPrintedAliasList(type.TypeArguments, hostDefinition, knownTypes);
+
+            default:
+                return false;
+        }
+    }
+
+    static bool WalkPrintedAliasList(
+        IReadOnlyList<TypeRef> types,
+        TypeRef hostDefinition,
+        IReadOnlyList<TypeRef> knownTypes)
+    {
+        for (int i = 0; i < types.Count; i++)
+        {
+            if (WalkPrintedAlias(types[i], isDynamic: false, hostDefinition, knownTypes))
+                return true;
+        }
+
+        return false;
+    }
+
+    static bool TryGetPrintedContextualAlias(TypeRef type, bool isDynamic, out string? alias)
+    {
+        var underlying = type.Kind == TypeRefKind.ByRef && type.ElementType is { } byRefElement
+            ? byRefElement
+            : type;
+        if (isDynamic && IsCoreLibObject(underlying))
+        {
+            alias = "dynamic";
+            return true;
+        }
+
+        var definition = underlying.Kind == TypeRefKind.GenericInstance
+            ? underlying.ElementType
+            : underlying;
+        if (definition is { Kind: TypeRefKind.Definition }
+            && definition.Assembly == TypeRef.CoreLibrary
+            && definition.Namespace == "System"
+            && PrimitiveTypeNames.TryToKeywordForSystemType(definition.Name, out string? keyword)
+            && IsContextualTypeKeyword(keyword))
+        {
+            alias = keyword;
+            return true;
+        }
+
+        alias = null;
+        return false;
+    }
+
+    static bool KnownTypesProveVisibleNestedName(
+        IReadOnlyList<TypeRef> knownTypes,
+        TypeRef hostDefinition,
+        string simpleName,
+        int arity,
+        TypeRef? excludeLeading = null,
+        TypeRef? excludeExact = null)
+    {
+        for (int i = 0; i < knownTypes.Count; i++)
+        {
+            if (TypeTreeProvesVisibleNestedName(
+                    knownTypes[i],
+                    hostDefinition,
+                    simpleName,
+                    arity,
+                    excludeLeading,
+                    excludeExact))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool CollidesWithVisibleNestedName(
+        TypeRef type,
+        IrFunction host,
+        IReadOnlyList<TypeRef> knownTypes)
+    {
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+        if (definition is not { Kind: TypeRefKind.Definition } || !definition.Name.Contains('+'))
+            return false;
+        if (!type.PrintsAsQualifiedNestedName(host.DeclaringType))
+            return false;
+
+        var hostDefinition = HostDefinition(host);
+        if (hostDefinition is null)
+            return false;
+
+        string first = definition.Name.Split('+')[0];
+        string firstSimple = StripArity(first);
+        int firstArity = ArityOf(first);
+        for (int i = 0; i < knownTypes.Count; i++)
+        {
+            if (TypeTreeProvesVisibleNestedName(
+                    knownTypes[i],
+                    hostDefinition,
+                    firstSimple,
+                    firstArity,
+                    excludeLeading: definition))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool TypeTreeProvesVisibleNestedName(
+        TypeRef type,
+        TypeRef hostDefinition,
+        string simpleName,
+        int arity,
+        TypeRef? excludeLeading = null,
+        TypeRef? excludeExact = null)
+    {
+        switch (type.Kind)
+        {
+            case TypeRefKind.Definition:
+                if (excludeExact is { } exact
+                    && (IsExactType(type, exact) || IsChildOfTopLevel(type, exact)))
+                {
+                    return false;
+                }
+                if (excludeLeading is { } candidate && IsOwnLeadingType(type, candidate))
+                    return false;
+                return TopLevelProvesVisibleName(type, hostDefinition, simpleName, arity)
+                    || ChainProvesVisibleNestedName(type, hostDefinition, simpleName, arity);
+
+            case TypeRefKind.GenericInstance:
+                if (type.ElementType is { } definition
+                    && TypeTreeProvesVisibleNestedName(
+                        definition,
+                        hostDefinition,
+                        simpleName,
+                        arity,
+                        excludeLeading,
+                        excludeExact))
+                {
+                    return true;
+                }
+
+                for (int i = 0; i < type.TypeArguments.Length; i++)
+                {
+                    if (TypeTreeProvesVisibleNestedName(
+                            type.TypeArguments[i],
+                            hostDefinition,
+                            simpleName,
+                            arity,
+                            excludeLeading,
+                            excludeExact))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+
+            case TypeRefKind.SzArray:
+            case TypeRefKind.Array:
+            case TypeRefKind.ByRef:
+            case TypeRefKind.Pointer:
+            case TypeRefKind.Pinned:
+                return type.ElementType is { } element
+                    && TypeTreeProvesVisibleNestedName(
+                        element,
+                        hostDefinition,
+                        simpleName,
+                        arity,
+                        excludeLeading,
+                        excludeExact);
+
+            case TypeRefKind.FunctionPointer:
+                if (type.ElementType is { } returnType
+                    && TypeTreeProvesVisibleNestedName(
+                        returnType,
+                        hostDefinition,
+                        simpleName,
+                        arity,
+                        excludeLeading,
+                        excludeExact))
+                {
+                    return true;
+                }
+
+                for (int i = 0; i < type.TypeArguments.Length; i++)
+                {
+                    if (TypeTreeProvesVisibleNestedName(
+                            type.TypeArguments[i],
+                            hostDefinition,
+                            simpleName,
+                            arity,
+                            excludeLeading,
+                            excludeExact))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+
+            default:
+                return false;
+        }
+    }
+
+    static bool TopLevelProvesVisibleName(
+        TypeRef named,
+        TypeRef hostDefinition,
+        string simpleName,
+        int arity)
+    {
+        if (named.Kind != TypeRefKind.Definition
+            || named.Namespace != hostDefinition.Namespace)
+        {
+            return false;
+        }
+
+        string first = named.Name.Split('+')[0];
+        return StripArity(first) == simpleName && ArityOf(first) == arity;
+    }
+
+    static bool IsOwnLeadingType(TypeRef named, TypeRef candidate)
+        => named.Kind == TypeRefKind.Definition
+            && named.Assembly == candidate.Assembly
+            && named.Namespace == candidate.Namespace
+            && named.Name.Split('+')[0] == candidate.Name.Split('+')[0];
+
+    static bool IsExactType(TypeRef named, TypeRef candidate)
+        => named.Kind == TypeRefKind.Definition
+            && named.Assembly == candidate.Assembly
+            && named.Namespace == candidate.Namespace
+            && named.Name == candidate.Name;
+
+    static bool IsChildOfTopLevel(TypeRef named, TypeRef topLevel)
+        => named.Kind == TypeRefKind.Definition
+            && topLevel.Kind == TypeRefKind.Definition
+            && !topLevel.Name.Contains('+')
+            && named.Assembly == topLevel.Assembly
+            && named.Namespace == topLevel.Namespace
+            && named.Name.StartsWith(topLevel.Name + "+", StringComparison.Ordinal);
+
+    static bool ChainProvesVisibleNestedName(
+        TypeRef named,
+        TypeRef hostDefinition,
+        string simpleName,
+        int arity)
+    {
+        if (named.Kind != TypeRefKind.Definition
+            || named.Assembly != hostDefinition.Assembly
+            || named.Namespace != hostDefinition.Namespace
+            || !named.Name.Contains('+'))
+        {
+            return false;
+        }
+
+        var segments = named.Name.Split('+');
+        for (int k = 1; k < segments.Length; k++)
+        {
+            if (StripArity(segments[k]) != simpleName || ArityOf(segments[k]) != arity)
+                continue;
+
+            string prefix = string.Join("+", segments, 0, k);
+            if (hostDefinition.Name == prefix
+                || hostDefinition.Name.StartsWith(prefix + "+", StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static TypeRef? HostDefinition(IrFunction host)
+    {
+        var hostDefinition = host.DeclaringType.Kind == TypeRefKind.GenericInstance
+            ? host.DeclaringType.ElementType
+            : host.DeclaringType;
+        return hostDefinition is { Kind: TypeRefKind.Definition } ? hostDefinition : null;
+    }
+
+    static bool IsInScopeName(string name, IrFunction host)
+        => IsInScopeGenericParameterName(name, host)
+            || HostDeclaringChainHasArityZeroName(host, name);
+
+    static bool HostDeclaringChainHasArityZeroName(IrFunction host, string name)
+    {
+        var hostDefinition = HostDefinition(host);
+        if (hostDefinition is null)
+            return false;
+
+        foreach (var segment in hostDefinition.Name.Split('+'))
+        {
+            if (ArityOf(segment) == 0 && StripArity(segment) == name)
+                return true;
+        }
+
+        return false;
+    }
+
+    static bool IsInScopeGenericParameterName(string name, IrFunction host)
+        => host.DeclaringTypeGenericParameterNames.Contains(name, StringComparer.Ordinal)
+            || host.Signature.GenericParameterNames.Contains(name, StringComparer.Ordinal);
+
+    static bool IsByRefLikeType(TypeRef type, IrFunction host)
+    {
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+        if (definition is null)
+            return false;
+        if (host.ByRefLikeTypes.Contains(definition))
+            return true;
+        if (definition.Namespace != "System")
+            return false;
+        int tick = definition.Name.IndexOf('`');
+        string simple = tick < 0 ? definition.Name : definition.Name[..tick];
+        return simple is "Span" or "ReadOnlySpan" or "TypedReference"
+            or "ArgIterator" or "RuntimeArgumentHandle";
+    }
+
     static string StripArity(string name)
         => MetadataNameArity.StripFromSegment(name);
 

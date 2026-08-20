@@ -20,6 +20,11 @@ namespace ILInspector.Analysis;
 /// gates <c>init</c> setter <c>modreq(IsExternalInit)</c> identity from extract through MemberRef.
 /// <c>CallGraphMemberResolverTests.Resolve_MatchesCompiledExplicitInterfaceAccessorAcrossProducers</c>
 /// gates explicit-interface accessor MethodDef names (<c>I.get_P</c>, not <c>get_I.P</c>).
+/// <c>CallGraphMemberResolverTests.Resolve_MatchesCompiledNestedGenericAndByRefAcrossProducers</c>
+/// gates leftover extract display of nested generic arguments and byref <c>@</c> placement.
+/// <c>CallGraphMemberResolverTests.Selector_DistinguishesNestedGenericInsideAnotherGenericArgument</c>
+/// gates a nested suffix inside another generic argument so
+/// <c>List&lt;Outer&lt;int&gt;.Inner&lt;string&gt;&gt;</c> does not alias <c>List&lt;Outer&lt;int&gt;&gt;</c>.
 /// </remarks>
 public static class CallGraphMemberResolver
 {
@@ -413,14 +418,39 @@ public static class CallGraphMemberResolver
         IReadOnlyDictionary<string, int> typeParameters,
         IReadOnlyDictionary<string, int> methodParameters)
     {
-        if (!value.Contains(">.", StringComparison.Ordinal))
+        bool isByRef = false;
+        string type = value;
+        foreach (string prefix in (string[])["ref readonly ", "ref ", "out ", "in "])
         {
-            return XmlDocumentationNotation.NormalizeParameterType(
-                value,
-                typeParameters,
-                methodParameters);
+            if (type.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                isByRef = true;
+                type = type[prefix.Length..].TrimStart();
+                break;
+            }
         }
 
+        if (type.EndsWith('@'))
+        {
+            isByRef = true;
+            type = type.TrimEnd('@');
+        }
+
+        string normalized = type.Contains(">.", StringComparison.Ordinal)
+            || type.Contains(">+", StringComparison.Ordinal)
+            ? NormalizeNestedGenericDisplay(type, typeParameters, methodParameters)
+            : XmlDocumentationNotation.NormalizeParameterType(
+                type,
+                typeParameters,
+                methodParameters);
+        return isByRef ? $"{normalized}@" : normalized;
+    }
+
+    static string NormalizeNestedGenericDisplay(
+        string value,
+        IReadOnlyDictionary<string, int> typeParameters,
+        IReadOnlyDictionary<string, int> methodParameters)
+    {
         var segments = new List<string>();
         int start = 0;
         int depth = 0;
@@ -432,12 +462,13 @@ public static class CallGraphMemberResolver
                 '>' => -1,
                 _ => 0,
             };
-            if (value[index] == '.' && depth == 0)
+            if (depth == 0 && value[index] is '.' or '+')
             {
                 segments.Add(value[start..index]);
                 start = index + 1;
             }
         }
+
         segments.Add(value[start..]);
         return string.Join(
             '.',

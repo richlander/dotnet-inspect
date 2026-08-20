@@ -15,9 +15,10 @@ internal sealed record GenericScope(ImmutableArray<string> TypeParameters, Immut
 /// Decodes metadata signatures into <see cref="TypeRef"/>s. Primitives and
 /// corelib-resolved types canonicalize to <see cref="TypeRef.CoreLibrary"/>
 /// so identity does not depend on which facade spelled the reference.
-/// Shapes outside the supported core (function pointers, custom modifiers)
-/// decode to <see cref="TypeRefKind.Unsupported"/> — honest, fidelity-lowering,
-/// never a guess.
+/// Function pointers and custom modifiers retain the evidence needed to detect
+/// lossy C# spellings; shapes outside the supported core decode to
+/// <see cref="TypeRefKind.Unsupported"/> — honest, fidelity-lowering, never a
+/// guess.
 /// </summary>
 internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericScope>
 {
@@ -261,7 +262,14 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
 
     public TypeRef GetSZArrayType(TypeRef elementType) => TypeRef.SzArray(elementType);
 
-    public TypeRef GetArrayType(TypeRef elementType, ArrayShape shape) => TypeRef.MdArray(elementType, shape.Rank);
+    public TypeRef GetArrayType(TypeRef elementType, ArrayShape shape)
+        => TypeRef.MdArray(
+            elementType,
+            shape.Rank,
+            arrayShapeIsExact: shape.Sizes.IsDefaultOrEmpty
+                && shape.LowerBounds.Length <= shape.Rank
+                && (shape.LowerBounds.IsDefaultOrEmpty
+                    || shape.LowerBounds.All(bound => bound == 0)));
 
     public TypeRef GetByReferenceType(TypeRef elementType) => TypeRef.ByRef(elementType);
 
@@ -279,7 +287,18 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         => TypeRef.MethodGenericParameter(index, NameAt(genericContext.MethodParameters, index));
 
     public TypeRef GetFunctionPointerType(MethodSignature<TypeRef> signature)
-        => TypeRef.FunctionPointer(signature.ReturnType, signature.ParameterTypes, ConventionText(signature.Header.CallingConvention));
+        => TypeRef.FunctionPointer(
+            signature.ReturnType,
+            signature.ParameterTypes,
+            ConventionText(signature.Header.CallingConvention),
+            IsExactFunctionPointerSignature(signature));
+
+    static bool IsExactFunctionPointerSignature(MethodSignature<TypeRef> signature)
+        => IsExactFunctionPointerConvention(signature.Header.CallingConvention)
+            && signature.Header.Kind == SignatureKind.Method
+            && signature.Header.RawValue
+                == (byte)signature.Header.CallingConvention
+            && signature.GenericParameterCount == 0;
 
     /// <summary>The C# calling-convention spelling for a function pointer: empty for a managed pointer, the <c>unmanaged</c> keyword (with the specific convention in brackets) otherwise.</summary>
     public static string ConventionText(SignatureCallingConvention convention) => convention switch
@@ -289,8 +308,17 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         SignatureCallingConvention.StdCall => "unmanaged[Stdcall]",
         SignatureCallingConvention.ThisCall => "unmanaged[Thiscall]",
         SignatureCallingConvention.FastCall => "unmanaged[Fastcall]",
+        SignatureCallingConvention.Unmanaged => "unmanaged",
         _ => "unmanaged",
     };
+
+    static bool IsExactFunctionPointerConvention(SignatureCallingConvention convention)
+        => convention is SignatureCallingConvention.Default
+            or SignatureCallingConvention.CDecl
+            or SignatureCallingConvention.StdCall
+            or SignatureCallingConvention.ThisCall
+            or SignatureCallingConvention.FastCall
+            or SignatureCallingConvention.Unmanaged;
 
     public static string ConventionText(SignatureCallingConvention convention, TypeRef returnType)
     {
@@ -360,16 +388,20 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
     /// <summary>
     /// Canonicalizes the reader's own <see cref="AssemblyDefinition"/> simple
     /// name to <see cref="TypeRef.CoreLibrary"/> only when its public key hashes
-    /// to a trusted platform token (<see cref="PlatformKeys.IsPlatform"/>). The
-    /// reader is not always the originally-opened, explicitly-trusted target: a
-    /// cross-assembly resolver can open an untrusted sibling file (e.g. a
-    /// same-directory <c>System.Runtime.dll</c> resolved for an unsigned
-    /// reference) and decode types from ITS OWN metadata through
+    /// to a trusted platform token (<see cref="PlatformKeys.IsPlatform"/>) AND
+    /// the reader was acquired from a source entitled to that identity
+    /// (<see cref="CoreLibraryIdentityTrust"/>). The reader is not always the
+    /// originally-opened, explicitly-trusted target: a cross-assembly resolver
+    /// can open an untrusted sibling file (e.g. a same-directory
+    /// <c>System.Runtime.dll</c> resolved for an unsigned reference) and decode
+    /// types from ITS OWN metadata through
     /// <see cref="GetTypeFromDefinition"/>. Trusting that reader's self-claimed
     /// name would let a planted file mint corelib identity for the types it
-    /// defines. Every caller of self-name canonicalization (same-assembly
-    /// identity comparisons included) must use this, never plain
-    /// <see cref="Canonical(string)"/>, so identity stays consistent.
+    /// defines — and so would trusting its self-declared public key, which is
+    /// published data that nothing here verifies a signature against. Every
+    /// caller of self-name canonicalization (same-assembly identity comparisons
+    /// included) must use this, never plain <see cref="Canonical(string)"/>, so
+    /// identity stays consistent.
     /// </summary>
     internal static string CanonicalSelf(MetadataReader reader)
     {
@@ -378,6 +410,8 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         if (!IsCoreLibFacadeName(name))
             return name;
         if (definition.PublicKey.IsNil)
+            return name;
+        if (!CoreLibraryIdentityTrust.MayMintCoreLibraryIdentity(reader))
             return name;
         string token = AssemblyReferenceIdentity.ComputePublicKeyToken(reader.GetBlobBytes(definition.PublicKey));
         return PlatformKeys.IsPlatform(token) ? TypeRef.CoreLibrary : name;

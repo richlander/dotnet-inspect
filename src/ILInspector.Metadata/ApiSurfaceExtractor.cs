@@ -702,6 +702,11 @@ public static class ApiSurfaceExtractor
                 typeDef,
                 observeDecodeWork);
 
+            // Getter/setter and adder/remover bodies are represented by their
+            // property or event rows. Raiser and Other semantic methods have no
+            // ApiMember token slots, so they stay methods.
+            var accessorMethods = GetSemanticAccessorMethods(reader, typeDef);
+
             // Methods
             foreach (var methodHandle in typeDef.GetMethods())
             {
@@ -716,9 +721,15 @@ public static class ApiSurfaceExtractor
                     method.Name,
                     observeDecodeWork);
 
-                // Skip property accessors and event accessors
-                if (methodName.StartsWith("get_") || methodName.StartsWith("set_") ||
-                    methodName.StartsWith("add_") || methodName.StartsWith("remove_"))
+                // Ordinary MethodSemantics accessors are omitted from the method
+                // list. A private MethodImpl accessor is the C#/VB explicit-
+                // interface shape: its property or event row is private and would
+                // hide the public contract. Public MethodImpl accessors — static
+                // abstract implementations, covariant overrides, VB Implements —
+                // stay on that public row. ApiSurfaceEmitSetTests is the gate.
+                if (accessorMethods.Contains(methodHandle)
+                    && !(isExplicitInterfaceImplementation
+                        && methodAccess == MethodAttributes.Private))
                     continue;
 
                 // Skip compiler-generated methods (lambdas, state machines, etc.)
@@ -1358,6 +1369,7 @@ public static class ApiSurfaceExtractor
         Dictionary<ApiMember, MetadataTypeDefinitionName> extensionReceiverDefinitions)
     {
         var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
+        var accessorMethods = GetSemanticAccessorMethods(reader, typeDef);
 
         foreach (var methodHandle in typeDef.GetMethods())
         {
@@ -1368,10 +1380,9 @@ public static class ApiSurfaceExtractor
                 continue;
 
             string methodName = reader.GetString(method.Name);
-            if (methodName.StartsWith("get_", StringComparison.Ordinal)
-                || methodName.StartsWith("set_", StringComparison.Ordinal)
-                || methodName.StartsWith("add_", StringComparison.Ordinal)
-                || methodName.StartsWith("remove_", StringComparison.Ordinal)
+            if ((accessorMethods.Contains(methodHandle)
+                    && !(isExplicitImplementation
+                        && methodAccess == MethodAttributes.Private))
                 || methodName.StartsWith('<'))
             {
                 continue;
@@ -1828,6 +1839,49 @@ public static class ApiSurfaceExtractor
                 field.GetCustomAttributes(),
                 beforeDecodeWork));
         return (fieldNode.Render(), fieldNode.IsDegraded);
+    }
+
+    /// <summary>
+    /// Property getter/setter and event adder/remover bodies from
+    /// <c>MethodSemantics</c>. Ordinary accessors are represented by their
+    /// property or event row; raiser and Other semantic methods have no
+    /// <see cref="ApiMember"/> token slots, so they stay methods.
+    /// </summary>
+    /// <remarks>
+    /// <c>ApiSurfaceEmitSetTests</c> is the gate: ordinary <c>get_*</c> methods
+    /// remain methods, ordinary semantic accessors do not, and a private
+    /// MethodImpl accessor remains <c>explicit-interface-implementation</c>
+    /// because its property or event row does not represent the public contract.
+    /// A public MethodImpl accessor is represented by that public row.
+    /// </remarks>
+    private static HashSet<MethodDefinitionHandle> GetSemanticAccessorMethods(
+        MetadataReader reader,
+        TypeDefinition typeDef)
+    {
+        HashSet<MethodDefinitionHandle> accessors = [];
+        foreach (PropertyDefinitionHandle propertyHandle in typeDef.GetProperties())
+        {
+            PropertyAccessors propertyAccessors =
+                reader.GetPropertyDefinition(propertyHandle).GetAccessors();
+            Add(propertyAccessors.Getter);
+            Add(propertyAccessors.Setter);
+        }
+
+        foreach (EventDefinitionHandle eventHandle in typeDef.GetEvents())
+        {
+            EventAccessors eventAccessors =
+                reader.GetEventDefinition(eventHandle).GetAccessors();
+            Add(eventAccessors.Adder);
+            Add(eventAccessors.Remover);
+        }
+
+        return accessors;
+
+        void Add(MethodDefinitionHandle accessor)
+        {
+            if (!accessor.IsNil)
+                accessors.Add(accessor);
+        }
     }
 
     private static HashSet<MethodDefinitionHandle> GetExplicitImplementationBodies(
