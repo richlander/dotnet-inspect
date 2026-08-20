@@ -1,9 +1,12 @@
 using DotnetInspector.CommandLine;
+using DotnetInspector.Commands;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
+using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Sections;
+using DotnetInspector.Services;
 using DotnetInspector.Views;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
@@ -605,6 +608,37 @@ public sealed class BodyShapesSectionTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.DoesNotContain("Body Shapes", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PdbAcquisition_PropagatesCallerCancellation()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"body-shape-pdb-cancellation-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string runtimeAssembly = typeof(object).Assembly.Location;
+        string assemblyPath = Path.Combine(directory, Path.GetFileName(runtimeAssembly));
+        File.Copy(runtimeAssembly, assemblyPath);
+        try
+        {
+            using var httpClient = new HttpClient();
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                ApiCommand.TryAcquirePdbPathAsync(
+                    assemblyPath,
+                    new ApiOptions { AssemblyPath = assemblyPath },
+                    new VerboseLogger(enabled: false),
+                    httpClient,
+                    cancellation.Token));
+        }
+        finally
+        {
+            File.Delete(assemblyPath);
+            Directory.Delete(directory);
+        }
     }
 
     [Fact]

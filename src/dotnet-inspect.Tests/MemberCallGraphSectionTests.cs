@@ -344,6 +344,52 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    public async Task CallGraphSection_DoesNotDefaultCuesForAnotherSectionsField()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.LoopHeavyCall)],
+            IncludeSections = [SectionNames.CallGraph, SectionNames.Facts],
+            Fields = ["Category"],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("## Call Graph", result.Output);
+        Assert.Contains("## Facts", result.Output);
+        Assert.DoesNotContain("fanout", result.Output);
+        Assert.DoesNotContain("fanin", result.Output);
+        Assert.DoesNotContain("depth", result.Output);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_ColumnsDoNotProjectGraphFields()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.AllocCall)],
+            IncludeSections =
+                [SectionNames.CallGraph, SectionNames.AllocationFacts],
+            Columns = ["Allocation Kind"],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.True(result.ExitCode == 0, result.Error);
+        Assert.Empty(result.Error);
+        Assert.Contains("## Allocation Facts", result.Output);
+        Assert.DoesNotContain("## Call Graph", result.Output);
+        Assert.DoesNotContain("alloc 1", result.Output);
+        Assert.DoesNotContain("fanout", result.Output);
+    }
+
+    [Fact]
     public async Task CallGraphSection_ProjectsAllocationAndCopySignals()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
@@ -389,6 +435,142 @@ public class MemberCallGraphSectionTests
         Assert.Contains("il IL_", result.Output);
         // Unrequested cost cues stay hidden.
         Assert.DoesNotContain("copy", result.Output);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_ProjectsAsyncAlternativeOpportunities()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.CallsSyncSiblingFromAsync)],
+            IncludeSections = [SectionNames.CallGraph],
+            Fields = ["AsyncAlternatives"],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("async alternatives 1", result.Output);
+        Assert.DoesNotContain("fanout", result.Output);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_DoesNotProjectAsyncAlternativesByDefault()
+    {
+        var result = await RunCallGraphAsync(
+            typeof(MemberCallGraphFixture).FullName!,
+            nameof(MemberCallGraphFixture.CallsSyncSiblingFromAsync));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain("async alternatives", result.Output);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_ProjectsAsyncAlternativesInJsonl()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.CallsSyncSiblingFromAsync)],
+            IncludeSections = [SectionNames.CallGraph],
+            Fields = ["Async"],
+            Tabular = true,
+            Jsonl = true,
+            TabularExplicitlySet = true,
+            FormatExplicitlySet = true,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("async alternatives 1", result.Output);
+        Assert.StartsWith("{\"from\":", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_ResolvesAsyncAlternativeFieldWildcard()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.CallsSyncSiblingFromAsync)],
+            IncludeSections = [SectionNames.CallGraph],
+            Fields = ["AsyncA*"],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("async alternatives 1", result.Output);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_ResolvesAllWildcardSignalFields()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.WildcardSignals)],
+            IncludeSections = [SectionNames.CallGraph],
+            Fields = ["A*"],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("alloc 1", result.Output);
+        Assert.Contains("async alternatives 1", result.Output);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_ProjectsAsyncAlternativesAcrossAssemblies()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter =
+                [nameof(MemberCallGraphFixture.CrossAssemblyAsyncAlternative)],
+            CallerScopeAssemblies =
+                [typeof(DiffCommand).Assembly.Location],
+            IncludeSections = [SectionNames.CallGraph],
+            Fields = ["AsyncAlternatives"],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("ExecuteAsync", result.Output);
+        Assert.Contains("async alternatives 1", result.Output);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_OmitsSuppressedGeneratedAsyncAlternatives()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.CreateAsyncCallback)],
+            IncludeSections = [SectionNames.CallGraph],
+            Fields = ["AsyncAlternatives"],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.DoesNotContain("async alternatives", result.Output);
     }
 
     [Fact]
@@ -743,6 +925,38 @@ public static class MemberCallGraphFixture
             System.GC.KeepAlive(x);
         }
     }
+
+    public static int ReadValue(int value) => value;
+
+    public static Task<int> ReadValueAsync(
+        int value,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(value);
+    }
+
+    public static async Task<int> CallsSyncSiblingFromAsync(int value)
+    {
+        await Task.Yield();
+        return ReadValue(value);
+    }
+
+    public static Task<int> WildcardSignals(int[] data)
+    {
+        _ = AllocCall(data);
+        return CallsSyncSiblingFromAsync(data.Length);
+    }
+
+    public static Task<int> CrossAssemblyAsyncAlternative() =>
+        DiffCommand.ExecuteAsync(new DiffOptions());
+
+    public static Func<int, Task<int>> CreateAsyncCallback() =>
+        async value =>
+        {
+            await Task.Yield();
+            return ReadValue(value);
+        };
 }
 
 // Instance fixtures whose accessors carry non-default modifiers, so the synthesized
