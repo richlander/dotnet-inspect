@@ -3102,7 +3102,11 @@ function updateAnnotatedSourceExplorer(action, revealTarget = false, focusSelect
     action);
   render();
   requestAnimationFrame(() => {
-    document.querySelector(focusSelector)?.focus({ preventScroll: true });
+    const focused = document.querySelector(focusSelector);
+    focused?.focus({ preventScroll: true });
+    if (focused?.closest(".ase-inspector")) {
+      focused.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
     if (revealTarget) {
       document.querySelector(".annotated-span.selected")?.scrollIntoView({
         block: "center",

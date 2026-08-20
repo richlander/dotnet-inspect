@@ -183,6 +183,15 @@ test("all explorer renders preserve focus and scroll while home invalidates the 
   assert.match(appSource, /!state\.annotatedExplorer \|\| state\.home/);
 });
 
+test("action focus remains visible when inspector content changes height", () => {
+  assert.match(appSource, /focused\?\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(appSource, /focused\?\.closest\("\.ase-inspector"\)/);
+  assert.match(
+    appSource,
+    /focused\.scrollIntoView\(\{ block: "nearest", inline: "nearest" \}\)/,
+  );
+});
+
 test("fact buttons expose their toggle state", () => {
   const initial = createAnnotatedSourceExplorerState(sampleDocument);
   const selected = reduceAnnotatedSourceExplorerState(
