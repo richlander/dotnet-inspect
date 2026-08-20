@@ -34,6 +34,15 @@ public abstract record AssemblyResolutionProvenance
     public static AssemblyResolutionProvenance Local(string resolverSource) =>
         new LocalAsset(resolverSource);
 
+    /// <summary>
+    /// An assembly the caller enumerated explicitly, rather than one the
+    /// resolver discovered on its own. Designation is a statement of trust by
+    /// the caller: it distinguishes a build layout or corpus the user pointed
+    /// at from a file that merely happened to sit beside an inspected artifact.
+    /// </summary>
+    public static AssemblyResolutionProvenance Designated(string resolverSource) =>
+        new DesignatedAsset(resolverSource);
+
     public static AssemblyResolutionProvenance Embedded(
         string contentRef,
         string digest,
@@ -133,6 +142,23 @@ public abstract record AssemblyResolutionProvenance
         public string ContentRef { get; }
         public string Digest { get; }
         public string DeclaredName { get; }
+    }
+
+    /// <summary>
+    /// An assembly supplied explicitly by the caller — a corpus path, or a
+    /// directory the user named — as opposed to one the resolver discovered
+    /// beside the inspected artifact. See <see cref="Designated(string)"/>.
+    /// </summary>
+    public sealed record DesignatedAsset : AssemblyResolutionProvenance
+    {
+        public DesignatedAsset(string resolverSource)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(resolverSource);
+            ResolverSource = resolverSource;
+        }
+
+        private protected override int Discriminator => 5;
+        public string ResolverSource { get; }
     }
 }
 

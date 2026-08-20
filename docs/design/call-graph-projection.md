@@ -139,8 +139,10 @@ The projection owns everything a host must not re-invent in JavaScript:
   `FindCalleeRowUsesRetainedNonRepresentativeCallSite` gates repeated sites
   whose node evidence carries only a representative occurrence. A
   call-site storage key identifies one physical operand occurrence (source
-  registration, MVID, caller token, IL offset, and operand token); it is
-  evidence, never a logical node count or a cycle key.
+  registration, MVID, evidence-method token, IL offset, and operand token);
+  `DirectCall.Caller` may name the declared source method while
+  `DirectCall.EvidenceMethod` names that physical body. The key is evidence,
+  never a logical node count or a cycle key.
 - **Deterministic ids/ordering.** The focus is id `0`; remaining ids are assigned
   in first-seen order over a caller depth-first walk, then a callee walk. Nodes
   are emitted in id order and edges in first-seen order, so the same input
@@ -157,7 +159,16 @@ The projection owns everything a host must not re-invent in JavaScript:
   `FindFocusCalleeRow` maps a physical call occurrence from the selected member
   to that stable logical edge row. Exact catalog call-site storage wins; the
   assembly-local fallback uses the same typed structural identity as projection.
-  A missing and an ambiguous mapping are distinct outcomes.
+  `FindNode` likewise maps a `MethodIdentity` to a node, preferring exact
+  definition evidence, including the exact definition that supplied body facts
+  for a detached call-site occurrence, before the typed structural fallback
+  used by evidence-free projections. It never structurally crosses versioned
+  catalog evidence. Hosts use that method to join non-topological annotations
+  without reconstructing member identity from labels. Missing and ambiguous
+  mappings remain distinct outcomes. `FindNodePrefersExactDefinitionEvidence`,
+  `FindNodeUsesRetainedCallSiteDefinitionEvidence`,
+  `FindNodeUsesTypedStructuralFallback`, and
+  `FindNodeDoesNotCrossVersionedEvidence` gate that contract.
 - **Cycles and duplicates.** The bounded tree marks re-encountered members
   `AlreadyShown`; the projection collapses them onto the existing node and still
   records the edge, so a cycle `A → B → A` is two edges between two nodes.
@@ -303,9 +314,12 @@ the `CrossLibrary` layer lets a caller chain *and* a callee chain each cross a
 package boundary. The seam yields presentation-free `CallTreeNode` roots as a
 `MemberCallGraphView` (`Tier`, focus MVID/token, `CalleeRoot`, `CallerRoot`,
 `FocusCallSites`, `Diagnostics`). `FocusCallSites` retains every physical
-outbound operand occurrence from the same scoped or full index that produced
-the roots; the tree now carries the same physical receipts on every retained
-edge, not only the focus edge. A host renders the roots directly or projects
+outbound operand occurrence in the selected member's own IL body from the same
+scoped or full index that produced the roots. Calls attributed from generated
+evidence bodies remain receipts on the logical graph edge, but are not attached
+to the declared kickoff body's source or IL offsets. The tree carries physical
+receipts on every retained edge, not only the focus edge. A host renders the
+roots directly or projects
 them with
 `CallGraphProjection.Create(CallerRoot, CalleeRoot)` — "with or without mermaid."
 `Diagnostics` is a stable count summary of incomplete correspondence and exact
