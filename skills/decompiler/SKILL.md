@@ -93,13 +93,6 @@ accessor selector; use `Name~digest:1`/`Name~digest:2` when the owner is
 overloaded. Use `--all` to include non-public type members or select a
 non-public member.
 
-The standalone `body-shape` command remains temporarily while its removal is
-completed:
-
-```bash
-dnx dotnet-inspect -y -- body-shape TryStatement --library MyLib.dll --all --json
-```
-
 ### Readability and taste
 
 `--readable-names` replaces compiler-style local names such as `V_0` where the
