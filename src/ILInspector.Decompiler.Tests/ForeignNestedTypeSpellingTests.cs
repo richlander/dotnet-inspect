@@ -80,6 +80,35 @@ public class ForeignNestedTypeSpellingTests
         Assert.Equal("@class", keywordLeaf.ToDisplayString(TypeRef.Definition("Asm", "N", "Outer")));
     }
 
+    [Fact]
+    public void ForeignNestedInstance_UsesTrustedMissingOuterArity()
+    {
+        MetadataTypeDefinitionName exact =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "N",
+                    ["Outer", "Inner"]))
+            .Name;
+        var definition = TypeRef.DefinitionWithResolution(
+            "Asm",
+            "N",
+            "Outer+Inner",
+            ValueTypeHint.Unknown,
+            MetadataFactState.Unknown,
+            enclosingType: null,
+            definitionName: exact,
+            resolutionAssembly: null,
+            introducedTypeParameterCounts: [1, 0]);
+        var instance = TypeRef.GenericInstance(
+            definition,
+            [TypeRef.CoreLib("System", "Int32")]);
+
+        Assert.Equal(
+            "Outer<int>.Inner",
+            instance.ToDisplayString(TypeRef.Definition("Asm", "N", "Other")));
+        Assert.False(instance.HasUnrenderableGenericArity);
+    }
+
     // #4217: a backtick is a legal metadata-name character, so only the canonical
     // `N form is an arity suffix (MetadataNameArity owns that rule). Truncating at
     // the first backtick instead spelled `Widget`Literal` as the unrelated
