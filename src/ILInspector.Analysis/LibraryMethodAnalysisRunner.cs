@@ -113,6 +113,7 @@ internal sealed class LibraryMethodAnalysisResult
     public LeakTriageResult? LeakTriage;
     public ArrayPoolOwnershipMethodEvidence? OwnershipFlow;
     public AnalysisDiagnostic? Diagnostic;
+    public MethodIdentity? DeclaredSource;
 }
 
 /// <summary>
@@ -239,6 +240,17 @@ internal sealed class LibraryMethodAnalysisRunner(
                         : caller.DeclaringType;
                 if (!bodyTypeScope(scopedType))
                     return result;
+            }
+            if (CompilerGeneratedNames.IsLocalFunctionOrLambda(caller.Name)
+                && _infrastructure.TryResolveLiftedSourceOwner(
+                    methodHandle,
+                    methodDefinition,
+                    caller,
+                    out MethodIdentity? liftedOwner,
+                    out _)
+                && liftedOwner is not null)
+            {
+                result.DeclaredSource = liftedOwner;
             }
             leakFailureKind =
                 LeakTriageFailureKind.BodyAcquisition;
