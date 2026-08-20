@@ -1530,6 +1530,68 @@ public class LibraryBodyIndexTests
 
     [Fact]
     public void
+        ResolveDeclaredMethod_MapsAsyncLiftedFunctionSiblingToOwner()
+    {
+        string path = typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        var index = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity owner = Assert.Single(
+            index.DeclaredMethods,
+            method => method.Name
+                == nameof(
+                    ClassicAsyncSiblingFixture
+                        .AsyncLiftedFunctionCallsSibling));
+        DirectCall call = Assert.Single(
+            index.FindCalls(
+                MemberPattern.Method(
+                    owner.DeclaringType,
+                    nameof(ClassicAsyncSiblingFixture.ReadValue))),
+            call => call.Caller == owner
+                && call.EvidenceMethod.Name.StartsWith(
+                    "<AsyncLiftedFunctionCallsSibling>g__Inner|",
+                    StringComparison.Ordinal));
+
+        Assert.Equal(
+            owner,
+            index.ResolveDeclaredMethod(call.EvidenceMethod));
+    }
+
+    [Fact]
+    public void AsyncMoveNextResolution_UsesExplicitInterfaceImplementation()
+    {
+        string path = typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        var index = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity source = Assert.Single(
+            index.DeclaredMethods,
+            method => method.Name
+                == nameof(
+                    ClassicAsyncSiblingFixture
+                        .ExplicitMoveNextSource));
+        DirectCall explicitCall = Assert.Single(
+            index.FindCalls(
+                MemberPattern.Method(
+                    source.DeclaringType,
+                    nameof(ClassicAsyncSiblingFixture.ReadValue))),
+            call => call.Caller == source
+                && call.EvidenceMethod.Name.EndsWith(
+                    ".MoveNext",
+                    StringComparison.Ordinal));
+
+        Assert.NotEqual(source, explicitCall.EvidenceMethod);
+        Assert.Contains(
+            index.DirectCalls,
+            call => call.Caller == call.EvidenceMethod
+                && call.Caller.Name == "MoveNext"
+                && call.Caller.ParameterTypes.Length == 1
+                && call.Callee.Name
+                    == nameof(ClassicAsyncSiblingFixture.ReadValue));
+    }
+
+    [Fact]
+    public void
         OptimizationOpportunities_PrivateAccessIsDirectionalAcrossNestedTypes()
     {
         OptimizationOpportunity[] opportunities =

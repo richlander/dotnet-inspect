@@ -22,14 +22,18 @@ namespace ILInspector.Analysis;
 /// </summary>
 internal sealed class LibraryBodyLiftedSourceOwnerResolver
 {
+    const int MaxLiftedOwnerRelationships =
+        MetadataSafetyPolicy.MaxRelationshipNodes;
+
     readonly MetadataReader _reader;
     readonly PEReader _peReader;
     readonly LibraryBodyPrimaryMetadataResolver
         _primaryMetadataResolver;
     readonly LibraryBodyMethodReferenceResolver
         _methodReferenceResolver;
+    readonly LibraryBodyAsyncSourceResolver
+        _asyncSourceResolver;
     readonly Action<MethodDefinitionHandle>? _methodBodyReferenceIndexed;
-    readonly Action? _typeDefinitionIndexBuilt;
     readonly ConcurrentDictionary<
         TypeDefinitionHandle,
         Lazy<IReadOnlyDictionary<string, ImmutableArray<MethodDefinitionHandle>>>>
@@ -50,30 +54,20 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         LiftedOwnerGroupKey,
         ImmutableArray<MethodDefinitionHandle>>>
         _liftedMethodsByOwner;
-    readonly ConcurrentDictionary<
-        string,
-        Lazy<TypeDefinitionHandle?>>
-        _serializedAsyncStateMachineTypes =
-            new(StringComparer.Ordinal);
-    readonly Lazy<MetadataTypeDefinitionIndex> _typeDefinitionIndex;
-
     internal LibraryBodyLiftedSourceOwnerResolver(
         MetadataReader reader,
         PEReader peReader,
         LibraryBodyPrimaryMetadataResolver primaryMetadataResolver,
         LibraryBodyMethodReferenceResolver methodReferenceResolver,
-        Action<MethodDefinitionHandle>? methodBodyReferenceIndexed = null,
-        Action? typeDefinitionIndexBuilt = null)
+        LibraryBodyAsyncSourceResolver asyncSourceResolver,
+        Action<MethodDefinitionHandle>? methodBodyReferenceIndexed = null)
     {
         _reader = reader;
         _peReader = peReader;
         _primaryMetadataResolver = primaryMetadataResolver;
         _methodReferenceResolver = methodReferenceResolver;
+        _asyncSourceResolver = asyncSourceResolver;
         _methodBodyReferenceIndexed = methodBodyReferenceIndexed;
-        _typeDefinitionIndexBuilt = typeDefinitionIndexBuilt;
-        _typeDefinitionIndex = new(
-            BuildTypeDefinitionIndex,
-            LazyThreadSafetyMode.ExecutionAndPublication);
         _liftedMethodsByOwner = new(
             BuildLiftedMethodsByOwner,
             LazyThreadSafetyMode.ExecutionAndPublication);
@@ -220,6 +214,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             MethodDefinitionHandle Owner)>();
         var topLevelOwners =
             new Dictionary<MethodDefinitionHandle, bool>();
+        int relationshipCount = 0;
 
         foreach (MethodDefinitionHandle ownerHandle in owners)
         {
@@ -243,7 +238,8 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                     MethodBodyReferences(execution.Method),
                     candidates,
                     reachableOwners,
-                    pending);
+                    pending,
+                    ref relationshipCount);
                 continue;
             }
 
@@ -252,10 +248,13 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                 MethodBodyReferences(executionHandle),
                 candidates,
                 reachableOwners,
-                pending);
+                pending,
+                ref relationshipCount);
             MethodDefinition ownerMethod =
                 _reader.GetMethodDefinition(ownerHandle);
-            if (TryGetAsyncStateMachineMoveNext(
+            if (_asyncSourceResolver
+                .TryResolveClassicStateMachineMoveNext(
+                    ownerHandle,
                     ownerMethod,
                     out MethodDefinitionHandle moveNextHandle))
             {
@@ -264,7 +263,8 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                     MethodBodyReferences(moveNextHandle),
                     candidates,
                     reachableOwners,
-                    pending);
+                    pending,
+                    ref relationshipCount);
             }
         }
 
@@ -286,10 +286,13 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                 MethodBodyReferences(current.Body),
                 candidates,
                 reachableOwners,
-                pending);
+                pending,
+                ref relationshipCount);
             MethodDefinition bodyMethod =
                 _reader.GetMethodDefinition(current.Body);
-            if (TryGetAsyncStateMachineMoveNext(
+            if (_asyncSourceResolver
+                .TryResolveClassicStateMachineMoveNext(
+                    current.Body,
                     bodyMethod,
                     out MethodDefinitionHandle moveNextHandle))
             {
@@ -298,7 +301,8 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                     MethodBodyReferences(moveNextHandle),
                     candidates,
                     reachableOwners,
-                    pending);
+                    pending,
+                    ref relationshipCount);
             }
         }
 
@@ -328,7 +332,8 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             HashSet<MethodDefinitionHandle>> reachableOwners,
         Queue<(
             MethodDefinitionHandle Body,
-            MethodDefinitionHandle Owner)> pending)
+            MethodDefinitionHandle Owner)> pending,
+        ref int relationshipCount)
     {
         references.ThrowIfReferenceIncomplete();
         var referenced = new HashSet<MethodDefinitionHandle>();
@@ -362,8 +367,17 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                 bodyOwners = [];
                 reachableOwners.Add(body, bodyOwners);
             }
-            if (bodyOwners.Add(owner))
-                pending.Enqueue((body, owner));
+            if (bodyOwners.Contains(owner))
+                continue;
+            if (relationshipCount >= MaxLiftedOwnerRelationships)
+            {
+                throw new BadImageFormatException(
+                    "Lifted-method ownership exceeds the metadata "
+                    + "relationship node budget.");
+            }
+            bodyOwners.Add(owner);
+            relationshipCount++;
+            pending.Enqueue((body, owner));
         }
     }
 
@@ -549,7 +563,9 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                 ownerHandle);
         }
 
-        if (!TryGetAsyncStateMachineMoveNext(
+        if (!_asyncSourceResolver
+            .TryResolveClassicStateMachineMoveNext(
+                ownerHandle,
                 ownerMethod,
                 out MethodDefinitionHandle moveNextHandle))
         {
@@ -687,111 +703,6 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             referencedMembers,
             callFailure,
             referenceFailure);
-    }
-
-    bool TryGetAsyncStateMachineType(
-        MethodDefinition ownerMethod,
-        out TypeDefinitionHandle stateMachineHandle)
-    {
-        stateMachineHandle = default;
-        string? stateMachineName = null;
-        foreach (CustomAttributeHandle attributeHandle
-            in ownerMethod.GetCustomAttributes())
-        {
-            CustomAttribute attribute =
-                _reader.GetCustomAttribute(attributeHandle);
-            if (AttributeDecoder.GetAttributeTypeName(
-                    _reader,
-                    attribute.Constructor)
-                    is not string attributeName
-                || attributeName
-                    != KnownAttributeNames.AsyncStateMachineAttribute
-                || !LibraryBodyAsyncSourceResolver
-                    .IsTrustedAsyncStateMachineAttribute(
-                        _reader,
-                        attribute.Constructor,
-                        attributeName)
-                || AttributeDecoder.TryDecodePreservingSerializedTypeNames(
-                        _reader,
-                        attribute)
-                    is not { FixedArguments.Length: 1 } decoded
-                || decoded.FixedArguments[0].Value is not string typeName)
-            {
-                continue;
-            }
-            if (stateMachineName is not null)
-                return false;
-            stateMachineName = typeName;
-        }
-        if (stateMachineName is null)
-            return false;
-
-        TypeDefinitionHandle? resolved =
-            _serializedAsyncStateMachineTypes.GetOrAdd(
-                stateMachineName,
-                name => new Lazy<TypeDefinitionHandle?>(
-                    () => ResolveSerializedAsyncStateMachineType(name),
-                    LazyThreadSafetyMode.ExecutionAndPublication)).Value;
-        if (resolved is not { } handle)
-            return false;
-        stateMachineHandle = handle;
-        return true;
-    }
-
-    bool TryGetAsyncStateMachineMoveNext(
-        MethodDefinition ownerMethod,
-        out MethodDefinitionHandle moveNextHandle)
-    {
-        moveNextHandle = default;
-        if (!TryGetAsyncStateMachineType(
-                ownerMethod,
-                out TypeDefinitionHandle stateMachineHandle))
-        {
-            return false;
-        }
-
-        TypeDefinition stateMachine =
-            _reader.GetTypeDefinition(stateMachineHandle);
-        foreach (MethodDefinitionHandle methodHandle
-            in stateMachine.GetMethods())
-        {
-            MethodDefinition method =
-                _reader.GetMethodDefinition(methodHandle);
-            if (!_reader.StringComparer.Equals(method.Name, "MoveNext"))
-                continue;
-            if (!moveNextHandle.IsNil)
-            {
-                moveNextHandle = default;
-                return false;
-            }
-            moveNextHandle = methodHandle;
-        }
-        return !moveNextHandle.IsNil;
-    }
-
-    TypeDefinitionHandle? ResolveSerializedAsyncStateMachineType(
-        string stateMachineName)
-    {
-        if (MetadataTypeDefinitionName.ParseSerialized(stateMachineName)
-                is not MetadataTypeDefinitionNameResult.Valid valid
-            || !_typeDefinitionIndex.Value.TryGetUniqueDefinition(
-                    valid.Name,
-                    out TypeDefinitionHandle handle))
-        {
-            return null;
-        }
-
-        return _primaryMetadataResolver
-                .AsyncStateMachineTypeHandles()
-                .Contains(handle)
-            ? handle
-            : null;
-    }
-
-    MetadataTypeDefinitionIndex BuildTypeDefinitionIndex()
-    {
-        _typeDefinitionIndexBuilt?.Invoke();
-        return MetadataTypeDefinitionIndex.Create(_reader);
     }
 
     bool IsCompilerGeneratedSourceTypeOrEnclosing(

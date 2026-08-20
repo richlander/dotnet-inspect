@@ -124,14 +124,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 GenericParameterCanBeValueType,
                 IsStableReceiverGetter,
                 asyncStateMachineTypesBuilt);
-        _liftedSourceOwnerResolver =
-            new LibraryBodyLiftedSourceOwnerResolver(
-                reader,
-                peReader,
-                _primaryMetadataResolver,
-                _methodReferenceResolver,
-                methodBodyReferenceIndexed,
-                typeDefinitionIndexBuilt);
         _asyncSourceResolver =
             new LibraryBodyAsyncSourceResolver(
                 reader,
@@ -139,7 +131,16 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 _primaryMetadataResolver,
                 IsSourceGeneratedTypeOrEnclosing,
                 LocalTypeDefinitions,
-                TypeFromEntity);
+                TypeFromEntity,
+                typeDefinitionIndexBuilt);
+        _liftedSourceOwnerResolver =
+            new LibraryBodyLiftedSourceOwnerResolver(
+                reader,
+                peReader,
+                _primaryMetadataResolver,
+                _methodReferenceResolver,
+                _asyncSourceResolver,
+                methodBodyReferenceIndexed);
         if (resolver is not null && reader.IsAssembly)
             _referenceMetadataResolver =
                 new LibraryBodyReferenceMetadataResolver(

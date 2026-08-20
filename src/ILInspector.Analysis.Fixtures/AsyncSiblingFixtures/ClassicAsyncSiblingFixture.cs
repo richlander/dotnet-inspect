@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+
 namespace ILInspector.Analysis.ClassicAsyncFixtures;
 
 public static class ClassicAsyncSiblingFixture
@@ -55,6 +57,25 @@ public static class ClassicAsyncSiblingFixture
         int Core() => ReadValue(offset);
     }
 
+    public static async Task<int> AsyncLiftedFunctionCallsSibling(
+        int value)
+    {
+        return await Outer(value);
+
+        static async Task<int> Outer(int v)
+        {
+            await Task.Yield();
+            return Inner(v);
+        }
+
+        static int Inner(int v) => ReadValue(v);
+    }
+
+    [AsyncStateMachine(typeof(ExplicitMoveNextStateMachine))]
+    public static void ExplicitMoveNextSource()
+    {
+    }
+
     internal static async Task<int> ScopedAsyncLocalOwner(string marker)
     {
         await Task.Yield();
@@ -69,6 +90,18 @@ public static class ClassicAsyncSiblingFixture
         return Core(marker);
 
         static int Core(int value) => ReadValue(value);
+    }
+
+    private struct ExplicitMoveNextStateMachine : IAsyncStateMachine
+    {
+        void IAsyncStateMachine.MoveNext() => ReadValue(1);
+
+        public void MoveNext(int value) => ReadValue(value);
+
+        void IAsyncStateMachine.SetStateMachine(
+            IAsyncStateMachine stateMachine)
+        {
+        }
     }
 
     public static void ReadByRef(ref int value)
