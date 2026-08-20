@@ -20,11 +20,11 @@ public sealed class ResearchAssemblyContext
         _signals = new(() => index.GetMethodSignals());
         _leverageByToken = new(() => index.TopLeverage(int.MaxValue)
             .ToDictionary(entry => entry.Method.MetadataToken, entry => entry));
-        _callsByCaller = new(() => index.DirectCalls
-            .GroupBy(call => call.Caller.MetadataToken)
+        _callsByCaller = new(() => index
+            .GetDirectCallsByEvidenceMethod()
             .ToDictionary(
-                group => group.Key,
-                group => (IReadOnlyList<DirectCall>)group.ToArray()));
+                pair => pair.Key,
+                pair => (IReadOnlyList<DirectCall>)pair.Value));
         _unsafeEvidenceByToken = new(() => index.UnsafeEvidence
             .GroupBy(evidence => evidence.Member.MetadataToken)
             .ToDictionary(

@@ -195,6 +195,12 @@ depth 1 containing direct references only. Omitting `--depth` traverses the
 complete resolvable graph. The former `Dependencies` spelling remains a
 compatibility alias for the tree projection.
 
+Package `Dependencies` follows the same projection model: the section is a flat
+table of declared dependencies by target framework by default, while
+`-S Dependencies --tree` resolves the transitive graph for the selected or
+highest target framework. The former package `--dependencies` flag remains a
+compatibility alias for that tree projection.
+
 ## Section axes
 
 Candidate selection, effectiveness, and execution cost are independent axes.
@@ -426,7 +432,7 @@ Single-type views use this authored ownership:
 | Category | Members |
 | --- | --- |
 | `@Surface` | `Type Info`, `Values`, `Type Parameters`, `Interfaces`, `Baseclass`, `Constructors`, `Finalizer`, `Fields`, `Properties`, `Method Groups`, `Methods`, `Member Index`, `Operators`, `Explicit Interface Implementations`, `Extension Methods`, `Events` |
-| `@Analysis` | `Unsafe Members`, `Exception Regions`, `Called Types`, `Allocation Facts`, `Safety Facts`, `Cost Facts`, `Top Leverage`, `Performance Triage` |
+| `@Analysis` | `Unsafe Members`, `Exception Regions`, `Called Types`, `Allocation Facts`, `Safety Facts`, `Cost Facts`, `Top Leverage`, `Performance Triage`, `Body Shapes` |
 | `@Audit` | `Unsafe Members`, `Safety Facts` |
 | `@Performance` | `Allocation Facts`, `Cost Facts`, `Top Leverage`, `Performance Triage` |
 | `@Source` | `Decompiled Source` |

@@ -159,9 +159,34 @@ public static class TypeOptionsParser
         var kindValues = parseResult.GetValue(args.KindOption) ?? [];
         var kindFilter = SharedParsers.ParseKindFilter(kindValues);
         var routePolicy = TypeRoutePolicy.Resolve(sourceSelection.Args, sourceSelection.HasExplicitSource, source);
-        var performanceTriage = opts.ParsePerformanceTriageOptions(parseResult);
+        var whereExpressions = parseResult.GetValue(opts.RowWhere) ?? [];
+        if (!BodyKindQueryOptions.TryExtract(
+                whereExpressions,
+                out var bodyKindQuery,
+                out var performanceWhere,
+                out var bodyKindError))
+        {
+            return new VersionError(bodyKindError);
+        }
+        if (bodyKindQuery.HasFilter
+            && (string.IsNullOrWhiteSpace(source.TypeName)
+                || source.TypeName.Contains('*')
+                || source.TypeName.Contains('?')))
+        {
+            return new VersionError(
+                "A type-scoped Body Shapes query requires one exact type name.");
+        }
+        var performanceTriage = opts.ParsePerformanceTriageOptions(
+            parseResult,
+            performanceWhere);
         if (!PerformanceTriageOptions.TryValidate(performanceTriage, out var triageShapeError))
             return new VersionError(triageShapeError);
+        if (bodyKindQuery.HasFilter && performanceTriage.HasFilters)
+        {
+            return new VersionError(
+                "A Body Shapes predicate cannot yet be combined with Performance Triage "
+                + "filters or --order-by in one type query.");
+        }
         var select = opts.ParseSelect(parseResult);
         var selectDefault = opts.ParseSelectDefault(parseResult);
         bool hasExplicitSelect = select is { Length: > 0 } || selectDefault;
@@ -223,6 +248,7 @@ public static class TypeOptionsParser
             Count = parseResult.GetValue(opts.Count),
             Rows = opts.ParseRows(parseResult),
             PerformanceTriage = performanceTriage,
+            BodyKindQuery = bodyKindQuery,
             Schema = opts.ParseSchema(parseResult),
             Effective = parseResult.GetValue(opts.Effective),
             Verbose = parseResult.GetValue(opts.Verbose),

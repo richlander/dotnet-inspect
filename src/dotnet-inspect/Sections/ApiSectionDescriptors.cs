@@ -188,6 +188,7 @@ public static class ApiMemberSectionDescriptors
         Add<CostFacts>(pipeline, queryBacked);
         Add<TopLeverage>(pipeline, queryBacked);
         Add<OptimizationOpportunities>(pipeline, queryBacked);
+        Add<ApiMemberDetailSectionDescriptors.BodyShapes>(pipeline, queryBacked);
         if (queryBacked)
             Add<TypeSourceFiles>(pipeline, queryBacked, static _ => true);
         else
@@ -233,6 +234,7 @@ public static class ApiMemberSectionDescriptors
                 SectionNames.CostFacts,
                 SectionNames.TopLeverage,
                 SectionNames.PerformanceTriage,
+                SectionNames.BodyShapes,
                 SectionNames.SourceFiles,
                 SectionNames.DecompiledSource)
             .SetSectionCosts(SectionCost.Moderated,
@@ -246,6 +248,7 @@ public static class ApiMemberSectionDescriptors
                 SectionNames.CostFacts,
                 SectionNames.TopLeverage,
                 SectionNames.PerformanceTriage,
+                SectionNames.BodyShapes,
                 SectionNames.DecompiledSource)
             .AddBaseCategory(SectionCategoryNames.Surface,
                 SectionNames.TypeInfo,
@@ -272,7 +275,8 @@ public static class ApiMemberSectionDescriptors
                 SectionNames.SafetyFacts,
                 SectionNames.CostFacts,
                 SectionNames.TopLeverage,
-                SectionNames.PerformanceTriage)
+                SectionNames.PerformanceTriage,
+                SectionNames.BodyShapes)
             .AddCategory(SectionCategoryNames.Audit,
                 SectionNames.UnsafeMembers,
                 SectionNames.SafetyFacts)
@@ -1104,8 +1108,7 @@ public static class ApiMemberDetailSectionDescriptors
             SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Count == 1
-               && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+            => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
 
     /// <summary>

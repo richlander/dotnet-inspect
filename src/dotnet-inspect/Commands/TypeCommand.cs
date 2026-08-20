@@ -242,7 +242,11 @@ public static class TypeCommand
                     if (effectiveOptions.DllPath is { } dllForPdb
                         && effectiveOptions.IncludeSections is { Count: > 0 }
                         && ApiCommand.GetRequestedMemberSections(apiType, effectiveOptions)
-                            .Contains(SectionNames.DecompiledSource))
+                            .Overlaps(
+                            [
+                                SectionNames.DecompiledSource,
+                                SectionNames.BodyShapes,
+                            ]))
                     {
                         var pdbPath = await ApiCommand.TryAcquirePdbPathAsync(
                             dllForPdb, effectiveOptions, logger, context.HttpClient);
