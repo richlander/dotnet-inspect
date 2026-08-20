@@ -425,6 +425,15 @@ test("package tab selection resets type-specific member filters", () => {
     /state\.selectedTypeId = pkg\.types\[0\]\?\.id \|\| "";[\s\S]*resetMemberFilters\(\);[\s\S]*resetMemberSectionState\(\)/);
 });
 
+test("loaded-package Spotlight selection resets type-specific member filters", () => {
+  const selection =
+    appSource.match(/function pickSpotlightLoadedPackage\([\s\S]*?\n}\n\nasync function pickSpotlightMember/)?.[0]
+    ?? "";
+  assert.match(
+    selection,
+    /state\.selectedTypeId = null;[\s\S]*resetMemberFilters\(\);[\s\S]*resetMemberSectionState\(\)/);
+});
+
 test("settings keep a viewport-bounded scroll region", () => {
   const settingsPageRule =
     stylesSource.match(/\.settings-page\s*\{([^}]*)\}/s)?.[1] ?? "";

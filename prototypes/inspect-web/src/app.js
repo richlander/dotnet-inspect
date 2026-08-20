@@ -4772,6 +4772,7 @@ function pickSpotlightLoadedPackage(pkg) {
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
+  resetMemberFilters();
   resetMemberSectionState();
   spotlight.reset();
   render();
