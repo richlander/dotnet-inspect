@@ -9316,6 +9316,33 @@ public class LibraryBodyIndexTests
         Assert.True(s.Reflection >= expected, $"expected >= {expected} reflection for {methodName}, got {s.Reflection}");
     }
 
+    [Fact]
+    public void MethodSignals_ReflectionDoesNotDependOnAllocationFeature()
+    {
+        string path = typeof(LibraryBodyIndex).Assembly.Location;
+        var compact = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        var classified = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.Allocations);
+        IReadOnlyDictionary<int, MethodSignals> compactSignals =
+            compact.GetMethodSignals();
+        IReadOnlyDictionary<int, MethodSignals> classifiedSignals =
+            classified.GetMethodSignals();
+
+        Assert.All(
+            classified.Methods,
+            method => Assert.Equal(
+                classifiedSignals
+                    .GetValueOrDefault(method.MetadataToken)
+                    ?.Reflection ?? 0,
+                compactSignals
+                    .GetValueOrDefault(method.MetadataToken)
+                    ?.Reflection ?? 0));
+    }
+
     // #1623 rung 3 (signal recall): one consolidated per-signal recall scorecard over a
     // labeled in-assembly fixture. Each row names a method seeded with a known signal and
     // asserts the analysis detects it, so a whole signal family (or one recognized

@@ -131,8 +131,11 @@ still authorize allocation analysis for the target member only.
 `CallGraphFields_DoNotEnableClassifiedAllocationAnalysis`,
 `CallGraphAllocationField_EnablesClassifiedAllocationAnalysis`, and
 `CallGraphScopes_DoNotInheritPerformanceTriageOpportunities` gate that
-backpressure boundary; `CallGraphSection_ProjectsAllocationAndCopySignals`
-proves the allocation cue remains available.
+backpressure boundary.
+`MethodSignals_ReflectionDoesNotDependOnAllocationFeature` proves unrelated
+signal values remain stable across the boundary, and
+`CallGraphSection_ProjectsAllocationAndCopySignals` proves the allocation cue
+remains available.
 
 With the exception fields projected, the caller half of `Call Graph` answers
 exception-reachability questions directly:
