@@ -1,3 +1,6 @@
+extern alias diffa;
+extern alias diffb;
+
 using System.Collections.Immutable;
 using ILInspector.Findings;
 using ILInspector.MetadataPrimitives;
@@ -284,6 +287,7 @@ public static class ExtensionPropertyIdentityFixture
     public static int get_Standalone(string value) => value.Length;
     public static void set_Standalone(int value) { }
     internal static int InternalClassic(this string value) => value.Length;
+    public static int get_Scoped(diffb::Shared.Token value) => 2;
 
     extension(string value)
     {
@@ -319,5 +323,10 @@ public static class ExtensionPropertyIdentityFixture
             get => builder.Capacity;
             set => builder.Capacity = value;
         }
+    }
+
+    extension(diffa::Shared.Token value)
+    {
+        public int Scoped => value is null ? 0 : 1;
     }
 }

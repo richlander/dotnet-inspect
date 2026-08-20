@@ -66,6 +66,22 @@ public sealed class MethodStructuralSignatureTests
     }
 
     [Fact]
+    public void BuildShape_PreservesCustomModifiersOnInParameters()
+    {
+        var modified = BuildShapeFor(
+            nameof(IStructuralSignatureFixture),
+            nameof(IStructuralSignatureFixture.Consume));
+        var unmodified = BuildShapeFor(
+            nameof(IStructuralSignatureFixture),
+            nameof(IStructuralSignatureFixture.ConsumeRef));
+
+        Assert.False(
+            modified.ParameterTypes.SequenceEqual(
+                unmodified.ParameterTypes,
+                StringComparer.Ordinal));
+    }
+
+    [Fact]
     public void Build_DistinguishesInstanceFromStatic()
     {
         string instance = BuildFor(
@@ -113,6 +129,41 @@ public sealed class MethodStructuralSignatureTests
         string second = MethodStructuralSignature.Build(image.Reader, image.Reader.GetMethodDefinition(pings[1]));
 
         Assert.NotEqual(first, second);
+    }
+
+    [Fact]
+    public void BuildShape_DistinguishesSameNameTypesFromDifferentAssemblies()
+    {
+        string targetPath = Path.Combine(AppContext.BaseDirectory, "DiffAsmTarget.dll");
+        using var image = new MetadataImage(targetPath);
+        var pings = FindMethods(image.Reader, "Api", "Ping");
+
+        Assert.Equal(2, pings.Count);
+        var first = MethodStructuralSignature.BuildShape(
+            image.Reader,
+            image.Reader.GetMethodDefinition(pings[0]));
+        var second = MethodStructuralSignature.BuildShape(
+            image.Reader,
+            image.Reader.GetMethodDefinition(pings[1]));
+
+        Assert.False(
+            first.ParameterTypes.SequenceEqual(
+                second.ParameterTypes,
+                StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void BuildShape_NormalizesLiftedTypeParametersToMethodParameters()
+    {
+        var marker = BuildShapeFor(
+            typeof(StructuralShapeMarker<object, object>).Name,
+            nameof(StructuralShapeMarker<object, object>.Match),
+            typeGenericParameterMethodOffset: 1);
+        var implementation = BuildShapeFor(
+            typeof(StructuralShapeImplementation<object>).Name,
+            nameof(StructuralShapeImplementation<object>.Match));
+
+        Assert.Equal(marker, implementation);
     }
 
     [Fact]
@@ -412,6 +463,24 @@ public sealed class MethodStructuralSignatureTests
             typeNameOverrides: null);
     }
 
+    static MethodStructuralSignatureShape BuildShapeFor(
+        string typeName,
+        string methodName,
+        int? typeGenericParameterMethodOffset = null)
+    {
+        using var image = new MetadataImage(
+            typeof(MethodStructuralSignatureTests).Assembly.Location);
+        var typeHandle = FindType(image.Reader, typeName);
+        var methodHandle = FindMethod(
+            image.Reader,
+            typeHandle,
+            methodName);
+        return MethodStructuralSignature.BuildShape(
+            image.Reader,
+            image.Reader.GetMethodDefinition(methodHandle),
+            typeGenericParameterMethodOffset);
+    }
+
     static string BuildFor(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
@@ -609,6 +678,26 @@ public interface IStructuralSignatureFixture
     void ConsumeRef(ref int value);
 
     void ConsumeValue(int value);
+}
+
+public sealed class StructuralShapeMarker<TOuter, TMethod>
+{
+    public void Match(TOuter outer, TMethod method)
+    {
+        _ = outer;
+        _ = method;
+    }
+}
+
+public static class StructuralShapeImplementation<TOuter>
+{
+    public static void Match<TMethod>(
+        TOuter outer,
+        TMethod method)
+    {
+        _ = outer;
+        _ = method;
+    }
 }
 
 public sealed class ReferenceConstrainedFixture<T>

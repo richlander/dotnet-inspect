@@ -5,13 +5,15 @@ namespace DotnetInspector.Tests;
 
 /// <summary>
 /// Locks the type-targeted-decode invariant: opening a <see cref="Analysis.LibraryBodyIndex"/> with a
-/// <c>bodyTypeScope</c> predicate restricted to one declaring type decodes only that type's method
-/// bodies, yet produces per-method facts (direct calls, unsafe evidence, unsafety occurrences,
-/// allocation occurrences) identical to the full whole-assembly build for every method of that type.
-/// This is what lets the type command render Unsafe Members / Called Types / Allocation-Safety-Cost
-/// facts for one type — including its private/compiler-generated methods — without decoding every
-/// method in the assembly. Unlike a token <c>bodyScope</c> (member command), a declaring-type
-/// predicate is required because type sections scan ALL of a type's methods, not just its public API.
+/// <c>bodyTypeScope</c> predicate restricted to one declaring type decodes bodies physically owned
+/// by that type plus compiler-lifted bodies attributed to it, while producing per-method facts
+/// (direct calls, unsafe evidence, unsafety occurrences, allocation occurrences) identical to the
+/// full whole-assembly build for every physical method of that type. This is what lets the type
+/// command render Unsafe Members / Called Types / Allocation-Safety-Cost facts for one source type,
+/// including its private methods and attributed compiler-generated bodies, without decoding every
+/// unrelated body in the assembly. Unlike a token <c>bodyScope</c> (member command), a
+/// declaring-type predicate is required because type sections scan all evidence owned by the type,
+/// not just its public API.
 /// </summary>
 public class TypeTargetedDecodeTests
 {
@@ -75,23 +77,41 @@ public class TypeTargetedDecodeTests
     }
 
     [Fact]
-    public void TypeTargetedBuild_DecodesOnlyTheScopedType()
+    public void TypeTargetedBuild_AdmitsOnlyScopedPhysicalOrDeclaredSourceBodies()
     {
         var full = Analysis.LibraryBodyIndex.Open(SelfPath);
-        var target = LargestType(full);
-        var inScope = full.Methods.Where(m => m.DeclaringType.Equals(target)).Select(m => m.MetadataToken).ToHashSet();
+        Analysis.TypeRef target = full.Methods
+            .Select(method => method.DeclaringType)
+            .Distinct()
+            .Single(type =>
+                type.Namespace == "ILInspector.Analysis"
+                && type.Name == nameof(Analysis.CallGraphMemberResolver));
+        Analysis.DirectCall lifted = full.DirectCalls.First(call =>
+            call.Caller.DeclaringType.Equals(target)
+            && !call.EvidenceMethod.DeclaringType.Equals(target));
+        var physicalTokens = full.Methods
+            .Where(method => method.DeclaringType.Equals(target))
+            .Select(method => method.MetadataToken)
+            .ToHashSet();
 
-        var targeted = Analysis.LibraryBodyIndex.Open(SelfPath, bodyTypeScope: tr => tr.Equals(target));
+        var targeted = Analysis.LibraryBodyIndex.Open(
+            SelfPath,
+            bodyTypeScope: type => type.Equals(target));
+        var callsByEvidence = targeted.DirectCalls
+            .GroupBy(call => call.EvidenceMethod.MetadataToken)
+            .ToArray();
 
-        // Every decoded call-site body belongs to the scoped type; its declared
-        // caller may be a source owner outside that generated physical type.
-        foreach (var evidenceMethod
-            in targeted.GetDirectCallsByEvidenceMethod().Keys)
+        foreach (var calls in callsByEvidence)
         {
-            Assert.Contains(evidenceMethod, inScope);
+            Assert.True(
+                physicalTokens.Contains(calls.Key)
+                || calls.All(call =>
+                    call.Caller.DeclaringType.Equals(target)));
         }
 
-        // At least one method of the target type actually decoded (the type has bodies with calls).
-        Assert.NotEmpty(targeted.GetDirectCallsByEvidenceMethod());
+        Assert.Contains(
+            callsByEvidence,
+            calls => !physicalTokens.Contains(calls.Key));
+        Assert.Contains(lifted, targeted.DirectCalls);
     }
 }

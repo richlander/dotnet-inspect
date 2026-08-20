@@ -34,6 +34,85 @@ public static class MethodStructuralSignature
         IReadOnlyDictionary<TypeDefinitionHandle, string>? typeNameOverrides)
         => new StructuralSignatureBuilder(reader, typeNameOverrides)
             .BuildMethod(method, methodName);
+
+    /// <summary>
+    /// Decodes the method signature into lossless structural type keys without
+    /// including the declaring type or method name.
+    /// </summary>
+    /// <param name="typeGenericParameterMethodOffset">
+    /// When provided, type generic parameters at or above this position are
+    /// normalized to method generic parameters starting at zero.
+    /// </param>
+    public static MethodStructuralSignatureShape BuildShape(
+        MetadataReader reader,
+        MethodDefinition method,
+        int? typeGenericParameterMethodOffset = null)
+        => StructuralSignatureKey.Build(reader, () =>
+        {
+            var workBudget = new StructuralSignatureWorkBudget();
+            var provider = new StructuralSignatureTypeProvider(
+                workBudget,
+                typeGenericParameterMethodOffset);
+            workBudget.EnsureAvailable();
+            if (!SignatureBlobGuard.IsSafeToDecode(
+                    reader,
+                    method.Signature,
+                    SignatureBlobGuard.Kind.Method))
+            {
+                throw new BadImageFormatException(
+                    "The method signature exceeds the structural safety limit.");
+            }
+
+            MethodSignature<StructuralSignatureType> signature =
+                method.DecodeSignature(provider, null);
+            return new MethodStructuralSignatureShape(
+                signature.Header.CallingConvention,
+                signature.RequiredParameterCount,
+                provider.EncodeType(signature.ReturnType),
+                [.. signature.ParameterTypes.Select(provider.EncodeType)]);
+        });
+}
+
+/// <summary>
+/// Lossless structural shape of one method signature.
+/// </summary>
+public sealed class MethodStructuralSignatureShape(
+    SignatureCallingConvention callingConvention,
+    int requiredParameterCount,
+    string returnType,
+    ImmutableArray<string> parameterTypes)
+    : IEquatable<MethodStructuralSignatureShape>
+{
+    public SignatureCallingConvention CallingConvention { get; } =
+        callingConvention;
+    public int RequiredParameterCount { get; } = requiredParameterCount;
+    public string ReturnType { get; } = returnType;
+    public ImmutableArray<string> ParameterTypes { get; } = parameterTypes;
+
+    public bool Equals(MethodStructuralSignatureShape? other)
+        => other is not null
+        && CallingConvention == other.CallingConvention
+        && RequiredParameterCount == other.RequiredParameterCount
+        && string.Equals(ReturnType, other.ReturnType, StringComparison.Ordinal)
+        && ParameterTypes.SequenceEqual(
+            other.ParameterTypes,
+            StringComparer.Ordinal);
+
+    public override bool Equals(object? obj)
+        => Equals(obj as MethodStructuralSignatureShape);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(CallingConvention);
+        hash.Add(RequiredParameterCount);
+        hash.Add(ReturnType, StringComparer.Ordinal);
+        foreach (string parameter in ParameterTypes)
+        {
+            hash.Add(parameter, StringComparer.Ordinal);
+        }
+        return hash.ToHashCode();
+    }
 }
 
 /// <summary>
@@ -1084,10 +1163,16 @@ sealed class StructuralSignatureTypeProvider
     readonly Dictionary<EntityHandle, string> _constraintTypes = [];
     readonly Dictionary<BlobHandle, string> _constraintTypeSpecifications = [];
     readonly Dictionary<BlobHandle, StructuralSignatureType> _typeSpecifications = [];
+    readonly int? _typeGenericParameterMethodOffset;
 
     internal StructuralSignatureTypeProvider(
-        StructuralSignatureWorkBudget workBudget)
-        => _workBudget = workBudget;
+        StructuralSignatureWorkBudget workBudget,
+        int? typeGenericParameterMethodOffset = null)
+    {
+        _workBudget = workBudget;
+        _typeGenericParameterMethodOffset =
+            typeGenericParameterMethodOffset;
+    }
 
     public StructuralSignatureType GetPrimitiveType(
         PrimitiveTypeCode typeCode)
@@ -1257,7 +1342,15 @@ sealed class StructuralSignatureTypeProvider
         object? context,
         int index)
         => Encoded(
-            "t" + index.ToString(CultureInfo.InvariantCulture) + ";");
+            _typeGenericParameterMethodOffset is { } offset
+                && index >= offset
+                    ? "m"
+                        + (index - offset).ToString(
+                            CultureInfo.InvariantCulture)
+                        + ";"
+                    : "t"
+                        + index.ToString(CultureInfo.InvariantCulture)
+                        + ";");
 
     public StructuralSignatureType GetGenericMethodParameter(
         object? context,
@@ -1305,6 +1398,9 @@ sealed class StructuralSignatureTypeProvider
         type.AppendTo(builder);
         return builder.ToString();
     }
+
+    internal string EncodeType(StructuralSignatureType type)
+        => Encode(type);
 
     static void EnsureConstraintFits(
         string encoded,

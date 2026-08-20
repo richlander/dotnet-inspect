@@ -1505,9 +1505,11 @@ public static class ApiOutputFormatter
     internal static void PopulateSelectedAbstractAccessorAbsence(TypeView view)
     {
         view.MemberCode ??= new MemberCodeView();
-        view.MemberCode.AnnotatedSourceCode = new CodeSection(
+        var absence = new CodeSection(
             "text",
             "The selected accessor has no IL body.");
+        view.MemberCode.AnnotatedSourceCode = absence;
+        view.MemberCode.AnnotatedSourceDocumentCode = absence;
     }
 
     private static bool CanAnalyzeSelectedAccessor(

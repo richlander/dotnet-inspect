@@ -702,7 +702,6 @@ public static class ExtensionMethodScanner
             List<MethodDefinitionHandle>>(
                 ExtensionPropertyImplementationKeyComparer.Instance);
         HashSet<string> indexedCandidateNames = new(StringComparer.Ordinal);
-        GenericContext? extensionClassContext = null;
         int extensionClassGenericCount = extensionClass.GetGenericParameters().Count;
 
         foreach (var groupingTypeHandle in extensionClass.GetNestedTypes())
@@ -732,19 +731,12 @@ public static class ExtensionMethodScanner
                     continue;
                 }
 
-                var markerContext = GenericContext.ForType(
-                    reader,
-                    markerType,
-                    beforeMaterialize);
-                if (!TryReadMethodSignature(
+                var markerSignature =
+                    ReadStructuralMethodSignature(
                         reader,
                         markerMethod,
-                        markerContext,
                         beforeMaterialize,
-                        out var markerSignature))
-                {
-                    continue;
-                }
+                        extensionClassGenericCount);
                 if (markerSignature.ParameterTypes.Length != 1)
                 {
                     throw new BadImageFormatException(
@@ -766,15 +758,12 @@ public static class ExtensionMethodScanner
                         continue;
 
                     var accessor = reader.GetMethodDefinition(accessorHandle);
-                    if (!TryReadMethodSignature(
+                    var accessorSignature =
+                        ReadStructuralMethodSignature(
                             reader,
                             accessor,
-                            markerContext,
                             beforeMaterialize,
-                            out var accessorSignature))
-                    {
-                        continue;
-                    }
+                            extensionClassGenericCount);
 
                     string accessorName = ReadStructuralMethodName(
                         reader,
@@ -789,10 +778,6 @@ public static class ExtensionMethodScanner
                             accessorName,
                             out var sameNamedCandidates))
                     {
-                        extensionClassContext ??= GenericContext.ForType(
-                            reader,
-                            extensionClass,
-                            beforeMaterialize);
                         foreach (var candidateHandle in sameNamedCandidates)
                         {
                             var candidate =
@@ -800,20 +785,11 @@ public static class ExtensionMethodScanner
                             if (candidate.RelativeVirtualAddress == 0)
                                 continue;
 
-                            var candidateContext = GenericContext.ForMethod(
-                                reader,
-                                extensionClassContext,
-                                candidate,
-                                beforeMaterialize);
-                            if (!TryReadMethodSignature(
+                            var candidateSignature =
+                                ReadStructuralMethodSignature(
                                     reader,
                                     candidate,
-                                    candidateContext,
-                                    beforeMaterialize,
-                                    out var candidateSignature))
-                            {
-                                continue;
-                            }
+                                    beforeMaterialize);
 
                             var candidateKey =
                                 new ExtensionPropertyImplementationKey(
@@ -821,6 +797,8 @@ public static class ExtensionMethodScanner
                                     candidate.Attributes
                                         & MethodAttributes.MemberAccessMask,
                                     candidate.GetGenericParameters().Count,
+                                    candidateSignature.CallingConvention,
+                                    candidateSignature.RequiredParameterCount,
                                     candidateSignature.ReturnType,
                                     candidateSignature.ParameterTypes);
                             if (!candidatesBySignature.TryGetValue(
@@ -863,6 +841,9 @@ public static class ExtensionMethodScanner
                         accessor.Attributes
                             & MethodAttributes.MemberAccessMask,
                         expectedGenericCount,
+                        accessorSignature.CallingConvention,
+                        accessorSignature.RequiredParameterCount
+                            + (staticAccessor ? 0 : 1),
                         accessorSignature.ReturnType,
                         expectedParameters);
                     if (candidatesBySignature.TryGetValue(
@@ -912,6 +893,8 @@ public static class ExtensionMethodScanner
         string Name,
         MethodAttributes Accessibility,
         int GenericCount,
+        SignatureCallingConvention CallingConvention,
+        int RequiredParameterCount,
         string ReturnType,
         ImmutableArray<string> ParameterTypes);
 
@@ -926,6 +909,8 @@ public static class ExtensionMethodScanner
             ExtensionPropertyImplementationKey right)
             => left.Accessibility == right.Accessibility
             && left.GenericCount == right.GenericCount
+            && left.CallingConvention == right.CallingConvention
+            && left.RequiredParameterCount == right.RequiredParameterCount
             && string.Equals(
                 left.Name,
                 right.Name,
@@ -945,6 +930,8 @@ public static class ExtensionMethodScanner
             hash.Add(key.Name, StringComparer.Ordinal);
             hash.Add(key.Accessibility);
             hash.Add(key.GenericCount);
+            hash.Add(key.CallingConvention);
+            hash.Add(key.RequiredParameterCount);
             hash.Add(key.ReturnType, StringComparer.Ordinal);
             foreach (string parameter in key.ParameterTypes)
             {
@@ -954,16 +941,17 @@ public static class ExtensionMethodScanner
         }
     }
 
-    private static bool TryReadMethodSignature(
+    private static MethodStructuralSignatureShape ReadStructuralMethodSignature(
         MetadataReader reader,
         MethodDefinition method,
-        GenericContext context,
         Action<int>? beforeMaterialize,
-        out MethodSignature<string> signature)
+        int? typeGenericParameterMethodOffset = null)
     {
         beforeMaterialize?.Invoke(reader.GetBlobReader(method.Signature).Length);
-        return GuardedSignatureText.MethodText(reader, method, context)
-            .TryGetValue(out signature);
+        return MethodStructuralSignature.BuildShape(
+            reader,
+            method,
+            typeGenericParameterMethodOffset);
     }
 
     private static string ReadStructuralMethodName(

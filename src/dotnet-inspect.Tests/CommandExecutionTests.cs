@@ -7200,6 +7200,87 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("--jsonl")]
+    [InlineData("--tsv")]
+    [InlineData("--table")]
+    public async Task Member_AnnotatedSource_RowFormat_FailsVisibly(
+        string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Collections.Generic.ICollection<T>",
+            "--platform",
+            "System.Runtime",
+            "-m",
+            "Count:1",
+            "-S",
+            "Annotated Source",
+            format,
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"{format} cannot represent section 'Annotated Source'.",
+            error,
+            StringComparison.Ordinal);
+        Assert.Contains("--print", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Member_AnnotatedSource_DocumentJson_RecommendsSupportedProjection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Collections.Generic.ICollection<T>",
+            "--platform",
+            "System.Runtime",
+            "-m",
+            "Count:1",
+            "-S",
+            "Annotated Source",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--print", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("--jsonl", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("--tsv", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("--table", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Member_AnnotatedSourceDocument_BodylessAbstractAccessor_PreservesReason()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Collections.Generic.ICollection<T>",
+            "--platform",
+            "System.Runtime",
+            "-m",
+            "Count:1",
+            "-S",
+            "Annotated Source Document",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "The selected accessor has no IL body.",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "produced no payload",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData("Facts,Fidelity Causes", "Fidelity Causes")]
     [InlineData("Signature,Fidelity Causes", "Fidelity Causes")]
     [InlineData("Calls", "Calls")]

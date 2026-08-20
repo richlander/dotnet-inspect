@@ -47,6 +47,12 @@
          share the FQN Shared.Token but come from different assemblies (LibA vs
          LibB). Used to prove the structural signature keeps them distinct. -->
     <ProjectReference Include="../../src/DiffAsmFixtures.Target/DiffAsmFixtures.Target.csproj" />
+    <ProjectReference Include="../../src/DiffAsmFixtures.LibA/DiffAsmFixtures.LibA.csproj">
+      <Aliases>diffa</Aliases>
+    </ProjectReference>
+    <ProjectReference Include="../../src/DiffAsmFixtures.LibB/DiffAsmFixtures.LibB.csproj">
+      <Aliases>diffb</Aliases>
+    </ProjectReference>
   </ItemGroup>
 
 </Project>

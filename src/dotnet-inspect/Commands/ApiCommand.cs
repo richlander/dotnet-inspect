@@ -1745,6 +1745,23 @@ public class ApiCommand
         bool sourceDocumentJson = IsAnnotatedSourceDocumentJson(options);
         bool barePayloadRenderer =
             options.Bare && !options.Count && !options.JsonOutput;
+        if (options.Tabular
+            && !IsProjectionRequested(options)
+            && GetRequestedMemberSections(type, options)
+                .Contains(SectionNames.AnnotatedSource))
+        {
+            string format = options.Jsonl
+                ? "--jsonl"
+                : options.Tsv
+                    ? "--tsv"
+                    : "--table";
+            CommandError.Write(
+                $"{format} cannot represent section "
+                + $"'{SectionNames.AnnotatedSource}'. "
+                + "Use Markdown output or --print to project the section payload.");
+            return 1;
+        }
+
         if (options is MemberOptions memberOptions
             && (memberOptions.MemberSourceTooComplex
                 || memberOptions.MemberSourceCoordinatesInvalid)
@@ -1795,10 +1812,15 @@ public class ApiCommand
 
             if (ExplicitUnsupportedDocumentJsonSection(options) is { } unsupportedSection)
             {
+                string guidance = unsupportedSection.Equals(
+                    SectionNames.AnnotatedSource,
+                    StringComparison.OrdinalIgnoreCase)
+                        ? "Use Markdown output or --print to project the section payload."
+                        : "Use Markdown output or a section-specific --print, --jsonl, "
+                            + "--tsv, or --table projection.";
                 CommandError.Write(
                     $"Document --json cannot represent section '{unsupportedSection}'. "
-                    + "Use Markdown output or a section-specific --print, --jsonl, --tsv, "
-                    + "or --table projection.");
+                    + guidance);
                 return 1;
             }
 
@@ -1927,7 +1949,9 @@ public class ApiCommand
                         mo4.OverloadIndex.HasValue ? mo4.OverloadIndex.Value - 1 : null,
                         executionSections, analysisInspection, mo4.PdbPath, mo4.IncludeSections, mo4);
                 }
-                if (requestedExecutionSections.Contains(SectionNames.AnnotatedSource)
+                if (requestedExecutionSections.Overlaps(
+                        [SectionNames.AnnotatedSource,
+                         SectionNames.AnnotatedSourceDocument])
                     && ApiOutputFormatter.IsSelectedAbstractAccessor(
                         type,
                         mo4.OverloadIndex))
@@ -2824,7 +2848,9 @@ public class ApiCommand
                         executionSections, analysisInspection, memberOptions.PdbPath,
                         memberOptions.IncludeSections, memberOptions);
                 }
-                if (requestedExecutionSections.Contains(SectionNames.AnnotatedSource)
+                if (requestedExecutionSections.Overlaps(
+                        [SectionNames.AnnotatedSource,
+                         SectionNames.AnnotatedSourceDocument])
                     && ApiOutputFormatter.IsSelectedAbstractAccessor(
                         type,
                         memberOptions.OverloadIndex))
@@ -3185,7 +3211,11 @@ public class ApiCommand
             ? string.Join(
                 "; ",
                 failure.Diagnostics.Select(diagnostic => diagnostic.ToString()))
-            : $"section '{SectionNames.AnnotatedSourceDocument}' produced no payload.";
+            : memberCode is not null
+                && memberCode.AnnotatedSourceDocumentCode.Content
+                    is { Length: > 0 } absence
+                ? absence
+                : $"section '{SectionNames.AnnotatedSourceDocument}' produced no payload.";
 
     private static readonly HashSet<string> SemanticFactSections = new(StringComparer.OrdinalIgnoreCase)
     {

@@ -349,7 +349,7 @@ public sealed class MetadataDeclarationQueryTests
         foreach (var surface in new[] { queried, extracted, summarized })
         {
             Assert.Equal(
-                2,
+                3,
                 surface.Members.Count(member => member.Kind == "method"));
             Assert.Contains(
                 surface.Members,
@@ -357,6 +357,9 @@ public sealed class MetadataDeclarationQueryTests
             Assert.Contains(
                 surface.Members,
                 member => member is { Name: "set_Standalone", Kind: "method" });
+            Assert.Contains(
+                surface.Members,
+                member => member is { Name: "get_Scoped", Kind: "method" });
             Assert.DoesNotContain(
                 surface.Members,
                 member => member.Kind == "method"
