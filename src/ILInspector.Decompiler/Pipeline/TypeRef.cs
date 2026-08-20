@@ -1248,7 +1248,9 @@ public sealed class TypeRef : IEquatable<TypeRef>
         bool completeCompilerGenerated)
     {
         IReadOnlyList<string> segments = ElementType!.MetadataNameSegments();
-        var arities = segments.Select(ArityOf).ToArray();
+        var arities = segments
+            .Select((segment, index) => ElementType.EffectiveSegmentArity(index, segment))
+            .ToArray();
         int total = 0;
         foreach (int arity in arities)
             total += arity;
