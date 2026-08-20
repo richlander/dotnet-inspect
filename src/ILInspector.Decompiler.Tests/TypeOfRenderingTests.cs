@@ -128,6 +128,33 @@ public class TypeOfRenderingTests
         Assert.NotEqual(DecompilationFidelity.Full, result.Fidelity);
     }
 
+    [Fact]
+    public void TypeOf_BareDefinitionArityMismatch_IsNotFullFidelity()
+    {
+        MetadataTypeDefinitionName exact =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Tests",
+                    ["Widget`2"]))
+            .Name;
+        var definition = TypeRef.DefinitionWithResolution(
+            "Synthetic",
+            "Tests",
+            "Widget`2",
+            ValueTypeHint.Unknown,
+            MetadataFactState.Unknown,
+            enclosingType: null,
+            definitionName: exact,
+            resolutionAssembly: null,
+            introducedTypeParameterCounts: [1]);
+
+        var result = CSharpPrinter.PrintRaised(
+            Returning(new TypeOf(definition)));
+
+        Assert.Contains("typeof(Widget`2", result.Output);
+        Assert.NotEqual(DecompilationFidelity.Full, result.Fidelity);
+    }
+
     static IrFunction Returning(IrExpression expression, TypeRef? returnType = null, TypeRef? owner = null)
     {
         var body = new BlockContainer();

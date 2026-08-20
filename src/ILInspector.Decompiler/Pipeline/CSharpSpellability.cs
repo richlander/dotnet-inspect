@@ -405,6 +405,12 @@ internal static class CSharpSpellability
             case TypeRefKind.Definition:
                 if (IsCoreLibPrimitive(type))
                     return null;
+                if (type.HasDefinitionArityMismatch)
+                {
+                    return Issue(
+                        "generic-arity-mismatch",
+                        $"generic type '{type}' has a metadata/ownership arity mismatch");
+                }
                 // Validate every nested segment, not just the leaf: a foreign
                 // nested type is spelled through its declaring chain
                 // (`Outer.Inner`), so an unspellable outer segment also has no

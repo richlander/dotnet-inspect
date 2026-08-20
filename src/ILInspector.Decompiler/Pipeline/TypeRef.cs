@@ -1324,7 +1324,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
         return Name.Split('+');
     }
 
-    bool HasDefinitionArityMismatch
+    internal bool HasDefinitionArityMismatch
     {
         get
         {
