@@ -236,6 +236,156 @@ public class TypeConfirmationTests
     }
 
     [Fact]
+    public void ApplyTypeConfirmation_PropagatesToProjectedPhysicalRow()
+    {
+        var library = CandidateWithType(
+            1,
+            "Fixture.A.M()",
+            "Fixture.Specific",
+            source: "library");
+        var triage = CandidateWithType(
+            2,
+            "Fixture.A.M()",
+            "System.Object",
+            source: "triage");
+        library.ProjectedByTriage = true;
+        triage.ProjectedLibraries.Add(library);
+        var result = new CorrelationResult();
+        result.Candidates.Add(library);
+        result.Candidates.Add(triage);
+        result.RecordTypeVolume(
+            "Fixture.Specific",
+            ProgramSupport.TypeConfirmMinBytes);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.True(triage.TypeConfirmed);
+        Assert.Equal(
+            "Fixture.Specific",
+            triage.TypeConfirmedType);
+        Assert.True(library.SupersededByTriage);
+        Assert.Equal(
+            "superseded-by-triage",
+            library.Status);
+    }
+
+    [Fact]
+    public void ApplyTypeConfirmation_KeepsTypeVolumeAndSiteCountAtomic()
+    {
+        var library = CandidateWithType(
+            1,
+            "Fixture.A.M()",
+            "Fixture.Specific",
+            source: "library");
+        var target = CandidateWithType(
+            2,
+            "Fixture.A.M()",
+            "System.Object",
+            source: "triage");
+        library.ProjectedByTriage = true;
+        target.ProjectedLibraries.Add(library);
+        var result = new CorrelationResult();
+        result.Candidates.Add(library);
+        result.Candidates.Add(target);
+        for (int index = 0; index < 7; index++)
+        {
+            result.Candidates.Add(
+                CandidateWithType(
+                    3 + index,
+                    $"Fixture.Other{index}.M()",
+                    "System.Object",
+                    methodToken:
+                        0x06000010 + index));
+        }
+        result.RecordTypeVolume(
+            "System.Object",
+            2_000_000);
+        result.RecordTypeVolume(
+            "Fixture.Specific",
+            3_000_000);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.Equal(
+            "Fixture.Specific",
+            target.TypeConfirmedType);
+        Assert.Equal(
+            3_000_000,
+            target.TypeConfirmedBytes);
+        Assert.Equal(
+            1,
+            target.TypeConfirmedSiteCount);
+        Assert.False(target.TypeConfirmedAmbiguous);
+    }
+
+    [Fact]
+    public void ApplyTypeConfirmation_ObservedRuntimeTypeExplainsVolume()
+    {
+        var observed = CandidateWithType(
+            1,
+            "Fixture.Observed.M()",
+            "System.Object");
+        var cold = CandidateWithType(
+            2,
+            "Fixture.Cold.M()",
+            "System.String",
+            methodToken: 0x06000002);
+        var matched = new HashSet<int>();
+        ProgramSupport.MarkAllocationHitForTest(
+            observed,
+            matched,
+            "trace",
+            "System.String",
+            ProgramSupport.TypeConfirmMinBytes);
+        var result = new CorrelationResult();
+        result.Candidates.Add(observed);
+        result.Candidates.Add(cold);
+        result.RecordTypeVolume(
+            "System.String",
+            ProgramSupport.TypeConfirmMinBytes);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.True(observed.IsObserved);
+        Assert.False(cold.TypeConfirmed);
+        Assert.Equal(
+            "cold-for-this-workload",
+            cold.Status);
+    }
+
+    [Fact]
+    public void ApplyTypeConfirmation_CollapsesSharedEvidenceBody()
+    {
+        var first = CandidateWithType(
+            1,
+            "Fixture.A.SourceOne()",
+            "System.String",
+            source: "triage",
+            methodToken: 0x06000001,
+            evidenceMethodToken: 0x06000003);
+        var second = CandidateWithType(
+            2,
+            "Fixture.A.SourceTwo()",
+            "System.String",
+            source: "triage",
+            methodToken: 0x06000002,
+            evidenceMethodToken: 0x06000003);
+        var result = new CorrelationResult();
+        result.Candidates.Add(first);
+        result.Candidates.Add(second);
+        result.RecordTypeVolume(
+            "System.String",
+            ProgramSupport.TypeConfirmMinBytes);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.Equal(1, first.TypeConfirmedSiteCount);
+        Assert.Equal(1, second.TypeConfirmedSiteCount);
+        Assert.Equal("type-hot", first.Status);
+        Assert.Equal("type-hot", second.Status);
+    }
+
+    [Fact]
     public void ApplyTypeConfirmation_NormalizesAssemblyNameForDuplicatePhysicalSite()
     {
         var library = CandidateWithType(
@@ -396,6 +546,36 @@ public class TypeConfirmationTests
                     ProgramSupport.TypeConfirmMaxSites,
                     candidate.TypeConfirmedSiteCount);
             });
+    }
+
+    [Fact]
+    public void ApplyTypeConfirmation_CountsUnknownTriageInputsSeparately()
+    {
+        var first = CandidateWithType(
+            1,
+            "Fixture.T.M()",
+            "System.String",
+            source: "triage",
+            libraryPath: "/tmp/triage-a.json");
+        var second = CandidateWithType(
+            2,
+            "Fixture.T.M()",
+            "System.String",
+            source: "triage",
+            libraryPath: "/tmp/triage-b.json");
+        var result = new CorrelationResult();
+        result.Candidates.Add(first);
+        result.Candidates.Add(second);
+        result.RecordTypeVolume(
+            "System.String",
+            ProgramSupport.TypeConfirmMinBytes);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.True(first.TypeConfirmed);
+        Assert.True(second.TypeConfirmed);
+        Assert.Equal(2, first.TypeConfirmedSiteCount);
+        Assert.Equal(2, second.TypeConfirmedSiteCount);
     }
 
     [Fact]
@@ -645,6 +825,64 @@ public class TypeConfirmationTests
             GC.GetAllocatedBytesForCurrentThread() - before;
 
         Assert.Equal(0, allocated);
+    }
+
+    [Fact]
+    public void FindTraceLibrariesSupersededByTriage_PreservesDifferentNearestOffsets()
+    {
+        var triage = CandidateWithType(
+            1,
+            "Fixture.A.M()",
+            "System.String",
+            source: "triage",
+            ilOffset: 0x0010,
+            libraryPath: "/tmp/triage.json");
+        var library = CandidateWithType(
+            2,
+            "Fixture.A.M()",
+            "System.String",
+            source: "library",
+            ilOffset: 0x0020,
+            moduleVersionId: Guid.Parse(
+                "22222222-2222-2222-2222-222222222222"));
+
+        var superseded =
+            ProgramSupport.FindTraceLibrariesSupersededByTriage(
+                [triage, library],
+                [triage, library],
+                "System.String");
+
+        Assert.Empty(superseded);
+    }
+
+    [Fact]
+    public void FindTraceLibrariesSupersededByTriage_CollapsesSameNearestOffset()
+    {
+        var triage = CandidateWithType(
+            1,
+            "Fixture.A.M()",
+            "System.String",
+            source: "triage",
+            ilOffset: 0x0010,
+            libraryPath: "/tmp/triage.json");
+        var library = CandidateWithType(
+            2,
+            "Fixture.A.M()",
+            "System.String",
+            source: "library",
+            ilOffset: 0x0010,
+            moduleVersionId: Guid.Parse(
+                "22222222-2222-2222-2222-222222222222"));
+
+        var superseded =
+            ProgramSupport.FindTraceLibrariesSupersededByTriage(
+                [triage, library],
+                [triage, library],
+                "System.String");
+
+        Assert.Collection(
+            superseded,
+            candidate => Assert.Same(library, candidate));
     }
 
     [Fact]
@@ -953,6 +1191,42 @@ public class TypeConfirmationTests
     }
 
     [Fact]
+    public void ApplyTypeConfirmation_CountsCoordinateLessDuplicatesOnce()
+    {
+        var result = new CorrelationResult();
+        for (int i = 0;
+             i < ProgramSupport.TypeConfirmMaxSites + 1;
+             i++)
+        {
+            result.Candidates.Add(
+                CandidateWithType(
+                    i + 1,
+                    "Fixture.T.M()",
+                    "System.String",
+                    source: "triage",
+                    assemblyName: "",
+                    methodToken: 0,
+                    ilOffset: 0,
+                    libraryPath: ""));
+        }
+        result.RecordTypeVolume(
+            "System.String",
+            900_000_000);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.All(
+            result.Candidates,
+            candidate =>
+            {
+                Assert.True(candidate.TypeConfirmed);
+                Assert.Equal(
+                    1,
+                    candidate.TypeConfirmedSiteCount);
+            });
+    }
+
+    [Fact]
     public void AllocationCandidate_FromOccurrence_TreatsEmptyMvidAsUnknown()
     {
         var method = new ILInspector.Analysis.MethodIdentity(
@@ -1002,7 +1276,8 @@ public class TypeConfirmationTests
         int methodToken = 0x06000001,
         int ilOffset = 0x0010,
         Guid? moduleVersionId = null,
-        string libraryPath = "/tmp/Fixture.dll")
+        string libraryPath = "/tmp/Fixture.dll",
+        int? evidenceMethodToken = null)
     {
         string methodKey = method[..method.IndexOf('(')];
         int lastDot = methodKey.LastIndexOf('.');
@@ -1034,6 +1309,7 @@ public class TypeConfirmationTests
             null,
             null,
             null,
-            null);
+            null,
+            evidenceMethodToken: evidenceMethodToken);
     }
 }
