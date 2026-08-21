@@ -1061,13 +1061,14 @@ export function resolveOpportunitySourceType<
   opportunity: OpportunitySourceIdentity | null | undefined,
 ): TType | null {
   if (!opportunity?.sourceDefinitionId) return null;
-  return resolvePlatformGraphTargetType(pack, {
+  const candidate = resolveGraphTargetCandidate([pack], {
     assembly: opportunity.sourceAssembly,
     assemblyVersion: opportunity.sourceAssemblyVersion,
     assemblyCulture: opportunity.sourceAssemblyCulture,
     assemblyPublicKeyToken: opportunity.sourceAssemblyPublicKeyToken,
     typeDefinitionId: opportunity.sourceDefinitionId
-  });
+  }, true);
+  return candidate.status === "unique" ? candidate.type : null;
 }
 
 export type GraphTargetNavigationDisposition =
