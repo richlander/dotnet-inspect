@@ -322,6 +322,45 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             TypeDefinitionHandle stateMachineType =
                 _reader.GetMethodDefinition(
                     executionMethod).GetDeclaringType();
+            TypeRef stateMachineTypeRef =
+                TypeRefDecoder.Instance.GetTypeFromDefinition(
+                    _reader,
+                    stateMachineType,
+                    0);
+            var methodsByMember = new Dictionary<
+                MethodReferenceKey,
+                ImmutableArray<MethodDefinitionHandle>.Builder>(
+                    MethodReferenceKeyComparer.Instance);
+            int indexedMethods = 0;
+            foreach (MethodDefinitionHandle handle
+                in _reader.GetTypeDefinition(
+                    stateMachineType).GetMethods())
+            {
+                if (++indexedMethods
+                    > MetadataSafetyPolicy.MaxRelationshipNodes)
+                {
+                    throw new BadImageFormatException(
+                        "State-machine ownership exceeds the metadata "
+                        + "relationship node budget.");
+                }
+                MethodDefinition definition =
+                    _reader.GetMethodDefinition(handle);
+                MethodReferenceKey member =
+                    _methodReferenceResolver.CreateIdentity(
+                        _reader.GetString(definition.Name),
+                        stateMachineTypeRef,
+                        definition.Signature);
+                if (!methodsByMember.TryGetValue(
+                        member,
+                        out ImmutableArray<
+                            MethodDefinitionHandle>.Builder? methods))
+                {
+                    methods = ImmutableArray.CreateBuilder<
+                        MethodDefinitionHandle>();
+                    methodsByMember.Add(member, methods);
+                }
+                methods.Add(handle);
+            }
             var pendingMethods =
                 new Queue<MethodDefinitionHandle>();
             var visited =
@@ -365,6 +404,18 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                         == stateMachineType)
                     {
                         pendingMethods.Enqueue(referenced);
+                    }
+                }
+                foreach (MethodReferenceKey member
+                    in references.ReferencedMembers)
+                {
+                    if (methodsByMember.TryGetValue(
+                            member,
+                            out ImmutableArray<
+                                MethodDefinitionHandle>.Builder? methods)
+                        && methods.Count == 1)
+                    {
+                        pendingMethods.Enqueue(methods[0]);
                     }
                 }
             }
@@ -609,6 +660,8 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             return null;
 
         var entryPointHandle = (MethodDefinitionHandle)entryPoint;
+        if (!IsManagedEntryPoint(entryPointHandle))
+            return null;
         if (entryPointHandle == ownerHandle)
         {
             return new(
@@ -616,12 +669,21 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                 ownerHandle);
         }
 
-        MethodDefinition entryPointMethod =
-            _reader.GetMethodDefinition(entryPointHandle);
         if (!MethodBodyReferences(entryPointHandle).CallsDefinition(
                 MetadataTokens.GetToken(ownerHandle)))
         {
             return null;
+        }
+
+        if (MethodClassificationScanner.ClassifyAsyncMethod(
+                _reader,
+                ownerMethod)
+            == MethodClassification.RuntimeAsync
+            && HasAnalyzableIlBody(ownerMethod))
+        {
+            return new(
+                ownerMethod.GetDeclaringType(),
+                ownerHandle);
         }
 
         if (!_asyncSourceResolver
@@ -636,6 +698,60 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             _reader.GetMethodDefinition(moveNextHandle).GetDeclaringType(),
             moveNextHandle);
     }
+
+    bool IsManagedEntryPoint(
+        MethodDefinitionHandle entryPointHandle)
+    {
+        MethodDefinition entryPoint =
+            _reader.GetMethodDefinition(entryPointHandle);
+        if (!HasAnalyzableIlBody(entryPoint)
+            || (entryPoint.Attributes
+                    & MethodAttributes.Static) == 0)
+            return false;
+
+        MemberRef method = MemberResolver.ResolveMethod(
+            _reader,
+            entryPointHandle,
+            GenericScope.Empty);
+        bool supportedParameters =
+            method.ParameterTypes.Length == 0
+            || method.ParameterTypes is
+            [
+                {
+                    Kind: TypeRefKind.SzArray,
+                    ElementType: { } element,
+                },
+            ]
+                && FrameworkIdentity.IsCoreLibraryType(
+                    element,
+                    "System",
+                    "String");
+        return !method.HasThis
+            && method.GenericArity == 0
+            && method.SignatureHeader == 0x00
+            && method.RequiredParameterCount
+                == method.ParameterTypes.Length
+            && supportedParameters
+            && (FrameworkIdentity.IsCoreLibraryType(
+                    method.ReturnType,
+                    "System",
+                    "Void")
+                || FrameworkIdentity.IsCoreLibraryType(
+                    method.ReturnType,
+                    "System",
+                    "Int32"));
+    }
+
+    static bool HasAnalyzableIlBody(
+        MethodDefinition method)
+        => method.RelativeVirtualAddress != 0
+            && (method.Attributes
+                    & MethodAttributes.PinvokeImpl) == 0
+            && (method.ImplAttributes
+                    & (MethodImplAttributes.CodeTypeMask
+                        | MethodImplAttributes.ManagedMask
+                        | MethodImplAttributes.InternalCall))
+                == MethodImplAttributes.IL;
 
     MethodBodyReferenceEvidence MethodBodyReferences(
         MethodDefinitionHandle methodHandle)

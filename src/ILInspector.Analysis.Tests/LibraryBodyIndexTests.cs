@@ -4643,6 +4643,47 @@ public class LibraryBodyIndexTests
         Assert.Null(index.ResolveDeclaredMethod(lifted));
     }
 
+    [Fact]
+    public void
+        LiftedOwners_TopLevelRejectsMalformedManagedEntryPoint()
+    {
+        byte[] image =
+            BuildMalformedAsyncSourceAssembly(
+                malformedTopLevelEntryPoint: true);
+        var index = LibraryBodyIndex.OpenFromPrefetchedImage(
+            "MalformedTopLevelEntryPoint.exe",
+            [.. image],
+            LibraryBodyAnalysisFeatures.Default);
+        MethodIdentity lifted = Assert.Single(
+            index.Methods,
+            method => method.Name
+                == "<<Main>$>g__Local|0_0");
+
+        Assert.Null(index.ResolveDeclaredMethod(lifted));
+    }
+
+    [Theory]
+    [InlineData(IteratorOwnershipProbe.ExplicitMoveNextDecoy)]
+    [InlineData(IteratorOwnershipProbe.DuplicateOwners)]
+    [InlineData(IteratorOwnershipProbe.AsyncIteratorWrongKind)]
+    public void
+        LiftedOwners_RejectUnauthenticatedIteratorExecution(
+            IteratorOwnershipProbe probe)
+    {
+        byte[] image =
+            BuildIteratorOwnershipAssembly(probe);
+        var index = LibraryBodyIndex.OpenFromPrefetchedImage(
+            "IteratorOwnership.dll",
+            [.. image],
+            LibraryBodyAnalysisFeatures.Default);
+        MethodIdentity lifted = Assert.Single(
+            index.Methods,
+            method => method.Name
+                == "<OwnerA>g__Local|0_0");
+
+        Assert.Null(index.ResolveDeclaredMethod(lifted));
+    }
+
     [Theory]
     [InlineData(true, false, false)]
     [InlineData(false, true, false)]
@@ -4702,6 +4743,272 @@ public class LibraryBodyIndexTests
         }
     }
 
+    public enum IteratorOwnershipProbe
+    {
+        ExplicitMoveNextDecoy,
+        DuplicateOwners,
+        AsyncIteratorWrongKind,
+    }
+
+    static byte[] BuildIteratorOwnershipAssembly(
+        IteratorOwnershipProbe probe)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(
+                "IteratorOwnership.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("IteratorOwnership"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        AssemblyReferenceHandle systemRuntime =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(11, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(
+                    new byte[]
+                    {
+                        0xB0,
+                        0x3F,
+                        0x5F,
+                        0x7F,
+                        0x11,
+                        0xD5,
+                        0x0A,
+                        0x3A,
+                    }),
+                default,
+                default);
+        bool asyncIterator =
+            probe
+                == IteratorOwnershipProbe
+                    .AsyncIteratorWrongKind;
+        TypeReferenceHandle stateMachineAttribute =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                metadata.GetOrAddString(
+                    asyncIterator
+                        ? "AsyncIteratorStateMachineAttribute"
+                        : "IteratorStateMachineAttribute"));
+        TypeReferenceHandle stateMachineInterface =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString(
+                    asyncIterator
+                        ? "System.Runtime.CompilerServices"
+                        : "System.Collections"),
+                metadata.GetOrAddString(
+                    asyncIterator
+                        ? "IAsyncStateMachine"
+                        : "IEnumerator"));
+        TypeReferenceHandle systemType =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Type"));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle sourceType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Sealed,
+                metadata.GetOrAddString("Sample"),
+                metadata.GetOrAddString("Source"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle stateMachineType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.NestedPrivate
+                    | TypeAttributes.Sealed,
+                default,
+                metadata.GetOrAddString(
+                    "<OwnerA>d__0"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(4));
+        metadata.AddNestedType(
+            stateMachineType,
+            sourceType);
+        metadata.AddInterfaceImplementation(
+            stateMachineType,
+            stateMachineInterface);
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder =
+            new MethodBodyStreamEncoder(bodies);
+        static int AddRetBody(
+            MethodBodyStreamEncoder encoder)
+        {
+            var il = new BlobBuilder();
+            var instructions =
+                new InstructionEncoder(il);
+            instructions.OpCode(ILOpCode.Ret);
+            return encoder.AddMethodBody(
+                instructions,
+                maxStack: 0);
+        }
+        BlobHandle staticVoidSignature =
+            metadata.GetOrAddBlob(
+                new byte[] { 0x00, 0x00, 0x01 });
+        BlobHandle moveNextSignature =
+            metadata.GetOrAddBlob(
+                asyncIterator
+                    ? new byte[] { 0x20, 0x00, 0x01 }
+                    : new byte[] { 0x20, 0x00, 0x02 });
+        MethodDefinitionHandle ownerA =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("OwnerA"),
+                staticVoidSignature,
+                AddRetBody(bodyEncoder),
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle ownerB =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("OwnerB"),
+                staticVoidSignature,
+                AddRetBody(bodyEncoder),
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle local =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(
+                    "<OwnerA>g__Local|0_0"),
+                staticVoidSignature,
+                AddRetBody(bodyEncoder),
+                MetadataTokens.ParameterHandle(1));
+
+        var actualIl = new BlobBuilder();
+        if (probe
+            != IteratorOwnershipProbe
+                .ExplicitMoveNextDecoy)
+        {
+            actualIl.WriteByte((byte)ILOpCode.Call);
+            actualIl.WriteInt32(
+                MetadataTokens.GetToken(local));
+        }
+        if (!asyncIterator)
+            actualIl.WriteByte((byte)ILOpCode.Ldc_i4_0);
+        actualIl.WriteByte((byte)ILOpCode.Ret);
+        MethodDefinitionHandle actualMoveNext =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | MethodAttributes.Virtual,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(
+                    asyncIterator
+                        ? "MoveNext"
+                        : "ActualMoveNext"),
+                moveNextSignature,
+                bodyEncoder.AddMethodBody(
+                    new InstructionEncoder(actualIl),
+                    maxStack: 1),
+                MetadataTokens.ParameterHandle(1));
+
+        if (probe
+            == IteratorOwnershipProbe
+                .ExplicitMoveNextDecoy)
+        {
+            var decoyIl = new BlobBuilder();
+            decoyIl.WriteByte((byte)ILOpCode.Call);
+            decoyIl.WriteInt32(
+                MetadataTokens.GetToken(local));
+            decoyIl.WriteByte(
+                (byte)ILOpCode.Ldc_i4_0);
+            decoyIl.WriteByte((byte)ILOpCode.Ret);
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Virtual,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("MoveNext"),
+                moveNextSignature,
+                bodyEncoder.AddMethodBody(
+                    new InstructionEncoder(decoyIl),
+                    maxStack: 1),
+                MetadataTokens.ParameterHandle(1));
+        }
+
+        if (!asyncIterator)
+        {
+            MemberReferenceHandle declaration =
+                metadata.AddMemberReference(
+                    stateMachineInterface,
+                    metadata.GetOrAddString("MoveNext"),
+                    moveNextSignature);
+            metadata.AddMethodImplementation(
+                stateMachineType,
+                actualMoveNext,
+                declaration);
+        }
+
+        MemberReferenceHandle constructor =
+            metadata.AddMemberReference(
+                stateMachineAttribute,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(
+                    new byte[]
+                    {
+                        0x20,
+                        0x01,
+                        0x01,
+                        0x12,
+                        (byte)CodedIndex
+                            .TypeDefOrRefOrSpec(
+                                systemType),
+                    }));
+        const string SerializedStateMachine =
+            "Sample.Source+<OwnerA>d__0, IteratorOwnership";
+        AddAsyncStateMachineAttribute(
+            metadata,
+            ownerA,
+            constructor,
+            SerializedStateMachine);
+        if (probe
+            == IteratorOwnershipProbe.DuplicateOwners)
+        {
+            AddAsyncStateMachineAttribute(
+                metadata,
+                ownerB,
+                constructor,
+                SerializedStateMachine);
+        }
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
     static byte[] BuildMalformedAsyncSourceAssembly(
         bool ambiguousSource = false,
         bool malformedMoveNextMethodImpl = false,
@@ -4713,6 +5020,7 @@ public class LibraryBodyIndexTests
         bool malformedAnalyzeConstructor = false,
         bool forgedStateMachineOwnerEvidence = false,
         bool forgedTopLevelOwnerEvidence = false,
+        bool malformedTopLevelEntryPoint = false,
         bool crossKindDuplicate = false,
         bool crossKindIteratorFirst = false)
     {
@@ -4873,6 +5181,7 @@ public class LibraryBodyIndexTests
                 metadata.GetOrAddString("BrokenAsync"),
                 metadata.GetOrAddBlob(new byte[] { 0x00 }),
                 forgedTopLevelOwnerEvidence
+                    || malformedTopLevelEntryPoint
                     ? entryPointBody
                     : AddRetBody(bodyEncoder),
                 MetadataTokens.ParameterHandle(1));
@@ -4914,6 +5223,7 @@ public class LibraryBodyIndexTests
                     forgedStateMachineOwnerEvidence
                         ? "<AnalyzeAsync>g__Local|0_0"
                         : forgedTopLevelOwnerEvidence
+                            || malformedTopLevelEntryPoint
                             ? "<<Main>$>g__Local|0_0"
                         : "CompetingAsync"),
                 taskSignature,
@@ -4928,6 +5238,7 @@ public class LibraryBodyIndexTests
                     unresolvedLiftedSource
                         ? "<Outer>b__0_0"
                         : forgedTopLevelOwnerEvidence
+                            || malformedTopLevelEntryPoint
                             ? "<Main>$"
                         : "AnalyzeAsync"),
                 malformedAnalyzeSignature
@@ -4971,6 +5282,7 @@ public class LibraryBodyIndexTests
             MetadataTokens.GetToken(
                 forgedStateMachineOwnerEvidence
                     || forgedTopLevelOwnerEvidence
+                    || malformedTopLevelEntryPoint
                     ? competing
                     : read));
         moveNextIl.WriteByte((byte)ILOpCode.Ret);
@@ -5156,6 +5468,7 @@ public class LibraryBodyIndexTests
 
         var pe = new ManagedPEBuilder(
             forgedTopLevelOwnerEvidence
+                || malformedTopLevelEntryPoint
                 ? PEHeaderBuilder.CreateExecutableHeader()
                 : PEHeaderBuilder.CreateLibraryHeader(),
             new MetadataRootBuilder(
@@ -5163,6 +5476,7 @@ public class LibraryBodyIndexTests
                 suppressValidation: true),
             bodies,
             entryPoint: forgedTopLevelOwnerEvidence
+                    || malformedTopLevelEntryPoint
                 ? broken
                 : default,
             flags: CorFlags.ILOnly);
@@ -11315,6 +11629,35 @@ public class LibraryBodyIndexTests
                     .Contains(
                         "ScopedIteratorFinallyAsyncLocalAllocationOwner",
                         StringComparison.Ordinal));
+        Assert.Contains(
+            full.AllocationFanoutOpportunities,
+            opportunity => opportunity.Method.Name == "MoveNext"
+                && opportunity.Method.DeclaringType
+                    .ToQualifiedDisplayString()
+                    .Contains(
+                        "ScopedGenericIteratorFinallyAsyncLocalAllocationOwner",
+                        StringComparison.Ordinal));
+        Assert.Contains(
+            full.AllocationFanoutOpportunities,
+            opportunity => opportunity.Method.Name == "MoveNext"
+                && opportunity.Method.DeclaringType
+                    .ToQualifiedDisplayString()
+                    .Contains(
+                        "GenericIteratorOwner",
+                        StringComparison.Ordinal));
+        Assert.Contains(
+            full.AllocationFanoutOpportunities,
+            opportunity => opportunity.Method.Name == "MoveNext"
+                && opportunity.Method.DeclaringType
+                    .ToQualifiedDisplayString()
+                    .Contains(
+                        "GeneratedAsyncIteratorOwner",
+                        StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            scoped.Diagnostics,
+            diagnostic => diagnostic.Method.Contains(
+                "GeneratedAsyncIteratorOwner",
+                StringComparison.Ordinal));
         Assert.Equal(
             full.AllocationFanoutOpportunities,
             scoped.AllocationFanoutOpportunities);

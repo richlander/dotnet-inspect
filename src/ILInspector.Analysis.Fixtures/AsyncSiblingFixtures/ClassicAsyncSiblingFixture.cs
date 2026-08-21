@@ -1,3 +1,4 @@
+using System.CodeDom.Compiler;
 using System.Runtime.CompilerServices;
 
 namespace ILInspector.Analysis.ClassicAsyncFixtures;
@@ -178,6 +179,26 @@ public static class ClassicAsyncSiblingFixture
         }
     }
 
+    internal static IEnumerable<Task<object>>
+        ScopedGenericIteratorFinallyAsyncLocalAllocationOwner<T>()
+    {
+        async Task<object> BuildAsync()
+        {
+            await Task.Yield();
+            return new object();
+        }
+
+        try
+        {
+            yield return Task.FromResult<object>(
+                typeof(T));
+        }
+        finally
+        {
+            GC.KeepAlive(BuildAsync());
+        }
+    }
+
     public static Task ScopedAsyncLambdaOwner(int marker) =>
         Task.CompletedTask;
 
@@ -185,6 +206,46 @@ public static class ClassicAsyncSiblingFixture
     {
         int Core(int v) => ReadValue(v);
         return Core(value);
+    }
+
+    internal static class GenericIteratorOwner<T>
+    {
+        internal static IEnumerable<Task<object>>
+            ScopedIteratorFinallyAsyncLocalAllocationOwner()
+        {
+            async Task<object> BuildAsync()
+            {
+                await Task.Yield();
+                return new object();
+            }
+
+            try
+            {
+                yield return Task.FromResult<object>(
+                    typeof(T));
+            }
+            finally
+            {
+                GC.KeepAlive(BuildAsync());
+            }
+        }
+    }
+
+    [GeneratedCode("ILInspector.Analysis.Fixtures", "1.0")]
+    internal static class GeneratedAsyncIteratorOwner
+    {
+        internal static async IAsyncEnumerable<object>
+            StreamAsync()
+        {
+            async Task<object> BuildAsync()
+            {
+                await Task.Yield();
+                return new object();
+            }
+
+            await Task.Yield();
+            yield return await BuildAsync();
+        }
     }
 
     public static int CallsThroughSiblingLocalFunctions(int value)

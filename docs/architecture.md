@@ -783,9 +783,17 @@ Research overlay bridge, and the application layer:
   `MoveNext` bodies from the async-source resolver seed the same closure as
   ordinary owner bodies. Authenticated synchronous-iterator `MoveNext` bodies
   also seed it, and bounded traversal through methods on that same state-machine
-  type retains compiler-hoisted `finally` helpers.
+  type retains compiler-hoisted `finally` helpers, including generic
+  state-machine calls encoded as member references. Managed top-level
+  entry-point authentication requires a static supported signature and
+  analyzable IL; runtime-async top-level owners use their authenticated method
+  body directly.
   `AllocationFanout_TypeScopeAdmittingEveryFixtureTypePreservesAsyncLocals`
-  gates async locals reached through both iterator execution and those helpers.
+  gates async locals reached through iterator execution and those helpers,
+  including generic methods, generic containing types, and generated async
+  iterators. `LiftedOwners_TopLevelRejectsMalformedManagedEntryPoint` and the
+  runtime-async `OptimizationOpportunities_AsyncTopLevelLocalFunction_IsReported`
+  gate the top-level close cases.
   It consumes primary metadata identity, generated-code
   judgments, and async execution mapping rather than duplicating them. Scoped
   closure failures are retained as analysis diagnostics rather than becoming
@@ -810,8 +818,12 @@ Research overlay bridge, and the application layer:
   execution mapping.
   `LibraryBodyAsyncSourceResolver` owns acquisition-scoped runtime, classic,
   and async-iterator source resolution; authenticated source-to-`MoveNext`
-  mapping; generated lifted-source execution mapping; and scoped evidence
-  expansion. Authenticated execution-source maps drive acquisition and
+  mapping; generated lifted-source execution mapping; synchronous-iterator
+  execution authentication for lifted-owner traversal; and scoped evidence
+  expansion. Its shared execution map preserves attribute kind, rejects
+  non-unique source claims, requires the corresponding state-machine
+  interfaces, and resolves explicit iterator `MoveNext` implementations before
+  considering a named method. Authenticated execution-source maps drive acquisition and
   per-method attribution; the scope-independent fallback contains only
   non-generated declared sources. A rejected classic state-machine mapping is
   authoritative across attribution, acquisition, and fallback, including when
@@ -830,6 +842,9 @@ Research overlay bridge, and the application layer:
   `DirectCalls_CrossKindStateMachineAttributesFailClosed` gates kind-agnostic
   duplicate detection when classic async and async-iterator attributes occur
   on the same source method.
+  `LiftedOwners_RejectUnauthenticatedIteratorExecution` gates explicit
+  synchronous-iterator implementations with named decoys, duplicate iterator
+  source claims, and async-iterator claims over classic-only state machines.
   `AsyncSource_MethodImplRequiresValidSourceMethodShape` gates the kickoff and
   state-machine body requirements. The resolver reuses primary metadata
   identity and generated-code judgments plus the builder's shared local
