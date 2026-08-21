@@ -487,10 +487,9 @@ These are the binding invariants. The rest of this section explains them;
 driving the loop is
 [round orchestration](docs/round-orchestration.md).
 
-1. **One frozen head per round.** The lock begins at the push and ends at
-   public reconciliation. Do not edit a head while it is held; fixes belong to
-   the next cycle. Reconciliation frees you to *fix*; it does not *complete* the
-   round — see invariant 6.
+1. **One frozen head per round.** The lock begins at the push and ends when the
+   round closes — reconciled *and* green. Do not edit a head while it is held;
+   fixes belong to the next cycle.
 2. **A candidate includes its effective base.** Integrate twice before pushing
    — once before fixing, once after — because the fix window is long enough for
    `main` to move.
@@ -500,11 +499,11 @@ driving the loop is
    can earn that.
 5. **Do not post `Ready to merge` until every required review at the current
    head is review-clean.**
-6. **A round is not complete until its gates are green.** Reconciliation
-   releases the lock; the round itself ends only once every required
-   current-head check and post-push gate has succeeded. Until then the round
-   number does not advance — a check that goes red first makes the next push a
-   failed-gate restart at the *same* number, not the next round.
+6. **A round closes only when reconciled and green.** Both: the feedback is
+   publicly reconciled, and every required current-head check and post-push gate
+   has succeeded. Until then the round number does not advance — a check that
+   goes red first makes the next push a failed-gate restart at the *same*
+   number, not the next round.
 7. **Six rounds, then stop** and ask for another block.
 8. **Never merge without explicit user authorization** for that specific PR.
    Auto-merge armed at the user's direction is that authorization; see
@@ -518,8 +517,8 @@ reviewer, stack, or readiness detail without redefining these transitions.
 
 #### The round cycle
 
-Steps 1-5 run with no lock held. The lock begins at the push and ends at
-reconciliation.
+Steps 1-5 run with no lock held. The lock begins at the push and ends when the
+round closes at step 10.
 
 1. **Integrate** the effective base, so the work is written against current
    `main` rather than against history.
@@ -536,13 +535,12 @@ reconciliation.
    parallel with CI. A conflict or a failed check here does not mean waiting
    longer; take the matching [recovery transition](#recovery-transitions).
 8. **Review**: dispatch every required reviewer at that exact head.
-9. **Reconcile** the feedback publicly. The lock ends here — you may begin
-   fixing. The round does not end here; it ends when its gates go green
-   (invariant 6).
-10. **Report.** Emit the round report as your visible response before starting
-    the next round. It is required, and the format is in [the round
-    report](docs/round-orchestration.md#the-round-report). If the reconciliation
-    produced fixes, the next round begins at step 1.
+9. **Reconcile** the feedback publicly.
+10. **Close the round** once it is also green (invariant 6). The lock ends here,
+    and only here is the round number spent. Emit the round report as your
+    visible response — required, format in [the round
+    report](docs/round-orchestration.md#the-round-report) — and if the
+    reconciliation produced fixes, the next round begins at step 1.
 
 **Two integrations per round, both before the push.** The first makes the work
 current; the second closes the window the fix itself opened, which can be an
@@ -566,10 +564,10 @@ The user may direct that a round run in parallel with CI, waiving the green
 `ci-required` requirement in the rows above; see [Standing
 adjustments](#standing-adjustments).
 
-The head lock ends at public reconciliation, which frees you to fix. The round
-ends later, when current-head zero-conflict evidence is confirmed and every
-required current-head check and concurrent local gate has succeeded. The fixed
-replacement is a new candidate and its review is a new round.
+The head lock ends when the round closes: reconciled, current-head
+zero-conflict evidence confirmed, and every required current-head check and
+concurrent local gate succeeded. The fixed replacement is a new candidate and
+its review is a new round.
 
 #### Review-clean, and what it gates
 
@@ -709,6 +707,14 @@ Carrying forward is the sole default path that integrates the base when no
 conflict, review-driven fix, author change, current-head merge-path failure,
 required cascading restack, or explicit user workflow adjustment has ended the
 candidate.
+
+**Carry forward only a non-interacting range.** If the analyzed range cannot
+affect the change and the user approves, integrate it and carry the clean
+reviews without another round; if the live tip moves before you integrate,
+analyze the additional range and obtain renewed approval. **If it can affect the
+change**, carry-forward is unavailable: keep the reviewed head, say the PR is
+not merge-ready, and ask whether to adjust the workflow to integrate,
+re-validate, and re-review the replacement head, or to leave the PR blocked.
 
 **Repeat it whenever the base moves again**; a carried-forward head is
 review-clean, and each pass needs its own analysis and its own approval. **A
