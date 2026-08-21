@@ -60,7 +60,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
             out string? name,
             out RelationshipTraversalRejection? rejection);
         MetadataTypeNameParts? metadataName = resolved
-            ? TypeResolver.GetTypeNamePartsFromDefinition(reader, handle)
+            ? WithTrustedArity(reader, handle, TypeResolver.GetTypeNamePartsFromDefinition(reader, handle))
             : null;
         var read = new NamedTypeRead(
             resolved,
@@ -70,6 +70,35 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
             materializationWork);
         Cache(reader, handle, read);
         return ReadNamedType(read, rawTypeKind);
+    }
+
+    /// <summary>
+    /// Attaches metadata-verified, per-segment introduced generic-parameter
+    /// counts along <paramref name="handle"/>'s declaring chain, so nested-type
+    /// rendering can recover a segment's true arity even when its raw name lacks
+    /// a canonical <c>`N</c> suffix (#4507). Scoped to <see cref="TypeDefinitionHandle"/>
+    /// (a local declaration): a <see cref="TypeReferenceHandle"/> has no
+    /// equivalent trusted source without loading the referenced assembly, which
+    /// this product does not do.
+    /// </summary>
+    static MetadataTypeNameParts WithTrustedArity(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        MetadataTypeNameParts metadataName)
+    {
+        try
+        {
+            List<int> counts = MetadataDeclarationQuery.GetIntroducedTypeParameterCounts(reader, handle);
+            return metadataName.WithIntroducedTypeParameterCounts(counts);
+        }
+        catch (BadImageFormatException)
+        {
+            // A malformed declaring/generic-parameter relationship here does not
+            // change what TryGetTypeNameFromDefinition already resolved; fall
+            // back to raw-name-only arity rather than rejecting a name the
+            // caller already trusts.
+            return metadataName;
+        }
     }
 
     public TypeNode GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
