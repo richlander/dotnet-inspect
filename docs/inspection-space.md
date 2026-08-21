@@ -694,17 +694,14 @@ names the owner-issued access for that first projection the admission lease.
 Before its first adapter call, the workspace reserves the complete
 multi-source plan against aggregate artifact-count, peak-acquisition-byte, and
 retained-byte budgets that also include concurrent admissions and retained
-generations. Publication releases unused capacity only for materialized
-content; a deferred artifact keeps its full acquisition and retained-byte
-reservation until successful materialization or terminal cleanup. Its identity,
-count, digest, and bounds are fixed before sealing; deferral can fill bytes but
-cannot mutate the catalog. Later authorized opens join one owner-serialized
-materialization flight, including across Browser/Wasm awaited reentrancy.
-Independent identity and budget validation precedes atomic publication or
-typed terminal failure. That reservation is distinct from each adapter's
-transport/archive limits and the assembly group's image budget. Later queries
-receive separate query leases and must reauthorize the retained catalog
-generation before participant selection.
+generations. Before atomic publication, admission materializes every selected
+logical artifact into retained immutable content, validates identity and every
+budget dimension, and projects all required assembly participants. Later opens
+use only that retained content; they perform no source acquisition, archive
+expansion, participant minting, or catalog mutation. This reservation is
+distinct from each adapter's transport/archive limits and the assembly group's
+image budget. Later queries receive separate query leases and must reauthorize
+the retained catalog generation before participant selection.
 
 Hosts statically register the bundles they choose to ship. Excluded bundles and
 their definitions and embedded artifact bytes do not enter the build. Included

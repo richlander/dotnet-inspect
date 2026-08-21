@@ -208,54 +208,32 @@ failure before acquisition begins; it does not silently omit a member or
 shorten the context.
 
 Adapters still enforce source-specific download, enumeration, archive, and
-expansion limits inside that reservation. Publication commits the
-artifact-count charge for every sealed catalog member. It also commits actual
-usage for materialized content, rejects an outcome that exceeds its
-reservation, and releases only capacity whose usage is then known. A deferred
-artifact keeps its full peak acquisition/expansion and retained-byte
-reservation after publication. Deferral is bytes-only: the sealed catalog
-already contains the artifact identities, count, immutable coordinates,
-digests, and declared byte ceilings. Materialization may fill those entries but
-cannot discover or add catalog members. An adapter that cannot authenticate
-those facts without opening the content must materialize it before publication.
+expansion limits inside that reservation. Before sealing, every admitted
+artifact's exact logical bytes are materialized into an immutable retained
+snapshot or content-addressed store. Archive entries are expanded into their
+selected logical artifacts at this boundary, not on a later query open.
 
-Each deferred artifact has one owner-serialized state machine:
+The owner independently validates artifact identity, count, digest, and every
+byte dimension before publication. An identity mismatch or reservation overrun
+is a typed admission failure, never an over-commit. The admission lease then
+opens those retained bytes, decodes managed metadata, and creates every
+assembly participant required by the context. A missing, colliding,
+non-projectable, or binding-incompatible required participant fails admission;
+the workspace publishes neither a shortened group nor a partial session.
 
-```text
-Reserved -> Materializing -> Materialized
-                         |-> Reserved
-                         `-> Terminal
-```
+Publication atomically commits the sealed catalog, all projected participants,
+the artifact-count charge, and actual retained-byte charges. It releases the
+peak-acquisition reservation and unused retained remainder only after that
+commit. Query leases may later open the retained logical bytes, but those opens
+perform no source acquisition, archive traversal or expansion, participant
+minting, or catalog mutation.
 
-The owner enters `Materializing` before calling the adapter. Concurrent
-authorized openers join that flight and observe its outcome; they neither start
-another acquisition nor consume the reservation again. This transition and
-joining rule also apply under single-threaded awaited reentrancy.
-
-On success, the owner independently validates content identity, artifact count,
-and every byte dimension before atomically publishing `Materialized`. An
-identity mismatch or reservation overrun is a typed terminal materialization
-failure, never an over-commit. Successful materialization replaces the
-deferred retained-byte reservation with the actual retained charge, releases
-the peak-acquisition reservation and unused retained remainder, and keeps the
-artifact-count charge and actual retained charge until dependent groups
-quiesce.
-
-A retryable failure or cancellation retains the reservation and returns to
-`Reserved` only after every partial download, expansion, and returned lease
-from the failed flight is cleaned up. A terminal failure enters `Terminal` only
-after that cleanup, releases the peak and retained-byte reservation, and keeps
-the sealed artifact-count charge until session quiescence. No retry or terminal
-release can overlap an active flight. Joining callers revalidate their own
-query leases. Cancelling one wait detaches that caller without starting a
-second flight or relabeling the shared outcome; the owner requests adapter
-cancellation when disposal closes the session or no authorized waiter remains.
+A rejected or cancelled admission releases its reservation only after every
+partial download, expansion, snapshot, and returned lease is cleaned up.
 Cancellation remains cancellation rather than becoming a failure-shaped
-result.
-
-A rejected or cancelled admission likewise releases its reservation only after
-returned leases are cleaned up. Workspace disposal beginning is not itself a
-release boundary. Storage caches and assembly groups may apply additional
+result. Workspace disposal beginning is not itself a release boundary;
+published count and retained-byte charges remain until dependent groups
+quiesce. Storage caches and assembly groups may apply additional
 physical-retention and image budgets; they do not replace the workspace
 admission budget.
 
@@ -264,11 +242,11 @@ threads or blocking locks. Concurrent hosts serialize the transition;
 single-threaded Browser/Wasm hosts preserve it across awaited reentrancy, so a
 second admission cannot spend capacity already reserved by the first.
 
-An implementation may ensure stable bytes by retaining a snapshot, by retaining
-content-addressed storage, or by validating the recorded digest whenever it
-reopens content. A mutable path or expiring download URL is not sufficient
-identity. If the recorded content can no longer be opened, the operation fails
-visibly rather than reading replacement bytes.
+An implementation ensures stable bytes by retaining a snapshot or a lease on
+content-addressed storage before sealing. A later open may reopen only that
+retained content, not the source adapter's mutable path or expiring download
+URL. If retained content can no longer be opened, the operation fails visibly
+rather than reacquiring or reading replacement bytes.
 
 The workspace registers an admission operation before its first asynchronous
 adapter call and owns that operation through atomic group publication.
@@ -492,16 +470,14 @@ The adapter would:
 2. query the provider for the exact immutable run or build;
 3. retain repository, commit, PR, workflow or pipeline, job, artifact name,
    provider artifact id, and digest as provenance;
-4. authenticate selected entry identities, count, digests, and byte ceilings
-   from an immutable provider manifest, or acquire the archive eagerly when the
-   provider cannot supply those facts without opening it;
-5. contribute every selected neutral-artifact descriptor before sealing;
-6. either materialize the archive eagerly or register bytes-only deferred
-   acquisition while retaining its full workspace reservation;
-7. apply archive traversal, entry-count, expanded-size, content-identity, and
-   reservation limits without adding entries to a sealed catalog;
-8. retain the download/archive lease until the owning artifact session's
-   dependent groups are quiescent.
+4. acquire the archive during the authorized admission operation;
+5. apply archive traversal, entry-count, expanded-size, content-identity, and
+   workspace-reservation limits;
+6. materialize every selected entry as immutable retained logical content;
+7. contribute the validated neutral-artifact descriptors and content leases
+   before sealing;
+8. retain the download/archive and materialized-entry leases until the owning
+   artifact session's dependent groups are quiescent.
 
 Later queries reauthorize that provider, repository/project, run/build, and
 artifact coordinate before receiving a query access lease. Retaining the
@@ -788,12 +764,10 @@ The target remains unverified until tests equivalent to these exist:
 - `ArtifactIdentity_IsScopedToOwningGeneration`
 - `WorkspaceAdmissionBudget_RejectsAggregateMultiSourcePlanBeforeAdapterCall`
 - `WorkspaceAdmissionBudget_CountsConcurrentAndRetainedGenerations`
-- `WorkspaceAdmissionBudget_DeferredMaterializationRetainsReservation`
-- `DeferredArtifact_SealsIdentityCountDigestAndBoundsBeforePublication`
-- `DeferredMaterialization_IsSingleFlightAcrossConcurrentQueries`
-- `DeferredMaterialization_OverrunFailsTerminallyWithoutOvercommit`
-- `DeferredMaterialization_CleansRetryAndCancellationBeforeReentry`
-- `BrowserDeferredMaterialization_SingleFlightAcrossAwaitedReentrancy`
+- `ArtifactSetSession_SealingRequiresMaterializedBoundedContent`
+- `ArtifactAdmission_OverrunOrIdentityMismatchRejectsPublication`
+- `ArtifactAdmission_PublicationIncludesEveryRequiredParticipant`
+- `ArtifactOpen_AfterPublicationPerformsNoAcquisitionOrExpansion`
 - `WorkspaceAdmissionBudget_ReleasesOnlyAfterCleanupOrSessionQuiescence`
 - `DesignatedArtifactTrust_RequiresAuthorizedAdmissionRole`
 - `PlatformArtifactTrust_RequiresAuthorizedAdmissionRole`
