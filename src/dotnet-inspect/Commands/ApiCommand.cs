@@ -1223,6 +1223,7 @@ public class ApiCommand
         else
         {
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
+            writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
             if (options.PlainText)
             {
                 // Buffered rather than written straight to the console so the empty-render gate
@@ -1237,7 +1238,6 @@ public class ApiCommand
             }
             else
             {
-                writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
                 var markdownWriter = new StringWriter { NewLine = "\n" };
                 MarkoutSerializer.Serialize(
                     view, markdownWriter, new MarkdownFormatter(), ApiViewContext.Default, writerOptions);
