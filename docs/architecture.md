@@ -822,6 +822,9 @@ Research overlay bridge, and the application layer:
   `DirectCalls_SourceGeneratedAsyncCollisionCannotEscapeRejection` gates the
   close ambiguity case across caller attribution, public resolution, and
   method-scoped acquisition.
+  `DirectCalls_CrossKindStateMachineAttributesFailClosed` gates kind-agnostic
+  duplicate detection when classic async and async-iterator attributes occur
+  on the same source method.
   `AsyncSource_MethodImplRequiresValidSourceMethodShape` gates the kickoff and
   state-machine body requirements. The resolver reuses primary metadata
   identity and generated-code judgments plus the builder's shared local

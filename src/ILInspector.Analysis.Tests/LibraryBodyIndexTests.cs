@@ -4428,6 +4428,47 @@ public class LibraryBodyIndexTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void
+        DirectCalls_CrossKindStateMachineAttributesFailClosed(
+            bool iteratorAttributeFirst)
+    {
+        byte[] image =
+            BuildMalformedAsyncSourceAssembly(
+                crossKindDuplicate: true,
+                crossKindIteratorFirst:
+                    iteratorAttributeFirst);
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "CrossKindAsyncAttributes.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity source = Assert.Single(
+            index.DeclaredMethods,
+            method => method.Name == "AnalyzeAsync");
+        MethodIdentity moveNext = Assert.Single(
+            index.DeclaredMethods,
+            method => method.Name == "MoveNext"
+                && method.ParameterTypes.IsEmpty);
+        DirectCall call = Assert.Single(
+            index.DirectCalls,
+            candidate =>
+                candidate.EvidenceMethod == moveNext
+                && candidate.Callee.Name == "Read");
+
+        Assert.Equal(moveNext, call.Caller);
+        Assert.Null(index.ResolveDeclaredMethod(moveNext));
+        Assert.Contains(
+            index.Diagnostics,
+            diagnostic =>
+                diagnostic.MethodToken == source.MetadataToken
+                && diagnostic.Message.Contains(
+                    "attribute is malformed or ambiguous",
+                    StringComparison.Ordinal));
+    }
+
     [Fact]
     public void
         OptimizationOpportunities_ScopedUnresolvedLiftedSourceFailsClosed()
@@ -4527,7 +4568,9 @@ public class LibraryBodyIndexTests
         bool malformedMoveNextMethodImpl = false,
         int extraMethodCount = 0,
         bool moveNextSmallArray = false,
-        bool unresolvedLiftedSource = false)
+        bool unresolvedLiftedSource = false,
+        bool crossKindDuplicate = false,
+        bool crossKindIteratorFirst = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -4570,6 +4613,15 @@ public class LibraryBodyIndexTests
                     "System.Runtime.CompilerServices"),
                 metadata.GetOrAddString(
                     "AsyncStateMachineAttribute"));
+        TypeReferenceHandle asyncIteratorStateMachineAttribute =
+            crossKindDuplicate
+                ? metadata.AddTypeReference(
+                    systemRuntime,
+                    metadata.GetOrAddString(
+                        "System.Runtime.CompilerServices"),
+                    metadata.GetOrAddString(
+                        "AsyncIteratorStateMachineAttribute"))
+                : default;
         TypeReferenceHandle asyncStateMachine =
             metadata.AddTypeReference(
                 systemRuntime,
@@ -4814,6 +4866,23 @@ public class LibraryBodyIndexTests
                         (byte)CodedIndex.TypeDefOrRefOrSpec(
                             systemType),
                     }));
+        MemberReferenceHandle iteratorAttributeConstructor =
+            crossKindDuplicate
+                ? metadata.AddMemberReference(
+                    asyncIteratorStateMachineAttribute,
+                    metadata.GetOrAddString(".ctor"),
+                    metadata.GetOrAddBlob(
+                        new byte[]
+                        {
+                            0x20,
+                            0x01,
+                            0x01,
+                            0x12,
+                            (byte)CodedIndex
+                                .TypeDefOrRefOrSpec(
+                                    systemType),
+                        }))
+                : default;
         AddAsyncStateMachineAttribute(
             metadata,
             broken,
@@ -4847,11 +4916,31 @@ public class LibraryBodyIndexTests
                 attributeConstructor,
                 "Sample.Source+<AnalyzeAsync>d__1, MalformedAsyncSource");
         }
+        const string AnalyzeStateMachine =
+            "Sample.Source+<AnalyzeAsync>d__1, MalformedAsyncSource";
+        if (!iteratorAttributeConstructor.IsNil
+            && crossKindIteratorFirst)
+        {
+            AddAsyncStateMachineAttribute(
+                metadata,
+                analyze,
+                iteratorAttributeConstructor,
+                AnalyzeStateMachine);
+        }
         AddAsyncStateMachineAttribute(
             metadata,
             analyze,
             attributeConstructor,
-            "Sample.Source+<AnalyzeAsync>d__1, MalformedAsyncSource");
+            AnalyzeStateMachine);
+        if (!iteratorAttributeConstructor.IsNil
+            && !crossKindIteratorFirst)
+        {
+            AddAsyncStateMachineAttribute(
+                metadata,
+                analyze,
+                iteratorAttributeConstructor,
+                AnalyzeStateMachine);
+        }
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),

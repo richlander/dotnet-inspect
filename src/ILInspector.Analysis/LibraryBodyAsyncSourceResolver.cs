@@ -911,6 +911,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
         bool includeAsyncIterator = true)
     {
         bool sawAttribute = false;
+        bool sawIncludedAttribute = false;
         string? serializedType = null;
         foreach (var handle in attributes)
         {
@@ -918,10 +919,17 @@ internal sealed class LibraryBodyAsyncSourceResolver
             string? name = AttributeDecoder.GetAttributeTypeName(
                 _reader,
                 attribute.Constructor);
-            if (name != KnownAttributeNames.AsyncStateMachineAttribute
-                && (!includeAsyncIterator
-                    || name != KnownAttributeNames
-                        .AsyncIteratorStateMachineAttribute))
+            if (name is null)
+                continue;
+            bool isClassic =
+                name
+                    == KnownAttributeNames
+                        .AsyncStateMachineAttribute;
+            bool isAsyncIterator =
+                name
+                    == KnownAttributeNames
+                        .AsyncIteratorStateMachineAttribute;
+            if (!isClassic && !isAsyncIterator)
             {
                 continue;
             }
@@ -952,13 +960,20 @@ internal sealed class LibraryBodyAsyncSourceResolver
                     SerializedType: null);
             }
             sawAttribute = true;
+            bool included =
+                isClassic || includeAsyncIterator;
+            if (included)
+                sawIncludedAttribute = true;
 
             if (TryReadSerializedStateMachineType(
                     attribute,
                     out string? typeName))
             {
-                if (IsCurrentAssemblyStateMachineType(typeName))
+                if (included
+                    && IsCurrentAssemblyStateMachineType(typeName))
+                {
                     serializedType = typeName;
+                }
                 continue;
             }
 
@@ -969,9 +984,9 @@ internal sealed class LibraryBodyAsyncSourceResolver
                 SerializedType: null);
         }
         return new(
-            Present: sawAttribute,
+            Present: sawIncludedAttribute,
             Rejected: false,
-            Ignored: sawAttribute
+            Ignored: sawIncludedAttribute
                 && serializedType is null,
             serializedType);
     }
