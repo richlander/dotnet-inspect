@@ -1281,6 +1281,11 @@ public record OptimizationOpportunityRow(
     string? Operation,
     string? Token,
     string? EvidenceMethod,
+    string? SupportingFinding,
+    string? SupportingOperation,
+    string? SupportingToken,
+    string? SupportingEvidenceMethod,
+    string? SupportingIL,
     string Evidence,
     string Fix,
     string Priority,
@@ -1331,6 +1336,34 @@ public record OptimizationOpportunityRow(
     [MarkoutSkipNull]
     public string? EvidenceMethod { get; init; } =
         LibraryViewText.Contain(EvidenceMethod);
+
+    [MarkoutPropertyName("Supporting Finding")]
+    [MarkoutSkipNull]
+    public string? SupportingFinding { get; init; } =
+        LibraryViewText.Contain(SupportingFinding);
+
+    [MarkoutPropertyName("Supporting Operation")]
+    [MarkoutSkipNull]
+    public string? SupportingOperation { get; init; } =
+        LibraryViewText.Contain(
+            SupportingOperation);
+
+    [MarkoutPropertyName("Supporting Token")]
+    [MarkoutSkipNull]
+    public string? SupportingToken { get; init; } =
+        LibraryViewText.Contain(SupportingToken);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Supporting Evidence Method")]
+    [MarkoutSkipNull]
+    public string? SupportingEvidenceMethod
+        { get; init; } = LibraryViewText.Contain(
+            SupportingEvidenceMethod);
+
+    [MarkoutPropertyName("Supporting IL")]
+    [MarkoutSkipNull]
+    public string? SupportingIL { get; init; } =
+        LibraryViewText.Contain(SupportingIL);
 
     public string Evidence { get; init; } = Evidence;
 

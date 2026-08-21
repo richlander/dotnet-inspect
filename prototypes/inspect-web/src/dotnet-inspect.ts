@@ -1,8 +1,6 @@
 import {
   activeSourceOperationKind,
   assemblyDescriptorForType,
-  beginSourceRequestState,
-  cancelSourceRequestState,
   callGraphDiagnosticsMessage,
   callGraphTargetMatchesType,
   callGraphTargetTypeId,
@@ -30,7 +28,6 @@ import {
   retainWorkspacePackage,
   resolveLoadedGraphTargetCandidate,
   scopedRequestState,
-  sourceSurfaceIsVisible,
   sourceReloadKind,
   sourceRequestNeedsLoad,
   selectedDependencyGroup,
@@ -66,6 +63,33 @@ import {
   type WorkspaceUrlState,
   type WorkspaceView,
 } from "./workspace-navigation.ts";
+import {
+  createPackageAcquisition,
+  type AppPackage,
+} from "./package-acquisition.ts";
+import {
+  createPackageInspectionCoordinator,
+  workspaceDependencyKey,
+  type PackagePerformance,
+} from "./package-inspection.ts";
+import {
+  createSourceInspectionCoordinator,
+  type GraphSourceRequest,
+} from "./source-inspection.ts";
+import {
+  createMetadataInspectionCoordinator,
+  type AppExplorerState,
+} from "./metadata-inspection.ts";
+import {
+  createMemberDetailInspectionCoordinator,
+  type MemberFactRow,
+  type MemberFacts,
+} from "./member-detail-inspection.ts";
+import {
+  createCallGraphInspectionCoordinator,
+  type PlatformStackEntry,
+} from "./call-graph-inspection.ts";
+import { createDocumentInspectionCoordinator } from "./document-inspection.ts";
 import {
   captureMemberFocus,
   createMemberFocusRestorer,
@@ -114,7 +138,6 @@ import {
   sameFocus,
   type ExplorerFocus,
   type ExplorerTableData,
-  type ExplorerState,
   type HeapListingData,
   type PackageMetadata,
 } from "./metadata-viewer.ts";
@@ -131,22 +154,24 @@ import {
   type SpotlightResult,
   visibleSpotlightPackageHits,
 } from "./spotlight.ts";
+import { createSpotlightPackageSearch } from "./spotlight-package-search.ts";
+import {
+  compareVersionsDesc,
+  createCatalogRequests,
+  type DotnetRelease,
+} from "./catalog-requests.ts";
 import { fmtBytes, statusBarHtml } from "./status-bar.ts";
 import type {
-  BrowserAccessibilityDescriptor,
   BrowserAnnotatedSource,
-  BrowserAssemblySurface,
   BrowserAssemblyReference,
   BrowserBuildIdentity,
   BrowserCallGraph,
   BrowserCallGraphTarget,
-  BrowserMemberDocumentation,
   BrowserMemberSurface,
   BrowserPackageCacheStats,
   BrowserPackageDependencies,
   BrowserPackageDependencyGroup,
   BrowserPackageDocument,
-  BrowserPackageDocumentContent,
   BrowserPackageIntegrations,
   BrowserPackageOpportunities,
   BrowserPackageSurface,
@@ -273,15 +298,6 @@ interface AppMemberSurface extends BrowserMemberSurface {
   documentationLoaded?: boolean;
 }
 
-interface AppExplorerState extends ExplorerState {
-  isPlatform: boolean;
-  pack: string | null;
-  packageId: string;
-  version: string;
-  framework: string;
-  pendingScroll: boolean;
-}
-
 function loadStoredTaste() {
   try {
     const value = JSON.parse(localStorage.getItem("inspect-taste") || "[]");
@@ -339,30 +355,6 @@ function loadPlatformRecent() {
 
 type RetryAction = (() => unknown) | null;
 
-interface AppPackage {
-  id: string;
-  version: string;
-  frameworks: string[];
-  activeFramework: string;
-  assembly: string;
-  assemblyId: string;
-  assemblyAsset: string;
-  source:
-    | { kind: "file" }
-    | { kind: "nuget.org" }
-    | { kind: "feed"; host: string }
-    | { kind: "platform" }
-    | { kind: "unknown" };
-  assemblies: BrowserAssemblySurface[];
-  types: BrowserTypeSurface[];
-  accessibility: BrowserAccessibilityDescriptor[];
-  totalTypes: number;
-  totalMembers: number;
-  documents: BrowserPackageDocument[];
-  inspectionError?: string;
-  isRuntimePack: boolean;
-}
-
 interface SpotlightCache {
   signature: string;
   pool: Array<{ pkg: AppPackage; type: BrowserTypeSurface }>;
@@ -385,17 +377,6 @@ interface SpotlightMemberCache {
   pool: SpotlightMemberCandidate[];
 }
 
-interface DotnetRelease {
-  major: number;
-  tfm: string;
-  version: string;
-}
-
-interface PlatformStackEntry {
-  graph: BrowserCallGraph;
-  title: string;
-}
-
 interface PlatformRecent {
   assembly: string;
   pack: string;
@@ -405,67 +386,6 @@ interface RecentPackage {
   id: string;
   version: string;
   framework: string;
-}
-
-interface PackagePerformanceMember {
-  assembly: string;
-  typeId: string;
-  memberName: string;
-  metadataToken: number;
-  opportunityCount: number;
-  inLoopCount: number;
-  shapes: string[];
-  confidence: string;
-}
-
-interface PackagePerformance {
-  members: PackagePerformanceMember[];
-  inspectionError?: string;
-  nonPublicOpportunities: number;
-  totalOpportunities: number;
-}
-
-interface MemberFactRow {
-  offset: string;
-  [key: string]: unknown;
-}
-
-interface MemberFacts {
-  signals: {
-    allocations: number;
-    copies: number;
-    reflection: number;
-    throws: number;
-    catches: number;
-    finallys: number;
-    unsafe: boolean;
-    allocatesInLoop: boolean;
-  };
-  allocations: Array<MemberFactRow & { inLoop?: boolean }>;
-  calls: MemberFactRow[];
-  safety: MemberFactRow[];
-  exceptionRegions: MemberFactRow[];
-  performanceOpportunities: Array<{
-    shape: string;
-    confidence: string;
-    offset?: string;
-    evidence: string;
-    fix: string;
-    caveat?: string;
-    provenance?: string;
-    finding?: string;
-  }>;
-}
-
-interface GraphSourceRequest {
-  packageId: string;
-  version: string;
-  framework: string;
-  assembly: string;
-  type: string;
-  member: string;
-  selectorKey: string;
-  metadataToken: number;
 }
 
 interface Diagnostics {
@@ -683,6 +603,169 @@ interface StateOverrides {
 type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides;
 
 const state = initialState as AppState;
+const sourceInspection = createSourceInspectionCoordinator({
+  state,
+  queryMemberSource: request => inspectMemberSource(
+    request.packageId,
+    request.version,
+    request.framework,
+    request.assembly,
+    request.type,
+    request.member,
+    request.selectorKey,
+    request.metadataToken,
+    request.taste),
+  queryTypeSource: request => inspectTypeSource(
+    request.packageId,
+    request.version,
+    request.framework,
+    request.assembly,
+    request.type,
+    request.taste),
+  queryGraphSource: (request, taste) => inspectTypeMemberSource(
+    request.packageId,
+    request.version,
+    request.framework,
+    request.assembly,
+    request.type,
+    request.member,
+    request.selectorKey,
+    request.metadataToken,
+    taste),
+  cancelEngineSourceRequest: () => cancelSourceInspection?.(),
+  describeError: errorMessage,
+  render,
+  renderPreservingMemberFocus,
+});
+const metadataInspection = createMetadataInspectionCoordinator({
+  state,
+  queryTypeMetadata: request => inspectTypeProjection(
+    request.packageId,
+    request.version,
+    request.framework,
+    request.assembly,
+    request.type),
+  queryPackageTable: async (explorer, index, startRowId, maxRows) =>
+    parseEngineJson<ExplorerTableData>(
+      await inspectPackageMetadataTable(
+        explorer.packageId,
+        explorer.version,
+        explorer.framework,
+        explorer.assemblyFileName,
+        index,
+        startRowId,
+        maxRows)),
+  queryPlatformTable: async (explorer, index, startRowId, maxRows) =>
+    parseEngineJson<ExplorerTableData>(
+      await inspectPlatformMetadataTable(
+        explorer.framework,
+        explorer.assemblyFileName,
+        explorer.pack || "",
+        index,
+        startRowId,
+        maxRows)),
+  queryPackageHeap: async (explorer, heapName) =>
+    parseEngineJson<HeapListingData>(
+      await inspectPackageHeapEntries(
+        explorer.packageId,
+        explorer.version,
+        explorer.framework,
+        explorer.assemblyFileName,
+        heapName)),
+  queryPlatformHeap: async (explorer, heapName) =>
+    parseEngineJson<HeapListingData>(
+      await inspectPlatformHeapEntries(
+        explorer.framework,
+        explorer.assemblyFileName,
+        explorer.pack || "",
+        heapName)),
+  describeError: errorMessage,
+  render,
+  renderPreservingMemberFocus,
+  scrollExplorerToFocus: explorerScrollToFocus,
+});
+const memberDetailInspection = createMemberDetailInspectionCoordinator({
+  state,
+  queryDocumentation: (request, documentationId) =>
+    inspectMemberDocumentation(
+      request.packageId,
+      request.version,
+      request.framework,
+      request.assembly,
+      documentationId),
+  queryAnnotated: async request => {
+    const result = await inspectMemberAnnotatedSource(
+      request.packageId,
+      request.version,
+      request.framework,
+      request.assembly,
+      request.typeIdentity,
+      request.type,
+      request.member,
+      request.memberSignature,
+      request.selectorKey,
+      request.metadataToken,
+      request.taste);
+    const document = result.document;
+    validateAnnotatedSourceDocument(document);
+    return { ...result, document };
+  },
+  queryFacts: async request =>
+    parseEngineJson<MemberFacts>(
+      await inspectMemberFacts(
+        request.packageId,
+        request.version,
+        request.framework,
+        request.assembly,
+        request.type,
+        request.member,
+        request.memberSignature)),
+  describeError: errorMessage,
+  render,
+  renderPreservingMemberFocus,
+});
+const callGraphInspection = createCallGraphInspectionCoordinator({
+  state,
+  queryWorkspace: (request, workspace) => inspectMemberCallGraph(
+    request.packageId,
+    request.version,
+    request.framework,
+    request.assembly,
+    request.typeIdentity,
+    request.type,
+    request.member,
+    request.memberSignature,
+    request.selectorKey,
+    request.metadataToken,
+    JSON.stringify(workspace)),
+  queryPlatform: async request =>
+    parseEngineJson<BrowserCallGraph>(
+      await inspectExpandPlatformCallGraph(
+        request.framework,
+        request.assembly,
+        request.type,
+        request.member,
+        request.selectorKey,
+        request.metadataToken)),
+  describeError: errorMessage,
+  render,
+  renderPreservingMemberFocus,
+  renderCallGraph: renderMermaidCallGraph,
+  nextPaint,
+  refreshPackageStats,
+  patchCallGraphSection,
+});
+const documentInspection = createDocumentInspectionCoordinator({
+  state,
+  queryDocument: request => inspectPackageDocument(
+    request.packageId,
+    request.version,
+    request.document.path),
+  renderMarkdown,
+  renderMarkdownInline,
+  describeError: errorMessage,
+  render,
+});
 
 function captureView(): WorkspaceView | null {
   if (!state.package) return null;
@@ -887,6 +970,20 @@ function currentPackage(): AppPackage {
   return state.package;
 }
 
+const spotlightPackageSearch = createSpotlightPackageSearch({
+  state,
+  queryPackages: querySpotlightPackages,
+  schedule: (callback, delay) => setTimeout(() => void callback(), delay),
+  cancelScheduled: handle => clearTimeout(handle),
+  updateResults: () => spotlight.updateResults(),
+});
+const catalogRequests = createCatalogRequests({
+  state,
+  queryDotnetReleases,
+  queryPackageVersions: packageId => inspectPackageVersions(packageId),
+  updatePlatformVersionSelect,
+  updatePackageVersionSelect: updateVersionSelect,
+});
 const spotlight = createSpotlight({
   state,
   lenses,
@@ -899,8 +996,8 @@ const spotlight = createSpotlight({
   commandContext: () => !state.home && state.package
     ? { command: state.spotlightQuery, package: state.package }
     : null,
-  schedulePackageFetch: scheduleSpotlightPackageFetch,
-  resetPackageSearch: resetSpotlightPackageSearch,
+  schedulePackageFetch: spotlightPackageSearch.schedule,
+  resetPackageSearch: spotlightPackageSearch.reset,
   packageSearchLoading: () => state.spotlightPkgLoading,
   packageCount: () => state.packages.length,
   activeFramework: () => state.package?.activeFramework || "",
@@ -1764,10 +1861,7 @@ function typeDisplayName(
 }
 
 function render() {
-  if (!sourceSurfaceIsVisible(state)
-    && cancelSourceRequestState(state)) {
-    cancelSourceInspection?.();
-  }
+  sourceInspection.cancelHiddenRequest();
 
   // The Settings page is a modal-style full view layered over whatever the user came from
   // (home or a package). It owns no URL — it's a preferences panel, not shareable content —
@@ -2279,61 +2373,68 @@ function resolveDependenciesGroupIndex(
   return active?.index ?? groups[0]?.index ?? null;
 }
 
-async function loadPackageDependencies() {
-  const pkg = currentPackage();
-  const signature = packageDependenciesSignature();
-  if (state.packageDependenciesKey === signature && (state.packageDependencies || state.packageDependenciesError)) {
-    render();
-    return;
-  }
-  state.packageDependenciesKey = signature;
-  state.packageDependencies = null;
-  state.packageDependenciesError = "";
-  state.packageDependenciesLoading = true;
-  render();
-  const packageRequest = {
-    id: pkg.id,
-    version: pkg.version,
-    activeFramework: pkg.activeFramework,
-    assemblyId: pkg.assemblyId
-  };
-  const workspaceKey = workspaceDependencyKey(packageRequest);
-  try {
-    const result = await inspectPackageDependencies(
-      packageRequest.id,
-      packageRequest.version,
-      packageRequest.activeFramework,
-      packageRequest.assemblyId);
-    if (state.packageDependenciesKey === signature) state.packageDependencies = result;
-    if (result?.dependencyGroups
-      && state.packages.some(pkg => packageIdentityEquals(pkg, packageRequest))) {
-      state.workspaceDependencies[workspaceKey] = {
-        dependencyGroups: result.dependencyGroups,
-        dependencyGroupError: result.dependencyGroupError || ""
-      };
-      if (result.dependencyGroupError) {
-        state.workspaceDependencyErrors[workspaceKey] = result.dependencyGroupError;
-      } else {
-        delete state.workspaceDependencyErrors[workspaceKey];
-      }
-    }
-  } catch (error) {
-    if (state.packageDependenciesKey === signature)
-      state.packageDependenciesError = errorMessage(error);
-  } finally {
-    if (state.packageDependenciesKey === signature) state.packageDependenciesLoading = false;
-    refreshPackageStats();
-    render();
-    ensureWorkspaceDependencies();
-  }
-}
+const packageInspection = createPackageInspectionCoordinator({
+  state,
+  queryDependencies: packageModel => inspectPackageDependencies(
+    packageModel.id,
+    packageModel.version,
+    packageModel.activeFramework,
+    packageModel.assemblyId),
+  queryPackageIntegrations: packageModel => inspectPackageIntegrations(
+    packageModel.id,
+    packageModel.version,
+    packageModel.activeFramework),
+  queryPlatformIntegrations: async (framework, assemblyFileName, pack) =>
+    parseEngineJson<BrowserPackageIntegrations>(
+      await inspectPlatformIntegrations(
+        framework,
+        assemblyFileName,
+        pack)),
+  queryPackageOpportunities: packageModel => inspectPackageOpportunities(
+    packageModel.id,
+    packageModel.version,
+    packageModel.activeFramework),
+  queryPlatformOpportunities: async (framework, assemblyFileName, pack) =>
+    parseEngineJson<BrowserPackageOpportunities>(
+      await inspectPlatformOpportunities(
+        framework,
+        assemblyFileName,
+        pack)),
+  queryPackagePerformance: async packageModel =>
+    parseEngineJson<PackagePerformance>(
+      await inspectPackagePerformance(
+        packageModel.id,
+        packageModel.version,
+        packageModel.activeFramework)),
+  queryPlatformPerformance: async (framework, assemblyFileName, pack) =>
+    parseEngineJson<PackagePerformance>(
+      await inspectPlatformPerformance(
+        framework,
+        assemblyFileName,
+        pack)),
+  queryPackageMetadata: async packageModel =>
+    parseEngineJson<PackageMetadata>(
+      await inspectPackageMetadata(
+        packageModel.id,
+        packageModel.version,
+        packageModel.activeFramework)),
+  queryPlatformMetadata: async (framework, assemblyFileName, pack) =>
+    parseEngineJson<PackageMetadata>(
+      await inspectPlatformMetadata(
+        framework,
+        assemblyFileName,
+        pack)),
+  platformPackForAssembly,
+  describeError: errorMessage,
+  refreshPackageStats,
+  render,
+  renderDependencyGraph,
+});
 
-function workspaceDependencyKey(pkg: PackageIdentity) {
-  return [
-    pkg.id.toLowerCase(),
-    pkg.version.toLowerCase(),
-    pkg.activeFramework.toLowerCase()
-  ].join("@");
+async function loadPackageDependencies() {
+  return packageInspection.loadDependencies(
+    currentPackage(),
+    packageDependenciesSignature());
 }
 
 function maybeAutoLoadPackageDependencies() {
@@ -2351,50 +2452,7 @@ function maybeAutoLoadPackageDependencies() {
 // Fetches dependency manifests for every other open package so the dependency graph can
 // draw incoming "caller" edges (open packages that declare a dependency on the current one).
 async function ensureWorkspaceDependencies() {
-  const missing = state.packages.filter(item =>
-    !item.isRuntimePack
-    && !Object.hasOwn(
-      state.workspaceDependencies,
-      workspaceDependencyKey(item))
-    && !state.workspaceDependencyLoads.has(workspaceDependencyKey(item)));
-  if (!missing.length) {
-    renderDependencyGraph();
-    return;
-  }
-  for (const item of missing) {
-    const key = workspaceDependencyKey(item);
-    if (!state.packages.some(pkg => packageIdentityEquals(pkg, item))) continue;
-    state.workspaceDependencyLoads.add(key);
-    try {
-      const result = await inspectPackageDependencies(
-        item.id,
-        item.version,
-        item.activeFramework,
-        item.assemblyId);
-      if (!state.packages.some(pkg => packageIdentityEquals(pkg, item))) continue;
-      state.workspaceDependencies[key] = {
-        dependencyGroups: result?.dependencyGroups || [],
-        dependencyGroupError: result?.dependencyGroupError || ""
-      };
-      if (result?.dependencyGroupError) {
-        state.workspaceDependencyErrors[key] = result.dependencyGroupError;
-      } else {
-        delete state.workspaceDependencyErrors[key];
-      }
-    } catch (error) {
-      if (!state.packages.some(pkg => packageIdentityEquals(pkg, item))) continue;
-      state.workspaceDependencies[key] = {
-        dependencyGroups: [],
-        dependencyGroupError: ""
-      };
-      state.workspaceDependencyErrors[key] = errorMessage(error);
-    } finally {
-      state.workspaceDependencyLoads.delete(key);
-    }
-  }
-
-  if (state.atPackageRoot && state.packageLens === "dependencies") render();
-  refreshPackageStats();
+  return packageInspection.ensureWorkspaceDependencies();
 }
 
 function workspaceDependencyErrorHtml() {
@@ -2491,40 +2549,11 @@ function renderPackageIntegrations() {
 
 async function loadPackageIntegrations() {
   const pkg = currentPackage();
-  const isPlatform = pkg.isRuntimePack;
   const scopedLib = scopedPlatformLibrary();
-  // The Platform lens needs a chosen library to scan; without one the render prompts for a
-  // selection, so there is nothing to fetch yet.
-  if (isPlatform && !scopedLib) return;
-  const signature = packageIntegrationsSignature();
-  if (state.packageIntegrationsKey === signature && (state.packageIntegrations || state.packageIntegrationsError)) {
-    render();
-    return;
-  }
-  state.packageIntegrationsKey = signature;
-  state.packageIntegrations = null;
-  state.packageIntegrationsError = "";
-  state.packageIntegrationsLoading = true;
-  render();
-  try {
-    const result = isPlatform
-      ? parseEngineJson<BrowserPackageIntegrations>(
-          await inspectPlatformIntegrations(
-            pkg.activeFramework,
-            `${scopedLib}.dll`,
-            platformPackForAssembly(scopedLib ?? "")))
-      : await inspectPackageIntegrations(
-          pkg.id,
-          pkg.version,
-          pkg.activeFramework);
-    if (state.packageIntegrationsKey === signature) state.packageIntegrations = result;
-  } catch (error) {
-    if (state.packageIntegrationsKey === signature)
-      state.packageIntegrationsError = errorMessage(error);
-  } finally {
-    if (state.packageIntegrationsKey === signature) state.packageIntegrationsLoading = false;
-    render();
-  }
+  return packageInspection.loadIntegrations(
+    pkg,
+    packageIntegrationsSignature(),
+    scopedLib);
 }
 
 function maybeAutoLoadPackageIntegrations() {
@@ -2568,38 +2597,11 @@ function renderPackageOpportunities() {
 
 async function loadPackageOpportunities() {
   const pkg = currentPackage();
-  const isPlatform = pkg.isRuntimePack;
   const scopedLib = scopedPlatformLibrary();
-  if (isPlatform && !scopedLib) return;
-  const signature = packageScopeSignature();
-  if (state.packageOpportunitiesKey === signature && (state.packageOpportunities || state.packageOpportunitiesError)) {
-    render();
-    return;
-  }
-  state.packageOpportunitiesKey = signature;
-  state.packageOpportunities = null;
-  state.packageOpportunitiesError = "";
-  state.packageOpportunitiesLoading = true;
-  render();
-  try {
-    const result = isPlatform
-      ? parseEngineJson<BrowserPackageOpportunities>(
-          await inspectPlatformOpportunities(
-            pkg.activeFramework,
-            `${scopedLib}.dll`,
-            platformPackForAssembly(scopedLib ?? "")))
-      : await inspectPackageOpportunities(
-          pkg.id,
-          pkg.version,
-          pkg.activeFramework);
-    if (state.packageOpportunitiesKey === signature) state.packageOpportunities = result;
-  } catch (error) {
-    if (state.packageOpportunitiesKey === signature)
-      state.packageOpportunitiesError = errorMessage(error);
-  } finally {
-    if (state.packageOpportunitiesKey === signature) state.packageOpportunitiesLoading = false;
-    render();
-  }
+  return packageInspection.loadOpportunities(
+    pkg,
+    packageScopeSignature(),
+    scopedLib);
 }
 
 function maybeAutoLoadPackageOpportunities() {
@@ -2668,38 +2670,11 @@ function renderPackagePerformance() {
 
 async function loadPackagePerformance() {
   const pkg = currentPackage();
-  const isPlatform = pkg.isRuntimePack;
   const scopedLib = scopedPlatformLibrary();
-  if (isPlatform && !scopedLib) return;
-  const signature = packageScopeSignature();
-  if (state.packagePerformanceKey === signature && (state.packagePerformance || state.packagePerformanceError)) {
-    render();
-    return;
-  }
-  state.packagePerformanceKey = signature;
-  state.packagePerformance = null;
-  state.packagePerformanceError = "";
-  state.packagePerformanceLoading = true;
-  render();
-  try {
-    const result = parseEngineJson<PackagePerformance>(
-      isPlatform
-        ? await inspectPlatformPerformance(
-            pkg.activeFramework,
-            `${scopedLib}.dll`,
-            platformPackForAssembly(scopedLib ?? ""))
-        : await inspectPackagePerformance(
-            pkg.id,
-            pkg.version,
-            pkg.activeFramework));
-    if (state.packagePerformanceKey === signature) state.packagePerformance = result;
-  } catch (error) {
-    if (state.packagePerformanceKey === signature)
-      state.packagePerformanceError = errorMessage(error);
-  } finally {
-    if (state.packagePerformanceKey === signature) state.packagePerformanceLoading = false;
-    render();
-  }
+  return packageInspection.loadPerformance(
+    pkg,
+    packageScopeSignature(),
+    scopedLib);
 }
 
 function maybeAutoLoadPackagePerformance() {
@@ -2733,38 +2708,11 @@ function renderPackageMetadata() {
 
 async function loadPackageMetadata() {
   const pkg = currentPackage();
-  const isPlatform = pkg.isRuntimePack;
   const scopedLib = scopedPlatformLibrary();
-  if (isPlatform && !scopedLib) return;
-  const signature = packageScopeSignature();
-  if (state.packageMetadataKey === signature && (state.packageMetadata || state.packageMetadataError)) {
-    render();
-    return;
-  }
-  state.packageMetadataKey = signature;
-  state.packageMetadata = null;
-  state.packageMetadataError = "";
-  state.packageMetadataLoading = true;
-  render();
-  try {
-    const result = parseEngineJson<PackageMetadata>(
-      isPlatform
-        ? await inspectPlatformMetadata(
-            pkg.activeFramework,
-            `${scopedLib}.dll`,
-            platformPackForAssembly(scopedLib ?? ""))
-        : await inspectPackageMetadata(
-            pkg.id,
-            pkg.version,
-            pkg.activeFramework));
-    if (state.packageMetadataKey === signature) state.packageMetadata = result;
-  } catch (error) {
-    if (state.packageMetadataKey === signature)
-      state.packageMetadataError = errorMessage(error);
-  } finally {
-    if (state.packageMetadataKey === signature) state.packageMetadataLoading = false;
-    render();
-  }
+  return packageInspection.loadMetadata(
+    pkg,
+    packageScopeSignature(),
+    scopedLib);
 }
 
 function maybeAutoLoadPackageMetadata() {
@@ -2858,88 +2806,13 @@ async function loadExplorerWindow(
   startRowId = 1,
   maxRows = explorerPageSize(),
 ) {
-  const ex = state.explorer;
-  if (!ex) return;
-  const existing = ex.windows[index];
-  if (existing && (existing.loading
-      || (existing.data && existing.data.startRowId === startRowId && existing.maxRows === maxRows))) return;
-  ex.windows[index] = { loading: true, error: "", data: existing?.data || null, startRowId, maxRows };
-  render();
-  try {
-    const result = parseEngineJson<ExplorerTableData>(
-      ex.isPlatform
-        ? await inspectPlatformMetadataTable(
-            ex.framework,
-            ex.assemblyFileName,
-            ex.pack || "",
-            index,
-            startRowId,
-            maxRows)
-        : await inspectPackageMetadataTable(
-            ex.packageId,
-            ex.version,
-            ex.framework,
-            ex.assemblyFileName,
-            index,
-            startRowId,
-            maxRows));
-    if (state.explorer !== ex) return;
-    ex.windows[index] = { loading: false, error: result.error || "", data: result, startRowId, maxRows };
-  } catch (error) {
-    if (state.explorer !== ex) return;
-    ex.windows[index] = {
-      loading: false,
-      error: errorMessage(error),
-      data: null,
-      startRowId,
-      maxRows,
-    };
-  } finally {
-    if (state.explorer === ex) {
-      render();
-      if (index === ex.focusIndex && !ex.focusHeap) explorerScrollToFocus();
-    }
-  }
+  return metadataInspection.loadExplorerWindow(index, startRowId, maxRows);
 }
 
 // Lists one heap's entries via the engine (referenced-only for #Strings/#Blob, complete for
 // #GUID, nothing for #US). Cached per heap name; coverage/truncation travel with the result.
 async function loadExplorerHeap(heapName: string) {
-  const ex = state.explorer;
-  if (!ex) return;
-  const existing = ex.heapWindows[heapName];
-  if (existing && (existing.loading || existing.data)) return;
-  ex.heapWindows[heapName] = { loading: true, error: "", data: null };
-  render();
-  try {
-    const result = parseEngineJson<HeapListingData>(
-      ex.isPlatform
-        ? await inspectPlatformHeapEntries(
-            ex.framework,
-            ex.assemblyFileName,
-            ex.pack || "",
-            heapName)
-        : await inspectPackageHeapEntries(
-            ex.packageId,
-            ex.version,
-            ex.framework,
-            ex.assemblyFileName,
-            heapName));
-    if (state.explorer !== ex) return;
-    ex.heapWindows[heapName] = { loading: false, error: "", data: result };
-  } catch (error) {
-    if (state.explorer !== ex) return;
-    ex.heapWindows[heapName] = {
-      loading: false,
-      error: errorMessage(error),
-      data: null,
-    };
-  } finally {
-    if (state.explorer === ex) {
-      render();
-      if (ex.focusHeap === heapName) explorerScrollToFocus();
-    }
-  }
+  return metadataInspection.loadExplorerHeap(heapName);
 }
 // ref->def: transport to the target table+row. Every jump pushes a focus entry onto the
 // history stack so Back/Forward can walk the journey — essential once the focus panel hides
@@ -4174,11 +4047,12 @@ function bindEvents() {
       const key = name.replace(/\.dll$/i, "");
       const resident = (runtimePackPackage()?.types || []).some(type => libraryKey(type) === key);
       if (!resident) {
-        const loaded = await loadRuntimePackAssembly(
+        const runtimeResult = await loadRuntimePackAssembly(
           platformScopeTfm(),
           `${key}.dll`,
           pack,
           () => state.packages.includes(originPackage));
+        const loaded = runtimeResult.packageModel;
         if (!loaded) {
           if (isCurrent()) {
                   const noticeState: NoticeRetryState = {
@@ -4190,7 +4064,9 @@ function bindEvents() {
               openLibrary(name, pack, originPackage, noticeState);
             noticeState.action = retryAction;
             appendQueryNotice(
-              `Couldn’t load ${key}: ${state.runtimePackError || "runtime pack acquisition failed."}`,
+              `Couldn’t load ${key}: ${runtimeResult.failureMessage
+                || state.runtimePackError
+                || "runtime pack acquisition failed."}`,
               retryAction);
             noticeState.appended = state.queryNotice;
             render();
@@ -4815,51 +4691,6 @@ function spotlightResults(): SpotlightResult[] {
   return results;
 }
 
-// Debounced client-side NuGet discovery. Guards against stale queries via spotlightPkgQuery
-// and refreshes results only when the resolved query still matches the input.
-let spotlightPkgTimer: ReturnType<typeof setTimeout> | null = null;
-let spotlightPkgGeneration = 0;
-
-function resetSpotlightPackageSearch() {
-  spotlightPkgGeneration++;
-  if (spotlightPkgTimer) clearTimeout(spotlightPkgTimer);
-  spotlightPkgTimer = null;
-  state.spotlightPkgHits = [];
-  state.spotlightPkgQuery = "";
-  state.spotlightPkgLoading = false;
-}
-
-function scheduleSpotlightPackageFetch() {
-  const query = state.spotlightQuery.trim();
-  if (spotlightPkgTimer) {
-    clearTimeout(spotlightPkgTimer);
-    spotlightPkgTimer = null;
-  }
-  if (state.spotlightScope !== "all" && state.spotlightScope !== "packages") {
-    spotlightPkgGeneration++;
-    state.spotlightPkgLoading = false;
-    return;
-  }
-  if (query.length < 2) {
-    spotlightPkgGeneration++;
-    state.spotlightPkgHits = [];
-    state.spotlightPkgQuery = "";
-    state.spotlightPkgLoading = false;
-    return;
-  }
-  if (query === state.spotlightPkgQuery) {
-    spotlightPkgGeneration++;
-    state.spotlightPkgLoading = false;
-    return;
-  }
-  const generation = ++spotlightPkgGeneration;
-  state.spotlightPkgLoading = true;
-  spotlightPkgTimer = setTimeout(() => {
-    spotlightPkgTimer = null;
-    fetchSpotlightPackages(query, generation);
-  }, 220);
-}
-
 interface NugetSearchResult {
   id: string;
   version: string;
@@ -4870,52 +4701,16 @@ interface NugetSearchResponse {
   data?: NugetSearchResult[];
 }
 
-async function fetchSpotlightPackages(query: string, generation: number) {
+async function querySpotlightPackages(query: string): Promise<SpotlightPackageHit[]> {
   const url = `https://azuresearch-usnc.nuget.org/query?q=${encodeURIComponent(query)}&take=8&prerelease=true&semVerLevel=2.0.0`;
-  try {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const payload = await response.json() as NugetSearchResponse;
-    if (generation !== spotlightPkgGeneration
-      || state.spotlightQuery.trim() !== query) return;
-    state.spotlightPkgHits = (payload.data || []).map(item => ({
-      id: item.id,
-      version: item.version,
-      description: item.description || "",
-    }));
-    state.spotlightPkgQuery = query;
-  } catch (error) {
-    if (generation !== spotlightPkgGeneration
-      || state.spotlightQuery.trim() !== query) return;
-    state.spotlightPkgHits = [];
-    state.spotlightPkgQuery = query;
-  } finally {
-    if (generation === spotlightPkgGeneration
-      && state.spotlightQuery.trim() === query) {
-      state.spotlightPkgLoading = false;
-      spotlight.updateResults();
-    }
-  }
-}
-
-// Compare two NuGet SemVer-ish versions descending (newest first). Falls back to string
-// comparison for non-numeric pre-release tails so the list stays deterministic.
-function compareVersionsDesc(a: string, b: string) {
-  const parse = (value: string): Array<number | string> =>
-    value.split(/[.\-+]/).map(part =>
-      /^\d+$/.test(part) ? Number(part) : part);
-  const pa = parse(a);
-  const pb = parse(b);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const x = pa[i];
-    const y = pb[i];
-    if (x === y) continue;
-    if (x === undefined) return 1;   // shorter (release) sorts before its prerelease
-    if (y === undefined) return -1;
-    if (typeof x === "number" && typeof y === "number") return y - x;
-    return String(y).localeCompare(String(x));
-  }
-  return 0;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const payload = await response.json() as NugetSearchResponse;
+  return (payload.data || []).map(item => ({
+    id: item.id,
+    version: item.version,
+    description: item.description || "",
+  }));
 }
 
 // Build the <option> list for the version selector. Always includes the currently loaded
@@ -4952,41 +4747,37 @@ function platformVersionOptionsHtml(pkg: AppPackage) {
     .join("");
 }
 
-// Lazily fetch the .NET release channels (latest patch per major) from the dotnet/core
-// release index (CORS-enabled), keep only in-support majors (8+), cache them, and repaint the
-// Platform version selector in place. Powers the Platform version dropdown; a transient
-// failure leaves the selector on the single current-version option.
-async function ensureDotnetReleases() {
-  if (state.dotnetReleases || state.dotnetReleasesLoading) return;
-  state.dotnetReleasesLoading = true;
-  try {
-    const url = "https://raw.githubusercontent.com/dotnet/core/refs/heads/main/release-notes/releases-index.json";
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const payload = await response.json() as {
-      "releases-index"?: Array<{
-        "channel-version": string;
-        "latest-release": string;
-      }>;
-    };
-    const rows = (payload["releases-index"] || [])
-      .map(entry => {
-        const major = parseInt(entry["channel-version"], 10);
-        return { major, tfm: `net${entry["channel-version"]}`, version: entry["latest-release"] };
-      })
-      .filter(row => Number.isFinite(row.major) && row.major >= 8 && row.version)
-      .sort((a, b) => b.major - a.major);
-    state.dotnetReleases = rows;
-    if (state.package?.isRuntimePack) {
-      const select = document.querySelector("#package-version");
-      if (select) select.innerHTML = versionOptionsHtml(state.package);
-    }
-  } catch {
-    // Leave the selector on the single current-version option; a transient index failure
-    // must not break the workbench.
-  } finally {
-    state.dotnetReleasesLoading = false;
-  }
+async function queryDotnetReleases(): Promise<DotnetRelease[]> {
+  const url = "https://raw.githubusercontent.com/dotnet/core/refs/heads/main/release-notes/releases-index.json";
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const payload = await response.json() as {
+    "releases-index"?: Array<{
+      "channel-version": string;
+      "latest-release": string;
+    }>;
+  };
+  return (payload["releases-index"] || [])
+    .map(entry => {
+      const major = parseInt(entry["channel-version"], 10);
+      return {
+        major,
+        tfm: `net${entry["channel-version"]}`,
+        version: entry["latest-release"],
+      };
+    })
+    .filter(row => Number.isFinite(row.major) && row.major >= 8 && row.version)
+    .sort((a, b) => b.major - a.major);
+}
+
+function ensureDotnetReleases() {
+  return catalogRequests.ensureDotnetReleases();
+}
+
+function updatePlatformVersionSelect() {
+  if (!state.package?.isRuntimePack) return;
+  const select = document.querySelector("#package-version");
+  if (select) select.innerHTML = versionOptionsHtml(state.package);
 }
 
 // Switch the resident Platform to a different .NET major (by TFM). Drops the current
@@ -5010,14 +4801,17 @@ async function switchPlatformVersion(
   state.loadingMessage = "Loading the .NET Platform…";
   state.loadingSubtitle = `.NET Platform · ${tfm}`;
   render();
-  const loaded = await loadRuntimePack(
+  const runtimeResult = await loadRuntimePack(
     tfm,
     () => navigationSequence.isCurrent(navigationSeq));
+  const loaded = runtimeResult.packageModel;
   if (!navigationSequence.isCurrent(navigationSeq)
     || (state.package && state.package !== pkg)) return;
   if (!loaded) {
     state.loading = false;
-    state.error = state.runtimePackError || "Couldn’t load the .NET Platform.";
+    state.error = runtimeResult.failureMessage
+      || state.runtimePackError
+      || "Couldn’t load the .NET Platform.";
     state.errorTitle = "Platform failed";
     state.retryAction = () => switchPlatformVersion(tfm, pkg);
     render();
@@ -5044,30 +4838,8 @@ async function switchPlatformVersion(
   loadSelectionData();
 }
 
-// Lazily fetch the full published-version list through the engine's bounded acquisition owner,
-// cache it, and repaint the version selector in place.
-async function ensurePackageVersions(pkg: AppPackage | null) {
-  if (!pkg || pkg.isRuntimePack) return;
-  const idLower = pkg.id.toLowerCase();
-  if (state.packageVersions[idLower] || state.packageVersionsLoading[idLower]) return;
-  state.packageVersionsLoading[idLower] = true;
-  try {
-    const versions = (await inspectPackageVersions(idLower))
-      .slice()
-      .sort(compareVersionsDesc);
-    if (state.packages.some(item => item.id.toLowerCase() === idLower)) {
-      state.packageVersions[idLower] = versions;
-      updateVersionSelect(idLower);
-    }
-  } catch {
-    // Leave the selector on the single current-version option; a transient index failure
-    // must not break the workbench.
-  } finally {
-    if (state.packages.some(item => item.id.toLowerCase() === idLower))
-      state.packageVersionsLoading[idLower] = false;
-    else
-      delete state.packageVersionsLoading[idLower];
-  }
+function ensurePackageVersions(pkg: AppPackage | null) {
+  return catalogRequests.ensurePackageVersions(pkg);
 }
 
 // Repaint just the version <select> options without a full re-render, so an async index
@@ -5184,16 +4956,19 @@ async function openPlatformLibrary(
     state.loadingMessage = "Loading the platform library…";
     state.loadingSubtitle = `${key} · ${tfm}`;
     render();
-    const loaded = await loadRuntimePackAssembly(
+    const runtimeResult = await loadRuntimePackAssembly(
       tfm,
       fileName,
       pack,
       () => navigationSequence.isCurrent(navigationSeq));
+    const loaded = runtimeResult.packageModel;
     if (!navigationSequence.isCurrent(navigationSeq)) return;
     if (!loaded) {
       state.loading = false;
-      state.error = state.runtimePackError
-        ? `Couldn’t load ${key}: ${state.runtimePackError}`
+      const failureMessage =
+        runtimeResult.failureMessage || state.runtimePackError;
+      state.error = failureMessage
+        ? `Couldn’t load ${key}: ${failureMessage}`
         : `Couldn’t load ${key} from the .NET runtime pack.`;
       state.errorTitle = "Platform library failed";
       state.retryAction = options.retryAction
@@ -5798,7 +5573,7 @@ async function openRuntimePackFromHome() {
   state.loadingMessage = "Loading the .NET Platform…";
   state.loadingSubtitle = ".NET Platform · net10.0";
   render();
-  const pack = await loadRuntimePack(
+  const { packageModel: pack } = await loadRuntimePack(
     "net10.0",
     () => navigationSequence.isCurrent(navigationSeq));
   if (!navigationSequence.isCurrent(navigationSeq)) return;
@@ -5922,60 +5697,17 @@ async function loadSelectedMemberDocumentation() {
   const overload = member.overloads[state.selectedOverloadIndex ?? 0];
   if (!overload) return;
   const signature = memberRequestSignature(type, overload);
-  if (!overload?.documentationId || overload.documentationLoaded) {
-    state.memberDocumentationKey = signature;
-    state.memberDocumentationLoading = false;
-    state.memberDocumentationError = "";
-    render();
-    return;
-  }
-
-  // The runtime pseudo-package has no companion XML-documentation nupkg on nuget.org, so a
-  // doc fetch would 404. Skip it (rendering once) rather than firing a late async render()
-  // that would wipe an in-progress call-graph diagram back to its placeholder.
-  if (state.package?.isRuntimePack) {
-    overload.documentationLoaded = true;
-    state.memberDocumentationKey = signature;
-    state.memberDocumentationLoading = false;
-    state.memberDocumentationError = "";
-    render();
-    return;
-  }
-
-  if (state.memberDocumentationKey === signature && state.memberDocumentationLoading)
-    return;
   const pkg = currentPackage();
-  state.memberDocumentationKey = signature;
-  state.memberDocumentationLoading = true;
-  state.memberDocumentationError = "";
-  const preservedFocus = renderPreservingMemberFocus();
-  try {
-    const documentation = await inspectMemberDocumentation(
-      pkg.id,
-      pkg.version,
-      pkg.activeFramework,
-      type.assembly,
-      overload.documentationId);
-    if (!memberRequestIsCurrent(signature))
-      return;
-    overload.summary = documentation.summary;
-    overload.returns = documentation.returns;
-    overload.exceptions = documentation.exceptions ?? [];
-    overload.parameters = (overload.parameters ?? []).map(parameter => ({
-      ...parameter,
-      description: documentation.parameters?.[parameter.name] ?? null
-    }));
-    overload.documentationLoaded = true;
-  } catch (error) {
-    if (memberRequestIsCurrent(signature))
-      state.memberDocumentationError = errorMessage(error);
-  } finally {
-    if (state.memberDocumentationKey === signature) {
-      state.memberDocumentationLoading = false;
-      if (memberRequestIsCurrent(signature))
-        renderPreservingMemberFocus(preservedFocus);
-    }
-  }
+  return memberDetailInspection.loadDocumentation({
+    signature,
+    packageId: pkg.id,
+    version: pkg.version,
+    framework: pkg.activeFramework,
+    assembly: type.assembly,
+    overload,
+    isRuntimePack: Boolean(state.package?.isRuntimePack),
+    isCurrent: () => memberRequestIsCurrent(signature),
+  });
 }
 
 async function loadSelectedMemberSource() {
@@ -5992,53 +5724,24 @@ async function loadSelectedMemberSource() {
     return;
   }
   const signature = memberRequestSignature(type, overload, false, true);
-  if (!sourceRequestNeedsLoad(
-      state.memberSourceKey === signature,
-      state.memberSourceLoading,
-      state.memberSource,
-      state.memberSourceError)) {
-    render();
-    return;
-  }
-
-  const generation = beginSourceRequestState(state);
-  state.memberSourceKey = signature;
-  state.memberSource = null;
-  state.memberSourceLoading = true;
-  state.memberSourceError = "";
-  const preservedFocus = renderPreservingMemberFocus();
   const pkg = currentPackage();
-  try {
-    const result = await inspectMemberSource(
-      pkg.id,
-      pkg.version,
-      pkg.activeFramework,
-      type.assembly,
-      type.definitionId ?? type.id,
-      state.selectedBodyTarget?.memberName ?? overload.name,
+  return sourceInspection.loadMemberSource({
+    signature,
+    packageId: pkg.id,
+    version: pkg.version,
+    framework: pkg.activeFramework,
+    assembly: type.assembly,
+    type: type.definitionId ?? type.id,
+    member: state.selectedBodyTarget?.memberName ?? overload.name,
+    selectorKey:
       state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
+    // Preserve the exact MethodDef for same-image validation before structural
+    // correspondence handles differing ref/lib row numbers.
+    metadataToken:
       state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0,
-      JSON.stringify(state.taste));
-    if (generation === state.sourceRequestGeneration
-      && memberRequestIsCurrent(signature, false, true)
-      && state.memberSourceKey === signature) {
-      state.memberSource = result;
-    }
-  } catch (error) {
-    if (generation === state.sourceRequestGeneration
-      && memberRequestIsCurrent(signature, false, true)
-      && state.memberSourceKey === signature) {
-      state.memberSourceError = errorMessage(error);
-    }
-  } finally {
-    const current = generation === state.sourceRequestGeneration
-      && state.memberSourceKey === signature;
-    if (current) {
-      state.memberSourceLoading = false;
-      if (memberRequestIsCurrent(signature, false, true))
-        renderPreservingMemberFocus(preservedFocus);
-    }
-  }
+    taste: JSON.stringify(state.taste),
+    isCurrent: () => memberRequestIsCurrent(signature, false, true),
+  });
 }
 
 async function loadSelectedMemberAnnotatedSource() {
@@ -6051,57 +5754,24 @@ async function loadSelectedMemberAnnotatedSource() {
     return;
   }
   const signature = memberRequestSignature(type, overload, true, true);
-  if (!sourceRequestNeedsLoad(
-      state.memberAnnotatedKey === signature,
-      state.memberAnnotatedLoading,
-      state.memberAnnotated,
-      state.memberAnnotatedError)) {
-    render();
-    return;
-  }
-
-  state.memberAnnotatedKey = signature;
-  state.memberAnnotated = null;
-  state.memberAnnotatedLoading = true;
-  state.memberAnnotatedError = "";
-  state.memberAnnotatedFactId = null;
-  state.memberAnnotatedNodeIds = [];
-  const preservedFocus = renderPreservingMemberFocus();
   const pkg = currentPackage();
-  try {
-    const result = await inspectMemberAnnotatedSource(
-      pkg.id,
-      pkg.version,
-      pkg.activeFramework,
-      type.assembly,
-      type.definitionId ?? type.id,
-      type.queryId ?? type.id,
-      overload.name,
-      overload.signature,
+  return memberDetailInspection.loadAnnotated({
+    signature,
+    packageId: pkg.id,
+    version: pkg.version,
+    framework: pkg.activeFramework,
+    assembly: type.assembly,
+    typeIdentity: type.definitionId ?? type.id,
+    type: type.queryId ?? type.id,
+    member: overload.name,
+    memberSignature: overload.signature,
+    selectorKey:
       state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
-      // The exact MethodDef the product surface gave this overload, so the projection
-      // can validate a same-image match before falling back to product-owned structural
-      // correspondence when ref/ and lib/ row numbers differ.
+    metadataToken:
       state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0,
-      JSON.stringify(state.taste));
-    const document = result.document;
-    validateAnnotatedSourceDocument(document);
-    if (memberRequestIsCurrent(signature, true, true)
-      && state.memberAnnotatedKey === signature) {
-      state.memberAnnotated = { ...result, document };
-    }
-  } catch (error) {
-    if (memberRequestIsCurrent(signature, true, true)
-      && state.memberAnnotatedKey === signature) {
-      state.memberAnnotatedError = errorMessage(error);
-    }
-  } finally {
-    if (state.memberAnnotatedKey === signature) {
-      state.memberAnnotatedLoading = false;
-      if (memberRequestIsCurrent(signature, true, true))
-        renderPreservingMemberFocus(preservedFocus);
-    }
-  }
+    taste: JSON.stringify(state.taste),
+    isCurrent: () => memberRequestIsCurrent(signature, true, true),
+  });
 }
 
 function memberRequestSignature(
@@ -6153,49 +5823,18 @@ async function loadSelectedTypeSource() {
   const pkg = currentPackage();
   const signature =
     typeSourceSignature(type, pkg, state.taste, memberRequestKey);
-  if (!sourceRequestNeedsLoad(
-      state.typeSourceKey === signature,
-      state.typeSourceLoading,
-      state.typeSource,
-      state.typeSourceError)) {
-    renderPreservingMemberFocus();
-    return;
-  }
-  const generation = beginSourceRequestState(state);
-  state.typeSourceKey = signature;
-  state.typeSource = null;
-  state.typeSourceError = "";
-  state.typeSourceLoading = true;
-  const preservedFocus = renderPreservingMemberFocus();
-  const ownsRequest = () =>
-    generation === state.sourceRequestGeneration
-    && state.typeSourceKey === signature;
-  const isCurrent = () =>
-    ownsRequest()
-    && activeSourceOperationKind(state) === "type"
-    && !workbenchModalOwnsFocus();
-  try {
-    const result = await inspectTypeSource(
-      pkg.id,
-      pkg.version,
-      pkg.activeFramework,
-      type.assembly,
-      type.definitionId ?? type.id,
-      JSON.stringify(state.taste));
-    if (ownsRequest()) {
-      state.typeSource = result;
-    }
-  } catch (error) {
-    if (ownsRequest()) {
-      state.typeSourceError = errorMessage(error);
-    }
-  } finally {
-    if (ownsRequest()) {
-      state.typeSourceLoading = false;
-      if (isCurrent())
-        renderPreservingMemberFocus(preservedFocus);
-    }
-  }
+  return sourceInspection.loadTypeSource({
+    signature,
+    packageId: pkg.id,
+    version: pkg.version,
+    framework: pkg.activeFramework,
+    assembly: type.assembly,
+    type: type.definitionId ?? type.id,
+    taste: JSON.stringify(state.taste),
+    isVisible: () =>
+      activeSourceOperationKind(state) === "type"
+      && !workbenchModalOwnsFocus(),
+  });
 }
 
 async function loadSelectedTypeMetadata() {
@@ -6206,24 +5845,16 @@ async function loadSelectedTypeMetadata() {
   }
   const pkg = currentPackage();
   const signature = typeMetadataSignature(type, pkg);
-  if (state.typeMetadataKey === signature
-    && (state.typeMetadataLoading || state.typeMetadata || state.typeMetadataError)) {
-    renderPreservingMemberFocus();
-    return;
-  }
-  const generation = ++state.typeMetadataGeneration;
-  state.typeMetadataKey = signature;
-  state.typeMetadata = null;
-  state.typeMetadataError = "";
-  state.typeMetadataLoading = true;
-  const preservedFocus = renderPreservingMemberFocus();
-  const ownsRequest = () =>
-    generation === state.typeMetadataGeneration
-    && state.typeMetadataKey === signature;
-  const isCurrent = () => {
-    const currentType = selectedType();
-    return ownsRequest()
-      && !state.home
+  return metadataInspection.loadTypeMetadata({
+    signature,
+    packageId: pkg.id,
+    version: pkg.version,
+    framework: pkg.activeFramework,
+    assembly: type.assembly,
+    type: type.queryId ?? type.id,
+    isVisible: () => {
+      const currentType = selectedType();
+      return !state.home
       && !state.settings
       && !state.explorer?.open
       && !state.loading
@@ -6231,27 +5862,10 @@ async function loadSelectedTypeMetadata() {
       && !workbenchOverlayOwnsFocus()
       && state.lens === "metadata"
       && !state.atPackageRoot
-      && currentType
+      && currentType != null
       && typeMetadataSignature(currentType, pkg) === signature;
-  };
-  try {
-    const result = await inspectTypeProjection(
-      pkg.id,
-      pkg.version,
-      pkg.activeFramework,
-      type.assembly,
-      type.queryId ?? type.id);
-    if (ownsRequest()) state.typeMetadata = result;
-  } catch (error) {
-    if (ownsRequest()) state.typeMetadataError = errorMessage(error);
-  } finally {
-    if (ownsRequest()) {
-      state.typeMetadataLoading = false;
-      if (isCurrent()) {
-        renderPreservingMemberFocus(preservedFocus);
-      }
-    }
-  }
+    },
+  });
 }
 
 // Projects the neutral type-relationship node/edge model into a Mermaid flowchart so it
@@ -6556,162 +6170,35 @@ async function loadSelectedMemberCallGraph() {
     return;
   }
   const signature = memberRequestSignature(type, overload, true);
-  if (state.memberCallGraphKey === signature
-    && (state.memberCallGraph || state.memberCallGraphError)) {
-    render();
-    renderMermaidCallGraph();
-    return;
-  }
-  state.memberCallGraphKey = signature;
-  state.memberCallGraph = null;
-  state.memberCallGraphError = "";
-
-  // A resident runtime pack has no NuGet workspace to scan for callers; its members'
-  // implementation lives in the range-fetched platform assembly. Route them through the
-  // same platform-descent path the BCL call-graph nodes use so the graph resolves.
-  if (state.package?.isRuntimePack) {
-    await loadRuntimeMemberCallGraph(type, overload);
-    return;
-  }
-
-  // Progressive, two-stage load so live data prints quickly even with many libraries open.
-  // Stage 1 (fast) scopes the query to the target assembly only — that yields the callees and
-  // the intra-library callers without downloading/opening any other package. Stage 2 (slow)
-  // re-runs across the full workspace to add cross-library callers, then re-renders (the
-  // "flash"). A sequence token drops results once the member/overload selection has moved on.
-  const seq = ++state.memberCallGraphSeq;
-  // A fresh workspace graph invalidates any in-progress platform descent.
-  state.platformStack = [];
-  state.platformDrillLoading = false;
-  state.platformDrillError = "";
-  const base = {
-    packageId: currentPackage().id,
-    version: currentPackage().version,
-    framework: currentPackage().activeFramework,
-    assembly: type.assembly,
-    type: type.queryId ?? type.id,
-    typeIdentity: type.definitionId ?? type.id,
-    member: state.selectedBodyTarget?.memberName ?? overload.name,
-    signature: overload.signature,
-    selectorKey: state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
-    metadataToken: state.selectedBodyTarget?.metadataToken
-      ?? overload.metadataToken
-      ?? 0,
-  };
+  const pkg = currentPackage();
   const workspacePackages =
     state.packages.filter(packageItem => !packageItem.isRuntimePack);
   const hasOtherLibraries =
     workspacePackages.some(packageItem => packageItem !== state.package);
-
-  state.memberCallGraphLoading = true;
-  state.memberCallGraphExpanding = false;
-  state.memberCallGraphError = "";
-  const preservedFocus = renderPreservingMemberFocus();
-  try {
-    const queryCallGraph = (workspace: Array<{
-      package: string;
-      version: string;
-      framework: string;
-    }>) => inspectMemberCallGraph(
-      base.packageId,
-      base.version,
-      base.framework,
-      base.assembly,
-      base.typeIdentity,
-      base.type,
-      base.member,
-      base.signature,
-      base.selectorKey,
-      base.metadataToken,
-      JSON.stringify(workspace));
-    const local = await queryCallGraph([]);
-    if (seq !== state.memberCallGraphSeq
-      || !memberRequestIsCurrent(signature, true)
-      || state.memberCallGraphKey !== signature) return;
-    state.memberCallGraph = local;
-    state.memberCallGraphLoading = false;
-    state.memberCallGraphExpanding = hasOtherLibraries;
-    renderPreservingMemberFocus(preservedFocus);
-    await renderMermaidCallGraph();
-
-    if (hasOtherLibraries) {
-      // The engine runs synchronously on the main thread, so yield a paint frame first —
-      // otherwise the stage-1 graph never appears before the blocking cross-library pass.
-      await nextPaint();
-      if (seq !== state.memberCallGraphSeq
-        || !memberRequestIsCurrent(signature, true)
-        || state.memberCallGraphKey !== signature) return;
-      const full = await queryCallGraph(
-        workspacePackages.map(packageItem => ({
-          package: packageItem.id,
-          version: packageItem.version,
-          framework: packageItem.activeFramework
-        })));
-      if (seq !== state.memberCallGraphSeq
-        || !memberRequestIsCurrent(signature, true)
-        || state.memberCallGraphKey !== signature) return;
-      const previousMermaid = state.memberCallGraph?.mermaid;
-      state.memberCallGraph = full;
-      state.memberCallGraphExpanding = false;
-      refreshPackageStats();
-      patchCallGraphSection(previousMermaid);
-    }
-  } catch (error) {
-    if (seq !== state.memberCallGraphSeq
-      || !memberRequestIsCurrent(signature, true)
-      || state.memberCallGraphKey !== signature) return;
-    state.memberCallGraphLoading = false;
-    state.memberCallGraphExpanding = false;
-    if (state.memberCallGraph) {
-      state.memberCallGraphError =
-        `Workspace expansion was incomplete: ${errorMessage(error)}`;
-      renderPreservingMemberFocus(preservedFocus);
-      await renderMermaidCallGraph();
-    } else {
-      state.memberCallGraphError = errorMessage(error);
-      renderPreservingMemberFocus(preservedFocus);
-    }
-  }
-}
-
-// Builds a runtime-pack member's call graph via the platform-descent engine export (which
-// range-fetches the owning platform assembly) rather than the workspace call-graph path.
-// The result is itself a platform graph, so its callees descend further (see the
-// isRuntimePack branch in the node-binding block).
-async function loadRuntimeMemberCallGraph(
-  type: BrowserTypeSurface,
-  overload: BrowserMemberSurface,
-) {
-  const seq = ++state.memberCallGraphSeq;
-  state.platformStack = [];
-  state.platformDrillLoading = false;
-  state.platformDrillError = "";
-  state.memberCallGraphLoading = true;
-  state.memberCallGraphExpanding = false;
-  state.memberCallGraphError = "";
-  const preservedFocus = renderPreservingMemberFocus();
-  try {
-    const graph = parseEngineJson<BrowserCallGraph>(
-      await inspectExpandPlatformCallGraph(
-        currentPackage().activeFramework,
-        type.assembly,
-        type.metadataId ?? type.queryId ?? type.id,
-        state.selectedBodyTarget?.memberName ?? overload.name,
-        state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
-        state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0));
-    if (seq !== state.memberCallGraphSeq) return;
-    state.memberCallGraph = graph;
-    state.memberCallGraphLoading = false;
-    state.memberCallGraphExpanding = false;
-    renderPreservingMemberFocus(preservedFocus);
-    await renderMermaidCallGraph();
-  } catch (error) {
-    if (seq !== state.memberCallGraphSeq) return;
-    state.memberCallGraphLoading = false;
-    state.memberCallGraphExpanding = false;
-    state.memberCallGraphError = errorMessage(error);
-    renderPreservingMemberFocus(preservedFocus);
-  }
+  return callGraphInspection.load({
+    signature,
+    isRuntimePack: Boolean(state.package?.isRuntimePack),
+    packageId: pkg.id,
+    version: pkg.version,
+    framework: pkg.activeFramework,
+    assembly: type.assembly,
+    type: type.queryId ?? type.id,
+    typeIdentity: type.definitionId ?? type.id,
+    platformType: type.metadataId ?? type.queryId ?? type.id,
+    member: state.selectedBodyTarget?.memberName ?? overload.name,
+    memberSignature: overload.signature,
+    selectorKey:
+      state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
+    metadataToken:
+      state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0,
+    workspacePackages: workspacePackages.map(packageItem => ({
+      package: packageItem.id,
+      version: packageItem.version,
+      framework: packageItem.activeFramework,
+    })),
+    hasOtherLibraries,
+    isCurrent: () => memberRequestIsCurrent(signature, true),
+  });
 }
 
 // Update just the call-graph section in place so the stage-2 result doesn't flash
@@ -7060,44 +6547,21 @@ function findGraphMemberSelection(
 }
 
 async function drillPlatformNode(node: BrowserCallGraphTarget) {
-  if (state.platformDrillLoading) return;
-  const seq = state.memberCallGraphSeq;
-  state.platformDrillLoading = true;
-  state.platformDrillError = "";
-  const preservedFocus = renderPreservingMemberFocus();
-  try {
-    const graph = parseEngineJson<BrowserCallGraph>(
-      await inspectExpandPlatformCallGraph(
-        currentPackage().activeFramework,
-        node.assembly,
-        callGraphTargetTypeId(node),
-        node.memberName,
-        node.selectorKey,
-        node.metadataToken ?? 0));
-    if (seq !== state.memberCallGraphSeq) return;
-    state.platformStack.push({
-      graph,
-      title: `${stripArity(node.typeFullName.split(".").pop() ?? "")}.${node.memberName}`
-    });
-    state.platformDrillLoading = false;
-    renderPreservingMemberFocus(preservedFocus);
-    await renderMermaidCallGraph();
-  } catch (error) {
-    if (seq !== state.memberCallGraphSeq) return;
-    state.platformDrillLoading = false;
-    state.platformDrillError =
-      `Could not descend into ${node.typeFullName}.${node.memberName}: ${errorMessage(error)}`;
-    renderPreservingMemberFocus(preservedFocus);
-    await renderMermaidCallGraph();
-  }
+  return callGraphInspection.drill({
+    framework: currentPackage().activeFramework,
+    assembly: node.assembly,
+    type: callGraphTargetTypeId(node),
+    member: node.memberName,
+    selectorKey: node.selectorKey,
+    metadataToken: node.metadataToken ?? 0,
+    title:
+      `${stripArity(node.typeFullName.split(".").pop() ?? "")}.${node.memberName}`,
+    errorTarget: `${node.typeFullName}.${node.memberName}`,
+  });
 }
 
 function popPlatformDrill() {
-  if (state.platformStack.length === 0) return;
-  state.platformStack.pop();
-  state.platformDrillError = "";
-  render();
-  renderMermaidCallGraph();
+  callGraphInspection.popDrill();
 }
 
 // A clicked platform (BCL) call-graph node should land the user *inside* the resident
@@ -7124,9 +6588,10 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
     state.platformDrillLoading = true;
     state.platformDrillError = "";
     const preservedFocus = renderPreservingMemberFocus();
-    pack = await loadRuntimePack(
+    const runtimeResult = await loadRuntimePack(
       framework,
       ownsNavigation);
+    pack = runtimeResult.packageModel;
     if (!ownsNavigation()) {
       if (seq === state.memberCallGraphSeq) {
         state.platformDrillLoading = false;
@@ -7136,7 +6601,9 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
     }
     state.platformDrillLoading = false;
     if (!pack) {
-      state.platformDrillError = state.runtimePackError || "Could not load the .NET runtime pack.";
+      state.platformDrillError = runtimeResult.failureMessage
+        || state.runtimePackError
+        || "Could not load the .NET runtime pack.";
       renderPreservingMemberFocus(preservedFocus);
       await renderMermaidCallGraph();
       return;
@@ -7236,53 +6703,11 @@ function stripArity(name: string) {
 }
 
 async function openGraphSource(request: GraphSourceRequest, title: string) {
-  const generation = beginSourceRequestState(state);
-  const seq = ++state.graphSourceSeq;
-  state.graphSourceOpen = true;
-  state.graphSourceTitle = title;
-  state.graphSourceRequest = { request, title };
-  state.graphSource = null;
-  state.graphSourceError = "";
-  state.graphSourceLoading = true;
-  render();
-  try {
-    const source = await inspectTypeMemberSource(
-      request.packageId,
-      request.version,
-      request.framework,
-      request.assembly,
-      request.type,
-      request.member,
-      request.selectorKey,
-      request.metadataToken,
-      JSON.stringify(state.taste));
-    if (generation !== state.sourceRequestGeneration
-      || seq !== state.graphSourceSeq
-      || !state.graphSourceOpen) return;
-    state.graphSource = source;
-  } catch (error) {
-    if (generation !== state.sourceRequestGeneration
-      || seq !== state.graphSourceSeq
-      || !state.graphSourceOpen) return;
-    state.graphSourceError = errorMessage(error);
-  } finally {
-    if (generation !== state.sourceRequestGeneration
-      || seq !== state.graphSourceSeq
-      || !state.graphSourceOpen) return;
-    state.graphSourceLoading = false;
-    render();
-  }
+  return sourceInspection.openGraphSource(request, title);
 }
 
 function closeGraphSource() {
-  if (cancelSourceRequestState(state)) cancelSourceInspection?.();
-  state.graphSourceSeq++;
-  state.graphSourceOpen = false;
-  state.graphSource = null;
-  state.graphSourceError = "";
-  state.graphSourceLoading = false;
-  state.graphSourceRequest = null;
-  render();
+  sourceInspection.closeGraphSource();
 }
 
 // Lazily load marked + DOMPurify (mirrors the mermaid CDN-ESM pattern). marked renders GFM
@@ -7309,89 +6734,19 @@ async function renderMarkdownInline(text: unknown) {
   return DOMPurify.sanitize(html, MARKDOWN_SANITIZE_OPTIONS);
 }
 
-// Skill files carry a leading YAML frontmatter block (---\n…\n---). Rendered as Markdown it turns
-// into a mangled setext heading, so split it out: parse name/version/description (handling folded
-// >-/> and literal |/|- block scalars) and hand back the remaining body for normal rendering.
-interface DocumentFrontmatter {
-  name?: string;
-  version?: string;
-  description?: string;
-  [key: string]: string | undefined;
-}
-
-function splitFrontmatter(text: unknown) {
-  const source = String(text ?? "");
-  const match = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(source);
-  if (!match) return { meta: null, body: source };
-  const meta: DocumentFrontmatter = {};
-  const lines = match[1].split(/\r?\n/);
-  for (let i = 0; i < lines.length; i++) {
-    const kv = /^([A-Za-z0-9_-]+):\s?(.*)$/.exec(lines[i]);
-    if (!kv) continue;
-    let value = kv[2];
-    if (value === ">" || value === ">-" || value === "|" || value === "|-") {
-      const folded = value.startsWith(">");
-      const buffer = [];
-      while (i + 1 < lines.length && (/^\s+\S/.test(lines[i + 1]) || lines[i + 1].trim() === "")) {
-        buffer.push(lines[++i].trim());
-      }
-      value = buffer.join(folded ? " " : "\n").trim();
-    }
-    meta[kv[1]] = value.trim();
-  }
-  return { meta, body: source.slice(match[0].length) };
-}
-
-async function openPackageDocument(path: string) {
+function openPackageDocument(path: string) {
   const pkg = state.package;
   const doc = (pkg?.documents || []).find(candidate => candidate.path === path);
   if (!pkg || !doc) return;
-  const seq = ++state.docViewerSeq;
-  state.docViewerOpen = true;
-  state.docViewer = doc;
-  state.docViewerHtml = "";
-  state.docViewerMeta = null;
-  state.docViewerError = "";
-  state.docViewerLoading = true;
-  render();
-  try {
-    const content = await inspectPackageDocument(pkg.id, pkg.version, path);
-    if (seq !== state.docViewerSeq) return;
-    const { meta, body } = splitFrontmatter(content.text);
-    const html = await renderMarkdown(body);
-    if (seq !== state.docViewerSeq) return;
-    const descriptionHtml = meta?.description
-      ? await renderMarkdownInline(meta.description)
-      : "";
-    if (seq !== state.docViewerSeq) return;
-    const projectedMeta = meta && (meta.name || meta.description)
-      ? {
-          name: meta.name || doc.name,
-          version: meta.version || "",
-          descriptionHtml
-        }
-      : null;
-    state.docViewerHtml = html;
-    state.docViewerMeta = projectedMeta;
-  } catch (error) {
-    if (seq !== state.docViewerSeq) return;
-    state.docViewerError = errorMessage(error);
-  } finally {
-    if (seq !== state.docViewerSeq) return;
-    state.docViewerLoading = false;
-    render();
-  }
+  return documentInspection.open({
+    packageId: pkg.id,
+    version: pkg.version,
+    document: doc,
+  });
 }
 
 function closeDocViewer() {
-  state.docViewerSeq++;
-  state.docViewerOpen = false;
-  state.docViewer = null;
-  state.docViewerHtml = "";
-  state.docViewerMeta = null;
-  state.docViewerError = "";
-  state.docViewerLoading = false;
-  render();
+  documentInspection.close();
 }
 
 function renderDocViewer() {
@@ -7579,46 +6934,18 @@ async function loadSelectedMemberFacts() {
     return;
   }
   const signature = memberRequestSignature(type, overload);
-  if (state.memberFactsKey === signature
-    && (state.memberFacts || state.memberFactsError)) {
-    render();
-    return;
-  }
-
-  state.memberFactsKey = signature;
-  state.memberFacts = null;
-  state.memberFactsLoading = true;
-  state.memberFactsError = "";
-  state.memberAnnotated = null;
-  state.memberAnnotatedError = "";
-  const preservedFocus = renderPreservingMemberFocus();
   const pkg = currentPackage();
-  try {
-    const result = parseEngineJson<MemberFacts>(
-      await inspectMemberFacts(
-        pkg.id,
-        pkg.version,
-        pkg.activeFramework,
-        type.assembly,
-        type.queryId ?? type.id,
-        overload.name,
-        overload.signature));
-    if (memberRequestIsCurrent(signature)
-      && state.memberFactsKey === signature) {
-      state.memberFacts = result;
-    }
-  } catch (error) {
-    if (memberRequestIsCurrent(signature)
-      && state.memberFactsKey === signature) {
-      state.memberFactsError = errorMessage(error);
-    }
-  } finally {
-    if (state.memberFactsKey === signature) {
-      state.memberFactsLoading = false;
-      if (memberRequestIsCurrent(signature))
-        renderPreservingMemberFocus(preservedFocus);
-    }
-  }
+  return memberDetailInspection.loadFacts({
+    signature,
+    packageId: pkg.id,
+    version: pkg.version,
+    framework: pkg.activeFramework,
+    assembly: type.assembly,
+    type: type.queryId ?? type.id,
+    member: overload.name,
+    memberSignature: overload.signature,
+    isCurrent: () => memberRequestIsCurrent(signature),
+  });
 }
 
 interface LoadPackageOptions {
@@ -7665,40 +6992,16 @@ async function loadPackage(
   }
 
   try {
-    const result = await inspectPackage(packageId, version, framework);
-    if (navigationSeq != null && !navigationSequence.isCurrent(navigationSeq))
-      return null;
-    refreshPackageStats();
-    const types = (result.types ?? []).map(type => ({
-      ...type,
-      api: type.api ?? []
-    }));
-    const defaultAssembly = (result.assemblies ?? [])
-      .find(assembly => assembly.id === result.defaultAssemblyId);
-    if (!defaultAssembly) {
-      throw new Error("The package query did not return its selected assembly descriptor.");
-    }
-    const packageModel: AppPackage = {
-      id: result.package,
-      version: result.version,
-      frameworks: result.frameworks ?? [],
-      activeFramework: result.activeFramework,
-      assembly: defaultAssembly.name,
-      assemblyId: defaultAssembly.id,
-      assemblyAsset: defaultAssembly.asset,
-      source: { kind: "nuget.org" },
-      assemblies: result.assemblies ?? [],
-      types,
-      accessibility: result.accessibility ?? [],
-      totalTypes: (result.assemblies ?? [])
-        .reduce((count, assembly) => count + (assembly.publicTypes ?? 0), 0),
-      totalMembers: result.totalMembers,
-      documents: result.documents ?? [],
-      inspectionError: result.inspectionError || "",
-      isRuntimePack: false,
-    };
-    retainPackageModel(packageModel, options.replacePackage);
-    recordRecentPackage(packageModel.id, packageModel.version, packageModel.activeFramework);
+    const packageModel = await packageAcquisition.loadPackage({
+      packageId,
+      version,
+      framework,
+      replacePackage: options.replacePackage,
+      isCurrent: navigationSeq == null
+        ? undefined
+        : () => navigationSequence.isCurrent(navigationSeq),
+    });
+    if (!packageModel) return null;
     if (background) return packageModel;
     activatePackage(packageModel, { resetAccessibility: true });
     state.typeFilter = "";
@@ -7859,169 +7162,62 @@ function isRuntimePackId(id: string | null | undefined) {
   return String(id || "").toLowerCase() === "microsoft.netcore.app";
 }
 
-// Loads the platform runtime pack (System.Private.CoreLib for the given TFM) and adds it as
-// a resident pseudo-package flagged isRuntimePack, so its BCL types become searchable in
-// Spotlight and browsable/navigable like any package. SPC is fetched eagerly; sibling pack
-// assemblies load lazily as navigation reaches them. Does not switch the active package.
-let runtimePackLoadPromise: Promise<AppPackage | null> | null = null;
+const packageAcquisition = createPackageAcquisition({
+  queryPackage: (packageId, version, framework) =>
+    inspectPackage(packageId, version, framework),
+  loadRuntimePack: framework => inspectLoadRuntimePack(framework),
+  loadRuntimePackAssembly: (framework, assemblyFileName, pack) =>
+    inspectLoadRuntimePackAssembly(framework, assemblyFileName, pack),
+  parseRuntimeSurface: json => parseEngineJson<BrowserPackageSurface>(json),
+  runtimePackage: runtimePackPackage,
+  retainPackage: retainPackageModel,
+  recordRecentPackage,
+  refreshPackageStats,
+  beginRuntimeLoad() {
+    state.runtimePackLoading = true;
+    state.runtimePackError = "";
+  },
+  failRuntimeLoad(error) {
+    state.runtimePackError = errorMessage(error);
+  },
+  endRuntimeLoad() {
+    state.runtimePackLoading = false;
+  },
+});
 
-async function waitForRuntimePackLoad() {
-  while (runtimePackLoadPromise) {
-    const pending = runtimePackLoadPromise;
-    try { await pending; } catch {}
-  }
+interface RuntimeLoadResult {
+  packageModel: AppPackage | null;
+  failureMessage: string;
 }
 
 async function loadRuntimePack(
   framework: string,
   isCurrent: () => boolean = () => true,
-): Promise<AppPackage | null> {
-  if (runtimePackLoadPromise) await waitForRuntimePackLoad();
-  if (!isCurrent()) return null;
-  const requestedFramework = framework || "";
-  const existing = runtimePackPackage();
-  if (existing
-    && (!requestedFramework
-      || existing.activeFramework.toLowerCase() === requestedFramework.toLowerCase())) {
-    return existing;
-  }
-
-  state.runtimePackLoading = true;
-  state.runtimePackError = "";
-  const operation = (async () => {
-    const result = parseEngineJson<BrowserPackageSurface>(
-      await inspectLoadRuntimePack(requestedFramework));
-    if (!isCurrent()) return null;
-    refreshPackageStats();
-    const types = (result.types ?? []).map(type => ({ ...type, api: type.api ?? [] }));
-    const defaultAssembly = (result.assemblies ?? [])
-      .find(assembly => assembly.id === result.defaultAssemblyId);
-    if (!defaultAssembly) {
-      throw new Error("The platform query did not return its selected assembly descriptor.");
-    }
-    const packageModel: AppPackage = {
-      id: result.package,
-      version: result.version,
-      frameworks: result.frameworks ?? [],
-      activeFramework: result.activeFramework,
-      assembly: defaultAssembly.name,
-      assemblyId: defaultAssembly.id,
-      assemblyAsset: defaultAssembly.asset,
-      source: { kind: "platform" },
-      assemblies: result.assemblies ?? [],
-      types,
-      accessibility: result.accessibility ?? [],
-      totalTypes: types.length,
-      totalMembers: result.totalMembers,
-      documents: result.documents ?? [],
-      isRuntimePack: true
-    };
-    retainPackageModel(packageModel, existing);
-    return packageModel;
-  })();
-  runtimePackLoadPromise = operation;
-  try {
-    return await operation;
-  } catch (error) {
-    state.runtimePackError = errorMessage(error);
-    return null;
-  } finally {
-    if (runtimePackLoadPromise === operation)
-      runtimePackLoadPromise = null;
-    state.runtimePackLoading = false;
-  }
+): Promise<RuntimeLoadResult> {
+  const result = await packageAcquisition.loadRuntimePack(
+    framework,
+    isCurrent);
+  return {
+    packageModel: result.packageModel,
+    failureMessage: result.error === null ? "" : errorMessage(result.error),
+  };
 }
 
-// Loads ONE named runtime-pack assembly (e.g. System.Text.Json.dll from CoreCLR, or
-// Microsoft.AspNetCore.Routing.dll from the ASP.NET Core shared framework) and folds its
-// type surface into the resident runtime pseudo-package, creating that package if it is not
-// resident yet. `pack` names the shared framework (netcore.app | aspnetcore.app), threaded
-// through so per-type/member queries later route to the right pack. This backs index-first
-// Platform drill-in: the Platform scope roster comes from the static index with no download,
-// and picking a library fetches just that assembly here. Types/assemblies are merged (deduped
-// by id/name) so the runtime pack accumulates the libraries the user visits.
 async function loadRuntimePackAssembly(
   framework: string,
   assemblyFileName: string,
   pack: string,
   isCurrent: () => boolean = () => true,
-): Promise<AppPackage | null> {
-  if (runtimePackLoadPromise) await waitForRuntimePackLoad();
-  if (!isCurrent()) return null;
-  const requestedFramework = framework || "";
-  const resident = runtimePackPackage();
-  if (resident
-    && (!requestedFramework
-      || resident.activeFramework.toLowerCase() === requestedFramework.toLowerCase())
-    && (resident.assemblies || []).some(assembly =>
-      assembly.name.toLowerCase() === String(assemblyFileName).toLowerCase())) {
-    return resident;
-  }
-
-  state.runtimePackLoading = true;
-  state.runtimePackError = "";
-  const operation = (async () => {
-    const result = parseEngineJson<BrowserPackageSurface>(
-      await inspectLoadRuntimePackAssembly(
-        requestedFramework,
-        assemblyFileName,
-        pack || ""));
-    if (!isCurrent()) return null;
-    refreshPackageStats();
-    const newTypes = (result.types ?? []).map(type => ({ ...type, api: type.api ?? [] }));
-    const existing = runtimePackPackage();
-    if (existing
-      && (!requestedFramework
-        || existing.activeFramework.toLowerCase() === requestedFramework.toLowerCase())) {
-      const seenTypes = new Set(existing.types.map(type => type.id));
-      for (const type of newTypes) if (!seenTypes.has(type.id)) existing.types.push(type);
-      const seenAsm = new Set((existing.assemblies || []).map(item => item.name));
-      for (const asm of (result.assemblies ?? [])) if (!seenAsm.has(asm.name)) existing.assemblies.push(asm);
-      const descriptors = new Map(
-        (existing.accessibility || []).map(descriptor => [descriptor.id, descriptor]));
-      for (const descriptor of (result.accessibility ?? [])) {
-        const current = descriptors.get(descriptor.id);
-        descriptors.set(descriptor.id, current
-          ? { ...current, count: current.count + descriptor.count }
-          : descriptor);
-      }
-      existing.accessibility = [...descriptors.values()]
-        .sort((left, right) => left.order - right.order);
-      existing.totalTypes = existing.types.length;
-      existing.totalMembers = (existing.totalMembers || 0) + (result.totalMembers || 0);
-      return existing;
-    }
-    const packageModel: AppPackage = {
-      id: result.package,
-      version: result.version,
-      frameworks: result.frameworks ?? [],
-      activeFramework: result.activeFramework,
-      assembly: result.assemblies[0].name,
-      assemblyId: result.defaultAssemblyId,
-      assemblyAsset: result.assemblies[0].asset,
-      source: { kind: "platform" },
-      assemblies: result.assemblies ?? [],
-      types: newTypes,
-      accessibility: result.accessibility ?? [],
-      totalTypes: newTypes.length,
-      totalMembers: result.totalMembers,
-      documents: result.documents ?? [],
-      isRuntimePack: true
-    };
-    retainPackageModel(packageModel, existing);
-    return packageModel;
-  })();
-  runtimePackLoadPromise = operation;
-  try {
-    return await operation;
-  } catch (error) {
-    state.runtimePackError = errorMessage(error);
-    return null;
-  } finally {
-    if (runtimePackLoadPromise === operation)
-      runtimePackLoadPromise = null;
-    state.runtimePackLoading = false;
-  }
+): Promise<RuntimeLoadResult> {
+  const result = await packageAcquisition.loadRuntimePackAssembly(
+    framework,
+    assemblyFileName,
+    pack,
+    isCurrent);
+  return {
+    packageModel: result.packageModel,
+    failureMessage: result.error === null ? "" : errorMessage(result.error),
+  };
 }
 
 async function runCallGraphDemo() {
@@ -8152,15 +7348,20 @@ async function restoreWorkspaceFromLocation(
   // once, below — so a non-target tab (e.g. an STJ tab on a platform-library link) never
   // flashes into view before the target resolves.
   let loadedTargetModel: AppPackage | null = null;
+  let runtimeFailureMessage = "";
   for (const tab of tabs) {
     let loaded: AppPackage | null;
     if (isRuntimePackId(tab.id)) {
-      loaded = await loadRuntimePack(
+      const runtimeResult = await loadRuntimePack(
         tab.framework,
         () => navigationSequence.isCurrent(navigationSeq));
+      loaded = runtimeResult.packageModel;
+      runtimeFailureMessage = runtimeResult.failureMessage;
       if (!loaded && navigationSequence.isCurrent(navigationSeq)) {
         const failure =
-          `Workspace restore was incomplete: ${tab.id}: ${state.runtimePackError || "runtime pack acquisition failed."}`;
+          `Workspace restore was incomplete: ${tab.id}: ${runtimeFailureMessage
+            || state.runtimePackError
+            || "runtime pack acquisition failed."}`;
         state.queryNotice = state.queryNotice
           ? `${state.queryNotice} ${failure}`
           : failure;
@@ -8207,7 +7408,9 @@ async function restoreWorkspaceFromLocation(
   } else {
     state.loading = false;
     const failure =
-      state.runtimePackError || "Couldn’t load the requested .NET Platform.";
+      runtimeFailureMessage
+      || state.runtimePackError
+      || "Couldn’t load the requested .NET Platform.";
     state.error = state.queryNotice
       ? `${state.queryNotice} ${failure}`
       : failure;
@@ -8623,9 +7826,10 @@ async function restoreRuntimePackFromHistory(
   deep: DeepLink,
   navigationSeq: number,
 ) {
-  const pack = await loadRuntimePack(
+  const runtimeResult = await loadRuntimePack(
     loc.framework || "",
     () => navigationSequence.isCurrent(navigationSeq));
+  const pack = runtimeResult.packageModel;
   if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (pack) {
     activatePackage(pack, { resetAccessibility: true });
@@ -8646,7 +7850,9 @@ async function restoreRuntimePackFromHistory(
     state.loading = false;
   } else {
     appendQueryNotice(
-      `Workspace restore was incomplete: ${loc.package}: ${state.runtimePackError || "runtime pack acquisition failed."}`);
+      `Workspace restore was incomplete: ${loc.package}: ${runtimeResult.failureMessage
+        || state.runtimePackError
+        || "runtime pack acquisition failed."}`);
   }
   render();
   loadSelectionData();
