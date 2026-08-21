@@ -333,7 +333,13 @@ grant; no path, assembly name, public-key blob, or source-provenance display
 field can reconstruct it. In particular, a lease-scoped path to a retained
 snapshot is only a content-access form. The target retires the current
 raw-path-implies-designation shortcut; opening that path cannot grant
-core-library trust without a separate authorized admission role.
+core-library trust without a separate authorized admission role. The same rule
+applies when caller-supplied bytes are paired with a path, as in the current
+`MetadataSource.OpenFromPrefetchedImage` compatibility entry point.
+`LeaseScopedPath_IsNotADesignationGrant` derives every unconditional path and
+prefetched-image grant from the `ReaderConstructionSiteTests` inventory and
+asserts coverage equality, rather than relying on a hand-maintained method
+list.
 
 The residual case is a host policy, `CoreLibraryTrustPolicy`. The default,
 `DesignatedAndPlatform`, is correct for any host that inspects untrusted

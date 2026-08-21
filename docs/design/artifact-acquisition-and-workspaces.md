@@ -636,10 +636,11 @@ Several current types are migration inputs, not target precedent:
   project, platform, local, embedded, and caller-designated concepts. The
   `DesignatedAsset` arm also combines acquisition provenance with a trust-policy
   role.
-- `MetadataContext.Open(string)` and `MetadataSource.OpenCore(string, ...)`
-  treat a raw path as caller designation and grant core-library trust without
-  consulting an admission role. That is current compatibility behavior, not
-  the target meaning of a lease-scoped retained-snapshot path.
+- `MetadataContext.Open(string)`, `MetadataSource.OpenCore(string, ...)`, and
+  `MetadataSource.OpenFromPrefetchedImage` treat a raw path, or a path paired
+  with caller-supplied bytes, as caller designation and grant core-library
+  trust without consulting an admission role. That is current compatibility
+  behavior, not the target meaning of a lease-scoped retained-snapshot path.
 - `workspace-definitions.md` currently maps member kinds directly onto that
   closed Metadata provenance hierarchy.
 - `type-forwarding-resolution.md` currently calls that hierarchy authoritative
@@ -750,8 +751,11 @@ The first nine are structural edge/closure gates derived from the actual project
 graph, not a hand-maintained allow list. The remainder are behavior and lifetime
 gates. The local-only query gate covers metadata and authored-source query
 families so a metadata-only success cannot hide package-owned source
-capabilities. The browser gate runs the same composition sequentially without
-threads, blocking waits, or a filesystem.
+capabilities. `LeaseScopedPath_IsNotADesignationGrant` derives the set of
+unconditional path and prefetched-image grants from the reader-construction
+site inventory and asserts coverage equality, so adding or reshaping an entry
+point cannot escape the migration. The browser gate runs the same composition
+sequentially without threads, blocking waits, or a filesystem.
 
 ## Non-goals
 
