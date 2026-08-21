@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -269,6 +270,13 @@ function statementSignature(statement) {
   return `statement:${statement.type}:${sourceText(statement)}`;
 }
 
+const sourceRoot = fileURLToPath(new URL("../src/", import.meta.url));
+const productionTypeScriptSources = readdirSync(sourceRoot, { recursive: true })
+  .filter(path => path.endsWith(".ts"))
+  .map(path => ({
+    path,
+    source: readFileSync(join(sourceRoot, path), "utf8"),
+  }));
 const workspaceNavigationSource = readFileSync(
   new URL("../src/workspace-navigation.ts", import.meta.url),
   "utf8");
@@ -351,94 +359,6 @@ const commandBarSource = readFileSync(
   new URL("../src/command-bar.ts", import.meta.url),
   "utf8");
 
-function maskNonCode(source) {
-  const masked = [...source];
-  for (let index = 0; index < source.length; index++) {
-    const quote = source[index];
-    if (quote === "/" && source[index + 1] === "/") {
-      while (index < source.length && source[index] !== "\n") {
-        masked[index++] = " ";
-      }
-    } else if (quote === "/" && source[index + 1] === "*") {
-      masked[index++] = " ";
-      while (index < source.length
-        && !(source[index] === "*" && source[index + 1] === "/")) {
-        masked[index++] = " ";
-      }
-      masked[index] = " ";
-      masked[index + 1] = " ";
-      index++;
-    } else if (quote === "\"" || quote === "'" || quote === "`") {
-      masked[index] = " ";
-      for (index++; index < source.length; index++) {
-        masked[index] = " ";
-        if (source[index] === "\\") {
-          masked[++index] = " ";
-        } else if (source[index] === quote) {
-          break;
-        }
-      }
-    }
-  }
-  return masked.join("");
-}
-
-function assertDirectCompositionCall(
-  source,
-  functionName,
-  calleeName,
-  expectedIndex,
-) {
-  const functionPrefix = `function ${functionName}() {`;
-  const functionStart = source.indexOf(functionPrefix);
-  assert.notEqual(functionStart, -1);
-  const body = source.slice(functionStart + functionPrefix.length);
-  const masked = maskNonCode(body);
-  const statements = [];
-  let depth = 0;
-  let statementStart = 0;
-  for (let index = 0; index < masked.length; index++) {
-    if (masked[index] === "{") depth++;
-    else if (masked[index] === "}") {
-      if (depth === 0) break;
-      depth--;
-    } else if (masked[index] === ";" && depth === 0) {
-      statements.push(masked.slice(statementStart, index + 1).trim());
-      statementStart = index + 1;
-    }
-  }
-  assert.equal(
-    statements[expectedIndex].replace(/\s+/g, " "),
-    `${calleeName}();`);
-}
-
-test("composition call gates distinguish direct calls from textual nesting", () => {
-  const direct = `function bind() {
-    const options = { label: "{ready}" };
-    // A brace in a comment is not composition.
-    bindTarget();
-  }`;
-  assertDirectCompositionCall(direct, "bind", "bindTarget", 1);
-  assert.throws(() =>
-    assertDirectCompositionCall(
-      "function bind() { if (false) bindTarget(); }",
-      "bind",
-      "bindTarget",
-      0));
-  assert.throws(() =>
-    assertDirectCompositionCall(
-      "function bind() { if (false) { bindTarget(); } }",
-      "bind",
-      "bindTarget",
-      0));
-  assert.throws(() =>
-    assertDirectCompositionCall(
-      "function bind() { if (false) return; bindTarget(); }",
-      "bind",
-      "bindTarget",
-      0));
-});
-
 test("typed Spotlight owns search presentation and hosts commands", () => {
   assert.match(
     appSource,
@@ -486,16 +406,12 @@ test("typed status bar owns its rendered toggle binding", () => {
     statusBarSource,
     /export function bindStatusBar\([\s\S]*\[data-status-bar-toggle-button\][\s\S]*actions\.onToggle/);
   assert.doesNotMatch(appSource, /\[data-status-bar-toggle-button\]/);
-  assertDirectCompositionCall(
+  assert.match(
     appSource,
-    "bindEvents",
-    "bindStatusBarEvents",
-    0);
-  assertDirectCompositionCall(
+    /function bindEvents\(\) \{\s*bindStatusBarEvents\(\);/);
+  assert.match(
     appSource,
-    "bindHomeEvents",
-    "bindStatusBarEvents",
-    0);
+    /function bindHomeEvents\(\) \{\s*bindStatusBarEvents\(\);/);
   assert.equal(
     appSource.match(/\bbindStatusBarEvents\(\)/g)?.length,
     3);
@@ -656,11 +572,9 @@ test("typed type panel owns its rendered control bindings", () => {
   assert.equal(
     rootEventBinder.match(/^\s*bindTypePanelEvents\(\);$/gm)?.length,
     1);
-  assertDirectCompositionCall(
+  assert.match(
     appSource,
-    "bindEvents",
-    "bindTypePanelEvents",
-    2);
+    /function bindEvents\(\) \{\s*bindStatusBarEvents\(\);\s*packageBar\.bind\(document\);\s*bindTypePanelEvents\(\);/);
   assert.match(
     typePanelSource,
     /export function bindTypePanel\([\s\S]*\[data-type\][\s\S]*\[data-namespace\][\s\S]*\[data-kind-filter\][\s\S]*\[data-nav-member\][\s\S]*\[data-nav-overload\][\s\S]*#nav-to-types[\s\S]*#clear-filter[\s\S]*#namespace-jump[\s\S]*#type-list[\s\S]*#type-filter/);
@@ -827,6 +741,7 @@ test("typed scope bar owns its rendered control bindings", () => {
 test("typed settings panel owns its rendered control bindings", () => {
   assert.deepEqual(parsedAppSource.errors, []);
   const bindEvents = functionDeclaration("bindEvents");
+  const bindHomeEvents = functionDeclaration("bindHomeEvents");
   const renderSettings = functionDeclaration("renderSettingsViewHtml");
   const settingsEventBinder = functionDeclaration("bindSettingsPanelEvents");
   const settingsPanelImport = onlySyntaxNode(
@@ -848,16 +763,17 @@ test("typed settings panel owns its rendered control bindings", () => {
         && node.name === "bindSettingsPanel").length,
     3);
   const eventBinderCalls = callExpressionsNamed(appSyntax, "bindSettingsPanelEvents");
-  assert.equal(eventBinderCalls.length, 2);
+  assert.equal(eventBinderCalls.length, 3);
   assert.equal(
     syntaxNodes(
       appSyntax,
       node => node.type === "Identifier"
         && node.name === "bindSettingsPanelEvents").length,
-    3);
-  for (const [owner, description] of [
-    [bindEvents, "workbench settings binder"],
-    [renderSettings, "settings view binder"],
+    4);
+  for (const [owner, description, predecessor] of [
+    [bindEvents, "workbench settings binder", "bindScopeBarEvents"],
+    [bindHomeEvents, "home settings binder", "bindStatusBarEvents"],
+    [renderSettings, "settings view binder", null],
   ]) {
     assert.equal(
       callExpressionsNamed(owner, "bindSettingsPanelEvents").length,
@@ -870,6 +786,20 @@ test("typed settings panel owns its rendered control bindings", () => {
         .length,
       1,
       `${description} direct call`);
+    if (predecessor) {
+      const directCallNames = owner.body.body.map(statement => {
+        if (statement.type !== "ExpressionStatement") return null;
+        const expression = statement.expression;
+        return expression.type === "CallExpression"
+          && expression.callee?.type === "Identifier"
+          ? expression.callee.name
+          : null;
+      });
+      assert.equal(
+        directCallNames.indexOf("bindSettingsPanelEvents"),
+        directCallNames.indexOf(predecessor) + 1,
+        `${description} order`);
+    }
   }
   const directWorkbenchCalls = bindEvents.body.body.map(statement => {
     if (statement.type !== "ExpressionStatement") return null;
@@ -908,9 +838,10 @@ test("typed settings panel owns its rendered control bindings", () => {
   assert.equal(innerSettingsCall.arguments[0].name, "document");
   const actions = innerSettingsCall.arguments[1];
   assert.equal(actions.type, "ObjectExpression");
-  assert.equal(actions.properties.length, 4);
+  assert.equal(actions.properties.length, 6);
   for (const [name, value] of [
     ["onClose", "closeSettings"],
+    ["onOpen", "openSettings"],
     ["onTasteClear", "clearTaste"],
     ["onTasteToggle", "toggleTaste"],
     ["onThemeSelect", "setTheme"],
@@ -924,9 +855,51 @@ test("typed settings panel owns its rendered control bindings", () => {
     assert.equal(property.value.type, "Identifier");
     assert.equal(property.value.name, value);
   }
+  const tasteOpenToggle = callbackProperty(actions, "onTasteOpenToggle");
+  assert.deepEqual(
+    statementSignatures(tasteOpenToggle.body.body),
+    [
+      "assign:state.tasteOpen = !state.tasteOpen",
+      "call:render()",
+    ]);
+  assert.match(
+    appSource,
+    /import \{(?=[^}]*\bbindSettingsPanel,)[^}]*} from "\.\/settings-panel\.ts";/);
+  assert.doesNotMatch(
+    sourceText(settingsEventBinder),
+    /\bquerySelector(?:All)?\b|\baddEventListener\b/);
   assert.match(
     settingsPanelSource,
-    /export function bindSettingsPanel\([\s\S]*#settings-close[\s\S]*\.settings-seg\[data-theme\][\s\S]*\.settings-taste \[data-taste\][\s\S]*#settings-taste-clear[\s\S]*#taste-popover \[data-taste\][\s\S]*#taste-clear/);
+    /export function bindSettingsPanel\([\s\S]*#settings-close[\s\S]*#home-settings[\s\S]*#open-settings[\s\S]*#taste-btn[\s\S]*stopPropagation\(\)[\s\S]*\.settings-seg\[data-theme\][\s\S]*\.settings-taste \[data-taste\][\s\S]*#settings-taste-clear[\s\S]*#taste-popover \[data-taste\][\s\S]*#taste-clear/);
+  const nonSettingsPanelSource = productionTypeScriptSources
+    .filter(({ path }) => path.replaceAll("\\", "/") !== "settings-panel.ts")
+    .map(({ source }) => source)
+    .join("\n");
+  const entrySelectorAccess =
+    /(?:querySelector(?:All)?\s*(?:<[^>\n]+>)?|getElementById)\s*\(\s*(["'`])#?(?:home-settings|open-settings|taste-btn)\1\s*\)/g;
+  assert.equal(nonSettingsPanelSource.match(entrySelectorAccess)?.length ?? 0, 0);
+  assert.equal(settingsPanelSource.match(entrySelectorAccess)?.length, 3);
+  for (const selector of ["#home-settings", "#open-settings"]) {
+    const selectorToken = new RegExp(`${selector}(?![-\\w])`, "g");
+    assert.equal(
+      nonSettingsPanelSource.match(selectorToken)?.length ?? 0,
+      0,
+      selector);
+    assert.equal(
+      settingsPanelSource.match(selectorToken)?.length,
+      1,
+      selector);
+  }
+  assert.equal(
+    nonSettingsPanelSource.match(/#taste-btn(?![-\w])/g)?.length,
+    1);
+  assert.equal(
+    nonSettingsPanelSource.match(
+      /\.closest\(\s*(["'`])#taste-btn\1\s*\)/g)?.length,
+    1);
+  assert.equal(
+    settingsPanelSource.match(/#taste-btn(?![-\w])/g)?.length,
+    1);
   for (const selector of [
     "#settings-close",
     ".settings-seg[data-theme]",
