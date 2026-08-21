@@ -326,16 +326,6 @@ export async function inspectVocabulary() {
   return JSON.parse(await listVocabulary());
 }
 
-export function inspectPackageCacheStats() {
-  if (!packageCacheStats) return null;
-  return JSON.parse(packageCacheStats());
-}
-
-export function inspectBuildIdentity() {
-  if (!buildIdentity) throw new Error("The browser inspection engine is not initialized.");
-  return JSON.parse(buildIdentity());
-}
-
 export async function inspectMemberCallGraph(request) {
   if (!queryMemberCallGraph) throw new Error("The browser inspection engine is not initialized.");
   const json = await queryMemberCallGraph(

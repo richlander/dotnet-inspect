@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   activeSourceOperationKind,
@@ -175,12 +177,12 @@ const metadataViewerSource = readFileSync(
 const applicationSources =
   `${appSource}\n${graphSource}\n${packageBarSource}\n${metadataViewerSource}`;
 const stylesSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
-const engineSource = readFileSync(
+const engineModuleUrls = [
   new URL("../engine/wwwroot/engine.js", import.meta.url),
-  "utf8");
-const generatedEngineSource = readFileSync(
   new URL("../engine/wwwroot/inspect-web-engine.js", import.meta.url),
-  "utf8");
+];
+const engineSource = readFileSync(engineModuleUrls[0], "utf8");
+const generatedEngineSource = readFileSync(engineModuleUrls[1], "utf8");
 const deploySource = readFileSync(
   new URL("../../../.github/workflows/deploy-inspect-web.yml", import.meta.url),
   "utf8");
@@ -1067,6 +1069,19 @@ test("browser engine configures the same-origin managed MSDL API", () => {
   assert.match(
     generatedEngineSource,
     /configureHostExport = exports\.InspectionEngine\.ConfigureHost[\s\S]*?configureHostExport\(window\.location\.origin\)/);
+});
+
+test("browser engine modules are syntactically valid", () => {
+  for (const url of engineModuleUrls) {
+    const result = spawnSync(
+      process.execPath,
+      ["--check", fileURLToPath(url)],
+      { encoding: "utf8" });
+    assert.equal(
+      result.status,
+      0,
+      `${fileURLToPath(url)} failed syntax validation:\n${result.stderr}`);
+  }
 });
 
 test("generated source wrappers parse their JSON envelopes", () => {
