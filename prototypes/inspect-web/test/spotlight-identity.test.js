@@ -586,7 +586,7 @@ test("package tab selection resets type-specific member filters", () => {
     ?? "";
   assert.match(
     selection,
-    /state\.selectedTypeId = pkg\.types\[0\]\?\.id \|\| "";[\s\S]*resetMemberFilters\(\);[\s\S]*resetMemberSectionState\(\)/);
+    /state\.selectedTypeId = defaultVisibleTypeId\(pkg\);[\s\S]*resetMemberFilters\(\);[\s\S]*resetMemberSectionState\(\)/);
 });
 
 test("loaded-package Spotlight selection resets type-specific member filters", () => {
@@ -604,7 +604,7 @@ test("foreground package reload resets filters before selecting its first type",
     ?? "";
   assert.match(
     loadPackage,
-    /if \(deep && \(deep\.type \|\| deep\.member\)\) \{[\s\S]*applyDeepLink\(deep\);[\s\S]*\} else \{\s*resetMemberFilters\(\);\s*state\.selectedTypeId = packageModel\.types\[0\]\?\.id \|\| "";/);
+    /if \(deep && \(deep\.type \|\| deep\.member\)\) \{[\s\S]*applyDeepLink\(deep\);[\s\S]*\} else \{\s*resetMemberFilters\(\);\s*state\.selectedTypeId = defaultVisibleTypeId\(packageModel\);/);
 });
 
 test("home demos restore the complete parsed location", () => {
@@ -648,7 +648,7 @@ test("opening an already-resident Platform resets type-specific member filters",
     ?? "";
   assert.match(
     openPlatform,
-    /state\.atPackageRoot = true;\s*state\.packageLens = "overview";\s*resetMemberFilters\(\);\s*state\.selectedTypeId = pack\.types\[0\]\?\.id \|\| "";/);
+    /state\.atPackageRoot = true;\s*state\.packageLens = "overview";[\s\S]*resetMemberFilters\(\);\s*state\.selectedTypeId = defaultVisibleTypeId\(pack\);/);
 });
 
 test("lens-scoped Platform library changes reset type-specific member state", () => {

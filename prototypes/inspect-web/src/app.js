@@ -911,6 +911,51 @@ function filteredTypes() {
   });
 }
 
+// The type the type list would land on by default: the first type the CURRENT
+// accessibility filter (and, if set, library scope) admits, not merely the first type the
+// backend happens to return. Package/library roots otherwise land on whatever type sorts
+// first server-side — often an internal compiler-generated type (e.g. an FxResources.*.SR
+// resource shim) — while the type list itself (filteredTypes) hides it, splitting the
+// landing type from the visible list. Honoring libraryScope here (rather than only
+// accessibility) matters for restores that legitimately set it before falling back to a
+// default type -- e.g. a deep link to a platform library's root with no explicit type --
+// so the default lands inside the restored library instead of picking a package-wide type
+// that a later reconciliation step then treats as evidence the scope should be cleared.
+// Callers must reset any stale type/namespace/kind/library filters (and the accessibility
+// filter, via activatePackage) before calling this so it reflects the incoming package.
+function defaultVisibleTypeId(pkg) {
+  if (!pkg) return "";
+  const visible = pkg.types.find(item =>
+    state.accessibilityFilter.has(item.accessibilityId)
+    && (!state.libraryScope || state.libraryScope.has(libraryKey(item))));
+  if (visible) return visible.id;
+  // No type within the active library scope passes the current accessibility filter -- e.g.
+  // an internal-only platform library (zero public types) reached via a link with no explicit
+  // type. Prefer a type still within the requested scope over an unrelated package-wide type,
+  // so the caller's accessibility-widening reconciliation (see reconcileAccessibilityFilter)
+  // can admit it without losing the library scope that was the actual target of the restore.
+  if (state.libraryScope) {
+    const scoped = pkg.types.find(item => state.libraryScope.has(libraryKey(item)));
+    if (scoped) return scoped.id;
+  }
+  return pkg.types[0]?.id || "";
+}
+
+// Widen state.accessibilityFilter, if necessary, so it admits the given type. Every
+// defaultVisibleTypeId caller must invoke this immediately after assigning
+// state.selectedTypeId so a package/library where every type falls outside the current
+// filter (e.g. one with zero public types) doesn't leave the type list empty while the pane
+// renders a type filteredTypes() would hide.
+function reconcileAccessibilityFilter(type) {
+  if (!type) return;
+  if (!state.accessibilityFilter.has(type.accessibilityId)) {
+    const next = new Set(state.accessibilityFilter);
+    next.add(type.accessibilityId);
+    state.accessibilityFilter = next;
+  }
+}
+
+
 // The "Filter types" box matches, within the active scope, on the type's own identity
 // (name/namespace/kind), the owning library (assembly) name, and — so a member you
 // remember surfaces its declaring type — any member name on the type. The member scan
@@ -1100,14 +1145,15 @@ function selectPackageTab(pkg) {
   if (!pkg) return;
   activatePackage(pkg, { resetAccessibility: true });
   state.home = false;
-  state.selectedTypeId = pkg.types[0]?.id || "";
-  state.selectedMemberKey = "";
-  state.memberBrowseTypeId = "";
-  state.selectedOverloadIndex = null;
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
   state.libraryScope = null;
+  state.selectedTypeId = defaultVisibleTypeId(pkg);
+  reconcileAccessibilityFilter(pkg.types.find(item => item.id === state.selectedTypeId));
+  state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
+  state.selectedOverloadIndex = null;
   resetMemberFilters();
   resetMemberSectionState();
   render();
@@ -4679,13 +4725,19 @@ async function switchPlatformVersion(tfm, retryPackage = null) {
   state.loading = false;
   state.atPackageRoot = true;
   state.packageLens = "overview";
-  state.selectedTypeId = loaded.types[0]?.id || "";
-  state.selectedMemberKey = "";
-  state.memberBrowseTypeId = "";
-  state.selectedOverloadIndex = null;
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
+  // A library scope from the version being switched away from doesn't necessarily carry over
+  // to the new version's assembly layout; clear it like the other stale filters above so
+  // defaultVisibleTypeId (which now also honors libraryScope) picks from the whole incoming
+  // package rather than a possibly-stale or now-nonexistent library.
+  state.libraryScope = null;
+  state.selectedTypeId = defaultVisibleTypeId(loaded);
+  reconcileAccessibilityFilter(loaded.types.find(item => item.id === state.selectedTypeId));
+  state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
+  state.selectedOverloadIndex = null;
   render();
   loadSelectionData();
 }
@@ -5066,6 +5118,16 @@ function syncUrl() {
 function applyDeepLink(deep) {
   const pkg = state.package;
   if (!pkg) return;
+  // Every caller reaches this from a URL/history-driven restore (initial load, workspace
+  // restore, back/forward, or an explicit deep link passed to loadPackage), never from an
+  // in-app link click that means to preserve the current type-list filter. Clear the
+  // type/namespace/kind filters so a value left over from Browse elsewhere doesn't hide the
+  // restored type from the list (library scope is deliberately left alone: for a platform
+  // link it is already restored by applyPlatformLibraryScope before this runs, and clearing
+  // it here would undo that restoration).
+  state.typeFilter = "";
+  state.namespaceFilter = "";
+  state.kindFilter = "";
   state.memberSource = null;
   state.memberSourceError = "";
   state.memberSourceKey = "";
@@ -5085,7 +5147,37 @@ function applyDeepLink(deep) {
   state.platformDrillError = "";
   const restoreType = deep?.type && pkg.types.some(item => item.id === deep.type);
   resetMemberFilters();
-  state.selectedTypeId = restoreType ? deep.type : (pkg.types[0]?.id || "");
+  // Only the .NET Platform pseudo-package's library scope is carried across a restore (via
+  // applyPlatformLibraryScope, which every restore path already runs before reaching here). A
+  // regular package's scope is never part of that restored view, so any value still set here
+  // is leftover session state from a previously viewed package. Clear it before computing a
+  // fallback default type below (not merely after), so that leftover scope can't narrow which
+  // type the fallback picks -- e.g. two unrelated packages happening to share an assembly name.
+  if (!isRuntimePackId(pkg.id)) {
+    state.libraryScope = null;
+  }
+  state.selectedTypeId = restoreType ? deep.type : defaultVisibleTypeId(pkg);
+  // The restored/defaulted type may sit outside the current accessibility bucket or the
+  // platform's library scope (e.g. an internal type reached via a shared link, or a history
+  // entry for a type in a library the session had since scoped away from). Reconcile both
+  // filters against the actual selected type so the type list and the displayed type stay
+  // aligned, instead of showing an unrelated first type -- or an empty list -- while the pane
+  // renders the restored one.
+  const selected = pkg.types.find(item => item.id === state.selectedTypeId);
+  if (selected) {
+    reconcileAccessibilityFilter(selected);
+    // A regular package's scope was already cleared above. For the platform pseudo-package,
+    // only clear the restored scope if the selected type doesn't actually belong to it --
+    // defaultVisibleTypeId now prefers a type within libraryScope even when none of that
+    // scope's types pass the accessibility filter (see its own comment), so this should only
+    // trigger when the scope's library genuinely has no types at all.
+    if (isRuntimePackId(pkg.id)) {
+      if (state.libraryScope && !state.libraryScope.has(libraryKey(selected))) {
+        state.libraryScope = null;
+      }
+    }
+  }
+
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
@@ -5358,8 +5450,13 @@ async function openRuntimePackFromHome() {
   }
   state.atPackageRoot = true;
   state.packageLens = "overview";
+  state.typeFilter = "";
+  state.namespaceFilter = "";
+  state.kindFilter = "";
+  state.libraryScope = null;
   resetMemberFilters();
-  state.selectedTypeId = pack.types[0]?.id || "";
+  state.selectedTypeId = defaultVisibleTypeId(pack);
+  reconcileAccessibilityFilter(pack.types.find(item => item.id === state.selectedTypeId));
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
@@ -5993,7 +6090,12 @@ function switchToPackageForDependencies(packageKey) {
   activatePackage(target, { resetAccessibility: true });
   state.atPackageRoot = true;
   state.packageLens = "dependencies";
-  state.selectedTypeId = target.types[0]?.id || "";
+  state.typeFilter = "";
+  state.namespaceFilter = "";
+  state.kindFilter = "";
+  state.libraryScope = null;
+  state.selectedTypeId = defaultVisibleTypeId(target);
+  reconcileAccessibilityFilter(target.types.find(item => item.id === state.selectedTypeId));
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
@@ -7140,7 +7242,8 @@ async function loadPackage(packageId, version, framework, options = {}) {
       applyDeepLink(deep);
     } else {
       resetMemberFilters();
-      state.selectedTypeId = packageModel.types[0]?.id || "";
+      state.selectedTypeId = defaultVisibleTypeId(packageModel);
+      reconcileAccessibilityFilter(packageModel.types.find(item => item.id === state.selectedTypeId));
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";
       state.selectedOverloadIndex = null;
@@ -7596,7 +7699,10 @@ async function restoreWorkspaceFromLocation(
   if (targetModel) {
     activatePackage(targetModel, { resetAccessibility: true });
     // Restore the platform library scope captured in the share packet before applying the
-    // deep link, so a refreshed/shared platform-library link lands on that library.
+    // deep link, so a refreshed/shared platform-library link lands on that library. Called
+    // unconditionally (not just when loc.library is set) so an aggregate/no-library restore
+    // also clears any scope left over from a previous session -- applyPlatformLibraryScope's
+    // own falsy-key branch handles that case synchronously.
     if (isRuntimePackId(targetModel.id)) {
       const scoped = await applyPlatformLibraryScope(
         loc.library,
@@ -7996,6 +8102,9 @@ async function restoreRuntimePackFromHistory(loc, deep, navigationSeq) {
   if (navigationSeq !== state.navigationSeq) return;
   if (pack) {
     activatePackage(pack, { resetAccessibility: true });
+    // Always resolve scope from the history entry's own library field -- even when it's
+    // empty (the aggregate view) -- so a stale scope from whatever the session was
+    // previously viewing doesn't survive the restore. Mirrors restorePlatformScopeThenDeepLink.
     const scoped = await applyPlatformLibraryScope(
       loc.library,
       loc.libraryPack,
