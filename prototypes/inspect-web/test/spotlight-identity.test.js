@@ -903,7 +903,7 @@ test("package opportunities owns its rendered control bindings", () => {
     ?? "";
   assert.match(
     binding,
-    /bindPackageOpportunities\(document, \{\s*onLookForSelect: openSpotlight,\s*onPackageSelect: packageId => openDependencyPackage\(packageId, ""\),\s*onTypeSelect: typeId => \{[\s\S]*currentPackage\(\)\.types\.find\(item => item\.id === typeId\)[\s\S]*openSpotlight\(shortTypeName\(typeId\)\)[\s\S]*state\.atPackageRoot = false;[\s\S]*navigateToTypeByName\(typeId\)/);
+    /bindPackageOpportunities\(document, \{\s*onLookForSelect: openSpotlight,\s*onPackageSelect: packageId => openDependencyPackage\(packageId, ""\),\s*onTypeSelect: typeId => \{[\s\S]*currentPackage\(\)\.types\.find\(item => item\.id === typeId\);\s*if \(!target\) \{[\s\S]*openSpotlight\(shortTypeName\(typeId\)\)[\s\S]*state\.atPackageRoot = false;[\s\S]*navigateToTypeByName\(typeId\)/);
   assert.equal(
     appSource.match(/\bbindPackageOpportunitiesEvents\b/g)?.length,
     2);
@@ -913,6 +913,7 @@ test("package opportunities owns its rendered control bindings", () => {
   assert.doesNotMatch(
     binding,
     /\b(?:getElementById|querySelector|querySelectorAll)\s*\(|\.addEventListener\s*\(/);
+  assert.equal(binding.match(/\bdocument\b/g)?.length, 1);
   assert.match(
     packageOpportunitiesSource,
     /export function bindPackageOpportunities\([\s\S]*\[data-opp-type\][\s\S]*\[data-opp-package\][\s\S]*\[data-opp-lookfor\]/);
