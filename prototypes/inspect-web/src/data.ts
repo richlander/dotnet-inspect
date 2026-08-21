@@ -153,6 +153,19 @@ export function platformPackFromProvenance(
   return "netcore.app";
 }
 
+export function platformPackFromAcquiredProvenance(
+  assembly: string,
+  exactPack: unknown,
+  loadedAssemblies: readonly PlatformPackAssembly[] | null | undefined,
+): PlatformPack | null {
+  return platformPackFromProvenance(
+    assembly,
+    exactPack,
+    loadedAssemblies,
+    [],
+    []);
+}
+
 export interface DependencyCoordinateCandidate extends PackageIdentity {
   isRuntimePack?: boolean;
 }

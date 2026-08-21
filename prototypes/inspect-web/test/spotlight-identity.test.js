@@ -51,6 +51,7 @@ import {
   packageForView,
   packageIdentityKey,
   parameterTitleHtml,
+  platformPackFromAcquiredProvenance,
   platformPackFromProvenance,
   platformPackToken,
   reconcileCurrentNavigationEntry,

@@ -26,6 +26,7 @@ import {
   packageIdentityKey,
   packageLenses,
   parameterTitleHtml,
+  platformPackFromAcquiredProvenance,
   platformPackFromProvenance,
   removeWorkspacePackage,
   removeAppendedNotice,
@@ -4816,6 +4817,19 @@ function platformPackForAssembly(
     resident?.assemblies,
     state.platformRecent,
     platformLibraryRoster(""));
+}
+
+function platformPackForGraphAssembly(
+  key: string,
+  exactPack: string | null = null,
+) {
+  const resident = runtimePackForFramework(
+    runtimePackPackage(),
+    state.package?.activeFramework || "");
+  return platformPackFromAcquiredProvenance(
+    key,
+    exactPack,
+    resident?.assemblies);
 }
 
 // Remember an opened platform library at the front of the recent list (most-recent
