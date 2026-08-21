@@ -153,27 +153,38 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
 test("type panel bindings dispatch the rendered type navigation controls", () => {
   const root = new FakeRoot();
   const type = new FakeElement({ type: "System.String" });
+  const secondType = new FakeElement({ type: "System.Int32" });
   const namespace = new FakeElement({ namespace: "System" });
+  const secondNamespace = new FakeElement({ namespace: "System.Collections" });
   const kind = new FakeElement({ kindFilter: "class" });
-  root.addAll("[data-type]", type);
-  root.addAll("[data-namespace]", namespace);
-  root.addAll("[data-kind-filter]", kind);
+  const secondKind = new FakeElement({ kindFilter: "interface" });
+  root.addAll("[data-type]", type, secondType);
+  root.addAll("[data-namespace]", namespace, secondNamespace);
+  root.addAll("[data-kind-filter]", kind, secondKind);
   const clear = root.add("#clear-filter", new FakeElement());
   const namespaceJump = root.add("#namespace-jump", new FakeElement());
-  namespaceJump.value = "System.Text";
   const filter = root.add("#type-filter", new FakeElement());
-  filter.value = "json";
   const typeList = root.add("#type-list", new FakeElement());
 
   const calls: string[] = [];
-  bindTypePanel(
-    root as unknown as ParentNode,
-    recordingActions(calls));
+  let forwardedListEvent: KeyboardEvent | null = null;
+  const actions = recordingActions(calls);
+  actions.onListKeyDown = event => {
+    forwardedListEvent = event;
+    event.preventDefault();
+    calls.push(`list:${event.key}`);
+  };
+  bindTypePanel(root as unknown as ParentNode, actions);
+  namespaceJump.value = "System.Text";
+  filter.value = "json";
 
   type.dispatch("click");
+  secondType.dispatch("click");
   namespace.dispatch("click");
+  secondNamespace.dispatch("click");
   namespaceJump.dispatch("change");
   kind.dispatch("click");
+  secondKind.dispatch("click");
   clear.dispatch("click");
   filter.dispatch("input");
   const listKey = keyboardEvent("End");
@@ -181,21 +192,28 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
 
   assert.deepEqual(calls, [
     "type:System.String",
+    "type:System.Int32",
     "namespace:System",
+    "namespace:System.Collections",
     "namespace:System.Text",
     "kind:class",
+    "kind:interface",
     "clear",
     "filter:json",
     "list:End",
   ]);
+  assert.equal(forwardedListEvent, listKey.event);
+  assert.equal(listKey.state.prevented, true);
 });
 
 test("type panel bindings dispatch the rendered member navigation controls", () => {
   const root = new FakeRoot();
   const member = new FakeElement({ navMember: "M:Length" });
+  const secondMember = new FakeElement({ navMember: "M:Count" });
   const overload = new FakeElement({ navOverload: "2" });
-  root.addAll("[data-nav-member]", member);
-  root.addAll("[data-nav-overload]", overload);
+  const secondOverload = new FakeElement({ navOverload: "0" });
+  root.addAll("[data-nav-member]", member, secondMember);
+  root.addAll("[data-nav-overload]", overload, secondOverload);
   const showTypes = root.add("#nav-to-types", new FakeElement());
   const typeList = root.add("#type-list", new FakeElement());
   const calls: string[] = [];
@@ -204,13 +222,17 @@ test("type panel bindings dispatch the rendered member navigation controls", () 
     recordingActions(calls));
 
   member.dispatch("click");
+  secondMember.dispatch("click");
   overload.dispatch("click");
+  secondOverload.dispatch("click");
   showTypes.dispatch("click");
   typeList.dispatch("keydown", keyboardEvent("Home").event);
 
   assert.deepEqual(calls, [
     "member:M:Length",
+    "member:M:Count",
     "overload:2",
+    "overload:0",
     "types",
     "list:Home",
   ]);
@@ -221,8 +243,12 @@ test("type filter keys preserve list focus and Escape behavior", () => {
   const filter = root.add("#type-filter", new FakeElement());
   const typeList = root.add("#type-list", new FakeElement());
   let escapes = 0;
+  let listKeys = 0;
   bindTypePanel(root as unknown as ParentNode, {
     ...recordingActions([]),
+    onListKeyDown: () => {
+      listKeys++;
+    },
     onTypeFilterEscape: () => {
       escapes++;
     },
@@ -233,12 +259,14 @@ test("type filter keys preserve list focus and Escape behavior", () => {
   assert.equal(typeList.focused, false);
   assert.equal(ignored.state.prevented, false);
   assert.equal(escapes, 0);
+  assert.equal(listKeys, 0);
 
   const down = keyboardEvent("ArrowDown");
   filter.dispatch("keydown", down.event);
   assert.equal(typeList.focused, true);
   assert.equal(down.state.prevented, true);
   assert.equal(escapes, 0);
+  assert.equal(listKeys, 0);
 
   typeList.focused = false;
   const escape = keyboardEvent("Escape");
@@ -246,6 +274,7 @@ test("type filter keys preserve list focus and Escape behavior", () => {
   assert.equal(escapes, 1);
   assert.equal(escape.state.prevented, false);
   assert.equal(typeList.focused, false);
+  assert.equal(listKeys, 0);
 });
 
 test("type panel binding tolerates controls from the inactive nav being absent", () => {
@@ -282,6 +311,10 @@ test("the type nav lists namespace groups with the current type selected", () =>
     html,
     /data-type="System\.Text\.Json\.JsonDocument" role="option" aria-selected="false"/);
   assert.match(html, /data-namespace="System\.Text\.Json"/);
+  assert.match(html, /id="clear-filter"/);
+  assert.match(html, /id="type-filter"/);
+  assert.match(html, /id="namespace-jump"/);
+  assert.match(html, /data-kind-filter="class"/);
   assert.match(html, /id="type-list" data-nav-scope="types"/);
   assert.match(html, /data-nav-selection="type:System\.Text\.Json\.JsonSerializer"/);
 });
@@ -368,6 +401,7 @@ test("the member nav marks the active group and its selected overload", () => {
   assert.match(
     html,
     /data-nav-overload="0" role="option" aria-selected="false"/);
+  assert.match(html, /id="nav-to-types"/);
   assert.match(
     html,
     /id="type-list" data-nav-scope="members:System\.Text\.Json\.JsonSerializer"/);
