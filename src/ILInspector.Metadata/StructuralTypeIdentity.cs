@@ -1,5 +1,6 @@
 using System.Reflection.Metadata;
 using System.Text;
+using CSharpText;
 
 namespace ILInspector.Metadata;
 
@@ -108,4 +109,121 @@ public static class StructuralTypeIdentity
 
         return result.ToString();
     }
+
+    public static string Generic(
+        string @namespace,
+        IEnumerable<string> metadataSegments,
+        IEnumerable<string> typeArguments)
+    {
+        ArgumentNullException.ThrowIfNull(@namespace);
+        ArgumentNullException.ThrowIfNull(metadataSegments);
+        ArgumentNullException.ThrowIfNull(typeArguments);
+
+        string[] segments = [.. metadataSegments];
+        string[] arguments = [.. typeArguments];
+        foreach (string segment in segments)
+            ArgumentException.ThrowIfNullOrEmpty(segment);
+        foreach (string argument in arguments)
+            ArgumentException.ThrowIfNullOrEmpty(argument);
+
+        int totalArity = segments.Sum(MetadataNameArity.OfSegment);
+        if (totalArity != arguments.Length)
+        {
+            var malformed = new StringBuilder("#G");
+            Append(malformed, Named(@namespace, segments));
+            malformed.Append(arguments.Length).Append(':');
+            foreach (string argument in arguments)
+                Append(malformed, argument);
+            return malformed.ToString();
+        }
+
+        var result = new StringBuilder();
+        if (@namespace.Length > 0)
+            result.Append(Escape(@namespace, escapeDot: false)).Append('.');
+
+        int argumentIndex = 0;
+        for (int segmentIndex = 0; segmentIndex < segments.Length; segmentIndex++)
+        {
+            if (segmentIndex > 0)
+                result.Append('.');
+
+            string segment = segments[segmentIndex];
+            result.Append(EscapeSegment(
+                MetadataNameArity.StripFromSegment(segment),
+                escapeGenericParameterMarker: @namespace.Length == 0));
+            int arity = MetadataNameArity.OfSegment(segment);
+            if (arity <= 0)
+                continue;
+
+            result.Append('{');
+            for (int index = 0; index < arity; index++)
+            {
+                if (index > 0)
+                    result.Append(',');
+                result.Append(arguments[argumentIndex++]);
+            }
+            result.Append('}');
+        }
+
+        return result.ToString();
+    }
+
+    static string Named(string @namespace, IEnumerable<string> metadataSegments)
+    {
+        string typeName = string.Join(
+            '.',
+            metadataSegments.Select(segment =>
+                EscapeSegment(
+                    segment,
+                    escapeGenericParameterMarker: @namespace.Length == 0)));
+        return @namespace.Length == 0
+            ? typeName
+            : $"{Escape(@namespace, escapeDot: false)}.{typeName}";
+    }
+
+    static string EscapeSegment(
+        string value,
+        bool escapeGenericParameterMarker)
+    {
+        string escaped = Escape(value, escapeDot: true);
+        return escapeGenericParameterMarker
+            && IsGenericParameterIdentity(value)
+                ? $"\\{escaped}"
+                : escaped;
+    }
+
+    static string Escape(string value, bool escapeDot)
+    {
+        string escaped = value
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("+", "\\+", StringComparison.Ordinal)
+            .Replace("{", "\\{", StringComparison.Ordinal)
+            .Replace("}", "\\}", StringComparison.Ordinal)
+            .Replace("[", "\\[", StringComparison.Ordinal)
+            .Replace("]", "\\]", StringComparison.Ordinal)
+            .Replace(",", "\\,", StringComparison.Ordinal)
+            .Replace("*", "\\*", StringComparison.Ordinal)
+            .Replace("@", "\\@", StringComparison.Ordinal)
+            .Replace("`", "\\`", StringComparison.Ordinal)
+            .Replace("#", "\\#", StringComparison.Ordinal);
+        return escapeDot
+            ? escaped.Replace(".", "\\.", StringComparison.Ordinal)
+            : escaped;
+    }
+
+    static bool IsGenericParameterIdentity(string value)
+    {
+        if (value.Length < 2 || value[0] is not ('T' or 'M'))
+            return false;
+
+        foreach (char character in value.AsSpan(1))
+        {
+            if (character is < '0' or > '9')
+                return false;
+        }
+        return true;
+    }
+
+    static void Append(StringBuilder builder, string value)
+        => builder.Append(value.Length).Append(':').Append(value);
 }

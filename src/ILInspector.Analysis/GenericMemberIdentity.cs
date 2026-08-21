@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 using System.Linq;
+using System.Text;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
@@ -46,8 +48,24 @@ public static class GenericMemberIdentity
         => type.Kind == TypeRefKind.GenericInstance
             || (type.Kind == TypeRefKind.Definition && HasArity(type.Name));
 
-    /// <summary>A metadata type name carries a generic arity suffix (e.g. <c>List`1</c>).</summary>
-    public static bool HasArity(string name) => name.IndexOf('`') >= 0;
+    /// <summary>
+    /// A metadata type name carries a generic arity suffix (e.g. <c>List`1</c>) on
+    /// any of its nested segments — an enclosing type's arity makes the nested
+    /// type generic too. Only the canonical <c>`N</c> counts
+    /// (<see cref="MetadataNameArity"/>), so a name whose backtick is literal
+    /// (<c>Widget`Literal</c>) is not generic.
+    /// </summary>
+    public static bool HasArity(string name)
+    {
+        foreach (MetadataNameComponent component in
+            MetadataNameArity.EnumerateComponents(name, dotIsBoundary: false))
+        {
+            if (component.Arity > 0)
+                return true;
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// Whether a type mentions a generic parameter anywhere — the open-definition
@@ -93,7 +111,13 @@ public static class GenericMemberIdentity
     /// parameter count.
     /// </summary>
     public static string ErasedParameterShape(ImmutableArray<TypeRef> openParameterTypes)
-        => string.Join(",", openParameterTypes.Select(KeyFragment));
+    {
+        var key = new StringBuilder();
+        key.Append(openParameterTypes.Length).Append('|');
+        foreach (TypeRef type in openParameterTypes)
+            AppendKeyPart(key, KeyFragment(type));
+        return key.ToString();
+    }
 
     /// <summary>
     /// An assembly-qualified, cross-assembly-stable key fragment for a type. Generic
@@ -104,21 +128,76 @@ public static class GenericMemberIdentity
     /// distinguishes them, but the display strings did not) (#1741), and the namespace
     /// keeps same-name types from different namespaces distinct (#1731).
     /// </summary>
-    public static string KeyFragment(TypeRef type) => type.Kind switch
+    public static string KeyFragment(TypeRef type)
     {
-        TypeRefKind.GenericParameter => $"!{type.GenericParameterIndex}",
-        TypeRefKind.MethodGenericParameter => $"!!{type.GenericParameterIndex}",
-        TypeRefKind.GenericInstance when type.ElementType is { } definition
-            => $"{KeyFragment(definition)}<{string.Join(",", type.TypeArguments.Select(KeyFragment))}>",
-        TypeRefKind.SzArray when type.ElementType is { } element
-            => $"{KeyFragment(element)}[]",
-        TypeRefKind.Array when type.ElementType is { } element
-            => $"{KeyFragment(element)}[{new string(',', type.Rank > 0 ? type.Rank - 1 : 0)}]",
-        TypeRefKind.ByRef when type.ElementType is { } element
-            => $"ref {KeyFragment(element)}",
-        TypeRefKind.Pointer when type.ElementType is { } element
-            => $"{KeyFragment(element)}*",
-        TypeRefKind.Definition => $"{type.Assembly}|{type.Namespace}.{type.Name}",
-        _ => type.ToQualifiedDisplayString(),
-    };
+        var key = new StringBuilder();
+        AppendTypeKey(key, type);
+        return key.ToString();
+    }
+
+    static void AppendTypeKey(StringBuilder key, TypeRef type)
+    {
+        key.Append((int)type.Kind).Append('|');
+        switch (type.Kind)
+        {
+            case TypeRefKind.GenericParameter:
+            case TypeRefKind.MethodGenericParameter:
+                key.Append(type.GenericParameterIndex).Append('|');
+                return;
+            case TypeRefKind.GenericInstance when type.ElementType is { } definition:
+                AppendKeyPart(key, KeyFragment(definition));
+                key.Append(type.TypeArguments.Length).Append('|');
+                foreach (TypeRef argument in type.TypeArguments)
+                    AppendKeyPart(key, KeyFragment(argument));
+                return;
+            case TypeRefKind.SzArray:
+            case TypeRefKind.ByRef:
+            case TypeRefKind.Pointer:
+            case TypeRefKind.Pinned:
+                AppendKeyPart(
+                    key,
+                    type.ElementType is { } element
+                        ? KeyFragment(element)
+                        : "");
+                return;
+            case TypeRefKind.Array:
+                key.Append(type.Rank).Append('|');
+                AppendKeyPart(
+                    key,
+                    type.ElementType is { } arrayElement
+                        ? KeyFragment(arrayElement)
+                        : "");
+                return;
+            case TypeRefKind.Definition:
+                AppendKeyPart(key, NamedDefinitionKey(type));
+                return;
+            default:
+                AppendKeyPart(key, type.ToQualifiedDisplayString());
+                return;
+        }
+    }
+
+    static string NamedDefinitionKey(TypeRef type)
+    {
+        if (type.Resolution?.Type is not { } exactName)
+            return $"{type.Assembly}|{type.Namespace}.{type.Name}";
+        if (TypeRef.TryGetLegacyCompatibleExactName(
+                type,
+                out MetadataTypeDefinitionName? compatible))
+        {
+            return $"{type.Assembly}|{compatible.Namespace}."
+                + compatible.Segments[0];
+        }
+
+        var key = new StringBuilder();
+        AppendKeyPart(key, type.Assembly);
+        AppendKeyPart(key, exactName.Namespace);
+        key.Append(exactName.Segments.Length).Append('|');
+        foreach (string segment in exactName.Segments)
+            AppendKeyPart(key, segment);
+        return key.ToString();
+    }
+
+    static void AppendKeyPart(StringBuilder key, string value)
+        => key.Append(value.Length).Append(':').Append(value).Append('|');
 }
