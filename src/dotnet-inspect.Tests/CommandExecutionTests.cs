@@ -14568,18 +14568,21 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_BareNameCallersWithCallerScope_AmbiguousOverloadReportsSelectorHint()
+    public async Task Member_BareNameCallersWithCallerScope_AggregatesAmbiguousOverloads()
     {
         var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
             nameof(MemberCallsFixture.Overloaded), "-S", "Callers", "--bin", testDirectory, "--tips", "q");
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("section 'Callers' requires a single selected overload", error);
-        Assert.Contains("Overloaded~<digest>", error);
-        Assert.Contains("Overloaded:1 through Overloaded:2", error);
+        Assert.Equal(0, exit);
+        Assert.Equal(
+            2,
+            output.Split(
+                nameof(MemberCallsFixture.CallsOverloaded),
+                StringSplitOptions.None).Length - 1);
+        Assert.Contains("## Callers", output);
+        Assert.Empty(error);
     }
 
     [Fact]
