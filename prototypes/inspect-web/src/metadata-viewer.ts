@@ -203,6 +203,8 @@ export interface MetadataExplorerBindingActions {
   onHistoryForward: () => void;
   onHeapFocus: (heap: string | undefined) => void;
   onJump: (index: number, rowId: number) => void;
+  onOpenHeap: (assembly: string, heap: string) => void;
+  onOpenTable: (assembly: string, index: number) => void;
   onPage: (index: number, startRowId: number) => void;
   onRowFocus: (index: number, rowId: number) => void;
   onShowOverview: () => void;
@@ -221,6 +223,18 @@ export function bindMetadataExplorer(
   root.querySelector("#mde-hist-fwd")?.addEventListener(
     "click",
     actions.onHistoryForward);
+  root.querySelectorAll<HTMLElement>("[data-mde-open]").forEach(button =>
+    button.addEventListener("click", () => {
+      const [assembly = "", tableIndex = "0"] =
+        (button.dataset.mdeOpen ?? "").split("|");
+      actions.onOpenTable(assembly, Number(tableIndex));
+    }));
+  root.querySelectorAll<HTMLElement>("[data-mde-open-heap]").forEach(button =>
+    button.addEventListener("click", () => {
+      const [assembly = "", heap = ""] =
+        (button.dataset.mdeOpenHeap ?? "").split("|");
+      actions.onOpenHeap(assembly, heap);
+    }));
   if (!explorer) return;
 
   root.querySelectorAll<HTMLElement>("[data-mde-chip]").forEach(chip =>

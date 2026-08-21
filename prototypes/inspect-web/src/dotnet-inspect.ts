@@ -3022,8 +3022,7 @@ function syncExplorerPageSize() {
   }
 }
 
-// Renders the explorer surface owned by metadata-viewer.ts, then binds its events. The state
-// snapshot is passed explicitly; the module owns markup only.
+// Renders the explorer surface owned by metadata-viewer.ts, then binds its events.
 function renderMetadataExplorer() {
   const explorer = state.explorer;
   if (!explorer) return;
@@ -3032,11 +3031,11 @@ function renderMetadataExplorer() {
     escapeHtml,
     fmtBytes,
   });
-  bindMetadataExplorerEvents();
+  bindMetadataViewerEvents();
 }
 
 let explorerObserver: IntersectionObserver | null = null;
-function bindMetadataExplorerEvents() {
+function bindMetadataViewerEvents() {
   const ex = state.explorer;
   bindMetadataExplorer(document, ex, {
     onClose: closeExplorer,
@@ -3044,6 +3043,8 @@ function bindMetadataExplorerEvents() {
     onHistoryForward: explorerHistoryForward,
     onHeapFocus: heap => pushExplorerFocus({ heap }),
     onJump: explorerJump,
+    onOpenHeap: openExplorerHeap,
+    onOpenTable: openExplorer,
     onPage: (index, startRowId) =>
       observeAsync(
         loadExplorerWindow(index, startRowId),
@@ -3836,6 +3837,7 @@ function bindEvents() {
   bindTypePanelEvents();
   bindScopeBarEvents();
   bindSettingsPanelEvents();
+  bindMetadataViewerEvents();
   document.querySelectorAll<HTMLElement>("[data-framework-chip]").forEach(button => button.addEventListener("click", () => {
     observeAsync(
       switchPackageFramework(button.dataset.frameworkChip ?? ""),
@@ -4194,18 +4196,6 @@ function bindEvents() {
   bindPlatformLensPicker("data-platform-opportunities-library", "opportunities", loadPackageOpportunities);
   bindPlatformLensPicker("data-platform-analysis-library", "analysis", loadPackagePerformance);
   bindPlatformLensPicker("data-platform-metadata-library", "metadata", loadPackageMetadata);
-  document.querySelectorAll<HTMLElement>("[data-mde-open]").forEach(btn =>
-    btn.addEventListener("click", () => {
-      const [assembly = "", tableIndex = "0"] =
-        (btn.dataset.mdeOpen ?? "").split("|");
-      openExplorer(assembly, Number(tableIndex));
-    }));
-  document.querySelectorAll<HTMLElement>("[data-mde-open-heap]").forEach(btn =>
-    btn.addEventListener("click", () => {
-      const [assembly = "", heapName = ""] =
-        (btn.dataset.mdeOpenHeap ?? "").split("|");
-      openExplorerHeap(assembly, heapName);
-    }));
   const frameworkSelect = document.querySelector<HTMLSelectElement>("#framework");
   frameworkSelect?.addEventListener("change", () => {
     observeAsync(
