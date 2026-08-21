@@ -246,10 +246,11 @@ path applies and when it does not. This is the procedure once it does.
    textual merge would resolve silently but wrongly. Say plainly when nothing in
    the range interacts — that is the common case and the most useful thing you
    can report.
-4. **If the user approves**, integrate that exact analyzed tip by SHA, not a
-   moving branch ref. Re-run the claimed validation and current-head CI.
-5. **If approval is declined**, keep the reviewed head. If the range interacts,
-   additionally follow the rule's interacting-range branch.
+4. **Execute the rule's decision.** Exactly one of its outcomes runs here: when
+   it authorizes carry-forward, integrate that exact analyzed tip by SHA, not a
+   moving branch ref, and re-run the claimed validation and current-head CI.
+   Every other outcome — declined, interacting, or that re-run failing — keeps
+   the reviewed head and is resolved by the rule, not by this document.
 
 Record the reviewed head, the old and approved new tips, the non-interaction
 analysis, and the user's decision on the PR.

@@ -717,6 +717,8 @@ analyze the additional range and obtain renewed approval. **If it can affect the
 change**, carry-forward is unavailable: keep the reviewed head, say the PR is
 not merge-ready, and ask whether to adjust the workflow to integrate,
 re-validate, and re-review the replacement head, or to leave the PR blocked.
+Approving that adjustment buys a **re-review**, never a carried one. A decline
+leaves the PR blocked at the reviewed head; do not ask again.
 
 **Repeat it whenever the base moves again**; a carried-forward head is
 review-clean, and each pass needs its own analysis and its own approval. **A
