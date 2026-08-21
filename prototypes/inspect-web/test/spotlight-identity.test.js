@@ -165,6 +165,9 @@ const workspaceNavigationSource = readFileSync(
 const packageAcquisitionSource = readFileSync(
   new URL("../src/package-acquisition.ts", import.meta.url),
   "utf8");
+const packageInspectionSource = readFileSync(
+  new URL("../src/package-inspection.ts", import.meta.url),
+  "utf8");
 const memberFocusSource = readFileSync(
   new URL("../src/member-focus.ts", import.meta.url),
   "utf8");
@@ -232,6 +235,27 @@ test("workspace data bar receives package acquisition provenance", () => {
   assert.match(packageAcquisitionSource, /source: \{ kind: "platform" \}/);
   assert.doesNotMatch(appSource, /source: \{ kind: "(?:nuget\.org|platform)" \}/);
   assert.match(statusBarSource, /Source: \$\{escapeHtml\(packageSourceLabel\(model\.source\)\)\}/);
+});
+
+test("typed package inspection owns package-root request coordination", () => {
+  const dependenciesLoader =
+    appSource.match(/async function loadPackageDependencies\(\) \{[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    appSource,
+    /createPackageInspectionCoordinator\(\{[\s\S]*queryDependencies:[\s\S]*queryPackageIntegrations:[\s\S]*queryPlatformMetadata:/);
+  assert.match(
+    dependenciesLoader,
+    /function loadPackageDependencies\(\) \{\s*return packageInspection\.loadDependencies\(/);
+  assert.match(appSource, /packageInspection\.ensureWorkspaceDependencies\(\)/);
+  assert.match(appSource, /packageInspection\.loadIntegrations\(/);
+  assert.match(appSource, /packageInspection\.loadOpportunities\(/);
+  assert.match(appSource, /packageInspection\.loadPerformance\(/);
+  assert.match(appSource, /packageInspection\.loadMetadata\(/);
+  assert.match(
+    packageInspectionSource,
+    /async loadDependencies\(packageModel, signature\)[\s\S]*state\.packageDependenciesKey/);
+  assert.doesNotMatch(dependenciesLoader, /state\.packageDependenciesKey/);
 });
 
 test("leaving package search clears its pending loading state", () => {

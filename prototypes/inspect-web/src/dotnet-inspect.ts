@@ -71,6 +71,11 @@ import {
   type AppPackage,
 } from "./package-acquisition.ts";
 import {
+  createPackageInspectionCoordinator,
+  workspaceDependencyKey,
+  type PackagePerformance,
+} from "./package-inspection.ts";
+import {
   captureMemberFocus,
   createMemberFocusRestorer,
   type MemberFocusSnapshot,
@@ -383,24 +388,6 @@ interface RecentPackage {
   id: string;
   version: string;
   framework: string;
-}
-
-interface PackagePerformanceMember {
-  assembly: string;
-  typeId: string;
-  memberName: string;
-  metadataToken: number;
-  opportunityCount: number;
-  inLoopCount: number;
-  shapes: string[];
-  confidence: string;
-}
-
-interface PackagePerformance {
-  members: PackagePerformanceMember[];
-  inspectionError?: string;
-  nonPublicOpportunities: number;
-  totalOpportunities: number;
 }
 
 interface MemberFactRow {
@@ -2257,61 +2244,68 @@ function resolveDependenciesGroupIndex(
   return active?.index ?? groups[0]?.index ?? null;
 }
 
-async function loadPackageDependencies() {
-  const pkg = currentPackage();
-  const signature = packageDependenciesSignature();
-  if (state.packageDependenciesKey === signature && (state.packageDependencies || state.packageDependenciesError)) {
-    render();
-    return;
-  }
-  state.packageDependenciesKey = signature;
-  state.packageDependencies = null;
-  state.packageDependenciesError = "";
-  state.packageDependenciesLoading = true;
-  render();
-  const packageRequest = {
-    id: pkg.id,
-    version: pkg.version,
-    activeFramework: pkg.activeFramework,
-    assemblyId: pkg.assemblyId
-  };
-  const workspaceKey = workspaceDependencyKey(packageRequest);
-  try {
-    const result = await inspectPackageDependencies(
-      packageRequest.id,
-      packageRequest.version,
-      packageRequest.activeFramework,
-      packageRequest.assemblyId);
-    if (state.packageDependenciesKey === signature) state.packageDependencies = result;
-    if (result?.dependencyGroups
-      && state.packages.some(pkg => packageIdentityEquals(pkg, packageRequest))) {
-      state.workspaceDependencies[workspaceKey] = {
-        dependencyGroups: result.dependencyGroups,
-        dependencyGroupError: result.dependencyGroupError || ""
-      };
-      if (result.dependencyGroupError) {
-        state.workspaceDependencyErrors[workspaceKey] = result.dependencyGroupError;
-      } else {
-        delete state.workspaceDependencyErrors[workspaceKey];
-      }
-    }
-  } catch (error) {
-    if (state.packageDependenciesKey === signature)
-      state.packageDependenciesError = errorMessage(error);
-  } finally {
-    if (state.packageDependenciesKey === signature) state.packageDependenciesLoading = false;
-    refreshPackageStats();
-    render();
-    ensureWorkspaceDependencies();
-  }
-}
+const packageInspection = createPackageInspectionCoordinator({
+  state,
+  queryDependencies: packageModel => inspectPackageDependencies(
+    packageModel.id,
+    packageModel.version,
+    packageModel.activeFramework,
+    packageModel.assemblyId),
+  queryPackageIntegrations: packageModel => inspectPackageIntegrations(
+    packageModel.id,
+    packageModel.version,
+    packageModel.activeFramework),
+  queryPlatformIntegrations: async (framework, assemblyFileName, pack) =>
+    parseEngineJson<BrowserPackageIntegrations>(
+      await inspectPlatformIntegrations(
+        framework,
+        assemblyFileName,
+        pack)),
+  queryPackageOpportunities: packageModel => inspectPackageOpportunities(
+    packageModel.id,
+    packageModel.version,
+    packageModel.activeFramework),
+  queryPlatformOpportunities: async (framework, assemblyFileName, pack) =>
+    parseEngineJson<BrowserPackageOpportunities>(
+      await inspectPlatformOpportunities(
+        framework,
+        assemblyFileName,
+        pack)),
+  queryPackagePerformance: async packageModel =>
+    parseEngineJson<PackagePerformance>(
+      await inspectPackagePerformance(
+        packageModel.id,
+        packageModel.version,
+        packageModel.activeFramework)),
+  queryPlatformPerformance: async (framework, assemblyFileName, pack) =>
+    parseEngineJson<PackagePerformance>(
+      await inspectPlatformPerformance(
+        framework,
+        assemblyFileName,
+        pack)),
+  queryPackageMetadata: async packageModel =>
+    parseEngineJson<PackageMetadata>(
+      await inspectPackageMetadata(
+        packageModel.id,
+        packageModel.version,
+        packageModel.activeFramework)),
+  queryPlatformMetadata: async (framework, assemblyFileName, pack) =>
+    parseEngineJson<PackageMetadata>(
+      await inspectPlatformMetadata(
+        framework,
+        assemblyFileName,
+        pack)),
+  platformPackForAssembly,
+  describeError: errorMessage,
+  refreshPackageStats,
+  render,
+  renderDependencyGraph,
+});
 
-function workspaceDependencyKey(pkg: PackageIdentity) {
-  return [
-    pkg.id.toLowerCase(),
-    pkg.version.toLowerCase(),
-    pkg.activeFramework.toLowerCase()
-  ].join("@");
+async function loadPackageDependencies() {
+  return packageInspection.loadDependencies(
+    currentPackage(),
+    packageDependenciesSignature());
 }
 
 function maybeAutoLoadPackageDependencies() {
@@ -2329,50 +2323,7 @@ function maybeAutoLoadPackageDependencies() {
 // Fetches dependency manifests for every other open package so the dependency graph can
 // draw incoming "caller" edges (open packages that declare a dependency on the current one).
 async function ensureWorkspaceDependencies() {
-  const missing = state.packages.filter(item =>
-    !item.isRuntimePack
-    && !Object.hasOwn(
-      state.workspaceDependencies,
-      workspaceDependencyKey(item))
-    && !state.workspaceDependencyLoads.has(workspaceDependencyKey(item)));
-  if (!missing.length) {
-    renderDependencyGraph();
-    return;
-  }
-  for (const item of missing) {
-    const key = workspaceDependencyKey(item);
-    if (!state.packages.some(pkg => packageIdentityEquals(pkg, item))) continue;
-    state.workspaceDependencyLoads.add(key);
-    try {
-      const result = await inspectPackageDependencies(
-        item.id,
-        item.version,
-        item.activeFramework,
-        item.assemblyId);
-      if (!state.packages.some(pkg => packageIdentityEquals(pkg, item))) continue;
-      state.workspaceDependencies[key] = {
-        dependencyGroups: result?.dependencyGroups || [],
-        dependencyGroupError: result?.dependencyGroupError || ""
-      };
-      if (result?.dependencyGroupError) {
-        state.workspaceDependencyErrors[key] = result.dependencyGroupError;
-      } else {
-        delete state.workspaceDependencyErrors[key];
-      }
-    } catch (error) {
-      if (!state.packages.some(pkg => packageIdentityEquals(pkg, item))) continue;
-      state.workspaceDependencies[key] = {
-        dependencyGroups: [],
-        dependencyGroupError: ""
-      };
-      state.workspaceDependencyErrors[key] = errorMessage(error);
-    } finally {
-      state.workspaceDependencyLoads.delete(key);
-    }
-  }
-
-  if (state.atPackageRoot && state.packageLens === "dependencies") render();
-  refreshPackageStats();
+  return packageInspection.ensureWorkspaceDependencies();
 }
 
 function workspaceDependencyErrorHtml() {
@@ -2469,40 +2420,11 @@ function renderPackageIntegrations() {
 
 async function loadPackageIntegrations() {
   const pkg = currentPackage();
-  const isPlatform = pkg.isRuntimePack;
   const scopedLib = scopedPlatformLibrary();
-  // The Platform lens needs a chosen library to scan; without one the render prompts for a
-  // selection, so there is nothing to fetch yet.
-  if (isPlatform && !scopedLib) return;
-  const signature = packageIntegrationsSignature();
-  if (state.packageIntegrationsKey === signature && (state.packageIntegrations || state.packageIntegrationsError)) {
-    render();
-    return;
-  }
-  state.packageIntegrationsKey = signature;
-  state.packageIntegrations = null;
-  state.packageIntegrationsError = "";
-  state.packageIntegrationsLoading = true;
-  render();
-  try {
-    const result = isPlatform
-      ? parseEngineJson<BrowserPackageIntegrations>(
-          await inspectPlatformIntegrations(
-            pkg.activeFramework,
-            `${scopedLib}.dll`,
-            platformPackForAssembly(scopedLib ?? "")))
-      : await inspectPackageIntegrations(
-          pkg.id,
-          pkg.version,
-          pkg.activeFramework);
-    if (state.packageIntegrationsKey === signature) state.packageIntegrations = result;
-  } catch (error) {
-    if (state.packageIntegrationsKey === signature)
-      state.packageIntegrationsError = errorMessage(error);
-  } finally {
-    if (state.packageIntegrationsKey === signature) state.packageIntegrationsLoading = false;
-    render();
-  }
+  return packageInspection.loadIntegrations(
+    pkg,
+    packageIntegrationsSignature(),
+    scopedLib);
 }
 
 function maybeAutoLoadPackageIntegrations() {
@@ -2546,38 +2468,11 @@ function renderPackageOpportunities() {
 
 async function loadPackageOpportunities() {
   const pkg = currentPackage();
-  const isPlatform = pkg.isRuntimePack;
   const scopedLib = scopedPlatformLibrary();
-  if (isPlatform && !scopedLib) return;
-  const signature = packageScopeSignature();
-  if (state.packageOpportunitiesKey === signature && (state.packageOpportunities || state.packageOpportunitiesError)) {
-    render();
-    return;
-  }
-  state.packageOpportunitiesKey = signature;
-  state.packageOpportunities = null;
-  state.packageOpportunitiesError = "";
-  state.packageOpportunitiesLoading = true;
-  render();
-  try {
-    const result = isPlatform
-      ? parseEngineJson<BrowserPackageOpportunities>(
-          await inspectPlatformOpportunities(
-            pkg.activeFramework,
-            `${scopedLib}.dll`,
-            platformPackForAssembly(scopedLib ?? "")))
-      : await inspectPackageOpportunities(
-          pkg.id,
-          pkg.version,
-          pkg.activeFramework);
-    if (state.packageOpportunitiesKey === signature) state.packageOpportunities = result;
-  } catch (error) {
-    if (state.packageOpportunitiesKey === signature)
-      state.packageOpportunitiesError = errorMessage(error);
-  } finally {
-    if (state.packageOpportunitiesKey === signature) state.packageOpportunitiesLoading = false;
-    render();
-  }
+  return packageInspection.loadOpportunities(
+    pkg,
+    packageScopeSignature(),
+    scopedLib);
 }
 
 function maybeAutoLoadPackageOpportunities() {
@@ -2646,38 +2541,11 @@ function renderPackagePerformance() {
 
 async function loadPackagePerformance() {
   const pkg = currentPackage();
-  const isPlatform = pkg.isRuntimePack;
   const scopedLib = scopedPlatformLibrary();
-  if (isPlatform && !scopedLib) return;
-  const signature = packageScopeSignature();
-  if (state.packagePerformanceKey === signature && (state.packagePerformance || state.packagePerformanceError)) {
-    render();
-    return;
-  }
-  state.packagePerformanceKey = signature;
-  state.packagePerformance = null;
-  state.packagePerformanceError = "";
-  state.packagePerformanceLoading = true;
-  render();
-  try {
-    const result = parseEngineJson<PackagePerformance>(
-      isPlatform
-        ? await inspectPlatformPerformance(
-            pkg.activeFramework,
-            `${scopedLib}.dll`,
-            platformPackForAssembly(scopedLib ?? ""))
-        : await inspectPackagePerformance(
-            pkg.id,
-            pkg.version,
-            pkg.activeFramework));
-    if (state.packagePerformanceKey === signature) state.packagePerformance = result;
-  } catch (error) {
-    if (state.packagePerformanceKey === signature)
-      state.packagePerformanceError = errorMessage(error);
-  } finally {
-    if (state.packagePerformanceKey === signature) state.packagePerformanceLoading = false;
-    render();
-  }
+  return packageInspection.loadPerformance(
+    pkg,
+    packageScopeSignature(),
+    scopedLib);
 }
 
 function maybeAutoLoadPackagePerformance() {
@@ -2711,38 +2579,11 @@ function renderPackageMetadata() {
 
 async function loadPackageMetadata() {
   const pkg = currentPackage();
-  const isPlatform = pkg.isRuntimePack;
   const scopedLib = scopedPlatformLibrary();
-  if (isPlatform && !scopedLib) return;
-  const signature = packageScopeSignature();
-  if (state.packageMetadataKey === signature && (state.packageMetadata || state.packageMetadataError)) {
-    render();
-    return;
-  }
-  state.packageMetadataKey = signature;
-  state.packageMetadata = null;
-  state.packageMetadataError = "";
-  state.packageMetadataLoading = true;
-  render();
-  try {
-    const result = parseEngineJson<PackageMetadata>(
-      isPlatform
-        ? await inspectPlatformMetadata(
-            pkg.activeFramework,
-            `${scopedLib}.dll`,
-            platformPackForAssembly(scopedLib ?? ""))
-        : await inspectPackageMetadata(
-            pkg.id,
-            pkg.version,
-            pkg.activeFramework));
-    if (state.packageMetadataKey === signature) state.packageMetadata = result;
-  } catch (error) {
-    if (state.packageMetadataKey === signature)
-      state.packageMetadataError = errorMessage(error);
-  } finally {
-    if (state.packageMetadataKey === signature) state.packageMetadataLoading = false;
-    render();
-  }
+  return packageInspection.loadMetadata(
+    pkg,
+    packageScopeSignature(),
+    scopedLib);
 }
 
 function maybeAutoLoadPackageMetadata() {
