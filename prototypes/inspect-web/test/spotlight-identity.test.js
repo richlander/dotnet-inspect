@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -159,6 +160,13 @@ test("normalizing a history entry keeps its consumed position and later entries"
 });
 
 const appSource = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.url), "utf8");
+const sourceRoot = fileURLToPath(new URL("../src/", import.meta.url));
+const productionTypeScriptSources = readdirSync(sourceRoot, { recursive: true })
+  .filter(path => path.endsWith(".ts"))
+  .map(path => ({
+    path,
+    source: readFileSync(join(sourceRoot, path), "utf8"),
+  }));
 const workspaceNavigationSource = readFileSync(
   new URL("../src/workspace-navigation.ts", import.meta.url),
   "utf8");
@@ -537,24 +545,31 @@ test("typed settings panel owns its rendered control bindings", () => {
     /function bindHomeEvents\(\) \{\s*bindStatusBarEvents\(\);\s*bindSettingsPanelEvents\(\);/);
   assert.match(
     appSource,
-    /function renderSettingsViewHtml\(\) \{[\s\S]*\n  bindSettingsPanelEvents\(\);\n}\n\nfunction renderGraphSource\(/);
+    /function renderSettingsViewHtml\(\) \{\s*app\.innerHTML = renderSettingsView\(\{\s*theme: state\.theme,\s*settingsReturn: state\.settingsReturn,\s*styleCatalog: \{\s*styleTiers: state\.styleTiers,\s*styleOptions: state\.styleOptions,\s*styleCatalogError: state\.styleCatalogError,\s*taste: state\.taste,\s*},\s*escapeHtml,\s*}\);\s*bindSettingsPanelEvents\(\);\s*}\s*function renderGraphSource\(\)/);
   assert.match(
     settingsPanelSource,
     /export function bindSettingsPanel\([\s\S]*#settings-close[\s\S]*#home-settings[\s\S]*#open-settings[\s\S]*#taste-btn[\s\S]*stopPropagation\(\)[\s\S]*\.settings-seg\[data-theme\][\s\S]*\.settings-taste \[data-taste\][\s\S]*#settings-taste-clear[\s\S]*#taste-popover \[data-taste\][\s\S]*#taste-clear/);
+  const nonSettingsPanelSource = productionTypeScriptSources
+    .filter(({ path }) => path.replaceAll("\\", "/") !== "settings-panel.ts")
+    .map(({ source }) => source)
+    .join("\n");
   const entrySelectorAccess =
-    /(?:querySelector(?:All)?(?:<[^>\n]+>)?|getElementById)\(\s*["']#?(?:home-settings|open-settings|taste-btn)["']\s*\)/g;
-  assert.equal(appSource.match(entrySelectorAccess)?.length ?? 0, 0);
+    /(?:querySelector(?:All)?(?:<[^>\n]+>)?|getElementById)\(\s*(["'`])#?(?:home-settings|open-settings|taste-btn)\1\s*\)/g;
+  assert.equal(nonSettingsPanelSource.match(entrySelectorAccess)?.length ?? 0, 0);
   assert.equal(settingsPanelSource.match(entrySelectorAccess)?.length, 3);
   for (const selector of ["#home-settings", "#open-settings"]) {
-    assert.equal(appSource.split(`"${selector}"`).length - 1, 0, selector);
-    assert.equal(
-      settingsPanelSource.split(`"${selector}"`).length - 1,
-      1,
-      selector);
+    const literal = new RegExp(`(["'\`])${selector}\\1`, "g");
+    assert.equal(nonSettingsPanelSource.match(literal)?.length ?? 0, 0, selector);
+    assert.equal(settingsPanelSource.match(literal)?.length, 1, selector);
   }
-  assert.equal(appSource.match(/["']#taste-btn["']/g)?.length, 1);
-  assert.equal(appSource.match(/\.closest\(["']#taste-btn["']\)/g)?.length, 1);
-  assert.equal(settingsPanelSource.match(/["']#taste-btn["']/g)?.length, 1);
+  assert.equal(
+    nonSettingsPanelSource.match(/(["'`])#taste-btn\1/g)?.length,
+    1);
+  assert.equal(
+    nonSettingsPanelSource.match(
+      /\.closest\(\s*(["'`])#taste-btn\1\s*\)/g)?.length,
+    1);
+  assert.equal(settingsPanelSource.match(/(["'`])#taste-btn\1/g)?.length, 1);
   for (const selector of [
     "#settings-close",
     ".settings-seg[data-theme]",
