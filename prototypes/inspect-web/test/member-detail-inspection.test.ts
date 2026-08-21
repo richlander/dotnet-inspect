@@ -478,6 +478,62 @@ test("cached annotated failure renders without querying again", async () => {
   assert.equal(state.memberAnnotatedError, "document rejected");
 });
 
+test("cached annotated source renders without querying again", async () => {
+  const cached = annotatedResult();
+  let queries = 0;
+  let renders = 0;
+  const state = inspectionState({
+    memberAnnotated: cached,
+    memberAnnotatedKey: "annotated",
+    memberAnnotatedFactId: 42,
+    memberAnnotatedNodeIds: [7, 8],
+  });
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryAnnotated: async () => {
+        queries++;
+        return annotatedResult();
+      },
+      render: () => renders++,
+    }));
+
+  await coordinator.loadAnnotated(annotatedRequest());
+
+  assert.equal(queries, 0);
+  assert.equal(renders, 1);
+  assert.equal(state.memberAnnotated, cached);
+  assert.equal(state.memberAnnotatedFactId, 42);
+  assert.deepEqual(state.memberAnnotatedNodeIds, [7, 8]);
+});
+
+test("duplicate in-flight annotated requests do not query or mutate state", async () => {
+  let queries = 0;
+  let renders = 0;
+  const state = inspectionState({
+    memberAnnotatedKey: "annotated",
+    memberAnnotatedLoading: true,
+  });
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryAnnotated: async () => {
+        queries++;
+        return annotatedResult();
+      },
+      render: () => renders++,
+      renderPreservingMemberFocus: () => {
+        renders++;
+        return focusSnapshot();
+      },
+    }));
+
+  await coordinator.loadAnnotated(annotatedRequest());
+
+  assert.equal(queries, 0);
+  assert.equal(renders, 1);
+  assert.equal(state.memberAnnotated, null);
+  assert.equal(state.memberAnnotatedLoading, true);
+});
+
 test("current annotated rejection remains visible", async () => {
   let focusRenders = 0;
   const state = inspectionState();
