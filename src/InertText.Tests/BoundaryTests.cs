@@ -416,6 +416,28 @@ public class BoundaryTests
     }
 
     [Fact]
+    public void IndexOfFirstConcern_SkipsLiteralBackslashSpellings()
+    {
+        InertString value = new(
+            TextPolicy.Field,
+            @"C:\build\" + new string('a', 20) + "\u202Ehidden");
+
+        Assert.Equal(
+            value.ToString().IndexOf(@"\u202E", StringComparison.Ordinal),
+            value.IndexOfFirstConcern());
+        Assert.True(value.IndexOfFirstConcern() > value.IndexOfFirstEncoded());
+    }
+
+    [Fact]
+    public void IndexOfFirstConcern_ReportsMinusOneWithoutAConcern()
+    {
+        InertString value = new(TextPolicy.Field, @"C:\build");
+
+        Assert.Equal(-1, value.IndexOfFirstConcern());
+        Assert.Equal(TextConcern.None, value.Concerns);
+    }
+
+    [Fact]
     public void Length_MeasuresTheEncodedTextRatherThanTheOriginal()
     {
         InertString full = new InertString(TextPolicy.Field, Hazard);
