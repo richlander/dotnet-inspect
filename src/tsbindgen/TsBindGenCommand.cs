@@ -31,17 +31,26 @@ public static class TsBindGenCommand
             Description = "Path to a hand-written .d.ts/.ts file. Instead of printing generated output, compares it and exits non-zero on drift.",
         };
 
+        var emitJsOption = new Option<string?>("--emit-js")
+        {
+            Description = "Path to write a generated runtime .js wrapper module (the wasm bootstrap "
+                + "plus one typed function per [JSExport] export, replacing a hand-maintained shim "
+                + "like engine.js) alongside the printed/diffed .d.ts output.",
+        };
+
         var rootCommand = new RootCommand(
             "Generates TypeScript declarations from an assembly's [JSExport] surface.")
         {
             assemblyArgument,
             diffOption,
+            emitJsOption,
         };
 
         rootCommand.SetAction(parseResult =>
         {
             string assemblyPath = parseResult.GetValue(assemblyArgument)!;
             string? diffAgainst = parseResult.GetValue(diffOption);
+            string? emitJsPath = parseResult.GetValue(emitJsOption);
 
             if (!File.Exists(assemblyPath))
             {
@@ -100,6 +109,23 @@ public static class TsBindGenCommand
             {
                 stderr.WriteLine(
                     $"tsbindgen: {diagnostic.Location}: {diagnostic.CSharpType} has no TypeScript mapping.");
+            }
+
+            if (emitJsPath is not null)
+            {
+                string generatedJs = JsEmitter.Emit(jsExportSurface);
+                try
+                {
+                    File.WriteAllText(emitJsPath, generatedJs);
+                }
+                catch (Exception ex) when (
+                    ex is IOException or UnauthorizedAccessException
+                        or ArgumentException or NotSupportedException)
+                {
+                    stderr.WriteLine(
+                        $"tsbindgen: could not write JavaScript module to '{emitJsPath}': {ex.Message}");
+                    return 1;
+                }
             }
 
             if (diffAgainst is null)
