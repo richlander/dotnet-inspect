@@ -4805,6 +4805,7 @@ function spotlightTypeMatches(query: string) {
       .sort((a, b) => a.type.name.localeCompare(b.type.name))
       .map(item => ({ ...item, ranges: [] }));
   }
+  if (!state.engineReady) return spotlightFallbackMatches(query, cache.pool);
   const hits = inspectSearchTypes(query, cache.candidatesJson);
   if (!hits) return spotlightFallbackMatches(query, cache.pool);
   const lowerQuery = query.toLowerCase();
@@ -8526,11 +8527,14 @@ async function bootstrap() {
   try {
     if (state.home) await waitForHomePaint();
     await loadEngineModule();
-    await initializeEngine(message => {
+    const reportEngineStatus = (message: string) => {
       state.loadingMessage = message;
       state.engineStatus = message;
       render();
-    });
+    };
+    reportEngineStatus("Loading .NET 11 WebAssembly…");
+    await initializeEngine(reportEngineStatus);
+    reportEngineStatus("Reading package assemblies…");
     state.buildIdentity = inspectBuildIdentity();
     const tEngine = performance.now();
     try {

@@ -385,7 +385,7 @@ test("bare home paints before wasm engine download", () => {
     /requestAnimationFrame\(\(\) => setTimeout\(resolve, 0\)\)/);
   assert.match(
     appSource,
-    /state\.loading = !state\.home;[\s\S]*render\(\);[\s\S]*if \(state\.home\) await waitForHomePaint\(\);[\s\S]*await loadEngineModule\(\);[\s\S]*await initializeEngine/);
+    /state\.loading = !state\.home;[\s\S]*render\(\);[\s\S]*if \(state\.home\) await waitForHomePaint\(\);[\s\S]*await loadEngineModule\(\);[\s\S]*reportEngineStatus\("Loading \.NET 11 WebAssembly…"\);[\s\S]*await initializeEngine\(reportEngineStatus\);[\s\S]*reportEngineStatus\("Reading package assemblies…"\)/);
   assert.match(
     appSource,
     /class="home-search \$\{enginePending[\s\S]*class="home-engine-status"/);
@@ -404,6 +404,14 @@ test("bare home paints before wasm engine download", () => {
   assert.doesNotMatch(
     loadingView,
     /#error-package-query[\s\S]*loadPackage\(packageId, version/);
+});
+
+test("Spotlight uses local type matches until the engine is ready", () => {
+  const typeMatches =
+    appSource.match(/function spotlightTypeMatches[\s\S]*?\n}\n\n\/\/ Flat member index/)?.[0] ?? "";
+  assert.match(
+    typeMatches,
+    /if \(!state\.engineReady\) return spotlightFallbackMatches\(query, cache\.pool\);[\s\S]*inspectSearchTypes\(query, cache\.candidatesJson\)/);
 });
 
 test("loading brand links back to the site root", () => {
