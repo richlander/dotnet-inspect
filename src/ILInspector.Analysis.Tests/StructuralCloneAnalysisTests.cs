@@ -1727,6 +1727,88 @@ public class StructuralCloneAnalysisTests
                 .NearAlignmentVerificationStepLimit);
     }
 
+    // Regression coverage for a round-2/round-3 review finding: an earlier
+    // most-constrained-variable optimization in SearchBlocks truncated a
+    // left block's candidate list at its first match, silently discarding
+    // any remaining true candidates. Whenever the retained candidate later
+    // failed to extend to a full witness, the search had no fallback and
+    // reported Different for methods that were actually exact clones (a
+    // false negative invisible in the LimitReached/Different distinction).
+    // No hand-built fixture previously exercised genuine multi-candidate
+    // block ambiguity requiring backtracking, so this silently regressed
+    // with all 1030 other tests green. This test constructs `right` as a
+    // randomly permuted structural copy of a randomly generated `left`
+    // graph -- by construction, an isomorphism always exists -- so any
+    // outcome other than Exact proves the search dropped a valid witness.
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(6)]
+    [InlineData(7)]
+    [InlineData(8)]
+    [InlineData(9)]
+    [InlineData(10)]
+    [InlineData(11)]
+    [InlineData(12)]
+    [InlineData(13)]
+    [InlineData(14)]
+    [InlineData(15)]
+    [InlineData(16)]
+    [InlineData(17)]
+    [InlineData(18)]
+    [InlineData(19)]
+    [InlineData(20)]
+    [InlineData(21)]
+    [InlineData(22)]
+    [InlineData(23)]
+    [InlineData(24)]
+    [InlineData(25)]
+    [InlineData(26)]
+    [InlineData(27)]
+    [InlineData(28)]
+    [InlineData(29)]
+    [InlineData(30)]
+    [InlineData(31)]
+    [InlineData(32)]
+    [InlineData(33)]
+    [InlineData(34)]
+    [InlineData(35)]
+    [InlineData(36)]
+    [InlineData(37)]
+    [InlineData(38)]
+    [InlineData(39)]
+    [InlineData(40)]
+    public void Compare_RandomPermutedIsomorphicGraph_AlwaysFindsWitness(
+        int seed)
+    {
+        StructuralCloneBodyFacts left = RandomAmbiguousGraph(
+            token: 1,
+            seed,
+            blockCount: 6);
+        int[] permutation = RandomPermutation(seed, count: 6);
+        StructuralCloneBodyFacts right = PermuteGraph(
+            left,
+            token: 2,
+            permutation);
+
+        StructuralCloneComparison forward =
+            StructuralCloneAnalysis.Compare(left, right);
+        StructuralCloneComparison reverse =
+            StructuralCloneAnalysis.Compare(right, left);
+
+        Assert.Equal(
+            StructuralCloneDisposition.Completed,
+            forward.Disposition);
+        Assert.Equal(StructuralCloneRelation.Exact, forward.Relation);
+        Assert.Equal(
+            StructuralCloneDisposition.Completed,
+            reverse.Disposition);
+        Assert.Equal(StructuralCloneRelation.Exact, reverse.Relation);
+    }
+
     [Fact]
     public void Compare_LargeLocalNearUsesLocalUseIndex()
     {
@@ -2343,6 +2425,130 @@ public class StructuralCloneAnalysisTests
                 $"O:{edit.Kind}:{edit.Left}:{edit.Right}"))
             .Concat(alternative.Edges.Select(edit =>
                 $"E:{edit.Kind}:{edit.Left}:{edit.Right}")));
+
+    static StructuralCloneBodyFacts RandomAmbiguousGraph(
+        int token,
+        int seed,
+        int blockCount)
+    {
+        // A general random directed graph: block 0 is entry, block
+        // blockCount - 1 is the sole Ret exit, and every other block has
+        // two random outgoing edges (Branch ordinal 0, FallThrough
+        // ordinal 0) chosen from all blocks. All non-exit blocks carry
+        // identical (empty) operations, so color refinement alone often
+        // cannot disambiguate them -- the search must rely on genuine
+        // backtracking to find a consistent global assignment, unlike
+        // the earlier symmetric "twin" design where any locally valid
+        // choice was automatically part of a valid global witness.
+        if (blockCount < 2)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(blockCount),
+                blockCount,
+                "blockCount must be at least 2 (entry plus exit).");
+        }
+        var random = new Random(seed);
+        int exit = blockCount - 1;
+        var blocks = ImmutableArray.CreateBuilder<StructuralCloneBlock>(
+            blockCount);
+        for (int index = 0; index < blockCount; index++)
+        {
+            if (index == exit)
+            {
+                blocks.Add(new StructuralCloneBlock(
+                    index,
+                    index,
+                    true,
+                    [
+                        new(
+                            ILOpCode.Ret,
+                            StructuralCloneOperandKind.None,
+                            0),
+                    ],
+                    [],
+                    []));
+                continue;
+            }
+            int branchTarget = random.Next(blockCount);
+            int fallThroughTarget = random.Next(blockCount);
+            blocks.Add(new StructuralCloneBlock(
+                index,
+                index,
+                false,
+                [],
+                [
+                    new(
+                        new(StructuralCloneEdgeKind.Branch, 0),
+                        branchTarget),
+                    new(
+                        new(StructuralCloneEdgeKind.FallThrough, 0),
+                        fallThroughTarget),
+                ],
+                []));
+        }
+        return new StructuralCloneBodyFacts(
+            Address(token),
+            BodyBytes: blocks.Count,
+            InstructionCount: blocks.Sum(
+                static block => block.Operations.Length),
+            InitLocals: false,
+            Locals: [],
+            Signature: new(0, 0, 0, 0, ReturnsVoid: true),
+            RebuildTestGraph(blocks.ToImmutable()));
+    }
+
+    static int[] RandomPermutation(int seed, int count)
+    {
+        // Index 0 must stay fixed: FindWitness requires the entry block
+        // (always index 0 by construction) to map entry-to-entry, so a
+        // permutation must only shuffle the non-entry indices.
+        var random = new Random(seed + 1_000);
+        int[] permutation = [.. Enumerable.Range(0, count)];
+        for (int index = count - 1; index > 1; index--)
+        {
+            int swap = random.Next(1, index + 1);
+            (permutation[index], permutation[swap]) =
+                (permutation[swap], permutation[index]);
+        }
+        return permutation;
+    }
+
+    static StructuralCloneBodyFacts PermuteGraph(
+        StructuralCloneBodyFacts body,
+        int token,
+        int[] permutation)
+    {
+        var byOldIndex = body.Graph.Blocks.ToDictionary(
+            static block => block.Index);
+        ImmutableArray<StructuralCloneBlock> blocks =
+        [
+            .. Enumerable.Range(0, permutation.Length).Select(newIndex =>
+            {
+                StructuralCloneBlock original =
+                    byOldIndex[Array.IndexOf(permutation, newIndex)];
+                return new StructuralCloneBlock(
+                    newIndex,
+                    newIndex,
+                    original.ExitsMethod,
+                    original.Operations,
+                    [
+                        .. original.Outgoing.Select(edge => edge with
+                        {
+                            Target = permutation[edge.Target],
+                        }),
+                    ],
+                    []);
+            }),
+        ];
+        return new StructuralCloneBodyFacts(
+            Address(token),
+            body.BodyBytes,
+            body.InstructionCount,
+            body.InitLocals,
+            body.Locals,
+            body.Signature,
+            RebuildTestGraph(blocks));
+    }
 
     static StructuralCloneBodyFacts RigidColoredGraph(
         int token,

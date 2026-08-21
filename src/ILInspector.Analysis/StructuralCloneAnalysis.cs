@@ -2152,23 +2152,23 @@ public static partial class StructuralCloneAnalysis
                         return false;
                     }
 
-                    // Most-constrained-variable pruning: a singleton
-                    // candidate list cannot be beaten by scanning the
-                    // remaining left blocks, so stop the outer scan here
-                    // instead of continuing to re-examine every other
-                    // unassigned left block against every right block.
-                    // Without this, an unambiguous n-block match (zero
-                    // backtracking, every left block has exactly one
-                    // legal candidate) still costs O(n^3): each of the
-                    // n recursion levels rescans up to n left blocks
-                    // against n right blocks. With the early exit it
-                    // costs O(n^2): each level stops at the first
-                    // singleton it finds.
-                    if (current.Count == 1
-                        && rightIndex + 1 < right.Graph.Blocks.Length)
-                    {
-                        break;
-                    }
+                    // A prior version of this loop broke out here the
+                    // instant current.Count reached 1, on the theory that
+                    // a singleton could not be beaten. That is unsound:
+                    // it truncates the scan before later right blocks are
+                    // examined, so a genuine second (or later) candidate
+                    // for this left block is silently dropped. If the
+                    // retained candidate later fails to extend to a full
+                    // witness, there is no fallback -- the search reports
+                    // Different for methods that are actually exact
+                    // clones. See Compare_RandomPermutedIsomorphicGraph_
+                    // AlwaysFindsWitness for a regression fixture that
+                    // fails against that unsound break. The full inner
+                    // scan below is required for correctness; only the
+                    // outer per-left-block MRV break further down (once
+                    // a singleton candidates list is found across all
+                    // left blocks) is sound, since no other left block
+                    // can ever have fewer than one candidate.
                 }
                 if (current.Count == 0)
                     return false;
