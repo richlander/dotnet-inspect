@@ -51,12 +51,12 @@ public sealed record PdbCustomDebugInformationResult(
 /// <summary>A PDB resource exceeded a pre-materialization limit.</summary>
 public sealed class PdbResourceLimitException(
     string message,
-    int actualBytes,
-    int limitBytes)
+    long actualBytes,
+    long limitBytes)
     : IOException(message)
 {
-    public int ActualBytes { get; } = actualBytes;
-    public int LimitBytes { get; } = limitBytes;
+    public long ActualBytes { get; } = actualBytes;
+    public long LimitBytes { get; } = limitBytes;
 }
 
 /// <summary>A shared pre-decompression budget for one or more embedded PDBs.</summary>
@@ -1803,9 +1803,9 @@ public class PdbContext : IDisposable
         int maxEmbeddedPdbBytes,
         PdbExpansionBudget? expansionBudget)
     {
-        int debugDirectorySize =
-            _peReader.PEHeaders.PEHeader?.DebugTableDirectory.Size ?? 0;
-        int maxDebugDirectoryBytes =
+        uint debugDirectorySize = unchecked((uint)(
+            _peReader.PEHeaders.PEHeader?.DebugTableDirectory.Size ?? 0));
+        uint maxDebugDirectoryBytes =
             DebugDirectoryEntrySize * MaxDebugDirectoryEntries;
         if (debugDirectorySize > maxDebugDirectoryBytes)
         {
@@ -1829,12 +1829,13 @@ public class PdbContext : IDisposable
 
             if (entry.Type == DebugDirectoryEntryType.CodeView)
             {
-                if (entry.DataSize > MaxCodeViewDataBytes)
+                uint codeViewDataSize = unchecked((uint)entry.DataSize);
+                if (codeViewDataSize > MaxCodeViewDataBytes)
                 {
                     throw new PdbResourceLimitException(
-                        $"A CodeView debug record's {entry.DataSize} bytes exceed "
+                        $"A CodeView debug record's {codeViewDataSize} bytes exceed "
                         + $"the {MaxCodeViewDataBytes}-byte limit.",
-                        entry.DataSize,
+                        codeViewDataSize,
                         MaxCodeViewDataBytes);
                 }
 

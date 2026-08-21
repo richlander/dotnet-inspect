@@ -105,7 +105,7 @@ public class PdbContextDescriptorTests
 
         byte[] oversizedDirectory = SetDebugDirectorySize(
             image,
-            checked((PdbContext.MaxDebugDirectoryEntries + 1) * 28));
+            checked((uint)(PdbContext.MaxDebugDirectoryEntries + 1) * 28));
         PdbResourceLimitException directoryError =
             Assert.Throws<PdbResourceLimitException>(
                 () => PdbContext.OpenMetadataOnly(
@@ -116,7 +116,7 @@ public class PdbContextDescriptorTests
 
         byte[] oversizedCodeView = SetCodeViewDataSize(
             image,
-            PdbContext.MaxCodeViewDataBytes + 1);
+            (uint)PdbContext.MaxCodeViewDataBytes + 1);
         PdbResourceLimitException codeViewError =
             Assert.Throws<PdbResourceLimitException>(
                 () => PdbContext.OpenMetadataOnly(
@@ -127,6 +127,31 @@ public class PdbContextDescriptorTests
         Assert.Equal(
             PdbContext.MaxCodeViewDataBytes,
             codeViewError.LimitBytes);
+    }
+
+    [Theory]
+    [InlineData(0x80000000u)]
+    [InlineData(uint.MaxValue)]
+    public void UnsignedDebugSizes_ReachOwnerLimitsBeforeSrm(
+        uint rawSize)
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(PdbContextDescriptorTests).Assembly.Location);
+        AssemblyReferenceIdentity identity = ReadIdentity(image);
+
+        byte[] oversizedDirectory = SetDebugDirectorySize(image, rawSize);
+        PdbResourceLimitException directoryError =
+            Assert.Throws<PdbResourceLimitException>(
+                () => PdbContext.OpenMetadataOnly(
+                    CreateDescriptor(oversizedDirectory, identity)));
+        Assert.Equal(rawSize, (ulong)directoryError.ActualBytes);
+
+        byte[] oversizedCodeView = SetCodeViewDataSize(image, rawSize);
+        PdbResourceLimitException codeViewError =
+            Assert.Throws<PdbResourceLimitException>(
+                () => PdbContext.OpenMetadataOnly(
+                    CreateDescriptor(oversizedCodeView, identity)));
+        Assert.Equal(rawSize, (ulong)codeViewError.ActualBytes);
     }
 
     [Fact]
@@ -572,7 +597,7 @@ public class PdbContextDescriptorTests
         return patched;
     }
 
-    static byte[] SetDebugDirectorySize(byte[] image, int size)
+    static byte[] SetDebugDirectorySize(byte[] image, uint size)
     {
         byte[] patched = (byte[])image.Clone();
         using var stream = new MemoryStream(image, writable: false);
@@ -587,13 +612,13 @@ public class PdbContextDescriptorTests
             directoryBase
             + DebugDirectoryIndex * 8
             + sizeof(int);
-        BinaryPrimitives.WriteInt32LittleEndian(
-            patched.AsSpan(sizeOffset, sizeof(int)),
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            patched.AsSpan(sizeOffset, sizeof(uint)),
             size);
         return patched;
     }
 
-    static byte[] SetCodeViewDataSize(byte[] image, int size)
+    static byte[] SetCodeViewDataSize(byte[] image, uint size)
     {
         const int DebugDirectoryEntrySize = 28;
         const int TypeOffset = 12;
@@ -617,8 +642,8 @@ public class PdbContextDescriptorTests
             if (type != (int)DebugDirectoryEntryType.CodeView)
                 continue;
 
-            BinaryPrimitives.WriteInt32LittleEndian(
-                patched.AsSpan(entryOffset + DataSizeOffset, sizeof(int)),
+            BinaryPrimitives.WriteUInt32LittleEndian(
+                patched.AsSpan(entryOffset + DataSizeOffset, sizeof(uint)),
                 size);
             return patched;
         }

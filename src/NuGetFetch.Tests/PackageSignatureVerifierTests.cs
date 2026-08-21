@@ -587,23 +587,53 @@ public class PackageSignatureVerifierTests : IDisposable
     }
 
     [Fact]
-    public async Task VerifyPackage_MalformedTimestampCryptoReturnsTypedResult()
+    public async Task VerifyPackage_MalformedTimestampCryptoDoesNotPromoteTimestamp()
     {
-        const int MalformedTimestampCertificateOffset = 15_336;
         string nupkgPath = await DownloadPackageAsync(
             "Newtonsoft.Json",
             "13.0.4");
         try
         {
-            byte[] package = MutateSignatureByte(
-                File.ReadAllBytes(nupkgPath),
-                MalformedTimestampCertificateOffset);
+            byte[] package = File.ReadAllBytes(nupkgPath);
+            int timestampModulusLsb =
+                FindTimestampAuthorityModulusLsb(package);
+            package = MutateSignatureByte(package, timestampModulusLsb);
             File.WriteAllBytes(nupkgPath, package);
 
             SignatureVerificationResult result =
                 PackageSignatureVerifier.VerifyPackage(nupkgPath);
 
-            Assert.NotEqual(SignatureStatus.Unsigned, result.Status);
+            Assert.Equal(SignatureStatus.Valid, result.Status);
+            Assert.True(result.PackageContentVerified);
+            Assert.Null(result.Timestamp);
+            Assert.NotNull(result.CounterSignature?.Timestamp);
+        }
+        finally
+        {
+            File.Delete(nupkgPath);
+        }
+    }
+
+    [Fact]
+    public async Task VerifyPackage_MalformedRepositoryKeyReturnsTypedInvalid()
+    {
+        string nupkgPath = await DownloadPackageAsync(
+            "Newtonsoft.Json",
+            "13.0.4");
+        try
+        {
+            byte[] package = File.ReadAllBytes(nupkgPath);
+            int repositoryModulusLsb =
+                FindRepositorySignerModulusLsb(package);
+            package = MutateSignatureByte(package, repositoryModulusLsb);
+            File.WriteAllBytes(nupkgPath, package);
+
+            SignatureVerificationResult result =
+                PackageSignatureVerifier.VerifyPackage(nupkgPath);
+
+            Assert.Equal(SignatureStatus.Invalid, result.Status);
+            Assert.False(result.PackageContentVerified);
+            Assert.NotNull(result.Reason);
         }
         finally
         {
@@ -1229,6 +1259,87 @@ public class PackageSignatureVerifierTests : IDisposable
             mutated.AsSpan(central + 16),
             crc);
         return mutated;
+    }
+
+    private static int FindTimestampAuthorityModulusLsb(byte[] package)
+    {
+        byte[] signature = ExtractSignatureBytes(package);
+        var cms = new SignedCms();
+        cms.Decode(signature);
+        SignerInfo signer = Assert.Single(
+            cms.SignerInfos.Cast<SignerInfo>());
+        byte[] token = GetTimestampValue(signer).RawData;
+        int tokenOffset = IndexOfUnique(signature, token);
+
+        var timestampCms = new SignedCms();
+        timestampCms.Decode(token);
+        X509Certificate2 certificate = Assert.IsType<X509Certificate2>(
+            Assert.Single(timestampCms.SignerInfos.Cast<SignerInfo>())
+                .Certificate);
+        return tokenOffset + FindCertificateModulusLsb(token, certificate);
+    }
+
+    private static int FindRepositorySignerModulusLsb(byte[] package)
+    {
+        byte[] signature = ExtractSignatureBytes(package);
+        var cms = new SignedCms();
+        cms.Decode(signature);
+        SignerInfo signer = Assert.Single(
+            cms.SignerInfos.Cast<SignerInfo>());
+        SignerInfo repositorySigner = Assert.Single(
+            signer.CounterSignerInfos.Cast<SignerInfo>());
+        X509Certificate2 certificate = Assert.IsType<X509Certificate2>(
+            repositorySigner.Certificate);
+        return FindCertificateModulusLsb(signature, certificate);
+    }
+
+    private static int FindCertificateModulusLsb(
+        byte[] container,
+        X509Certificate2 certificate)
+    {
+        byte[] certificateBytes = certificate.RawData;
+        int certificateOffset = IndexOfUnique(container, certificateBytes);
+        byte[] keyBytes = certificate.PublicKey.EncodedKeyValue.RawData;
+        int keyOffset = IndexOfUnique(certificateBytes, keyBytes);
+        var keyReader = new AsnReader(keyBytes, AsnEncodingRules.DER);
+        AsnReader keySequence = keyReader.ReadSequence();
+        ReadOnlyMemory<byte> modulus = keySequence.ReadIntegerBytes();
+        keySequence.ReadIntegerBytes();
+        keySequence.ThrowIfNotEmpty();
+        keyReader.ThrowIfNotEmpty();
+        int modulusOffset = IndexOfUnique(keyBytes, modulus.Span);
+        return checked(
+            certificateOffset
+            + keyOffset
+            + modulusOffset
+            + modulus.Length
+            - 1);
+    }
+
+    private static byte[] ExtractSignatureBytes(byte[] package)
+    {
+        (int central, int local) = FindSignatureHeaders(package);
+        int signatureLength = checked((int)
+            BinaryPrimitives.ReadUInt32LittleEndian(
+                package.AsSpan(central + 20)));
+        ushort fileNameLength = BinaryPrimitives.ReadUInt16LittleEndian(
+            package.AsSpan(local + 26));
+        ushort extraLength = BinaryPrimitives.ReadUInt16LittleEndian(
+            package.AsSpan(local + 28));
+        int dataOffset = checked(local + 30 + fileNameLength + extraLength);
+        return package.AsSpan(dataOffset, signatureLength).ToArray();
+    }
+
+    private static int IndexOfUnique(
+        ReadOnlySpan<byte> container,
+        ReadOnlySpan<byte> value)
+    {
+        Assert.False(value.IsEmpty);
+        int first = container.IndexOf(value);
+        Assert.True(first >= 0, "Expected the encoded value in its container.");
+        int second = container[(first + 1)..].IndexOf(value);
+        Assert.Equal(-1, second);
+        return first;
     }
 
     private static uint CalculateCrc32(ReadOnlySpan<byte> bytes)

@@ -364,8 +364,12 @@ public sealed class PackageContentAuditTests
         }
     }
 
-    [Fact]
-    public void OversizedCodeViewRecord_MarksAuditPartialBeforeDecode()
+    [Theory]
+    [InlineData(0x7FFFFFFFu)]
+    [InlineData(0x80000000u)]
+    [InlineData(uint.MaxValue)]
+    public void OversizedCodeViewRecord_MarksAuditPartialBeforeDecode(
+        uint rawSize)
     {
         string root = CreateRoot();
         try
@@ -374,7 +378,7 @@ public sealed class PackageContentAuditTests
                 typeof(PackageContentAuditTests).Assembly.Location);
             byte[] oversized = SetCodeViewDataSize(
                 image,
-                int.MaxValue);
+                rawSize);
             WriteBytes(root, "lib/net11.0/oversized.dll", oversized);
 
             PackageContentAuditResult result = PackageContentAudit.Scan(
@@ -844,7 +848,7 @@ public sealed class PackageContentAuditTests
         return root;
     }
 
-    static byte[] SetCodeViewDataSize(byte[] image, int size)
+    static byte[] SetCodeViewDataSize(byte[] image, uint size)
     {
         const int DebugDirectoryEntrySize = 28;
         const int TypeOffset = 12;
@@ -868,8 +872,8 @@ public sealed class PackageContentAuditTests
             if (type != (int)DebugDirectoryEntryType.CodeView)
                 continue;
 
-            BinaryPrimitives.WriteInt32LittleEndian(
-                patched.AsSpan(entryOffset + DataSizeOffset, sizeof(int)),
+            BinaryPrimitives.WriteUInt32LittleEndian(
+                patched.AsSpan(entryOffset + DataSizeOffset, sizeof(uint)),
                 size);
             return patched;
         }

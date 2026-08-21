@@ -212,8 +212,10 @@ signature-entry, signer-identity, and timestamp-profile boundaries.
 `VerifyPackage_TruncatedCentralDirectoryReturnsInvalid` and
 `VerifyPackage_RejectsSignatureCmsSuffix` gate typed truncated-directory
 failure and whole-value CMS admission.
-`VerifyPackage_MalformedTimestampCryptoReturnsTypedResult` gates platform
-crypto exception normalization without promoting an untrusted timestamp.
+`VerifyPackage_MalformedTimestampCryptoDoesNotPromoteTimestamp` and
+`VerifyPackage_MalformedRepositoryKeyReturnsTypedInvalid` gate platform crypto
+exception normalization without promoting an untrusted timestamp or leaking a
+malformed repository key failure.
 `PackageContentAuditTests.SourceLinkEvidence_FramesAndBoundsBothOperands`
 gates structurally distinct bounded SourceLink operands.
 `InspectionResultTests.Signed_PreservesUnestablishedVerificationState` gates
