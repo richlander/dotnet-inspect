@@ -872,6 +872,8 @@ internal sealed class LibraryBodyAsyncSourceResolver
                 {
                     var methodDefinition =
                         _reader.GetMethodDefinition(methodHandle);
+                    if (IsRuntimeAsync(methodDefinition))
+                        continue;
                     AsyncStateMachineAttributeInfo attribute =
                         AsyncStateMachineAttribute(
                             methodDefinition.GetCustomAttributes());
@@ -908,11 +910,6 @@ internal sealed class LibraryBodyAsyncSourceResolver
                     }
 
                     if (attribute.Rejected
-                        || MethodClassificationScanner
-                            .ClassifyAsyncMethod(
-                                _reader,
-                                methodDefinition)
-                            == MethodClassification.RuntimeAsync
                         || !HasAnalyzableIlBody(methodDefinition)
                         || attribute.SerializedType is not
                             { } serializedType

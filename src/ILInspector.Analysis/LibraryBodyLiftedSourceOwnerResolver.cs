@@ -136,7 +136,6 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         {
             return false;
         }
-
         var definition = _reader.GetMethodDefinition(ownerHandle);
         sourceGenerated =
             _primaryMetadataResolver.HasGeneratedCodeAttribute(
@@ -200,6 +199,17 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             throw new BadImageFormatException(
                 "Lifted-method ownership exceeds the metadata "
                 + "relationship node budget.");
+        }
+
+        foreach (MethodDefinitionHandle ownerHandle in owners)
+        {
+            MethodDefinition ownerMethod =
+                _reader.GetMethodDefinition(ownerHandle);
+            _asyncSourceResolver
+                .TryResolveStateMachineExecutionMethod(
+                    ownerHandle,
+                    ownerMethod,
+                    out _);
         }
 
         var candidates = new LiftedMethodCandidates(

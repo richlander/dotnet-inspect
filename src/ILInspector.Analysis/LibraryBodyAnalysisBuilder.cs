@@ -638,21 +638,57 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
 
         var declaredSources = new Dictionary<int, MethodIdentity>(
             analysis.Methods.DeclaredSources);
+        var publicationDiagnostics =
+            analysis.Diagnostics.ToBuilder();
+        var uniquePublicationDiagnostics =
+            new HashSet<AnalysisDiagnostic>(
+                analysis.Diagnostics);
         foreach ((int token, MethodIdentity source) in asyncSources)
         {
-            if (!declaredSources.ContainsKey(token)
-                && TryResolveUltimateLiftedOwner(
-                    source,
-                    out MethodIdentity? ultimateOwner)
-                && ultimateOwner is not null)
+            try
             {
-                declaredSources.Add(
-                    token,
-                    ultimateOwner);
+                if (!declaredSources.ContainsKey(token)
+                    && TryResolveUltimateLiftedOwner(
+                        source,
+                        out MethodIdentity? ultimateOwner)
+                    && ultimateOwner is not null)
+                {
+                    declaredSources.Add(
+                        token,
+                        ultimateOwner);
+                }
+            }
+            catch (Exception ex)
+                when (LibraryMethodAnalysisRunner
+                    .IsRecoverableMethodFailure(ex))
+            {
+                var sourceHandle =
+                    (MethodDefinitionHandle)
+                    MetadataTokens.EntityHandle(
+                        source.MetadataToken);
+                MethodDefinition sourceDefinition =
+                    _reader.GetMethodDefinition(
+                        sourceHandle);
+                var diagnostic = new AnalysisDiagnostic(
+                    source.MetadataToken,
+                    LibraryMethodAnalysisRunner.MethodLabel(
+                        _reader,
+                        sourceDefinition.GetDeclaringType(),
+                        sourceHandle),
+                    $"{ex.GetType().Name}: {ex.Message}",
+                    DeclaringType: source.DeclaringType);
+                if (uniquePublicationDiagnostics.Add(
+                        diagnostic))
+                {
+                    publicationDiagnostics.Add(
+                        diagnostic);
+                }
             }
         }
         return analysis with
         {
+            Diagnostics =
+                publicationDiagnostics.ToImmutable(),
             Methods = analysis.Methods with
             {
                 DeclaredSources = declaredSources,

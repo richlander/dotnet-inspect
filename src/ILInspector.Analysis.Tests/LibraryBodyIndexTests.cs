@@ -7,6 +7,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text;
 
 using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
@@ -4545,6 +4546,75 @@ public class LibraryBodyIndexTests
 
     [Fact]
     public void
+        DirectCalls_RuntimeAsyncDecoyDoesNotPoisonValidSource()
+    {
+        byte[] image =
+            BuildMalformedAsyncSourceAssembly(
+                ambiguousSource: true,
+                runtimeAsyncCompetingSource: true);
+        LibraryBodyIndex full =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "RuntimeAsyncDecoy.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity source = Assert.Single(
+            full.DeclaredMethods,
+            method => method.Name == "AnalyzeAsync");
+        MethodIdentity moveNext = Assert.Single(
+            full.DeclaredMethods,
+            method => method.Name == "MoveNext"
+                && method.ParameterTypes.IsEmpty);
+
+        Assert.Equal(
+            source,
+            full.ResolveDeclaredMethod(moveNext));
+        Assert.Contains(
+            full.DirectCalls,
+            call => call.EvidenceMethod == moveNext
+                && call.Caller == source
+                && call.Callee.Name == "Read");
+        Assert.DoesNotContain(
+            full.Diagnostics,
+            diagnostic =>
+                diagnostic.MethodToken
+                    == source.MetadataToken);
+
+        LibraryBodyIndex sourceScoped =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "RuntimeAsyncDecoy.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyScope: new HashSet<int>
+                {
+                    source.MetadataToken,
+                });
+        Assert.Equal(
+            source,
+            sourceScoped.ResolveDeclaredMethod(moveNext));
+        Assert.Contains(
+            sourceScoped.DirectCalls,
+            call => call.EvidenceMethod == moveNext
+                && call.Caller == source);
+
+        MethodIdentity unrelated = Assert.Single(
+            full.DeclaredMethods,
+            method => method.Name == "Read");
+        LibraryBodyIndex unrelatedScoped =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "RuntimeAsyncDecoy.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyScope: new HashSet<int>
+                {
+                    unrelated.MetadataToken,
+                });
+        Assert.Equal(
+            source,
+            unrelatedScoped.ResolveDeclaredMethod(moveNext));
+    }
+
+    [Fact]
+    public void
         OptimizationOpportunities_ScopedUnresolvedLiftedSourceFailsClosed()
     {
         byte[] image =
@@ -5104,7 +5174,8 @@ public class LibraryBodyIndexTests
         bool malformedTopLevelEntryPoint = false,
         bool crossKindDuplicate = false,
         bool crossKindIteratorFirst = false,
-        bool crossKindSynchronousIterator = false)
+        bool crossKindSynchronousIterator = false,
+        bool runtimeAsyncCompetingSource = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -5302,7 +5373,10 @@ public class LibraryBodyIndexTests
             metadata.AddMethodDefinition(
                 MethodAttributes.Public
                     | MethodAttributes.Static,
-                MethodImplAttributes.IL,
+                MethodImplAttributes.IL
+                    | (runtimeAsyncCompetingSource
+                        ? MethodImplAttributes.Async
+                        : 0),
                 metadata.GetOrAddString(
                     forgedStateMachineOwnerEvidence
                         ? "<AnalyzeAsync>g__Local|0_0"
@@ -11216,6 +11290,152 @@ public class LibraryBodyIndexTests
             sourceScoped.DirectCalls,
             call => call.EvidenceMethod.MetadataToken
                 == moveNext.MetadataToken);
+    }
+
+    [Fact]
+    public void
+        DirectCalls_MalformedIteratorClaimPreservesPhysicalEvidence()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(ClassicAsyncSiblingFixture)
+                .Assembly.Location);
+        const string Owner =
+            "ScopedIteratorFinallyAsyncLocalAllocationOwner";
+        CorruptStateMachineClaim(
+            image,
+            Owner);
+
+        LibraryBodyIndex evidence =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "MalformedIteratorClaim.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        LibraryBodyIndex opportunities =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "MalformedIteratorClaim.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence
+                    | LibraryBodyAnalysisFeatures.Allocations
+                    | LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities);
+
+        Assert.Equal(
+            evidence.DirectCalls,
+            opportunities.DirectCalls);
+        Assert.Contains(
+            evidence.Diagnostics,
+            diagnostic => diagnostic.Message.Contains(
+                "state-machine source",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void
+        DirectCalls_ScopedMalformedLiftedOwnerFailsClosed()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(ClassicAsyncSiblingFixture)
+                .Assembly.Location);
+        const string Owner = "ScopedAsyncLocalOwner";
+        CorruptStateMachineClaim(
+            image,
+            Owner);
+
+        LibraryBodyIndex full =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "MalformedLiftedOwner.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity lifted = full.DeclaredMethods
+            .Where(method => method.Name.Contains(
+                $"<{Owner}>g__Core",
+                StringComparison.Ordinal))
+            .OrderBy(method => method.MetadataToken)
+            .Last();
+        Assert.Null(full.ResolveDeclaredMethod(lifted));
+
+        MethodIdentity scopedOwner = full.DeclaredMethods
+            .Where(method => method.Name == Owner)
+            .OrderBy(method => method.MetadataToken)
+            .Last();
+        LibraryBodyIndex scoped =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "MalformedLiftedOwner.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyScope: new HashSet<int>
+                {
+                    scopedOwner.MetadataToken,
+                });
+
+        Assert.Null(scoped.ResolveDeclaredMethod(lifted));
+        Assert.DoesNotContain(
+            scoped.DirectCalls,
+            call => call.EvidenceMethod == lifted);
+        Assert.All(
+            scoped.DirectCalls,
+            call => Assert.Contains(
+                call,
+                full.DirectCalls));
+    }
+
+    static void CorruptStateMachineClaim(
+        byte[] image,
+        string ownerName)
+    {
+        string? claimedType = null;
+        using (var peReader = new PEReader(
+            new MemoryStream(image, writable: false)))
+        {
+            MetadataReader reader =
+                peReader.GetMetadataReader();
+            foreach (MethodDefinitionHandle methodHandle
+                in reader.MethodDefinitions)
+            {
+                MethodDefinition method =
+                    reader.GetMethodDefinition(methodHandle);
+                if (!reader.StringComparer.Equals(
+                        method.Name,
+                        ownerName))
+                {
+                    continue;
+                }
+                foreach (CustomAttributeHandle attributeHandle
+                    in method.GetCustomAttributes())
+                {
+                    CustomAttribute attribute =
+                        reader.GetCustomAttribute(
+                            attributeHandle);
+                    BlobReader value =
+                        reader.GetBlobReader(
+                            attribute.Value);
+                    if (value.Length < 3
+                        || value.ReadUInt16() != 0x0001)
+                    {
+                        continue;
+                    }
+                    string? candidate =
+                        value.ReadSerializedString();
+                    if (candidate?.Contains(
+                            ownerName,
+                            StringComparison.Ordinal)
+                        == true)
+                    {
+                        claimedType = candidate;
+                        break;
+                    }
+                }
+                if (claimedType is not null)
+                    break;
+            }
+        }
+
+        Assert.NotNull(claimedType);
+        byte[] claim = Encoding.UTF8.GetBytes(
+            claimedType);
+        int offset = image.AsSpan().IndexOf(claim);
+        Assert.True(offset >= 0);
+        image[offset] = (byte)'Z';
     }
 
     static void SetRuntimeAsyncFlag(
