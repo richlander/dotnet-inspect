@@ -694,6 +694,15 @@ retry selection, and package loading behind typed callbacks.
 identities, replacement-package parsing, local error-detail state, inactive
 surfaces, and no eager dispatch.
 
+`src/graph-interactions.ts` owns graph-back, pan/zoom, pointer, keyboard, zoom
+button, and rendered Mermaid node bindings for type, dependency, and call
+graphs. `dotnet-inspect.ts` still owns typed graph-target resolution, package
+and member navigation, platform descent, graph rendering, and stale-render
+suppression behind callback resolvers. `test/graph-interactions.test.ts` gates
+stable Mermaid node identity decoding, navigable and informational nodes,
+drag-click suppression, every pan/zoom input, inactive surfaces, and no eager
+dispatch.
+
 `src/settings-panel.ts` owns the Settings page and the decompiler "taste"
 popover it shares its style catalog with, including each surface's rendered DOM
 bindings and the home/workbench controls that open them. `dotnet-inspect.ts`
