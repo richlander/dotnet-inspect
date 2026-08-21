@@ -41,7 +41,7 @@ import {
   spotlightCandidateSignature,
   uniqueTypeByQueryId,
   workspaceCoordinatesMatch
-} from "./data.js";
+} from "./data.ts";
 import {
   bodyTargetMatchesOverload,
   captureLibraryScope,
@@ -54,7 +54,7 @@ import {
   memberScopeIsActive,
   restoreLibraryScope,
   restoreMemberHistoryState,
-} from "./member-filtering.js";
+} from "./member-filtering.ts";
 import {
   captureMemberFocus,
   createMemberFocusRestorer
@@ -62,7 +62,7 @@ import {
 import {
   buildDependencyGraphMermaid,
   buildTypeGraphMermaid
-} from "./graph-mermaid.js";
+} from "./graph-mermaid.ts";
 import { factsForNode, MEDIA, nodeAtOffset } from "/src/annotated-source-view.ts";
 import { renderScopeBar as renderScopeBarPure } from "/src/scope-bar.ts";
 import { renderDocViewer as renderDocViewerPure } from "/src/doc-viewer.ts";
@@ -93,16 +93,19 @@ import {
   renderSettingsView,
   renderTastePopover,
 } from "/src/settings-panel.ts";
-import { loadPlatformIndex } from "/src/platform-index.js";
+import { loadPlatformIndex } from "/src/platform-index.ts";
 import {
   createSpotlight,
   visibleSpotlightPackageHits,
 } from "/src/spotlight.ts";
 import { fmtBytes, statusBarHtml } from "/src/status-bar.ts";
+import {
+  buildIdentity as inspectBuildIdentity,
+  packageCacheStats as inspectPackageCacheStats,
+} from "/inspect-web-engine.js";
 
 let initializeEngine;
 let cancelSourceInspection;
-let inspectBuildIdentity;
 let inspectExpandPlatformCallGraph;
 let inspectVocabulary;
 let inspectLoadRuntimePack;
@@ -113,7 +116,6 @@ let inspectMemberDocumentation;
 let inspectMemberFacts;
 let inspectMemberSource;
 let inspectPackage;
-let inspectPackageCacheStats;
 let inspectPackageDependencies;
 let inspectPackageDocument;
 let inspectPackageHeapEntries;
@@ -140,7 +142,6 @@ async function loadEngineModule() {
   ({
     cancelSourceInspection,
     initializeEngine,
-    inspectBuildIdentity,
     inspectExpandPlatformCallGraph,
     inspectVocabulary,
     inspectLoadRuntimePack,
@@ -151,7 +152,6 @@ async function loadEngineModule() {
     inspectMemberFacts,
     inspectMemberSource,
     inspectPackage,
-    inspectPackageCacheStats,
     inspectPackageDependencies,
     inspectPackageDocument,
     inspectPackageHeapEntries,

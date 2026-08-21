@@ -48,11 +48,11 @@ import {
   spotlightCandidateSignature,
   uniqueTypeByQueryId,
   workspaceCoordinatesMatch
-} from "../src/data.js";
+} from "../src/data.ts";
 import {
   buildDependencyGraphMermaid,
   buildTypeGraphMermaid
-} from "../src/graph-mermaid.js";
+} from "../src/graph-mermaid.ts";
 
 const packageAt = (version, framework, types = 1) => ({
   id: "Example.Package",
@@ -161,7 +161,7 @@ const memberFocusSource = readFileSync(
   new URL("../src/member-focus.ts", import.meta.url),
   "utf8");
 const graphSource = readFileSync(
-  new URL("../src/graph-mermaid.js", import.meta.url),
+  new URL("../src/graph-mermaid.ts", import.meta.url),
   "utf8");
 const typePanelSource = readFileSync(
   new URL("../src/type-panel.ts", import.meta.url),
@@ -177,6 +177,9 @@ const applicationSources =
 const stylesSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 const engineSource = readFileSync(
   new URL("../engine/wwwroot/engine.js", import.meta.url),
+  "utf8");
+const generatedEngineSource = readFileSync(
+  new URL("../engine/wwwroot/inspect-web-engine.js", import.meta.url),
   "utf8");
 const deploySource = readFileSync(
   new URL("../../../.github/workflows/deploy-inspect-web.yml", import.meta.url),
@@ -925,7 +928,7 @@ test("type source identity includes decompiler taste", () => {
 test("source operations cancel when superseded or hidden", () => {
   assert.match(
     engineSource,
-    /cancelSourceQuery = exports\.BrowserInspectionEngine\.CancelSourceQuery/);
+    /cancelSourceQuery = exports\.InspectionEngine\.CancelSourceQuery/);
   assert.match(
     engineSource,
     /export function cancelSourceInspection\(\)[\s\S]*?cancelSourceQuery\?\.\(\)/);
@@ -1059,8 +1062,8 @@ test("source operations cancel when superseded or hidden", () => {
 
 test("browser engine configures the same-origin managed MSDL API", () => {
   assert.match(
-    engineSource,
-    /exports\.BrowserInspectionEngine\.ConfigureHost\(window\.location\.origin\)/);
+    generatedEngineSource,
+    /configureHostExport = exports\.InspectionEngine\.ConfigureHost[\s\S]*?configureHostExport\(window\.location\.origin\)/);
 });
 
 test("MethodDef-only member sections are hidden for bodiless APIs", () => {

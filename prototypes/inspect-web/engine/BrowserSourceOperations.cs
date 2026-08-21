@@ -12,7 +12,7 @@ using ILInspector.Metadata;
 using InspectWeb.Engine;
 
 [SupportedOSPlatform("browser")]
-public static partial class BrowserInspectionEngine
+public static partial class InspectionEngine
 {
     const long MiB = 1024L * 1024;
     static readonly SymbolAcquisitionLimits SourceSymbolLimits =

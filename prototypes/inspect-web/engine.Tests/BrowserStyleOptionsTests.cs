@@ -12,7 +12,7 @@ public sealed class BrowserStyleOptionsTests
     public void ListVocabulary_ProjectsProductOwnedStyleChoices()
     {
         using JsonDocument document = JsonDocument.Parse(
-            BrowserInspectionEngine.ListVocabulary());
+            InspectionEngine.ListVocabulary());
         JsonElement actual = document.RootElement
             .GetProperty("sections")
             .EnumerateArray()
@@ -43,7 +43,7 @@ public sealed class BrowserStyleOptionsTests
     public void ListVocabulary_ProjectsProductOwnedBodyKinds()
     {
         using JsonDocument document = JsonDocument.Parse(
-            BrowserInspectionEngine.ListVocabulary());
+            InspectionEngine.ListVocabulary());
         JsonElement actual = document.RootElement
             .GetProperty("sections")
             .EnumerateArray()

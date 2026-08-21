@@ -333,7 +333,7 @@ internal static class DetectionTestSuite
             repository,
             body,
             "pull_request",
-            "prototypes/inspect-web/engine/BrowserInspectionEngine.cs",
+            "prototypes/inspect-web/engine/InspectionEngine.cs",
             outputs);
         if (web["code"] != "false" || web["web"] != "true")
         {
