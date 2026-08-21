@@ -140,7 +140,7 @@ review the new head, and ask again.
 | Decompiler harness-only behavior | `docs/decompiler-correctness-pipeline.md`, then the owning harness README |
 | Skills | `taste/skill-guidance.md` |
 | Stacked PRs and restacking | `docs/stacked-prs.md` |
-| Adversarial review mechanics | `docs/adversarial-review.md` |
+| Running a review round, or checking PR status | `docs/round-orchestration.md` |
 | Release and publishing | `docs/release-workflow.md` |
 | Changes spanning Markout and this repo | `docs/markout-co-development.md` |
 
@@ -483,8 +483,9 @@ Review is a locked-head feedback loop: freeze and push one exact head, review
 that head, reconcile the feedback publicly, make any resulting fixes, and freeze
 the replacement head. Everything below serves that loop.
 
-These are the binding invariants. The rest of this section explains them; the
-mechanics live in [`docs/adversarial-review.md`](docs/adversarial-review.md).
+These are the binding invariants. The rest of this section explains them;
+driving the loop is
+[round orchestration](docs/round-orchestration.md).
 
 1. **One frozen head per round.** The lock begins at the push and ends at
    public reconciliation. Do not edit a head while it is held; fixes belong to
@@ -632,7 +633,7 @@ subsequent round:
   cycle again. A multi-round PR therefore picks up `main` on each round that
   produced a fix — not never, and not continuously while a head is frozen.
 - **Before merge, the PR is mergeable and green.** One status check answers
-  both; see [status discovery](docs/adversarial-review.md#status-discovery) for
+  both; see [status discovery](docs/round-orchestration.md#status-discovery) for
   the REST default, when GraphQL is worth a point, the traps each result
   carries, and the polling cadence. The first attempt at round 1 and
   conflict-recovery rounds do not wait for this result; a failed-gate restart,
@@ -678,7 +679,7 @@ default path that integrates the base when no conflict, review-driven fix,
 author change, current-head merge-path failure, required cascading restack, or
 explicit user workflow adjustment has ended the candidate. The procedure, and
 the analysis to bring to the user, are in
-[carry-forward after clean reviews](docs/adversarial-review.md#carry-forward-after-clean-reviews).
+[carry-forward after clean reviews](docs/round-orchestration.md#carry-forward-after-clean-reviews).
 
 Evaluate eligibility from the *latest* review-clean result: an earlier finding
 that was fixed and then reviewed clean does not disqualify it. Carry-forward
@@ -757,7 +758,7 @@ Every reviewer gets the same self-contained prompt and its own isolated
 worktree; findings are reproduced before they are acted on and reconciled
 publicly on the PR. Address actionable findings only after the locked-head
 reviews finish. See
-[running a round](docs/adversarial-review.md#running-a-round) for dispatch,
+[running a round](docs/round-orchestration.md#running-a-round) for dispatch,
 reconciliation, and the required round report.
 
 Review the whole head. An author may not declare a subsystem out of scope for a
@@ -831,6 +832,10 @@ correct move rather than opening another round by reflex.
   first, then push the frozen candidate promptly. Run broader local validation,
   CI, and eligible fixed-head review concurrently, subject to the per-round CI
   and conflict gates above.
+- Check PR state through [status
+  discovery](docs/round-orchestration.md#status-discovery) — REST by default,
+  GraphQL when breadth pays for the point, and a scheduled check rather than a
+  watch loop. That applies to any PR, not only one under review.
 - A settled candidate should spend wall-clock time in parallel. If an hour
   passes without an authored change while an eligible independent gate has not
   started, stop and correct the sequencing or record the concrete blocker. Do

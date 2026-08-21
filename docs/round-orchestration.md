@@ -1,10 +1,10 @@
-# Adversarial review mechanics
+# Round orchestration
 
 `AGENTS.md` owns the binding rules for adversarial review: what a candidate is,
 when a round may start, what makes a review review-clean, and when to stop. This
-document owns the mechanics those rules depend on — how to query PR status, how
-to dispatch and reconcile a round, and the carry-forward procedure after clean
-reviews.
+document owns the operational side — how to find out where the round stands, how
+to dispatch and reconcile it, and what to do when the base moves under a clean
+result.
 
 Read [Adversarial review](../AGENTS.md#adversarial-review) first. This document
 states no rules of its own: where it needs a condition, it cites the rule rather
