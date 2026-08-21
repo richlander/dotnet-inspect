@@ -60,11 +60,10 @@ public sealed class JsExportSurfaceBuilderTests
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
         var recordNames = surface.Records.Select(r => r.Name).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(10, surface.Records.Count);
+        Assert.Equal(9, surface.Records.Count);
         Assert.Contains("WidgetDto", recordNames);
         Assert.Contains("WidgetOwner", recordNames);
         Assert.Contains("WidgetCatalog", recordNames);
-        Assert.Contains("WidgetCatalogEntry", recordNames);
         Assert.Contains("WidgetSummary", recordNames);
         Assert.Contains("WidgetPermissionSummary", recordNames);
         Assert.Contains("WidgetPrioritySummary", recordNames);
@@ -103,11 +102,38 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     [Fact]
-    public void Build_DiscoversRecordNestedInsideANonFirstGenericArgument()
+    public void Build_DiscoversRecordOnlyInNonFirstGenericRootArgumentAndPropagatesPolicy()
     {
-        ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
+        var apiSurface = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType
+                {
+                    Name = "SurfaceJsonContext",
+                    BaseType = "System.Text.Json.Serialization.JsonSerializerContext",
+                    JsonPropertyNamingPolicy = JsonWireNamingPolicy.CamelCase,
+                    Members =
+                    [
+                        new ApiMember
+                        {
+                            Name = "NestedDtosByKey",
+                            Kind = "property",
+                            ReturnType =
+                                "System.Text.Json.Serialization.Metadata.JsonTypeInfo<"
+                                + "System.Collections.Generic.Dictionary<string, NestedDto>>",
+                        },
+                    ],
+                },
+                new ApiType { Name = "NestedDto" },
+            ],
+        };
 
-        Assert.Contains(surface.Records, r => r.Name == "WidgetCatalogEntry");
+        ILInspector.JsExportSurface.JsExportSurface surface = JsExportSurfaceBuilder.Build(apiSurface);
+
+        ApiType nested = Assert.Single(surface.Records);
+        Assert.Equal("NestedDto", nested.Name);
+        Assert.Equal(JsonWireNamingPolicy.CamelCase, nested.JsonPropertyNamingPolicy);
     }
 
     [Fact]

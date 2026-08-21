@@ -90,9 +90,7 @@ public sealed record WidgetDto(string Name, int Count, int[] Tags, WidgetOwner? 
 
 public sealed record WidgetOwner(string DisplayName);
 
-public sealed record WidgetCatalog(Dictionary<string, WidgetCatalogEntry> OwnersByKey);
-
-public sealed record WidgetCatalogEntry(string DisplayName);
+public sealed record WidgetCatalog(Dictionary<string, WidgetOwner> OwnersByKey);
 
 [JsonConverter(typeof(JsonStringEnumConverter<WidgetStatus>))]
 public enum WidgetStatus

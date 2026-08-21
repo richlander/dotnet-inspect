@@ -96,7 +96,7 @@ static partial class DtsEmitter
     {
         foreach (ApiType record in records)
         {
-            foreach (ApiMember member in record.Members.Where(IsSerializedProperty))
+            foreach (ApiMember member in record.Members)
             {
                 if (member.JsonPropertyName is { } propertyName
                     && propertyName.Any(char.IsControl))

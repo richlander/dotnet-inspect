@@ -4,6 +4,7 @@ namespace ILInspector.JsExportSurface.Tests;
 
 internal sealed record ControlPropertyNameFixture
 {
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     [JsonPropertyName("line\nbreak\r\t\u0001")]
     public string Value { get; init; } = "";
 }
