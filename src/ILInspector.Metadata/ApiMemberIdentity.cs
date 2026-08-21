@@ -834,14 +834,11 @@ public static class ApiMemberIdentity
         => new(type, member, GetMemberAnchor(type, member));
 
     /// <summary>
-    /// Persists <see cref="ApiMember.CanonicalSignature"/> for every member whose canonical
-    /// (identity) spelling diverges from its display <see cref="ApiMember.Signature"/> — i.e.
-    /// members carrying C# tuple syntax, whose element names and <c>(...)</c> spelling must
-    /// not leak into identity and cannot be recovered from the display text after a JSON
-    /// round-trip (<see cref="ApiMember.SignatureModel"/> is not serialized). Computed here,
-    /// while the structural model is live, so a round-tripped surface pairs with the same
-    /// members read live. Non-divergent (non-tuple) members are left untouched, keeping
-    /// their serialized form and digests unchanged.
+    /// Persists <see cref="ApiMember.CanonicalSignature"/> when exact member
+    /// identity cannot be reconstructed from serialized fields. Exact declaring
+    /// type identity is already retained structurally on <see cref="ApiType"/>.
+    /// Computed while the structural model is live so a round-tripped surface
+    /// pairs with the same members read live.
     /// </summary>
     public static void PopulateCanonicalIdentities(
         ApiSurface surface,
@@ -851,8 +848,11 @@ public static class ApiMemberIdentity
         {
             foreach (var member in type.Members)
             {
-                if (member.SignatureModel is not { } signature || !HasCanonicalDivergence(member, signature))
+                if (member.SignatureModel is not { } signature
+                    || !HasCanonicalDivergence(member, signature))
+                {
                     continue;
+                }
 
                 string canonical = GetCanonicalSignature(type, member);
                 beforeRetain?.Invoke(canonical);
@@ -1201,7 +1201,7 @@ public static class ApiMemberIdentity
             stableSelector,
             canonicalSignature,
             fingerprint,
-            MetadataTypeNameFormatter.FormatFullName(type),
+            FormatApiTypeAnchorName(type),
             member.Name);
     }
 
@@ -1241,52 +1241,249 @@ public static class ApiMemberIdentity
         }
 
         var builder = new StringBuilder();
-        string @namespace =
-            MetadataSafetyPolicy.ReadStructuralString(
+        int remainingTypeNameCharacters =
+            MetadataSafetyPolicy.MaxTypeNameCharacters;
+        if (!MetadataSafetyPolicy.TryReadTypeNameComponent(
                 reader,
-                reader.GetTypeDefinition(chain[0]).Namespace);
+                reader.GetTypeDefinition(chain[0]).Namespace,
+                ref remainingTypeNameCharacters,
+                out string @namespace))
+        {
+            throw TypeNameBudgetExceeded();
+        }
         if (!string.IsNullOrEmpty(@namespace))
         {
-            AppendAnchorName(builder, @namespace);
+            AppendEscapedAnchorName(
+                builder,
+                @namespace,
+                @namespace.Length,
+                escapeDot: false);
             AppendAnchorName(builder, ".");
         }
 
+        int enclosingGenericCount = 0;
         for (int i = 0; i < consumed; i++)
         {
             if (i > 0)
-                AppendAnchorName(builder, ".");
+                AppendAnchorName(builder, '+');
+
+            if (remainingTypeNameCharacters == 0)
+                throw TypeNameBudgetExceeded();
+            remainingTypeNameCharacters--;
 
             var type = reader.GetTypeDefinition(chain[i]);
-            string name =
-                MetadataSafetyPolicy.ReadStructuralString(
+            if (!MetadataSafetyPolicy.TryReadTypeNameComponent(
                     reader,
-                    type.Name);
-            int tick = name.IndexOf('`');
-            AppendAnchorName(
+                    type.Name,
+                    ref remainingTypeNameCharacters,
+                    out string name))
+            {
+                throw TypeNameBudgetExceeded();
+            }
+            var genericParameters = type.GetGenericParameters();
+            if (!MetadataTypeDeclarationProbe.TryGetGenericParameterCount(
+                    reader,
+                    chain[i],
+                    out int cumulativeGenericCount))
+            {
+                throw new BadImageFormatException(
+                    "Generic parameter indices must be contiguous and ordered.");
+            }
+            int introducedGenericCount =
+                MetadataDeclarationQuery.GetIntroducedTypeParameterCount(
+                    cumulativeGenericCount,
+                    enclosingGenericCount);
+            // Only a canonical trailing `N is an arity suffix. Truncating at any
+            // backtick would give a name whose backtick is literal (Widget`Literal)
+            // the same anchor as the plain name (Widget). A suffix that disagrees
+            // with the row's GenericParam count is also identity text: stripping
+            // it would collapse malformed Widget`2<T> onto Widget`1<T>.
+            bool hasDeclaredArity = MetadataNameArity.TryReadSuffix(
+                name,
+                out int declaredArity,
+                out int simpleNameLength);
+            if (hasDeclaredArity
+                && declaredArity != introducedGenericCount)
+            {
+                simpleNameLength = name.Length;
+            }
+            AppendEscapedAnchorName(
                 builder,
                 name,
-                tick < 0 ? name.Length : tick);
+                simpleNameLength,
+                escapeDot: true);
+            if (!hasDeclaredArity && introducedGenericCount > 0)
+                AppendAnchorName(builder, ":0");
 
-            var genericParameters = type.GetGenericParameters();
-            if (genericParameters.Count == 0)
+            if (introducedGenericCount == 0)
+            {
+                enclosingGenericCount = cumulativeGenericCount;
                 continue;
+            }
 
             AppendAnchorName(builder, "<");
             int index = 0;
-            foreach (GenericParameterHandle parameter in genericParameters)
+            foreach (GenericParameterHandle parameter in
+                genericParameters.Skip(enclosingGenericCount))
             {
                 if (index++ > 0)
                     AppendAnchorName(builder, ",");
-                AppendAnchorName(
-                    builder,
+                string parameterName =
                     MetadataSafetyPolicy.ReadStructuralString(
                         reader,
-                        reader.GetGenericParameter(parameter).Name));
+                        reader.GetGenericParameter(parameter).Name);
+                AppendEscapedAnchorName(
+                    builder,
+                    parameterName,
+                    parameterName.Length,
+                    escapeDot: true);
             }
             AppendAnchorName(builder, ">");
+            enclosingGenericCount = cumulativeGenericCount;
         }
 
         return builder.ToString();
+    }
+
+    static BadImageFormatException TypeNameBudgetExceeded()
+        => new(
+            $"The metadata type name exceeds "
+                + $"{MetadataSafetyPolicy.MaxTypeNameCharacters} characters.");
+
+    internal static string FormatTypeAnchorName(ApiType type) =>
+        FormatApiTypeAnchorName(type);
+
+    static string FormatApiTypeAnchorName(ApiType type)
+    {
+        if (type.DefinitionName is not { } exactName)
+            return MetadataTypeNameFormatter.FormatFullName(type);
+
+        var builder = new StringBuilder();
+        if (exactName.Namespace.Length > 0)
+        {
+            AppendEscapedAnchorName(
+                builder,
+                exactName.Namespace,
+                exactName.Namespace.Length,
+                escapeDot: false);
+            AppendAnchorName(builder, '.');
+        }
+
+        int parameterIndex = 0;
+        for (int i = 0; i < exactName.Segments.Length; i++)
+        {
+            if (i > 0)
+                AppendAnchorName(builder, '+');
+
+            string segment = exactName.Segments[i];
+            bool hasDeclaredArity = MetadataNameArity.TryReadSuffix(
+                segment,
+                out int declaredArity,
+                out int simpleNameLength);
+            int introducedGenericCount =
+                HasExactTypeParameterCounts(type, exactName)
+                    ? type.IntroducedTypeParameterCounts![i]
+                    : InferIntroducedGenericCount(
+                        type,
+                        exactName,
+                        i,
+                        parameterIndex);
+            if (hasDeclaredArity
+                && declaredArity != introducedGenericCount)
+            {
+                simpleNameLength = segment.Length;
+            }
+
+            AppendEscapedAnchorName(
+                builder,
+                segment,
+                simpleNameLength,
+                escapeDot: true);
+            if (!hasDeclaredArity && introducedGenericCount > 0)
+                AppendAnchorName(builder, ":0");
+            if (introducedGenericCount == 0)
+                continue;
+
+            AppendAnchorName(builder, '<');
+            for (int j = 0; j < introducedGenericCount; j++)
+            {
+                if (j > 0)
+                    AppendAnchorName(builder, ',');
+                string parameterName =
+                    type.TypeParameters[parameterIndex++].Name;
+                AppendEscapedAnchorName(
+                    builder,
+                    parameterName,
+                    parameterName.Length,
+                    escapeDot: true);
+            }
+            AppendAnchorName(builder, '>');
+        }
+
+        return builder.ToString();
+    }
+
+    static bool HasExactTypeParameterCounts(
+        ApiType type,
+        MetadataTypeDefinitionName exactName) =>
+        type.IntroducedTypeParameterCounts is { } counts
+        && counts.Count == exactName.Segments.Length
+        && counts.All(static count => count >= 0)
+        && counts.Sum(static count => (long)count)
+            == type.TypeParameters.Count;
+
+    static int InferIntroducedGenericCount(
+        ApiType type,
+        MetadataTypeDefinitionName exactName,
+        int segmentIndex,
+        int parameterIndex)
+    {
+        int arityAfter = 0;
+        for (int index = segmentIndex + 1;
+            index < exactName.Segments.Length;
+            index++)
+        {
+            arityAfter +=
+                MetadataNameArity.OfSegment(exactName.Segments[index]);
+        }
+        return Math.Max(
+            0,
+            type.TypeParameters.Count - parameterIndex - arityAfter);
+    }
+
+    static void AppendEscapedAnchorName(
+        StringBuilder builder,
+        string value,
+        int count,
+        bool escapeDot)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            char c = value[i];
+            if (char.IsLetterOrDigit(c)
+                || c is '_' or '`'
+                || c == '.' && !escapeDot)
+            {
+                AppendAnchorName(builder, c);
+            }
+            else
+            {
+                AppendAnchorName(builder, '\\');
+                AppendAnchorName(builder, c);
+            }
+        }
+    }
+
+    static void AppendAnchorName(
+        StringBuilder builder,
+        char value)
+    {
+        if (builder.Length >= MetadataSafetyPolicy.MaxStructuralSignatureChars)
+        {
+            throw new BadImageFormatException(
+                "The member anchor name exceeds the encoded-character budget.");
+        }
+        builder.Append(value);
     }
 
     static void AppendAnchorName(
@@ -1344,9 +1541,7 @@ public static class ApiMemberIdentity
         if (TryGetCanonicalSignature(type, member, out var canonicalSignature))
             return canonicalSignature;
 
-        var declaringType = string.IsNullOrWhiteSpace(member.DeclaringType)
-            ? MetadataTypeNameFormatter.FormatFullName(type)
-            : member.DeclaringType!;
+        var declaringType = DeclaringTypeAnchorName(type, member);
 
         var kindCode = member.Kind switch
         {
@@ -1393,9 +1588,7 @@ public static class ApiMemberIdentity
             return true;
         }
 
-        var declaringType = string.IsNullOrWhiteSpace(member.DeclaringType)
-            ? MetadataTypeNameFormatter.FormatFullName(type)
-            : member.DeclaringType!;
+        var declaringType = DeclaringTypeAnchorName(type, member);
 
         var kindCode = member.Kind switch
         {
@@ -1458,6 +1651,23 @@ public static class ApiMemberIdentity
             canonical += $"~{NormalizeCanonicalCommas(XmlDocumentationNotation.NormalizeDynamicToObject(signature.EffectiveCanonicalReturnType!))}";
         canonicalSignature = canonical;
         return true;
+    }
+
+    static string DeclaringTypeAnchorName(ApiType type, ApiMember member)
+    {
+        if (!string.IsNullOrWhiteSpace(member.DeclaringTypeCanonicalName))
+            return member.DeclaringTypeCanonicalName;
+        if (string.IsNullOrWhiteSpace(member.DeclaringType))
+            return FormatApiTypeAnchorName(type);
+        if (type.DefinitionName is not null
+            && string.Equals(
+                member.DeclaringType,
+                MetadataTypeNameFormatter.FormatFullName(type),
+                StringComparison.Ordinal))
+        {
+            return FormatApiTypeAnchorName(type);
+        }
+        return member.DeclaringType;
     }
 
     internal static bool TryGetExtensionInstanceProjection(

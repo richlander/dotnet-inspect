@@ -14,6 +14,7 @@ library metadata-image, direct-reference, assembly-context reference, package
 dependency-group, loaded dependency-coordinate match,
 extension-method, custom-attribute, manifest-resource, type-forwarder,
 union-type, classified-method, audit-metadata, unsafe-evidence, top-leverage,
+optimization-opportunity,
 switch, SourceLink, Integrations, implementation relationships, type/member search,
 extension reachability, API-comparison, Analysis body-signal comparison, and
 Implementation comparison inspection, plus group-scoped
@@ -34,6 +35,7 @@ substrates, and inspection producers that will extend that space.
   loaded dependency-coordinate match,
   extension-method, custom-attribute, manifest-resource, type-forwarder,
   union-type, classified-method, audit-metadata, unsafe-evidence, top-leverage,
+  optimization-opportunity,
   SourceLink,
   implementation-relationship, type/member search, extension-reachability,
   API-comparison, progressive call-graph, and group-scoped source queries. The
@@ -88,6 +90,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 ## Important systems
 
 - [Inspection space architecture](inspection-space.md): the target Rich, Fast, and Safe core that will be shared by hosts and inspection producers.
+- [Artifact acquisition and workspace composition](design/artifact-acquisition-and-workspaces.md):
+  the target separation between storage, source adapters, multi-source
+  workspace lifetimes, packages, and assembly inspection.
 - [Architecture](architecture.md): command and metadata architecture.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
 - [Inspection graph document](design/inspection-graph-document.md): typed

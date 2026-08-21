@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using InertText;
 
 namespace DotnetInspector.Output;
 
@@ -31,6 +32,10 @@ public sealed record PrintProjectionOptions(
     bool Bare,
     string? OutputPath);
 
+public sealed record PrintableContent(
+    string Content,
+    byte[]? ExactBytes = null);
+
 public static class PrintProjectionOutput
 {
     public static int Write(IReadOnlyList<PrintableDocument> documents, PrintProjectionOptions options)
@@ -58,6 +63,21 @@ public static class PrintProjectionOutput
     public static int Write(
         IReadOnlyList<PrintableRow> rows,
         Func<PrintableRow, string?> readContent,
+        PrintProjectionOptions options)
+        => Write(
+            rows,
+            row =>
+            {
+                string? content = readContent(row);
+                return content is null
+                    ? null
+                    : new PrintableContent(content);
+            },
+            options);
+
+    public static int Write(
+        IReadOnlyList<PrintableRow> rows,
+        Func<PrintableRow, PrintableContent?> readContent,
         PrintProjectionOptions options)
     {
         ProjectionAudit.MarkHonored(ProjectionAudit.Print);
@@ -96,8 +116,8 @@ public static class PrintProjectionOutput
             selectedRow = rows[0];
         }
 
-        string? selectedContent = readContent(selectedRow);
-        if (selectedContent is null)
+        PrintableContent? payload = readContent(selectedRow);
+        if (payload is null)
         {
             CommandError.Write(
                 $"row {selectedRow.Row} has no printable document.");
@@ -110,7 +130,7 @@ public static class PrintProjectionOutput
             selectedRow.Label,
             selectedRow.Path,
             selectedRow.Url,
-            selectedContent);
+            payload.Content);
 
         if (options.Jsonl)
         {
@@ -132,8 +152,23 @@ public static class PrintProjectionOutput
             return 0;
         }
 
-        WriteOutput(selected.Content, options.OutputPath);
+        WriteContentOutput(payload, options.OutputPath);
         return 0;
+    }
+
+    private static void WriteContentOutput(PrintableContent output, string? outputPath)
+    {
+        if (!string.IsNullOrWhiteSpace(outputPath))
+        {
+            if (output.ExactBytes is { } bytes)
+                File.WriteAllBytes(outputPath, bytes);
+            else
+                File.WriteAllText(outputPath, output.Content);
+        }
+        else
+        {
+            Console.Write(new InertString(TextPolicy.Prose, output.Content));
+        }
     }
 
     private static void WriteOutput(string output, string? outputPath)

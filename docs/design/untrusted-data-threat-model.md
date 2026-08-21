@@ -294,13 +294,14 @@ unguarded, a planted sibling picked up by reference resolution could mint
 core-library identity for its own definitions and make a fake interface
 authorize raising for a type that implements nothing of the sort.
 
-`CoreLibraryIdentityTrust` owns the rule. Trust follows **acquisition**, and
-which acquisition applies follows how the caller named the file. A raw path is
-an explicit designation — the caller chose that exact file — so it is trusted.
-A `ResolvedAssemblyReference` was reached by discovery, so it is trusted only
-when its `AssemblyResolutionProvenance` is a `PlatformAsset` or a
-`DesignatedAsset`. `TypeRefDecoder.CanonicalSelf` consults the registry before
-honouring a platform key.
+`CoreLibraryIdentityTrust` owns the current rule. Trust follows
+**acquisition**, and which acquisition applies follows how the caller named the
+file. Current raw-path entry points treat the path as an explicit designation
+because the caller chose that exact file. A `ResolvedAssemblyReference` was
+reached by discovery, so it is trusted only when its
+`AssemblyResolutionProvenance` is a `PlatformAsset` or a `DesignatedAsset`.
+`TypeRefDecoder.CanonicalSelf` consults the registry before honouring a platform
+key.
 
 The registry is an **allow list**, and the polarity is load-bearing. A deny
 list has to enumerate every site that turns bytes into a reader, so a site
@@ -322,6 +323,24 @@ explicitly (a corpus path, or a directory the user named) carries
 `DesignatedAsset` and keeps core-library identity; one the resolver discovered
 beside the target does not.
 
+That describes the current carrier. The target
+[artifact acquisition design](artifact-acquisition-and-workspaces.md)
+preserves the same allow-list decision but moves caller designation and
+platform trust onto authorized workspace admission-role evidence. Source
+adapters retain acquisition provenance separately, and Metadata no longer owns
+the trust arm. The decompiler still receives an explicit owner-issued trust
+grant; no path, assembly name, public-key blob, or source-provenance display
+field can reconstruct it. In particular, a lease-scoped path to a retained
+snapshot is only a content-access form. The target retires the current
+raw-path-implies-designation shortcut; opening that path cannot grant
+core-library trust without a separate authorized admission role. The same rule
+applies when caller-supplied bytes are paired with a path, as in the current
+`MetadataSource.OpenFromPrefetchedImage` compatibility entry point.
+`LeaseScopedPath_IsNotADesignationGrant` derives every unconditional path and
+prefetched-image grant from the `ReaderConstructionSiteTests` inventory and
+asserts coverage equality, rather than relying on a hand-maintained method
+list.
+
 The residual case is a host policy, `CoreLibraryTrustPolicy`. The default,
 `DesignatedAndPlatform`, is correct for any host that inspects untrusted
 uploads. A host whose surrounding directory is as trusted as the target — a
@@ -330,11 +349,17 @@ local tool pointed at a build layout the user controls — may select
 planted-sibling exposure. That trade is the host's to make explicitly; it is
 never inferred.
 
-Because trust is read off provenance, provenance must not understate a genuine
-platform acquisition. Resolvers that hand back files taken from the host's
-trusted-platform-assembly list, and the intrinsic core-library binding that
-returns the designated target when that target is itself the core library,
-report `PlatformAsset` for that reason.
+Because current trust is read off provenance, current provenance must not
+understate a genuine platform acquisition. Resolvers that hand back files taken
+from the host's trusted-platform-assembly list, and the intrinsic core-library
+binding that returns the designated target when that target is itself the core
+library, report `PlatformAsset` for that reason. In the target architecture,
+the platform adapter mints only validated platform realization and
+correspondence evidence. Workspace admission grants the corresponding
+platform-trust role under explicit host policy. An adapter-provided provenance
+record, platform-shaped coordinate, assembly name, or public-key blob cannot
+grant that role by itself;
+`PlatformArtifactTrust_RequiresAuthorizedAdmissionRole` gates this boundary.
 
 `PlantedCoreLibraryIdentityTests.PlantedPlatformKey_DoesNotMintCoreLibraryIdentity`
 gates the boundary with a real planted assembly carrying the verbatim ECMA
@@ -344,7 +369,9 @@ gates the reader-creation path that bypasses `MetadataContext`, and fails if
 the registry ever returns to deny-list polarity;
 `PlantedCoreLibraryIdentityTests.DesignatedTarget_KeepsCoreLibraryIdentity`
 and `PlantedCoreLibraryIdentityTests.RawPathOpen_KeepsCoreLibraryIdentity`
-gate the scope, so failing closed does not cost ordinary use;
+gate the current scope, so failing closed does not cost ordinary use. During
+the artifact migration, the latter changes from preserving blanket raw-path
+trust to proving `LeaseScopedPath_IsNotADesignationGrant`;
 `PlantedCoreLibraryIdentityTests.DesignatedCorpusAssembly_SatisfiesPlatformScope`
 gates the resolver half, since a core-library `TypeRef` forces
 `AssemblyResolutionScope.Platform` and a designated corpus assembly must be
@@ -1455,8 +1482,8 @@ structure and must not interpret inspected text as authority.
 > caller, while refusing is a policy only a caller can choose — but it means the
 > trust axis currently exists only where a command line can express it.
 
-The package inspection path now has the enabling boundary and a bounded audit
-summary, but not the refusal policy:
+The package inspection path now has the enabling boundary and bounded audit
+detail, but not the refusal policy:
 `PackageInspectionText` carries every package-model text field to Markdown,
 direct JSON, and focused package table/JSONL metadata as `InertString`;
 content-output rows do the same for their package, version, and path framing.
@@ -1464,14 +1491,41 @@ content-output rows do the same for their package, version, and path framing.
 aggregate before a sink unwraps it, and package `Signals` reports whether that
 aggregate is empty plus its `TextConcern` category kinds. The explicit
 `Audit: Artifact Text` section lists package-model field locations and concern
-kinds, but never the field values. It is not the scalar-by-scalar refusal survey
-mode described below: it reports one row per contained presentation field and
-does not change rendering policy. Explicit document payloads remain raw by
-contract. `PackageSignals_ReportsEveryArtifactTextConcernKindWithoutContent`
+kinds, but never the field values. `Audit: Findings` explicitly scans
+text-bearing files and SourceLink mappings, reporting bounded, visually encoded
+evidence plus NuGet restore-source semantics. It also reports every literal
+`../` in a decoded SourceLink document key or URL as a review-oriented parent
+path finding. This does not classify the mapping as malicious; the existing
+provenance boundary above remains responsible for canonicalizing resolved URLs
+before attribution. Candidate paths, text files, SourceLink carriers, aggregate embedded-PDB
+inflation, PE debug-directory entries, CodeView record bytes, SourceLink map
+bytes, and mapping inventory are bounded. The PDB owner rejects oversized
+debug directories and CodeView records before SRM materializes authored paths,
+reads the same embedded-PDB file pointer as the framework decoder, and reserves
+both per-file and shared expansion budgets before decompression; the named
+gates are
+`PdbContextDescriptorTests.DebugDirectoryAndCodeViewLimits_PrecedePathMaterialization`,
+`PdbContextDescriptorTests.EmbeddedPdbAndSourceLinkLimits_PrecedePayloadMaterialization`,
+`PdbContextDescriptorTests.EmbeddedPdbLimit_ReadsTheFilePointerUsedByTheDecoder`,
+`PdbContextDescriptorTests.EmbeddedPdbLimit_AppliesDataPointerRelativeToPeImageStart`,
+`PdbContextDescriptorTests.EmbeddedPdbExpansionBudget_IsSharedAcrossOpens`,
+`PdbContextDescriptorTests.MalformedEmbeddedPdb_ConsumesExpansionBudgetBeforeDecode`,
+`PackageContentAuditTests.CandidatePathLimit_BoundsRepeatedInputBeforeMaterialization`,
+`PackageContentAuditTests.TextFileLimit_BoundsZeroByteReads`,
+`PackageContentAuditTests.SourceLinkCarrierLimit_BoundsZeroByteWork`,
+`PackageContentAuditTests.OversizedCodeViewRecord_MarksAuditPartialBeforeDecode`,
+and
+`SourceLinkMapConformanceTests.MappingLimit_StopsBeforeRetainingAnOverBudgetInventory`.
+Neither audit section is the scalar-by-scalar refusal
+survey mode described below, and neither changes acceptance policy. Document payloads are
+encoded on stdout; exact bytes require `--out` with a single-file selection.
+`PackageSignals_ReportsEveryArtifactTextConcernKindWithoutContent`
 and `Package_MultiplePackages_SignalsIncludePackageFileConcerns` gate the
 summary across single-package and survey modes;
 `PackageArtifactTextAudit_ListsLocationsAndKindsInMarkdownAndJsonl` gates the
-detail reporting boundary. This is intentionally not a global CLI signal.
+model-detail boundary; `PackageContentAuditTests` and
+`PackageAudit_RendersContentAndSourceLinkFindings` gate the file and
+PDB scan and its detail shape. This is intentionally not a global CLI signal.
 Other commands and projections still have their own presentation models, so
 adopting the flags at the root today would claim coverage they do not have.
 
