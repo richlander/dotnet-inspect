@@ -9,8 +9,11 @@ using System.Xml;
 using System.Text.Json;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Services;
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
+using ILInspector.Decompiler;
+using ILInspector.Findings;
 using ILInspector.Metadata;
 using NuGetFetch;
 
@@ -343,6 +346,78 @@ public sealed class BrowserEngineBoundaryTests
             withPdbSourceFailure.Message,
             StringComparison.Ordinal);
         Assert.Same(cause, withPdbSourceFailure.InnerException);
+    }
+
+    [Fact]
+    public void DecompiledSources_CarryPdbAttemptLimitation()
+    {
+        byte[] image =
+            File.ReadAllBytes(
+                typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate coordinate = Coordinate(
+            "Source.Limitation",
+            Package(
+                image,
+                "lib/net11.0/InspectWeb.Engine.Tests.dll"));
+        using BrowserInspectionScope scope =
+            BrowserPackageWorkspace.OpenScope([coordinate]);
+        BrowserWorkspaceParticipant participant =
+            Assert.Single(scope.ImplementationParticipants);
+        AssemblyContextApiSurfaceResult result =
+            scope.UseImplementation(
+                group => AssemblyContextApiSurfaceQuery.Execute(group));
+        var available =
+            Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Available>(
+                Assert.Single(result.Assemblies.Assemblies));
+        ApiType type = available.Value.Surface.Types.First(
+            candidate => candidate.Members.Any(
+                member => member.MetadataToken is not null));
+        ApiMember member = type.Members.First(
+            candidate => candidate.MetadataToken is not null);
+
+        const string MemberLimitation = "member PDB source unavailable";
+        var memberAttempt = new PdbMemberSourceInspection(
+            new FindingInspection<string>.Absent(MemberLimitation),
+            Text: null,
+            Mapping: null,
+            Document: null,
+            ChecksumVerification: null);
+        var memberEntry = new AssemblyMemberSourceEntry.Available(
+            available.Subject,
+            AssemblyMemberSourceRequest.From(type, member),
+            new AssemblyMemberSource.Decompiled(
+                "void M() {}",
+                new MemberRenderResult(
+                    MemberBodyProductionStatus.Complete,
+                    "void M() {}",
+                    []),
+                memberAttempt));
+
+        BrowserSource memberSource =
+            BrowserInspectionEngine.Adapt(memberEntry, participant);
+        Assert.Equal(MemberLimitation, memberSource.PdbSourceLimitation);
+
+        const string TypeLimitation = "type PDB source unavailable";
+        var typeAttempt = new PdbTypeSourceInspection(
+            new FindingInspection<string>.Absent(TypeLimitation),
+            Text: null,
+            Mapping: null,
+            Document: null,
+            ChecksumVerification: null);
+        var typeEntry = new AssemblyTypeSourceEntry.Available(
+            available.Subject,
+            AssemblyTypeSourceRequest.From(type),
+            new AssemblyTypeSource.Decompiled(
+                "class C {}",
+                new DecompilerResult(
+                    "class C {}",
+                    DecompilationFidelity.Full,
+                    []),
+                typeAttempt));
+
+        BrowserSource typeSource =
+            BrowserInspectionEngine.Adapt(typeEntry, participant);
+        Assert.Equal(TypeLimitation, typeSource.PdbSourceLimitation);
     }
 
     [Fact]

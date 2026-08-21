@@ -306,6 +306,8 @@ gates that separation. Source lookup therefore adds no ambient filesystem
 dependency or unbounded retained cache. Typed rejection and unavailable
 outcomes become visible failures; only an `Available` result crosses the
 bridge. Decompiled results disclose why the PDB-source attempt was unavailable.
+`BrowserEngineBoundaryTests.DecompiledSources_CarryPdbAttemptLimitation` gates
+that adapter wiring.
 Reference-only type source is refused rather than presented as a body-free
 decompilation. Printer options apply to decompiled fallback and never rewrite
 PDB source. Whole-member source remains MethodDef-scoped: a
