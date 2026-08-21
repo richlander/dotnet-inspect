@@ -10157,6 +10157,39 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public void SourceEnrichment_PreservesExistingTypeDocumentation()
+    {
+        var apiType = new ApiType
+        {
+            Name = "Source",
+            Documentation = new DocComment
+            {
+                Summary = "XML summary.",
+                Remarks = "XML remarks.",
+            },
+        };
+
+        SourceEnricher.MergePartialTypeDocumentation(
+            apiType,
+            [
+                (
+                    """
+                    /// <summary>Source summary.</summary>
+                    /// <remarks>Source remarks.</remarks>
+                    public partial class Source { }
+                    """,
+                    "https://source.example/Source.cs",
+                    "/source/Source.cs"),
+            ],
+            new CSharpText.DocCommentParser(),
+            new ApiOptions(),
+            new VerboseLogger(enabled: false));
+
+        Assert.Equal("XML summary.", apiType.Documentation.Summary);
+        Assert.Equal("XML remarks.", apiType.Documentation.Remarks);
+    }
+
+    [Fact]
     public async Task Member_SelectedOverload_DefaultShowsSignatureOnly()
     {
         var options = new MemberOptions

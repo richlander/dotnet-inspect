@@ -617,8 +617,16 @@ internal static class SourceEnricher
         VerboseLogger logger)
     {
 
-        DocComment? mergedTypeDoc = null;
-        List<SampleReference> allSamples = [];
+        DocComment existingTypeDoc = apiType.Documentation;
+        DocComment? mergedTypeDoc =
+            existingTypeDoc.Summary is not null
+            || existingTypeDoc.Remarks is not null
+            || existingTypeDoc.Returns is not null
+            || existingTypeDoc.Parameters is { Count: > 0 }
+            || existingTypeDoc.Samples.Count > 0
+                ? existingTypeDoc
+                : null;
+        List<SampleReference> allSamples = [.. existingTypeDoc.Samples];
 
         foreach (var (content, url, _) in sourceContents)
         {
