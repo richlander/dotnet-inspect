@@ -3080,11 +3080,11 @@ test("graph-only members open through the typed member surface", () => {
   assert.match(binding, /navigateToGraphMember\(loaded, target\)/);
   assert.doesNotMatch(binding, /openGraphSource\(/);
   assert.match(
-    engineSource,
-    /queryGraphMemberSurface = exports\.InspectionEngine\.QueryGraphMemberSurface/);
+    generatedEngineSource,
+    /queryGraphMemberSurfaceExport = exports\.InspectionEngine\.QueryGraphMemberSurface/);
   assert.match(
-    engineSource,
-    /export async function inspectGraphMemberSurface\(request\)/);
+    generatedEngineSource,
+    /export async function queryGraphMemberSurface\(packageId, version, targetFramework/);
   assert.match(appSource, /solid border: no platform lookup/);
   assert.match(
     appSource,
