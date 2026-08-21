@@ -701,10 +701,11 @@ through typed callbacks; the shared helpers used well beyond these views
 in `dotnet-inspect.ts` and are injected the same way.
 `test/metadata-viewer.test.ts` gates the lens's picker, loading, failure,
 stale-scope, partial-read, and empty-image states and its heap/table ordering;
-the explorer's mutually exclusive overview/focus binding shapes, chips,
-history-button enablement, overview versus focus lightbox, lazy-load hooks,
-pager bounds, row highlight and selection, ref->def jump targets, cell
-escaping, heap addressing and coverage notes, and the row inspector.
+the Metadata-lens table/heap entry controls, the explorer's mutually exclusive
+overview/focus binding shapes, chips, history-button enablement, overview
+versus focus lightbox, lazy-load hooks, pager bounds, row highlight and
+selection, ref->def jump targets, cell escaping, heap addressing and coverage
+notes, and the row inspector.
 
 `src/doc-viewer.ts` owns the package document modal (the Markdown reader
 opened from a package's documents list) as a pure, dependency-injected render

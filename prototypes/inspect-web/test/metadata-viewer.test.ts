@@ -85,6 +85,10 @@ function recordingActions(calls: string[]): MetadataExplorerBindingActions {
     onHistoryForward: () => calls.push("forward"),
     onHeapFocus: heap => calls.push(`heap:${heap}`),
     onJump: (index, rowId) => calls.push(`jump:${index}:${rowId}`),
+    onOpenHeap: (assembly, heap) =>
+      calls.push(`open-heap:${assembly}:${heap}`),
+    onOpenTable: (assembly, index) =>
+      calls.push(`open-table:${assembly}:${index}`),
     onPage: (index, startRowId) =>
       calls.push(`page:${index}:${startRowId}`),
     onRowFocus: (index, rowId) => calls.push(`row:${index}:${rowId}`),
@@ -220,11 +224,12 @@ test("focus bindings dispatch lightbox controls and keep inner clicks contained"
   }
 });
 
-test("closed explorer bindings expose only exit and history controls", () => {
+test("metadata lens bindings open table and heap explorer views", () => {
   const root = new FakeRoot();
-  const exit = root.add("#mde-exit", new FakeElement());
-  const back = root.add("#mde-hist-back", new FakeElement());
-  const forward = root.add("#mde-hist-fwd", new FakeElement());
+  const table = new FakeElement({ mdeOpen: "Contoso.dll|6" });
+  root.addAll("[data-mde-open]", table);
+  const heap = new FakeElement({ mdeOpenHeap: "Contoso.dll|String" });
+  root.addAll("[data-mde-open-heap]", heap);
   const chip = new FakeElement({ mdeChip: "3" });
   root.addAll("[data-mde-chip]", chip);
   const calls: string[] = [];
@@ -233,12 +238,14 @@ test("closed explorer bindings expose only exit and history controls", () => {
     null,
     recordingActions(calls));
 
-  exit.dispatch("click");
-  back.dispatch("click");
-  forward.dispatch("click");
+  table.dispatch("click");
+  heap.dispatch("click");
   chip.dispatch("click");
 
-  assert.deepEqual(calls, ["close", "back", "forward"]);
+  assert.deepEqual(calls, [
+    "open-table:Contoso.dll:6",
+    "open-heap:Contoso.dll:String",
+  ]);
   assert.equal(root.queriedSelectors.has("[data-mde-chip]"), false);
 });
 
