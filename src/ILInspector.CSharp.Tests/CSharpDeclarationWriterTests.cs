@@ -144,6 +144,49 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void ConstructorAndFinalizer_UseExactLeafSegment()
+    {
+        MetadataTypeDefinitionName exactName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Samples",
+                    ["A+B"]))
+                .Name;
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "A+B",
+            DefinitionName = exactName,
+            Kind = "class",
+        };
+        var constructor = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            Signature = "void .ctor()",
+            Accessibility = "public",
+        };
+        var finalizer = new ApiMember
+        {
+            Name = "Finalize",
+            Kind = "finalizer",
+            Signature = "void Finalize()",
+            IsFinalizer = true,
+        };
+
+        Assert.Equal(
+            @"public A\+B()",
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type,
+                constructor));
+        Assert.Equal(
+            @"~A\+B()",
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type,
+                finalizer));
+    }
+
+    [Fact]
     public void FinalizerMember_WithSuppressFinalizerSpelling_KeepsLiteralFinalize()
     {
         // Issue #3157 (fidelity hardening): the '~Type()' spelling assumes the

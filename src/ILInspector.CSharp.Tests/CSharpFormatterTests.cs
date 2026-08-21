@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using ILInspector.Metadata;
 
 namespace ILInspector.CSharp.Tests;
@@ -33,6 +34,138 @@ public sealed class CSharpFormatterTests
         Assert.Equal(
             "public TResult Map<TResult>(T value) where TResult : class",
             declaration);
+    }
+
+    [Fact]
+    public void PositiveDeclaredArityWithoutParameters_DoesNotAliasPlainType()
+    {
+        var exact = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("N", ["Foo`1"])).Name;
+        var malformed = new ApiType
+        {
+            Namespace = "N",
+            Name = "Foo`1",
+            Kind = "class",
+            DefinitionName = exact,
+            IntroducedTypeParameterCounts = [0],
+        };
+
+        string malformedName = CSharpFormatter.FormatTypeName(malformed);
+
+        Assert.Equal("Foo`1", malformedName);
+        Assert.NotEqual(
+            CSharpFormatter.FormatTypeName(
+                new ApiType
+                {
+                    Namespace = "N",
+                    Name = "Foo",
+                    Kind = "class",
+                }),
+            malformedName);
+        Assert.Equal(
+            "Foo`1",
+            CSharpFormatter.FormatDeclarationLeafMetadataName(malformed));
+        Assert.Equal(
+            "Foo",
+            CSharpFormatter.FormatDeclarationLeafMetadataName(
+                new ApiType
+                {
+                    Namespace = "N",
+                    Name = "Foo`1",
+                    Kind = "class",
+                    DefinitionName = exact,
+                    IntroducedTypeParameterCounts = [1],
+                }));
+    }
+
+    [Fact]
+    public void NestedPerSegmentArityMismatch_DoesNotAliasValidType()
+    {
+        var exact = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                "N",
+                ["Outer`1", "Inner`1"])).Name;
+        var malformed = new ApiType
+        {
+            Namespace = "N",
+            Name = "Outer`1.Inner`1",
+            Kind = "class",
+            DefinitionName = exact,
+            IntroducedTypeParameterCounts = [2, 0],
+            TypeParameters =
+            [
+                new TypeParameter { Name = "A" },
+                new TypeParameter { Name = "B" },
+            ],
+        };
+
+        Assert.Equal(
+            "Outer`1.Inner`1",
+            CSharpFormatter.FormatTypeName(malformed));
+    }
+
+    [Fact]
+    public void ZeroParameterOuterArityMismatch_DoesNotAliasPlainType()
+    {
+        var exact = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                "N",
+                ["Outer`1", "Inner"])).Name;
+        var malformed = new ApiType
+        {
+            Namespace = "N",
+            Name = "Outer`1.Inner",
+            Kind = "class",
+            DefinitionName = exact,
+            IntroducedTypeParameterCounts = [0, 0],
+        };
+
+        Assert.Equal(
+            "Outer`1.Inner",
+            CSharpFormatter.FormatTypeName(malformed));
+    }
+
+    [Fact]
+    public void MissingDeclaredArity_UsesExactParameterOwnership()
+    {
+        MetadataTypeDefinitionName exact =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "N",
+                    ["Outer", "Inner`1"]))
+            .Name;
+        var full = new ApiType
+        {
+            Namespace = "N",
+            Name = "Outer.Inner`1",
+            Kind = "class",
+            DefinitionName = exact,
+            IntroducedTypeParameterCounts = [1, 1],
+            TypeParameters =
+            [
+                new TypeParameter { Name = "T" },
+                new TypeParameter { Name = "U" },
+            ],
+        };
+        var leaf = new ApiType
+        {
+            Namespace = "N",
+            Name = "Inner`1",
+            Kind = "class",
+            DefinitionName = exact,
+            IntroducedTypeParameterCounts = [1, 1],
+            TypeParameters =
+            [
+                new TypeParameter { Name = "U" },
+            ],
+        };
+
+        Assert.Equal(
+            "Outer<T>.Inner<U>",
+            CSharpFormatter.FormatTypeName(full));
+        Assert.Equal(
+            "Inner<U>",
+            CSharpFormatter.FormatTypeName(leaf));
     }
 
     [Fact]
@@ -1330,8 +1463,251 @@ public sealed class CSharpFormatterTests
     [InlineData("Dictionary`2", "Dictionary")]
     [InlineData("Widget", "Widget")]
     [InlineData("", "")]
-    public void StripArity_RemovesGenericAritySuffix(string name, string expected)
+    // #4217: only the canonical `N is an arity suffix. A literal backtick suffix
+    // keeps its identity instead of collapsing onto the unsuffixed name, and each
+    // nested segment is stripped independently rather than truncating the rest.
+    [InlineData("Widget`Literal", "Widget`Literal")]
+    [InlineData("Widget`1Extra", "Widget`1Extra")]
+    [InlineData("Widget`0", "Widget`0")]
+    [InlineData("Widget`01", "Widget`01")]
+    [InlineData("Widget`99999999999", "Widget`99999999999")]
+    [InlineData("Outer`1.Inner`2", "Outer.Inner")]
+    [InlineData("Outer`Literal.Inner`1", "Outer`Literal.Inner")]
+    public void StripArity_RemovesOnlyCanonicalGenericAritySuffixes(string name, string expected)
         => Assert.Equal(expected, CSharpFormatter.StripArity(name));
+
+    /// <summary>
+    /// The identity collision that motivated #4217: two distinct metadata names
+    /// must not produce the same C# spelling candidate.
+    /// </summary>
+    [Fact]
+    public void StripArity_DoesNotCollapseDistinctMetadataNames()
+        => Assert.NotEqual(
+            CSharpFormatter.StripArity("Widget"),
+            CSharpFormatter.StripArity("Widget`Literal"));
+
+    /// <summary>
+    /// The input is an <c>ApiType.Name</c>-shaped chain: nesting is spelled
+    /// <c>.</c>, a <c>+</c> is name text, and a namespace is never included. A
+    /// namespace passed in here would have its text rewritten, which is why
+    /// callers keep it beside the chain.
+    /// </summary>
+    [Theory]
+    [InlineData("Weird+Name`1", "Weird+Name")]
+    [InlineData("Weird`1+Name", "Weird`1+Name")]
+    [InlineData("Outer`1.Inner`2", "Outer.Inner")]
+    public void StripArity_ParsesTheDottedTypeNameChainOnly(string name, string expected)
+        => Assert.Equal(expected, CSharpFormatter.StripArity(name));
+
+    [Fact]
+    public void FormatTypeName_DoesNotInventStructureForLiteralDots()
+    {
+        var legacy = new ApiType { Name = "A`1.B" };
+        var exactName = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                "",
+                ImmutableArray.Create("A`1.B"))).Name;
+        var exact = new ApiType
+        {
+            Name = "A`1.B",
+            DefinitionName = exactName
+        };
+
+        Assert.Equal("A`1.B", CSharpFormatter.FormatTypeName(legacy));
+        Assert.Equal(@"A`1\.B", CSharpFormatter.FormatTypeName(exact));
+        Assert.NotEqual(
+            CSharpFormatter.FormatTypeName(legacy),
+            CSharpFormatter.FormatTypeName(new ApiType { Name = "A.B" }));
+    }
+
+    [Fact]
+    public void FormatTypeName_DistributesExactNestedGenericParameters()
+    {
+        MetadataTypeDefinitionName exactName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "",
+                    ["Outer`1", "Inner`1"]))
+                .Name;
+        var type = new ApiType
+        {
+            Name = "Outer`1.Inner`1",
+            DefinitionName = exactName,
+            TypeParameters =
+            [
+                new TypeParameter { Name = "T" },
+                new TypeParameter { Name = "U" },
+            ],
+        };
+
+        Assert.Equal(
+            "Outer<T>.Inner<U>",
+            CSharpFormatter.FormatTypeName(type));
+    }
+
+    [Fact]
+    public void FormatTypeName_UsesOwnedLeafForNestedTypeShell()
+    {
+        MetadataTypeDefinitionName exactName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "",
+                    ["Outer`1", "Inner`1"]))
+                .Name;
+        var type = new ApiType
+        {
+            Name = "Inner`1",
+            DefinitionName = exactName,
+            IntroducedTypeParameterCounts = [1, 1],
+            TypeParameters =
+            [
+                new TypeParameter { Name = "U" },
+            ],
+        };
+
+        Assert.Equal(
+            "Inner<U>",
+            CSharpFormatter.FormatTypeName(type));
+    }
+
+    [Fact]
+    public void FormatTypeName_UsesMetadataLeafForNormalizedGeneratedShell()
+    {
+        const string leaf = "<State>d__1";
+        MetadataTypeDefinitionName exactName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "",
+                    ["Outer", leaf]))
+                .Name;
+        var type = new ApiType
+        {
+            Name =
+                CSharpFormatter.NormalizeGeneratedMetadataTypeName(leaf),
+            MetadataName = leaf,
+            DefinitionName = exactName,
+            IntroducedTypeParameterCounts = [0, 0],
+        };
+
+        Assert.Equal(
+            CSharpFormatter.NormalizeGeneratedMetadataTypeName(leaf),
+            CSharpFormatter.FormatTypeName(type));
+        Assert.Equal(
+            CSharpFormatter.NormalizeGeneratedMetadataTypeName(leaf),
+            CSharpFormatter.FormatDeclarationLeafMetadataName(type));
+
+        const string malformedLeaf = "<State>d__1`2";
+        var malformed = new ApiType
+        {
+            Name =
+                CSharpFormatter.NormalizeGeneratedMetadataTypeName(
+                    malformedLeaf),
+            MetadataName = malformedLeaf,
+            DefinitionName = Assert
+                .IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "",
+                        ["Outer", malformedLeaf]))
+                .Name,
+            IntroducedTypeParameterCounts = [0, 1],
+        };
+        Assert.Equal(
+            malformedLeaf,
+            CSharpFormatter.FormatDeclarationLeafMetadataName(
+                malformed));
+        Assert.Equal(
+            malformedLeaf,
+            CSharpFormatter.FormatTypeName(malformed));
+
+        const string delegateLeaf = "<>A{00000000}`2";
+        var generatedDelegate = new ApiType
+        {
+            Name =
+                CSharpFormatter.NormalizeGeneratedMetadataTypeName(
+                    delegateLeaf),
+            MetadataName = delegateLeaf,
+            DefinitionName = Assert
+                .IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "",
+                        [delegateLeaf]))
+                .Name,
+            IntroducedTypeParameterCounts = [2],
+            TypeParameters =
+            [
+                new TypeParameter { Name = "T1" },
+                new TypeParameter { Name = "T2" },
+            ],
+        };
+        Assert.Equal(
+            "___A_00000000_<T1, T2>",
+            CSharpFormatter.FormatTypeName(generatedDelegate));
+    }
+
+    [Fact]
+    public void FormatTypeName_DistinguishesLiteralDotFromNesting()
+    {
+        static ApiType Exact(params string[] segments)
+            => new()
+            {
+                Name = string.Join('.', segments),
+                DefinitionName =
+                    Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                        MetadataTypeDefinitionName.Create(
+                            "",
+                            [.. segments]))
+                    .Name,
+            };
+
+        Assert.Equal(
+            @"A\.B",
+            CSharpFormatter.FormatTypeName(Exact("A.B")));
+        Assert.Equal(
+            "A.B",
+            CSharpFormatter.FormatTypeName(Exact("A", "B")));
+    }
+
+    /// <summary>
+    /// Delegate rendering used to truncate the name at the first backtick, which
+    /// dropped every following nested component and spelled a distinct type
+    /// (#4217). The declaring chain and a non-arity backtick both survive.
+    /// </summary>
+    [Fact]
+    public void FormatDelegate_KeepsNestedComponentsAndNonArityBackticks()
+    {
+        static ApiMember Invoke() => new()
+        {
+            Name = "Invoke",
+            Kind = "method",
+            SignatureModel = new ApiSignature { ReturnType = "void", Parameters = [] }
+        };
+
+        var nested = new ApiType
+        {
+            Name = "Outer`1.Callback",
+            DefinitionName = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "",
+                    ImmutableArray.Create("Outer`1", "Callback"))).Name,
+            Kind = "delegate",
+            Accessibility = "public"
+        };
+        var literal = new ApiType
+        {
+            Name = "Callback`Literal",
+            Kind = "delegate",
+            Accessibility = "public"
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions());
+
+        Assert.Equal(
+            "public delegate void Outer.Callback();",
+            formatter.FormatDelegate(nested, Invoke()));
+        Assert.Contains(
+            "Callback`Literal",
+            formatter.FormatDelegate(literal, Invoke()),
+            StringComparison.Ordinal);
+    }
 
     [Theory]
     [InlineData("System.Int32", "int")]

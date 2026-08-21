@@ -1,5 +1,6 @@
 using CSharpText;
 using ILInspector.CSharp;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -135,8 +136,5 @@ internal static class CSharpNaming
     }
 
     static string StripArity(string name)
-    {
-        int tick = name.IndexOf('`');
-        return tick < 0 ? name : name[..tick];
-    }
+        => MetadataNameArity.StripFromSegment(name);
 }

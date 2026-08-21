@@ -9,8 +9,12 @@ import {
   typeMetadataSignature,
   typeSourceSignature,
 } from "../src/type-panel.ts";
+import type {
+  MemberNavEntry,
+  TypeSummary,
+} from "../src/type-panel.ts";
 
-function escapeHtml(value) {
+function escapeHtml(value: unknown) {
   return String(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -18,34 +22,34 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
-function typeDisplayName(item) {
+function typeDisplayName(item: TypeSummary) {
   return item?.displayName || item?.name || "";
 }
 
-function kindIcon(kind) {
+function kindIcon(kind: string) {
   if (kind.includes("struct")) return "S";
   if (kind === "enum") return "E";
   if (kind.includes("interface")) return "I";
   return "C";
 }
 
-function shortKind(kind) {
+function shortKind(kind: string) {
   return kind.replace("sealed ", "").replace("abstract ", "");
 }
 
-function highlight(value) {
+function highlight(value: string) {
   return escapeHtml(value).replace(/\b(public|class)\b/g, '<span class="kw">$1</span>');
 }
 
-function highlightCSharp(value) {
+function highlightCSharp(value: string) {
   return escapeHtml(value);
 }
 
-function factRows(rows) {
+function factRows(rows: readonly (readonly [string, string])[]) {
   return `<dl>${rows.map(([key, value]) => `<div><dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>`;
 }
 
-const jsonSerializer = {
+const jsonSerializer: TypeSummary = {
   id: "System.Text.Json.JsonSerializer",
   name: "JsonSerializer",
   namespace: "System.Text.Json",
@@ -57,7 +61,7 @@ const jsonSerializer = {
   definitionId: "T:System.Text.Json.JsonSerializer",
 };
 
-const jsonDocument = {
+const jsonDocument: TypeSummary = {
   id: "System.Text.Json.JsonDocument",
   name: "JsonDocument",
   namespace: "System.Text.Json",
@@ -154,7 +158,7 @@ test("the member nav marks the active group and its selected overload", () => {
       { signature: "string Serialize<T>(T value)" },
     ],
   };
-  const entries = [
+  const entries: MemberNavEntry[] = [
     { kind: "member", group },
     { kind: "overload", group, index: 0 },
     { kind: "overload", group, index: 1 },
@@ -233,8 +237,11 @@ test("type metadata signature keys on the exact package, framework, and type coo
 
 test("type source signature routes through the shared decompiler-taste-aware key", () => {
   const packageContext = { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" };
-  const calls = [];
-  const memberRequestKey = (parts, taste) => {
+  const calls: {
+    parts: readonly string[];
+    taste: readonly string[];
+  }[] = [];
+  const memberRequestKey = (parts: readonly string[], taste: readonly string[]) => {
     calls.push({ parts, taste });
     return "computed-key";
   };
@@ -292,7 +299,7 @@ test("type metadata renders composition, interfaces, and derived types once load
         assembly: "System.Text.Json.dll",
         interfaces: ["System.IDisposable"],
         derivedTypes: ["System.Text.Json.MyJsonSerializer"],
-        composition: { total: 3, methods: 3 },
+        composition: { total: 3 },
       },
     },
     memberCompositionHtml: `

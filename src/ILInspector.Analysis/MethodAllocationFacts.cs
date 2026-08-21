@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 
 using ILInspector.ControlFlow;
 using ILInspector.Instructions;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
@@ -491,8 +492,7 @@ internal sealed class MethodAllocationFacts
         int nested = name.LastIndexOf('+');
         if (nested >= 0)
             name = name[(nested + 1)..];
-        int arity = name.IndexOf('`');
-        return arity >= 0 ? name[..arity] : name;
+        return MetadataNameArity.StripFromSegment(name);
     }
 
     bool DelegateNewObjectIsCachedOnce(int newObjectOffset, int afterNewObjectPosition)
@@ -703,16 +703,9 @@ internal sealed class MethodAllocationFacts
             _ => type.ToQualifiedDisplayString(),
         };
 
+    // Per nested segment, canonical `N only; see MetadataNameArity.
     static string StripMetadataGenericArity(string name)
-    {
-        if (!name.Contains('`', StringComparison.Ordinal))
-            return name;
-        return string.Join("+", name.Split('+').Select(segment =>
-        {
-            int tick = segment.IndexOf('`');
-            return tick < 0 ? segment : segment[..tick];
-        }));
-    }
+        => MetadataNameArity.StripFromNestedName(name);
 
     ImmutableArray<AllocationOccurrence> ClassifyEscapes(
         ImmutableArray<AllocationOccurrence> occurrences,

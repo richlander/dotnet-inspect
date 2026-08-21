@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
@@ -167,9 +168,9 @@ internal static class GeneratedFrameworkTypeAnalysis
             && StripGenericArity(definition.Name) == name;
     }
 
+    // Only a canonical trailing `N is an arity suffix; MetadataNameArity owns that
+    // rule, so a literal backtick does not make an unrelated name match a
+    // framework one.
     static string StripGenericArity(string name)
-    {
-        int tick = name.IndexOf('`');
-        return tick < 0 ? name : name[..tick];
-    }
+        => MetadataNameArity.StripFromNestedName(name);
 }
