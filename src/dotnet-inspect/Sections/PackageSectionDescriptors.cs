@@ -50,6 +50,9 @@ public static class PackageSectionDescriptors
             .Add<PackageReadme>()
             .Add<Signals>()
             .Add<AuditArtifactText>()
+            // Discovery must advertise the explicit scan before its own work has populated
+            // findings; rendering remains gated by AuditFindings.CanRender.
+            .Add<AuditFindings>(static _ => true)
             .Add<AuditIdentifierConfusion>()
             .Add<Statistics>()
             .Add<TargetFrameworks>()
@@ -99,6 +102,7 @@ public static class PackageSectionDescriptors
                 SectionCategoryNames.Audit,
                 PackageSections.Signals,
                 PackageSections.AuditArtifactText,
+                PackageSections.AuditFindings,
                 PackageSections.AuditIdentifierConfusion,
                 PackageSections.Signature,
                 PackageSections.Vulnerabilities,
@@ -178,6 +182,23 @@ public static class PackageSectionDescriptors
         public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
             => new PackageInspectionText(model).ConcernCases.Count > 0;
+    }
+
+    /// <summary>
+    /// One row per rendering or restore-policy finding in text-bearing package content.
+    /// Reading file content makes the possible work and row count track package size, so the
+    /// section is available only through an exact or category selection.
+    /// </summary>
+    public sealed class AuditFindings : ISectionDescriptor<InspectionResult>
+    {
+        public static string Name => PackageSections.AuditFindings;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static string? ScannerKey => null;
+        public static bool CanRender(InspectionResult model)
+            => model.PackageContentAudit?.Findings.Count > 0;
     }
 
     public sealed class AuditIdentifierConfusion : ISectionDescriptor<InspectionResult>
