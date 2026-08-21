@@ -244,8 +244,11 @@ public class PlantedCoreLibraryIdentityTests
         Type[] concrete = ConcreteProvenanceTypes();
 
         // Guards against the enumeration silently finding nothing, which would
-        // make every assertion below vacuously true.
-        Assert.Equal(6, concrete.Length);
+        // make every assertion below vacuously true. Deliberately not a fixed
+        // count: a provenance added later is denied by the loop below and
+        // caught by the entitled set, so pinning the number would only fail a
+        // legitimate change without proving anything the rest does not.
+        Assert.NotEmpty(concrete);
 
         foreach (Type provenanceType in concrete)
         {
@@ -263,16 +266,19 @@ public class PlantedCoreLibraryIdentityTests
 
         Type[] entitled = concrete
             .Where(t => CoreLibraryIdentityTrust.MayMint(Variants(t)[0]))
-            .OrderBy(t => t.Name, StringComparer.Ordinal)
             .ToArray();
 
-        Assert.Equal(
-            new[]
-            {
-                typeof(AssemblyResolutionProvenance.DesignatedAsset),
-                typeof(AssemblyResolutionProvenance.PlatformAsset),
-            },
-            entitled);
+        Assert.True(
+            entitled.ToHashSet().SetEquals(
+                new[]
+                {
+                    typeof(AssemblyResolutionProvenance.PlatformAsset),
+                    typeof(AssemblyResolutionProvenance.DesignatedAsset),
+                }),
+            "Entitled acquisitions are "
+            + string.Join(", ", entitled.Select(t => t.Name))
+            + "; core-library identity may be minted only from a coherent "
+            + "closure or an explicit designation.");
     }
 
     /// <summary>
@@ -357,7 +363,9 @@ public class PlantedCoreLibraryIdentityTests
 
     /// <summary>
     /// Builds a provenance of the given type, taking each argument from
-    /// <paramref name="value"/>. Each constructor in this hierarchy takes only
+    /// <paramref name="value"/>. The widest public constructor is used, so an
+    /// acquisition that later gains a convenience overload is still exercised
+    /// across all of its fields. Each constructor in this hierarchy takes only
     /// strings, and the required ones reject blank input, so any non-blank
     /// value satisfies all of them without the test needing to know which
     /// arguments a particular acquisition carries.
@@ -366,11 +374,9 @@ public class PlantedCoreLibraryIdentityTests
         Type provenanceType,
         Func<ParameterInfo, int, string?> value)
     {
-        ConstructorInfo[] constructors = provenanceType.GetConstructors();
-        Assert.True(
-            constructors.Length == 1,
-            $"{provenanceType.Name} declares {constructors.Length} public "
-            + "constructors; this helper assumes one and needs updating.");
+        ConstructorInfo constructor = provenanceType.GetConstructors()
+            .OrderByDescending(c => c.GetParameters().Length)
+            .First();
 
         // Without this the reflection call below throws from inside the BCL,
         // which still fails the gate but reports a MemberAccessException
@@ -380,7 +386,7 @@ public class PlantedCoreLibraryIdentityTests
             $"{provenanceType.Name} is an open generic type; this helper "
             + "constructs closed types only and needs updating.");
 
-        ParameterInfo[] parameters = constructors[0].GetParameters();
+        ParameterInfo[] parameters = constructor.GetParameters();
         Assert.All(
             parameters,
             parameter => Assert.True(
@@ -392,8 +398,7 @@ public class PlantedCoreLibraryIdentityTests
             .Select(object? (parameter, index) => value(parameter, index))
             .ToArray();
 
-        return (AssemblyResolutionProvenance)constructors[0]
-            .Invoke(arguments);
+        return (AssemblyResolutionProvenance)constructor.Invoke(arguments);
     }
 
     /// <summary>
