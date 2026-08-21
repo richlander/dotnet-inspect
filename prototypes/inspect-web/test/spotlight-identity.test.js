@@ -174,6 +174,9 @@ const sourceInspectionSource = readFileSync(
 const metadataInspectionSource = readFileSync(
   new URL("../src/metadata-inspection.ts", import.meta.url),
   "utf8");
+const memberDetailInspectionSource = readFileSync(
+  new URL("../src/member-detail-inspection.ts", import.meta.url),
+  "utf8");
 const memberFocusSource = readFileSync(
   new URL("../src/member-focus.ts", import.meta.url),
   "utf8");
@@ -496,8 +499,8 @@ test("member filters retain accessible controls and focus across rerenders", () 
     appSource,
     /id="clear-member-filter"[^>]*aria-label="Clear member filters"/);
   assert.match(
-    appSource,
-    /const preservedFocus = renderPreservingMemberFocus\(\);[\s\S]*state\.memberDocumentationLoading = false;\s*if \(memberRequestIsCurrent\(signature\)\)\s*renderPreservingMemberFocus\(preservedFocus\)/);
+    memberDetailInspectionSource,
+    /async loadDocumentation\(request\)[\s\S]*const preservedFocus = dependencies\.renderPreservingMemberFocus\(\);[\s\S]*state\.memberDocumentationLoading = false;[\s\S]*dependencies\.renderPreservingMemberFocus\(preservedFocus\)/);
   assert.match(
     stylesSource,
     /\.type-browser:not\(\.member-nav\) \.namespace-chips, \.pane-footer \{ display: none; \}/);
@@ -1026,13 +1029,18 @@ test("annotated source request identity includes the selected body", () => {
   assert.match(
     annotatedLoader,
     /const signature = memberRequestSignature\(type, overload, true, true\)/);
-  assert.equal(
-    [...annotatedLoader.matchAll(
-      /memberRequestIsCurrent\(signature, true, true\)/g)].length,
-    3);
+  assert.match(
+    annotatedLoader,
+    /isCurrent: \(\) => memberRequestIsCurrent\(signature, true, true\)/);
   assert.match(
     annotatedLoader,
     /state\.selectedBodyTarget\?\.selectorKey \?\? overload\.graphSelectorKey,[\s\S]*?state\.selectedBodyTarget\?\.metadataToken \?\? overload\.metadataToken/);
+  const annotatedCoordinator =
+    memberDetailInspectionSource.match(/async loadAnnotated\(request\)[\s\S]*?\n    },/)?.[0]
+    ?? "";
+  assert.equal(
+    [...annotatedCoordinator.matchAll(/request\.isCurrent\(\)/g)].length,
+    3);
 
   const request = [
     "Example.Package",
@@ -1046,6 +1054,53 @@ test("annotated source request identity includes the selected body", () => {
   assert.notEqual(
     memberRequestKey([...request, 0x06000001, "M:Run"]),
     memberRequestKey([...request, 0x06000002, "M:<Run>b__0_0"]));
+});
+
+test("member detail adapters preserve exact engine coordinates", () => {
+  const coordinator =
+    appSource.match(
+      /const memberDetailInspection = createMemberDetailInspectionCoordinator\(\{[\s\S]*?\n}\);/)?.[0]
+    ?? "";
+  const documentationLoader =
+    appSource.match(
+      /async function loadSelectedMemberDocumentation\(\)[\s\S]*?\n}\n\nasync function loadSelectedMemberSource/)?.[0]
+    ?? "";
+  const annotatedLoader =
+    appSource.match(
+      /async function loadSelectedMemberAnnotatedSource\(\)[\s\S]*?\n}\n\nfunction memberRequestSignature/)?.[0]
+    ?? "";
+  const factsLoader =
+    appSource.match(
+      /async function loadSelectedMemberFacts\(\)[\s\S]*?\n}\n\ninterface LoadPackageOptions/)?.[0]
+    ?? "";
+
+  assert.match(
+    coordinator,
+    /inspectMemberDocumentation\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*documentationId\)/);
+  assert.match(
+    coordinator,
+    /inspectMemberAnnotatedSource\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.typeIdentity,\s*request\.type,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken,\s*request\.taste\)/);
+  assert.match(
+    coordinator,
+    /const document = result\.document;\s*validateAnnotatedSourceDocument\(document\);\s*return \{ \.\.\.result, document \};/);
+  assert.match(
+    coordinator,
+    /inspectMemberFacts\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.type,\s*request\.member,\s*request\.memberSignature\)/);
+  assert.match(
+    documentationLoader,
+    /const signature = memberRequestSignature\(type, overload\)/);
+  assert.match(
+    documentationLoader,
+    /return memberDetailInspection\.loadDocumentation\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*overload,\s*isRuntimePack: Boolean\(state\.package\?\.isRuntimePack\),\s*isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
+  assert.match(
+    annotatedLoader,
+    /loadAnnotated\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*type: type\.queryId \?\? type\.id,\s*member: overload\.name,\s*memberSignature: overload\.signature,[\s\S]*taste: JSON\.stringify\(state\.taste\)/);
+  assert.match(
+    factsLoader,
+    /const signature = memberRequestSignature\(type, overload\)/);
+  assert.match(
+    factsLoader,
+    /return memberDetailInspection\.loadFacts\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*type: type\.queryId \?\? type\.id,\s*member: overload\.name,\s*memberSignature: overload\.signature,\s*isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
 });
 
 test("type source identity includes decompiler taste", () => {
@@ -1102,10 +1157,15 @@ test("source operations cancel when superseded or hidden", () => {
     appSource.match(
       /async function loadSelectedMemberAnnotatedSource\(\)[\s\S]*?\n}\n\nfunction memberRequestSignature/)?.[0]
     ?? "";
-  assert.match(annotatedLoader, /sourceRequestNeedsLoad\(/);
-  assert.match(annotatedLoader, /state\.memberAnnotatedLoading/);
-  assert.match(annotatedLoader, /state\.memberAnnotated/);
-  assert.match(annotatedLoader, /state\.memberAnnotatedError/);
+  assert.match(
+    annotatedLoader,
+    /return memberDetailInspection\.loadAnnotated\(\{/);
+  assert.doesNotMatch(
+    annotatedLoader,
+    /sourceRequestNeedsLoad|memberAnnotatedLoading/);
+  assert.match(
+    memberDetailInspectionSource,
+    /async loadAnnotated\(request\)[\s\S]*sourceRequestNeedsLoad\([\s\S]*state\.memberAnnotatedLoading[\s\S]*state\.memberAnnotatedError/);
 
   const visible = {
     settings: false,

@@ -81,6 +81,11 @@ import {
   type AppExplorerState,
 } from "./metadata-inspection.ts";
 import {
+  createMemberDetailInspectionCoordinator,
+  type MemberFactRow,
+  type MemberFacts,
+} from "./member-detail-inspection.ts";
+import {
   captureMemberFocus,
   createMemberFocusRestorer,
   type MemberFocusSnapshot,
@@ -151,7 +156,6 @@ import type {
   BrowserBuildIdentity,
   BrowserCallGraph,
   BrowserCallGraphTarget,
-  BrowserMemberDocumentation,
   BrowserMemberSurface,
   BrowserPackageCacheStats,
   BrowserPackageDependencies,
@@ -383,38 +387,6 @@ interface RecentPackage {
   id: string;
   version: string;
   framework: string;
-}
-
-interface MemberFactRow {
-  offset: string;
-  [key: string]: unknown;
-}
-
-interface MemberFacts {
-  signals: {
-    allocations: number;
-    copies: number;
-    reflection: number;
-    throws: number;
-    catches: number;
-    finallys: number;
-    unsafe: boolean;
-    allocatesInLoop: boolean;
-  };
-  allocations: Array<MemberFactRow & { inLoop?: boolean }>;
-  calls: MemberFactRow[];
-  safety: MemberFactRow[];
-  exceptionRegions: MemberFactRow[];
-  performanceOpportunities: Array<{
-    shape: string;
-    confidence: string;
-    offset?: string;
-    evidence: string;
-    fix: string;
-    caveat?: string;
-    provenance?: string;
-    finding?: string;
-  }>;
 }
 
 interface Diagnostics {
@@ -712,6 +684,46 @@ const metadataInspection = createMetadataInspectionCoordinator({
   render,
   renderPreservingMemberFocus,
   scrollExplorerToFocus: explorerScrollToFocus,
+});
+const memberDetailInspection = createMemberDetailInspectionCoordinator({
+  state,
+  queryDocumentation: (request, documentationId) =>
+    inspectMemberDocumentation(
+      request.packageId,
+      request.version,
+      request.framework,
+      request.assembly,
+      documentationId),
+  queryAnnotated: async request => {
+    const result = await inspectMemberAnnotatedSource(
+      request.packageId,
+      request.version,
+      request.framework,
+      request.assembly,
+      request.typeIdentity,
+      request.type,
+      request.member,
+      request.memberSignature,
+      request.selectorKey,
+      request.metadataToken,
+      request.taste);
+    const document = result.document;
+    validateAnnotatedSourceDocument(document);
+    return { ...result, document };
+  },
+  queryFacts: async request =>
+    parseEngineJson<MemberFacts>(
+      await inspectMemberFacts(
+        request.packageId,
+        request.version,
+        request.framework,
+        request.assembly,
+        request.type,
+        request.member,
+        request.memberSignature)),
+  describeError: errorMessage,
+  render,
+  renderPreservingMemberFocus,
 });
 
 function captureView(): WorkspaceView | null {
@@ -5737,60 +5749,17 @@ async function loadSelectedMemberDocumentation() {
   const overload = member.overloads[state.selectedOverloadIndex ?? 0];
   if (!overload) return;
   const signature = memberRequestSignature(type, overload);
-  if (!overload?.documentationId || overload.documentationLoaded) {
-    state.memberDocumentationKey = signature;
-    state.memberDocumentationLoading = false;
-    state.memberDocumentationError = "";
-    render();
-    return;
-  }
-
-  // The runtime pseudo-package has no companion XML-documentation nupkg on nuget.org, so a
-  // doc fetch would 404. Skip it (rendering once) rather than firing a late async render()
-  // that would wipe an in-progress call-graph diagram back to its placeholder.
-  if (state.package?.isRuntimePack) {
-    overload.documentationLoaded = true;
-    state.memberDocumentationKey = signature;
-    state.memberDocumentationLoading = false;
-    state.memberDocumentationError = "";
-    render();
-    return;
-  }
-
-  if (state.memberDocumentationKey === signature && state.memberDocumentationLoading)
-    return;
   const pkg = currentPackage();
-  state.memberDocumentationKey = signature;
-  state.memberDocumentationLoading = true;
-  state.memberDocumentationError = "";
-  const preservedFocus = renderPreservingMemberFocus();
-  try {
-    const documentation = await inspectMemberDocumentation(
-      pkg.id,
-      pkg.version,
-      pkg.activeFramework,
-      type.assembly,
-      overload.documentationId);
-    if (!memberRequestIsCurrent(signature))
-      return;
-    overload.summary = documentation.summary;
-    overload.returns = documentation.returns;
-    overload.exceptions = documentation.exceptions ?? [];
-    overload.parameters = (overload.parameters ?? []).map(parameter => ({
-      ...parameter,
-      description: documentation.parameters?.[parameter.name] ?? null
-    }));
-    overload.documentationLoaded = true;
-  } catch (error) {
-    if (memberRequestIsCurrent(signature))
-      state.memberDocumentationError = errorMessage(error);
-  } finally {
-    if (state.memberDocumentationKey === signature) {
-      state.memberDocumentationLoading = false;
-      if (memberRequestIsCurrent(signature))
-        renderPreservingMemberFocus(preservedFocus);
-    }
-  }
+  return memberDetailInspection.loadDocumentation({
+    signature,
+    packageId: pkg.id,
+    version: pkg.version,
+    framework: pkg.activeFramework,
+    assembly: type.assembly,
+    overload,
+    isRuntimePack: Boolean(state.package?.isRuntimePack),
+    isCurrent: () => memberRequestIsCurrent(signature),
+  });
 }
 
 async function loadSelectedMemberSource() {
@@ -5818,6 +5787,8 @@ async function loadSelectedMemberSource() {
     member: state.selectedBodyTarget?.memberName ?? overload.name,
     selectorKey:
       state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
+    // Preserve the exact MethodDef for same-image validation before structural
+    // correspondence handles differing ref/lib row numbers.
     metadataToken:
       state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0,
     taste: JSON.stringify(state.taste),
@@ -5835,57 +5806,24 @@ async function loadSelectedMemberAnnotatedSource() {
     return;
   }
   const signature = memberRequestSignature(type, overload, true, true);
-  if (!sourceRequestNeedsLoad(
-      state.memberAnnotatedKey === signature,
-      state.memberAnnotatedLoading,
-      state.memberAnnotated,
-      state.memberAnnotatedError)) {
-    render();
-    return;
-  }
-
-  state.memberAnnotatedKey = signature;
-  state.memberAnnotated = null;
-  state.memberAnnotatedLoading = true;
-  state.memberAnnotatedError = "";
-  state.memberAnnotatedFactId = null;
-  state.memberAnnotatedNodeIds = [];
-  const preservedFocus = renderPreservingMemberFocus();
   const pkg = currentPackage();
-  try {
-    const result = await inspectMemberAnnotatedSource(
-      pkg.id,
-      pkg.version,
-      pkg.activeFramework,
-      type.assembly,
-      type.definitionId ?? type.id,
-      type.queryId ?? type.id,
-      overload.name,
-      overload.signature,
+  return memberDetailInspection.loadAnnotated({
+    signature,
+    packageId: pkg.id,
+    version: pkg.version,
+    framework: pkg.activeFramework,
+    assembly: type.assembly,
+    typeIdentity: type.definitionId ?? type.id,
+    type: type.queryId ?? type.id,
+    member: overload.name,
+    memberSignature: overload.signature,
+    selectorKey:
       state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
-      // The exact MethodDef the product surface gave this overload, so the projection
-      // can validate a same-image match before falling back to product-owned structural
-      // correspondence when ref/ and lib/ row numbers differ.
+    metadataToken:
       state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0,
-      JSON.stringify(state.taste));
-    const document = result.document;
-    validateAnnotatedSourceDocument(document);
-    if (memberRequestIsCurrent(signature, true, true)
-      && state.memberAnnotatedKey === signature) {
-      state.memberAnnotated = { ...result, document };
-    }
-  } catch (error) {
-    if (memberRequestIsCurrent(signature, true, true)
-      && state.memberAnnotatedKey === signature) {
-      state.memberAnnotatedError = errorMessage(error);
-    }
-  } finally {
-    if (state.memberAnnotatedKey === signature) {
-      state.memberAnnotatedLoading = false;
-      if (memberRequestIsCurrent(signature, true, true))
-        renderPreservingMemberFocus(preservedFocus);
-    }
-  }
+    taste: JSON.stringify(state.taste),
+    isCurrent: () => memberRequestIsCurrent(signature, true, true),
+  });
 }
 
 function memberRequestSignature(
@@ -7268,46 +7206,18 @@ async function loadSelectedMemberFacts() {
     return;
   }
   const signature = memberRequestSignature(type, overload);
-  if (state.memberFactsKey === signature
-    && (state.memberFacts || state.memberFactsError)) {
-    render();
-    return;
-  }
-
-  state.memberFactsKey = signature;
-  state.memberFacts = null;
-  state.memberFactsLoading = true;
-  state.memberFactsError = "";
-  state.memberAnnotated = null;
-  state.memberAnnotatedError = "";
-  const preservedFocus = renderPreservingMemberFocus();
   const pkg = currentPackage();
-  try {
-    const result = parseEngineJson<MemberFacts>(
-      await inspectMemberFacts(
-        pkg.id,
-        pkg.version,
-        pkg.activeFramework,
-        type.assembly,
-        type.queryId ?? type.id,
-        overload.name,
-        overload.signature));
-    if (memberRequestIsCurrent(signature)
-      && state.memberFactsKey === signature) {
-      state.memberFacts = result;
-    }
-  } catch (error) {
-    if (memberRequestIsCurrent(signature)
-      && state.memberFactsKey === signature) {
-      state.memberFactsError = errorMessage(error);
-    }
-  } finally {
-    if (state.memberFactsKey === signature) {
-      state.memberFactsLoading = false;
-      if (memberRequestIsCurrent(signature))
-        renderPreservingMemberFocus(preservedFocus);
-    }
-  }
+  return memberDetailInspection.loadFacts({
+    signature,
+    packageId: pkg.id,
+    version: pkg.version,
+    framework: pkg.activeFramework,
+    assembly: type.assembly,
+    type: type.queryId ?? type.id,
+    member: overload.name,
+    memberSignature: overload.signature,
+    isCurrent: () => memberRequestIsCurrent(signature),
+  });
 }
 
 interface LoadPackageOptions {
