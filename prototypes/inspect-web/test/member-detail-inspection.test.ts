@@ -209,7 +209,11 @@ test("runtime members settle documentation without querying a companion package"
   const overload = memberSurface();
   let queries = 0;
   let renders = 0;
-  const state = inspectionState();
+  const state = inspectionState({
+    memberDocumentationKey: "previous",
+    memberDocumentationLoading: true,
+    memberDocumentationError: "previous failure",
+  });
   const coordinator = createMemberDetailInspectionCoordinator(
     inspectionDependencies(state, {
       queryDocumentation: async () => {
@@ -257,7 +261,11 @@ test("already-loaded member documentation renders without querying again", async
   const overload = memberSurface({ documentationLoaded: true });
   let queries = 0;
   let renders = 0;
-  const state = inspectionState();
+  const state = inspectionState({
+    memberDocumentationKey: "previous",
+    memberDocumentationLoading: true,
+    memberDocumentationError: "previous failure",
+  });
   const coordinator = createMemberDetailInspectionCoordinator(
     inspectionDependencies(state, {
       queryDocumentation: async () => {
@@ -273,6 +281,7 @@ test("already-loaded member documentation renders without querying again", async
   assert.equal(renders, 1);
   assert.equal(state.memberDocumentationKey, "documentation");
   assert.equal(state.memberDocumentationLoading, false);
+  assert.equal(state.memberDocumentationError, "");
 });
 
 test("duplicate in-flight documentation requests do not query or render", async () => {
