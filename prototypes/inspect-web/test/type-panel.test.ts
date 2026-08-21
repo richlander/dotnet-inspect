@@ -141,7 +141,15 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     onClearFilters: () => calls.push("clear"),
     onKindSelect: value => calls.push(`kind:${value}`),
     onListKeyDown: event => calls.push(`list:${event.key}`),
+    onMemberAccessibilityFilterSelect: value =>
+      calls.push(`member-access:${value}`),
+    onMemberFilterChange: value => calls.push(`member-filter:${value}`),
+    onMemberFilterClear: () => calls.push("member-filter-clear"),
+    onMemberFilterKeyDown: (event, value) =>
+      calls.push(`member-filter-key:${event.key}:${value}`),
+    onMemberKindFilterSelect: value => calls.push(`member-kind:${value}`),
     onMemberSelect: value => calls.push(`member:${value}`),
+    onMemberTraitFilterSelect: value => calls.push(`member-trait:${value}`),
     onNamespaceSelect: value => calls.push(`namespace:${value}`),
     onOverloadSelect: value => calls.push(`overload:${value}`),
     onShowTypes: () => calls.push("types"),
@@ -150,6 +158,59 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     onTypeSelect: value => calls.push(`type:${value}`),
   };
 }
+
+test("type panel bindings dispatch member filters without eager work", () => {
+  const root = new FakeRoot();
+  const allKinds = new FakeElement({ memberKindFilter: "all" });
+  const kind = new FakeElement({ memberKindFilter: "method" });
+  const allAccessibilities =
+    new FakeElement({ memberAccessFilter: "all" });
+  const accessibility =
+    new FakeElement({ memberAccessFilter: "protected" });
+  const allTraits = new FakeElement({ memberTraitFilter: "all" });
+  const trait = new FakeElement({ memberTraitFilter: "isStatic" });
+  root.addAll("[data-member-kind-filter]", allKinds, kind);
+  root.addAll(
+    "[data-member-access-filter]",
+    allAccessibilities,
+    accessibility);
+  root.addAll("[data-member-trait-filter]", allTraits, trait);
+  const filter = root.add("#member-filter", new FakeElement());
+  filter.value = "parse";
+  const clear = root.add("#clear-member-filter", new FakeElement());
+  const calls: string[] = [];
+
+  bindTypePanel(
+    root as unknown as ParentNode,
+    recordingActions(calls));
+
+  assert.deepEqual(calls, []);
+  kind.dispatch("click");
+  assert.deepEqual(calls, ["member-kind:method"]);
+  accessibility.dispatch("click");
+  assert.deepEqual(calls, [
+    "member-kind:method",
+    "member-access:protected",
+  ]);
+  trait.dispatch("click");
+  assert.deepEqual(calls, [
+    "member-kind:method",
+    "member-access:protected",
+    "member-trait:isStatic",
+  ]);
+  filter.dispatch("input");
+  const arrow = keyboardEvent("ArrowDown");
+  filter.dispatch("keydown", arrow.event);
+  clear.dispatch("click");
+  assert.deepEqual(calls, [
+    "member-kind:method",
+    "member-access:protected",
+    "member-trait:isStatic",
+    "member-filter:parse",
+    "member-filter-key:ArrowDown:parse",
+    "member-filter-clear",
+  ]);
+});
 
 test("type panel bindings dispatch the rendered type navigation controls", () => {
   const root = new FakeRoot();

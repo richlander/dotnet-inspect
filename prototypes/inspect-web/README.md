@@ -711,8 +711,9 @@ Symbol/PDB acquisition status is not yet surfaced here — no backend contract
 reports it today — and is a tracked fast-follow.
 
 `src/type-panel.ts` owns the type selector (the "PUBLIC TYPES" / "MEMBERS" nav
-pane), its rendered DOM control bindings, and the type viewer (the type
-heading, metadata, and source sections shown for the "type" scope).
+pane), its rendered DOM control bindings (including member filters), and the
+type viewer (the type heading, metadata, and source sections shown for the
+"type" scope).
 `dotnet-inspect.ts` still owns the type index, filtering, member grouping, and
 navigation state transitions, and supplies them through typed callbacks; the
 shared text helpers used well beyond the type panel (`kindIcon`, `shortKind`,
