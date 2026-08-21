@@ -205,6 +205,43 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     [Fact]
+    public void Build_DoesNotBindQualifiedContainerToUnrelatedLocalSimpleName()
+    {
+        var apiSurface = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType
+                {
+                    Name = "SurfaceJsonContext",
+                    BaseType =
+                        "System.Text.Json.Serialization.JsonSerializerContext",
+                    Members =
+                    [
+                        new ApiMember
+                        {
+                            Name = "Dtos",
+                            Kind = "property",
+                            ReturnType =
+                                "System.Text.Json.Serialization.Metadata."
+                                + "JsonTypeInfo<System.Collections.Generic."
+                                + "Dictionary<string, Mine.ActualDto>>",
+                        },
+                    ],
+                },
+                new ApiType { Namespace = "Mine", Name = "Dictionary" },
+                new ApiType { Namespace = "Mine", Name = "ActualDto" },
+            ],
+        };
+
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            JsExportSurfaceBuilder.Build(apiSurface);
+
+        ApiType record = Assert.Single(surface.Records);
+        Assert.Equal("ActualDto", record.Name);
+    }
+
+    [Fact]
     public void Build_IncludeAllKeepsJsonIncludeNonPublicPropertyOnRecord()
     {
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface(includeAll: true);

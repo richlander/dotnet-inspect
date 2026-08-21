@@ -46,6 +46,13 @@ fast (non-reflection) serialization path requires every (de)serialized type to
 be registered there, so it is exactly the set of shapes that can flow across
 the `[JSExport]` boundary via this pattern.
 
+Generated interfaces include serialized properties and non-static
+`[JsonInclude]` fields. The same wire-member rule drives transitive DTO
+discovery and declaration emission so a discovered field edge cannot become an
+orphaned or incomplete TypeScript shape;
+`DtsEmitterTests.Emit_IncludesJsonIncludedFieldsInParentInterface` gates that
+shared-rule invariant.
+
 ### Drift detection
 
 `DriftDetector` compares generated and checked-in declarations as the exact

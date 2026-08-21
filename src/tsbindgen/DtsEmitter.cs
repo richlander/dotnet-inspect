@@ -72,8 +72,8 @@ static partial class DtsEmitter
             return;
         }
 
-        var properties = record.Members
-            .Where(IsSerializedProperty)
+        var members = record.Members
+            .Where(JsonWireMemberRules.IsSerialized)
             .Select(member => (
                 Member: member,
                 ResolvedName: member.JsonPropertyName ?? ApplyNamingPolicy(member.Name, namingPolicy)))
@@ -81,7 +81,7 @@ static partial class DtsEmitter
 
         sb.Append("export interface ").Append(record.Name).Append(" {\n");
 
-        foreach ((ApiMember member, string resolvedName) in properties)
+        foreach ((ApiMember member, string resolvedName) in members)
         {
             string tsName = FormatPropertyKey(resolvedName);
             string propertyType = member.SignatureModel?.ReturnType ?? member.ReturnType ?? "unknown";
@@ -106,22 +106,33 @@ static partial class DtsEmitter
                         "control-character JSON property names are not supported");
                 }
 
-                if (member.BackingFieldJsonPropertyName is { } backingFieldPropertyName
-                    && backingFieldPropertyName.Any(char.IsControl))
+            }
+
+            foreach (FilteredJsonPropertyNameFact fact
+                in type.FilteredJsonPropertyNameFacts)
+            {
+                if (fact.PropertyName.Any(char.IsControl))
                 {
                     throw new UnsupportedWireContractException(
-                        $"{type.Name}.{member.Name} [field: JsonPropertyName]",
+                        $"{type.Name}.{FormatFilteredPropertyNameLocation(fact)}",
                         "control-character JSON property names are not supported");
                 }
             }
         }
     }
 
-    static bool IsSerializedProperty(ApiMember member) =>
-        member.Kind == "property"
-        && !member.IsCompilerGenerated
-        && !member.HasJsonIgnore
-        && (member.Accessibility is null || member.HasJsonInclude);
+    static string FormatFilteredPropertyNameLocation(
+        FilteredJsonPropertyNameFact fact) =>
+        fact.Kind switch
+        {
+            FilteredJsonPropertyNameKind.AutoPropertyBackingField
+                or FilteredJsonPropertyNameKind.EventBackingField =>
+                $"{fact.AssociatedMemberName} [field: JsonPropertyName]",
+            FilteredJsonPropertyNameKind.CompilerNamedField =>
+                $"field 0x{fact.MetadataToken:X8} [JsonPropertyName]",
+            _ => throw new InvalidOperationException(
+                $"Unknown filtered JSON property-name kind '{fact.Kind}'."),
+        };
 
     static void EmitBlockedRecord(StringBuilder sb, ApiType record) =>
         sb.Append("export type ").Append(record.Name).Append(" = unknown;\n\n");

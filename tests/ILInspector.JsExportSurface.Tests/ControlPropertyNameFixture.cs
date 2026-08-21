@@ -28,6 +28,25 @@ internal sealed class SafeBackingFieldPropertyNameFixture
     public string Value { get; set; } = "";
 }
 
+internal sealed class FilteredEventControlPropertyNameFixture
+{
+    [field: JsonPropertyName("event\nbreak\r\t\u0001")]
+    public event EventHandler? Changed;
+
+    public void RaiseChanged() => Changed?.Invoke(this, EventArgs.Empty);
+}
+
+internal sealed class JsonIncludedFieldRootFixture
+{
+    [JsonInclude]
+    public JsonIncludedFieldNestedFixture Child = new();
+}
+
+internal sealed class JsonIncludedFieldNestedFixture
+{
+    public string Value { get; set; } = "";
+}
+
 internal enum ControlPropertyNameEnumFixture
 {
     [JsonPropertyName("enum\nbreak\r\t\u0001")]

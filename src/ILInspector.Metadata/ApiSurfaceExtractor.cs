@@ -1047,6 +1047,14 @@ public static class ApiSurfaceExtractor
                     reader,
                     field.Name,
                     observeDecodeWork);
+                string? jsonPropertyName =
+                    AttributeReader.TryGetJsonPropertyName(
+                        reader,
+                        field.GetCustomAttributes(),
+                        out string? extractedJsonPropertyName,
+                        observeDecodeWork)
+                    ? extractedJsonPropertyName
+                    : null;
 
                 if (IsAutoPropertyBackingField(
                     reader,
@@ -1057,30 +1065,33 @@ public static class ApiSurfaceExtractor
                     observeText,
                     observeDecodeWork))
                 {
-                    if (AttributeReader.TryGetJsonPropertyName(
-                            reader,
-                            field.GetCustomAttributes(),
-                            out string? backingFieldJsonPropertyName,
-                            observeDecodeWork)
+                    if (jsonPropertyName is not null
                         && autoPropertyBackingFields is not null
                         && autoPropertyBackingFields.TryGetValue(
                             fieldName,
-                            out AutoPropertyBackingField backingField)
-                        && apiType.Members.FirstOrDefault(
-                            member => member.Kind == "property"
-                                && member.Name == backingField.PropertyName)
-                            is { } propertyMember)
+                            out AutoPropertyBackingField backingField))
                     {
-                        budget?.RetainAdditionalMemberText(
-                            backingFieldJsonPropertyName);
-                        propertyMember.BackingFieldJsonPropertyName =
-                            backingFieldJsonPropertyName;
+                        apiType.FilteredJsonPropertyNameFacts.Add(
+                            new FilteredJsonPropertyNameFact(
+                                FilteredJsonPropertyNameKind
+                                    .AutoPropertyBackingField,
+                                backingField.PropertyName,
+                                MetadataTokens.GetToken(fieldHandle),
+                                jsonPropertyName));
                     }
                     continue;
                 }
 
                 if (!IsSurfaceableFieldName(fieldName, includeCompilerGenerated))
+                {
+                    AddFilteredJsonPropertyNameFact(
+                        apiType,
+                        FilteredJsonPropertyNameKind.CompilerNamedField,
+                        associatedMemberName: null,
+                        MetadataTokens.GetToken(fieldHandle),
+                        jsonPropertyName);
                     continue; // Skip compiler-generated (<...>) fields unless opted in
+                }
 
                 if (IsFieldLikeEventBackingField(
                         reader,
@@ -1088,7 +1099,15 @@ public static class ApiSurfaceExtractor
                         fieldName,
                         fieldLikeEventBackingFieldNames,
                         observeDecodeWork))
+                {
+                    AddFilteredJsonPropertyNameFact(
+                        apiType,
+                        FilteredJsonPropertyNameKind.EventBackingField,
+                        fieldName,
+                        MetadataTokens.GetToken(fieldHandle),
+                        jsonPropertyName);
                     continue; // Skip a field-like event's private, compiler-generated backing field
+                }
 
                 // Skip EditorBrowsable(Never) fields unless --all; obsolete are surfaced with marker.
                 if (!includeAll
@@ -1163,13 +1182,7 @@ public static class ApiSurfaceExtractor
                         reader,
                         field.GetCustomAttributes(),
                         observeDecodeWork),
-                    JsonPropertyName = AttributeReader.TryGetJsonPropertyName(
-                        reader,
-                        field.GetCustomAttributes(),
-                        out string? jsonPropertyName,
-                        observeDecodeWork)
-                        ? jsonPropertyName
-                        : null,
+                    JsonPropertyName = jsonPropertyName,
                     Attributes = RenderMemberAttributes(
                         reader,
                         field.GetCustomAttributes(),
@@ -4449,6 +4462,24 @@ public static class ApiSurfaceExtractor
                 : null;
     }
 
+    static void AddFilteredJsonPropertyNameFact(
+        ApiType type,
+        FilteredJsonPropertyNameKind kind,
+        string? associatedMemberName,
+        int metadataToken,
+        string? propertyName)
+    {
+        if (propertyName is not null)
+        {
+            type.FilteredJsonPropertyNameFacts.Add(
+                new FilteredJsonPropertyNameFact(
+                    kind,
+                    associatedMemberName,
+                    metadataToken,
+                    propertyName));
+        }
+    }
+
     /// <summary>
     /// Checks if a method signature contains unsafe constructs (pointers). This
     /// catches members whose signature renders a pointer; members declared
@@ -4465,7 +4496,7 @@ public static class ApiSurfaceExtractor
         return signature.Contains('*');
     }
 
-    static long CountRetainedTypeText(ApiType type)
+    internal static long CountRetainedText(ApiType type)
     {
         long count = 0;
         AddText(ref count, type.Namespace);
@@ -4478,6 +4509,12 @@ public static class ApiSurfaceExtractor
         AddText(ref count, type.EnumUnderlyingType);
         AddText(ref count, type.BaseType);
         AddText(ref count, type.Interfaces);
+        foreach (FilteredJsonPropertyNameFact fact
+            in type.FilteredJsonPropertyNameFacts)
+        {
+            AddText(ref count, fact.AssociatedMemberName);
+            AddText(ref count, fact.PropertyName);
+        }
         foreach (TypeParameter parameter in type.TypeParameters)
             AddText(ref count, parameter);
         return count;
@@ -4500,7 +4537,6 @@ public static class ApiSurfaceExtractor
         AddText(ref count, member.DeclaringTypeCanonicalName);
         AddText(ref count, member.EnumValueLiteral);
         AddText(ref count, member.JsonPropertyName);
-        AddText(ref count, member.BackingFieldJsonPropertyName);
         return count;
     }
 
@@ -4808,22 +4844,12 @@ public static class ApiSurfaceExtractor
             _pendingMembers++;
         }
 
-        /// <summary>
-        /// Counts text attached to a member after its initial retention, while its
-        /// containing type is still pending.
-        /// </summary>
-        public void RetainAdditionalMemberText(string? text)
-        {
-            if (text is not null)
-                RetainPendingText(text.Length);
-        }
-
         /// <summary>Commits the type currently being built and its members.</summary>
         public void RetainType(ApiType type)
         {
             if (_types >= bounds.MaxTypes)
                 throw new ExtractionBoundExceededException(ApiSurfaceExtractionBound.Types);
-            RetainPendingText(CountRetainedTypeText(type));
+            RetainPendingText(CountRetainedText(type));
             _types++;
             _members += _pendingMembers;
             _retainedTextCharacters += _pendingTextCharacters;

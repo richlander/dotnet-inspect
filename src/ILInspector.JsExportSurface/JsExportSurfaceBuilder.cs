@@ -16,10 +16,20 @@ public static class JsExportSurfaceBuilder
 
     public static JsExportSurface Build(ApiSurface surface, LibraryBodyIndex? bodyIndex)
     {
-        var typesByName = surface.Types
-            .GroupBy(t => t.Name, StringComparer.Ordinal)
-            .Where(g => g.Count() == 1)
-            .ToDictionary(g => g.Key, g => g.Single(), StringComparer.Ordinal);
+        var typesByIdentity = surface.Types
+            .SelectMany(type =>
+                new[] { type.Name, type.FullName, type.MetadataName }
+                    .Where(identity => !string.IsNullOrEmpty(identity))
+                    .Distinct(StringComparer.Ordinal)
+                    .Select(identity => (Identity: identity!, Type: type)))
+            .GroupBy(candidate => candidate.Identity, StringComparer.Ordinal)
+            .Where(group => group.Select(candidate => candidate.Type)
+                .Distinct()
+                .Count() == 1)
+            .ToDictionary(
+                group => group.Key,
+                group => group.First().Type,
+                StringComparer.Ordinal);
 
         var functions = new List<JsExportFunction>();
         foreach (ApiType type in surface.Types)
@@ -55,8 +65,8 @@ public static class JsExportSurfaceBuilder
 
         var records = new List<ApiType>();
         var enums = new List<ApiType>();
-        var discovered = new HashSet<string>(StringComparer.Ordinal);
-        var policiesByTypeName = new Dictionary<string, HashSet<JsonWireNamingPolicy>>(StringComparer.Ordinal);
+        var discovered = new HashSet<ApiType>();
+        var policiesByType = new Dictionary<ApiType, HashSet<JsonWireNamingPolicy>>();
         var queue = new Queue<(string Name, JsonWireNamingPolicy Policy)>();
 
         foreach (ApiType type in surface.Types)
@@ -83,13 +93,13 @@ public static class JsExportSurfaceBuilder
         while (queue.Count > 0)
         {
             (string name, JsonWireNamingPolicy namingPolicy) = queue.Dequeue();
-            if (!typesByName.TryGetValue(name, out ApiType? type))
+            if (!typesByIdentity.TryGetValue(name, out ApiType? type))
                 continue;
 
-            if (!policiesByTypeName.TryGetValue(name, out HashSet<JsonWireNamingPolicy>? policies))
+            if (!policiesByType.TryGetValue(type, out HashSet<JsonWireNamingPolicy>? policies))
             {
                 policies = [];
-                policiesByTypeName.Add(name, policies);
+                policiesByType.Add(type, policies);
             }
 
             if (!policies.Add(namingPolicy))
@@ -99,7 +109,7 @@ public static class JsExportSurfaceBuilder
                 ? namingPolicy
                 : JsonWireNamingPolicy.Unsupported;
 
-            if (discovered.Add(name))
+            if (discovered.Add(type))
             {
                 if (type.Kind == "enum")
                     enums.Add(type);
@@ -112,17 +122,8 @@ public static class JsExportSurfaceBuilder
 
             foreach (ApiMember member in type.Members)
             {
-                bool isSerializedProperty = member.Kind == "property"
-                    && (member.Accessibility is null || member.HasJsonInclude);
-                bool isSerializedField = member.Kind == "field"
-                    && member.HasJsonInclude
-                    && !member.IsStatic;
-                if ((!isSerializedProperty && !isSerializedField)
-                    || member.IsCompilerGenerated
-                    || member.HasJsonIgnore)
-                {
+                if (!JsonWireMemberRules.IsSerialized(member))
                     continue;
-                }
 
                 string? propertyType = member.SignatureModel?.ReturnType ?? member.ReturnType;
                 foreach (string candidate in ExtractCandidateTypeNames(propertyType))
@@ -159,8 +160,7 @@ public static class JsExportSurfaceBuilder
 
         int genericStart = trimmed.IndexOf('<');
         string leading = genericStart >= 0 ? trimmed[..genericStart] : trimmed;
-        int lastDot = leading.LastIndexOf('.');
-        yield return lastDot >= 0 ? leading[(lastDot + 1)..] : leading;
+        yield return leading;
 
         if (genericStart < 0)
             yield break;

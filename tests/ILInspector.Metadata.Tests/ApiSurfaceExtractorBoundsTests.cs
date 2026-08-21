@@ -332,18 +332,32 @@ public sealed class ApiSurfaceExtractorBoundsTests
     public void JsonPropertyNameFactsContributeTheirRetainedText()
     {
         const string propertyName = "wire_name";
-        const string backingFieldPropertyName = "backing_wire_name";
         var withoutNames = new ApiMember();
         var withNames = new ApiMember
         {
             JsonPropertyName = propertyName,
-            BackingFieldJsonPropertyName = backingFieldPropertyName,
+        };
+        var withoutFilteredName = new ApiType();
+        var withFilteredName = new ApiType
+        {
+            FilteredJsonPropertyNameFacts =
+            [
+                new(
+                    FilteredJsonPropertyNameKind.AutoPropertyBackingField,
+                    "Value",
+                    0x04000001,
+                    "backing_wire_name"),
+            ],
         };
 
         Assert.Equal(
-            propertyName.Length + backingFieldPropertyName.Length,
+            propertyName.Length,
             ApiSurfaceExtractor.CountRetainedText(withNames)
                 - ApiSurfaceExtractor.CountRetainedText(withoutNames));
+        Assert.Equal(
+            "Value".Length + "backing_wire_name".Length,
+            ApiSurfaceExtractor.CountRetainedText(withFilteredName)
+                - ApiSurfaceExtractor.CountRetainedText(withoutFilteredName));
     }
 
     [Fact]

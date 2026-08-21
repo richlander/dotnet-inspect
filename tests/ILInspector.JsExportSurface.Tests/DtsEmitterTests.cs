@@ -333,9 +333,13 @@ public sealed class DtsEmitterTests
             record.Members,
             member => member.Name == "Value");
         Assert.Null(property.JsonPropertyName);
+        FilteredJsonPropertyNameFact fact =
+            Assert.Single(record.FilteredJsonPropertyNameFacts);
         Assert.Equal(
-            "backing\nbreak\r\t\u0001",
-            property.BackingFieldJsonPropertyName);
+            FilteredJsonPropertyNameKind.AutoPropertyBackingField,
+            fact.Kind);
+        Assert.Equal("Value", fact.AssociatedMemberName);
+        Assert.Equal("backing\nbreak\r\t\u0001", fact.PropertyName);
         var surface = new ILInspector.JsExportSurface.JsExportSurface
         {
             Records = [record],
@@ -350,6 +354,63 @@ public sealed class DtsEmitterTests
                 + "[field: JsonPropertyName]: "
                 + "control-character JSON property names are not supported.",
             exception.Message);
+    }
+
+    [Fact]
+    public void Emit_RefusesControlCharacterJsonPropertyNamesOnFilteredEventFields()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(FilteredEventControlPropertyNameFixture).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType record = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(FilteredEventControlPropertyNameFixture));
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records = [record],
+        };
+
+        UnsupportedWireContractException exception =
+            Assert.Throws<UnsupportedWireContractException>(
+                () => DtsEmitter.Emit(surface));
+
+        Assert.Equal(
+            "FilteredEventControlPropertyNameFixture.Changed "
+                + "[field: JsonPropertyName]: "
+                + "control-character JSON property names are not supported.",
+            exception.Message);
+    }
+
+    [Fact]
+    public void Emit_RefusesAnyUnsafeFilteredFieldFactWhenLocationsRepeat()
+    {
+        var record = new ApiType
+        {
+            Name = "DuplicateBackingFieldDto",
+            FilteredJsonPropertyNameFacts =
+            [
+                new(
+                    FilteredJsonPropertyNameKind.AutoPropertyBackingField,
+                    "Value",
+                    0x04000001,
+                    "unsafe\nname"),
+                new(
+                    FilteredJsonPropertyNameKind.AutoPropertyBackingField,
+                    "Value",
+                    0x04000002,
+                    "safe"),
+            ],
+        };
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records = [record],
+        };
+
+        Assert.Throws<UnsupportedWireContractException>(
+            () => DtsEmitter.Emit(surface));
     }
 
     [Fact]
@@ -401,6 +462,71 @@ public sealed class DtsEmitterTests
         Assert.Contains("  Value: string;", dts, StringComparison.Ordinal);
         Assert.DoesNotContain(
             "not_the_property_name",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_IncludesJsonIncludedFieldsInParentInterface()
+    {
+        var root = new ApiType
+        {
+            Name = "RootDto",
+            JsonPropertyNamingPolicy = JsonWireNamingPolicy.CamelCase,
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Child",
+                    Kind = "field",
+                    ReturnType = "NestedDto",
+                    HasJsonInclude = true,
+                },
+                new ApiMember
+                {
+                    Name = "StaticChild",
+                    Kind = "property",
+                    ReturnType = "NestedDto",
+                    IsStatic = true,
+                },
+            ],
+        };
+        var nested = new ApiType { Name = "NestedDto" };
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records = [root, nested],
+        };
+
+        string dts = DtsEmitter.Emit(surface);
+
+        Assert.Contains("  child: NestedDto;", dts, StringComparison.Ordinal);
+        Assert.DoesNotContain("StaticChild", dts, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_IncludesCompiledJsonIncludedField()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(JsonIncludedFieldRootFixture).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType root = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(JsonIncludedFieldRootFixture));
+        ApiType nested = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(JsonIncludedFieldNestedFixture));
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records = [root, nested],
+        };
+
+        string dts = DtsEmitter.Emit(surface);
+
+        Assert.Contains(
+            "  Child: JsonIncludedFieldNestedFixture;",
             dts,
             StringComparison.Ordinal);
     }

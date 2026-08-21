@@ -651,6 +651,27 @@ public enum SignatureDecodeStatus
     Degraded
 }
 
+/// <summary>
+/// Why a field carrying <c>[JsonPropertyName]</c> is absent from the declarable
+/// <see cref="ApiMember"/> list.
+/// </summary>
+public enum FilteredJsonPropertyNameKind
+{
+    AutoPropertyBackingField,
+    EventBackingField,
+    CompilerNamedField,
+}
+
+/// <summary>
+/// A JSON-name attribute retained from a metadata field that API-surface
+/// reconstruction deliberately folds or filters.
+/// </summary>
+public sealed record FilteredJsonPropertyNameFact(
+    FilteredJsonPropertyNameKind Kind,
+    string? AssociatedMemberName,
+    int MetadataToken,
+    string PropertyName);
+
 public class ApiType
 {
     public string? Namespace { get; set; }
@@ -714,6 +735,10 @@ public class ApiType
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public JsonWireNamingPolicy? JsonPropertyNamingPolicy { get; set; }
+
+    [JsonIgnore]
+    public List<FilteredJsonPropertyNameFact> FilteredJsonPropertyNameFacts
+        { get; set; } = [];
 
     public bool IsSealed { get; set; }
     public bool IsAbstract { get; set; }
@@ -930,14 +955,6 @@ public class ApiMember
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? JsonPropertyName { get; set; }
-
-    /// <summary>
-    /// The <c>[field: JsonPropertyName]</c> value carried by this auto-property's
-    /// compiler-generated backing field. This is distinct from <see cref="JsonPropertyName"/>:
-    /// System.Text.Json does not apply a field-targeted attribute to the property.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? BackingFieldJsonPropertyName { get; set; }
 
     /// <summary>
     /// True if the member carries an [Obsolete] attribute.
