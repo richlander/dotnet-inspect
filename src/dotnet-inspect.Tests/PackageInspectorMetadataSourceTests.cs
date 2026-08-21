@@ -1205,6 +1205,9 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         Assert.DoesNotContain(
             PackageSections.SourceLinkMissingFiles,
             includeSections);
+        Assert.DoesNotContain(
+            PackageSections.AuditFindings,
+            includeSections);
         Assert.Empty(pipeline.GetRequiredQueries(
             producerOptions.Verbosity,
             includeSections,

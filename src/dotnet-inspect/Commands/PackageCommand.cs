@@ -757,7 +757,9 @@ public class PackageCommand
             result.Source = target.IsLocalFile ? SourceKind.File : SourceKind.NuGet;
 
             PopulatePackageFileSections(result, extractPath, options);
-            if (ShouldPopulatePackageContentAudit(options, pipeline))
+            if (ShouldPopulatePackageContentAudit(
+                    producerOptions,
+                    pipeline))
                 PopulatePackageContentAudit(result, extractPath);
             HashSet<InspectionQueryDefinition> sourceQueries =
                 pipeline.GetRequiredQueries(
@@ -2397,7 +2399,9 @@ public class PackageCommand
             if (wantsFilesSection)
                 PopulatePackageFileSections(result, extractPath, options);
 
-            if (ShouldPopulatePackageContentAudit(options, pipeline))
+            if (ShouldPopulatePackageContentAudit(
+                    producerOptions,
+                    pipeline))
             {
                 if (result.PackageFiles is null)
                     PopulatePackageFileSections(result, extractPath, options);
@@ -2773,11 +2777,10 @@ public class PackageCommand
     private static bool ShouldPopulatePackageContentAudit(
         InspectionOptions options,
         SectionPipeline<InspectionResult> pipeline)
-        => options.IncludeSections?.Contains(PackageSections.AuditFindings) == true
-            || DiscoverRequestsSection(
-                options.Discover,
-                PackageSections.AuditFindings,
-                pipeline);
+        => RequestsSelectedOrDiscoveredSection(
+            options,
+            PackageSections.AuditFindings,
+            pipeline);
 
     private static void PopulatePackageContentAudit(
         InspectionResult result,
