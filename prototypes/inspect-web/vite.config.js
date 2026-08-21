@@ -4,7 +4,7 @@ export default defineConfig({
   build: {
     manifest: "manifest.json",
     rollupOptions: {
-      external: ["/engine.js", "/inspect-web-engine.js"],
+      external: ["/inspect-web-engine.js"],
     },
   },
 });
