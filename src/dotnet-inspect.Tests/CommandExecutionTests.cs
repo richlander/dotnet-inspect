@@ -14826,6 +14826,50 @@ public partial class CommandExecutionTests
         Assert.Equal(2, document.RootElement.GetProperty("members").GetArrayLength());
     }
 
+    [Fact]
+    public async Task Member_PreResolvedDocumentJson_IgnoresStaleCallerSelector()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                TypeName = typeof(MemberCallsFixture).FullName!,
+                AssemblyPath = TestAssemblyPath,
+                MemberFilter = [nameof(MemberCallsFixture.Overloaded)],
+                OverloadIndex = 1,
+                Select = [SectionNames.Callers],
+                IncludeSections = [SectionNames.Signature],
+                JsonOutput = true,
+                TipLevel = TipLevel.Quiet
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var _ = JsonDocument.Parse(result.Output);
+    }
+
+    [Fact]
+    public async Task Member_PreResolvedCallerDocumentJson_IgnoresStaleNonCallerSelector()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                TypeName = typeof(MemberCallsFixture).FullName!,
+                AssemblyPath = TestAssemblyPath,
+                MemberFilter = [nameof(MemberCallsFixture.Overloaded)],
+                OverloadIndex = 1,
+                Select = [SectionNames.Signature],
+                IncludeSections = [SectionNames.Callers],
+                JsonOutput = true,
+                TipLevel = TipLevel.Quiet
+            }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"Document --json cannot represent {SectionNames.Callers} analysis.",
+            result.Error);
+    }
+
     [Theory]
     [InlineData("Method Groups", false)]
     [InlineData("Properties", true)]

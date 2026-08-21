@@ -4241,6 +4241,19 @@ public class ApiCommand
     private static string? GetExplicitCallerAnalysisSection(
         ApiOptions options)
     {
+        if (options is MemberOptions
+            {
+                MemberSectionsPreResolved: true,
+                IncludeSections: { } authoritativeSections
+            })
+        {
+            return authoritativeSections.Contains(SectionNames.Callers)
+                ? SectionNames.Callers
+                : authoritativeSections.Contains(SectionNames.CallGraph)
+                    ? SectionNames.CallGraph
+                    : null;
+        }
+
         foreach (var selector in options.Select ?? [])
         {
             if (selector.Equals(
@@ -4277,20 +4290,7 @@ public class ApiCommand
             }
         }
 
-        if (options is not MemberOptions
-            {
-                MemberSectionsPreResolved: true,
-                IncludeSections: { } sections
-            })
-        {
-            return null;
-        }
-
-        return sections.Contains(SectionNames.Callers)
-            ? SectionNames.Callers
-            : sections.Contains(SectionNames.CallGraph)
-                ? SectionNames.CallGraph
-                : null;
+        return null;
     }
 
     private static bool ShouldRenderMemberIndex(ApiOptions options)
