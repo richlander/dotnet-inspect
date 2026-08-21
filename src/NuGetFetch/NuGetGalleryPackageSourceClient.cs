@@ -34,6 +34,8 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
     public PackageSourceIdentity Identity => PackageSourceIdentity.NuGetOrg;
     public PackageSourceKind Kind => PackageSourceKind.NuGetGallery;
     internal TimeSpan TransportTimeout => _client.Timeout;
+    internal TimeSpan RequestTimeout => _options.RequestTimeout;
+    internal TimeSpan OperationTimeout => _options.OperationTimeout;
     public PackageSourceCapabilities Capabilities =>
         PackageSourceCapabilities.Search
         | PackageSourceCapabilities.VersionEnumeration

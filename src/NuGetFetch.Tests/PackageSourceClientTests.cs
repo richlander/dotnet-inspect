@@ -1160,6 +1160,23 @@ public sealed class PackageSourceClientTests
           ]
         }
         """)]
+    [InlineData("""
+        {
+          "items": [
+            {
+              "items": [
+                {
+                  "catalogEntry": {
+                    "version": "1.0.0",
+                    "listed": false,
+                    "listed": true
+                  }
+                }
+              ]
+            }
+          ]
+        }
+        """)]
     public async Task GalleryMalformedRegistrationIsTypedPartialEnumeration(
         string registration)
     {

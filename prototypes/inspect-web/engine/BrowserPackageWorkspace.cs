@@ -79,7 +79,7 @@ internal static class BrowserPackageWorkspace
     };
     static readonly UniformPackageSourceAuthorization SourceAuthorization =
         new([PackageSource.NuGetOrg]);
-    static readonly IPackageSourceClient Gallery =
+    internal static readonly IPackageSourceClient Gallery =
         PackageSourceClientFactory.CreateGallery(
             new NuGetFetchOptions
             {

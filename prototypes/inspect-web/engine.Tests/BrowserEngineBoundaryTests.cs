@@ -1684,6 +1684,15 @@ public sealed class BrowserEngineBoundaryTests
             TimeSpan.FromSeconds(5),
             BrowserPackageWorkspace.PackageOperationTimeout
             - BrowserPackageWorkspace.GalleryOperationTimeout);
+        NuGetGalleryPackageSourceClient gallery =
+            Assert.IsType<NuGetGalleryPackageSourceClient>(
+                BrowserPackageWorkspace.Gallery);
+        Assert.Equal(
+            BrowserPackageWorkspace.GalleryOperationTimeout,
+            gallery.RequestTimeout);
+        Assert.Equal(
+            BrowserPackageWorkspace.GalleryOperationTimeout,
+            gallery.OperationTimeout);
     }
 
     [Fact]

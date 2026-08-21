@@ -630,7 +630,8 @@ Registration pages are fetched in bounded concurrent batches under the same
 operation deadline. A complete join reports authoritative `listed` and
 `unlisted` candidates. Missing, malformed, incomplete, or unavailable
 registration data returns the flat-container candidates as a typed partial
-result with `unknown` state.
+result with `unknown` state. Duplicate JSON properties are malformed rather
+than allowing one of several possible listing readings to become authoritative.
 
 Canonical NuGet.org and custom v3 enumeration still report `unknown`, because
 a raw flat-container list can include unlisted versions without carrying their

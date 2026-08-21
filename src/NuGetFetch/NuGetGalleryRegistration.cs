@@ -15,6 +15,9 @@ internal sealed record NuGetGalleryRegistrationLeaf(
 
 internal static class NuGetGalleryRegistration
 {
+    private static JsonDocumentOptions DocumentOptions =>
+        new() { AllowDuplicateProperties = false };
+
     public static async ValueTask<NuGetGalleryRegistrationIndex>
         DeserializeIndexAsync(
             Stream json,
@@ -22,6 +25,7 @@ internal static class NuGetGalleryRegistration
     {
         using JsonDocument document = await JsonDocument.ParseAsync(
             json,
+            DocumentOptions,
             cancellationToken: cancellationToken).ConfigureAwait(false);
         JsonElement pages = GetRequiredArray(
             document.RootElement,
@@ -67,6 +71,7 @@ internal static class NuGetGalleryRegistration
     {
         using JsonDocument document = await JsonDocument.ParseAsync(
             json,
+            DocumentOptions,
             cancellationToken: cancellationToken).ConfigureAwait(false);
         return ParseItems(
             GetRequiredArray(
