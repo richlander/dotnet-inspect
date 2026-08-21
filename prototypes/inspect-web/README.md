@@ -772,28 +772,31 @@ selection, ref->def jump targets, cell escaping, heap addressing and coverage
 notes, and the row inspector.
 
 `src/doc-viewer.ts` owns the package document modal (the Markdown reader
-opened from a package's documents list) as a pure, dependency-injected render
-function. `src/document-inspection.ts` owns its sequence-guarded async
+opened from a package's documents list), including its rendered close and
+bare-backdrop bindings. `src/document-inspection.ts` owns its sequence-guarded async
 load/close lifecycle, visible failure, and frontmatter projection.
 `dotnet-inspect.ts` validates the selected package document and supplies the
 engine, sanitized Markdown-rendering, state, and render ports.
 `test/doc-viewer.test.ts` gates the closed/no-document fallback, loading and
 error presentation, the
 frontmatter card's presence and fields, and title/subtitle/frontmatter-name
-escaping; `test/document-inspection.test.ts` gates exact request coordinates,
+escaping, plus button/backdrop close dispatch;
+`test/document-inspection.test.ts` gates exact request coordinates,
 frontmatter projection, stale-stage suppression, visible failures, and close
 invalidation (the rendered document body is trusted, pre-sanitized Markdown
 HTML and is not escaped).
 
 `src/graph-source.ts` owns the member source modal (the code viewer opened
-from a call graph node) as a pure, dependency-injected render function.
+from a call graph node), including its rendered close and bare-backdrop
+bindings.
 `source-inspection.ts` owns its sequence-guarded async lifecycle;
 `dotnet-inspect.ts` supplies `state`, the typed engine port, and the
 `highlightCSharp` Prism wrapper, and passes each computed slice explicitly.
 `test/graph-source.test.ts` gates the loading state, the
 original-versus-decompiled provenance labels, the open-source link's presence
 only when a `url` is provided, the error state's fallback message, and title
-escaping in both the header and loading status.
+escaping in both the header and loading status, plus button/backdrop close
+dispatch.
 
 `src/annotated-source.ts` owns the annotated source result (the
 fact-annotated C#/IL dual view shown for a member overload) as a pure,

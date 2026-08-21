@@ -305,6 +305,12 @@ const memberFocusSource = readFileSync(
 const graphSource = readFileSync(
   new URL("../src/graph-mermaid.ts", import.meta.url),
   "utf8");
+const graphSourceViewerSource = readFileSync(
+  new URL("../src/graph-source.ts", import.meta.url),
+  "utf8");
+const docViewerSource = readFileSync(
+  new URL("../src/doc-viewer.ts", import.meta.url),
+  "utf8");
 const typePanelSource = readFileSync(
   new URL("../src/type-panel.ts", import.meta.url),
   "utf8");
@@ -899,7 +905,7 @@ test("metadata viewer owns its rendered explorer control bindings", () => {
 
 test("package opportunities owns its rendered control bindings", () => {
   const binding =
-    appSource.match(/function bindPackageOpportunitiesEvents\(\) \{[\s\S]*?\n}\n\nfunction bindEvents/)?.[0]
+    appSource.match(/function bindPackageOpportunitiesEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
     ?? "";
   const bindEvents =
     appSource.match(
@@ -932,6 +938,48 @@ test("package opportunities owns its rendered control bindings", () => {
     "[data-opp-type]",
     "[data-opp-package]",
     "[data-opp-lookfor]",
+  ]) {
+    assert.equal(appSource.split(selector).length - 1, 0, selector);
+  }
+});
+
+test("modal viewers own their rendered close bindings", () => {
+  const graphBinding =
+    appSource.match(/function bindGraphSourceEvents\(\) \{[\s\S]*?\n}\n\nfunction bindDocViewerEvents/)?.[0]
+    ?? "";
+  const docBinding =
+    appSource.match(/function bindDocViewerEvents\(\) \{[\s\S]*?\n}\n\nfunction bindEvents/)?.[0]
+    ?? "";
+  assert.match(
+    graphBinding,
+    /bindGraphSource\(document, \{\s*onClose: closeGraphSource,\s*\}\)/);
+  assert.match(
+    docBinding,
+    /bindDocViewer\(document, \{\s*onClose: closeDocViewer,\s*\}\)/);
+  assert.equal(graphBinding.match(/\bdocument\b/g)?.length, 1);
+  assert.equal(docBinding.match(/\bdocument\b/g)?.length, 1);
+  assert.match(
+    graphSourceViewerSource,
+    /export function bindGraphSource\([\s\S]*#graph-source-backdrop[\s\S]*event\.target === backdrop[\s\S]*#graph-source-close/);
+  assert.match(
+    docViewerSource,
+    /export function bindDocViewer\([\s\S]*#doc-viewer-backdrop[\s\S]*event\.target === backdrop[\s\S]*#doc-viewer-close/);
+  for (const [identifier, count] of [
+    ["bindGraphSourceEvents", 2],
+    ["bindDocViewerEvents", 2],
+    ["bindGraphSource", 2],
+    ["bindDocViewer", 2],
+  ]) {
+    assert.equal(
+      appSource.match(new RegExp(`\\b${identifier}\\b`, "g"))?.length,
+      count,
+      identifier);
+  }
+  for (const selector of [
+    "#graph-source-backdrop",
+    "#graph-source-close",
+    "#doc-viewer-backdrop",
+    "#doc-viewer-close",
   ]) {
     assert.equal(appSource.split(selector).length - 1, 0, selector);
   }

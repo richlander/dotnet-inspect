@@ -1,6 +1,57 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { renderDocViewer } from "../src/doc-viewer.ts";
+import {
+  bindDocViewer,
+  renderDocViewer,
+} from "../src/doc-viewer.ts";
+
+class FakeElement {
+  private readonly listeners = new Map<string, EventListener[]>();
+
+  addEventListener(type: string, listener: EventListener) {
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  dispatch(type: string, target: EventTarget = this as unknown as EventTarget) {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener({ target } as unknown as Event);
+    }
+  }
+}
+
+class FakeRoot {
+  private readonly elements = new Map<string, FakeElement>();
+
+  add(selector: string, element: FakeElement) {
+    this.elements.set(selector, element);
+    return element;
+  }
+
+  querySelector(selector: string) {
+    return this.elements.get(selector) ?? null;
+  }
+}
+
+test("document viewer bindings close from the button or bare backdrop only", () => {
+  const root = new FakeRoot();
+  const backdrop = root.add("#doc-viewer-backdrop", new FakeElement());
+  const close = root.add("#doc-viewer-close", new FakeElement());
+  const inner = new FakeElement();
+  const calls: string[] = [];
+  bindDocViewer(
+    root as unknown as ParentNode,
+    { onClose: () => calls.push("close") });
+
+  assert.deepEqual(calls, []);
+  backdrop.dispatch("mousedown", inner as unknown as EventTarget);
+  assert.deepEqual(calls, []);
+  backdrop.dispatch("mousedown");
+  assert.deepEqual(calls, ["close"]);
+  close.dispatch("click");
+  assert.deepEqual(calls, ["close", "close"]);
+});
 
 function escapeHtml(value: unknown) {
   return String(value)
