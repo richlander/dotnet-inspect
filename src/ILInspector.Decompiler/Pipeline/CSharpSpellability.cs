@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using CSharpText;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -404,13 +405,19 @@ internal static class CSharpSpellability
             case TypeRefKind.Definition:
                 if (IsCoreLibPrimitive(type))
                     return null;
+                if (type.HasDefinitionArityMismatch)
+                {
+                    return Issue(
+                        "generic-arity-mismatch",
+                        $"generic type '{type}' has a metadata/ownership arity mismatch");
+                }
                 // Validate every nested segment, not just the leaf: a foreign
                 // nested type is spelled through its declaring chain
                 // (`Outer.Inner`), so an unspellable outer segment also has no
                 // valid C# spelling even when the innermost name is fine. Keyword
                 // segments are spellable via @ escaping, so use the keyword-tolerant
                 // identifier predicate.
-                foreach (var segment in type.Name.Split('+'))
+                foreach (string segment in type.MetadataNameSegments())
                 {
                     string simpleSegment = StripArity(segment);
                     if (!CSharpNaming.IsEscapableIdentifier(simpleSegment))
@@ -423,6 +430,12 @@ internal static class CSharpSpellability
                 return null;
 
             case TypeRefKind.GenericInstance:
+                if (type.HasUnrenderableGenericArity)
+                {
+                    return Issue(
+                        "generic-arity-mismatch",
+                        $"generic type '{type.ElementType}' has an argument-count mismatch");
+                }
                 if (type.ElementType is { } definition && TypeIssue(definition) is { } definitionIssue)
                     return definitionIssue;
                 foreach (var argument in type.TypeArguments)
@@ -741,6 +754,9 @@ internal static class CSharpSpellability
             && type.Namespace == "System"
             && s_coreLibPrimitiveNames.Contains(type.Name);
 
+    // Only a canonical trailing `N is an arity suffix, so a segment whose backtick is
+    // literal keeps it — and is then correctly reported as having no C# spelling
+    // rather than silently truncated to a spellable name. See MetadataNameArity.
     static bool IsCoreLibVoid(TypeRef type)
         => type.Assembly == TypeRef.CoreLibrary
             && type.Namespace == "System"
@@ -1672,10 +1688,7 @@ internal static class CSharpSpellability
     }
 
     static string StripArity(string name)
-    {
-        int tick = name.IndexOf('`');
-        return tick < 0 ? name : name[..tick];
-    }
+        => MetadataNameArity.StripFromSegment(name);
 
     static readonly HashSet<string> s_coreLibPrimitiveNames = new(StringComparer.Ordinal)
     {

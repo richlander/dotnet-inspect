@@ -274,9 +274,13 @@ internal sealed class PrimitiveTypeNode(string name, bool isReferenceType) : Typ
 }
 
 /// <summary>Non-generic named types (JsonSerializer, Stream, etc.).</summary>
-internal sealed class NamedTypeNode(string name, bool isReferenceType) : TypeNode
+internal sealed class NamedTypeNode(
+    string name,
+    bool isReferenceType,
+    MetadataTypeNameParts? metadataName = null) : TypeNode
 {
     public string Name => name;
+    public MetadataTypeNameParts? MetadataName => metadataName;
     public override bool IsReferenceType => isReferenceType;
     public override long EstimatedRenderedLength => name.Length + 1L;
 
@@ -303,7 +307,8 @@ internal sealed class GenericTypeNode(
     ImmutableArray<TypeNode> arguments,
     string nestedSuffix = "",
     bool degradedGenericType = false,
-    string? metadataName = null) : TypeNode
+    MetadataTypeNameParts? metadataName = null,
+    string? structuralMetadataName = null) : TypeNode
 {
     readonly long estimatedRenderedLength =
         EstimateRenderedLength(baseName, arguments, nestedSuffix);
@@ -315,9 +320,14 @@ internal sealed class GenericTypeNode(
     public override long EstimatedRenderedLength => estimatedRenderedLength;
 
     internal override string StructuralIdentity()
-        => StructuralTypeIdentity.Generic(
-            metadataName ?? baseName,
-            arguments.Select(argument => argument.StructuralIdentity()));
+        => metadataName is null
+            ? StructuralTypeIdentity.Generic(
+                structuralMetadataName ?? baseName,
+                arguments.Select(argument => argument.StructuralIdentity()))
+            : StructuralTypeIdentity.Generic(
+                metadataName.Namespace,
+                metadataName.Segments,
+                arguments.Select(argument => argument.StructuralIdentity()));
 
     static long EstimateRenderedLength(
         string baseName,
@@ -350,16 +360,40 @@ internal sealed class GenericTypeNode(
             return IsReferenceType && IsNullableAnnotated ? $"{tuple}?" : tuple;
         }
 
-        // Outer`1.Inner`1 must render as Outer<int>.Inner<string>, not
-        // Outer<int, string>.Inner<T>. ApplyGenericArguments owns that split.
-        string[] renderedArguments = [.. arguments.Select(argument => argument.Render(canonicalTuples))];
-        string result = metadataName is { Length: > 0 }
-            ? TypeResolver.ApplyGenericArguments(
-                metadataName.Replace('+', '.'),
-                renderedArguments)
-            : arguments.Length == 0
+        var renderedArguments = arguments
+            .Select(argument => argument.Render(canonicalTuples))
+            .ToArray();
+        string result;
+        if (metadataName is not null)
+        {
+            result = TypeResolver.ApplyGenericArguments(
+                metadataName.Segments,
+                renderedArguments,
+                preserveMismatchedArguments: canonicalTuples);
+            if (metadataName.Namespace.Length > 0)
+                result = $"{metadataName.Namespace}.{result}";
+        }
+        else if (structuralMetadataName is not null)
+        {
+            var segments = new List<string>();
+            foreach (MetadataNameComponent component in
+                MetadataNameArity.EnumerateComponents(structuralMetadataName))
+            {
+                segments.Add(structuralMetadataName.Substring(
+                    component.Start,
+                    component.Length));
+            }
+            result = TypeResolver.ApplyGenericArguments(
+                segments,
+                renderedArguments,
+                preserveMismatchedArguments: canonicalTuples);
+        }
+        else
+        {
+            result = arguments.Length == 0
                 ? $"{baseName}{nestedSuffix}"
                 : $"{baseName}<{string.Join(", ", renderedArguments)}>{nestedSuffix}";
+        }
         return IsReferenceType && IsNullableAnnotated ? $"{result}?" : result;
     }
 

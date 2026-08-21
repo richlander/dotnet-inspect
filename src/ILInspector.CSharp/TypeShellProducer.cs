@@ -207,6 +207,13 @@ public static class TypeShellProducer
             Namespace = spec.Namespace,
             Name = spec.MetadataName,
             MetadataName = spec.MetadataName,
+            DefinitionName = MetadataDeclarationQuery.GetTypeDefinitionName(
+                reader,
+                spec.Handle),
+            IntroducedTypeParameterCounts =
+                MetadataDeclarationQuery.GetIntroducedTypeParameterCounts(
+                    reader,
+                    spec.Handle),
             Kind = TypeKindText(spec.Kind),
             BaseType = ReconstructedBaseTypeDisplay(reader, typeDef, spec.Kind == CSharpTypeShellKind.Class),
             TypeParameters = MetadataDeclarationQuery.GetTypeParameters(reader, typeDef).ToList(),

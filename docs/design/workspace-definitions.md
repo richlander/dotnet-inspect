@@ -338,7 +338,8 @@ labels — from the substrate and present them however they like.
 
 The schema's current vocabulary against that rule: the group grammar and
 well-known group names (defined here, substrate-owned), member coordinates
-(`AssemblyResolutionProvenance`, in `ILInspector.Metadata` below L1),
+(currently lowered through `AssemblyResolutionProvenance`, with adapter-owned
+lowering in the target artifact design),
 `type` names (the inspected assembly's authority), `memberAnchor` and
 `memberSignature` (`MemberAnchor` fingerprints and canonical signatures,
 substrate-owned), and `library` (an assembly identity resolved from the
@@ -421,16 +422,16 @@ surface can land on its own schedule before the web host switches buttons over.
 ### Member coordinates
 
 Each member names an acquisition location with a `kind` discriminator mapping
-onto `AssemblyResolutionProvenance`'s closed hierarchy, plus one new case:
+onto the current `AssemblyResolutionProvenance` hierarchy:
 
-| `kind` | Provenance | Coordinate fields |
+| `kind` | Current provenance | Coordinate fields |
 | --- | --- | --- |
 | `package` | `PackageAsset` | `id`; optional `version`, `framework`, and `rid` (`version` is exact when present) |
 | `platform` | `PlatformAsset` | `family`; optional `assembly`, `version`, and `framework` (`version` is exact when present) |
 | `project` | `ProjectAsset` | `path`; optional `framework` and `rid` |
 | `local` | `LocalAsset` | `path` |
 | `directory` | `LocalAsset` | `path`; optional `framework` and `rid` |
-| `embedded` | bundle content | `contentRef`, `digest`, `declaredName` |
+| `embedded` | `EmbeddedAsset` | `contentRef`, `digest`, `declaredName` |
 
 Coordinates are loader inputs that *produce* provenance, not serializations
 of the provenance records. The records carry loader-supplied fields the
@@ -438,6 +439,14 @@ definition never states (the resolver-source labels on `PlatformAsset` and
 `LocalAsset`), and omit fields the loader needs (`LocalAsset` carries no
 path). No field-level round-trip between coordinates and provenance records
 is implied.
+
+The target
+[artifact acquisition design](artifact-acquisition-and-workspaces.md)
+preserves these source-specific coordinates but changes their lowering. Each
+registered adapter produces its own typed provenance and an artifact
+registration; Metadata no longer owns the closed source hierarchy. Every member
+declared in one context remains required, and one failed member still prevents
+creation of a partial assembly group.
 
 For `platform`, `family` is the installed pack family (`runtime`,
 `aspnetcore`, or `netstandard`), while `framework` is the target framework
@@ -760,11 +769,11 @@ two persisted contracts are isomorphic.
   prefix and substring probes that are useful for broad discovery but cannot
   satisfy an exact workspace pin. The shared acquisition owner needs an exact
   normalized-version path and a visible not-found outcome for near matches.
-- **A fifth provenance case.** `AssemblyResolutionProvenance` is
-  deliberately closed (private-protected constructor and discriminator), so
-  the `embedded` coordinate requires a new case added in
-  `ILInspector.Metadata` by that layer's owner — a change below the
-  workspace layer.
+- **Embedded provenance during migration.** The current closed
+  `AssemblyResolutionProvenance` hierarchy represents the `embedded` coordinate
+  with `EmbeddedAsset`. The target artifact design replaces that fifth
+  Metadata case with adapter-owned typed provenance; current implementation
+  must not establish it as the permanent cross-source integration seam.
 - **An `ApiSurface` deserializer is not needed** for this feature and stays
   deferred until a surface-only workspace is pursued.
 - **Packet consolidation.** The `popstate` handler currently re-implements

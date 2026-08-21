@@ -1,4 +1,6 @@
+using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -46,6 +48,111 @@ public class TypeOfRenderingTests
 
         Assert.Contains("return typeof(Dictionary<,>);", output);
         Assert.DoesNotContain("typeof(Dictionary)", output);
+    }
+
+    [Fact]
+    public void TypeOf_ZeroArityGenericInstance_IsNotFullFidelity()
+    {
+        var malformed = TypeRef.GenericInstance(
+            TypeRef.Definition("Synthetic", "Tests", "Plain"),
+            [TypeRef.CoreLib("System", "Int32")]);
+
+        var result = CSharpPrinter.PrintRaised(
+            Returning(new TypeOf(malformed)));
+
+        Assert.Equal("Plain<int>", malformed.ToDisplayString());
+        Assert.NotEqual(DecompilationFidelity.Full, result.Fidelity);
+    }
+
+    [Fact]
+    public void TypeOf_MissingArityUsesTrustedGenericOwnership()
+    {
+        MetadataTypeDefinitionName exact =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Tests",
+                    ["Widget"]))
+            .Name;
+        var definition = TypeRef.DefinitionWithResolution(
+            "Synthetic",
+            "Tests",
+            "Widget",
+            ValueTypeHint.Unknown,
+            MetadataFactState.Unknown,
+            enclosingType: null,
+            definitionName: exact,
+            resolutionAssembly: null,
+            introducedTypeParameterCounts: [1]);
+        var constructed = TypeRef.GenericInstance(
+            definition,
+            [TypeRef.CoreLib("System", "Int32")]);
+
+        var result = CSharpPrinter.PrintRaised(
+            Returning(new TypeOf(constructed)));
+
+        Assert.Equal("Widget<int>", constructed.ToDisplayString());
+        Assert.Contains("typeof(Widget<int>)", result.Output);
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+    }
+
+    [Fact]
+    public void TypeOf_PerSegmentArityMismatch_PreservesRawEvidence()
+    {
+        MetadataTypeDefinitionName exact =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Tests",
+                    ["Outer`2", "Inner"]))
+            .Name;
+        var definition = TypeRef.DefinitionWithResolution(
+            "Synthetic",
+            "Tests",
+            "Outer`2+Inner",
+            ValueTypeHint.Unknown,
+            MetadataFactState.Unknown,
+            enclosingType: null,
+            definitionName: exact,
+            resolutionAssembly: null,
+            introducedTypeParameterCounts: [1, 1]);
+        var malformed = TypeRef.GenericInstance(
+            definition,
+            [
+                TypeRef.CoreLib("System", "Int32"),
+                TypeRef.CoreLib("System", "String"),
+            ]);
+
+        var result = CSharpPrinter.PrintRaised(
+            Returning(new TypeOf(malformed)));
+
+        Assert.Contains("typeof(Outer`2.Inner)", result.Output);
+        Assert.NotEqual(DecompilationFidelity.Full, result.Fidelity);
+    }
+
+    [Fact]
+    public void TypeOf_BareDefinitionArityMismatch_IsNotFullFidelity()
+    {
+        MetadataTypeDefinitionName exact =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Tests",
+                    ["Widget`2"]))
+            .Name;
+        var definition = TypeRef.DefinitionWithResolution(
+            "Synthetic",
+            "Tests",
+            "Widget`2",
+            ValueTypeHint.Unknown,
+            MetadataFactState.Unknown,
+            enclosingType: null,
+            definitionName: exact,
+            resolutionAssembly: null,
+            introducedTypeParameterCounts: [1]);
+
+        var result = CSharpPrinter.PrintRaised(
+            Returning(new TypeOf(definition)));
+
+        Assert.Contains("typeof(Widget`2", result.Output);
+        Assert.NotEqual(DecompilationFidelity.Full, result.Fidelity);
     }
 
     static IrFunction Returning(IrExpression expression, TypeRef? returnType = null, TypeRef? owner = null)
