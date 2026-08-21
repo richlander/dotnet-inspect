@@ -258,13 +258,17 @@ test("a newer document remains published after an older request completes", asyn
 
 test("closing during body rendering suppresses description and publication", async () => {
   const body = deferred<string>();
+  const bodyEntered = deferred<void>();
   let inlineRenders = 0;
   const state = inspectionState();
   const coordinator = createDocumentInspectionCoordinator(
     inspectionDependencies(state, {
       queryDocument: async () =>
         content("---\ndescription: Summary\n---\nBody"),
-      renderMarkdown: async () => body.promise,
+      renderMarkdown: async () => {
+        bodyEntered.resolve();
+        return body.promise;
+      },
       renderMarkdownInline: async () => {
         inlineRenders++;
         return "<p>stale</p>";
@@ -276,6 +280,7 @@ test("closing during body rendering suppresses description and publication", asy
     version: "1.2.3",
     document,
   });
+  await bodyEntered.promise;
   coordinator.close();
   body.resolve("<p>stale body</p>");
   await open;
@@ -287,13 +292,17 @@ test("closing during body rendering suppresses description and publication", asy
 
 test("closing during description rendering suppresses all publication", async () => {
   const description = deferred<string>();
+  const descriptionEntered = deferred<void>();
   const state = inspectionState();
   const coordinator = createDocumentInspectionCoordinator(
     inspectionDependencies(state, {
       queryDocument: async () =>
         content("---\ndescription: Summary\n---\nBody"),
       renderMarkdown: async () => "<p>stale body</p>",
-      renderMarkdownInline: async () => description.promise,
+      renderMarkdownInline: async () => {
+        descriptionEntered.resolve();
+        return description.promise;
+      },
     }));
 
   const open = coordinator.open({
@@ -301,12 +310,42 @@ test("closing during description rendering suppresses all publication", async ()
     version: "1.2.3",
     document,
   });
+  await descriptionEntered.promise;
   coordinator.close();
   description.resolve("<p>stale description</p>");
   await open;
 
   assert.equal(state.docViewerHtml, "");
   assert.equal(state.docViewerMeta, null);
+});
+
+test("closing before a rejected request suppresses its stale failure", async () => {
+  const query = deferred<BrowserPackageDocumentContent>();
+  const queryEntered = deferred<void>();
+  let renders = 0;
+  const state = inspectionState();
+  const coordinator = createDocumentInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDocument: async () => {
+        queryEntered.resolve();
+        return query.promise;
+      },
+      render: () => renders++,
+    }));
+
+  const open = coordinator.open({
+    packageId: "Example.Package",
+    version: "1.2.3",
+    document,
+  });
+  await queryEntered.promise;
+  coordinator.close();
+  query.reject(new Error("stale failure"));
+  await open;
+
+  assert.equal(state.docViewerError, "");
+  assert.equal(state.docViewerLoading, false);
+  assert.equal(renders, 2);
 });
 
 test("current document failures remain visible and settle loading", async () => {
