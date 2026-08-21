@@ -95,6 +95,13 @@ Extract public API surface using metadata:
   original source, and IL
 - Both support package/platform/library sources and section/field projection
 
+The proposed
+[member inspection planning and metadata projection](design/member-inspection-planning-and-metadata-projection.md)
+boundary separates parsed gestures, resolved section/member plans, producer
+authorization, shared Metadata declaration validation, and model-bound C#
+representability. It is the migration owner for the current type/member
+selection and full/summary/focused projection seams.
+
 Guarded metadata signature rejection remains fail-closed (`object`/empty
 signature shape), but it is not presented as ordinary metadata:
 `ApiMember.SignatureDecodeStatus` is `Degraded`, and member tables add a
