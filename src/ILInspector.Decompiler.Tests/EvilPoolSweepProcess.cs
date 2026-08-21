@@ -13,7 +13,7 @@ namespace ILInspector.Decompiler.Tests;
 /// </remarks>
 internal static class EvilPoolSweepProcess
 {
-    private static readonly TimeSpan RunLockTimeout =
+    internal static readonly TimeSpan RunLockTimeout =
         TimeSpan.FromMinutes(6);
 
     public static ProcessStartInfo Create(
@@ -66,6 +66,17 @@ internal static class EvilPoolSweepProcess
 
     internal static IDisposable AcquireRunLock(TimeSpan timeout)
     {
+        string? disabled = Environment.GetEnvironmentVariable(
+            "DOTNET_SYSTEM_IO_DISABLEFILELOCKING");
+        if (disabled is "1"
+            || bool.TryParse(disabled, out bool disableFileLocking)
+                && disableFileLocking)
+        {
+            throw new InvalidOperationException(
+                "The package-sweep launcher requires cross-process file locking, "
+                + "but DOTNET_SYSTEM_IO_DISABLEFILELOCKING disables it.");
+        }
+
         string directory = Path.Combine(
             Environment.GetFolderPath(
                 Environment.SpecialFolder.LocalApplicationData),
@@ -80,11 +91,27 @@ internal static class EvilPoolSweepProcess
         {
             try
             {
-                return new FileStream(
+                var stream = new FileStream(
                     path,
                     FileMode.OpenOrCreate,
                     FileAccess.ReadWrite,
                     FileShare.None);
+                try
+                {
+                    // FileShare.None may be advisory on Unix. Where supported,
+                    // an explicit range lock makes unsupported locking fail
+                    // closed. macOS exclusion is exercised by the independent-
+                    // host gate because FileStream.Lock is unavailable there.
+                    if (!OperatingSystem.IsMacOS())
+                        stream.Lock(0, 1);
+
+                    return stream;
+                }
+                catch
+                {
+                    stream.Dispose();
+                    throw;
+                }
             }
             catch (IOException) when (stopwatch.Elapsed < timeout)
             {
@@ -107,15 +134,38 @@ internal sealed class EvilPoolSweepRun(
 {
     public Process Process { get; } = process;
 
+    public void Terminate()
+    {
+        if (!Process.HasExited)
+        {
+            try
+            {
+                Process.Kill(entireProcessTree: true);
+            }
+            catch (InvalidOperationException) when (Process.HasExited)
+            {
+            }
+        }
+
+        Process.WaitForExit();
+    }
+
     public void Dispose()
     {
         try
         {
-            Process.Dispose();
+            Terminate();
         }
         finally
         {
-            runLock.Dispose();
+            try
+            {
+                Process.Dispose();
+            }
+            finally
+            {
+                runLock.Dispose();
+            }
         }
     }
 }

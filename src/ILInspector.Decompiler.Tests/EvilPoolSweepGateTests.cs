@@ -78,6 +78,8 @@ public class EvilPoolSweepGateTests
     const string RunLockGateMethod =
         "ILInspector.Decompiler.Tests.EvilPoolSweepGateTests."
         + "SweepLauncherSerializesIndependentTestHosts";
+    static readonly TimeSpan RunLockWorkerHostTimeout =
+        EvilPoolSweepProcess.RunLockTimeout + TimeSpan.FromMinutes(2);
 
     // A third package, committed by every world and pooled by none of them, which ships a
     // nuspec and no library at all. It is what the !IsSelected arm needs: the two packages
@@ -197,10 +199,14 @@ public class EvilPoolSweepGateTests
         string acquiredResult = Path.Combine(
             Path.GetTempPath(),
             $"evil-sweep-run-lock-acquired-{Guid.NewGuid():N}");
+        string childTimeoutResult = Path.Combine(
+            Path.GetTempPath(),
+            $"evil-sweep-run-lock-child-timeout-{Guid.NewGuid():N}");
         try
         {
             SweepHostResult blocked;
-            using (EvilPoolSweepProcess.AcquireRunLock(TimeSpan.FromMinutes(6)))
+            using (EvilPoolSweepProcess.AcquireRunLock(
+                EvilPoolSweepProcess.RunLockTimeout))
             {
                 blocked = RunLockWorkerHost("probe", blockedResult);
             }
@@ -217,11 +223,20 @@ public class EvilPoolSweepGateTests
                 $"Lock acquisition worker failed at exit {acquired.ExitCode}.\n"
                 + $"stdout:\n{acquired.Output}\nstderr:\n{acquired.Error}");
             Assert.Equal("acquired", File.ReadAllText(acquiredResult));
+
+            SweepHostResult childTimeout =
+                RunLockWorkerHost("child-timeout", childTimeoutResult);
+            Assert.True(
+                childTimeout.ExitCode != 0,
+                "A child timeout was accepted as lock contention.\n"
+                + $"stdout:\n{childTimeout.Output}\nstderr:\n{childTimeout.Error}");
+            Assert.False(File.Exists(childTimeoutResult));
         }
         finally
         {
             File.Delete(blockedResult);
             File.Delete(acquiredResult);
+            File.Delete(childTimeoutResult);
         }
     }
 
@@ -1322,17 +1337,23 @@ public class EvilPoolSweepGateTests
             RunLockWorkerResultEnvironmentVariable)
             ?? throw new InvalidOperationException(
                 $"Missing {RunLockWorkerResultEnvironmentVariable}.");
-
-        try
+        if (mode == "hang")
         {
-            TimeSpan timeout = mode switch
-            {
-                "probe" => TimeSpan.Zero,
-                "acquire" => TimeSpan.FromMinutes(1),
-                _ => throw new InvalidOperationException(
-                    $"Unknown sweep run-lock worker mode '{mode}'."),
-            };
-            var startInfo = new ProcessStartInfo
+            Thread.Sleep(Timeout.Infinite);
+            return;
+        }
+
+        TimeSpan timeout = mode switch
+        {
+            "probe" => TimeSpan.Zero,
+            "acquire" => EvilPoolSweepProcess.RunLockTimeout,
+            "child-timeout" => TimeSpan.Zero,
+            _ => throw new InvalidOperationException(
+                $"Unknown sweep run-lock worker mode '{mode}'."),
+        };
+        ProcessStartInfo startInfo = mode == "child-timeout"
+            ? CreateRunLockWorkerHostStartInfo("hang", resultPath)
+            : new ProcessStartInfo
             {
                 FileName = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")
                     is { Length: > 0 } host
@@ -1341,17 +1362,36 @@ public class EvilPoolSweepGateTests
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
             };
+        if (mode != "child-timeout")
+        {
             startInfo.ArgumentList.Add("--info");
-            using EvilPoolSweepRun run =
-                EvilPoolSweepProcess.Start(startInfo, timeout);
+        }
+
+        EvilPoolSweepRun run;
+        try
+        {
+            run = EvilPoolSweepProcess.Start(startInfo, timeout);
+        }
+        catch (TimeoutException) when (mode == "probe")
+        {
+            File.WriteAllText(resultPath, "blocked");
+            return;
+        }
+
+        using (run)
+        {
             Process process = run.Process;
             Task<string> output = process.StandardOutput.ReadToEndAsync();
             Task<string> error = process.StandardError.ReadToEndAsync();
-            if (!process.WaitForExit((int)TimeSpan.FromMinutes(1).TotalMilliseconds))
+            TimeSpan childTimeout = mode == "child-timeout"
+                ? TimeSpan.FromSeconds(1)
+                : TimeSpan.FromMinutes(1);
+            if (!process.WaitForExit((int)childTimeout.TotalMilliseconds))
             {
-                process.Kill(entireProcessTree: true);
+                run.Terminate();
                 throw new TimeoutException(
-                    "The sweep run-lock worker process did not exit within one minute.");
+                    $"The sweep run-lock worker process did not exit within "
+                    + $"{childTimeout.TotalSeconds:N0} seconds.");
             }
 
             Assert.True(
@@ -1361,13 +1401,36 @@ public class EvilPoolSweepGateTests
                 + $"stderr:\n{error.GetAwaiter().GetResult()}");
             File.WriteAllText(resultPath, "acquired");
         }
-        catch (TimeoutException) when (mode == "probe")
-        {
-            File.WriteAllText(resultPath, "blocked");
-        }
     }
 
     static SweepHostResult RunLockWorkerHost(string mode, string resultPath)
+    {
+        ProcessStartInfo startInfo =
+            CreateRunLockWorkerHostStartInfo(mode, resultPath);
+
+        using Process process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException(
+                "Could not start the sweep run-lock worker host.");
+        Task<string> output = process.StandardOutput.ReadToEndAsync();
+        Task<string> error = process.StandardError.ReadToEndAsync();
+        if (!process.WaitForExit((int)RunLockWorkerHostTimeout.TotalMilliseconds))
+        {
+            process.Kill(entireProcessTree: true);
+            process.WaitForExit();
+            Assert.Fail(
+                $"The sweep run-lock worker host did not exit within "
+                + $"{RunLockWorkerHostTimeout.TotalMinutes:N0} minutes.");
+        }
+
+        return new SweepHostResult(
+            process.ExitCode,
+            output.GetAwaiter().GetResult(),
+            error.GetAwaiter().GetResult());
+    }
+
+    static ProcessStartInfo CreateRunLockWorkerHostStartInfo(
+        string mode,
+        string resultPath)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -1384,23 +1447,7 @@ public class EvilPoolSweepGateTests
         startInfo.ArgumentList.Add("-noColor");
         startInfo.Environment[RunLockWorkerModeEnvironmentVariable] = mode;
         startInfo.Environment[RunLockWorkerResultEnvironmentVariable] = resultPath;
-
-        using Process process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException(
-                "Could not start the sweep run-lock worker host.");
-        Task<string> output = process.StandardOutput.ReadToEndAsync();
-        Task<string> error = process.StandardError.ReadToEndAsync();
-        if (!process.WaitForExit((int)TimeSpan.FromMinutes(2).TotalMilliseconds))
-        {
-            process.Kill(entireProcessTree: true);
-            Assert.Fail(
-                "The sweep run-lock worker host did not exit within two minutes.");
-        }
-
-        return new SweepHostResult(
-            process.ExitCode,
-            output.GetAwaiter().GetResult(),
-            error.GetAwaiter().GetResult());
+        return startInfo;
     }
 
     readonly record struct SweepHostResult(
@@ -2080,7 +2127,7 @@ public class EvilPoolSweepGateTests
             // because a cold `dotnet run` of a file-based app builds it first.
             if (!process.WaitForExit((int)TimeSpan.FromMinutes(5).TotalMilliseconds))
             {
-                process.Kill(entireProcessTree: true);
+                run.Terminate();
                 Assert.Fail("the sweep did not exit within five minutes");
             }
 
