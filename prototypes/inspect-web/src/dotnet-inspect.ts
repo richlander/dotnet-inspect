@@ -113,6 +113,14 @@ import {
   buildTypeGraphMermaid
 } from "./graph-mermaid.ts";
 import {
+  bindDependencyGraphNodes,
+  bindGraphBack,
+  bindGraphPanZoom,
+  bindTypeGraphNodes,
+  type CallGraphNodeBinding,
+  type GraphBackBindingActions,
+} from "./graph-interactions.ts";
+import {
   factsForNode,
   MEDIA,
   nodeAtOffset,
@@ -4252,6 +4260,10 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
   onToggleTheme: toggleTheme,
 };
 
+const graphBackActions: GraphBackBindingActions = {
+  onBack: popPlatformDrill,
+};
+
 function bindEvents() {
   bindStatusBarEvents();
   packageBar.bind(document);
@@ -4266,13 +4278,11 @@ function bindEvents() {
   bindPackageViewEvents();
   bindLibraryControlsEvents();
   bindWorkbenchShell(document, workbenchShellActions);
+  bindGraphBack(document, graphBackActions);
   observeAsync(ensurePackageVersions(state.package), "Loading package versions");
   if (state.package?.isRuntimePack)
     observeAsync(ensureDotnetReleases(), "Loading .NET release information");
   if (state.spotlightOpen) spotlight.bind(document, "modal");
-  document.querySelector("[data-graph-back]")?.addEventListener(
-    "click",
-    popPlatformDrill);
 }
 
 function toggleTheme() {
@@ -6039,31 +6049,21 @@ async function renderTypeGraph() {
       container.querySelector<HTMLElement>(".graph-viewport");
     if (!viewport) return;
     viewport.innerHTML = svg;
-    attachGraphPanZoom(container, viewport);
-    viewport.querySelectorAll<SVGGElement>("g.node").forEach(node => {
-      const dataId = node.getAttribute("data-id");
-      const idMatch = node.id.match(/(?:^|flowchart-)(t\d+)(?:-|$)/);
-      const nodeId = dataId || idMatch?.[1];
+    bindGraphPanZoom(container, viewport);
+    bindTypeGraphNodes(viewport, nodeId => {
       const graphNode = nodeId ? graphNodeOf.get(nodeId) : null;
-      if (!graphNode) return;
+      if (!graphNode) return null;
       const fullName = graphNode.id;
       const pkg = currentPackage();
       const target = graphNode.role === "self"
         ? selectedType()
         : uniqueTypeByQueryId(pkg.types, fullName);
-      if (target) {
-        node.classList.add("nav-node");
-        node.style.cursor = "pointer";
-        node.addEventListener("click", () => navigateToType(target));
-        return;
-      }
-      // Reported by metadata but not in the browsable surface (internal type or a
-      // type in another assembly). Mark it non-navigable with a native tooltip so
-      // the dead node reads as informational rather than broken.
-      node.classList.add("non-nav");
-      const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
-      title.textContent = `${fullName} — not in the browsable public surface`;
-      node.insertBefore(title, node.firstChild);
+      return target
+        ? { onSelect: () => navigateToType(target) }
+        : {
+            unavailableLabel:
+              `${fullName} — not in the browsable public surface`,
+          };
     });
   } catch (error) {
     if (document.querySelector("#type-graph-diagram") === container) {
@@ -6199,23 +6199,20 @@ async function renderDependencyGraph() {
     if (!viewport) return;
     viewport.innerHTML = svg;
     container.dataset.graphDef = signature;
-    attachGraphPanZoom(container, viewport);
-    viewport.querySelectorAll<SVGGElement>("g.node").forEach(node => {
-      const dataId = node.getAttribute("data-id");
-      const idMatch = node.id.match(/(?:^|flowchart-)(d\d+)(?:-|$)/);
-      const nodeId = dataId || idMatch?.[1];
+    bindGraphPanZoom(container, viewport);
+    bindDependencyGraphNodes(viewport, nodeId => {
       const info = nodeId ? built.nodeInfoById.get(nodeId) : null;
-      if (!info || info.kind === "self") return;
-      node.classList.add("nav-node");
-      node.style.cursor = "pointer";
-      node.addEventListener("click", () => {
-        if (info.kind === "open" && info.packageKey)
-          switchToPackageForDependencies(info.packageKey);
-        else if (info.id)
-          observeAsync(
-            openDependencyPackage(info.id, info.versionRange),
-            "Opening a dependency package");
-      });
+      if (!info || info.kind === "self") return null;
+      return {
+        onSelect: () => {
+          if (info.kind === "open" && info.packageKey)
+            switchToPackageForDependencies(info.packageKey);
+          else if (info.id)
+            observeAsync(
+              openDependencyPackage(info.id, info.versionRange),
+              "Opening a dependency package");
+        },
+      };
     });
   } catch (error) {
     // Only surface the error if this is still the latest render and nothing else has drawn a graph.
@@ -6417,7 +6414,10 @@ async function renderMermaidCallGraph() {
       if (!viewport) return;
       viewport.innerHTML = svg;
       container.dataset.graphDef = active.mermaid;
-      attachGraphPanZoom(container, viewport, true, active);
+      bindGraphPanZoom(container, viewport, {
+        resolveCallGraphNode: nodeId =>
+          callGraphNodeBinding(active, nodeId),
+      });
     }
   } catch (error) {
     if (seq === callGraphRenderSeq
@@ -6433,194 +6433,65 @@ async function renderMermaidCallGraph() {
   }
 }
 
-function attachGraphPanZoom(
-  container: HTMLElement,
-  viewport: HTMLElement,
-  bindCallGraphNodes = false,
-  callGraph: BrowserCallGraph | null = null,
-) {
-  const svg = viewport.querySelector<SVGSVGElement>("svg");
-  if (!svg) return;
-  const renderedSvg = svg;
+function callGraphNodeBinding(
+  callGraph: BrowserCallGraph,
+  nodeId: string,
+): CallGraphNodeBinding | null {
+  const target =
+    callGraph.targets?.find(candidate => candidate.id === nodeId) ?? null;
+  if (!target) return null;
+  const typeId = callGraphTargetTypeId(target);
 
-  const box = svg.viewBox?.baseVal;
-  const naturalWidth = box && box.width ? box.width : svg.getBoundingClientRect().width;
-  const naturalHeight = box && box.height ? box.height : svg.getBoundingClientRect().height;
-  svg.setAttribute("width", String(naturalWidth));
-  svg.setAttribute("height", String(naturalHeight));
-
-  const minScale = 0.2;
-  const maxScale = 8;
-  const view = { scale: 1, x: 0, y: 0 };
-  const clampScale = (value: number) =>
-    Math.min(maxScale, Math.max(minScale, value));
-
-  function apply() {
-    renderedSvg.style.transform =
-      `translate(${view.x}px, ${view.y}px) scale(${view.scale})`;
+  // Inside a platform descent the whole graph lives in the runtime pack, not
+  // the workspace, so clicked callees descend through the platform graph.
+  const drilled =
+    state.platformStack.length > 0 || Boolean(state.package?.isRuntimePack);
+  if (drilled) {
+    if (target.id === "n0" || !target.assembly || !typeId) return null;
+    return {
+      platform: true,
+      onSelect: () =>
+        observeAsync(
+          navigateOrDrillPlatform(target),
+          "Opening a platform call-graph target"),
+    };
   }
 
-  function fit() {
-    const rect = viewport.getBoundingClientRect();
-    if (!naturalWidth || !naturalHeight || !rect.width) return;
-    // Cap at 1:1 so a tiny graph (e.g. two nodes) renders at its natural size,
-    // centered, instead of being upscaled to fill the tall viewport.
-    const fitScale = Math.min(rect.width / naturalWidth, rect.height / naturalHeight) * 0.92;
-    view.scale = clampScale(Math.min(fitScale, 1));
-    view.x = (rect.width - naturalWidth * view.scale) / 2;
-    view.y = (rect.height - naturalHeight * view.scale) / 2;
-    apply();
-  }
-
-  function zoomAt(px: number, py: number, factor: number) {
-    const next = clampScale(view.scale * factor);
-    const ratio = next / view.scale;
-    view.x = px - (px - view.x) * ratio;
-    view.y = py - (py - view.y) * ratio;
-    view.scale = next;
-    apply();
-  }
-
-  viewport.addEventListener("wheel", event => {
-    event.preventDefault();
-    const rect = viewport.getBoundingClientRect();
-    zoomAt(event.clientX - rect.left, event.clientY - rect.top, Math.exp(-event.deltaY * 0.0015));
-  }, { passive: false });
-
-  let pointerId: number | null = null;
-  let moved = false;
-  let capturing = false;
-  const panThreshold = 5;
-  const start = { x: 0, y: 0, vx: 0, vy: 0 };
-  viewport.addEventListener("pointerdown", event => {
-    if (event.button !== 0) return;
-    pointerId = event.pointerId;
-    moved = false;
-    capturing = false;
-    start.x = event.clientX;
-    start.y = event.clientY;
-    start.vx = view.x;
-    start.vy = view.y;
-  });
-  viewport.addEventListener("pointermove", event => {
-    if (pointerId !== event.pointerId) return;
-    const dx = event.clientX - start.x;
-    const dy = event.clientY - start.y;
-    if (!capturing) {
-      if (Math.abs(dx) + Math.abs(dy) <= panThreshold) return;
-      capturing = true;
-      moved = true;
-      viewport.setPointerCapture(pointerId);
-      viewport.classList.add("panning");
-    }
-    view.x = start.vx + dx;
-    view.y = start.vy + dy;
-    apply();
-  });
-  function endPan(event: PointerEvent) {
-    if (pointerId !== event.pointerId) return;
-    if (capturing) {
-      viewport.releasePointerCapture(pointerId);
-      viewport.classList.remove("panning");
-    }
-    capturing = false;
-    pointerId = null;
-  }
-  viewport.addEventListener("pointerup", endPan);
-  viewport.addEventListener("pointercancel", endPan);
-
-  container.querySelectorAll<HTMLElement>(".graph-controls button")
-    .forEach(button => {
-    button.addEventListener("click", () => {
-      const rect = viewport.getBoundingClientRect();
-      const mode = button.dataset.zoom;
-      if (mode === "in") zoomAt(rect.width / 2, rect.height / 2, 1.25);
-      else if (mode === "out") zoomAt(rect.width / 2, rect.height / 2, 0.8);
-      else fit();
-    });
-  });
-
-  viewport.tabIndex = 0;
-  viewport.addEventListener("keydown", event => {
-    const rect = viewport.getBoundingClientRect();
-    const step = 45;
-    if (event.key === "+" || event.key === "=") zoomAt(rect.width / 2, rect.height / 2, 1.25);
-    else if (event.key === "-" || event.key === "_") zoomAt(rect.width / 2, rect.height / 2, 0.8);
-    else if (event.key === "0") fit();
-    else if (event.key === "ArrowLeft") { view.x += step; apply(); }
-    else if (event.key === "ArrowRight") { view.x -= step; apply(); }
-    else if (event.key === "ArrowUp") { view.y += step; apply(); }
-    else if (event.key === "ArrowDown") { view.y -= step; apply(); }
-    else return;
-    event.preventDefault();
-  });
-
-  if (bindCallGraphNodes) {
-    // Inside a platform descent the whole graph lives in the runtime pack, not the
-    // workspace, so a clicked callee must resolve against the active platform graph
-    // and descend further — routing it through the workspace resolvers would look the
-    // type up in the loaded package and fail (e.g. "Type 'TextWriter' is not in Markout.dll").
-    // A resident runtime pack's base member graph is itself a platform graph, so its
-    // callees descend the same way from the start.
-    const drilled = state.platformStack.length > 0 || Boolean(state.package?.isRuntimePack);
-    svg.querySelectorAll<SVGGElement>("g.node").forEach(node => {
-      const target = graphTargetForSvgNode(callGraph, node);
-      if (!target) return;
-      const typeId = callGraphTargetTypeId(target);
-      if (drilled) {
-        if (target.id === "n0" || !target.assembly || !typeId)
-          return;
-        node.classList.add("nav-node", "platform-node");
-        node.style.cursor = "pointer";
-        node.addEventListener("click", () => {
-          if (moved) return;
-          observeAsync(
-            navigateOrDrillPlatform(target),
-            "Opening a platform call-graph target");
-        });
-        return;
-      }
-      const packages = [
-        state.package,
-        ...state.packages.filter(item => item !== state.package),
-      ].filter((pkg): pkg is AppPackage => pkg != null);
-      const candidate =
-        resolveLoadedGraphTargetCandidate<AppPackage, BrowserTypeSurface>(
-          packages,
+  const packages = [
+    state.package,
+    ...state.packages.filter(item => item !== state.package),
+  ].filter((pkg): pkg is AppPackage => pkg != null);
+  const candidate =
+    resolveLoadedGraphTargetCandidate<AppPackage, BrowserTypeSurface>(
+      packages,
+      target);
+  const disposition = graphTargetNavigationDisposition(candidate, target);
+  if (disposition === "blocked" || disposition === "none") return null;
+  const loaded = disposition === "loaded" && candidate.status === "unique"
+    ? resolveLoadedGraphTarget(target, candidate)
+    : null;
+  const platform = disposition === "platform";
+  return {
+    platform,
+    onSelect: () => {
+      if (loaded?.group) {
+        navigateToMember(
+          loaded.pkg,
+          loaded.type,
+          loaded.group,
+          loaded.overloadIndex,
           target);
-      const disposition = graphTargetNavigationDisposition(candidate, target);
-      if (disposition === "blocked" || disposition === "none") return;
-      const loaded = disposition === "loaded"
-        && candidate.status === "unique"
-        ? resolveLoadedGraphTarget(target, candidate)
-        : null;
-      const platform = disposition === "platform";
-      node.classList.add("nav-node");
-      if (platform) node.classList.add("platform-node");
-      node.style.cursor = "pointer";
-      node.addEventListener("click", () => {
-        if (moved) return;
-        if (loaded?.group) {
-          navigateToMember(
-            loaded.pkg,
-            loaded.type,
-            loaded.group,
-            loaded.overloadIndex,
-            target);
-        } else if (loaded) {
-          observeAsync(
-            openGraphSource(loaded.request, loaded.title),
-            "Loading graph source");
-        } else if (platform) {
-          observeAsync(
-            navigateOrDrillPlatform(target),
-            "Opening a platform call-graph target");
-        }
-      });
-    });
-  }
-
-  fit();
+      } else if (loaded) {
+        observeAsync(
+          openGraphSource(loaded.request, loaded.title),
+          "Loading graph source");
+      } else if (platform) {
+        observeAsync(
+          navigateOrDrillPlatform(target),
+          "Opening a platform call-graph target");
+      }
+    },
+  };
 }
 
 function currentCallGraph() {
@@ -6634,18 +6505,6 @@ function platformCrumbTrail() {
     ? state.memberCallGraph.callees.label.replace(/\(.*$/, "")
     : "member";
   return [root, ...state.platformStack.map(entry => entry.title)].join(" › ");
-}
-
-function graphTargetForSvgNode(
-  graph: BrowserCallGraph | null,
-  node: Element,
-) {
-  const dataId = node.getAttribute("data-id");
-  const idMatch = node.id.match(/(?:^|flowchart-)(n\d+)(?:-|$)/);
-  const nodeId = dataId || idMatch?.[1];
-  return nodeId
-    ? graph?.targets?.find(target => target.id === nodeId) ?? null
-    : null;
 }
 
 function resolveLoadedGraphTarget(

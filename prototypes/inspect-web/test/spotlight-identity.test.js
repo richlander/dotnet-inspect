@@ -295,6 +295,9 @@ const libraryControlsSource = readFileSync(
 const shellControlsSource = readFileSync(
   new URL("../src/shell-controls.ts", import.meta.url),
   "utf8");
+const graphInteractionsSource = readFileSync(
+  new URL("../src/graph-interactions.ts", import.meta.url),
+  "utf8");
 const sourceInspectionSource = readFileSync(
   new URL("../src/source-inspection.ts", import.meta.url),
   "utf8");
@@ -707,6 +710,93 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
   assert.doesNotMatch(
     loadingBinding,
     /#(?:retry-load|error-package-query|error-package-input|toggle-error-detail)|"\.load-error-detail"/);
+});
+
+test("typed graph interactions own graph controls and Mermaid node bindings", () => {
+  const workspaceBinding =
+    appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
+    ?? "";
+  const typeGraph =
+    appSource.match(/async function renderTypeGraph\(\) \{[\s\S]*?\n}(?=\n\nfunction navigateToTypeByName)/)?.[0]
+    ?? "";
+  const dependencyGraph =
+    appSource.match(/async function renderDependencyGraph\(\) \{[\s\S]*?\n}(?=\n\nfunction switchToPackageForDependencies)/)?.[0]
+    ?? "";
+  const callGraph =
+    appSource.match(/async function renderMermaidCallGraph\(\) \{[\s\S]*?\n}(?=\n\nfunction callGraphNodeBinding)/)?.[0]
+    ?? "";
+  const callGraphBinding =
+    appSource.match(/function callGraphNodeBinding\([\s\S]*?\n}(?=\n\nfunction currentCallGraph)/)?.[0]
+    ?? "";
+  const dependencyNodeBinding =
+    graphInteractionsSource.match(/export function bindDependencyGraphNodes\([\s\S]*?\n}(?=\n\nexport function bindGraphPanZoom)/)?.[0]
+    ?? "";
+  assert.match(
+    graphInteractionsSource,
+    /export function bindGraphBack\([\s\S]*\[data-graph-back\]/);
+  assert.match(
+    graphInteractionsSource,
+    /function mermaidNodeId\([\s\S]*data-id[\s\S]*flowchart-/);
+  assert.match(
+    graphInteractionsSource,
+    /export function bindGraphPanZoom\([\s\S]*"wheel"[\s\S]*"pointerdown"[\s\S]*"pointermove"[\s\S]*"pointerup"[\s\S]*"pointercancel"[\s\S]*\.graph-controls button[\s\S]*"keydown"[\s\S]*resolveCallGraphNode/);
+  assert.match(
+    graphInteractionsSource,
+    /export function bindTypeGraphNodes\([\s\S]*"t"[\s\S]*nav-node[\s\S]*non-nav[\s\S]*createElementNS/);
+  assert.match(
+    dependencyNodeBinding,
+    /mermaidNodeId\(node, "d"\)[\s\S]*classList\.add\("nav-node"\)[\s\S]*style\.cursor = "pointer"[\s\S]*addEventListener\("click", binding\.onSelect\)/);
+  assert.match(
+    appSource,
+    /const graphBackActions: GraphBackBindingActions = \{\s*onBack: popPlatformDrill,\s*};/);
+  assert.match(
+    workspaceBinding,
+    /bindGraphBack\(document, graphBackActions\)/);
+  assert.match(
+    typeGraph,
+    /bindGraphPanZoom\(container, viewport\);[\s\S]*bindTypeGraphNodes\(viewport, nodeId => \{[\s\S]*graphNodeOf\.get\(nodeId\)[\s\S]*onSelect: \(\) => navigateToType\(target\)[\s\S]*unavailableLabel/);
+  assert.match(
+    typeGraph,
+    /const target = graphNode\.role === "self"\s*\? selectedType\(\)\s*: uniqueTypeByQueryId\(pkg\.types, fullName\)/);
+  assert.match(
+    dependencyGraph,
+    /bindGraphPanZoom\(container, viewport\);[\s\S]*bindDependencyGraphNodes\(viewport, nodeId => \{[\s\S]*built\.nodeInfoById\.get\(nodeId\)[\s\S]*switchToPackageForDependencies\(info\.packageKey\)[\s\S]*openDependencyPackage\(info\.id, info\.versionRange\)/);
+  assert.match(
+    dependencyGraph,
+    /const info = nodeId \? built\.nodeInfoById\.get\(nodeId\) : null;\s*if \(!info \|\| info\.kind === "self"\) return null/);
+  assert.match(
+    callGraph,
+    /bindGraphPanZoom\(container, viewport, \{[\s\S]*resolveCallGraphNode: nodeId =>[\s\S]*callGraphNodeBinding\(active, nodeId\)/);
+  assert.match(
+    callGraphBinding,
+    /callGraph\.targets\?\.find\(candidate => candidate\.id === nodeId\)[\s\S]*const drilled =\s*state\.platformStack\.length > 0 \|\| Boolean\(state\.package\?\.isRuntimePack\);\s*if \(drilled\) \{\s*if \(target\.id === "n0" \|\| !target\.assembly \|\| !typeId\) return null;[\s\S]*navigateOrDrillPlatform\(target\)[\s\S]*resolveLoadedGraphTargetCandidate[\s\S]*graphTargetNavigationDisposition[\s\S]*if \(disposition === "blocked" \|\| disposition === "none"\) return null;[\s\S]*navigateToMember\([\s\S]*openGraphSource\([\s\S]*navigateOrDrillPlatform\(target\)/);
+  assert.match(
+    callGraphBinding,
+    /if \(drilled\) \{[\s\S]*return \{\s*platform: true,\s*onSelect: \(\) => \{[\s\S]*navigateOrDrillPlatform\(target\)/);
+  assert.match(
+    callGraphBinding,
+    /const loaded = disposition === "loaded" && candidate\.status === "unique"\s*\? resolveLoadedGraphTarget\(target, candidate\)\s*: null/);
+  assert.match(
+    callGraphBinding,
+    /const platform = disposition === "platform";\s*return \{\s*platform,\s*onSelect:/);
+  assert.match(
+    callGraphBinding,
+    /if \(loaded\?\.group\) \{\s*navigateToMember\([\s\S]*\} else if \(loaded\) \{\s*openGraphSource\(loaded\.request, loaded\.title\);\s*\} else if \(platform\) \{\s*void navigateOrDrillPlatform\(target\);\s*\}/);
+  assert.equal(appSource.match(/\bbindGraphBack\(/g)?.length, 1);
+  assert.equal(appSource.match(/\bbindGraphPanZoom\(/g)?.length, 3);
+  assert.equal(appSource.match(/\bbindTypeGraphNodes\(/g)?.length, 1);
+  assert.equal(appSource.match(/\bbindDependencyGraphNodes\(/g)?.length, 1);
+  assert.equal(appSource.match(/\bcallGraphNodeBinding\(/g)?.length, 2);
+  assert.doesNotMatch(
+    `${typeGraph}\n${dependencyGraph}\n${callGraph}`,
+    /\.addEventListener\(|querySelectorAll<SVGGElement>\("g\.node"\)/);
+  assert.doesNotMatch(
+    appSource,
+    /function (?:attachGraphPanZoom|graphTargetForSvgNode)\(/);
+  assert.doesNotMatch(
+    appSource,
+    /document\.querySelector\("\[data-graph-back\]"\)/);
+  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 4);
 });
 
 test("typed document inspection owns package document request coordination", () => {
@@ -2105,8 +2195,11 @@ test("dependency graph binds navigation to generated node identities", () => {
     graphSource,
     /const nodeInfoById = new Map<string, DependencyGraphNodeInfo>\(\);[\s\S]*for \(const key of keys\)[\s\S]*if \(id && info\) nodeInfoById\.set\(id, info\)/);
   assert.match(
+    graphInteractionsSource,
+    /const dataId = node\.getAttribute\("data-id"\);[\s\S]*return dataId \|\| idMatch\?\.\[1\] \|\| ""/);
+  assert.match(
     appSource,
-    /const nodeId = dataId \|\| idMatch\?\.\[1\];\s*const info = nodeId \? built\.nodeInfoById\.get\(nodeId\) : null/);
+    /bindDependencyGraphNodes\(viewport, nodeId => \{[\s\S]*built\.nodeInfoById\.get\(nodeId\)/);
   assert.doesNotMatch(appSource, /nodeInfoByLabel/);
   assert.match(
     appSource,
