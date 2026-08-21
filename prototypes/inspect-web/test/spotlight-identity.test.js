@@ -501,6 +501,36 @@ test("typed status bar owns its rendered toggle binding", () => {
     3);
 });
 
+test("typed package bar owns package framework and version selection bindings", () => {
+  const packageBarCreation =
+    appSource.match(/const packageBar = createPackageBar\(\{[\s\S]*?\n}\);/)?.[0]
+    ?? "";
+  const packageBarBinding =
+    packageBarSource.match(/  function bind\(root: ParentNode\): void \{[\s\S]*?\n  }(?=\n\n  return)/)?.[0]
+    ?? "";
+  const workspaceBinding =
+    appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
+    ?? "";
+  assert.match(
+    packageBarCreation,
+    /selectFramework: switchPackageFramework,[\s\S]*selectVersion: version => \{[\s\S]*state\.package\?\.isRuntimePack[\s\S]*switchPlatformVersion\(version\);[\s\S]*else switchPackageVersion\(version\)/);
+  assert.match(
+    packageBarSource,
+    /export function bindPackageSelections\([\s\S]*\[data-framework-chip\][\s\S]*#framework[\s\S]*#package-version/);
+  assert.match(
+    packageBarBinding,
+    /bindPackageSelections\(root, \{\s*onFrameworkSelect: selectFramework,\s*onVersionSelect: selectVersion,\s*\}\)/);
+  assert.equal(
+    workspaceBinding.match(/\bpackageBar\.bind\(document\)/g)?.length,
+    1);
+  assert.doesNotMatch(
+    workspaceBinding,
+    /document\.querySelectorAll(?:<HTMLElement>)?\("\[data-framework-chip\]"\)/);
+  assert.doesNotMatch(
+    workspaceBinding,
+    /document\.querySelector(?:<HTMLSelectElement>)?\("#(?:framework|package-version)"\)/);
+});
+
 test("typed package inspection owns package-root request coordination", () => {
   const dependenciesLoader =
     appSource.match(/async function loadPackageDependencies\(\) \{[\s\S]*?\n}/)?.[0]
@@ -2615,8 +2645,9 @@ test("closing a package removes its coordinate and selects the adjacent tab", ()
 
 test("workspace UI routes replacements and restore notices through bounded paths", () => {
   assert.match(
-    appSource,
-    /switchPackageFramework\(button\.dataset\.frameworkChip \?\? ""\)/);
+    packageBarSource,
+    /onFrameworkSelect\(button\.dataset\.frameworkChip \?\? ""\)/);
+  assert.match(appSource, /selectFramework: switchPackageFramework/);
   assert.match(appSource, /switchPackageFramework\(argument\)/);
   assert.doesNotMatch(
     appSource,

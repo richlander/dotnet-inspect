@@ -725,11 +725,12 @@ package/library fields, the metadata- and source-signature cache keys, and the
 metadata/source panels' loading, error, and loaded states.
 
 `src/package-bar.ts` owns the package tab strip (including the always-present
-Platform tab), the open-package query form, and their keyboard/mouse/wheel
-interaction. `dotnet-inspect.ts` supplies the workspace effects — selecting, closing, and
-opening a package or the runtime pack — so the component acquires no engine or
-workspace authority. `test/package-bar.test.ts` gates tab markup, active/close
-state, escaping, and open-package query parsing.
+Platform tab), the open-package query form, package framework/version controls,
+and their keyboard/mouse/wheel interaction. `dotnet-inspect.ts` supplies the
+workspace effects — selecting, closing, opening, or changing a package or the
+runtime pack — so the component acquires no engine or workspace authority.
+`test/package-bar.test.ts` gates tab markup, active/close state, escaping,
+open-package query parsing, and package selection dispatch.
 
 `src/settings-panel.ts` owns the Settings page and the decompiler "taste"
 popover it shares its style catalog with, including each surface's rendered DOM

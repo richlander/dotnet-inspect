@@ -1127,6 +1127,20 @@ const packageBar = createPackageBar({
     observeAsync(openRuntimePackFromHome(), "Opening the .NET Platform"),
   openPackage: (packageId, version) =>
     observeAsync(loadPackage(packageId, version, ""), "Opening a package"),
+  selectFramework: framework =>
+    observeAsync(
+      switchPackageFramework(framework),
+      "Switching the package framework"),
+  selectVersion: version => {
+    if (state.package?.isRuntimePack)
+      observeAsync(
+        switchPlatformVersion(version),
+        "Switching the platform version");
+    else
+      observeAsync(
+        switchPackageVersion(version),
+        "Switching the package version");
+  },
   showToast,
 });
 
@@ -3915,11 +3929,6 @@ function bindEvents() {
   bindGraphSourceEvents();
   bindDocViewerEvents();
   bindAnnotatedSourceEvents();
-  document.querySelectorAll<HTMLElement>("[data-framework-chip]").forEach(button => button.addEventListener("click", () => {
-    observeAsync(
-      switchPackageFramework(button.dataset.frameworkChip ?? ""),
-      "Switching the package framework");
-  }));
   document.querySelectorAll<HTMLElement>("[data-dep-group]").forEach(button => button.addEventListener("click", () => {
     const index = Number(button.dataset.depGroup);
     if (state.dependenciesGroupIndex === index) return;
@@ -4220,24 +4229,6 @@ function bindEvents() {
   bindPlatformLensPicker("data-platform-opportunities-library", "opportunities", loadPackageOpportunities);
   bindPlatformLensPicker("data-platform-analysis-library", "analysis", loadPackagePerformance);
   bindPlatformLensPicker("data-platform-metadata-library", "metadata", loadPackageMetadata);
-  const frameworkSelect = document.querySelector<HTMLSelectElement>("#framework");
-  frameworkSelect?.addEventListener("change", () => {
-    observeAsync(
-      switchPackageFramework(frameworkSelect.value),
-      "Switching the package framework");
-  });
-  const packageVersionSelect =
-    document.querySelector<HTMLSelectElement>("#package-version");
-  packageVersionSelect?.addEventListener("change", () => {
-    if (state.package?.isRuntimePack)
-      observeAsync(
-        switchPlatformVersion(packageVersionSelect.value),
-        "Switching the platform version");
-    else
-      observeAsync(
-        switchPackageVersion(packageVersionSelect.value),
-        "Switching the package version");
-  });
   observeAsync(ensurePackageVersions(state.package), "Loading package versions");
   if (state.package?.isRuntimePack)
     observeAsync(ensureDotnetReleases(), "Loading .NET release information");
