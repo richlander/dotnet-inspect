@@ -14,7 +14,10 @@ static partial class DtsEmitter
         ILInspector.JsExportSurface.JsExportSurface surface,
         TsBindGenDiagnostics? diagnostics = null)
     {
-        ValidatePropertyNames(surface.Records.Concat(surface.Enums));
+        ApiType[] declarationTypes =
+            [.. surface.Records, .. surface.Enums];
+        ValidateTypeNames(declarationTypes);
+        ValidatePropertyNames(declarationTypes);
 
         var knownTypeNames = new HashSet<string>(
             surface.Records.Select(r => r.Name).Concat(surface.Enums.Select(e => e.Name)),
@@ -98,26 +101,73 @@ static partial class DtsEmitter
         {
             foreach (ApiMember member in type.Members)
             {
-                if (member.JsonPropertyName is { } propertyName
-                    && propertyName.Any(char.IsControl))
-                {
-                    throw new UnsupportedWireContractException(
-                        $"{type.Name}.{member.Name} [JsonPropertyName]",
-                        "control-character JSON property names are not supported");
-                }
-
+                ValidatePropertyNameAttributes(
+                    $"{type.Name}.{member.Name} [JsonPropertyName]",
+                    member.JsonPropertyNameAttributeValues,
+                    member.JsonPropertyName);
             }
 
             foreach (FilteredJsonPropertyNameFact fact
                 in type.FilteredJsonPropertyNameFacts)
             {
-                if (fact.PropertyName.Any(char.IsControl))
-                {
-                    throw new UnsupportedWireContractException(
-                        $"{type.Name}.{FormatFilteredPropertyNameLocation(fact)}",
-                        "control-character JSON property names are not supported");
-                }
+                ValidatePropertyNameAttributes(
+                    $"{type.Name}.{FormatFilteredPropertyNameLocation(fact)}",
+                    fact.PropertyNames,
+                    legacyPropertyName: null);
             }
+        }
+    }
+
+    static void ValidateTypeNames(IEnumerable<ApiType> types)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (ApiType type in types)
+        {
+            if (!TsIdentifierRegex().IsMatch(type.Name))
+            {
+                throw new UnsupportedWireContractException(
+                    $"{type.FullName} type",
+                    "TypeScript declaration names must be identifiers");
+            }
+
+            if (!names.Add(type.Name))
+            {
+                throw new UnsupportedWireContractException(
+                    $"{type.Name} type",
+                    "multiple JSON types project to the same TypeScript declaration name");
+            }
+        }
+    }
+
+    static void ValidatePropertyNameAttributes(
+        string location,
+        IReadOnlyList<string?> propertyNames,
+        string? legacyPropertyName)
+    {
+        if (propertyNames.Count == 0)
+        {
+            if (legacyPropertyName is not null)
+                ValidatePropertyName(location, legacyPropertyName);
+            return;
+        }
+
+        if (propertyNames.Count != 1 || propertyNames[0] is not { } propertyName)
+        {
+            throw new UnsupportedWireContractException(
+                location,
+                "duplicate or malformed JsonPropertyName attributes are not supported");
+        }
+
+        ValidatePropertyName(location, propertyName);
+    }
+
+    static void ValidatePropertyName(string location, string propertyName)
+    {
+        if (propertyName.Any(char.IsControl))
+        {
+            throw new UnsupportedWireContractException(
+                location,
+                "control-character JSON property names are not supported");
         }
     }
 

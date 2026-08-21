@@ -398,12 +398,12 @@ public static partial class AttributeReader
         Action<int>? beforeMaterialize = null)
         => HasAttribute(reader, attributes, JsonIgnoreAttributeName, beforeMaterialize);
 
-    public static bool TryGetJsonPropertyName(
+    public static List<string?> ReadJsonPropertyNames(
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
-        out string? propertyName,
         Action<int>? beforeMaterialize = null)
     {
+        var propertyNames = new List<string?>();
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
@@ -411,12 +411,17 @@ public static partial class AttributeReader
             if (attrName != JsonPropertyNameAttributeName)
                 continue;
 
-            if (TryGetSingleStringFixedArgument(reader, attr, out propertyName, beforeMaterialize))
-                return true;
+            propertyNames.Add(
+                TryGetSingleStringFixedArgument(
+                    reader,
+                    attr,
+                    out string? propertyName,
+                    beforeMaterialize)
+                    ? propertyName
+                    : null);
         }
 
-        propertyName = null;
-        return false;
+        return propertyNames;
     }
 
     public static bool TryGetJsonSourceGenerationPropertyNamingPolicy(

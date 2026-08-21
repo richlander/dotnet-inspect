@@ -47,6 +47,24 @@ internal sealed class JsonIncludedFieldNestedFixture
     public string Value { get; set; } = "";
 }
 
+internal sealed class GetterAccessibilityFixture
+{
+    private string _setterOnly = "";
+
+    public string SetterOnlyAtWire { private get; set; } = "";
+
+    [JsonInclude]
+    public string IncludedPrivateGetter { private get; set; } = "";
+
+    public string PublicGetter { get; private set; } = "";
+
+    [JsonInclude]
+    public string NoGetter
+    {
+        set => _setterOnly = value;
+    }
+}
+
 internal enum ControlPropertyNameEnumFixture
 {
     [JsonPropertyName("enum\nbreak\r\t\u0001")]

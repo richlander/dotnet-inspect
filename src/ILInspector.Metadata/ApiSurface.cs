@@ -670,7 +670,7 @@ public sealed record FilteredJsonPropertyNameFact(
     FilteredJsonPropertyNameKind Kind,
     string? AssociatedMemberName,
     int MetadataToken,
-    string PropertyName);
+    List<string?> PropertyNames);
 
 public class ApiType
 {
@@ -885,6 +885,12 @@ public class ApiMember
     public int? GetterToken { get; set; }
     public int? SetterToken { get; set; }
 
+    [JsonIgnore]
+    public bool? HasGetter { get; set; }
+
+    [JsonIgnore]
+    public string? GetterAccessibility { get; set; }
+
     /// <summary>
     /// MethodDef tokens of an event's add/remove accessors when known. Serialized (like
     /// <see cref="GetterToken"/>/<see cref="SetterToken"/>) so JSON consumers can address an
@@ -955,6 +961,9 @@ public class ApiMember
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? JsonPropertyName { get; set; }
+
+    [JsonIgnore]
+    public List<string?> JsonPropertyNameAttributeValues { get; set; } = [];
 
     /// <summary>
     /// True if the member carries an [Obsolete] attribute.

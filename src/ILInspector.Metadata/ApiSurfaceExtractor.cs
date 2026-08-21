@@ -963,6 +963,11 @@ public static class ApiSurfaceExtractor
                     observeText,
                     observeDecodeWork,
                     observeAttributeMaterialize);
+                List<string?> jsonPropertyNames =
+                    AttributeReader.ReadJsonPropertyNames(
+                        reader,
+                        prop.GetCustomAttributes(),
+                        observeDecodeWork);
                 var member = new ApiMember
                 {
                     Name = DecodeString(
@@ -997,20 +1002,24 @@ public static class ApiSurfaceExtractor
                         reader,
                         prop.GetCustomAttributes(),
                         observeDecodeWork),
-                    JsonPropertyName = AttributeReader.TryGetJsonPropertyName(
-                        reader,
-                        prop.GetCustomAttributes(),
-                        out string? jsonPropertyName,
-                        observeDecodeWork)
-                        ? jsonPropertyName
+                    JsonPropertyName = jsonPropertyNames.Count == 1
+                        ? jsonPropertyNames[0]
                         : null,
+                    JsonPropertyNameAttributeValues = jsonPropertyNames,
                     Attributes = RenderMemberAttributes(
                         reader,
                         prop.GetCustomAttributes(),
                         observeText,
                         observeAttributeMaterialize),
                     GetterToken = accessors.Getter.IsNil ? null : MetadataTokens.GetToken(accessors.Getter),
-                    SetterToken = accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter)
+                    SetterToken = accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter),
+                    HasGetter = !accessors.Getter.IsNil,
+                    GetterAccessibility = accessors.Getter.IsNil
+                        ? null
+                        : GetAccessibility(
+                            reader.GetMethodDefinition(accessors.Getter)
+                                .Attributes
+                                & MethodAttributes.MemberAccessMask),
                 };
 
                 budget?.RetainMember(member);
@@ -1047,14 +1056,11 @@ public static class ApiSurfaceExtractor
                     reader,
                     field.Name,
                     observeDecodeWork);
-                string? jsonPropertyName =
-                    AttributeReader.TryGetJsonPropertyName(
+                List<string?> jsonPropertyNames =
+                    AttributeReader.ReadJsonPropertyNames(
                         reader,
                         field.GetCustomAttributes(),
-                        out string? extractedJsonPropertyName,
-                        observeDecodeWork)
-                    ? extractedJsonPropertyName
-                    : null;
+                        observeDecodeWork);
 
                 if (IsAutoPropertyBackingField(
                     reader,
@@ -1065,7 +1071,7 @@ public static class ApiSurfaceExtractor
                     observeText,
                     observeDecodeWork))
                 {
-                    if (jsonPropertyName is not null
+                    if (jsonPropertyNames.Count > 0
                         && autoPropertyBackingFields is not null
                         && autoPropertyBackingFields.TryGetValue(
                             fieldName,
@@ -1077,7 +1083,7 @@ public static class ApiSurfaceExtractor
                                     .AutoPropertyBackingField,
                                 backingField.PropertyName,
                                 MetadataTokens.GetToken(fieldHandle),
-                                jsonPropertyName));
+                                jsonPropertyNames));
                     }
                     continue;
                 }
@@ -1089,7 +1095,7 @@ public static class ApiSurfaceExtractor
                         FilteredJsonPropertyNameKind.CompilerNamedField,
                         associatedMemberName: null,
                         MetadataTokens.GetToken(fieldHandle),
-                        jsonPropertyName);
+                        jsonPropertyNames);
                     continue; // Skip compiler-generated (<...>) fields unless opted in
                 }
 
@@ -1105,7 +1111,7 @@ public static class ApiSurfaceExtractor
                         FilteredJsonPropertyNameKind.EventBackingField,
                         fieldName,
                         MetadataTokens.GetToken(fieldHandle),
-                        jsonPropertyName);
+                        jsonPropertyNames);
                     continue; // Skip a field-like event's private, compiler-generated backing field
                 }
 
@@ -1182,7 +1188,10 @@ public static class ApiSurfaceExtractor
                         reader,
                         field.GetCustomAttributes(),
                         observeDecodeWork),
-                    JsonPropertyName = jsonPropertyName,
+                    JsonPropertyName = jsonPropertyNames.Count == 1
+                        ? jsonPropertyNames[0]
+                        : null,
+                    JsonPropertyNameAttributeValues = jsonPropertyNames,
                     Attributes = RenderMemberAttributes(
                         reader,
                         field.GetCustomAttributes(),
@@ -4467,16 +4476,16 @@ public static class ApiSurfaceExtractor
         FilteredJsonPropertyNameKind kind,
         string? associatedMemberName,
         int metadataToken,
-        string? propertyName)
+        List<string?> propertyNames)
     {
-        if (propertyName is not null)
+        if (propertyNames.Count > 0)
         {
             type.FilteredJsonPropertyNameFacts.Add(
                 new FilteredJsonPropertyNameFact(
                     kind,
                     associatedMemberName,
                     metadataToken,
-                    propertyName));
+                    propertyNames));
         }
     }
 
@@ -4513,7 +4522,8 @@ public static class ApiSurfaceExtractor
             in type.FilteredJsonPropertyNameFacts)
         {
             AddText(ref count, fact.AssociatedMemberName);
-            AddText(ref count, fact.PropertyName);
+            foreach (string? propertyName in fact.PropertyNames)
+                AddText(ref count, propertyName);
         }
         foreach (TypeParameter parameter in type.TypeParameters)
             AddText(ref count, parameter);
@@ -4537,6 +4547,11 @@ public static class ApiSurfaceExtractor
         AddText(ref count, member.DeclaringTypeCanonicalName);
         AddText(ref count, member.EnumValueLiteral);
         AddText(ref count, member.JsonPropertyName);
+        foreach (string? propertyName
+            in member.JsonPropertyNameAttributeValues)
+        {
+            AddText(ref count, propertyName);
+        }
         return count;
     }
 

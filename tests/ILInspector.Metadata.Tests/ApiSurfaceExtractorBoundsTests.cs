@@ -346,7 +346,7 @@ public sealed class ApiSurfaceExtractorBoundsTests
                     FilteredJsonPropertyNameKind.AutoPropertyBackingField,
                     "Value",
                     0x04000001,
-                    "backing_wire_name"),
+                    ["backing_wire_name"]),
             ],
         };
 

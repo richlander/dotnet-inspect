@@ -271,6 +271,44 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     [Fact]
+    public void Extract_CapturesPropertyGetterAccessibility()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(GetterAccessibilityFixture).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+
+        ApiType record = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(GetterAccessibilityFixture));
+        ApiMember setterOnly = Assert.Single(
+            record.Members,
+            member => member.Name == "SetterOnlyAtWire");
+        ApiMember included = Assert.Single(
+            record.Members,
+            member => member.Name == "IncludedPrivateGetter");
+        ApiMember publicGetter = Assert.Single(
+            record.Members,
+            member => member.Name == "PublicGetter");
+        ApiMember noGetter = Assert.Single(
+            record.Members,
+            member => member.Name == "NoGetter");
+
+        Assert.True(setterOnly.HasGetter);
+        Assert.Equal("private", setterOnly.GetterAccessibility);
+        Assert.False(setterOnly.HasJsonInclude);
+        Assert.True(included.HasGetter);
+        Assert.Equal("private", included.GetterAccessibility);
+        Assert.True(included.HasJsonInclude);
+        Assert.True(publicGetter.HasGetter);
+        Assert.Null(publicGetter.GetterAccessibility);
+        Assert.False(noGetter.HasGetter);
+        Assert.True(noGetter.HasJsonInclude);
+    }
+
+    [Fact]
     public void Build_CapturesJsonPropertyNameAndJsonIgnoreFacts()
     {
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface(includeAll: true);

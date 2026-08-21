@@ -339,7 +339,9 @@ public sealed class DtsEmitterTests
             FilteredJsonPropertyNameKind.AutoPropertyBackingField,
             fact.Kind);
         Assert.Equal("Value", fact.AssociatedMemberName);
-        Assert.Equal("backing\nbreak\r\t\u0001", fact.PropertyName);
+        Assert.Equal(
+            ["backing\nbreak\r\t\u0001"],
+            fact.PropertyNames);
         var surface = new ILInspector.JsExportSurface.JsExportSurface
         {
             Records = [record],
@@ -396,12 +398,12 @@ public sealed class DtsEmitterTests
                     FilteredJsonPropertyNameKind.AutoPropertyBackingField,
                     "Value",
                     0x04000001,
-                    "unsafe\nname"),
+                    ["unsafe\nname"]),
                 new(
                     FilteredJsonPropertyNameKind.AutoPropertyBackingField,
                     "Value",
                     0x04000002,
-                    "safe"),
+                    ["safe"]),
             ],
         };
         var surface = new ILInspector.JsExportSurface.JsExportSurface
@@ -411,6 +413,108 @@ public sealed class DtsEmitterTests
 
         Assert.Throws<UnsupportedWireContractException>(
             () => DtsEmitter.Emit(surface));
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void Emit_RefusesDuplicateOrMalformedJsonPropertyNameAttributes(
+        bool malformed,
+        bool filtered)
+    {
+        List<string?> propertyNames = malformed
+            ? [null]
+            : ["safe", "unsafe\nname"];
+        var record = new ApiType
+        {
+            Name = "InvalidAttributeDto",
+        };
+        if (filtered)
+        {
+            record.FilteredJsonPropertyNameFacts =
+            [
+                new(
+                    FilteredJsonPropertyNameKind.CompilerNamedField,
+                    AssociatedMemberName: null,
+                    0x04000001,
+                    propertyNames),
+            ];
+        }
+        else
+        {
+            record.Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    JsonPropertyNameAttributeValues = propertyNames,
+                },
+            ];
+        }
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records = [record],
+        };
+
+        UnsupportedWireContractException exception =
+            Assert.Throws<UnsupportedWireContractException>(
+                () => DtsEmitter.Emit(surface));
+
+        Assert.Contains(
+            "duplicate or malformed JsonPropertyName attributes are not supported",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("unsafe\nname", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_RefusesNestedTypeDeclarationNames()
+    {
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records =
+            [
+                new ApiType
+                {
+                    Namespace = "Example",
+                    Name = "Outer.Inner",
+                },
+            ],
+        };
+
+        UnsupportedWireContractException exception =
+            Assert.Throws<UnsupportedWireContractException>(
+                () => DtsEmitter.Emit(surface));
+
+        Assert.Contains(
+            "TypeScript declaration names must be identifiers",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_RefusesDuplicateTypeDeclarationNames()
+    {
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records =
+            [
+                new ApiType { Namespace = "A", Name = "Widget" },
+                new ApiType { Namespace = "B", Name = "Widget" },
+            ],
+        };
+
+        UnsupportedWireContractException exception =
+            Assert.Throws<UnsupportedWireContractException>(
+                () => DtsEmitter.Emit(surface));
+
+        Assert.Contains(
+            "multiple JSON types project to the same TypeScript declaration name",
+            exception.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -529,6 +633,31 @@ public sealed class DtsEmitterTests
             "  Child: JsonIncludedFieldNestedFixture;",
             dts,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_UsesGetterAccessibilityForCompiledProperties()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(GetterAccessibilityFixture).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType record = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(GetterAccessibilityFixture));
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records = [record],
+        };
+
+        string dts = DtsEmitter.Emit(surface);
+
+        Assert.DoesNotContain("SetterOnlyAtWire", dts, StringComparison.Ordinal);
+        Assert.DoesNotContain("NoGetter", dts, StringComparison.Ordinal);
+        Assert.Contains("  IncludedPrivateGetter: string;", dts, StringComparison.Ordinal);
+        Assert.Contains("  PublicGetter: string;", dts, StringComparison.Ordinal);
     }
 
     [Fact]

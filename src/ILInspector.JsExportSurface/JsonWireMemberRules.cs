@@ -15,10 +15,22 @@ public static class JsonWireMemberRules
 
         return member.Kind switch
         {
-            "property" => member.Accessibility is null
-                || member.HasJsonInclude,
+            "property" => IsSerializedProperty(member),
             "field" => member.HasJsonInclude,
             _ => false,
         };
+    }
+
+    static bool IsSerializedProperty(ApiMember member)
+    {
+        if (member.HasGetter is false)
+            return false;
+
+        if (member.HasJsonInclude)
+            return true;
+
+        return member.HasGetter is true
+            ? member.GetterAccessibility is null
+            : member.Accessibility is null;
     }
 }
