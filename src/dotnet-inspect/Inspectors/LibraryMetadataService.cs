@@ -1,5 +1,6 @@
 using DotnetInspector.Core;
 using DotnetInspector.Models;
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Reflection;
 using DotnetInspector.Inspectors;
@@ -69,9 +70,7 @@ internal static class LibraryMetadataService
                 trace?.RecordQueryClosure(requiredQueries);
             var bodyAnalysisFeatures = SelectBodyAnalysisFeatures(
                 requiredScanners,
-                requiredQueries,
-                options.BodyKindQuery.HasFilter
-                    && options.PerformanceTriage.HasCandidateFilters);
+                requiredQueries);
             bool needsBodyReferenceResolver =
                 bodyAnalysisFeatures.HasFlag(
                     Analysis.LibraryBodyAnalysisFeatures
@@ -120,6 +119,9 @@ internal static class LibraryMetadataService
                                 path,
                                 logger.Log);
             var pdbContext = service.Context;
+            bool projectOptimizationOpportunities =
+                options.IncludeSections is null
+                || options.IncludeSections.Overlaps(PerformanceKinds.Sections);
             var sourceLinkQueryContext = new SourceLinkQueryContext(
                 service,
                 FindingSubjectFor(path),
@@ -168,6 +170,7 @@ internal static class LibraryMetadataService
                         queryRegistry,
                         requiredQueries,
                         queryContext,
+                        projectOptimizationOpportunities,
                         trace).ConfigureAwait(false);
                 }
 
@@ -308,6 +311,7 @@ internal static class LibraryMetadataService
                         queryRegistry,
                         requiredQueries,
                         scannerContext,
+                        projectOptimizationOpportunities,
                         trace).ConfigureAwait(false);
                 }
 
@@ -521,8 +525,7 @@ internal static class LibraryMetadataService
 
     static Analysis.LibraryBodyAnalysisFeatures SelectBodyAnalysisFeatures(
         IReadOnlySet<string>? scanners,
-        IReadOnlySet<InspectionQueryDefinition>? queries,
-        bool composedBodyShapeQuery)
+        IReadOnlySet<InspectionQueryDefinition>? queries)
     {
         var features = Analysis.LibraryBodyAnalysisFeatures.None;
         if (queries?.Contains(TopLeverageQuery.Definition) == true
@@ -530,13 +533,7 @@ internal static class LibraryMetadataService
         {
             features |= Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
         }
-        if (scanners?.Contains(
-                Sections.LibrarySections.ScannerOptimizationOpportunities) == true)
-        {
-            features |=
-                Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities;
-        }
-        if (composedBodyShapeQuery)
+        if (queries?.Contains(OptimizationOpportunitiesQuery.Definition) == true)
         {
             features |=
                 Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities;
@@ -1369,7 +1366,7 @@ internal static class LibraryMetadataService
         public IdentifierConfusionAuditFailureKind FailureKind { get; }
     }
 
-    private static string FormatMethod(Analysis.MethodIdentity method)
+    internal static string FormatMethod(Analysis.MethodIdentity method)
         => $"{method.DeclaringType.ToQualifiedDisplayString()}.{method.Name}({string.Join(", ", method.ParameterTypes.Select(p => p.ToQualifiedDisplayString()))})";
 
     // Compiler/source-generated implementation details (display classes, state machines,
@@ -1481,51 +1478,6 @@ internal static class LibraryMetadataService
         }
     }
 
-    /// <summary>
-    /// Collects safe, local optimization opportunities across the whole assembly. Emits the
-    /// filtered set in triage priority order so the highest-value pay-dirt surfaces first.
-    /// </summary>
-    internal static List<OptimizationOpportunitySummary>? ScanOptimizationOpportunities(
-        Func<Analysis.LibraryBodyIndex> openIndex,
-        string path,
-        VerboseLogger logger,
-        PerformanceTriageOptions? options = null)
-    {
-        try
-        {
-            var index = openIndex();
-            ReportOptimizationDiagnostics(index);
-            var rows = FilterPerformanceOpportunities(index, options)
-                .Select(ProjectOptimizationOpportunity)
-                .ToList();
-            return rows.Count > 0 ? rows : null;
-        }
-
-        catch (CostDeclarationException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning optimization opportunities in {path}: {ex.Message}");
-            return null;
-        }
-    }
-
-    internal static IEnumerable<Analysis.OptimizationOpportunity>
-        FilterPerformanceOpportunities(
-            Analysis.LibraryBodyIndex index,
-            PerformanceTriageOptions? options)
-    {
-        var generatedFrameworkTypes = index.GeneratedFrameworkTypes;
-        return FilterAndOrderTriageOpportunities(
-            TriageOpportunities(index, options)
-                .Where(opportunity => IncludePerformanceOpportunity(
-                    opportunity,
-                    generatedFrameworkTypes)),
-            options);
-    }
-
     internal static IReadOnlySet<Analysis.MethodIdentity> PerformanceSourceMethods(
         IEnumerable<Analysis.OptimizationOpportunity> opportunities)
         => opportunities
@@ -1536,9 +1488,14 @@ internal static class LibraryMetadataService
     internal static void ReportOptimizationDiagnostics(
         Analysis.LibraryBodyIndex index,
         Func<Analysis.AnalysisDiagnostic, bool>? include = null)
+        => ReportOptimizationDiagnostics(index.Diagnostics, include);
+
+    internal static void ReportOptimizationDiagnostics(
+        IEnumerable<Analysis.AnalysisDiagnostic> diagnostics,
+        Func<Analysis.AnalysisDiagnostic, bool>? include = null)
     {
         foreach (Analysis.AnalysisDiagnostic diagnostic
-            in index.Diagnostics)
+            in diagnostics)
         {
             if (include is not null && !include(diagnostic))
                 continue;
@@ -2141,7 +2098,8 @@ internal static class LibraryMetadataService
         LibraryInspection inspection,
         VerboseLogger logger,
         InspectionQueryResults results,
-        ScannerContext scannerContext)
+        ScannerContext scannerContext,
+        bool projectOptimizationOpportunities)
     {
         if (results.TryGet(MetadataImageQuery.Definition, out MetadataImageResult? metadata))
         {
@@ -2175,6 +2133,18 @@ internal static class LibraryMetadataService
                 out UnsafeEvidenceResult? unsafeEvidence))
         {
             ApplyUnsafeEvidenceResult(path, inspection, logger, unsafeEvidence);
+        }
+
+        if (results.TryGet(
+                OptimizationOpportunitiesQuery.Definition,
+                out OptimizationOpportunitiesResult? optimizationOpportunities))
+        {
+            ApplyOptimizationOpportunitiesResult(
+                path,
+                inspection,
+                logger,
+                optimizationOpportunities,
+                projectOptimizationOpportunities);
         }
 
         if (results.TryGet(
@@ -2343,6 +2313,58 @@ internal static class LibraryMetadataService
             default:
                 throw new InvalidOperationException(
                     $"Unknown top leverage result '{result.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplyOptimizationOpportunitiesResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        OptimizationOpportunitiesResult result,
+        bool projectCompatibilityRows = true)
+    {
+        inspection.OptimizationOpportunitiesQueryResult = result;
+        inspection.PerformanceTriageOpportunities = [];
+        inspection.OptimizationOpportunities = null;
+
+        switch (result)
+        {
+            case OptimizationOpportunitiesResult.Available available:
+                ReportOptimizationDiagnostics(available.Diagnostics);
+                ImmutableArray<Analysis.OptimizationOpportunity> opportunities =
+                [
+                    .. FilterAndOrderTriageOpportunities(
+                        available.Opportunities
+                            .Concat(available.AllocationFanoutOpportunities)
+                            .Where(opportunity => IncludePerformanceOpportunity(
+                                opportunity,
+                                available.GeneratedFrameworkTypes)),
+                        inspection.PerformanceTriageOptions),
+                ];
+                inspection.PerformanceTriageOpportunities = opportunities;
+                if (projectCompatibilityRows)
+                {
+                    var rows = opportunities
+                        .Select(ProjectOptimizationOpportunity)
+                        .ToList();
+                    inspection.OptimizationOpportunities =
+                        rows.Count > 0 ? rows : null;
+                }
+                break;
+
+            case OptimizationOpportunitiesResult.NoMetadata:
+                break;
+
+            case OptimizationOpportunitiesResult.Failed failed:
+                logger.LogWarning(
+                    $"Error scanning optimization opportunities in {path}: "
+                    + failed.Error.Message);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    "Unknown optimization opportunities result "
+                    + $"'{result.GetType().Name}'.");
         }
     }
 
@@ -2805,6 +2827,7 @@ internal static class LibraryMetadataService
         InspectionQueryRegistry<ScannerContext> queryRegistry,
         HashSet<InspectionQueryDefinition> requiredQueries,
         ScannerContext scannerContext,
+        bool projectOptimizationOpportunities,
         Sections.InspectionTrace? trace)
     {
         Action<InspectionQueryDefinition, TimeSpan>? recordQuery = trace is null
@@ -2835,7 +2858,13 @@ internal static class LibraryMetadataService
             throw new InspectionQueryException("Typed query execution failed.", ex);
         }
 
-        ApplyQueryResults(path, inspection, logger, results, scannerContext);
+        ApplyQueryResults(
+            path,
+            inspection,
+            logger,
+            results,
+            scannerContext,
+            projectOptimizationOpportunities);
     }
 
     static FindingInspection<T> FailedInspection<T>(
