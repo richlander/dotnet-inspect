@@ -119,6 +119,7 @@ import {
   renderGraphSource as renderGraphSourcePure,
 } from "./graph-source.ts";
 import {
+  bindAnnotatedSource,
   renderAnnotatedSource as renderAnnotatedSourcePure,
   type AnnotatedSourceResult,
 } from "./annotated-source.ts";
@@ -3784,6 +3785,52 @@ function bindDocViewerEvents() {
   });
 }
 
+function bindAnnotatedSourceEvents() {
+  bindAnnotatedSource(document, {
+    onClearSelection: () => {
+      state.memberAnnotatedFactId = null;
+      state.memberAnnotatedNodeIds = [];
+      render();
+    },
+    onCopy: async () => {
+      if (state.memberAnnotated) {
+        await copyText(
+          state.memberAnnotated.document.text,
+          "annotated source copied");
+      }
+    },
+    onFactSelect: factId => {
+      state.memberAnnotatedFactId =
+        state.memberAnnotatedFactId === factId ? null : factId;
+      state.memberAnnotatedNodeIds = [];
+      render();
+    },
+    onMediumToggle: medium => {
+      if (!medium || !MEDIA.includes(medium as (typeof MEDIA)[number])) return;
+      const typedMedium = medium as (typeof MEDIA)[number];
+      const next = {
+        ...state.memberAnnotatedMedia,
+        [typedMedium]: !state.memberAnnotatedMedia[typedMedium],
+      };
+      // Both media off would look like a successful empty result.
+      if (!MEDIA.some(candidate => next[candidate])) return;
+      state.memberAnnotatedMedia = next;
+      render();
+    },
+    onOffsetSelect: offset => {
+      if (!state.memberAnnotated) return;
+      const node = nodeAtOffset(state.memberAnnotated.document, offset);
+      state.memberAnnotatedFactId = null;
+      state.memberAnnotatedNodeIds = node ? [node.id] : [];
+      const owning = node
+        ? factsForNode(state.memberAnnotated.document, node.id)
+        : [];
+      if (owning.length === 1) state.memberAnnotatedFactId = owning[0].id;
+      render();
+    },
+  });
+}
+
 function bindEvents() {
   bindStatusBarToggle();
   packageBar.bind(document);
@@ -3794,6 +3841,7 @@ function bindEvents() {
   bindPackageOpportunitiesEvents();
   bindGraphSourceEvents();
   bindDocViewerEvents();
+  bindAnnotatedSourceEvents();
   document.querySelectorAll<HTMLElement>("[data-framework-chip]").forEach(button => button.addEventListener("click", () => {
     switchPackageFramework(button.dataset.frameworkChip ?? "");
   }));
@@ -3977,43 +4025,6 @@ function bindEvents() {
   }));
   document.querySelector("#copy-source")?.addEventListener("click", async () => {
     if (state.memberSource) await copyText(state.memberSource.text, "source copied");
-  });
-  document.querySelector("#copy-annotated")?.addEventListener("click", async () => {
-    if (state.memberAnnotated) await copyText(state.memberAnnotated.document.text, "annotated source copied");
-  });
-  document.querySelectorAll<HTMLElement>("[data-annotated-medium]").forEach(button => button.addEventListener("click", () => {
-    const medium = button.dataset.annotatedMedium;
-    if (!medium || !MEDIA.includes(medium as (typeof MEDIA)[number])) return;
-    const typedMedium = medium as (typeof MEDIA)[number];
-    const next = {
-      ...state.memberAnnotatedMedia,
-      [typedMedium]: !state.memberAnnotatedMedia[typedMedium],
-    };
-    // Both media off would render an empty document that looks like an empty result.
-    if (!MEDIA.some(candidate => next[candidate])) return;
-    state.memberAnnotatedMedia = next;
-    render();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-annotated-fact]").forEach(button => button.addEventListener("click", () => {
-    const factId = Number(button.dataset.annotatedFact);
-    state.memberAnnotatedFactId = state.memberAnnotatedFactId === factId ? null : factId;
-    state.memberAnnotatedNodeIds = [];
-    render();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-annotated-offset]").forEach(span => span.addEventListener("click", () => {
-    if (!state.memberAnnotated) return;
-    const node = nodeAtOffset(state.memberAnnotated.document, Number(span.dataset.annotatedOffset));
-    state.memberAnnotatedFactId = null;
-    state.memberAnnotatedNodeIds = node ? [node.id] : [];
-    // Selecting the text a fact is about also selects that fact when exactly one owns the node.
-    const owning = node ? factsForNode(state.memberAnnotated.document, node.id) : [];
-    if (owning.length === 1) state.memberAnnotatedFactId = owning[0].id;
-    render();
-  }));
-  document.querySelector("#annotated-clear")?.addEventListener("click", () => {
-    state.memberAnnotatedFactId = null;
-    state.memberAnnotatedNodeIds = [];
-    render();
   });
   document.querySelector("#copy-type-source")?.addEventListener("click", async () => {
     if (state.typeSource) await copyText(state.typeSource.text, "source copied");

@@ -735,15 +735,17 @@ escaping in both the header and loading status, plus button/backdrop close
 dispatch.
 
 `src/annotated-source.ts` owns the annotated source result (the
-fact-annotated C#/IL dual view shown for a member overload) as a pure,
-dependency-injected render function; it composes `annotated-source-view.ts`'s
-`buildAnnotatedView` projection into markup. `member-detail-inspection.ts` owns
-the sequence-guarded async load lifecycle; `dotnet-inspect.ts` still owns
-`state` and the medium-toggle/fact-selection event handlers, and passes each
-computed slice in explicitly.
+fact-annotated C#/IL dual view shown for a member overload), including its
+rendered copy, medium, fact, source-offset, and clear-selection bindings; it
+composes `annotated-source-view.ts`'s `buildAnnotatedView` projection into
+markup. `member-detail-inspection.ts` owns the sequence-guarded async load
+lifecycle; `dotnet-inspect.ts` still owns `state`, document interpretation,
+copy/render effects, and the selection transitions, supplying them through
+typed callbacks.
 `test/annotated-source.test.ts` gates the rejected-document fallback, the
 medium toggles and hidden-line count, the context-limitation notice, anchored
-versus unanchored fact rendering, selection state, and source-text escaping.
+versus unanchored fact rendering, selection state, binding dispatch and
+malformed dataset behavior, and source-text escaping.
 
 `src/package-opportunities.ts` owns the package/platform "Integration
 opportunities" lens (the ecosystem auth/cloud/config/database/AI-client
