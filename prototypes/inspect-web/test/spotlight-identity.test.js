@@ -522,6 +522,9 @@ test("typed scope bar owns its rendered control bindings", () => {
 });
 
 test("typed settings panel owns its rendered control bindings", () => {
+  assert.match(
+    appSource,
+    /import \{(?=[^}]*\bbindSettingsPanel,)[^}]*} from "\.\/settings-panel\.ts";/);
   const binding =
     appSource.match(
       /function bindSettingsPanelEvents\(\) \{\s*bindSettingsPanel\(document, \{\s*onClose: closeSettings,\s*onOpen: openSettings,\s*onTasteClear: clearTaste,\s*onTasteOpenToggle: \(\) => \{\s*state\.tasteOpen = !state\.tasteOpen;\s*render\(\);\s*},\s*onTasteToggle: toggleTaste,\s*onThemeSelect: setTheme,\s*}\);\s*}(?=\s*function bindPackageOpportunitiesEvents\(\))/)?.[0]
@@ -553,7 +556,7 @@ test("typed settings panel owns its rendered control bindings", () => {
     .map(({ source }) => source)
     .join("\n");
   const entrySelectorAccess =
-    /(?:querySelector(?:All)?(?:<[^>\n]+>)?|getElementById)\(\s*(["'`])#?(?:home-settings|open-settings|taste-btn)\1\s*\)/g;
+    /(?:querySelector(?:All)?\s*(?:<[^>\n]+>)?|getElementById)\s*\(\s*(["'`])#?(?:home-settings|open-settings|taste-btn)\1\s*\)/g;
   assert.equal(nonSettingsPanelSource.match(entrySelectorAccess)?.length ?? 0, 0);
   assert.equal(settingsPanelSource.match(entrySelectorAccess)?.length, 3);
   for (const selector of ["#home-settings", "#open-settings"]) {
