@@ -20,6 +20,14 @@ public static class DemoCommand
 
     public static int ExecuteList(OutputFormat format = OutputFormat.Markdown, bool noHeader = false)
     {
+        if (format is OutputFormat.Mermaid)
+        {
+            CommandError.Write(
+                "--mermaid is not supported for demo list. "
+                + "Run a Call Graph home demo with --mermaid (for example 'demo extensions-callgraph --mermaid').");
+            return 1;
+        }
+
         if (format == OutputFormat.Json)
         {
             var rows = ProductInspectionDemos.Entries
@@ -291,8 +299,9 @@ public static class DemoScenarioRunner
     /// Format-aware section expansion for a closed home-demo binding.
     /// Markdown: Call Graph + Callers. Table/tsv/jsonl: Callers only (survives
     /// MemberCommand's caller-scope Callers inject). Standalone mermaid: Call
-    /// Graph only. Structured document JSON is rejected for Call Graph demos
-    /// until graph sections project into that payload.
+    /// Graph only. Embedded mermaid requires a Call Graph bind (member pipeline)
+    /// and keeps the Markdown companion set. Structured document JSON is rejected
+    /// for Call Graph/Callers binds until those sections project into that payload.
     /// </summary>
     private static bool TryResolveRunSections(
         string boundSection,
@@ -306,22 +315,25 @@ public static class DemoScenarioRunner
 
         var isCallGraph = string.Equals(
             boundSection, ProductDemoSections.CallGraph, StringComparison.Ordinal);
+        var isCallers = string.Equals(
+            boundSection, ProductDemoSections.Callers, StringComparison.Ordinal);
+        var wantsMermaid = format is OutputFormat.Mermaid || embeddedMermaid;
+
+        if (wantsMermaid && !isCallGraph)
+        {
+            error =
+                $"--mermaid requires a Call Graph home demo (got bound section '{boundSection}'). "
+                + "Use default Markdown or another format for Methods demos.";
+            return false;
+        }
 
         if (format is OutputFormat.Mermaid && !embeddedMermaid)
         {
-            if (!isCallGraph)
-            {
-                error =
-                    $"--mermaid requires a Call Graph home demo (got bound section '{boundSection}'). "
-                    + "Use default Markdown or another format for Methods demos.";
-                return false;
-            }
-
             runSections = [ProductDemoSections.CallGraph];
             return true;
         }
 
-        if (format is OutputFormat.Json && isCallGraph)
+        if (format is OutputFormat.Json && (isCallGraph || isCallers))
         {
             error =
                 "--json cannot represent Call Graph/Callers section output yet. "

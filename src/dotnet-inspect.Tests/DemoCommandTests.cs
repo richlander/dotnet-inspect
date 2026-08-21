@@ -319,6 +319,31 @@ public class DemoCommandTests
     }
 
     [Fact]
+    public async Task Cli_DemoMethods_EmbeddedMermaid_FailsClosed()
+    {
+        var (exitCode, output, error) = await RunCliAsync(
+            "demo",
+            ProductInspectionDemos.StjSerializerScenarioId,
+            "--markdown",
+            "--mermaid");
+
+        Assert.Equal(1, exitCode);
+        Assert.DoesNotContain("graph TD", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("## Methods", output, StringComparison.Ordinal);
+        Assert.Contains("--mermaid requires a Call Graph home demo", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Cli_DemoList_Mermaid_FailsClosed()
+    {
+        var (exitCode, output, error) = await RunCliAsync("demo", "--mermaid");
+
+        Assert.Equal(1, exitCode);
+        Assert.DoesNotContain("stj-serializer", output, StringComparison.Ordinal);
+        Assert.Contains("--mermaid is not supported for demo list", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Cli_DemoCallGraph_Table_EmitsCallersRows()
     {
         var (exitCode, output, error) = await RunCliAsync(
