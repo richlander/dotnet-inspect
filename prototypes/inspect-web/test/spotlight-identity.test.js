@@ -608,6 +608,9 @@ test("typed scope bar owns its rendered control bindings", () => {
 });
 
 test("typed settings panel owns its rendered control bindings", () => {
+  const binding =
+    appSource.match(/function bindSettingsPanelEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction bindPackageOpportunitiesEvents)/)?.[0]
+    ?? "";
   const bindEvents =
     appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
     ?? "";
@@ -615,11 +618,14 @@ test("typed settings panel owns its rendered control bindings", () => {
     appSource.match(/function renderSettingsViewHtml\(\) \{[\s\S]*?\n}\n\nfunction renderGraphSource/)?.[0]
     ?? "";
   const bindHomeEvents =
-    appSource.match(/function bindHomeEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
+    appSource.match(/function bindHomeEvents\(\) \{[\s\S]*?\n}(?=\n\n\/\/ The two package demos)/)?.[0]
     ?? "";
   assert.match(
-    appSource,
-    /function bindSettingsPanelEvents\(\) \{\s*bindSettingsPanel\(document, \{\s*onClose: closeSettings,\s*onOpen: openSettings,\s*onTasteClear: clearTaste,\s*onTasteOpenToggle: \(\) => \{[\s\S]*state\.tasteOpen = !state\.tasteOpen;[\s\S]*render\(\);[\s\S]*\},\s*onTasteToggle: toggleTaste,\s*onThemeSelect: setTheme,/);
+    binding,
+    /bindSettingsPanel\(document, \{\s*onClose: closeSettings,\s*onOpen: openSettings,\s*onTasteClear: clearTaste,\s*onTasteOpenToggle: \(\) => \{[\s\S]*state\.tasteOpen = !state\.tasteOpen;[\s\S]*render\(\);[\s\S]*\},\s*onTasteToggle: toggleTaste,\s*onThemeSelect: setTheme,/);
+  assert.doesNotMatch(
+    binding,
+    /\bquerySelector(?:All)?\b|\baddEventListener\b/);
   assert.equal(
     appSource.match(/\bbindSettingsPanelEvents\b/g)?.length,
     4);
