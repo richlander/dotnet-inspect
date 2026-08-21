@@ -14,7 +14,6 @@ function escapeHtml(value: unknown) {
 const result = {
   document: sampleDocument,
   provenance: "decompiled from IL",
-  contextLimitation: null,
 };
 
 test("an invalid document is rejected with a message instead of throwing", () => {

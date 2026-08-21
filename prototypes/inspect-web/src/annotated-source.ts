@@ -14,8 +14,13 @@ export type AnnotatedSourceResult = Omit<BrowserAnnotatedSource, "document"> & {
   document: AnnotatedSourceDocument;
 };
 
+export type AnnotatedSourceRenderResult =
+  Omit<BrowserAnnotatedSource, "contextLimitation"> & {
+    contextLimitation?: BrowserAnnotatedSource["contextLimitation"];
+  };
+
 export interface RenderAnnotatedSourceOptions {
-  result: BrowserAnnotatedSource;
+  result: AnnotatedSourceRenderResult;
   media: AnnotatedViewState["media"];
   selectedFactId: AnnotatedViewState["selectedFactId"];
   selectedNodeIds: AnnotatedViewState["selectedNodeIds"];
