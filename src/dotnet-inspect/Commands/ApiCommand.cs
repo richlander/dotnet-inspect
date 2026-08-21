@@ -688,11 +688,8 @@ public class ApiCommand
                 .ToArray();
         }
         var memberPipelineRequiresLookup = structuralDetailOptions is null
-            && options is MemberOptions
-        {
-            MemberFilter.Count: 0,
-            TypeName: { } memberTypeName
-        } && FqnParser.LastTopLevelDot(memberTypeName) > 0;
+            && options is MemberOptions pipelineOptions
+            && RequiresMemberPipelineLookup(pipelineOptions);
         var deferMemberSelection = memberPipelineRequiresLookup
             && options.IncludeSections is null
             && (options.Select is not null
