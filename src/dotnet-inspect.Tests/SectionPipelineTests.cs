@@ -6836,7 +6836,7 @@ public class SectionPipelineTests
     public void ApiMemberPipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        Assert.Equal(32, pipeline.AllSectionNames.Length);
+        Assert.Equal(28, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -6870,13 +6870,14 @@ public class SectionPipelineTests
         Assert.Contains("Extension Methods", names);
         Assert.Contains("Events", names);
         Assert.Contains("Source Files", names);
-        Assert.Contains("IL", names);
         Assert.Contains("Decompiled Source", names);
-        Assert.Contains("Original Source", names);
-        Assert.Contains("Source Diff", names);
         Assert.Contains("Custom Attributes", names);
         Assert.Contains("Called Types", names);
         Assert.Contains("Top Leverage", names);
+        Assert.DoesNotContain("IL", names);
+        Assert.DoesNotContain("Original Source", names);
+        Assert.DoesNotContain("Source Diff", names);
+        Assert.DoesNotContain("Facts", names);
     }
 
     [Fact]

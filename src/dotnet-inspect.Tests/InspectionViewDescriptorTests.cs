@@ -1016,7 +1016,7 @@ public class InspectionViewDescriptorTests
     }
 
     [Fact]
-    public void TypeDiscovery_IncludesStructurallyBodyBackedViews()
+    public void TypeDiscovery_OmitsMemberOnlyBodyBackedViews()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
         var model = new ApiType
@@ -1036,9 +1036,11 @@ public class InspectionViewDescriptorTests
 
         IReadOnlyList<string> discoverable = pipeline.GetDiscoverableSections(model);
 
-        Assert.Contains(SectionNames.IL, discoverable);
         Assert.Contains(SectionNames.DecompiledSource, discoverable);
-        Assert.Contains(SectionNames.OriginalSource, discoverable);
+        Assert.DoesNotContain(SectionNames.IL, discoverable);
+        Assert.DoesNotContain(SectionNames.OriginalSource, discoverable);
+        Assert.DoesNotContain(SectionNames.SourceDiff, discoverable);
+        Assert.DoesNotContain(SectionNames.Facts, discoverable);
         Assert.DoesNotContain(SectionNames.SourceFiles, discoverable);
     }
 

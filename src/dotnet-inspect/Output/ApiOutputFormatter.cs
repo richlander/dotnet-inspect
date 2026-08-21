@@ -2541,7 +2541,8 @@ public static class ApiOutputFormatter
                     declaredMethodTokens.Contains(diagnostic.MethodToken)
                     || diagnostic.DeclaringType is { } declaringType
                         && ApiAnalysisInspection.SameType(declaringType, type)
-                    || diagnostic.DeclaringTypeToken == type.MetadataToken)
+                    || diagnostic.DeclaringTypeToken is { } declaringTypeToken
+                        && type.MetadataToken == declaringTypeToken)
                 .Select(diagnostic =>
                 {
                     var row = new UnsafeMemberRow(

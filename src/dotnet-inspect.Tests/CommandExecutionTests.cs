@@ -6517,6 +6517,7 @@ public partial class CommandExecutionTests
         };
         var options = new MemberOptions
         {
+            OverloadIndex = 1,
             JsonOutput = true,
             MemberSourceTooComplex = true,
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -6569,6 +6570,7 @@ public partial class CommandExecutionTests
         {
             var options = candidate with
             {
+                OverloadIndex = 1,
                 MemberSourceTooComplex = !coordinatesInvalid,
                 MemberSourceCoordinatesInvalid = coordinatesInvalid,
                 IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -6619,6 +6621,7 @@ public partial class CommandExecutionTests
         {
             var options = candidate with
             {
+                OverloadIndex = 1,
                 MemberSourceTooComplex = !coordinatesInvalid,
                 MemberSourceCoordinatesInvalid = coordinatesInvalid,
                 IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -6666,6 +6669,7 @@ public partial class CommandExecutionTests
         {
             var options = candidate with
             {
+                OverloadIndex = 1,
                 MemberSourceTooComplex = true,
                 IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                     { section },
@@ -6699,6 +6703,7 @@ public partial class CommandExecutionTests
         };
         var options = new MemberOptions
         {
+            OverloadIndex = 1,
             JsonOutput = true,
             Print = true,
             MemberSourceTooComplex = true,
@@ -6734,6 +6739,7 @@ public partial class CommandExecutionTests
         };
         var options = new MemberOptions
         {
+            OverloadIndex = 1,
             Bare = true,
             MemberSourceTooComplex = true,
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -15160,9 +15166,10 @@ public partial class CommandExecutionTests
         if (command is ["library", ..] && section == "Context: Source Location")
             args.AddRange(["--il-offset", "0x06000041+0x0"]);
         args.AddRange(["-S", section]);
-        args.Add(section == SectionNames.AnnotatedSource
-            ? "--print"
-            : "--table");
+        if (section == SectionNames.AnnotatedSource)
+            args.Add("--print");
+        else if (!ApiCommand.IsCodePayloadSection(section))
+            args.Add("--table");
         args.AddRange(["--tips", "q", "-n", "40"]);
         return [.. args];
     }

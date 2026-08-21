@@ -1747,7 +1747,10 @@ public class ApiCommand
             options.Bare && !options.Count && !options.JsonOutput;
         if (options.Tabular
             && !IsProjectionRequested(options)
-            && GetRequestedMemberSections(type, options)
+            && !barePayloadRenderer
+            && options is not MemberOptions { MemberSourceTooComplex: true }
+            && options is not MemberOptions { MemberSourceCoordinatesInvalid: true }
+            && options.IncludeSections?
                 .FirstOrDefault(CodePayloadSections.Contains) is { } codeSection)
         {
             string format = options.Jsonl
@@ -3215,6 +3218,9 @@ public class ApiCommand
             SectionNames.SourceDiff,
             SectionNames.IL,
         };
+
+    internal static bool IsCodePayloadSection(string section)
+        => CodePayloadSections.Contains(section);
 
     private static bool ShouldRenderMemberIndex(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.MemberIndex) == true;
