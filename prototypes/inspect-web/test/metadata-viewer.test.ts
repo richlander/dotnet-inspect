@@ -55,6 +55,7 @@ class FakeElement {
 class FakeRoot {
   private readonly single = new Map<string, FakeElement>();
   private readonly multiple = new Map<string, FakeElement[]>();
+  readonly queriedSelectors = new Set<string>();
 
   add(selector: string, element: FakeElement) {
     this.single.set(selector, element);
@@ -67,10 +68,12 @@ class FakeRoot {
   }
 
   querySelector(selector: string) {
+    this.queriedSelectors.add(selector);
     return this.single.get(selector) ?? null;
   }
 
   querySelectorAll(selector: string) {
+    this.queriedSelectors.add(selector);
     return this.multiple.get(selector) ?? [];
   }
 }
@@ -166,6 +169,10 @@ test("overview bindings dispatch explorer navigation from the wall controls", ()
     "heap:Blob",
     "table:7:8",
   ]);
+  assert.equal(root.queriedSelectors.has("#mde-canvas"), false);
+  assert.equal(
+    root.queriedSelectors.has(".mde-focus .mde-row[data-mde-row]"),
+    false);
 });
 
 test("focus bindings dispatch lightbox controls and keep inner clicks contained", () => {
@@ -204,6 +211,13 @@ test("focus bindings dispatch lightbox controls and keep inner clicks contained"
   assert.equal(jumpClick.state.stopped, true);
   assert.equal(overviewClick.state.stopped, true);
   assert.equal(pageClick.state.stopped, false);
+  for (const selector of [
+    ".mde-wall .mde-card[data-mde-index] .mde-card-head",
+    ".mde-wall .mde-heap-card[data-mde-heap] .mde-card-head",
+    ".mde-wall .mde-row[data-mde-row]",
+  ]) {
+    assert.equal(root.queriedSelectors.has(selector), false, selector);
+  }
 });
 
 test("closed explorer bindings expose only exit and history controls", () => {
@@ -225,6 +239,7 @@ test("closed explorer bindings expose only exit and history controls", () => {
   chip.dispatch("click");
 
   assert.deepEqual(calls, ["close", "back", "forward"]);
+  assert.equal(root.queriedSelectors.has("[data-mde-chip]"), false);
 });
 
 function assembly(overrides = {}) {
