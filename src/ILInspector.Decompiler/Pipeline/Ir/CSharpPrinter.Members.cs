@@ -698,6 +698,8 @@ public sealed partial class CSharpPrinter
             // operator spelling is the faithful inverse.
             if (IsOperatorCall(call))
                 return OperatorSpelling(call)!;
+            if (call.Callee.IsOperator == MetadataFactState.Yes)
+                _explicitOperatorInvocations.Add(call);
             // An extension method's static call C.M(receiver, args) renders as the
             // instance form receiver.M(args) the source used. No IL anchor chooses
             // between the two forms (taste rule case 3), and the runtime writes the

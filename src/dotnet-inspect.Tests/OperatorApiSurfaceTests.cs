@@ -272,6 +272,36 @@ public sealed class OperatorApiSurfaceTests
     }
 
     [Fact]
+    public void CSharpOperatorDeclaration_RejectsStaticAbstractClassOperator()
+    {
+        using var image =
+            OperatorImage.BuildObjectParameterEncoding(
+                (byte)SignatureTypeKind.Class,
+                methodAttributes:
+                    MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.Abstract
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig);
+
+        Assert.False(
+            image.IsCSharpOperatorDeclaration("op_Addition"));
+    }
+
+    [Fact]
+    public void CSharpOperatorDeclaration_RejectsStaticFlagHeaderMismatch()
+    {
+        using var image =
+            OperatorImage.BuildObjectParameterEncoding(
+                (byte)SignatureTypeKind.Class,
+                signatureHeader: 0x20);
+
+        Assert.False(
+            image.IsCSharpOperatorDeclaration("op_Addition"));
+    }
+
+    [Fact]
     public void CSharpOperatorDeclaration_TreatsCoreLibraryEnumAsAClass()
     {
         using var stream = File.OpenRead(typeof(object).Assembly.Location);
@@ -1254,7 +1284,13 @@ public sealed class OperatorApiSurfaceTests
 
         public static OperatorImage BuildObjectParameterEncoding(
             byte objectKind,
-            bool externalParameter = false)
+            bool externalParameter = false,
+            MethodAttributes methodAttributes =
+                MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            byte signatureHeader = 0x00)
         {
             string path = System.IO.Path.Combine(
                 System.IO.Path.GetTempPath(),
@@ -1334,7 +1370,7 @@ public sealed class OperatorApiSurfaceTests
                     maxStack: 1);
             byte[] signature =
             [
-                0x00,
+                signatureHeader,
                 0x02,
                 (byte)SignatureTypeKind.Class,
                 0x08,
@@ -1346,10 +1382,7 @@ public sealed class OperatorApiSurfaceTests
                     | 0x01)),
             ];
             metadata.AddMethodDefinition(
-                MethodAttributes.Public
-                    | MethodAttributes.Static
-                    | MethodAttributes.SpecialName
-                    | MethodAttributes.HideBySig,
+                methodAttributes,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString("op_Addition"),
                 metadata.GetOrAddBlob(signature),

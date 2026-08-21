@@ -106,7 +106,9 @@ public static class OperatorMetadata
         }
         if (signature.Header.CallingConvention != SignatureCallingConvention.Default
             || signature.Header.HasExplicitThis
-            || signature.Header.IsGeneric)
+            || signature.Header.IsGeneric
+            || signature.Header.IsInstance
+                == attributes.HasFlag(MethodAttributes.Static))
         {
             return DeclarationClassification.No;
         }
@@ -116,9 +118,16 @@ public static class OperatorMetadata
             return DeclarationClassification.No;
         var declaringType = reader.GetTypeDefinition(declaringHandle);
         var declaringAttributes = declaringType.Attributes;
-        if ((declaringAttributes & TypeAttributes.Interface) == 0
+        bool declaringTypeIsInterface =
+            (declaringAttributes & TypeAttributes.Interface) != 0;
+        if (!declaringTypeIsInterface
             && (declaringAttributes & (TypeAttributes.Abstract | TypeAttributes.Sealed))
                 == (TypeAttributes.Abstract | TypeAttributes.Sealed))
+        {
+            return DeclarationClassification.No;
+        }
+        if (!declaringTypeIsInterface
+            && (attributes & (MethodAttributes.Abstract | MethodAttributes.Virtual)) != 0)
         {
             return DeclarationClassification.No;
         }

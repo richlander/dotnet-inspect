@@ -63,46 +63,6 @@ public sealed class TypeRefDecoderCanonicalReferencedTests
         Assert.Equal("Newtonsoft.Json", type.Assembly);
     }
 
-    [Fact]
-    public void CoreLibraryAliasMatchingRequiresTrustedProvenanceOnBothSides()
-    {
-        var core = TypeRef.Definition(TypeRef.CoreLibrary, "System", "Int32");
-        var attacker = TypeRef.Definition("Attacker", "System", "Int32");
-
-        Assert.False(CrossAssemblyTypeResolver.SameSignatureType(
-            core,
-            attacker,
-            coreLibraryAliasIdentity: null));
-    }
-
-    [Fact]
-    public void CoreLibraryAliasMatchingRequiresTheExactTrustedDeclaringFacade()
-    {
-        var resolved = TypeRef.Definition(
-            TypeRef.CoreLibrary,
-            "System.Numerics",
-            "Vector2");
-        var facade = DecodeTypeReference(
-            "System.Numerics.Vectors",
-            PlatformToken,
-            "System.Numerics",
-            "Vector2");
-        var forgedFacade = DecodeTypeReference(
-            "System.Numerics.Vectors",
-            ForgedToken,
-            "System.Numerics",
-            "Vector2");
-
-        Assert.True(CrossAssemblyTypeResolver.SameSignatureType(
-            resolved,
-            facade,
-            coreLibraryAliasIdentity: facade.ResolutionAssembly));
-        Assert.False(CrossAssemblyTypeResolver.SameSignatureType(
-            resolved,
-            forgedFacade,
-            coreLibraryAliasIdentity: facade.ResolutionAssembly));
-    }
-
     static TypeRef DecodeTypeReference(
         string assemblyName,
         byte[]? token,

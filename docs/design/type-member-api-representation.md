@@ -86,11 +86,16 @@ required operator pairs and other declaration consumers compare that model
 rather than treating missing structure as a wildcard.
 Operator representability remains `Unknown` when a resolved definition's kind
 could not be authenticated, and required custom modifiers are not erased into
-an affirmative source proof. The compiler-produced hierarchy cases in
+an affirmative source proof. A non-interface declaration also cannot acquire
+C# operator identity from impossible abstract/virtual method flags, and the
+MethodDef static flag must agree with the signature header. The
+compiler-produced hierarchy cases in
 `ReferenceEqualityMetadataFactsTests` and the adversarial signature cases in
 `OperatorApiSurfaceTests`, including
 `CSharpOperatorDeclaration_PreservesUnknownResolvedKind`, gate those
-boundaries.
+boundaries; `CSharpOperatorDeclaration_RejectsStaticAbstractClassOperator` and
+`CSharpOperatorDeclaration_RejectsStaticFlagHeaderMismatch` gate the modifier
+and header negatives.
 `ApiOutputFormatterTests.ApiTypeJson_PersistsStructuredSignatureModel` and the
 operator proof and pair JSON tests in `ApiOutputFormatterTests` and
 `CSharpDeclarationWriterTests` gate this contract.
@@ -315,9 +320,11 @@ selection may be approximate on the admit side but must be loud about matching
 nothing; lookup names must be exact but are not identity; resolution must retain
 candidate and hop evidence; correspondence remains catalog-owned; and durable
 addresses must be revalidated. The member layer models its own split correctly
-— `MemberTargetSelector` in, `MemberAnchor` out. The type command still lacks a
-typed user-facing selector, but that is separate from Metadata's exact lookup
-and resolution currencies.
+— `MemberTargetSelector` in, `MemberAnchor` out. The type command's member
+filter retains the selector's kind qualifier and exact source-name family
+through parsing, then applies those semantics to `ApiMember` values rather than
+matching names alone. `Type_KindQualifiedOperatorMemberFilter_PreservesSelector`
+and `KindQualifiedFilter_MatchesOnlyTheRequestedMemberKind` gate that bridge.
 
 ## The rule that generates most of the others
 
@@ -486,7 +493,9 @@ which is precisely the work a cheap pre-filter exists to avoid.
 A source `++` or `--` selector denotes the exact static/instance metadata-name
 pair, not a prefix glob. `MemberTargetSelector.ExactNameFamily` carries that
 question through resolution while an explicitly entered `*` or `?` remains a
-glob.
+glob. `MemberTargetSelector.FilterSelector` also preserves any `operator:`,
+`explicit:`, or `extension:` qualifier when a command needs the cheaper
+member-filter path rather than full target resolution.
 `MemberTargetResolverTests.GetCandidates_IncrementTokenIncludesStaticAndInstanceShapes`,
 `TypeMatcherTests.IncrementSourceFilter_MatchesOnlyExactNameFamily`, and the
 CLI `Member_IncrementToken_SelectsStaticAndInstanceShapes` gate the typed

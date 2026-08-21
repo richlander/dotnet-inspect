@@ -3465,6 +3465,45 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_PreservesOperatorWithExternalEndpointType()
+    {
+        var assemblyPath = CompileFixture("""
+            using System.Text;
+
+            public readonly struct Holder
+            {
+                public static Holder operator +(Holder left, StringBuilder right)
+                    => left;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Holder",
+                    "op_Addition",
+                    0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            var holder = Assert.Single(
+                result.Plan.Types,
+                type => type.Name == "Holder");
+            Assert.Contains(
+                holder.Members,
+                member => member.Name == "op_Addition"
+                    && member.Kind == CompileBackMemberKind.Operator);
+            Assert.Contains("operator +", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_ClosurePairsOperatorsWithDifferentRefKinds()
     {
         var assemblyPath = CompileFixture("""

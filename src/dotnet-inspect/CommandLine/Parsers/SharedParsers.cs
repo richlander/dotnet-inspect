@@ -203,9 +203,7 @@ public static class SharedParsers
                     {
                         MemberTargetSelector selector =
                             MemberTargetSelector.Parse(value);
-                        return selector.ExactNameFamily is null
-                            ? FqnParser.NormalizeMemberName(value)
-                            : selector.FilterName;
+                        return selector.FilterSelector;
                     }),
                 StringComparer.OrdinalIgnoreCase),
             null);

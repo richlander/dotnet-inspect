@@ -291,16 +291,47 @@ public static class TypeMatcher
     {
         MemberTargetSelector selector =
             MemberTargetSelector.Parse(pattern);
+        return MatchesMemberName(name, selector);
+    }
+
+    public static bool MatchesMemberFilter(
+        ApiMember member,
+        IReadOnlyCollection<string> filter)
+    {
+        foreach (string pattern in filter)
+        {
+            if (MatchesMemberFilter(member, pattern))
+                return true;
+        }
+        return false;
+    }
+
+    public static bool MatchesMemberFilter(ApiMember member, string pattern)
+    {
+        MemberTargetSelector selector =
+            MemberTargetSelector.Parse(pattern);
+        return (selector.Kind is null
+                || string.Equals(
+                    selector.Kind,
+                    member.Kind,
+                    StringComparison.OrdinalIgnoreCase))
+            && MatchesMemberName(member.Name, selector);
+    }
+
+    static bool MatchesMemberName(
+        string name,
+        MemberTargetSelector selector)
+    {
         if (selector.ExactNameFamily is { } exactNames)
         {
             return exactNames.Any(
                 exactName => MatchesMemberName(name, exactName));
         }
 
-        return pattern.Contains('*')
-            || pattern.Contains('?')
-                ? MatchesGlob(name, pattern)
-                : MatchesMemberName(name, pattern);
+        return selector.Name.Contains('*')
+            || selector.Name.Contains('?')
+                ? MatchesGlob(name, selector.Name)
+                : MatchesMemberName(name, selector.Name);
     }
 
     public static bool MatchesMemberName(string name, string pattern)

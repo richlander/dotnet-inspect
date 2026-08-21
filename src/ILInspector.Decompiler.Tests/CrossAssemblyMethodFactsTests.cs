@@ -84,6 +84,50 @@ public class CrossAssemblyMethodFactsTests
     }
 
     [Fact]
+    public void PlatformMethodSignature_DoesNotAcceptAttackerOwnedCoreTypeName()
+    {
+        using var source = MetadataSource.Open(
+            typeof(CrossAssemblyMethodFactsTests).Assembly.Location,
+            null,
+            TestAssemblyReferenceResolvers.TrustedPlatformAssemblies());
+        var attackerInt = TypeRef.Definition(
+            "Attacker",
+            "System",
+            "Int32");
+        var callee = new MethodRef(
+            TypeRef.CoreLib("System", "Math"),
+            "Abs",
+            attackerInt,
+            [attackerInt],
+            HasThis: false);
+
+        MethodRef resolved = source.CrossAssembly.Upgrade(
+            callee,
+            resolveRequiresUnsafe: false);
+
+        Assert.Equal(
+            ParameterRefKindFacts.Unknown,
+            resolved.ParameterRefKindsFacts);
+    }
+
+    [Fact]
+    public void PlatformFieldSignature_DoesNotAcceptAttackerOwnedCoreTypeName()
+    {
+        using var source = MetadataSource.Open(
+            typeof(CrossAssemblyMethodFactsTests).Assembly.Location,
+            null,
+            TestAssemblyReferenceResolvers.TrustedPlatformAssemblies());
+        var field = new FieldRef(
+            TypeRef.CoreLib("System", "Decimal"),
+            "One",
+            TypeRef.Definition("Attacker", "System", "Decimal"));
+
+        FieldRef resolved = source.CrossAssembly.Upgrade(field);
+
+        Assert.Equal(MetadataFactState.Unknown, resolved.DynamicFact);
+    }
+
+    [Fact]
     public void CustomModifierSignatureCollision_UsesExactModifiers()
     {
         using var fixture = MethodCollisionFixture.Create();

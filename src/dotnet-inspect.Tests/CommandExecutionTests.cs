@@ -3491,6 +3491,19 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_KindQualifiedOperatorMemberFilter_PreservesSelector()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "Decimal", "--framework", "runtime",
+            "-m", "operator:op_Addition", "-v", "d",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("op_Addition", output);
+        Assert.DoesNotContain("No members matched", error);
+    }
+
+    [Fact]
     public async Task Member_ConstructorSelector_NormalizesCtorAlias()
     {
         var (exit, output, error) = await RunAppAsync(

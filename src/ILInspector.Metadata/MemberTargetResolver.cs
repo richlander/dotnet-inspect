@@ -43,6 +43,19 @@ public sealed record MemberTargetSelector(
             : ExactNameFamilyToken ?? RequestedText;
     public string? ExactNameFamilyToken { get; init; }
 
+    /// <summary>
+    /// Member-filter spelling that preserves an explicit kind and exact source
+    /// families such as <c>operator:++</c>.
+    /// </summary>
+    public string FilterSelector
+        => Kind switch
+        {
+            "operator" => $"operator:{FilterName}",
+            "explicit-interface-implementation" => $"explicit:{FilterName}",
+            "extension-method" => $"extension:{FilterName}",
+            _ => FilterName,
+        };
+
     public string NormalizedSelector
     {
         get

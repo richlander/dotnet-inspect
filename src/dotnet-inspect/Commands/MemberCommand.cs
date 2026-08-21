@@ -146,13 +146,13 @@ public static class MemberCommand
                     // would match a non-public member, hint at --all instead of dead-ending.
                     if (!options.IncludeAll && apiDllPath is { } dllForHint)
                     {
-                        var allMemberNames = AssemblyReader.ExtractApiSurface(dllForHint, includeAll: true)?
+                        var allMembers = AssemblyReader.ExtractApiSurface(dllForHint, includeAll: true)?
                             .Types.FirstOrDefault(t => t.FullName == apiType.FullName)?
-                            .Members.Select(m => m.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-                        if (allMemberNames is { Count: > 0 })
+                            .Members;
+                        if (allMembers is { Count: > 0 })
                         {
                             var nonPublic = ApiTypeLookupService.FindNonPublicMatches(
-                                memberValidation.MissedFilters, allMemberNames);
+                                memberValidation.MissedFilters, allMembers);
                             if (nonPublic.Count > 0)
                                 memberValidation = memberValidation with { NonPublicMatches = nonPublic };
                         }

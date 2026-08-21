@@ -56,6 +56,7 @@ public sealed partial class CSharpPrinter
     readonly HashSet<string> _reservedScopeNames;
     readonly List<DecompilerDecision> _decisions;
     readonly HashSet<string> _decisionKeys;
+    readonly HashSet<Call> _explicitOperatorInvocations;
     readonly IrNode _stackSlotTelemetryScope;
 
     CSharpPrinter(
@@ -65,7 +66,8 @@ public sealed partial class CSharpPrinter
         StackSlotUnifierTelemetryBuilder? stackSlotTelemetry = null,
         IrNode? stackSlotTelemetryScope = null,
         List<DecompilerDecision>? decisions = null,
-        HashSet<string>? decisionKeys = null)
+        HashSet<string>? decisionKeys = null,
+        HashSet<Call>? explicitOperatorInvocations = null)
     {
         _function = function;
         _options = options ?? PrinterOptions.Default;
@@ -78,6 +80,7 @@ public sealed partial class CSharpPrinter
         _stackSlotTelemetryScope = stackSlotTelemetryScope ?? function.Body;
         _decisions = decisions ?? [];
         _decisionKeys = decisionKeys ?? [];
+        _explicitOperatorInvocations = explicitOperatorInvocations ?? [];
     }
 
     // The output-path pass context: stepping off, plus the optional cross-method
@@ -356,7 +359,18 @@ public sealed partial class CSharpPrinter
     }
 
     DecompilerResult Result(string output, IrFunction function)
-        => new(output, function.Fidelity, [.. function.Diagnostics])
+        => new(
+            output,
+            _explicitOperatorInvocations.Count > 0
+                ? DecompilationFidelity.Partial
+                : function.Fidelity,
+            [
+                .. function.Diagnostics,
+                .. _explicitOperatorInvocations.Select(
+                    call => new DecompilerDiagnostic(
+                        DiagnosticIds.UnrepresentableMetadataName,
+                        $"method '{call.Callee.Name}' is a confirmed C# operator but rendered as an explicit invocation, which has no C# spelling")),
+            ])
         {
             ConstructorChain = _constructorChain,
             FieldInitializers = _fieldInitializers,
@@ -1838,7 +1852,8 @@ public sealed partial class CSharpPrinter
                 _stackSlotTelemetry,
                 stackSlotTelemetryScope: localFunction,
                 decisions: _decisions,
-                decisionKeys: _decisionKeys);
+                decisionKeys: _decisionKeys,
+                explicitOperatorInvocations: _explicitOperatorInvocations);
             return nestedPrinter.PrintBody(function).TrimEnd();
         }
         finally

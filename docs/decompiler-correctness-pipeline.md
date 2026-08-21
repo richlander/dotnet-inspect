@@ -71,6 +71,13 @@ MethodDef, but never participates in candidate selection. The close gates are
 gated by `CompileBackTargets_LegacySignatureCannotOverrideOrdinal` and
 `SourceSignatureCorrespondence_RejectsLegacyCandidateSelection`.
 
+ReturnToSender declaration planning must preserve the metadata classifier's
+tri-state operator result. The target path resolves external endpoint facts
+through the compilation closure before choosing operator syntax; any remaining
+`Unknown` fails planning visibly instead of silently becoming an ordinary
+method. `CompileBackTargets_PreservesOperatorWithExternalEndpointType` is the
+compiler-produced gate for this boundary.
+
 An assembly-bound Portable PDB does not supply the missing attribution identity.
 When present and recognized, its checksum can authenticate a mapped document's
 content, but a `#line` directive in another, potentially unsupplied compilation
@@ -636,6 +643,22 @@ Report:
 
 Invalid `Full` becoming `Partial` is an honesty improvement, not a regression,
 but say that explicitly.
+
+That rule includes confirmed operators that reach the printer without a
+contextual C# operator form. The printer observes the form it actually emitted:
+an explicit invocation of a confirmed operator lowers the result to `Partial`,
+while `op_True`/`op_False` consumed by condition rendering remain `Full`.
+`KnownOperatorWithoutValueSpelling_DegradesRenderedInvocation` and the
+compiler-produced condition cases in `InOperatorOperandTests` gate both sides.
+
+Cross-assembly method and field matching may treat core-library facades as
+aliases only when the non-core side carries trusted platform provenance. The
+production-path gates
+`PlatformMethodSignature_DoesNotAcceptAttackerOwnedCoreTypeName` and
+`PlatformFieldSignature_DoesNotAcceptAttackerOwnedCoreTypeName` reject
+same-named attacker types, while
+`PlatformForwardedByRefMemberRef_RecoversParameterRefKinds` keeps legitimate
+facade forwarding live.
 
 ### New raises, printer semantics, and structuring changes
 

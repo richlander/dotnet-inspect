@@ -17,6 +17,15 @@ selector details survive past command-line parsing:
 - generic method arity from `M<T>` / `M<TKey,TValue>`
 - kind qualifiers: `operator:`, `explicit:`, and `extension:`
 
+The type command's `-m` path is a pre-filter rather than a full member-target
+resolution, but it must not flatten those selector facts back to a name.
+`MemberTargetSelector.FilterSelector` carries the kind and exact source-name
+family through command parsing, and `TypeMatcher` applies the kind against the
+`ApiMember` before matching its name.
+`Type_KindQualifiedOperatorMemberFilter_PreservesSelector` and
+`KindQualifiedFilter_MatchesOnlyTheRequestedMemberKind` are the non-vacuity
+gates.
+
 The resolver returns `ResolvedMemberTarget`, which carries the API member handle,
 its `MemberAnchor`, selector/declaring overload indexes, and a `BodyTarget` when
 the selected API member maps to a physical declaring member. Projected extension
@@ -80,6 +89,12 @@ as separate model-free helpers:
   relationship cannot be disproved from local signature and hierarchy facts.
   `OperatorApiSurfaceTests` gates the unresolved-interface,
   transitive-inheritance, enum/delegate, and valid external-endpoint cases.
+
+The full shape also rejects a static MethodDef whose signature header says
+instance, and abstract/virtual operators on classes or structs; C# permits the
+static-abstract/virtual form only on interfaces. The close negatives are
+`CSharpOperatorDeclaration_RejectsStaticFlagHeaderMismatch` and
+`CSharpOperatorDeclaration_RejectsStaticAbstractClassOperator`.
 
 Declaration rendering, decompiler raising (`MethodRef.IsOperator`), and
 Return-to-Sender closure use the C# proof, because each of them turns the answer

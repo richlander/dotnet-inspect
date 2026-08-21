@@ -303,7 +303,8 @@ public sealed partial class CSharpPrinter
                 _options,
                 CurrentScopeNames(),
                 _stackSlotTelemetry,
-                stackSlotTelemetryScope: lambda).PrintBody(function).Trim();
+                stackSlotTelemetryScope: lambda,
+                explicitOperatorInvocations: _explicitOperatorInvocations).PrintBody(function).Trim();
         }
         finally
         {

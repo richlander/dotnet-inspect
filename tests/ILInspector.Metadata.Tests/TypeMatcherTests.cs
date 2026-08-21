@@ -193,4 +193,28 @@ public class TypeMatcherTests
                 "op_IncrementBogus",
                 filter));
     }
+
+    [Fact]
+    public void KindQualifiedFilter_MatchesOnlyTheRequestedMemberKind()
+    {
+        var @operator = new ApiMember
+        {
+            Name = "op_Addition",
+            Kind = "operator",
+        };
+        var method = new ApiMember
+        {
+            Name = "op_Addition",
+            Kind = "method",
+        };
+
+        Assert.True(
+            TypeMatcher.MatchesMemberFilter(
+                @operator,
+                "operator:op_Addition"));
+        Assert.False(
+            TypeMatcher.MatchesMemberFilter(
+                method,
+                "operator:op_Addition"));
+    }
 }

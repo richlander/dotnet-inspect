@@ -2803,6 +2803,16 @@ public static class CompileBackSourceComposer
     {
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var method = reader.GetMethodDefinition(targetMethod);
+        using var operatorMetadataContext = compilationClosure is null
+            ? null
+            : new MetadataContext(
+                (IAssemblyReferenceResolver)compilationClosure.Resolver);
+        var operatorResolver = compilationClosure is null
+            ? null
+            : new CrossAssemblyTypeResolver(
+                reader,
+                compilationClosure.TargetAssembly,
+                operatorMetadataContext!);
         var signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, targetTypeDef, method));
         var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetTypeDef);
         string targetMethodName = Identifier(methodName);
@@ -2862,13 +2872,15 @@ public static class CompileBackSourceComposer
         string? explicitInterfaceMemberName =
             sameAssemblyExplicitInterfaceMemberName
             ?? externalExplicitInterfaceMethod?.ExplicitInterfaceMemberName;
+        CompileBackMemberKind targetMemberKind =
+            MethodKind(reader, method, isConstructor, operatorResolver);
         var targetMembers = isConstructor && primaryConstructor is not null
             ? primaryConstructor.FieldInitializers.ToList()
             :
         [
             new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(targetIdentity.FullName, targetMethodName, overload, signatureText),
-                MethodKind(reader, method, isConstructor),
+                targetMemberKind,
                 method.Attributes.HasFlag(MethodAttributes.Static),
                 targetParameters,
                 targetReturnType,
@@ -2921,7 +2933,7 @@ public static class CompileBackSourceComposer
         if (function.MethodKind is IrMethodKind.StaticConstructor)
             targetMembers.AddRange(TargetBackingFieldWriteMembers(reader, targetTypeDef, targetIdentity, function, allowStaticStores: true));
         if (!isConstructor
-            && IsOperatorMethod(reader, method)
+            && targetMemberKind == CompileBackMemberKind.Operator
             && RequiredOperatorSibling(reader, targetTypeDef, targetIdentity, methodName, signature) is { } operatorSibling)
         {
             targetMembers.Add(operatorSibling);
@@ -4151,15 +4163,37 @@ public static class CompileBackSourceComposer
     static CompileBackMemberKind MethodKind(
         MetadataReader reader,
         MethodDefinition method,
-        bool isConstructor)
+        bool isConstructor,
+        CrossAssemblyTypeResolver? relationshipResolver = null)
         => isConstructor
             ? CompileBackMemberKind.Constructor
-            : IsOperatorMethod(reader, method)
-                    ? CompileBackMemberKind.Operator
-                    : CompileBackMemberKind.Method;
+            : (relationshipResolver?.ClassifyCSharpOperatorDeclaration(reader, method)
+                    ?? ILInspector.Metadata.OperatorMetadata.ClassifyCSharpOperatorDeclaration(
+                        reader,
+                        method)) switch
+                {
+                    ILInspector.Metadata.OperatorMetadata.DeclarationClassification.Yes
+                        => CompileBackMemberKind.Operator,
+                    ILInspector.Metadata.OperatorMetadata.DeclarationClassification.No
+                        => CompileBackMemberKind.Method,
+                    _ => throw new InvalidOperationException(
+                        $"Operator identity for metadata method '{reader.GetString(method.Name)}' could not be resolved."),
+                };
 
-    static bool IsOperatorMethod(MetadataReader reader, MethodDefinition method)
-        => ILInspector.Metadata.OperatorMetadata.IsCSharpOperatorDeclaration(reader, method);
+    static bool IsOperatorMethod(
+        MetadataReader reader,
+        MethodDefinition method)
+        => ILInspector.Metadata.OperatorMetadata.ClassifyCSharpOperatorDeclaration(
+            reader,
+            method) switch
+        {
+            ILInspector.Metadata.OperatorMetadata.DeclarationClassification.Yes
+                => true,
+            ILInspector.Metadata.OperatorMetadata.DeclarationClassification.No
+                => false,
+            _ => throw new InvalidOperationException(
+                $"Operator identity for metadata method '{reader.GetString(method.Name)}' could not be resolved."),
+        };
 
     sealed class TypeProducer
     {

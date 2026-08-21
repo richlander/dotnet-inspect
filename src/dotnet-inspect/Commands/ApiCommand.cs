@@ -842,7 +842,7 @@ public class ApiCommand
         var members = type.Members.Where(m => !MemberFilters.IsCompilerGenerated(m.Name));
 
         if (options.MemberFilter.Count > 0)
-            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, options.MemberFilter));
+            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m, options.MemberFilter));
 
         if (options.UnsafeOnly)
             members = members.Where(m => m.IsUnsafe);
@@ -1263,7 +1263,7 @@ public class ApiCommand
         {
             if (selectedMemberNames is { Count: > 0 }
                 && !TypeMatcher.MatchesMemberFilter(
-                    member.Name,
+                    member,
                     selectedMemberNames))
             {
                 continue;
@@ -2936,7 +2936,7 @@ public class ApiCommand
         var members = type.Members;
 
         if (options.MemberFilter.Count > 0)
-            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, options.MemberFilter)).ToList();
+            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m, options.MemberFilter)).ToList();
 
         if (options.KindFilter.Count > 0)
             members = members.Where(m => options.KindFilter.Contains(m.Kind)).ToList();

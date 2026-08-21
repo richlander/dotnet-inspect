@@ -793,7 +793,7 @@ public static class ApiOutputFormatter
         var members = type.Members.Where(m => !IsCompilerGenerated(m.Name));
 
         if (memberFilter.Count > 0)
-            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, memberFilter));
+            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m, memberFilter));
 
         if (kindFilter?.Count > 0)
             members = members.Where(m => kindFilter.Contains(m.Kind));
@@ -819,7 +819,7 @@ public static class ApiOutputFormatter
             .ToList();
         if (options.MemberFilter.Count > 0)
             enumMembers = enumMembers
-                .Where(m => TypeMatcher.MatchesMemberFilter(m.Name, options.MemberFilter))
+                .Where(m => TypeMatcher.MatchesMemberFilter(m, options.MemberFilter))
                 .ToList();
         if (options.UnsafeOnly)
             enumMembers = [];
@@ -2970,7 +2970,7 @@ public static class ApiOutputFormatter
             .ToList();
 
         if (memberFilter?.Count > 0)
-            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, memberFilter)).ToList();
+            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m, memberFilter)).ToList();
 
         if (unsafeOnly)
             members = members.Where(m => m.IsUnsafe).ToList();

@@ -111,18 +111,14 @@ internal static class ApiTypeLookupService
         if (filters.Count == 0)
             return new MemberFilterValidationResult([], []);
 
-        var memberNames = type.Members
-            .Select(m => m.Name)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
         List<string> missedFilters = [];
 
         foreach (var filter in filters)
         {
             bool anyMatch =
-                memberNames.Any(
-                    name => TypeMatcher.MatchesMemberFilter(
-                        name,
+                type.Members.Any(
+                    member => TypeMatcher.MatchesMemberFilter(
+                        member,
                         filter));
 
             if (!anyMatch)
@@ -132,7 +128,9 @@ internal static class ApiTypeLookupService
         if (missedFilters.Count == 0)
             return new MemberFilterValidationResult([], []);
 
-        var memberLookup = TypeMatcher.LookupMembers(memberNames, missedFilters);
+        var memberLookup = TypeMatcher.LookupMembers(
+            type.Members.Select(m => m.Name).Distinct(StringComparer.OrdinalIgnoreCase),
+            missedFilters);
         return new MemberFilterValidationResult(missedFilters, memberLookup.Suggestions);
     }
 
@@ -141,6 +139,24 @@ internal static class ApiTypeLookupService
     /// those that would match against <paramref name="allMemberNames"/> — i.e. members that
     /// exist but are non-public, so the user needs <c>--all</c> to select them.
     /// </summary>
+    public static IReadOnlyList<string> FindNonPublicMatches(
+        IReadOnlyCollection<string> missedFilters,
+        IReadOnlyCollection<ApiMember> allMembers)
+    {
+        List<string> matches = [];
+        foreach (var filter in missedFilters)
+        {
+            if (allMembers.Any(
+                    member => TypeMatcher.MatchesMemberFilter(
+                        member,
+                        filter)))
+            {
+                matches.Add(filter);
+            }
+        }
+        return matches;
+    }
+
     public static IReadOnlyList<string> FindNonPublicMatches(
         IReadOnlyCollection<string> missedFilters,
         IReadOnlyCollection<string> allMemberNames)

@@ -654,6 +654,11 @@ internal sealed class CrossAssemblyTypeResolver
                     continue;
                 bool allowCoreLibraryAliases = type.Assembly == TypeRef.CoreLibrary
                     || ScopeFor(type) == AssemblyResolutionScope.Platform;
+                AssemblyReferenceIdentity? coreLibraryAliasIdentity =
+                    allowCoreLibraryAliases
+                        ? type.ResolutionAssembly
+                            ?? AssemblyReferenceIdentity.FromAssemblyDefinition(reader)
+                        : null;
                 if (!TryMatchMethod(
                     reader,
                     typeDef,
@@ -661,6 +666,7 @@ internal sealed class CrossAssemblyTypeResolver
                     callee,
                     allowCoreLibraryAliases,
                     type.ResolutionAssembly,
+                    coreLibraryAliasIdentity,
                     out var parameterRefKinds,
                     out var declaredReturnType))
                     continue;
@@ -717,6 +723,11 @@ internal sealed class CrossAssemblyTypeResolver
             var typeScope = new GenericScope(MethodDefinitionFacts.GenericParameterNames(reader, typeDef.GetGenericParameters()), []);
             bool allowCoreLibraryAliases = type.Assembly == TypeRef.CoreLibrary
                 || ScopeFor(type) == AssemblyResolutionScope.Platform;
+            AssemblyReferenceIdentity? coreLibraryAliasIdentity =
+                allowCoreLibraryAliases
+                    ? type.ResolutionAssembly
+                        ?? AssemblyReferenceIdentity.FromAssemblyDefinition(reader)
+                    : null;
 
             foreach (var fieldHandle in typeDef.GetFields())
             {
@@ -732,7 +743,8 @@ internal sealed class CrossAssemblyTypeResolver
                     allowCoreLibraryAliases,
                     TypeRefDecoder.CanonicalSelf(reader),
                     AssemblyReferenceIdentity.FromAssemblyDefinition(reader),
-                    type.ResolutionAssembly))
+                    type.ResolutionAssembly,
+                    coreLibraryAliasIdentity))
                     continue;
 
                 return new ResolvedFieldFacts(
@@ -794,6 +806,7 @@ internal sealed class CrossAssemblyTypeResolver
         MethodRef callee,
         bool allowCoreLibraryAliases,
         AssemblyReferenceIdentity? resolvedLocalBindingIdentity,
+        AssemblyReferenceIdentity? coreLibraryAliasIdentity,
         out ParameterRefKindResult parameterRefKinds,
         out TypeRef declaredReturnType)
     {
@@ -822,7 +835,8 @@ internal sealed class CrossAssemblyTypeResolver
                 allowCoreLibraryAliases,
                 localAssembly,
                 localAssemblyIdentity,
-                resolvedLocalBindingIdentity))
+                resolvedLocalBindingIdentity,
+                coreLibraryAliasIdentity))
             {
                 return false;
             }
@@ -835,7 +849,8 @@ internal sealed class CrossAssemblyTypeResolver
             allowCoreLibraryAliases,
             localAssembly,
             localAssemblyIdentity,
-            resolvedLocalBindingIdentity))
+            resolvedLocalBindingIdentity,
+            coreLibraryAliasIdentity))
             return false;
         declaredReturnType = signature.ReturnType;
 
@@ -853,7 +868,8 @@ internal sealed class CrossAssemblyTypeResolver
                     allowCoreLibraryAliases,
                     localAssembly,
                     localAssemblyIdentity,
-                    resolvedLocalBindingIdentity))
+                    resolvedLocalBindingIdentity,
+                    coreLibraryAliasIdentity))
                 {
                     return false;
                 }
@@ -869,7 +885,8 @@ internal sealed class CrossAssemblyTypeResolver
                 allowCoreLibraryAliases,
                 localAssembly,
                 localAssemblyIdentity,
-                resolvedLocalBindingIdentity))
+                resolvedLocalBindingIdentity,
+                coreLibraryAliasIdentity))
                 return false;
             parameters.Add(parameter);
         }
@@ -915,14 +932,19 @@ internal sealed class CrossAssemblyTypeResolver
                     && (resolved.Assembly == TypeRef.CoreLibrary
                         || expected.Assembly == TypeRef.CoreLibrary))
                 {
-                    if (coreLibraryAliasIdentity is null)
+                    if (resolved.Assembly == TypeRef.CoreLibrary
+                        && expected.Assembly == TypeRef.CoreLibrary)
+                    {
                         return true;
+                    }
+                    if (coreLibraryAliasIdentity is null)
+                        return false;
                     AssemblyReferenceIdentity? referencedIdentity =
                         resolved.Assembly == TypeRef.CoreLibrary
                             ? expected.ResolutionAssembly
                             : resolved.ResolutionAssembly;
                     return referencedIdentity is { } identity
-                        && coreLibraryAliasIdentity.IsEquivalentTo(identity);
+                        && PlatformKeys.IsPlatform(identity.PublicKeyToken);
                 }
                 if (resolved.Assembly != expected.Assembly)
                     return false;
@@ -1019,68 +1041,6 @@ internal sealed class CrossAssemblyTypeResolver
                 return true;
             default:
                 return resolved.Equals(expected);
-        }
-    }
-
-    internal static bool SameSignatureType(
-        TypeRef resolved,
-        TypeRef expected,
-        AssemblyReferenceIdentity? coreLibraryAliasIdentity)
-    {
-        if (resolved.Equals(expected))
-            return true;
-        if (resolved.Kind != expected.Kind)
-            return false;
-
-        switch (resolved.Kind)
-        {
-            case TypeRefKind.Definition:
-                return resolved.Namespace == expected.Namespace
-                    && resolved.Name == expected.Name
-                    && (resolved.Assembly == expected.Assembly
-                        || (coreLibraryAliasIdentity is not null
-                            && resolved.Assembly == TypeRef.CoreLibrary
-                            && expected.ResolutionAssembly is { } expectedIdentity
-                            && coreLibraryAliasIdentity.IsEquivalentTo(expectedIdentity)));
-            case TypeRefKind.GenericInstance:
-                if (!SameSignatureType(resolved.ElementType!, expected.ElementType!, coreLibraryAliasIdentity)
-                    || resolved.TypeArguments.Length != expected.TypeArguments.Length)
-                    return false;
-                for (int i = 0; i < resolved.TypeArguments.Length; i++)
-                    if (!SameSignatureType(
-                        resolved.TypeArguments[i],
-                        expected.TypeArguments[i],
-                        coreLibraryAliasIdentity))
-                        return false;
-                return true;
-            case TypeRefKind.SzArray or TypeRefKind.Pointer or TypeRefKind.Pinned or TypeRefKind.ByRef:
-                return SameSignatureType(
-                    resolved.ElementType!,
-                    expected.ElementType!,
-                    coreLibraryAliasIdentity);
-            case TypeRefKind.Array:
-                return resolved.Rank == expected.Rank
-                    && SameSignatureType(
-                        resolved.ElementType!,
-                        expected.ElementType!,
-                        coreLibraryAliasIdentity);
-            case TypeRefKind.FunctionPointer:
-                if (resolved.CallingConvention != expected.CallingConvention
-                    || !SameSignatureType(
-                        resolved.ElementType!,
-                        expected.ElementType!,
-                        coreLibraryAliasIdentity)
-                    || resolved.TypeArguments.Length != expected.TypeArguments.Length)
-                    return false;
-                for (int i = 0; i < resolved.TypeArguments.Length; i++)
-                    if (!SameSignatureType(
-                        resolved.TypeArguments[i],
-                        expected.TypeArguments[i],
-                        coreLibraryAliasIdentity))
-                        return false;
-                return true;
-            default:
-                return false;
         }
     }
 

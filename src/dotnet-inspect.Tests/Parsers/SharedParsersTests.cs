@@ -76,6 +76,18 @@ public class SharedParsersTests
         Assert.Null(limit);
     }
 
+    [Fact]
+    public void ParseMemberFilter_KindQualifiedOperatorPreservesKind()
+    {
+        var (filter, limit) =
+            SharedParsers.ParseMemberFilter(["operator:op_Addition"]);
+
+        Assert.Equal(
+            "operator:op_Addition",
+            Assert.Single(filter));
+        Assert.Null(limit);
+    }
+
     // ── ParseOverloadShorthand ───────────────────────────────────────────
 
     [Fact]
