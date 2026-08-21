@@ -10,7 +10,7 @@
 ## Status
 
 Design. Tracking: [#4472](https://github.com/richlander/dotnet-inspect/issues/4472).
-Not implemented. r1–r15 were BLOCKED; this revision is the replacement
+Not implemented. r1–r16 were BLOCKED; this revision is the replacement
 after integrating `origin/main` `d073009ed`.
 
 `ClassicAsyncReconstructionPass` remains the current fixture-shaped raise.
@@ -353,31 +353,37 @@ it. One Decompiler-owned
 `Embeddable` or `RetainLowered(Reason)`. Both `LambdaRaisingPass` and
 `LocalFunctionRaisingPass` consume it after the foreign pipeline:
 
-- `RequiresAsyncBodyModifier` is
+- `IsRuntimeAsync = Yes`, `IsClassicAsync = Yes`, or
+  `RequiresAsyncBodyModifier` is
   `RetainLowered(AsyncDeclarationCarrierUnavailable)`
-- an `UnsupportedNode`, including classic decline or importer crash, is
+- an `UnsupportedNode` not already classified async, including an
+  importer crash without usable async classification, is
   `RetainLowered(UnsupportedBody)`
 - only a body that passes those shared checks plus the existing
   signature, local, and shape checks is `Embeddable`
 
-The two reasons need different witnesses. A compiler-produced
+Classification is the primary carrier signal; the pass-authored flag is
+an additional safety signal, not a substitute. A compiler-produced
 runtime-async valued local function currently reaches
-`RequiresAsyncBodyModifier` and `LocalFunctionRaisingPass` embeds its
-`await` body without `async`, reported as Full; `LambdaRaisingPass`
-already rejects the equivalent lambda. Slice 0 routes both through the
-shared policy, making the local-function output honest retained-lowered
-compiler structure with its generated-name fidelity signal rather than
-invalid Full source. This is an embedding safety correction at the shared
-seam, not a change to
+`LocalFunctionRaisingPass`, which embeds its body without `async` and
+reports Full. With an await, the equivalent lambda is already rejected
+by its local `RequiresAsyncBodyModifier` check; without an await, both
+local function and lambda are embedded invalidly because neither body
+sets that flag. Slice 0 routes all four through the shared policy,
+making their output honest retained-lowered compiler structure with its
+generated-name fidelity signal rather than invalid Full source. This is
+an embedding safety correction at the shared seam, not a change to
 `AwaitRecoveryPass` or runtime-async reconstruction.
 `RuntimeAsyncNestedEmbeddingHonestyTests` owns that observed
 Full-invalid to retained-lowered transition.
 
-Classic async local functions/lambdas cannot witness that reason in
-slice 0: `LegacyRaiseEligibility` keeps them out of Reconstructed, so a
-healthy import declines with an `UnsupportedNode` and witnesses
-`UnsupportedBody`. A controlled importer-error seam supplies the
-crash-function witness; it is not described as compiler-produced.
+Classic async local functions/lambdas also witness
+`AsyncDeclarationCarrierUnavailable`: classification wins before their
+decline marker's `UnsupportedBody` reason, while
+`LegacyRaiseEligibility` independently proves they do not reconstruct.
+A controlled importer-error seam whose crash function lacks a usable
+async classification supplies the `UnsupportedBody` witness; it is not
+described as compiler-produced.
 
 `RetainLowered` means the raising pass leaves the compiler-shaped
 invocation/delegate and generated method relationship intact; it does
@@ -790,10 +796,11 @@ the decompiler library and corpus.
    whose foreign result requires `async` or contains an unsupported
    marker. `NestedFunctionEmbeddingPolicy` is one shared gate for lambda
    and local-function raising; an async declaration carrier is a future
-   design prerequisite, not an inferred printer bit. The runtime-async
-   valued local/lambda fixture is the non-vacuous async-carrier witness;
-   classic nested fixtures separately prove decline/unsupported and
-   no-new-raise behavior.
+   design prerequisite, not an inferred printer bit. Await-bearing and
+   await-free runtime-async valued local/lambda fixtures are
+   non-vacuous carrier witnesses. Classic nested fixtures prove the
+   classification carrier and no-new-raise behavior; importer-crash
+   seams separately prove unsupported disposition.
 7. **Every metadata-addressed declared source-body path uses one front
    door.**
    MemberCodeProvider, direct Research, Research queries,
@@ -845,8 +852,9 @@ foreign-function pipeline; lambda and local-function raising use
 different embedding rules; a foreign body that requires `async` is
 embedded in a declaration with no async carrier; an unsupported foreign
 body is embedded instead of retained lowered; the runtime-async valued
-local-function witness remains invalid while the equivalent lambda
-stays lowered; the physical C# diff imports a companion body; a stage,
+await-bearing local remains invalid or an await-free local/lambda loses
+`async` and remains Full-invalid; the physical C# diff imports a
+companion body; a stage,
 corpus, or harness render differs from prepared Raised output for the
 same classic fixture; an in-domain library `MoveNext` still lacks
 distinctive user logic; or an async-iterator `MoveNext` is no longer
@@ -881,29 +889,39 @@ another raise. Do not invent more `TryBuild*` methods.
 
 | Slice | Claim | Residual after it |
 | --- | --- | --- |
-| 0. Honesty | Add SRM `IsClassicAsync`, structured exact-or-selector addressing with resolved `Bodyless`, Decompiler-owned `MetadataBodyProjectionResult`, detached function snapshots, complete classic application values, and typed body carriers. `ClassicAsyncReconstructionPass` remains the single decision implementation: the projector captures/replays one decision across top-level stages, import-internal-error crash functions remain outcome-unavailable, and one foreign-function pipeline entry always resets the parent directive. A shared nested-function embedding policy retains any body requiring an async declaration carrier or carrying an unsupported marker as lowered compiler structure; this also corrects the current Full-invalid runtime-async local-function embedding at that shared seam. Seam-enabled stage/corpus/harness runs use the same pass. Every declared source-body path canonicalizes through the front door; seam-free physical evidence remains separate. Every healthy classic decline gets a marker: replace exact narrow handoff; prepend while preserving a non-narrow body. Correlate Debug class allocation and void `Return(null)`. Leave legacy raise eligibility unchanged. Stop hollowing in-domain `MoveNext`; library + corpus A/B. | #4472 fixture still declined, but honest. Debug class SMs are honest but not raised. Async-iterator `MoveNext` still hollow. Custom builders visibly decline with preserved bodies. Bodyless members remain absent/declaration-only. Importer crash markers and metadata modifiers remain unchanged. Async local/lambda declarations are not reconstructed until they have a typed async carrier. Runtime-async recovery is unchanged; only unsafe nested embedding is retained lowered. Physical C# diff remains MethodDef-scoped and seam-free. No trusted Metadata/Analysis lift. |
+| 0. Honesty | Add SRM `IsClassicAsync`, structured exact-or-selector addressing with resolved `Bodyless`, Decompiler-owned `MetadataBodyProjectionResult`, detached function snapshots, complete classic application values, and typed body carriers. `ClassicAsyncReconstructionPass` remains the single decision implementation: the projector captures/replays one decision across top-level stages, import-internal-error crash functions remain outcome-unavailable, and one foreign-function pipeline entry always resets the parent directive. A shared nested-function embedding policy retains any async-classified body, body requiring an async declaration modifier, or unsupported body as lowered compiler structure; this also corrects the current Full-invalid await-bearing local and await-free local/lambda runtime-async embeddings at that shared seam. Seam-enabled stage/corpus/harness runs use the same pass. Every declared source-body path canonicalizes through the front door; seam-free physical evidence remains separate. Every healthy classic decline gets a marker: replace exact narrow handoff; prepend while preserving a non-narrow body. Correlate Debug class allocation and void `Return(null)`. Leave legacy raise eligibility unchanged. Stop hollowing in-domain `MoveNext`; library + corpus A/B. | #4472 fixture still declined, but honest. Debug class SMs are honest but not raised. Async-iterator `MoveNext` still hollow. Custom builders visibly decline with preserved bodies. Bodyless members remain absent/declaration-only. Importer crash markers and metadata modifiers remain unchanged. Async local/lambda declarations are not reconstructed until they have a typed async carrier. Runtime-async recovery is unchanged; only unsafe nested embedding is retained lowered. Physical C# diff remains MethodDef-scoped and seam-free. No trusted Metadata/Analysis lift. |
 | 1. Void-await then statements then return | Accept `await Task.Yield(); return ReadValue(value);` as the first inverse raise from `AwaitPoints` + `UserRegions`, not as a new `TryBuild*` and not as a `HasUnexpectedStore` allow-list tweak. Must consume void `GetResult` as a statement, following statements, a non-await `SetResult` operand, the Yield operand temp, and an explicit `LoadLocalAddress` decline-then-remap. Hoisted parameter binding is already present. The smaller `await Task.Yield();` (no later statements) is the accepted boundary of the same slice. Blocked until the Correct measurement exists. | General multi-state dispatch, class SM, custom awaiters, structural Metadata descriptor, census-defined raises. |
 
 ### Nested embedding fixture family (slice 0)
 
 - Compiler-produced Release runtime-async valued local function and
-  lambda, at Raised and Lowered. Both foreign bodies set
-  `RequiresAsyncBodyModifier` without `UnsupportedNode`; both must
-  return
-  `RetainLowered(AsyncDeclarationCarrierUnavailable)`. The local
-  function is the baseline Full-invalid witness; the already-lowered
-  lambda is the sibling control.
+  lambda, each with await-bearing and await-free bodies, at Raised and
+  Lowered. All carry `IsRuntimeAsync = Yes` and must return
+  `RetainLowered(AsyncDeclarationCarrierUnavailable)`. The
+  await-bearing pair separates today's invalid local from its safe
+  lambda sibling; both await-free forms are current Full-invalid
+  witnesses and prove classification does not depend on recovered
+  await.
+- Controlled modifier-only foreign-function seams for local function
+  and lambda, at both stages. With neither async classification at Yes,
+  no UnsupportedNode, and `RequiresAsyncBodyModifier = true`, they
+  return `RetainLowered(AsyncDeclarationCarrierUnavailable)`. These
+  prove the defensive pass-authored fallback and are not
+  compiler-produced claims.
 - Compiler-produced Release classic async local function and lambda,
   at both stages. `LegacyRaiseEligibility` keeps them out of
-  Reconstructed; their marker produces
-  `RetainLowered(UnsupportedBody)`.
+  Reconstructed. `IsClassicAsync = Yes` produces
+  `RetainLowered(AsyncDeclarationCarrierUnavailable)` before their
+  marker could produce UnsupportedBody.
 - Controlled non-null DEC0001 importer-error seams for local function
-  and lambda. The importer crash marker produces
+  and lambda, with neither async classification at Yes. The importer
+  crash marker produces
   `RetainLowered(UnsupportedBody)`; these are deliberate seam fixtures,
   not compiler-produced claims.
 - Compiler-produced synchronous local-function and lambda positives
-  remain `Embeddable`, so the safety policy cannot become an async-shaped
-  deny list over all nested functions.
+  carry no async classification or modifier requirement and remain
+  `Embeddable`, so the safety policy cannot become a deny list over all
+  nested functions.
 
 ## Proof obligations (every raise slice)
 
@@ -1002,8 +1020,10 @@ predicate. They must not assume current kickoffs are Full.
 | Snapshot clone isolation | Decompiler snapshot/render tests with diagnostic-producing fixture | Mutating one render clone changes a prepared snapshot, another stage/render, diagnostics, local state, type facts, or outcome |
 | Foreign-function decision scope | Decompiler pass/projector tests with compiler-produced classic async local function/lambda plus reducible and foreach iterator paths, each at Raised and Lowered stages | An outer supplied/unavailable directive reaches a foreign-function pipeline; non-stepping execution returns the parent context; nested identity validation fails against the outer kickoff; a nested function fails to make its own decision; or nested state is attributed to the outer decision |
 | Foreign-function pipeline architecture | Source-architecture test over product pass-run sites | Any pass list runs over a separately imported function outside `PassContext.RunForeignFunctionPipeline`, or a direct foreign-function `IrPasses.Run` site appears |
-| Runtime-async nested embedding honesty | `RuntimeAsyncNestedEmbeddingHonestyTests` with compiler-produced Release valued local-function/lambda fixtures at Raised and Lowered, plus existing `LambdaRaisingPassTests.AsyncVoidLambda_StaysLoweredWithoutAsyncLambdaSupport` | The local function remains an invalid Full non-async declaration containing `await`; retained local output remains Full instead of carrying its generated-name fidelity signal; the equivalent lambda and local function differ; either fails to return `RetainLowered(AsyncDeclarationCarrierUnavailable)`; or compiler-shaped invocation/delegate identity is lost |
-| Classic nested embedding boundary | Decompiler product tests with compiler-produced Release classic async local-function/lambda declines plus controlled non-null DEC0001 seams, at Raised and Lowered | A nested classic fixture newly reconstructs; decline/crash does not return `RetainLowered(UnsupportedBody)`; an unsupported body becomes a `LocalFunctionStatement`/`Lambda`; or a seam fixture is mislabeled compiler-produced |
+| Runtime-async nested embedding honesty | `RuntimeAsyncNestedEmbeddingHonestyTests` with compiler-produced Release await-bearing and await-free valued local-function/lambda fixtures at Raised and Lowered, plus existing `LambdaRaisingPassTests.AsyncVoidLambda_StaysLoweredWithoutAsyncLambdaSupport` | Any `IsRuntimeAsync = Yes` body becomes a non-async nested declaration; an await-free row is treated as a synchronous positive because it lacks `RequiresAsyncBodyModifier`; retained output remains Full instead of carrying its generated-name fidelity signal; either pass fails to return `RetainLowered(AsyncDeclarationCarrierUnavailable)`; or compiler-shaped invocation/delegate identity is lost |
+| Classic nested embedding and raise boundary | Decompiler product tests with compiler-produced Release classic async local-function/lambda fixtures at Raised and Lowered | A nested classic fixture newly reconstructs; `IsClassicAsync = Yes` does not return `RetainLowered(AsyncDeclarationCarrierUnavailable)`; the marker reason wins before async classification; or exact legacy-raise set equality changes |
+| Nested modifier-fallback boundary | Controlled local-function/lambda foreign-function seams at Raised and Lowered with both async classifications not Yes, `RequiresAsyncBodyModifier = true`, and no unsupported node | The modifier-only seam becomes Embeddable; it does not return `RetainLowered(AsyncDeclarationCarrierUnavailable)`; either raising pass bypasses the fallback; or the seam is mislabeled compiler-produced |
+| Nested importer-crash embedding boundary | Controlled non-null DEC0001 local-function/lambda import seams at Raised and Lowered | A crash function becomes a nested declaration; it does not return `RetainLowered(UnsupportedBody)` when async classification is unavailable; or the seam is mislabeled compiler-produced |
 | Nested embedding architecture | Source-architecture test `NestedFunctionEmbeddingUsesSharedPolicy` | A product `Lambda` or `LocalFunctionStatement` construction from an imported function bypasses `NestedFunctionEmbeddingPolicy`, or the two raising passes own separate async/unsupported checks |
 | Prepared/canonical pipeline parity | `PipelineStageTests.DumpMethod_FinalCSharp_IsTheShippedProductOutput` with compiler-produced reconstructed + declined fixtures and a malformed importer-crash fixture | Terminal seam-enabled stage C# or outcome presence/value differs from prepared Raised output |
 | Corpus/harness classic policy | Decompiler harness contract tests + `CorpusSensor` classic profile | Handle-free sweep or fidelity/validity/render A/B bypasses the pass, misses a decline marker, or loses an accepted reconstruction |
@@ -1042,9 +1062,12 @@ must fail both the compiled validity fixture and
 `NestedFunctionEmbeddingUsesSharedPolicy`. A synthetic
 `LocalFunctionStatement` with an await expression is not sufficient:
 `RuntimeAsyncNestedEmbeddingHonestyTests` must prove the real
-compiler-produced runtime-async local/lambda disposition at both stages.
-Deleting only the unsupported branch must independently fail the
-compiler-produced classic decline and controlled importer-crash rows.
+compiler-produced await-bearing and await-free runtime-async
+local/lambda dispositions at both stages. Deleting the classic
+classification branch must independently fail the classic no-new-raise
+rows; deleting the modifier fallback must fail its controlled seams;
+deleting the unsupported branch must fail the controlled importer-crash
+rows.
 
 The architecture test discovers every product-project reference to
 `CSharpPrinter` body emission and direct top-level pass execution; it
