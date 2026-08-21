@@ -8,7 +8,7 @@
 # [JSExport] export (dotnet.create()/getAssemblyExports(), then JSON.parse for
 # any wire-shaped return). It generates from the exact same JsExportSurface as
 # the .d.ts, so the two files cannot independently drift from each other the
-# way a hand-maintained shim like engine.js could. It lives in engine/wwwroot
+# way an independently maintained shim could. It lives in engine/wwwroot
 # specifically because its "./_framework/dotnet.js" import is relative to the
 # wasm host's own served root, which only exists there (dev server and Vite
 # build have no _framework/ under src/).
