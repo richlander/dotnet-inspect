@@ -248,8 +248,8 @@ path applies and when it does not. This is the procedure once it does.
    can report.
 4. **If the user approves**, integrate that exact analyzed tip by SHA, not a
    moving branch ref. Re-run the claimed validation and current-head CI.
-5. **If not**, keep the reviewed head and follow the rule's interacting-range
-   branch.
+5. **If approval is declined**, keep the reviewed head. If the range interacts,
+   additionally follow the rule's interacting-range branch.
 
 Record the reviewed head, the old and approved new tips, the non-interaction
 analysis, and the user's decision on the PR.

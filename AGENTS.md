@@ -487,9 +487,9 @@ These are the binding invariants. The rest of this section explains them;
 driving the loop is
 [round orchestration](docs/round-orchestration.md).
 
-1. **One frozen head per round.** The lock begins at the push and ends when the
-   round closes — reconciled *and* green. Do not edit a head while it is held;
-   fixes belong to the next cycle.
+1. **One frozen head per round.** The lock begins at the push and ends two ways
+   only: the round closes — reconciled *and* green — or recovery supersedes the
+   attempt. Do not edit a head while it is held; fixes belong to the next cycle.
 2. **A candidate includes its effective base.** Integrate twice before pushing
    — once before fixing, once after — because the fix window is long enough for
    `main` to move.
@@ -517,8 +517,9 @@ reviewer, stack, or readiness detail without redefining these transitions.
 
 #### The round cycle
 
-Steps 1-5 run with no lock held. The lock begins at the push and ends when the
-round closes at step 10.
+Steps 1-5 run with no lock held. The lock begins at the push, and ends at step
+10 unless a [recovery transition](#recovery-transitions) supersedes the attempt
+first.
 
 1. **Integrate** the effective base, so the work is written against current
    `main` rather than against history.
@@ -566,8 +567,9 @@ adjustments](#standing-adjustments).
 
 The head lock ends when the round closes: reconciled, current-head
 zero-conflict evidence confirmed, and every required current-head check and
-concurrent local gate succeeded. The fixed replacement is a new candidate and
-its review is a new round.
+concurrent local gate succeeded. A superseded attempt is the other exit — it
+releases the lock through recovery, spends no round number, and never reaches
+closure. The fixed replacement is a new candidate and its review is a new round.
 
 #### Review-clean, and what it gates
 
