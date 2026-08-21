@@ -614,9 +614,6 @@ test("typed settings panel owns its rendered control bindings", () => {
   const bindEvents =
     appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
     ?? "";
-  const renderSettings =
-    appSource.match(/function renderSettingsViewHtml\(\) \{[\s\S]*?\n}\n\nfunction renderGraphSource/)?.[0]
-    ?? "";
   const bindHomeEvents =
     appSource.match(/function bindHomeEvents\(\) \{[\s\S]*?\n}(?=\n\n\/\/ The two package demos)/)?.[0]
     ?? "";
@@ -632,14 +629,20 @@ test("typed settings panel owns its rendered control bindings", () => {
   assert.equal(
     appSource.match(/\bbindSettingsPanel\b/g)?.length,
     2);
-  assert.equal(
-    bindEvents.match(/\bbindSettingsPanelEvents\(\)/g)?.length,
+  assertDirectCompositionCall(
+    appSource,
+    "bindEvents",
+    "bindSettingsPanelEvents",
+    4);
+  assertDirectCompositionCall(
+    appSource,
+    "renderSettingsViewHtml",
+    "bindSettingsPanelEvents",
     1);
-  assert.equal(
-    renderSettings.match(/\bbindSettingsPanelEvents\(\)/g)?.length,
-    1);
-  assert.equal(
-    bindHomeEvents.match(/\bbindSettingsPanelEvents\(\)/g)?.length,
+  assertDirectCompositionCall(
+    appSource,
+    "bindHomeEvents",
+    "bindSettingsPanelEvents",
     1);
   assert.match(
     settingsPanelSource,
