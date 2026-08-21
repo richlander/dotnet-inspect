@@ -208,14 +208,23 @@ failure before acquisition begins; it does not silently omit a member or
 shorten the context.
 
 Adapters still enforce source-specific download, enumeration, archive, and
-expansion limits inside that reservation. Publication commits the actual
-artifact count and retained-byte charge, rejects an outcome that exceeds its
-reservation, and releases unused capacity. A rejected or cancelled admission
-releases its reservation after returned leases are cleaned up. A published
-charge remains until the artifact session's dependent groups quiesce, not
-merely until workspace disposal begins. Storage caches and assembly groups may
-apply additional physical-retention and image budgets; they do not replace the
-workspace admission budget.
+expansion limits inside that reservation. Publication commits actual usage for
+materialized content, rejects an outcome that exceeds its reservation, and
+releases only capacity whose usage is then known. A deferred artifact keeps its
+full peak acquisition/expansion and retained-byte reservation after
+publication. Later query-authorized materialization consumes that existing
+reservation, atomically commits actual usage on success, and only then releases
+the unused remainder.
+
+A failed deferred materialization keeps its reservation while retry remains
+possible. A terminally abandoned artifact releases it only after all returned
+resources are cleaned up. Likewise, a rejected or cancelled admission releases
+its reservation after returned leases are cleaned up. Successful
+materialization replaces the deferred reservation with the actual retained
+charge; that charge remains until the artifact session's dependent groups
+quiesce. Workspace disposal beginning is not itself a release boundary.
+Storage caches and assembly groups may apply additional physical-retention and
+image budgets; they do not replace the workspace admission budget.
 
 Reservation is a logical workspace state transition, not a requirement for
 threads or blocking locks. Concurrent hosts serialize the transition;
@@ -450,7 +459,8 @@ The adapter would:
 2. query the provider for the exact immutable run or build;
 3. retain repository, commit, PR, workflow or pipeline, job, artifact name,
    provider artifact id, and digest as provenance;
-4. acquire the artifact archive lazily or eagerly under declared budgets;
+4. acquire the artifact archive eagerly, or register deferred acquisition while
+   retaining its full workspace reservation;
 5. apply archive traversal, entry-count, expanded-size, and content limits;
 6. contribute selected entries as neutral artifacts;
 7. retain the download/archive lease until the owning artifact session's
@@ -741,7 +751,8 @@ The target remains unverified until tests equivalent to these exist:
 - `ArtifactIdentity_IsScopedToOwningGeneration`
 - `WorkspaceAdmissionBudget_RejectsAggregateMultiSourcePlanBeforeAdapterCall`
 - `WorkspaceAdmissionBudget_CountsConcurrentAndRetainedGenerations`
-- `WorkspaceAdmissionBudget_ReleasesOnlyAfterAbortOrSessionQuiescence`
+- `WorkspaceAdmissionBudget_DeferredMaterializationRetainsReservation`
+- `WorkspaceAdmissionBudget_ReleasesOnlyAfterCleanupOrSessionQuiescence`
 - `DesignatedArtifactTrust_RequiresAuthorizedAdmissionRole`
 - `PlatformArtifactTrust_RequiresAuthorizedAdmissionRole`
 - `LeaseScopedPath_IsNotADesignationGrant`
