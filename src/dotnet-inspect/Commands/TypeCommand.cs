@@ -227,8 +227,16 @@ public static class TypeCommand
 
                     if (ShouldRejectQuietShape(effectiveOptions))
                     {
-                        CommandError.Write("-v:q is not supported by the type shape renderer.");
-                        CommandError.WriteLine("Use -v:m, -v:n, or -v:d for tree output, or add --markdown -v:q for compact section output.");
+                        if (effectiveOptions.BodyKindQuery.HasFilter)
+                        {
+                            CommandError.Write("-v:q is not supported by Body Shapes queries.");
+                            CommandError.WriteLine("Use -v:m, -v:n, or -v:d to render the selected body shapes.");
+                        }
+                        else
+                        {
+                            CommandError.Write("-v:q is not supported by the type shape renderer.");
+                            CommandError.WriteLine("Use -v:m, -v:n, or -v:d for tree output, or add --markdown -v:q for compact section output.");
+                        }
                         return 1;
                     }
 
@@ -495,7 +503,9 @@ public static class TypeCommand
         string? originalTypeQuery,
         SectionPipeline<ApiSurface> typePipeline)
     {
-        if (!options.AllowPlatformPrefixFallback || string.IsNullOrWhiteSpace(originalTypeQuery))
+        if (!options.AllowPlatformPrefixFallback
+            || options.BodyKindQuery.HasFilter
+            || string.IsNullOrWhiteSpace(originalTypeQuery))
             return Task.FromResult<int?>(null);
         if (originalTypeQuery.Contains('*') || originalTypeQuery.Contains('?'))
             return Task.FromResult<int?>(null);
@@ -528,7 +538,7 @@ public static class TypeCommand
            && !options.NoHeader
            && !options.PlainText
            && !options.Count
-           && !options.HasSectionQuery
+           && (!options.HasSectionQuery || options.BodyKindQuery.HasFilter)
            && options.Verbosity == Verbosity.Quiet;
 
     internal static async Task<int?> TryExecuteFindIfMissAsync(TypeOptions options)
@@ -854,7 +864,7 @@ public static class TypeCommand
         string? selectedTfm,
         TypeOptions options)
     {
-        if (string.IsNullOrWhiteSpace(originalTypeQuery))
+        if (options.BodyKindQuery.HasFilter || string.IsNullOrWhiteSpace(originalTypeQuery))
             return null;
         if (originalTypeQuery.Contains('*') || originalTypeQuery.Contains('?'))
             return null;

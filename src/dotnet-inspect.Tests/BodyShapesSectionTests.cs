@@ -506,6 +506,32 @@ public sealed class BodyShapesSectionTests
     }
 
     [Fact]
+    public async Task TypeKindPredicate_QuietVerbosityFailsVisibly()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "type",
+                    typeof(BodyShapeFixture).FullName!,
+                    "--library",
+                    FixturePath,
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                    "-v:q",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "-v:q is not supported by Body Shapes queries",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Empty(result.Output);
+    }
+
+    [Fact]
     public void TypeBodyShapeTokens_ExcludeProjectedExtensionMethods()
     {
         using var source = MetadataSource.Open(FixturePath);
@@ -595,6 +621,33 @@ public sealed class BodyShapesSectionTests
             "requires one exact type name",
             result.Error,
             StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--jsonl")]
+    [InlineData("--count")]
+    public async Task TypeKindPredicate_UnresolvedTypeDoesNotFallBackToPrefixBrowse(
+        string outputOption)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "type",
+                    "DotnetInspector.Fixtures.BodyShape",
+                    "--library",
+                    FixturePath,
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                    outputOption,
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("not found", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("prefix matches", result.Error, StringComparison.Ordinal);
+        Assert.Empty(result.Output);
     }
 
     [Fact]
