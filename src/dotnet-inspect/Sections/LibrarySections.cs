@@ -765,8 +765,9 @@ public static class LibrarySections
     private static bool UnsafeMembersDiscoverable(LibraryInspection model)
         => model.UnsafeEvidenceInspection is not null
             ? UnsafeMembers.CanRender(model)
-            : model.UnsafeEvidencePresent
-                ?? (model.HasMethodBodies || UnsafeMembers.CanRender(model));
+            : model.UnsafeEvidencePresent is true
+              || UnsafeMembers.CanRender(model)
+              || (model.UnsafeEvidencePresent is null && model.HasMethodBodies);
 
     public sealed class SourceLinkAudit : ISectionDescriptor<LibraryInspection>
     {

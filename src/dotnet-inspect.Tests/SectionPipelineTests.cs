@@ -5756,6 +5756,39 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void Discoverable_UnsafeMembers_UsesDegradedDecodeStatusAfterNegativePresenceProbe()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasMethodBodies = true,
+            UnsafeEvidencePresent = false,
+            UnsafeSignatureDecodeStatus = SignatureDecodeStatus.Degraded
+        };
+
+        var discoverable = pipeline.GetDiscoverableSections(model);
+
+        Assert.Contains("Unsafe Members", discoverable);
+    }
+
+    [Fact]
+    public void Discoverable_UnsafeMembers_NegativePresenceProbeOverridesMethodBodyFallback()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasMethodBodies = true,
+            UnsafeEvidencePresent = false
+        };
+
+        var discoverable = pipeline.GetDiscoverableSections(model);
+
+        Assert.DoesNotContain("Unsafe Members", discoverable);
+    }
+
+    [Fact]
     public void CanRender_PInvokeMethods_UsesPresenceFlag()
     {
         var pipeline = LibrarySections.CreatePipeline();
