@@ -294,12 +294,15 @@ test("typed status bar owns its rendered toggle binding", () => {
     statusBarSource,
     /export function bindStatusBar\([\s\S]*\[data-status-bar-toggle-button\][\s\S]*actions\.onToggle/);
   assert.doesNotMatch(appSource, /\[data-status-bar-toggle-button\]/);
-  assert.equal(
-    workspaceBinding.match(/\bbindStatusBarEvents\(\)/g)?.length,
-    1);
-  assert.equal(
-    homeBinding.match(/\bbindStatusBarEvents\(\)/g)?.length,
-    1);
+  for (const owner of [workspaceBinding, homeBinding]) {
+    assert.equal(
+      owner.match(/^  bindStatusBarEvents\(\);$/gm)?.length,
+      1);
+    const prefix =
+      owner.slice(0, owner.indexOf("bindStatusBarEvents();"));
+    assert.equal(prefix.match(/\{/g)?.length, 1);
+    assert.equal(prefix.match(/\}/g)?.length ?? 0, 0);
+  }
   assert.equal(
     appSource.match(/\bbindStatusBarEvents\(\)/g)?.length,
     3);
@@ -421,6 +424,12 @@ test("typed type panel owns its rendered control bindings", () => {
   assert.equal(
     rootEventBinder.match(/^\s*bindTypePanelEvents\(\);$/gm)?.length,
     1);
+  const typePanelCompositionPrefix =
+    rootEventBinder.slice(
+      0,
+      rootEventBinder.indexOf("bindTypePanelEvents();"));
+  assert.equal(typePanelCompositionPrefix.match(/\{/g)?.length, 1);
+  assert.equal(typePanelCompositionPrefix.match(/\}/g)?.length ?? 0, 0);
   assert.match(
     typePanelSource,
     /export function bindTypePanel\([\s\S]*\[data-type\][\s\S]*\[data-namespace\][\s\S]*\[data-kind-filter\][\s\S]*\[data-nav-member\][\s\S]*\[data-nav-overload\][\s\S]*#nav-to-types[\s\S]*#clear-filter[\s\S]*#namespace-jump[\s\S]*#type-list[\s\S]*#type-filter/);
