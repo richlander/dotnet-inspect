@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.ExceptionServices;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -130,24 +131,48 @@ internal static class EvilPoolSweepProcess
 
 internal sealed class EvilPoolSweepRun(
     Process process,
-    IDisposable runLock) : IDisposable
+    IDisposable runLock,
+    Action<Process, bool>? kill = null) : IDisposable
 {
+    private readonly Action<Process, bool> _kill =
+        kill ?? (static (candidate, entireProcessTree) =>
+            candidate.Kill(entireProcessTree));
+
     public Process Process { get; } = process;
 
     public void Terminate()
     {
+        ExceptionDispatchInfo? treeKillFailure = null;
         if (!Process.HasExited)
         {
             try
             {
-                Process.Kill(entireProcessTree: true);
+                _kill(Process, true);
             }
             catch (InvalidOperationException) when (Process.HasExited)
             {
             }
+            catch (Exception ex)
+            {
+                treeKillFailure = ExceptionDispatchInfo.Capture(ex);
+                try
+                {
+                    if (!Process.HasExited)
+                        _kill(Process, false);
+                }
+                catch (InvalidOperationException) when (Process.HasExited)
+                {
+                }
+                catch (Exception fallbackEx)
+                {
+                    treeKillFailure = ExceptionDispatchInfo.Capture(
+                        new AggregateException(ex, fallbackEx));
+                }
+            }
         }
 
         Process.WaitForExit();
+        treeKillFailure?.Throw();
     }
 
     public void Dispose()

@@ -230,6 +230,9 @@ public class EvilPoolSweepGateTests
                 childTimeout.ExitCode != 0,
                 "A child timeout was accepted as lock contention.\n"
                 + $"stdout:\n{childTimeout.Output}\nstderr:\n{childTimeout.Error}");
+            Assert.Contains(
+                "did not exit within one second",
+                childTimeout.Output + childTimeout.Error);
             Assert.False(File.Exists(childTimeoutResult));
         }
         finally
@@ -237,6 +240,57 @@ public class EvilPoolSweepGateTests
             File.Delete(blockedResult);
             File.Delete(acquiredResult);
             File.Delete(childTimeoutResult);
+        }
+    }
+
+    /// <summary>
+    /// Launcher ownership survives tree-termination failure until fallback
+    /// termination confirms direct-child exit.
+    /// </summary>
+    [Fact]
+    public void SweepRunKeepsOwnershipUntilFallbackTerminationCompletes()
+    {
+        string resultPath = Path.Combine(
+            Path.GetTempPath(),
+            $"evil-sweep-run-lock-fallback-{Guid.NewGuid():N}");
+        Process process = Process.Start(
+            CreateRunLockWorkerHostStartInfo("hang", resultPath))
+            ?? throw new InvalidOperationException(
+                "Could not start the sweep run-lock fallback worker.");
+        int processId = process.Id;
+        bool releasedBeforeExit = false;
+        var runLock = new CallbackDisposable(
+            () => releasedBeforeExit = IsProcessRunning(processId));
+        var run = new EvilPoolSweepRun(
+            process,
+            runLock,
+            (candidate, entireProcessTree) =>
+            {
+                if (entireProcessTree)
+                    throw new InvalidOperationException(
+                        "Injected tree-termination failure.");
+
+                candidate.Kill();
+            });
+
+        try
+        {
+            InvalidOperationException error =
+                Assert.Throws<InvalidOperationException>(run.Dispose);
+            Assert.Equal("Injected tree-termination failure.", error.Message);
+            Assert.False(releasedBeforeExit);
+            Assert.False(IsProcessRunning(processId));
+        }
+        finally
+        {
+            if (IsProcessRunning(processId))
+            {
+                using Process survivor = Process.GetProcessById(processId);
+                survivor.Kill(entireProcessTree: true);
+                survivor.WaitForExit();
+            }
+
+            File.Delete(resultPath);
         }
     }
 
@@ -1347,7 +1401,7 @@ public class EvilPoolSweepGateTests
         {
             "probe" => TimeSpan.Zero,
             "acquire" => EvilPoolSweepProcess.RunLockTimeout,
-            "child-timeout" => TimeSpan.Zero,
+            "child-timeout" => EvilPoolSweepProcess.RunLockTimeout,
             _ => throw new InvalidOperationException(
                 $"Unknown sweep run-lock worker mode '{mode}'."),
         };
@@ -1390,8 +1444,10 @@ public class EvilPoolSweepGateTests
             {
                 run.Terminate();
                 throw new TimeoutException(
-                    $"The sweep run-lock worker process did not exit within "
-                    + $"{childTimeout.TotalSeconds:N0} seconds.");
+                    "The sweep run-lock worker process did not exit within "
+                    + (mode == "child-timeout"
+                        ? "one second."
+                        : "one minute."));
             }
 
             Assert.True(
@@ -1454,6 +1510,24 @@ public class EvilPoolSweepGateTests
         int ExitCode,
         string Output,
         string Error);
+
+    sealed class CallbackDisposable(Action callback) : IDisposable
+    {
+        public void Dispose() => callback();
+    }
+
+    static bool IsProcessRunning(int processId)
+    {
+        try
+        {
+            using Process process = Process.GetProcessById(processId);
+            return !process.HasExited;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
 
     static IReadOnlyList<string> PooledAssemblies(string outputDirectory) =>
         Directory.Exists(Path.Combine(outputDirectory, "packages"))
