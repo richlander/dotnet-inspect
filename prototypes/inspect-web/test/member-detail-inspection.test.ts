@@ -303,6 +303,63 @@ test("duplicate in-flight documentation requests do not query or render", async 
   assert.equal(state.memberDocumentationLoading, true);
 });
 
+test("another member starts while documentation is in flight", async () => {
+  const overload = memberSurface();
+  let queries = 0;
+  const state = inspectionState({
+    memberDocumentationKey: "previous",
+    memberDocumentationLoading: true,
+  });
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDocumentation: async () => {
+        queries++;
+        return {
+          summary: "Current member documentation.",
+          returns: null,
+          parameters: {},
+          exceptions: [],
+        };
+      },
+    }));
+
+  await coordinator.loadDocumentation(documentationRequest(overload));
+
+  assert.equal(queries, 1);
+  assert.equal(state.memberDocumentationKey, "documentation");
+  assert.equal(state.memberDocumentationLoading, false);
+  assert.equal(overload.summary, "Current member documentation.");
+  assert.equal(overload.documentationLoaded, true);
+});
+
+test("settled documentation failures can retry for the same member", async () => {
+  const overload = memberSurface();
+  let queries = 0;
+  const state = inspectionState({
+    memberDocumentationKey: "documentation",
+    memberDocumentationError: "previous failure",
+  });
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDocumentation: async () => {
+        queries++;
+        return {
+          summary: "Recovered documentation.",
+          returns: null,
+          parameters: {},
+          exceptions: [],
+        };
+      },
+    }));
+
+  await coordinator.loadDocumentation(documentationRequest(overload));
+
+  assert.equal(queries, 1);
+  assert.equal(state.memberDocumentationError, "");
+  assert.equal(overload.summary, "Recovered documentation.");
+  assert.equal(overload.documentationLoaded, true);
+});
+
 test("documentation completion updates the current overload and restores focus", async () => {
   const overload = memberSurface();
   const preservedFocus = focusSnapshot();
@@ -785,6 +842,31 @@ test("cached member facts failure renders without querying again", async () => {
   assert.equal(queries, 0);
   assert.equal(renders, 1);
   assert.equal(state.memberFactsError, "facts unavailable");
+});
+
+test("another member does not reuse cached member facts", async () => {
+  const cached = factsResult();
+  const current = factsResult();
+  let queries = 0;
+  const state = inspectionState({
+    memberFacts: cached,
+    memberFactsKey: "previous",
+  });
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryFacts: async () => {
+        queries++;
+        return current;
+      },
+    }));
+
+  await coordinator.loadFacts(factsRequest());
+
+  assert.equal(queries, 1);
+  assert.equal(state.memberFactsKey, "facts");
+  assert.equal(state.memberFacts, current);
+  assert.notEqual(state.memberFacts, cached);
+  assert.equal(state.memberFactsLoading, false);
 });
 
 test("current member facts failure remains visible", async () => {
