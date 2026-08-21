@@ -5671,6 +5671,29 @@ public partial class CommandExecutionTests
         Assert.Equal(markdownRows.ToString(), count.Trim());
     }
 
+    [Fact]
+    public async Task Type_Listing_PlainTextHonorsRowWindow()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Text.Json",
+            "-S",
+            "Classes",
+            "--plaintext",
+            "--rows",
+            "2",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(
+            2,
+            SplitOutputLines(output).Count(
+                line => line.StartsWith("System.", StringComparison.Ordinal)
+                    && line.Contains("  ", StringComparison.Ordinal)));
+    }
+
     [Theory]
     [InlineData("Classes")]
     [InlineData("Structs")]

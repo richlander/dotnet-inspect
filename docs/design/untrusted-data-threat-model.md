@@ -294,13 +294,14 @@ unguarded, a planted sibling picked up by reference resolution could mint
 core-library identity for its own definitions and make a fake interface
 authorize raising for a type that implements nothing of the sort.
 
-`CoreLibraryIdentityTrust` owns the rule. Trust follows **acquisition**, and
-which acquisition applies follows how the caller named the file. A raw path is
-an explicit designation — the caller chose that exact file — so it is trusted.
-A `ResolvedAssemblyReference` was reached by discovery, so it is trusted only
-when its `AssemblyResolutionProvenance` is a `PlatformAsset` or a
-`DesignatedAsset`. `TypeRefDecoder.CanonicalSelf` consults the registry before
-honouring a platform key.
+`CoreLibraryIdentityTrust` owns the current rule. Trust follows
+**acquisition**, and which acquisition applies follows how the caller named the
+file. Current raw-path entry points treat the path as an explicit designation
+because the caller chose that exact file. A `ResolvedAssemblyReference` was
+reached by discovery, so it is trusted only when its
+`AssemblyResolutionProvenance` is a `PlatformAsset` or a `DesignatedAsset`.
+`TypeRefDecoder.CanonicalSelf` consults the registry before honouring a platform
+key.
 
 The registry is an **allow list**, and the polarity is load-bearing. A deny
 list has to enumerate every site that turns bytes into a reader, so a site
@@ -322,6 +323,24 @@ explicitly (a corpus path, or a directory the user named) carries
 `DesignatedAsset` and keeps core-library identity; one the resolver discovered
 beside the target does not.
 
+That describes the current carrier. The target
+[artifact acquisition design](artifact-acquisition-and-workspaces.md)
+preserves the same allow-list decision but moves caller designation and
+platform trust onto authorized workspace admission-role evidence. Source
+adapters retain acquisition provenance separately, and Metadata no longer owns
+the trust arm. The decompiler still receives an explicit owner-issued trust
+grant; no path, assembly name, public-key blob, or source-provenance display
+field can reconstruct it. In particular, a lease-scoped path to a retained
+snapshot is only a content-access form. The target retires the current
+raw-path-implies-designation shortcut; opening that path cannot grant
+core-library trust without a separate authorized admission role. The same rule
+applies when caller-supplied bytes are paired with a path, as in the current
+`MetadataSource.OpenFromPrefetchedImage` compatibility entry point.
+`LeaseScopedPath_IsNotADesignationGrant` derives every unconditional path and
+prefetched-image grant from the `ReaderConstructionSiteTests` inventory and
+asserts coverage equality, rather than relying on a hand-maintained method
+list.
+
 The residual case is a host policy, `CoreLibraryTrustPolicy`. The default,
 `DesignatedAndPlatform`, is correct for any host that inspects untrusted
 uploads. A host whose surrounding directory is as trusted as the target — a
@@ -330,11 +349,17 @@ local tool pointed at a build layout the user controls — may select
 planted-sibling exposure. That trade is the host's to make explicitly; it is
 never inferred.
 
-Because trust is read off provenance, provenance must not understate a genuine
-platform acquisition. Resolvers that hand back files taken from the host's
-trusted-platform-assembly list, and the intrinsic core-library binding that
-returns the designated target when that target is itself the core library,
-report `PlatformAsset` for that reason.
+Because current trust is read off provenance, current provenance must not
+understate a genuine platform acquisition. Resolvers that hand back files taken
+from the host's trusted-platform-assembly list, and the intrinsic core-library
+binding that returns the designated target when that target is itself the core
+library, report `PlatformAsset` for that reason. In the target architecture,
+the platform adapter mints only validated platform realization and
+correspondence evidence. Workspace admission grants the corresponding
+platform-trust role under explicit host policy. An adapter-provided provenance
+record, platform-shaped coordinate, assembly name, or public-key blob cannot
+grant that role by itself;
+`PlatformArtifactTrust_RequiresAuthorizedAdmissionRole` gates this boundary.
 
 `PlantedCoreLibraryIdentityTests.PlantedPlatformKey_DoesNotMintCoreLibraryIdentity`
 gates the boundary with a real planted assembly carrying the verbatim ECMA
@@ -344,7 +369,9 @@ gates the reader-creation path that bypasses `MetadataContext`, and fails if
 the registry ever returns to deny-list polarity;
 `PlantedCoreLibraryIdentityTests.DesignatedTarget_KeepsCoreLibraryIdentity`
 and `PlantedCoreLibraryIdentityTests.RawPathOpen_KeepsCoreLibraryIdentity`
-gate the scope, so failing closed does not cost ordinary use;
+gate the current scope, so failing closed does not cost ordinary use. During
+the artifact migration, the latter changes from preserving blanket raw-path
+trust to proving `LeaseScopedPath_IsNotADesignationGrant`;
 `PlantedCoreLibraryIdentityTests.DesignatedCorpusAssembly_SatisfiesPlatformScope`
 gates the resolver half, since a core-library `TypeRef` forces
 `AssemblyResolutionScope.Platform` and a designated corpus assembly must be
