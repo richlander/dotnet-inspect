@@ -176,6 +176,9 @@ const packageAcquisitionSource = readFileSync(
 const packageInspectionSource = readFileSync(
   new URL("../src/package-inspection.ts", import.meta.url),
   "utf8");
+const packageViewSource = readFileSync(
+  new URL("../src/package-view.ts", import.meta.url),
+  "utf8");
 const sourceInspectionSource = readFileSync(
   new URL("../src/source-inspection.ts", import.meta.url),
   "utf8");
@@ -382,6 +385,52 @@ test("typed package inspection owns package-root request coordination", () => {
     packageInspectionSource,
     /async loadDependencies\(packageModel, signature\)[\s\S]*state\.packageDependenciesKey/);
   assert.doesNotMatch(dependenciesLoader, /state\.packageDependenciesKey/);
+});
+
+test("typed package view owns package navigation bindings", () => {
+  const binding =
+    appSource.match(/const packageViewActions: PackageViewBindingActions = \{[\s\S]*?\n};/)?.[0]
+    ?? "";
+  const workspaceBinding =
+    appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
+    ?? "";
+  const dependencyPatch =
+    appSource.match(/function patchDependenciesGroup\(\) \{[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    packageViewSource,
+    /export function bindPackageView\([\s\S]*\[data-dep-group\][\s\S]*\[data-kind-jump\][\s\S]*\[data-namespace-jump\][\s\S]*\[data-lib-scope\][\s\S]*\[data-graph-type\][\s\S]*\[data-perf-token\]/);
+  assert.match(
+    packageViewSource,
+    /export function bindPackageDependencyList\([\s\S]*\[data-dep-open\][\s\S]*\[data-dep-load\]/);
+  assert.equal(
+    workspaceBinding.match(/\bbindPackageViewEvents\(\)/g)?.length,
+    1);
+  assert.match(
+    dependencyPatch,
+    /listSection\.outerHTML = dependencyListSectionHtml[\s\S]*bindPackageDependencyListEvents\(\);[\s\S]*renderDependencyGraph\(\)/);
+  assert.match(
+    binding,
+    /onDependencyGroupSelect: index => \{[\s\S]*state\.dependenciesGroupIndex === index[\s\S]*state\.dependenciesGroupIndex = index;[\s\S]*patchDependenciesGroup\(\)/);
+  assert.match(
+    binding,
+    /onDependencyLoad: openDependencyPackage,\s*onDependencyOpen: switchToPackageForDependencies,\s*onGraphTypeSelect: navigateToTypeByName/);
+  assert.match(
+    binding,
+    /onKindJump: kind => \{[\s\S]*state\.atPackageRoot = false;[\s\S]*state\.kindFilter = kind;[\s\S]*resetMemberFilters\(\);[\s\S]*render\(\)/);
+  assert.match(
+    binding,
+    /onLibraryScopeSelect: \(library, kind\) => \{[\s\S]*state\.atPackageRoot = false;[\s\S]*if \(!library\) return;[\s\S]*state\.libraryScope = new Set\(\[library\]\);[\s\S]*state\.kindFilter = kind;[\s\S]*render\(\)/);
+  assert.match(
+    binding,
+    /onNamespaceJump: namespace => \{[\s\S]*state\.atPackageRoot = false;[\s\S]*state\.namespaceFilter = namespace;[\s\S]*resetMemberFilters\(\);[\s\S]*render\(\)/);
+  assert.match(
+    binding,
+    /onPerformanceMemberSelect: target => \{[\s\S]*drillToPerfMember\(\s*target\.metadataToken,\s*target\.assembly,\s*target\.typeId\)/);
+  assert.doesNotMatch(
+    appSource,
+    /document\.querySelectorAll<HTMLElement>\("\[data-(?:dep-group|dep-open|dep-load|kind-jump|namespace-jump|lib-scope|graph-type|perf-token)\]"\)/);
+  assert.doesNotMatch(appSource, /function bindDependencyListHandlers\(/);
 });
 
 test("typed document inspection owns package document request coordination", () => {

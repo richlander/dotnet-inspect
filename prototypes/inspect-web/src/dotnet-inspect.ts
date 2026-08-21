@@ -73,6 +73,11 @@ import {
   type PackagePerformance,
 } from "./package-inspection.ts";
 import {
+  bindPackageDependencyList,
+  bindPackageView,
+  type PackageViewBindingActions,
+} from "./package-view.ts";
+import {
   createSourceInspectionCoordinator,
   type GraphSourceRequest,
 } from "./source-inspection.ts";
@@ -2364,23 +2369,8 @@ function patchDependenciesGroup() {
       "active",
       Number(button.dataset.depGroup) === selectedGroupIndex));
   listSection.outerHTML = dependencyListSectionHtml(groups, selectedGroupIndex);
-  bindDependencyListHandlers();
+  bindPackageDependencyListEvents();
   renderDependencyGraph();
-}
-
-function bindDependencyListHandlers() {
-  document.querySelectorAll<HTMLElement>("[data-dep-open]").forEach(button => {
-    button.onclick = () => {
-      const key = button.dataset.depOpen;
-      if (key) switchToPackageForDependencies(key);
-    };
-  });
-  document.querySelectorAll<HTMLElement>("[data-dep-load]").forEach(button => {
-    button.onclick = () => {
-      const id = button.dataset.depLoad;
-      if (id) openDependencyPackage(id, button.dataset.depVersion || "");
-    };
-  });
 }
 
 function resolveDependenciesGroupIndex(
@@ -3623,6 +3613,74 @@ function highlightCSharp(value: unknown) {
   return escapeHtml(source);
 }
 
+const packageViewActions: PackageViewBindingActions = {
+  onDependencyGroupSelect: index => {
+    if (state.dependenciesGroupIndex === index) return;
+    state.dependenciesGroupIndex = index;
+    patchDependenciesGroup();
+  },
+  onDependencyLoad: openDependencyPackage,
+  onDependencyOpen: switchToPackageForDependencies,
+  onGraphTypeSelect: navigateToTypeByName,
+  onKindJump: kind => {
+    state.atPackageRoot = false;
+    state.kindFilter = kind;
+    state.namespaceFilter = "";
+    state.typeFilter = "";
+    state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
+    resetMemberFilters();
+    state.typeCursor = 0;
+    const first = filteredTypes()[0];
+    if (first) state.selectedTypeId = first.id;
+    render();
+  },
+  onLibraryScopeSelect: (library, kind) => {
+    state.atPackageRoot = false;
+    if (!library) return;
+    state.libraryScope = new Set([library]);
+    if (state.package?.isRuntimePack)
+      recordPlatformRecent(library, platformPackForAssembly(library));
+    state.kindFilter = kind;
+    state.namespaceFilter = "";
+    state.typeFilter = "";
+    state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
+    resetMemberFilters();
+    state.typeCursor = 0;
+    const first = filteredTypes()[0];
+    if (first) state.selectedTypeId = first.id;
+    render();
+  },
+  onNamespaceJump: namespace => {
+    state.atPackageRoot = false;
+    state.namespaceFilter = namespace;
+    state.kindFilter = "";
+    state.typeFilter = "";
+    state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
+    resetMemberFilters();
+    state.typeCursor = 0;
+    const first = filteredTypes()[0];
+    if (first) state.selectedTypeId = first.id;
+    render();
+  },
+  onPerformanceMemberSelect: target => {
+    drillToPerfMember(
+      target.metadataToken,
+      target.assembly,
+      target.typeId);
+  },
+};
+
+function bindPackageViewEvents() {
+  bindPackageView(document, packageViewActions);
+}
+
+function bindPackageDependencyListEvents() {
+  bindPackageDependencyList(document, packageViewActions);
+}
+
 function bindStatusBarEvents() {
   bindStatusBar(document, {
     onToggle: () => {
@@ -3957,66 +4015,7 @@ function bindEvents() {
   bindGraphSourceEvents();
   bindDocViewerEvents();
   bindAnnotatedSourceEvents();
-  document.querySelectorAll<HTMLElement>("[data-dep-group]").forEach(button => button.addEventListener("click", () => {
-    const index = Number(button.dataset.depGroup);
-    if (state.dependenciesGroupIndex === index) return;
-    state.dependenciesGroupIndex = index;
-    patchDependenciesGroup();
-  }));
-  bindDependencyListHandlers();
-  document.querySelectorAll<HTMLElement>("[data-kind-jump]").forEach(button => button.addEventListener("click", () => {
-    state.atPackageRoot = false;
-    state.kindFilter = button.dataset.kindJump ?? "";
-    state.namespaceFilter = "";
-    state.typeFilter = "";
-    state.selectedMemberKey = "";
-    state.memberBrowseTypeId = "";
-    resetMemberFilters();
-    state.typeCursor = 0;
-    const first = filteredTypes()[0];
-    if (first) state.selectedTypeId = first.id;
-    render();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-namespace-jump]").forEach(button => button.addEventListener("click", () => {
-    state.atPackageRoot = false;
-    state.namespaceFilter = button.dataset.namespaceJump ?? "";
-    state.kindFilter = "";
-    state.typeFilter = "";
-    state.selectedMemberKey = "";
-    state.memberBrowseTypeId = "";
-    resetMemberFilters();
-    state.typeCursor = 0;
-    const first = filteredTypes()[0];
-    if (first) state.selectedTypeId = first.id;
-    render();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-lib-scope]").forEach(button => button.addEventListener("click", () => {
-    state.atPackageRoot = false;
-    const library = button.dataset.libScope;
-    if (!library) return;
-    state.libraryScope = new Set([library]);
-    if (state.package?.isRuntimePack)
-      recordPlatformRecent(library, platformPackForAssembly(library));
-    state.kindFilter = button.dataset.libKind || "";
-    state.namespaceFilter = "";
-    state.typeFilter = "";
-    state.selectedMemberKey = "";
-    state.memberBrowseTypeId = "";
-    resetMemberFilters();
-    state.typeCursor = 0;
-    const first = filteredTypes()[0];
-    if (first) state.selectedTypeId = first.id;
-    render();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-graph-type]").forEach(button => button.addEventListener("click", () => {
-    navigateToTypeByName(button.dataset.graphType ?? "");
-  }));
-  document.querySelectorAll<HTMLElement>("[data-perf-token]").forEach(button => button.addEventListener("click", () => {
-    drillToPerfMember(
-      button.dataset.perfToken ?? "",
-      button.dataset.perfAssembly ?? "",
-      button.dataset.perfType ?? "");
-  }));
+  bindPackageViewEvents();
   document.querySelectorAll<HTMLElement>("[data-library-chip]").forEach(button => button.addEventListener("click", () => {
     toggleLibraryChip(button.dataset.libraryChip ?? "");
     afterLibraryScopeChange();
