@@ -2140,9 +2140,34 @@ public static partial class StructuralCloneAnalysis
                             blockMap,
                             reverseBlocks,
                             leftEdges,
-                            rightEdges))
+                            rightEdges,
+                            ref steps,
+                            maximumSteps,
+                            ref limitReached))
                     {
                         current.Add(rightIndex);
+                    }
+                    else if (limitReached)
+                    {
+                        return false;
+                    }
+
+                    // Most-constrained-variable pruning: a singleton
+                    // candidate list cannot be beaten by scanning the
+                    // remaining left blocks, so stop the outer scan here
+                    // instead of continuing to re-examine every other
+                    // unassigned left block against every right block.
+                    // Without this, an unambiguous n-block match (zero
+                    // backtracking, every left block has exactly one
+                    // legal candidate) still costs O(n^3): each of the
+                    // n recursion levels rescans up to n left blocks
+                    // against n right blocks. With the early exit it
+                    // costs O(n^2): each level stops at the first
+                    // singleton it finds.
+                    if (current.Count == 1
+                        && rightIndex + 1 < right.Graph.Blocks.Length)
+                    {
+                        break;
                     }
                 }
                 if (current.Count == 0)
@@ -2152,6 +2177,13 @@ public static partial class StructuralCloneAnalysis
                     nextLeft = leftIndex;
                     candidates = current;
                 }
+
+                // A singleton candidate list is already the best possible
+                // outcome (no other block can have fewer than one
+                // candidate), so there is no need to keep scanning
+                // remaining left blocks once one is found.
+                if (candidates is not null && candidates.Count == 1)
+                    break;
             }
 
             if (candidates is null)
@@ -2337,11 +2369,22 @@ public static partial class StructuralCloneAnalysis
         int[] blockMap,
         int[] reverseBlocks,
         StructuralCloneEdgeIndex leftEdges,
-        StructuralCloneEdgeIndex rightEdges)
+        StructuralCloneEdgeIndex rightEdges,
+        ref int steps,
+        int maximumSteps,
+        ref bool limitReached)
     {
         foreach (StructuralCloneEdge edge
             in left.Graph.Blocks[leftBlock].Outgoing)
         {
+            // Meter this loop too: it is per-candidate-pair work
+            // proportional to block degree, not a constant, so it must
+            // count against the same budget as the outer block scan.
+            if (++steps > maximumSteps)
+            {
+                limitReached = true;
+                return false;
+            }
             if (blockMap[edge.Target] >= 0
                 && !rightEdges.Outgoing[rightBlock].Contains(
                     new StructuralCloneEdge(
@@ -2354,6 +2397,11 @@ public static partial class StructuralCloneAnalysis
         foreach (StructuralCloneEdge edge
             in left.Graph.Blocks[leftBlock].Incoming)
         {
+            if (++steps > maximumSteps)
+            {
+                limitReached = true;
+                return false;
+            }
             if (blockMap[edge.Target] >= 0
                 && !rightEdges.Incoming[rightBlock].Contains(
                     new StructuralCloneEdge(
@@ -2366,6 +2414,11 @@ public static partial class StructuralCloneAnalysis
         foreach (StructuralCloneEdge edge
             in right.Graph.Blocks[rightBlock].Outgoing)
         {
+            if (++steps > maximumSteps)
+            {
+                limitReached = true;
+                return false;
+            }
             if (reverseBlocks[edge.Target] >= 0
                 && !leftEdges.Outgoing[leftBlock].Contains(
                     new StructuralCloneEdge(
@@ -2378,6 +2431,11 @@ public static partial class StructuralCloneAnalysis
         foreach (StructuralCloneEdge edge
             in right.Graph.Blocks[rightBlock].Incoming)
         {
+            if (++steps > maximumSteps)
+            {
+                limitReached = true;
+                return false;
+            }
             if (reverseBlocks[edge.Target] >= 0
                 && !leftEdges.Incoming[leftBlock].Contains(
                     new StructuralCloneEdge(
