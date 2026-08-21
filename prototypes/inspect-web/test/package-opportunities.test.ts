@@ -61,8 +61,14 @@ test("opportunity bindings dispatch type, package, and search actions", () => {
     root as unknown as ParentNode,
     recordingActions(calls));
 
+  assert.deepEqual(calls, []);
   type.dispatch("click");
+  assert.deepEqual(calls, ["type:Contoso.Widget"]);
   packageChip.dispatch("click");
+  assert.deepEqual(calls, [
+    "type:Contoso.Widget",
+    "package:Contoso.Extensions",
+  ]);
   lookFor.dispatch("click");
 
   assert.deepEqual(calls, [
@@ -85,8 +91,11 @@ test("opportunity bindings preserve empty values for malformed controls", () => 
     root as unknown as ParentNode,
     recordingActions(calls));
 
+  assert.deepEqual(calls, []);
   type.dispatch("click");
+  assert.deepEqual(calls, ["type:"]);
   packageChip.dispatch("click");
+  assert.deepEqual(calls, ["type:", "package:"]);
   lookFor.dispatch("click");
 
   assert.deepEqual(calls, ["type:", "package:", "look:"]);
