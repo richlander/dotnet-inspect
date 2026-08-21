@@ -1232,6 +1232,148 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
+    public async Task GalleryRegistrationParserRetainsOnlyFlatCandidates()
+    {
+        const string page = """
+            {
+              "items": [
+                {
+                  "catalogEntry": {
+                    "version": "1.0.0",
+                    "listed": false
+                  }
+                },
+                {
+                  "catalogEntry": {
+                    "version": "2.0.0",
+                    "listed": true
+                  }
+                }
+              ]
+            }
+            """;
+        using var json = new MemoryStream(Encoding.UTF8.GetBytes(page));
+        var candidates = new HashSet<string>(
+            ["1.0.0"],
+            StringComparer.OrdinalIgnoreCase);
+        var budget =
+            new NuGetGalleryRegistrationBudget(candidates.Count);
+
+        IReadOnlyDictionary<string, PackageListingState> listings =
+            await NuGetGalleryRegistration.DeserializePageAsync(
+                json,
+                candidates,
+                budget,
+                TestContext.Current.CancellationToken);
+
+        KeyValuePair<string, PackageListingState> listing =
+            Assert.Single(listings);
+        Assert.Equal("1.0.0", listing.Key);
+        Assert.Equal(PackageListingState.Unlisted, listing.Value);
+    }
+
+    [Fact]
+    public async Task GalleryRegistrationLeafLimitIsTypedPartialEnumeration()
+    {
+        string extraItems = string.Join(
+            ",",
+            Enumerable.Range(
+                2,
+                NuGetGalleryRegistrationBudget.MinimumLeafCount)
+                .Select(version =>
+                    $$"""
+                      {
+                        "catalogEntry": {
+                          "version": "{{version}}.0.0"
+                        }
+                      }
+                      """));
+        string registration = $$"""
+            {
+              "items": [
+                {
+                  "items": [
+                    {
+                      "catalogEntry": {
+                        "version": "1.0.0"
+                      }
+                    },
+                    {{extraItems}}
+                  ]
+                }
+              ]
+            }
+            """;
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] = """{"versions":["1.0.0"]}""",
+            [GalleryRegistration] = registration,
+        };
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        PackageVersionResult result = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.False(result.HasAuthoritativeListingState);
+        Assert.Equal(
+            PackageListingState.Unknown,
+            Assert.Single(result.Candidates).ListingState);
+        Assert.Equal(
+            [GalleryVersions, GalleryRegistration],
+            handler.Requested);
+    }
+
+    [Fact]
+    public async Task GalleryRegistrationPageLimitIsTypedPartialEnumeration()
+    {
+        const string externalPage =
+            """
+            {
+              "@id": "https://api.nuget.org/v3/registration5-gz-semver2/contoso/page/1.0.0/1.0.0.json"
+            }
+            """;
+        string pages = string.Join(
+            ",",
+            Enumerable.Repeat(
+                externalPage,
+                NuGetGalleryRegistrationBudget.MaximumPageCount + 1));
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] = """{"versions":["1.0.0"]}""",
+            [GalleryRegistration] = $$"""{"items":[{{pages}}]}""",
+            [GalleryRegistrationPage] = """
+                {
+                  "items": [
+                    {
+                      "catalogEntry": {
+                        "version": "1.0.0"
+                      }
+                    }
+                  ]
+                }
+                """,
+        };
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        PackageVersionResult result = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.False(result.HasAuthoritativeListingState);
+        Assert.Equal(
+            PackageListingState.Unknown,
+            Assert.Single(result.Candidates).ListingState);
+        Assert.Equal(
+            [GalleryVersions, GalleryRegistration],
+            handler.Requested);
+    }
+
+    [Fact]
     public async Task GalleryExternalPagesUseBoundedConcurrency()
     {
         var handler = new ConcurrentRegistrationHandler();

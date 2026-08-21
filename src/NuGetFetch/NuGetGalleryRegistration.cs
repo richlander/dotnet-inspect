@@ -7,11 +7,48 @@ internal sealed record NuGetGalleryRegistrationIndex(
 
 internal sealed record NuGetGalleryRegistrationPage(
     string? ExternalId,
-    IReadOnlyList<NuGetGalleryRegistrationLeaf>? Items);
+    IReadOnlyDictionary<string, PackageListingState>? Items);
 
-internal sealed record NuGetGalleryRegistrationLeaf(
-    string Version,
-    PackageListingState ListingState);
+internal sealed class NuGetGalleryRegistrationBudget
+{
+    internal const int MaximumPageCount = 128;
+    internal const int MinimumLeafCount = 4_096;
+    private const int LeafCountMultiplier = 4;
+
+    private readonly int _maximumLeafCount;
+    private int _observedLeafCount;
+
+    internal NuGetGalleryRegistrationBudget(int candidateCount)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(candidateCount);
+        long scaledCount = (long)candidateCount * LeafCountMultiplier;
+        _maximumLeafCount = (int)Math.Min(
+            int.MaxValue,
+            Math.Max(MinimumLeafCount, scaledCount));
+    }
+
+    internal void EnsurePageCount(int pageCount)
+    {
+        if (pageCount > MaximumPageCount)
+        {
+            throw Invalid(
+                $"NuGet Gallery registration exceeded {MaximumPageCount} pages.");
+        }
+    }
+
+    internal void ObserveLeaf()
+    {
+        if (Interlocked.Increment(ref _observedLeafCount)
+            > _maximumLeafCount)
+        {
+            throw Invalid(
+                $"NuGet Gallery registration exceeded {_maximumLeafCount} leaves.");
+        }
+    }
+
+    private static JsonException Invalid(string message) =>
+        new(message);
+}
 
 internal static class NuGetGalleryRegistration
 {
@@ -21,6 +58,8 @@ internal static class NuGetGalleryRegistration
     public static async ValueTask<NuGetGalleryRegistrationIndex>
         DeserializeIndexAsync(
             Stream json,
+            IReadOnlySet<string> candidateVersions,
+            NuGetGalleryRegistrationBudget budget,
             CancellationToken cancellationToken)
     {
         using JsonDocument document = await JsonDocument.ParseAsync(
@@ -31,6 +70,7 @@ internal static class NuGetGalleryRegistration
             document.RootElement,
             "items",
             "registration index");
+        budget.EnsurePageCount(pages.GetArrayLength());
         var result =
             new List<NuGetGalleryRegistrationPage>(pages.GetArrayLength());
         foreach (JsonElement page in pages.EnumerateArray())
@@ -43,7 +83,10 @@ internal static class NuGetGalleryRegistration
                 result.Add(
                     new NuGetGalleryRegistrationPage(
                         ExternalId: null,
-                        ParseItems(inlineItems)));
+                        ParseItems(
+                            inlineItems,
+                            candidateVersions,
+                            budget)));
                 continue;
             }
 
@@ -64,9 +107,12 @@ internal static class NuGetGalleryRegistration
         return new NuGetGalleryRegistrationIndex(result);
     }
 
-    public static async ValueTask<IReadOnlyList<NuGetGalleryRegistrationLeaf>>
+    public static async ValueTask<
+        IReadOnlyDictionary<string, PackageListingState>>
         DeserializePageAsync(
             Stream json,
+            IReadOnlySet<string> candidateVersions,
+            NuGetGalleryRegistrationBudget budget,
             CancellationToken cancellationToken)
     {
         using JsonDocument document = await JsonDocument.ParseAsync(
@@ -77,19 +123,25 @@ internal static class NuGetGalleryRegistration
             GetRequiredArray(
                 document.RootElement,
                 "items",
-                "registration page"));
+                "registration page"),
+            candidateVersions,
+            budget);
     }
 
-    private static IReadOnlyList<NuGetGalleryRegistrationLeaf> ParseItems(
-        JsonElement items)
+    private static IReadOnlyDictionary<string, PackageListingState> ParseItems(
+        JsonElement items,
+        IReadOnlySet<string> candidateVersions,
+        NuGetGalleryRegistrationBudget budget)
     {
         if (items.ValueKind != JsonValueKind.Array)
             throw Invalid("Registration items must be an array.");
 
         var result =
-            new List<NuGetGalleryRegistrationLeaf>(items.GetArrayLength());
+            new Dictionary<string, PackageListingState>(
+                StringComparer.OrdinalIgnoreCase);
         foreach (JsonElement item in items.EnumerateArray())
         {
+            budget.ObserveLeaf();
             if (item.ValueKind != JsonValueKind.Object
                 || !item.TryGetProperty(
                     "catalogEntry",
@@ -139,10 +191,19 @@ internal static class NuGetGalleryRegistration
                 };
             }
 
-            result.Add(
-                new NuGetGalleryRegistrationLeaf(
+            if (!candidateVersions.Contains(normalizedVersion))
+                continue;
+
+            if (result.TryGetValue(
                     normalizedVersion,
-                    listingState));
+                    out PackageListingState prior)
+                && prior != listingState)
+            {
+                throw Invalid(
+                    "The NuGet Gallery registration response reported conflicting listing states.");
+            }
+
+            result[normalizedVersion] = listingState;
         }
 
         return result;

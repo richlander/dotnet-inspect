@@ -172,16 +172,32 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
             $"{Registration}{EscapeSegment(normalizedId)}/index.json";
         try
         {
+            var candidateVersions = new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase);
+            foreach (PackageCandidateObservation candidate in candidates)
+            {
+                operation.ThrowIfExpired();
+                candidateVersions.Add(candidate.Coordinate.Version);
+            }
+
+            var budget =
+                new NuGetGalleryRegistrationBudget(candidateVersions.Count);
             NuGetGalleryRegistrationIndex? index =
                 await ReadRegistrationDocumentAsync(
                     indexUrl,
-                    NuGetGalleryRegistration.DeserializeIndexAsync,
+                    (json, cancellationToken) =>
+                        NuGetGalleryRegistration.DeserializeIndexAsync(
+                            json,
+                            candidateVersions,
+                            budget,
+                            cancellationToken),
                     operation).ConfigureAwait(false);
             if (index is null)
                 return null;
 
             var listings =
                 new Dictionary<string, PackageListingState>(
+                    candidates.Count,
                     StringComparer.OrdinalIgnoreCase);
             var externalPages = new List<string>();
             foreach (NuGetGalleryRegistrationPage page in index.Pages)
@@ -206,7 +222,8 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                  offset < externalPages.Count;
                  offset += RegistrationPageBatchSize)
             {
-                Task<IReadOnlyList<NuGetGalleryRegistrationLeaf>?>[] requests =
+                Task<IReadOnlyDictionary<string, PackageListingState>?>[]
+                    requests =
                 [
                     .. externalPages
                         .Skip(offset)
@@ -214,15 +231,22 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                         .Select(pageUrl =>
                             ReadRegistrationDocumentAsync(
                                 pageUrl,
-                                NuGetGalleryRegistration.DeserializePageAsync,
+                                (json, cancellationToken) =>
+                                    NuGetGalleryRegistration
+                                        .DeserializePageAsync(
+                                            json,
+                                            candidateVersions,
+                                            budget,
+                                            cancellationToken),
                                 operation)),
                 ];
-                IReadOnlyList<NuGetGalleryRegistrationLeaf>?[] pages =
+                IReadOnlyDictionary<string, PackageListingState>?[] pages =
                     await Task.WhenAll(requests).ConfigureAwait(false);
                 if (pages.Any(page => page is null))
                     return null;
-                foreach (IReadOnlyList<NuGetGalleryRegistrationLeaf> page in
-                         pages!)
+                foreach (
+                    IReadOnlyDictionary<string, PackageListingState> page
+                    in pages!)
                 {
                     AddRegistrationListings(
                         page,
@@ -299,23 +323,23 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
     }
 
     private static void AddRegistrationListings(
-        IReadOnlyList<NuGetGalleryRegistrationLeaf> items,
+        IReadOnlyDictionary<string, PackageListingState> items,
         Dictionary<string, PackageListingState> listings,
         NuGetOperationDeadline operation)
     {
-        foreach (NuGetGalleryRegistrationLeaf item in items)
+        foreach ((string version, PackageListingState listingState) in items)
         {
             operation.ThrowIfExpired();
             if (listings.TryGetValue(
-                    item.Version,
+                    version,
                     out PackageListingState prior)
-                && prior != item.ListingState)
+                && prior != listingState)
             {
                 throw new NuGetSourceResponseException(
                     "The NuGet Gallery registration response reported conflicting listing states.");
             }
 
-            listings[item.Version] = item.ListingState;
+            listings[version] = listingState;
         }
     }
 

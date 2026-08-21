@@ -64,9 +64,12 @@ shortening the selected assembly set.
    with unknown state, keeps the picker available, and makes range selection
    fail closed; exact dependency pins remain available.
    `GalleryEnumerationJoinsAuthoritativeListingState`,
-   `GalleryExternalRegistrationPageIsValidatedAndRebased`, and
+   `GalleryExternalRegistrationPageIsValidatedAndRebased`,
    `GalleryExternalPagesUseBoundedConcurrency`,
-   `GalleryMalformedRegistrationIsTypedPartialEnumeration`, and
+   `GalleryRegistrationParserRetainsOnlyFlatCandidates`,
+   `GalleryRegistrationLeafLimitIsTypedPartialEnumeration`, and
+   `GalleryRegistrationPageLimitIsTypedPartialEnumeration`,
+   `GalleryMalformedRegistrationIsTypedPartialEnumeration`,
    `GalleryIncompleteRegistrationIsTypedPartialEnumeration`, and
    `GalleryFinalListingProjectionExpiresToPartial` gate the source contract.
    `GalleryCallerCancellationDuringRegistrationRemainsCancellation` and
