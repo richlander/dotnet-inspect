@@ -549,6 +549,16 @@ preservation, retry after failure, and resident-pack reuse;
 `test/spotlight-identity.test.js` gates provenance, failure adaptation, and
 composition-root wiring.
 
+`src/package-inspection.ts` owns the async request lifecycle for Dependencies,
+Integrations, Opportunities, Analysis, and package-level Metadata, including
+workspace dependency-cache population and stale-result suppression.
+`dotnet-inspect.ts` supplies the typed state, engine, platform-routing,
+diagnostics, and rendering ports while retaining lens selection and
+presentation. `test/package-inspection.test.ts` gates complete cache identity,
+resident-package checks, visible partial/failure results, package/platform
+routing, stale publication, and explicit Platform library scope;
+`test/spotlight-identity.test.js` gates the composition-root wiring.
+
 `src/spotlight.ts` owns the modal workbench search, embedded home search,
 scope/result rendering, selection, and keyboard interaction.
 `src/command-bar.ts` supplies its typed Commands-scope grammar and results;
@@ -621,16 +631,18 @@ assembly — format stamp, heap sizes, ECMA-335 table row counts, and PE/CLI
 headers) and the Metadata Explorer (the spatial table/heap drill-down laid over
 it) as pure, dependency-injected render functions; both describe the metadata
 image rather than the API surface within it, so they share one module the way
-`type-panel.ts` combines the type selector and the type viewer. `dotnet-inspect.ts` still
-owns `state`, the engine calls that fetch an image, a table row window, or a
-heap listing, the explorer's focus/history stack, the DOM event binding, the
-`IntersectionObserver` that hydrates cards lazily, the resize listener, and the
-global keydown handler, and passes each computed slice in explicitly; the shared
-helpers used well beyond these views (`escapeHtml`, `fmtBytes`,
-`platformLensPicker`, `scopedPlatformLibrary`, `packageScopeSignature`) stay in
-`dotnet-inspect.ts` and are injected the same way. `test/metadata-viewer.test.ts` gates the
-lens's picker, loading, failure, stale-scope, partial-read, and empty-image
-states and its heap/table ordering; the explorer's chips, history-button
+`type-panel.ts` combines the type selector and the type viewer.
+`package-inspection.ts` coordinates the package-level image request;
+`dotnet-inspect.ts` still owns `state`, table-window and heap-listing engine
+calls, the explorer's focus/history stack, the DOM event binding, the
+`IntersectionObserver` that hydrates cards lazily, the resize listener, and
+the global keydown handler, and passes each computed slice in explicitly; the
+shared helpers used well beyond these views (`escapeHtml`, `fmtBytes`,
+`platformLensPicker`, `scopedPlatformLibrary`, `packageScopeSignature`) stay
+in `dotnet-inspect.ts` and are injected the same way.
+`test/metadata-viewer.test.ts` gates the lens's picker, loading, failure,
+stale-scope, partial-read, and empty-image states and its heap/table ordering;
+the explorer's chips, history-button
 enablement, overview versus focus lightbox, lazy-load hooks, pager bounds, row
 highlight and selection, ref->def jump targets, cell escaping, heap addressing
 and coverage notes, and the row inspector.
@@ -669,13 +681,14 @@ opportunities" lens (the ecosystem auth/cloud/config/database/AI-client
 integration suggestions for a package or platform library) as a pure,
 dependency-injected render function, including its opportunity-row API-name
 splitting, package-chip detection, and "look for" chip rendering. `dotnet-inspect.ts`
-still owns `state`, the scan-scope-keyed async load lifecycle
-(`loadPackageOpportunities`), and the platform library picker, and passes
-each computed slice in explicitly. `test/package-opportunities.test.ts` gates
-the platform pick-a-library prompt, the scanning/loading/error states (fresh
-versus stale scope), the no-opportunities and inspection-error banners, the
-category summary counts, API name splitting, package-chip versus plain-text
-kind rendering, look-for chip/wildcard/empty rendering, and text escaping.
+still owns `state` and the platform library picker, `package-inspection.ts`
+owns the scan-scope-keyed async load lifecycle, and the root passes each
+computed slice into the renderer explicitly.
+`test/package-opportunities.test.ts` gates the platform pick-a-library prompt,
+the scanning/loading/error states (fresh versus stale scope), the
+no-opportunities and inspection-error banners, the category summary counts,
+API name splitting, package-chip versus plain-text kind rendering, look-for
+chip/wildcard/empty rendering, and text escaping.
 
 - `Cmd/Ctrl+K` opens Spotlight in the Commands scope.
 - `Cmd/Ctrl+P` opens Spotlight in the All scope.
