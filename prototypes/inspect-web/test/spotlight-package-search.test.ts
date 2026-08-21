@@ -70,11 +70,12 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-test("eligible package queries schedule one trimmed debounced request", () => {
+test("eligible package queries schedule one trimmed debounced request", async () => {
   let queries = 0;
   const state = searchState({ spotlightQuery: "  Example  " });
   const harness = searchDependencies(state, {
-    queryPackages: async () => {
+    queryPackages: async query => {
+      assert.equal(query, "Example");
       queries++;
       return [];
     },
@@ -87,6 +88,22 @@ test("eligible package queries schedule one trimmed debounced request", () => {
   assert.equal(state.spotlightPkgLoading, true);
   assert.equal(harness.scheduled.length, 1);
   assert.equal(harness.scheduled[0]?.delay, 220);
+  await harness.scheduled[0]?.callback();
+  assert.equal(queries, 1);
+});
+
+test("the dedicated Packages scope schedules NuGet discovery", () => {
+  const state = searchState({
+    spotlightQuery: "Example",
+    spotlightScope: "packages",
+  });
+  const harness = searchDependencies(state);
+  const search = createSpotlightPackageSearch(harness.dependencies);
+
+  search.schedule();
+
+  assert.equal(harness.scheduled.length, 1);
+  assert.equal(state.spotlightPkgLoading, true);
 });
 
 test("rescheduling cancels the prior debounce before replacing it", () => {
@@ -249,6 +266,98 @@ test("newer generations suppress stale success while publishing the replacement"
   assert.equal(state.spotlightPkgQuery, "second");
   assert.equal(state.spotlightPkgLoading, false);
   assert.equal(harness.updates(), 1);
+});
+
+test("same-input generations independently suppress stale failures", async () => {
+  const first = deferred<readonly SpotlightPackageHit[]>();
+  let queries = 0;
+  const state = searchState({ spotlightQuery: "Example" });
+  const harness = searchDependencies(state, {
+    queryPackages: async () => {
+      queries++;
+      if (queries === 1) return first.promise;
+      return [{ id: "Current", version: "2.0.0" }];
+    },
+  });
+  const search = createSpotlightPackageSearch(harness.dependencies);
+
+  search.schedule();
+  const firstRequest = harness.scheduled[0]?.callback();
+  search.schedule();
+  await harness.scheduled[1]?.callback();
+  first.reject(new Error("stale failure"));
+  await firstRequest;
+
+  assert.deepEqual(state.spotlightPkgHits, [{
+    id: "Current",
+    version: "2.0.0",
+  }]);
+  assert.equal(state.spotlightPkgQuery, "Example");
+  assert.equal(state.spotlightPkgLoading, false);
+  assert.equal(harness.updates(), 1);
+});
+
+test("input changes independently suppress stale failures", async () => {
+  const query = deferred<readonly SpotlightPackageHit[]>();
+  const state = searchState({ spotlightQuery: "first" });
+  const harness = searchDependencies(state, {
+    queryPackages: async () => query.promise,
+  });
+  const search = createSpotlightPackageSearch(harness.dependencies);
+
+  search.schedule();
+  const request = harness.scheduled[0]?.callback();
+  state.spotlightQuery = "second";
+  query.reject(new Error("stale failure"));
+  await request;
+
+  assert.deepEqual(state.spotlightPkgHits, []);
+  assert.equal(state.spotlightPkgQuery, "");
+  assert.equal(state.spotlightPkgLoading, true);
+  assert.equal(harness.updates(), 0);
+});
+
+test("leaving package scopes invalidates an in-flight request with unchanged input", async () => {
+  const query = deferred<readonly SpotlightPackageHit[]>();
+  const state = searchState({ spotlightQuery: "Example" });
+  const harness = searchDependencies(state, {
+    queryPackages: async () => query.promise,
+  });
+  const search = createSpotlightPackageSearch(harness.dependencies);
+
+  search.schedule();
+  const request = harness.scheduled[0]?.callback();
+  state.spotlightScope = "types";
+  search.schedule();
+  query.resolve([{ id: "Stale", version: "1.0.0" }]);
+  await request;
+
+  assert.deepEqual(state.spotlightPkgHits, []);
+  assert.equal(state.spotlightPkgQuery, "");
+  assert.equal(state.spotlightPkgLoading, false);
+  assert.equal(harness.updates(), 0);
+});
+
+test("short-query cancellation stays effective if the prior input returns", async () => {
+  const query = deferred<readonly SpotlightPackageHit[]>();
+  const state = searchState({ spotlightQuery: "Example" });
+  const harness = searchDependencies(state, {
+    queryPackages: async () => query.promise,
+  });
+  const search = createSpotlightPackageSearch(harness.dependencies);
+
+  search.schedule();
+  const request = harness.scheduled[0]?.callback();
+  state.spotlightQuery = "x";
+  search.schedule();
+  state.spotlightQuery = "Example";
+  query.resolve([{ id: "Stale", version: "1.0.0" }]);
+  await request;
+
+  assert.deepEqual(state.spotlightPkgHits, []);
+  assert.equal(state.spotlightPkgQuery, "");
+  assert.equal(state.spotlightPkgLoading, false);
+  assert.equal(harness.updates(), 0);
 });
 
 test("reset cancels scheduled and in-flight publication", async () => {

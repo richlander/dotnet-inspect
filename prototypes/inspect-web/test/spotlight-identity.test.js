@@ -349,6 +349,9 @@ test("Spotlight async work is generation-gated and refreshes either mounted surf
     spotlightPackageSearchSource,
     /requestGeneration !== generation[\s\S]*state\.spotlightQuery\.trim\(\) !== query/);
   assert.doesNotMatch(appSource, /spotlightPkgGeneration|spotlightPkgTimer/);
+  assert.match(
+    appSource,
+    /if \(!state\.spotlightOpen && !state\.home\) return;[\s\S]*spotlight\.refresh\(\)/);
 });
 
 test("global workbench shortcuts respect the topmost modal", () => {
