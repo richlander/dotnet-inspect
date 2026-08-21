@@ -78,11 +78,13 @@ test("package selection bindings map overview and header controls without eager 
   const root = new FakeRoot();
   const chip = new FakeElement();
   chip.dataset.frameworkChip = "net9.0";
-  root.addAll("[data-framework-chip]", chip);
+  const secondChip = new FakeElement();
+  secondChip.dataset.frameworkChip = "net8.0";
+  root.addAll("[data-framework-chip]", chip, secondChip);
   const framework = root.add("#framework", new FakeElement());
-  framework.value = "net10.0";
+  framework.value = "net9.0";
   const version = root.add("#package-version", new FakeElement());
-  version.value = "10.0.1";
+  version.value = "10.0.0";
   const calls: string[] = [];
 
   bindPackageSelections(
@@ -94,12 +96,23 @@ test("package selection bindings map overview and header controls without eager 
 
   assert.deepEqual(calls, []);
   chip.dispatch("click");
-  assert.deepEqual(calls, ["framework:net9.0"]);
+  secondChip.dispatch("click");
+  assert.deepEqual(calls, [
+    "framework:net9.0",
+    "framework:net8.0",
+  ]);
+  framework.value = "net10.0";
   framework.dispatch("change");
-  assert.deepEqual(calls, ["framework:net9.0", "framework:net10.0"]);
+  assert.deepEqual(calls, [
+    "framework:net9.0",
+    "framework:net8.0",
+    "framework:net10.0",
+  ]);
+  version.value = "10.0.1";
   version.dispatch("change");
   assert.deepEqual(calls, [
     "framework:net9.0",
+    "framework:net8.0",
     "framework:net10.0",
     "version:10.0.1",
   ]);
@@ -121,11 +134,13 @@ test("package bar connects package selection controls to its typed options", () 
   const root = new FakeRoot();
   const chip = new FakeElement();
   chip.dataset.frameworkChip = "net9.0";
-  root.addAll("[data-framework-chip]", chip);
+  const secondChip = new FakeElement();
+  secondChip.dataset.frameworkChip = "net8.0";
+  root.addAll("[data-framework-chip]", chip, secondChip);
   const framework = root.add("#framework", new FakeElement());
-  framework.value = "net10.0";
+  framework.value = "net9.0";
   const version = root.add("#package-version", new FakeElement());
-  version.value = "10.0.1";
+  version.value = "10.0.0";
   root.add("#package-query", new FakeElement());
   const calls: string[] = [];
   const packageBar = createPackageBar({
@@ -146,10 +161,14 @@ test("package bar connects package selection controls to its typed options", () 
 
   assert.deepEqual(calls, []);
   chip.dispatch("click");
+  secondChip.dispatch("click");
+  framework.value = "net10.0";
   framework.dispatch("change");
+  version.value = "10.0.1";
   version.dispatch("change");
   assert.deepEqual(calls, [
     "framework:net9.0",
+    "framework:net8.0",
     "framework:net10.0",
     "version:10.0.1",
   ]);
