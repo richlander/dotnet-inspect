@@ -66,22 +66,37 @@ static partial class DtsEmitter
             diagnostics?.ReportUnmappedType(
                 $"{record.Name} JsonSerializerContext.PropertyNamingPolicy",
                 "unsupported JsonKnownNamingPolicy");
-            namingPolicy = JsonWireNamingPolicy.None;
+            EmitBlockedRecord(sb, record);
+            return;
+        }
+
+        var properties = record.Members
+            .Where(IsSerializedProperty)
+            .Select(member => (
+                Member: member,
+                ResolvedName: member.JsonPropertyName ?? ApplyNamingPolicy(member.Name, namingPolicy)))
+            .ToArray();
+
+        var blockedProperties = properties
+            .Where(property => property.ResolvedName.Any(char.IsControl))
+            .ToArray();
+        if (blockedProperties.Length > 0)
+        {
+            foreach (var property in blockedProperties)
+            {
+                diagnostics?.ReportUnmappedType(
+                    $"{record.Name}.{property.Member.Name} [JsonPropertyName]",
+                    "control-character JSON property name");
+            }
+
+            EmitBlockedRecord(sb, record);
+            return;
         }
 
         sb.Append("export interface ").Append(record.Name).Append(" {\n");
 
-        foreach (ApiMember member in record.Members)
+        foreach ((ApiMember member, string resolvedName) in properties)
         {
-            if (member.Kind != "property"
-                || member.IsCompilerGenerated
-                || member.HasJsonIgnore
-                || (member.Accessibility is not null && !member.HasJsonInclude))
-            {
-                continue;
-            }
-
-            string resolvedName = member.JsonPropertyName ?? ApplyNamingPolicy(member.Name, namingPolicy);
             string tsName = FormatPropertyKey(resolvedName);
             string propertyType = member.SignatureModel?.ReturnType ?? member.ReturnType ?? "unknown";
             string tsType = TsTypeMapper.MapParameterType(propertyType, knownTypeNames, diagnostics, $"{record.Name}.{member.Name}");
@@ -90,6 +105,15 @@ static partial class DtsEmitter
 
         sb.Append("}\n\n");
     }
+
+    static bool IsSerializedProperty(ApiMember member) =>
+        member.Kind == "property"
+        && !member.IsCompilerGenerated
+        && !member.HasJsonIgnore
+        && (member.Accessibility is null || member.HasJsonInclude);
+
+    static void EmitBlockedRecord(StringBuilder sb, ApiType record) =>
+        sb.Append("export type ").Append(record.Name).Append(" = unknown;\n\n");
 
     static void EmitFunction(
         StringBuilder sb,

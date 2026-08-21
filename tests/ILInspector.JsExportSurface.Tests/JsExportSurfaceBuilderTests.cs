@@ -60,14 +60,17 @@ public sealed class JsExportSurfaceBuilderTests
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
         var recordNames = surface.Records.Select(r => r.Name).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(8, surface.Records.Count);
+        Assert.Equal(11, surface.Records.Count);
         Assert.Contains("WidgetDto", recordNames);
         Assert.Contains("WidgetOwner", recordNames);
         Assert.Contains("WidgetCatalog", recordNames);
+        Assert.Contains("WidgetCatalogEntry", recordNames);
         Assert.Contains("WidgetSummary", recordNames);
         Assert.Contains("WidgetPermissionSummary", recordNames);
         Assert.Contains("WidgetPrioritySummary", recordNames);
         Assert.Contains("WidgetAudit", recordNames);
+        Assert.Contains("ControlPropertyNameWidget", recordNames);
+        Assert.Contains("ConflictingPolicyWidget", recordNames);
         Assert.Contains("NeedsUnmappedTypeFixture", recordNames);
     }
 
@@ -105,7 +108,7 @@ public sealed class JsExportSurfaceBuilderTests
     {
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
-        Assert.Contains(surface.Records, r => r.Name == "WidgetOwner");
+        Assert.Contains(surface.Records, r => r.Name == "WidgetCatalogEntry");
     }
 
     [Fact]
@@ -199,12 +202,80 @@ public sealed class JsExportSurfaceBuilderTests
     [Fact]
     public void Build_AssignsNamingPolicyPerContextWithoutBleed()
     {
-        ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
+        ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface(includeAll: true);
 
-        ApiType pascalRecord = Assert.Single(surface.Records, r => r.Name == "NeedsUnmappedTypeFixture");
-        Assert.Equal(JsonWireNamingPolicy.CamelCase, pascalRecord.JsonPropertyNamingPolicy);
+        ApiType pascalRecord = Assert.Single(surface.Records, r => r.Name == "InternalContextPascalWidget");
+        Assert.Equal(JsonWireNamingPolicy.None, pascalRecord.JsonPropertyNamingPolicy);
 
         ApiType camelRecord = Assert.Single(surface.Records, r => r.Name == "WidgetDto");
         Assert.Equal(JsonWireNamingPolicy.CamelCase, camelRecord.JsonPropertyNamingPolicy);
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Build_MarksConflictingContextPoliciesUnsupportedRegardlessOfMetadataOrder(
+        bool reverseContexts)
+    {
+        ApiType camelContext = CreateSerializerContext(
+            "CamelContext",
+            "SharedDto",
+            JsonWireNamingPolicy.CamelCase);
+        ApiType snakeContext = CreateSerializerContext(
+            "SnakeContext",
+            "SharedDto",
+            JsonWireNamingPolicy.SnakeCaseLower);
+        var sharedDto = new ApiType { Name = "SharedDto" };
+        var apiSurface = new ApiSurface
+        {
+            Types = reverseContexts
+                ? [snakeContext, sharedDto, camelContext]
+                : [camelContext, sharedDto, snakeContext],
+        };
+
+        ILInspector.JsExportSurface.JsExportSurface surface = JsExportSurfaceBuilder.Build(apiSurface);
+
+        ApiType record = Assert.Single(surface.Records);
+        Assert.Equal(JsonWireNamingPolicy.Unsupported, record.JsonPropertyNamingPolicy);
+    }
+
+    [Fact]
+    public void Build_KeepsPolicyWhenMultipleContextsAgree()
+    {
+        var apiSurface = new ApiSurface
+        {
+            Types =
+            [
+                CreateSerializerContext("FirstContext", "SharedDto", JsonWireNamingPolicy.CamelCase),
+                new ApiType { Name = "SharedDto" },
+                CreateSerializerContext("SecondContext", "SharedDto", JsonWireNamingPolicy.CamelCase),
+            ],
+        };
+
+        ILInspector.JsExportSurface.JsExportSurface surface = JsExportSurfaceBuilder.Build(apiSurface);
+
+        ApiType record = Assert.Single(surface.Records);
+        Assert.Equal(JsonWireNamingPolicy.CamelCase, record.JsonPropertyNamingPolicy);
+    }
+
+    private static ApiType CreateSerializerContext(
+        string name,
+        string recordName,
+        JsonWireNamingPolicy namingPolicy) =>
+        new()
+        {
+            Name = name,
+            BaseType = "System.Text.Json.Serialization.JsonSerializerContext",
+            JsonPropertyNamingPolicy = namingPolicy,
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = recordName,
+                    Kind = "property",
+                    ReturnType =
+                        $"System.Text.Json.Serialization.Metadata.JsonTypeInfo<{recordName}>",
+                },
+            ],
+        };
 }

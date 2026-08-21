@@ -90,7 +90,9 @@ public sealed record WidgetDto(string Name, int Count, int[] Tags, WidgetOwner? 
 
 public sealed record WidgetOwner(string DisplayName);
 
-public sealed record WidgetCatalog(Dictionary<string, WidgetOwner> OwnersByKey);
+public sealed record WidgetCatalog(Dictionary<string, WidgetCatalogEntry> OwnersByKey);
+
+public sealed record WidgetCatalogEntry(string DisplayName);
 
 [JsonConverter(typeof(JsonStringEnumConverter<WidgetStatus>))]
 public enum WidgetStatus
@@ -149,8 +151,15 @@ public sealed record WidgetAudit(string Name)
     }
 }
 
+public sealed record ControlPropertyNameWidget
+{
+    [JsonPropertyName("line\nbreak\r\t\u0001")]
+    public string Value { get; init; } = "";
+}
+
 public sealed record InternalContextPascalWidget(string Name, int Count);
 public sealed record InternalContextCamelWidget(string Name, int Count);
+public sealed record ConflictingPolicyWidget(string DisplayName);
 
 [SupportedOSPlatform("browser")]
 public static partial class InternalContextFixtureExports
@@ -175,6 +184,7 @@ public static partial class InternalContextFixtureExports
 [JsonSerializable(typeof(WidgetPermissionSummary))]
 [JsonSerializable(typeof(WidgetPrioritySummary))]
 [JsonSerializable(typeof(WidgetAudit))]
+[JsonSerializable(typeof(ControlPropertyNameWidget))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 public sealed partial class FixtureJsonContext : JsonSerializerContext;
 
@@ -184,6 +194,14 @@ internal sealed partial class InternalContextFixtureJsonContext : JsonSerializer
 [JsonSerializable(typeof(InternalContextCamelWidget))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class InternalContextCamelFixtureJsonContext : JsonSerializerContext;
+
+[JsonSerializable(typeof(ConflictingPolicyWidget))]
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+public sealed partial class ConflictingCamelFixtureJsonContext : JsonSerializerContext;
+
+[JsonSerializable(typeof(ConflictingPolicyWidget))]
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
+public sealed partial class ConflictingSnakeFixtureJsonContext : JsonSerializerContext;
 
 public sealed record NeedsUnmappedTypeFixture(Guid Unmapped);
 

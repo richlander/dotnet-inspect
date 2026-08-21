@@ -8,13 +8,15 @@ namespace ILInspector.JsExportSurface.Tests;
 
 public sealed class DtsEmitterTests
 {
-    private static string EmitFixtureDts(bool includeAll = false)
+    private static string EmitFixtureDts(
+        bool includeAll = false,
+        TsBindGenDiagnostics? diagnostics = null)
     {
         using FileStream stream = File.OpenRead(typeof(FixtureExports).Assembly.Location);
         using var peReader = new PEReader(stream);
         ApiSurface apiSurface = ApiSurfaceExtractor.Extract(peReader, includeAll: includeAll);
         ILInspector.JsExportSurface.JsExportSurface surface = JsExportSurfaceBuilder.Build(apiSurface);
-        return DtsEmitter.Emit(surface);
+        return DtsEmitter.Emit(surface, diagnostics);
     }
 
     private static string EmitFixtureDtsWithWireContracts()
@@ -290,5 +292,43 @@ public sealed class DtsEmitterTests
         Assert.Contains("  \"display-name\": string;", dts, StringComparison.Ordinal);
         Assert.Contains("  \"\": string;", dts, StringComparison.Ordinal);
         Assert.DoesNotContain("ignoredAtWire", dts, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_BlocksControlCharacterJsonPropertyNames()
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+
+        string dts = EmitFixtureDts(diagnostics: diagnostics);
+
+        Assert.Contains(
+            "export type ControlPropertyNameWidget = unknown;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("line\nbreak", dts, StringComparison.Ordinal);
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic =>
+                diagnostic.Location == "ControlPropertyNameWidget.Value [JsonPropertyName]"
+                && diagnostic.CSharpType == "control-character JSON property name");
+    }
+
+    [Fact]
+    public void Emit_BlocksRecordWithConflictingContextNamingPolicies()
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+
+        string dts = EmitFixtureDts(diagnostics: diagnostics);
+
+        Assert.Contains(
+            "export type ConflictingPolicyWidget = unknown;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic =>
+                diagnostic.Location
+                    == "ConflictingPolicyWidget JsonSerializerContext.PropertyNamingPolicy"
+                && diagnostic.CSharpType == "unsupported JsonKnownNamingPolicy");
     }
 }

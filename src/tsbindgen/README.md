@@ -61,6 +61,12 @@ also prints a diagnostic to stderr for every unmapped occurrence and exits
 non-zero. That keeps CI from treating a lossy projection as success-shaped
 output.
 
+The same defensive block applies to DTO records whose serializer contexts
+declare conflicting property-naming policies or whose `[JsonPropertyName]`
+contains control characters. The record is emitted as `unknown`, without
+guessing a naming policy or carrying an unsafe property key into TypeScript,
+and the diagnostic keeps generation red until the wire contract is corrected.
+
 ## Testing
 
 Run the test suite in Release:

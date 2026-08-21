@@ -55,9 +55,9 @@ public static class JsExportSurfaceBuilder
 
         var records = new List<ApiType>();
         var enums = new List<ApiType>();
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        var queue = new Queue<(string Name, JsonWireNamingPolicy? Policy)>();
-        var resolvedPoliciesByTypeName = new Dictionary<string, JsonWireNamingPolicy?>(StringComparer.Ordinal);
+        var discovered = new HashSet<string>(StringComparer.Ordinal);
+        var policiesByTypeName = new Dictionary<string, HashSet<JsonWireNamingPolicy>>(StringComparer.Ordinal);
+        var queue = new Queue<(string Name, JsonWireNamingPolicy Policy)>();
 
         foreach (ApiType type in surface.Types)
         {
@@ -76,26 +76,39 @@ public static class JsExportSurfaceBuilder
 
                 string rootTypeName = returnType[JsonTypeInfoPrefix.Length..^1];
                 foreach (string candidate in ExtractCandidateTypeNames(rootTypeName))
-                    queue.Enqueue((candidate, type.JsonPropertyNamingPolicy));
+                    queue.Enqueue((candidate, type.JsonPropertyNamingPolicy ?? JsonWireNamingPolicy.None));
             }
         }
 
         while (queue.Count > 0)
         {
-            (string name, JsonWireNamingPolicy? namingPolicy) = queue.Dequeue();
-            if (!seen.Add(name) || !typesByName.TryGetValue(name, out ApiType? type))
+            (string name, JsonWireNamingPolicy namingPolicy) = queue.Dequeue();
+            if (!typesByName.TryGetValue(name, out ApiType? type))
                 continue;
 
-            resolvedPoliciesByTypeName[name] = namingPolicy;
-            type.JsonPropertyNamingPolicy = namingPolicy;
-
-            if (type.Kind == "enum")
+            if (!policiesByTypeName.TryGetValue(name, out HashSet<JsonWireNamingPolicy>? policies))
             {
-                enums.Add(type);
-                continue;
+                policies = [];
+                policiesByTypeName.Add(name, policies);
             }
 
-            records.Add(type);
+            if (!policies.Add(namingPolicy))
+                continue;
+
+            type.JsonPropertyNamingPolicy = policies.Count == 1
+                ? namingPolicy
+                : JsonWireNamingPolicy.Unsupported;
+
+            if (discovered.Add(name))
+            {
+                if (type.Kind == "enum")
+                    enums.Add(type);
+                else
+                    records.Add(type);
+            }
+
+            if (type.Kind == "enum")
+                continue;
 
             foreach (ApiMember member in type.Members)
             {
@@ -109,12 +122,7 @@ public static class JsExportSurfaceBuilder
 
                 string? propertyType = member.SignatureModel?.ReturnType ?? member.ReturnType;
                 foreach (string candidate in ExtractCandidateTypeNames(propertyType))
-                {
-                    JsonWireNamingPolicy? nestedPolicy = resolvedPoliciesByTypeName.TryGetValue(type.Name, out JsonWireNamingPolicy? current)
-                        ? current
-                        : type.JsonPropertyNamingPolicy;
-                    queue.Enqueue((candidate, nestedPolicy));
-                }
+                    queue.Enqueue((candidate, namingPolicy));
             }
         }
 
