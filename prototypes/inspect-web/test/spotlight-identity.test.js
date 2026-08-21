@@ -365,12 +365,31 @@ test("typed type panel owns its rendered control bindings", () => {
   assert.match(
     typePanelSource,
     /export function bindTypePanel\([\s\S]*\[data-type\][\s\S]*\[data-namespace\][\s\S]*\[data-kind-filter\][\s\S]*\[data-nav-member\][\s\S]*\[data-nav-overload\][\s\S]*#nav-to-types[\s\S]*#clear-filter[\s\S]*#namespace-jump[\s\S]*#type-list[\s\S]*#type-filter/);
-  assert.doesNotMatch(
-    appSource,
-    /querySelectorAll<HTMLElement>\("\[data-(?:type|namespace|kind-filter|nav-member|nav-overload)\]"\)/);
-  assert.doesNotMatch(
-    appSource,
-    /querySelector(?:<[^>]+>)?\("#(?:nav-to-types|clear-filter|namespace-jump|type-filter)"\)\??\.addEventListener/);
+  const selectorCount = selector =>
+    appSource.split(selector).length - 1;
+  assert.deepEqual(
+    Object.fromEntries([
+      "[data-type]",
+      "[data-namespace]",
+      "[data-kind-filter]",
+      "[data-nav-member]",
+      "[data-nav-overload]",
+      "#nav-to-types",
+      "#clear-filter",
+      "#namespace-jump",
+    ].map(selector => [selector, selectorCount(selector)])),
+    {
+      "[data-type]": 0,
+      "[data-namespace]": 0,
+      "[data-kind-filter]": 0,
+      "[data-nav-member]": 0,
+      "[data-nav-overload]": 0,
+      "#nav-to-types": 0,
+      "#clear-filter": 0,
+      "#namespace-jump": 0,
+    });
+  assert.equal(selectorCount("#type-filter"), 1);
+  assert.equal(selectorCount("#type-list"), 5);
 });
 
 test("leaving package search clears its pending loading state", () => {
