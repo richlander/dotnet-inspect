@@ -11803,6 +11803,55 @@ public class LibraryBodyIndexTests
                     diagnostic.Message));
     }
 
+    [Fact]
+    public void
+        ScopeDiagnosticAggregation_PreservesPhysicalFailureIdentity()
+    {
+        const string firstMethod =
+            "Sample.<Source>d__1::MoveNext()";
+        const string secondMethod =
+            "Sample.<Source>d__1::SetStateMachine()";
+        const string overloadedMethod =
+            "Sample.Source::Run()";
+        var firstLabel = new AnalysisDiagnostic(
+            0x06000003,
+            firstMethod,
+            "Canonical label identity");
+        var secondLabel = firstLabel with
+        {
+            Method = secondMethod,
+        };
+        var firstToken = new AnalysisDiagnostic(
+            0x06000004,
+            overloadedMethod,
+            "Physical token identity");
+        var secondToken = firstToken with
+        {
+            MethodToken = 0x06000005,
+        };
+
+        ImmutableArray<AnalysisDiagnostic> diagnostics =
+            AnalysisDiagnosticAggregation
+                .MergeInMetadataOrder(
+                    [firstLabel, firstToken],
+                    [secondLabel, secondToken]);
+
+        Assert.Equal(
+            new[]
+            {
+                (0x06000003, firstMethod),
+                (0x06000003, secondMethod),
+                (0x06000004, overloadedMethod),
+                (0x06000005, overloadedMethod),
+            },
+            diagnostics.Select(
+                diagnostic =>
+                    (
+                        diagnostic.MethodToken,
+                        diagnostic.Method
+                    )));
+    }
+
     static byte[]
         BuildNestedLiftedInvalidAsyncSourceAssembly(
             out int sourceToken,

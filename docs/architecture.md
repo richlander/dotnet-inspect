@@ -806,6 +806,7 @@ Research overlay bridge, and the application layer:
   `ScopeDiagnosticAggregation_PreservesConflictingProvenance`,
   `ScopeDiagnosticAggregation_UsesStructuralTypeProvenanceCompatibility`,
   `ScopeDiagnosticAggregation_PreservesDistinctFailureMessages`,
+  `ScopeDiagnosticAggregation_PreservesPhysicalFailureIdentity`,
   `TypeTargetedBuild_MatchesFullBuild_ForEveryMethodOfTheType`,
   `OptimizationOpportunities_ClassicAsyncTypeDefinitionsAreIndexedOnce`, and
   the top-level local-function tests gate the lifted-owner caches, closure, and
