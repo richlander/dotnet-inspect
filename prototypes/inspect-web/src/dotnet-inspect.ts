@@ -141,6 +141,7 @@ import {
   type PackageMetadata,
 } from "./metadata-viewer.ts";
 import {
+  bindSettingsPanel,
   renderSettingsView,
   renderTastePopover,
   type StyleOption,
@@ -3854,11 +3855,21 @@ function bindScopeBarEvents() {
   });
 }
 
+function bindSettingsPanelEvents() {
+  bindSettingsPanel(document, {
+    onClose: closeSettings,
+    onTasteClear: clearTaste,
+    onTasteToggle: toggleTaste,
+    onThemeSelect: setTheme,
+  });
+}
+
 function bindEvents() {
   bindStatusBarToggle();
   packageBar.bind(document);
   bindTypePanelEvents();
   bindScopeBarEvents();
+  bindSettingsPanelEvents();
   document.querySelectorAll<HTMLElement>("[data-framework-chip]").forEach(button => button.addEventListener("click", () => {
     observeAsync(
       switchPackageFramework(button.dataset.frameworkChip ?? ""),
@@ -4272,11 +4283,6 @@ function bindEvents() {
     state.tasteOpen = !state.tasteOpen;
     render();
   });
-  document.querySelectorAll<HTMLElement>("#taste-popover [data-taste]").forEach(checkbox =>
-    checkbox.addEventListener(
-      "change",
-      () => toggleTaste(checkbox.dataset.taste ?? "")));
-  document.querySelector("#taste-clear")?.addEventListener("click", clearTaste);
   document.querySelector("#share")?.addEventListener("click", () => void share());
   document.querySelector("[data-graph-back]")?.addEventListener(
     "click",
@@ -7059,22 +7065,7 @@ function renderSettingsViewHtml() {
     },
     escapeHtml,
   });
-  bindSettingsEvents();
-}
-
-function bindSettingsEvents() {
-  document.querySelector("#settings-close")?.addEventListener("click", closeSettings);
-  document.querySelectorAll<HTMLElement>(".settings-seg[data-theme]").forEach(button =>
-    button.addEventListener("click", () => {
-      const theme = button.dataset.theme;
-      if (theme === "dark" || theme === "light") setTheme(theme);
-    }));
-  document.querySelectorAll<HTMLElement>(".settings-taste [data-taste]").forEach(checkbox =>
-    checkbox.addEventListener("change", () => {
-      const taste = checkbox.dataset.taste;
-      if (taste) toggleTaste(taste);
-    }));
-  document.querySelector("#settings-taste-clear")?.addEventListener("click", clearTaste);
+  bindSettingsPanelEvents();
 }
 
 function renderGraphSource() {
