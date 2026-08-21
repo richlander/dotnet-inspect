@@ -129,7 +129,7 @@ body selector even when the graph has no `MethodDef` token.
 | `engine/BrowserSurfaceProjection.cs` | adapting typed query models into transport records |
 | `engine/BrowserStyleOptions.cs` | resolving the client's style ids through `StyleOptionCatalog` |
 | `engine/BrowserXmlDocumentation.cs` | reading one member's package-shipped XML documentation |
-| `engine/BrowserInspectionEngine.cs` | the supported `[JSExport]` operations |
+| `engine/InspectionEngine.cs` | the supported `[JSExport]` operations |
 | `engine/BrowserSourceOperations.cs` | pathless authored-or-decompiled type/member source and Browser source capabilities |
 | `engine/BrowserUnsupportedOperations.cs` | the `[JSExport]` operations this engine refuses |
 

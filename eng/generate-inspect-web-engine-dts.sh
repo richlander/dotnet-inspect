@@ -29,7 +29,7 @@ js_output_file="$repo_root/prototypes/inspect-web/engine/wwwroot/inspect-web-eng
 header_file="$(mktemp)"
 dts_generated_file="$(mktemp)"
 js_generated_file="$(mktemp)"
-trap 'rm -f "$header_file" "$dts_generated_file" "$js_generated_file" "$dts_generated_file.body"' EXIT
+trap 'rm -f "$header_file" "$dts_generated_file" "$js_generated_file" "$dts_generated_file.body" "$js_generated_file.body"' EXIT
 
 cat > "$header_file" <<'EOF'
 // GENERATED FILE — DO NOT EDIT BY HAND.

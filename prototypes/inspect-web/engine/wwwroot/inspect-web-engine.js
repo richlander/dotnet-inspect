@@ -144,7 +144,8 @@ export function packageCacheStats() {
 
 export async function queryMemberAnnotatedSource(packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, styleOptionsJson) {
   if (!queryMemberAnnotatedSourceExport) throw new Error("The browser inspection engine is not initialized.");
-  return await queryMemberAnnotatedSourceExport(packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, styleOptionsJson);
+  const result = await queryMemberAnnotatedSourceExport(packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, styleOptionsJson);
+  return JSON.parse(result);
 }
 
 export async function queryMemberCallGraph(packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, workspaceJson) {
@@ -166,7 +167,8 @@ export async function queryMemberFacts(packageId, version, targetFramework, asse
 
 export async function queryMemberSource(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson) {
   if (!queryMemberSourceExport) throw new Error("The browser inspection engine is not initialized.");
-  return await queryMemberSourceExport(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson);
+  const result = await queryMemberSourceExport(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson);
+  return JSON.parse(result);
 }
 
 export async function queryPackage(packageId, version, targetFramework) {
@@ -251,7 +253,8 @@ export async function queryPlatformPerformance(targetFramework, assemblyFileName
 
 export async function queryTypeMemberSource(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson) {
   if (!queryTypeMemberSourceExport) throw new Error("The browser inspection engine is not initialized.");
-  return await queryTypeMemberSourceExport(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson);
+  const result = await queryTypeMemberSourceExport(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson);
+  return JSON.parse(result);
 }
 
 export async function queryTypeProjection(packageId, version, targetFramework, assemblyName, typeId) {

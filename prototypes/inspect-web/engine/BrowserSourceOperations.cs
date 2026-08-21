@@ -31,7 +31,7 @@ public static partial class InspectionEngine
         BrowserSourceOperationCoordinator.CancelCurrent();
 
     [JSExport]
-    public static Task<string> QueryMemberSource(
+    public static async Task<string> QueryMemberSource(
         string packageId,
         string version,
         string targetFramework,
@@ -40,8 +40,9 @@ public static partial class InspectionEngine
         string memberName,
         string selectorKey,
         int metadataToken,
-        string styleOptionsJson) =>
-        QueryMemberSourceCore(
+        string styleOptionsJson)
+    {
+        BrowserSource source = await QueryMemberSourceCore(
             packageId,
             version,
             targetFramework,
@@ -51,6 +52,10 @@ public static partial class InspectionEngine
             selectorKey,
             metadataToken,
             styleOptionsJson);
+        return JsonSerializer.Serialize(
+            source,
+            BrowserJsonContext.Default.BrowserSource);
+    }
 
     [JSExport]
     public static async Task<string> QueryTypeSource(
@@ -96,7 +101,7 @@ public static partial class InspectionEngine
     }
 
     [JSExport]
-    public static Task<string> QueryTypeMemberSource(
+    public static async Task<string> QueryTypeMemberSource(
         string packageId,
         string version,
         string targetFramework,
@@ -105,8 +110,9 @@ public static partial class InspectionEngine
         string memberName,
         string selectorKey,
         int metadataToken,
-        string styleOptionsJson) =>
-        QueryMemberSourceCore(
+        string styleOptionsJson)
+    {
+        BrowserSource source = await QueryMemberSourceCore(
             packageId,
             version,
             targetFramework,
@@ -116,8 +122,12 @@ public static partial class InspectionEngine
             selectorKey,
             metadataToken,
             styleOptionsJson);
+        return JsonSerializer.Serialize(
+            source,
+            BrowserJsonContext.Default.BrowserSource);
+    }
 
-    static async Task<string> QueryMemberSourceCore(
+    static async Task<BrowserSource> QueryMemberSourceCore(
         string packageId,
         string version,
         string targetFramework,
@@ -168,9 +178,7 @@ public static partial class InspectionEngine
                     CreateSourceContext(),
                     operation.CancellationToken));
 
-        return JsonSerializer.Serialize(
-            Adapt(result, participant),
-            BrowserJsonContext.Default.BrowserSource);
+        return Adapt(result, participant);
     }
 
     static async Task<(

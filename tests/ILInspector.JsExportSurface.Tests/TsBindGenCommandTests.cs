@@ -30,7 +30,7 @@ public sealed class TsBindGenCommandTests
 
         Assert.Equal(1, exitCode);
         Assert.Contains("export interface InternalContextPascalWidget {", output.ToString(), StringComparison.Ordinal);
-        Assert.Contains("export declare function GetInternalContextWidget(name: string): InternalContextPascalWidget;", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("export declare function getInternalContextWidget(name: string): InternalContextPascalWidget;", output.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -56,11 +56,11 @@ public sealed class TsBindGenCommandTests
         int exitCode = TsBindGenCommand.Invoke([FixtureAssemblyPath], output, error);
 
         Assert.Equal(1, exitCode);
-        Assert.Contains("export declare function GetWidget(name: string, count: number): WidgetDto;", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("export declare function getWidget(name: string, count: number): WidgetDto;", output.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Invoke_UsesVerbatimJsExportFunctionNames()
+    public void Invoke_UsesWrapperFunctionNames()
     {
         var output = new StringWriter();
         var error = new StringWriter();
@@ -68,8 +68,8 @@ public sealed class TsBindGenCommandTests
         int exitCode = TsBindGenCommand.Invoke([FixtureAssemblyPath], output, error);
 
         Assert.Equal(1, exitCode);
-        Assert.Contains("export declare function QueryPackage(packageId: string): string;", output.ToString(), StringComparison.Ordinal);
-        Assert.DoesNotContain("export declare function queryPackage", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("export declare function queryPackage(packageId: string): string;", output.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("export declare function QueryPackage", output.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]

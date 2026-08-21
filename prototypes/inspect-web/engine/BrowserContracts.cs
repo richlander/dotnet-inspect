@@ -186,6 +186,7 @@ public sealed record BrowserVocabularySection(
     string Name,
     string Summary,
     string[] Categories,
+    [property: JsonPropertyName("accepted_by")]
     string[] AcceptedBy,
     BrowserVocabularyField[] Fields,
     JsonElement[] Values);
@@ -197,6 +198,7 @@ public sealed record BrowserVocabularySection(
 /// query semantics.
 /// </summary>
 public sealed record BrowserVocabularyDocument(
+    [property: JsonPropertyName("schema_version")]
     int SchemaVersion,
     BrowserVocabularySection[] Sections);
 

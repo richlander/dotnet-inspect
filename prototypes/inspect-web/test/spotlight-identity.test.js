@@ -1066,6 +1066,18 @@ test("browser engine configures the same-origin managed MSDL API", () => {
     /configureHostExport = exports\.InspectionEngine\.ConfigureHost[\s\S]*?configureHostExport\(window\.location\.origin\)/);
 });
 
+test("generated source wrappers parse their JSON envelopes", () => {
+  for (const name of [
+    "queryMemberAnnotatedSource",
+    "queryMemberSource",
+    "queryTypeMemberSource",
+  ]) {
+    assert.match(
+      generatedEngineSource,
+      new RegExp(`export async function ${name}\\([\\s\\S]*?return JSON\\.parse\\(result\\);`));
+  }
+});
+
 test("MethodDef-only member sections are hidden for bodiless APIs", () => {
   for (const kind of ["property", "field", "event", "constant"]) {
     assert.deepEqual(

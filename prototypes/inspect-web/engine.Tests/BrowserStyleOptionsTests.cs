@@ -13,6 +13,7 @@ public sealed class BrowserStyleOptionsTests
     {
         using JsonDocument document = JsonDocument.Parse(
             InspectionEngine.ListVocabulary());
+        Assert.Equal(1, document.RootElement.GetProperty("schema_version").GetInt32());
         JsonElement actual = document.RootElement
             .GetProperty("sections")
             .EnumerateArray()
@@ -37,6 +38,12 @@ public sealed class BrowserStyleOptionsTests
                     ? conflict.GetString()
                     : null);
         }
+
+        Assert.True(
+            document.RootElement
+                .GetProperty("sections")
+                .EnumerateArray()
+                .All(section => section.TryGetProperty("accepted_by", out _)));
     }
 
     [Fact]

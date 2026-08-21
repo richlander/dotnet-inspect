@@ -381,10 +381,7 @@ public static partial class InspectionEngine
 
         // The document's wire shape belongs to ILInspector.Decompiler; carry it verbatim so the
         // viewer's model validates the same artifact the CLI writes.
-        using var serialized = JsonDocument.Parse(
-            JsonSerializer.Serialize(
-                document,
-                AnnotatedSourceDocumentCompactJsonContext.Default.AnnotatedSourceDocument));
+        using JsonDocument serialized = SerializeAnnotatedSourceDocument(document);
         return JsonSerializer.Serialize(
             new BrowserAnnotatedSource(
                 serialized.RootElement,
@@ -395,6 +392,12 @@ public static partial class InspectionEngine
                     : null),
             BrowserJsonContext.Default.BrowserAnnotatedSource);
     }
+
+    static JsonDocument SerializeAnnotatedSourceDocument(AnnotatedSourceDocument document) =>
+        JsonDocument.Parse(
+            JsonSerializer.Serialize(
+                document,
+                AnnotatedSourceDocumentCompactJsonContext.Default.AnnotatedSourceDocument));
 
     /// <summary>
     /// Declared NuGet dependency groups plus the selected compile assembly's direct references.
