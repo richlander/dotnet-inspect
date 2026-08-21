@@ -115,31 +115,27 @@ public static class UtilityCommandDefinitions
         listCommand.Options.Add(opts.Limit);
         listCommand.SetAction(parseResult =>
         {
+            // Parent-bound flags (e.g. `demo --markdown --mermaid list`) must use the
+            // same mermaid gates as the root handler — list previously dropped them.
+            if (RejectInvalidDemoMermaidFlags(opts, parseResult) is { } mermaidExit)
+                return mermaidExit;
+
             var format = opts.ResolveFormat(parseResult);
             var noHeader = parseResult.GetValue(opts.NoHeaders);
-            return DemoCommand.ExecuteList(format, noHeader);
+            var mermaid = parseResult.GetValue(opts.Mermaid);
+            return DemoCommand.ExecuteList(format, noHeader, mermaidRequested: mermaid);
         });
         demoCommand.Subcommands.Add(listCommand);
 
         demoCommand.SetAction(async (parseResult, _) =>
         {
-            var mermaid = parseResult.GetValue(opts.Mermaid);
-            var markdown = parseResult.GetValue(opts.Markdown);
-            var json = parseResult.GetValue(opts.Json);
-            var plainText = parseResult.GetValue(opts.PlainText);
-            var tabular = parseResult.GetValue(opts.Table)
-                || parseResult.GetValue(opts.Tsv)
-                || parseResult.GetValue(opts.Jsonl);
-            if (!DemoCommand.TryValidateMermaidCombinations(
-                    mermaid, markdown, json, plainText, tabular, out var comboError))
-            {
-                CommandError.Write(comboError!);
-                return 1;
-            }
+            if (RejectInvalidDemoMermaidFlags(opts, parseResult) is { } mermaidExit)
+                return mermaidExit;
 
             var format = opts.ResolveFormat(parseResult);
             var noHeader = parseResult.GetValue(opts.NoHeaders);
             var embeddedMermaid = opts.IsEmbeddedMermaid(parseResult);
+            var mermaid = parseResult.GetValue(opts.Mermaid);
             var scenario = parseResult.GetValue(scenarioArg);
             if (string.IsNullOrWhiteSpace(scenario))
                 return DemoCommand.ExecuteList(format, noHeader, mermaidRequested: mermaid);
@@ -148,5 +144,28 @@ public static class UtilityCommandDefinitions
         });
 
         return demoCommand;
+    }
+
+    /// <summary>
+    /// Shared mermaid combination gate for root <c>demo</c> and <c>demo list</c>
+    /// (parent options can bind before the subcommand token).
+    /// </summary>
+    private static int? RejectInvalidDemoMermaidFlags(SharedOptions opts, ParseResult parseResult)
+    {
+        var mermaid = parseResult.GetValue(opts.Mermaid);
+        var markdown = parseResult.GetValue(opts.Markdown);
+        var json = parseResult.GetValue(opts.Json);
+        var plainText = parseResult.GetValue(opts.PlainText);
+        var tabular = parseResult.GetValue(opts.Table)
+            || parseResult.GetValue(opts.Tsv)
+            || parseResult.GetValue(opts.Jsonl);
+        if (!DemoCommand.TryValidateMermaidCombinations(
+                mermaid, markdown, json, plainText, tabular, out var comboError))
+        {
+            CommandError.Write(comboError!);
+            return 1;
+        }
+
+        return null;
     }
 }

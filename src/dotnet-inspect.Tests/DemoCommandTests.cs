@@ -354,6 +354,29 @@ public class DemoCommandTests
     }
 
     [Fact]
+    public async Task Cli_DemoListSubcommand_ParentEmbeddedMermaid_FailsClosed()
+    {
+        // Parent-bound flags before the list subcommand token.
+        var (exitCode, output, error) = await RunCliAsync(
+            "demo", "--markdown", "--mermaid", "list");
+
+        Assert.Equal(1, exitCode);
+        Assert.DoesNotContain("stj-serializer", output, StringComparison.Ordinal);
+        Assert.Contains("--mermaid is not supported for demo list", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Cli_DemoListSubcommand_ParentJsonMermaid_FailsClosed()
+    {
+        var (exitCode, output, error) = await RunCliAsync(
+            "demo", "--json", "--mermaid", "list");
+
+        Assert.Equal(1, exitCode);
+        Assert.DoesNotContain("\"id\"", output, StringComparison.Ordinal);
+        Assert.Contains("--mermaid cannot be combined with --json", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Cli_DemoMethods_JsonMermaid_FailsClosed()
     {
         var (exitCode, output, error) = await RunCliAsync(
