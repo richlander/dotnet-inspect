@@ -8,6 +8,7 @@ dotnet-inspect library System.Text.Json -S "Signals,Audit: Identifier Confusion"
 dotnet-inspect library System.Text.Json -S "Signals,SourceLink: Availability,SourceLink: Missing Files"
 dotnet-inspect library System.Text.Json -S "SourceLink: Integrity"
 dotnet-inspect package System.Text.Json -S Signals
+dotnet-inspect package System.Text.Json -S "Signals,Audit: Findings"
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Identifier Confusion"
 dotnet-inspect package System.Text.Json -S "SourceLink: Availability,SourceLink: Missing Files"
 dotnet-inspect package System.Text.Json -S "SourceLink: Integrity"
@@ -73,6 +74,158 @@ presentation model still unwraps containment to bare strings at individual row
 properties rather than carrying `InertString` through the complete model.
 Reporting a library-wide result before that migration would overstate its
 coverage.
+
+## Package findings audit
+
+`Audit: Findings` explicitly scans text-bearing package files and SourceLink
+document maps decoded by the SourceLink owner. Candidate text files include
+known source, configuration, web, TypeScript, and Razor extensions and names
+plus files under `content/`, `contentFiles/`, `build/`, `buildTransitive/`, and
+`skills/`; known binary extensions are excluded from the text pass. That pass
+is limited to 4 MiB per file and 32 MiB per package, uses strict
+UTF-8/UTF-16/UTF-32 decoding, and reports read, encoding, configuration, and
+limit failures instead of treating an incomplete scan as clean. The local PDB
+pass reuses the product SourceLink parser and does not acquire symbols or
+source over the network. It scans package-local portable PDBs directly and
+embedded PDBs through managed `.dll` and `.exe` carriers. Truncated or
+unrecognized `.pdb` content makes the audit partial; recognized Windows PDBs
+are unsupported rather than malformed. Standalone PDB text is audited without
+claiming that it matches any package assembly; identity remains mandatory for
+method/source mapping.
+
+Retained output is capped at 4,096 findings and 2 MiB of encoded evidence.
+Input work is capped at 16,384 candidate paths and 4,096 text files.
+SourceLink inspection is additionally capped at 256 managed PE candidates and
+256 standalone PDB candidates, 4 MiB per decoded map, 32 MiB of maps per
+package, 16,384 decoded mappings, 64 MiB per decompressed embedded PDB, 256 MiB
+of decompressed embedded PDBs per package, 64 debug-directory entries and
+4 KiB per CodeView record in each managed PE, 64 MiB per PE/PDB carrier, and
+256 MiB of carriers per package. Exhausting the managed-carrier count leaves
+the independently bounded standalone-PDB pass available. Debug-directory and
+CodeView limits are checked before SRM materializes CodeView paths. The
+embedded-PDB per-file and shared budgets, map-byte limit, and mapping-count
+limit are checked before their respective payloads are decompressed, copied,
+or retained. Reaching any cap adds one `scan limit` row and makes the result
+`Partial`.
+
+The detail table has exactly `Path`, `Kind`, and `Encoded Text`. A source line
+produces one rendering finding containing all Unicode concern kinds on that
+line. NuGet configuration also produces semantic rows for `<clear/>` and each
+declared package source, even when the same line already has a text finding.
+Element names follow NuGet's namespace-agnostic local-name matching for the
+correctly cased `packageSources` section directly under the configuration root,
+while only unqualified attributes contribute semantic evidence. Namespace
+declarations and qualified attributes therefore cannot impersonate NuGet `key`
+or `value` attributes without hiding effective qualified elements. XML parsing
+is streaming and stops at 64 levels of nesting; reaching that limit makes the
+scan partial.
+Each row encodes only the recognized element name and its semantic attributes;
+nested content is not serialized into an outer row. Attribute values are
+structurally escaped, and evidence truncation keeps escape tokens and Unicode
+scalar values whole.
+Each SourceLink mapping with concerning decoded text adds one row attributed to
+its package PDB (or assembly for an embedded PDB). A decoded document key or URL
+containing the literal `../` adds a separate `SourceLink parent path segment`
+row. That row means “certainly take a look,” not “certainly malicious”:
+legitimate mappings can contain parent references, while HTTP clients can
+canonicalize them to a different repository path. Evidence is bounded around
+the first rendering hazard and is always visually encoded before it reaches a
+terminal. Document and URL evidence are separately labeled and quoted;
+artifact-authored quotes and backslashes are escaped before the bounded row is
+formed, so either operand may contain the displayed separator without
+impersonating the tool-owned boundary.
+When a candidate-path cap prevents an exact eligible-file total, partial-scan
+evidence renders the known denominator with a `+` suffix instead of claiming
+complete cardinality.
+
+When the scan runs, Signals adds `Audit | Findings` with `Detected`, `None`, or
+`Partial`. Registry-backed package Signals also distinguish an
+unlisted exact version and author-, repository-, unsigned-, and unverified
+signature states. Author or repository verification requires both a valid
+code-signing chain and a signed content hash matching the inspected package
+archive. A timestamp can extend signer validity only when its time-stamping
+chain and full uncertainty interval are valid and its message imprint matches
+that package signer's signature. NuGet V1 certificate profiles, repository
+service-index identity, and unique repository countersignature cardinality are
+required. The signature entry must use NuGet's stored-entry local and central
+header profile and contain exactly one CMS value with no trailing payload.
+Each package or repository signer must carry one valid signing-time and
+signing-certificate-v2 attribute bound to its certificate.
+The RFC 3161 baseline policy supplies its defined one-second uncertainty when
+the token omits accuracy; unrepresentable timestamp bounds are rejected as an
+invalid timestamp. Offline custom-root chain construction does not download
+missing certificates.
+These remain observations rather than a trust verdict.
+
+```bash
+dotnet-inspect package X -S "Signals,Audit: Findings"
+dotnet-inspect package X -S @Audit
+```
+
+`PackageContentAuditTests` gates bidi, OSC 52, NuGet configuration, strict
+decoding, BOM, binary-file, case-distinct paths, bounded evidence and
+cardinality, common web/Razor formats, malformed PDB handling, resource limits,
+and literal parent-path cases, including close negatives.
+`PackageContentAuditTests.NestedNuGetConfiguration_EvidenceIsElementLocal`
+gates element-local NuGet evidence construction against nested serialization
+amplification.
+`PackageContentAuditTests.NuGetConfiguration_EscapesAttributeStructure` and
+`PackageContentAuditTests.NuGetConfiguration_TruncationKeepsSurrogatePairsWhole`
+gate unambiguous attribute evidence and scalar-safe truncation.
+`PackageContentAuditTests.NuGetConfiguration_NamespaceAttributesCannotForgeSemanticEvidence`
+and
+`PackageContentAuditTests.NuGetConfiguration_QualifiedElementsMatchNuGetSemantics`
+gate namespace-safe attributes and NuGet-compatible qualified elements.
+`PackageContentAuditTests.NuGetConfiguration_IgnoresNestedAndMiscasedSections`
+gates the active section hierarchy and casing, while
+`PackageContentAuditTests.NuGetConfiguration_DeepXmlReportsScanLimit` gates the
+fail-visible per-file depth bound without suppressing later package findings.
+`PackageContentAuditTests.TruncatedPdb_RemainsVisibleAndMarksAuditIncomplete`
+and
+`PackageContentAuditTests.TruncatedWindowsPdbSignature_RemainsVisibleAndMarksAuditIncomplete`
+gate visible truncation for portable- and Windows-PDB signatures.
+`PdbContextDescriptorTests.DebugDirectoryAndCodeViewLimits_PrecedePathMaterialization`,
+`PdbContextDescriptorTests.EmbeddedPdbAndSourceLinkLimits_PrecedePayloadMaterialization`,
+and
+`SourceLinkMapConformanceTests.MappingLimit_StopsBeforeRetainingAnOverBudgetInventory`
+gate the pre-materialization debug-directory, CodeView, PDB, map-byte, and
+mapping-count boundaries.
+`PackageAudit_RendersContentAndSourceLinkFindings` gates the
+three-column Markdown and JSONL contract with a compiler-produced hostile
+SourceLink PDB.
+`PackageAudit_InspectsStandalonePackagePdbWithoutAnAssembly` and
+`PackageAudit_MalformedStandaloneSourceLinkMapReportsPartial` gate the
+package-local PDB census and visible incompleteness.
+`PackageContentOutput_ContainsNoLiveControlsOnStdoutAndPreservesExplicitFileExport`
+gates encoded stdout and byte-exact `--out` export.
+`PackageSignatureVerifierTests.VerifyPackage_MutatedSignedPackageFailsContentHash`
+gates signer trust against the signed archive bytes.
+`PackageSignatureVerifierTests.VerifyCertificateChain_RejectsTlsOnlyLeafForCodeSigning`,
+`VerifySignatureFile_TransplantedTimestampIsNotTrusted`, and the malformed
+signed-content tests gate signer usage, timestamp binding, and NuGet signature
+identity.
+`VerifyPackage_InvalidCentralDirectoryBoundsFailsClosed`,
+`ConfigureCertificateChainPolicy_DisablesCertificateDownloads`, and the
+certificate-profile and repository-profile tests gate typed malformed-ZIP
+rejection, offline verification, and NuGet V1 trust constraints.
+`VerifyPackage_RejectsInvalidSignatureEntryProfiles`, the
+missing/mismatched signer-attribute tests,
+`TryExtractTimestampInfo_BaselinePolicyDefaultsToOneSecond`, and
+`VerifySignatureFile_UnrepresentableTimestampAccuracyIsInvalid` gate the
+signature-entry, signer-identity, and timestamp-profile boundaries.
+`VerifyPackage_TruncatedCentralDirectoryReturnsInvalid` and
+`VerifyPackage_RejectsSignatureCmsSuffix` gate typed truncated-directory
+failure and whole-value CMS admission.
+`VerifyPackage_MalformedTimestampCryptoDoesNotPromoteTimestamp` and
+`VerifyPackage_MalformedRepositoryKeyReturnsTypedInvalid` gate platform crypto
+exception normalization without promoting an untrusted timestamp or leaking a
+malformed repository key failure.
+`PackageContentAuditTests.SourceLinkEvidence_FramesAndBoundsBothOperands`
+gates structurally distinct bounded SourceLink operands.
+`InspectionResultTests.Signed_PreservesUnestablishedVerificationState` gates
+Package Info and `--value signed` tri-state parity, while
+`Package_QuietSignedValuePerformsExplicitVerification` gates explicit quiet
+scalar acquisition.
 
 ## Identifier confusion
 

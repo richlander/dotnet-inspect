@@ -108,6 +108,21 @@ public class MethodClassificationScannerTests
     }
 
     [Fact]
+    public void Scan_FormatsNestedGenericDeclaringTypesFromExactSegments()
+    {
+        using var stream = BuildAssemblyWithNestedGenericRuntimeAsyncMethod();
+
+        var results = MethodClassificationScanner.Scan(stream);
+
+        var method = Assert.Single(
+            results,
+            result => result.MethodName == "NestedRuntimeAsync");
+        Assert.Equal(
+            "DotnetInspector.Tests.GenericAsyncOuter<T1, T2>.BufferedAsyncEnumerable",
+            method.DeclaringType);
+    }
+
+    [Fact]
     public void Scan_ClassifiesRealAsyncMethodAsAsync()
     {
         // A real async method is detected as async; its kind depends on whether the
@@ -145,6 +160,38 @@ public class MethodClassificationScannerTests
         il.Emit(OpCodes.Ret);
         method.SetImplementationFlags(AsyncImplFlag);
         type.CreateType();
+
+        var stream = new MemoryStream();
+        ab.Save(stream);
+        stream.Position = 0;
+        return stream;
+    }
+
+    private static MemoryStream BuildAssemblyWithNestedGenericRuntimeAsyncMethod()
+    {
+        const MethodImplAttributes AsyncImplFlag = (MethodImplAttributes)0x2000;
+        var ab = new PersistedAssemblyBuilder(
+            new AssemblyName("NestedRuntimeAsyncFixture"),
+            typeof(object).Assembly);
+        var module = ab.DefineDynamicModule("NestedRuntimeAsyncFixture");
+        var outer = module.DefineType(
+            "DotnetInspector.Tests.GenericAsyncOuter`2",
+            TypeAttributes.Public | TypeAttributes.Class);
+        outer.DefineGenericParameters("T1", "T2");
+        var nested = outer.DefineNestedType(
+            "BufferedAsyncEnumerable",
+            TypeAttributes.NestedPublic | TypeAttributes.Class);
+        var method = nested.DefineMethod(
+            "NestedRuntimeAsync",
+            MethodAttributes.Public,
+            typeof(Task),
+            Type.EmptyTypes);
+        var il = method.GetILGenerator();
+        il.Emit(OpCodes.Ldnull);
+        il.Emit(OpCodes.Ret);
+        method.SetImplementationFlags(AsyncImplFlag);
+        nested.CreateType();
+        outer.CreateType();
 
         var stream = new MemoryStream();
         ab.Save(stream);

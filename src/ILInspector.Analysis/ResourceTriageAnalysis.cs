@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 
 using ILInspector.Findings;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
@@ -304,14 +305,9 @@ public static class ResourceTriageAnalysis
             && name.EndsWith(suffix, StringComparison.Ordinal);
     }
 
+    // Canonical `N only, per nested segment; see MetadataNameArity.
     static string SimpleTypeName(TypeRef type)
-    {
-        TypeRef definition = TypeDefinition(type);
-        int tick = definition.Name.IndexOf('`');
-        return tick >= 0
-            ? definition.Name[..tick]
-            : definition.Name;
-    }
+        => MetadataNameArity.StripFromNestedName(TypeDefinition(type).Name);
 
     static TypeRef TypeDefinition(TypeRef type)
         => type.Kind == TypeRefKind.GenericInstance

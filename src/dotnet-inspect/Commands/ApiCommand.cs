@@ -862,6 +862,8 @@ public class ApiCommand
             // lossy '+'→'.' fallback) when it reaches the type-scope analysis path.
             MetadataName = type.MetadataName,
             DefinitionName = type.DefinitionName,
+            IntroducedTypeParameterCounts =
+                type.IntroducedTypeParameterCounts,
             Kind = type.Kind,
             // Every identity fact carries over: this copy exists to narrow Members, and anything
             // else it drops silently changes what sections and discovery see. Omitting the two
@@ -1369,6 +1371,7 @@ public class ApiCommand
         else
         {
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
+            writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
             if (options.PlainText)
             {
                 // Buffered rather than written straight to the console so the empty-render gate
@@ -1383,7 +1386,6 @@ public class ApiCommand
             }
             else
             {
-                writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
                 var markdownWriter = new StringWriter { NewLine = "\n" };
                 MarkoutSerializer.Serialize(
                     view, markdownWriter, new MarkdownFormatter(), ApiViewContext.Default, writerOptions);
@@ -2346,6 +2348,7 @@ public class ApiCommand
                         explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, markoutWriter);
                     markoutWriter.Flush();
                 };
+            writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
             if (options.PlainText)
             {
                 serialize(sink, options.CreateFormatter(), writerOptions);
@@ -2354,7 +2357,6 @@ public class ApiCommand
             {
                 ConfigureTypeSectionOrder(type, options, writerOptions);
 
-                writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
                 var sw = new StringWriter { NewLine = "\n" };
                 serialize(sw, options.CreateFormatter(), writerOptions);
                 var markdown = sw.ToString().TrimEnd();
@@ -3214,6 +3216,8 @@ public class ApiCommand
                 Name = type.Name,
                 MetadataName = type.MetadataName,
                 DefinitionName = type.DefinitionName,
+                IntroducedTypeParameterCounts =
+                    type.IntroducedTypeParameterCounts,
                 Kind = type.Kind,
                 IsSealed = type.IsSealed,
                 IsAbstract = type.IsAbstract,
@@ -3348,6 +3352,8 @@ public class ApiCommand
             Name = type.Name,
             MetadataName = type.MetadataName,
             DefinitionName = type.DefinitionName,
+            IntroducedTypeParameterCounts =
+                type.IntroducedTypeParameterCounts,
             Kind = type.Kind,
             IsSealed = type.IsSealed,
             IsAbstract = type.IsAbstract,

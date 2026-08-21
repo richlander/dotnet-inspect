@@ -744,4 +744,18 @@ public static class VisualEncoder
 
         return (from, to, forms, concerns);
     }
+
+    internal static int IndexOfFirstConcern(ReadOnlySpan<char> encoded)
+    {
+        for (int index = 0; index < encoded.Length;)
+        {
+            int width = ReadToken(encoded, index, out VisualForm form);
+            if (ConcernForSpelling(encoded, index, form) != TextConcern.None)
+                return index;
+
+            index += width;
+        }
+
+        return -1;
+    }
 }

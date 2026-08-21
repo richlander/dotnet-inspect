@@ -1,4 +1,5 @@
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -206,6 +207,108 @@ public class TypeRefTests
         Assert.Equal("Inner<string>",
             TypeRef.GenericInstance(innerDef,
                 [TypeRef.CoreLib("System", "Int32"), TypeRef.CoreLib("System", "String")]).ToDisplayString());
+    }
+
+    [Fact]
+    public void GenericArityMismatch_StaysRawInsteadOfNamingAnotherType()
+    {
+        var pair = TypeRef.Definition("asm", "NS", "Pair`2");
+        var mismatched = TypeRef.GenericInstance(
+            pair,
+            [TypeRef.CoreLib("System", "Int32")]);
+
+        Assert.Equal("Pair`2", mismatched.ToDisplayString());
+        Assert.True(mismatched.HasUnrenderableGenericArity);
+        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(
+            new LoadArgument(0, "value", mismatched)));
+    }
+
+    [Fact]
+    public void PerSegmentGenericArityMismatch_StaysRawWhenTotalMatches()
+    {
+        MetadataTypeDefinitionName exact =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "NS",
+                    ["Outer`2", "Inner"]))
+            .Name;
+        var definition = TypeRef.DefinitionWithResolution(
+            "asm",
+            "NS",
+            "Outer`2+Inner",
+            ValueTypeHint.Unknown,
+            MetadataFactState.Unknown,
+            enclosingType: null,
+            definitionName: exact,
+            resolutionAssembly: null,
+            introducedTypeParameterCounts: [1, 1]);
+        var mismatched = TypeRef.GenericInstance(
+            definition,
+            [
+                TypeRef.CoreLib("System", "Int32"),
+                TypeRef.CoreLib("System", "String"),
+            ]);
+
+        Assert.Equal("Outer`2.Inner", mismatched.ToDisplayString());
+        Assert.True(mismatched.HasUnrenderableGenericArity);
+        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(
+            new LoadArgument(0, "value", mismatched)));
+    }
+
+    [Theory]
+    [InlineData("Plain", "Plain<int>")]
+    [InlineData("Odd`Literal", "Odd_Literal<int>")]
+    public void ZeroArityGenericInstantiation_RetainsSuppliedArguments(
+        string name,
+        string expected)
+    {
+        var exact = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("NS", [name])).Name;
+        var definition = TypeRef.DefinitionWithResolution(
+            "asm",
+            "NS",
+            name,
+            ValueTypeHint.Unknown,
+            MetadataFactState.Unknown,
+            enclosingType: null,
+            definitionName: exact,
+            resolutionAssembly: null);
+        var instance = TypeRef.GenericInstance(
+            definition,
+            [TypeRef.CoreLib("System", "Int32")]);
+
+        Assert.Equal(expected, instance.ToDisplayString());
+        Assert.True(instance.HasUnrenderableGenericArity);
+        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(
+            new LoadArgument(0, "value", instance)));
+    }
+
+    [Fact]
+    public void NestedZeroArityGenericInstantiation_QualifiesOnlyOutsideItsEnclosingType()
+    {
+        var instance = TypeRef.GenericInstance(
+            TypeRef.Definition("asm", "NS", "Outer+Inner"),
+            [TypeRef.CoreLib("System", "Int32")]);
+
+        Assert.Equal("Inner<int>", instance.ToDisplayString());
+        Assert.Equal(
+            "Inner<int>",
+            instance.ToDisplayString(TypeRef.Definition("asm", "NS", "Outer")));
+        Assert.Equal(
+            "Outer.Inner<int>",
+            instance.ToDisplayString(TypeRef.Definition("other", "Other", "Scope")));
+    }
+
+    [Fact]
+    public void CompilerGeneratedPartialArity_ShowsBoundedPlaceholders()
+    {
+        var generated = TypeRef.Definition("asm", "NS", "<M>d__3`2");
+        var partial = TypeRef.GenericInstance(
+            generated,
+            [TypeRef.CoreLib("System", "Int32")]);
+
+        Assert.Equal("__M_d__3<int, T2>", partial.ToDisplayString());
+        Assert.False(partial.HasUnrenderableGenericArity);
     }
 
     [Fact]

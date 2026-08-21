@@ -438,6 +438,132 @@ public class InspectionResultTests
     }
 
     [Theory]
+    [InlineData(true, "Listed")]
+    [InlineData(false, "Unlisted")]
+    public async Task PackageSignals_ReportsExactVersionListingState(
+        bool listed,
+        string expected)
+    {
+        var result = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            Listed = listed,
+        };
+
+        await AuditSignalBuilder.PopulatePackageAuditAsync(
+            result,
+            new HttpClient(),
+            new VerboseLogger(false));
+
+        AuditSignal signal = Assert.Single(
+            result.AuditSignals!,
+            value => value.Signal == "Listing");
+        Assert.Equal(expected, signal.Value);
+        Assert.Equal("NuGet registration", signal.Evidence);
+    }
+
+    [Theory]
+    [InlineData(true, true, false, "Author verified", "author signature")]
+    [InlineData(false, true, false, "Repository verified", "repository signature; no verified author signature")]
+    [InlineData(false, false, true, "Unsigned", "no package signature")]
+    [InlineData(false, false, false, "Unverified", "signature verification did not establish trust")]
+    public async Task PackageSignals_DistinguishesSignatureTrustKinds(
+        bool authorVerified,
+        bool repositoryVerified,
+        bool isUnsigned,
+        string expectedValue,
+        string expectedEvidence)
+    {
+        var result = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            SignatureResult = new SignatureVerificationResult
+            {
+                AuthorVerified = authorVerified,
+                RepositoryVerified = repositoryVerified,
+                IsUnsigned = isUnsigned,
+            },
+        };
+
+        await AuditSignalBuilder.PopulatePackageAuditAsync(
+            result,
+            new HttpClient(),
+            new VerboseLogger(false));
+
+        AuditSignal signal = Assert.Single(
+            result.AuditSignals!,
+            value => value.Signal == "Signature");
+        Assert.Equal(expectedValue, signal.Value);
+        Assert.Equal(expectedEvidence, signal.Evidence);
+    }
+
+    [Theory]
+    [InlineData(true, false, false, true, "Verified")]
+    [InlineData(false, true, false, true, "Verified")]
+    [InlineData(false, false, true, false, "Unsigned")]
+    [InlineData(false, false, false, null, null)]
+    public void Signed_PreservesUnestablishedVerificationState(
+        bool authorVerified,
+        bool repositoryVerified,
+        bool isUnsigned,
+        bool? expected,
+        string? expectedValue)
+    {
+        var result = new InspectionResult
+        {
+            SignatureResult = new SignatureVerificationResult
+            {
+                AuthorVerified = authorVerified,
+                RepositoryVerified = repositoryVerified,
+                IsUnsigned = isUnsigned,
+            },
+        };
+
+        Assert.Equal(expected, result.Signed);
+        Assert.Equal(
+            expectedValue,
+            Commands.PackageCommand.GetPackageSignedValue(result));
+    }
+
+    [Theory]
+    [InlineData(true, "1 finding; scanned 1/2 text-bearing files")]
+    [InlineData(false, "1 finding; scanned 1/2+ text-bearing files")]
+    public async Task PackageSignals_IncompleteContentScanReportsPartialEvenWithFindings(
+        bool eligibleFileCountComplete,
+        string expectedEvidence)
+    {
+        var result = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            PackageContentAudit = new PackageContentAuditResult(
+                [new PackageContentAuditFinding(
+                    "README.md",
+                    PackageContentFindingKind.ScanLimit,
+                    TextConcern.None,
+                    new InertString(TextPolicy.Field, "scan limit"))],
+                EligibleFiles: 2,
+                ScannedFiles: 1,
+                ScannedBytes: 12,
+                Complete: false,
+                EligibleFileCountComplete: eligibleFileCountComplete),
+        };
+
+        await AuditSignalBuilder.PopulatePackageAuditAsync(
+            result,
+            new HttpClient(),
+            new VerboseLogger(false));
+
+        AuditSignal signal = Assert.Single(
+            result.AuditSignals!,
+            value => value.Signal == "Findings");
+        Assert.Equal("Partial", signal.Value);
+        Assert.Equal(expectedEvidence, signal.Evidence);
+    }
+
+    [Theory]
     [InlineData("ordinary text")]
     [InlineData("C:\\tmp\\package")]
     [InlineData("literal \\u202E text")]

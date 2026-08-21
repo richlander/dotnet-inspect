@@ -186,6 +186,9 @@ jobs:
           grep -q '<script type="importmap"></script>' dist/index.html
           grep -Eq '<link rel="preload" id="webassembly"[[:space:]]*/?>' dist/index.html
 
+      - name: Check generated inspect-web-engine surface for drift
+        run: eng/generate-inspect-web-engine-dts.sh --check
+
       - name: Publish browser app
         run: >
           dotnet publish

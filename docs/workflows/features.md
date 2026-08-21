@@ -152,7 +152,7 @@
 | `--dotnet` scope | b9c3263 | 0.3.x | Default platform + extensions scope |
 | Fully qualified names | 8b1a64d | 0.5.0 | Use `System.Text.Json.JsonSerializer` as positional |
 | Multi-library package follow-up context | — | 0.8.0 | Preserve package/library context for type and member drill-in |
-| `vocabulary` command | — | 0.20.0 | Discover product-owned query-value sections shared by CLI and browser/WASM |
+| `vocabulary` command | — | 0.21.0 | Discover product-owned query-value sections |
 
 ## Samples and Source
 
