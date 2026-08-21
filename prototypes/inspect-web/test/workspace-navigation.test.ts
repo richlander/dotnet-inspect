@@ -94,11 +94,80 @@ test("navigation history skips stale views and truncates a forward branch", () =
   assert.equal(history.canBack(), false);
   assert.equal(history.canForward(), true);
 
+  applied.length = 0;
+  assert.equal(history.forward(), true);
+  assert.deepEqual(applied, [{ id: "latest", revision: 1 }]);
+  assert.equal(history.back(), true);
+
+  applied.length = 0;
   current = { id: "branch", revision: 1 };
   history.record();
+  assert.equal(history.back(), true);
+  assert.deepEqual(applied, [{ id: "first", revision: 2 }]);
+  assert.equal(history.forward(), true);
+  assert.deepEqual(applied.at(-1), { id: "branch", revision: 1 });
   assert.equal(history.canForward(), false);
-  assert.equal(history.forward(), false);
-  assert.equal(exhausted, 1);
+  assert.equal(exhausted, 0);
+});
+
+test("navigation history advances past entries that become stale", () => {
+  let current: TestView | null = { id: "first", revision: 1 };
+  const unavailable = new Set<string>();
+  const applied: TestView[] = [];
+  let exhausted = 0;
+  const history = createNavigationHistory({
+    capture: () => current && { ...current },
+    signature: view => view.id,
+    apply: view => {
+      applied.push(view);
+      if (unavailable.has(view.id)) return false;
+      current = { ...view };
+      return true;
+    },
+    onExhausted: () => exhausted++,
+  });
+
+  history.record();
+  current = { id: "middle", revision: 1 };
+  history.record();
+  current = { id: "latest", revision: 1 };
+  history.record();
+  assert.equal(history.back(), true);
+  assert.equal(history.back(), true);
+
+  unavailable.add("middle");
+  applied.length = 0;
+  assert.equal(history.forward(), true);
+  assert.deepEqual(applied, [
+    { id: "middle", revision: 1 },
+    { id: "latest", revision: 1 },
+  ]);
+  assert.equal(history.canForward(), false);
+  assert.equal(exhausted, 0);
+});
+
+test("navigation history normalizes the current captured view", () => {
+  let current: TestView | null = { id: "first", revision: 1 };
+  const applied: TestView[] = [];
+  const history = createNavigationHistory({
+    capture: () => current && { ...current },
+    signature: view => view.id,
+    apply: view => {
+      applied.push(view);
+      current = { ...view };
+      return true;
+    },
+    onExhausted() {},
+  });
+
+  history.record();
+  current = { id: "first", revision: 2 };
+  history.normalizeCurrent();
+  current = { id: "latest", revision: 1 };
+  history.record();
+
+  assert.equal(history.back(), true);
+  assert.deepEqual(applied, [{ id: "first", revision: 2 }]);
 });
 
 test("navigation sequence has one monotonic cancellation authority", () => {
@@ -191,6 +260,11 @@ test("invalid and oversized workspace packets stay visible", () => {
     "https://inspect.example/?package=Example.Package&w=not-base64"));
   assert.equal(invalid.package, "Example.Package");
   assert.match(invalid.workspaceNotice, /invalid and was ignored/);
+
+  const structurallyInvalid = parseWorkspaceLocation(locationSnapshot(
+    "https://inspect.example/?package=Example.Package&w=e30"));
+  assert.equal(structurallyInvalid.package, "Example.Package");
+  assert.match(structurallyInvalid.workspaceNotice, /invalid and was ignored/);
 
   const oversized = parseWorkspaceLocation({
     href: "https://inspect.example/",
