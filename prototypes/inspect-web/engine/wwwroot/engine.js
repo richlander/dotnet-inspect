@@ -1,5 +1,3 @@
-import { dotnet } from "./_framework/dotnet.js";
-
 let queryPackage;
 let queryPackageVersions;
 let resolvePackageDependencyVersion;
@@ -32,51 +30,61 @@ let queryMemberDocumentation;
 let queryMemberFacts;
 let searchTypes;
 let listVocabulary;
-let packageCacheStats;
 let buildIdentity;
+let packageCacheStats;
 
+// The generated module owns the single dotnet.create() / getAssemblyExports() bootstrap and
+// ConfigureHost call. Import it only when initialization begins so a bare home page can paint
+// before the runtime graph starts downloading.
 export async function initializeEngine(onStatus = () => {}) {
   onStatus("Loading .NET 11 WebAssembly…");
-  const runtime = await dotnet.create();
-  const config = runtime.getConfig();
-  const exports = await runtime.getAssemblyExports(config.mainAssemblyName);
-  exports.BrowserInspectionEngine.ConfigureHost(window.location.origin);
-  queryPackage = exports.BrowserInspectionEngine.QueryPackage;
-  queryPackageVersions = exports.BrowserInspectionEngine.QueryPackageVersions;
-  resolvePackageDependencyVersion = exports.BrowserInspectionEngine.ResolvePackageDependencyVersion;
-  matchPackageDependencyCoordinateExport = exports.BrowserInspectionEngine.MatchPackageDependencyCoordinate;
-  getPackageDocument = exports.BrowserInspectionEngine.GetPackageDocument;
-  queryMemberSource = exports.BrowserInspectionEngine.QueryMemberSource;
-  cancelSourceQuery = exports.BrowserInspectionEngine.CancelSourceQuery;
-  queryMemberAnnotatedSource = exports.BrowserInspectionEngine.QueryMemberAnnotatedSource;
-  queryTypeProjection = exports.BrowserInspectionEngine.QueryTypeProjection;
-  queryPackageDependencies = exports.BrowserInspectionEngine.QueryPackageDependencies;
-  queryPackageIntegrations = exports.BrowserInspectionEngine.QueryPackageIntegrations;
-  queryPlatformIntegrations = exports.BrowserInspectionEngine.QueryPlatformIntegrations;
-  queryPlatformOpportunities = exports.BrowserInspectionEngine.QueryPlatformOpportunities;
-  queryPlatformPerformance = exports.BrowserInspectionEngine.QueryPlatformPerformance;
-  queryPackageOpportunities = exports.BrowserInspectionEngine.QueryPackageOpportunities;
-  queryPackagePerformance = exports.BrowserInspectionEngine.QueryPackagePerformance;
-  queryPackageMetadata = exports.BrowserInspectionEngine.QueryPackageMetadata;
-  queryPlatformMetadata = exports.BrowserInspectionEngine.QueryPlatformMetadata;
-  queryPackageMetadataTable = exports.BrowserInspectionEngine.QueryPackageMetadataTable;
-  queryPlatformMetadataTable = exports.BrowserInspectionEngine.QueryPlatformMetadataTable;
-  queryPackageHeapEntries = exports.BrowserInspectionEngine.QueryPackageHeapEntries;
-  queryPlatformHeapEntries = exports.BrowserInspectionEngine.QueryPlatformHeapEntries;
-  queryTypeMemberSource = exports.BrowserInspectionEngine.QueryTypeMemberSource;
-  queryTypeSource = exports.BrowserInspectionEngine.QueryTypeSource;
-  queryMemberCallGraph = exports.BrowserInspectionEngine.QueryMemberCallGraph;
-  expandPlatformCallGraph = exports.BrowserInspectionEngine.ExpandPlatformCallGraph;
-  loadRuntimePack = exports.BrowserInspectionEngine.LoadRuntimePack;
-  loadRuntimePackAssembly = exports.BrowserInspectionEngine.LoadRuntimePackAssembly;
-  queryMemberDocumentation = exports.BrowserInspectionEngine.QueryMemberDocumentation;
-  queryMemberFacts = exports.BrowserInspectionEngine.QueryMemberFacts;
-  searchTypes = exports.BrowserInspectionEngine.SearchTypes;
-  listVocabulary = exports.BrowserInspectionEngine.ListVocabulary;
-  packageCacheStats = exports.BrowserInspectionEngine.PackageCacheStats;
-  buildIdentity = exports.BrowserInspectionEngine.BuildIdentity;
-  await runtime.runMain();
+  const generated = await import("./inspect-web-engine.js");
+  const exports = await generated.initializeEngine(onStatus);
+  buildIdentity = generated.buildIdentity;
+  packageCacheStats = generated.packageCacheStats;
+  queryPackage = exports.InspectionEngine.QueryPackage;
+  queryPackageVersions = exports.InspectionEngine.QueryPackageVersions;
+  resolvePackageDependencyVersion = exports.InspectionEngine.ResolvePackageDependencyVersion;
+  matchPackageDependencyCoordinateExport = exports.InspectionEngine.MatchPackageDependencyCoordinate;
+  getPackageDocument = exports.InspectionEngine.GetPackageDocument;
+  queryMemberSource = exports.InspectionEngine.QueryMemberSource;
+  cancelSourceQuery = exports.InspectionEngine.CancelSourceQuery;
+  queryMemberAnnotatedSource = exports.InspectionEngine.QueryMemberAnnotatedSource;
+  queryTypeProjection = exports.InspectionEngine.QueryTypeProjection;
+  queryPackageDependencies = exports.InspectionEngine.QueryPackageDependencies;
+  queryPackageIntegrations = exports.InspectionEngine.QueryPackageIntegrations;
+  queryPlatformIntegrations = exports.InspectionEngine.QueryPlatformIntegrations;
+  queryPlatformOpportunities = exports.InspectionEngine.QueryPlatformOpportunities;
+  queryPlatformPerformance = exports.InspectionEngine.QueryPlatformPerformance;
+  queryPackageOpportunities = exports.InspectionEngine.QueryPackageOpportunities;
+  queryPackagePerformance = exports.InspectionEngine.QueryPackagePerformance;
+  queryPackageMetadata = exports.InspectionEngine.QueryPackageMetadata;
+  queryPlatformMetadata = exports.InspectionEngine.QueryPlatformMetadata;
+  queryPackageMetadataTable = exports.InspectionEngine.QueryPackageMetadataTable;
+  queryPlatformMetadataTable = exports.InspectionEngine.QueryPlatformMetadataTable;
+  queryPackageHeapEntries = exports.InspectionEngine.QueryPackageHeapEntries;
+  queryPlatformHeapEntries = exports.InspectionEngine.QueryPlatformHeapEntries;
+  queryTypeMemberSource = exports.InspectionEngine.QueryTypeMemberSource;
+  queryTypeSource = exports.InspectionEngine.QueryTypeSource;
+  queryMemberCallGraph = exports.InspectionEngine.QueryMemberCallGraph;
+  expandPlatformCallGraph = exports.InspectionEngine.ExpandPlatformCallGraph;
+  loadRuntimePack = exports.InspectionEngine.LoadRuntimePack;
+  loadRuntimePackAssembly = exports.InspectionEngine.LoadRuntimePackAssembly;
+  queryMemberDocumentation = exports.InspectionEngine.QueryMemberDocumentation;
+  queryMemberFacts = exports.InspectionEngine.QueryMemberFacts;
+  searchTypes = exports.InspectionEngine.SearchTypes;
+  listVocabulary = exports.InspectionEngine.ListVocabulary;
   onStatus("Reading package assemblies…");
+}
+
+export function inspectBuildIdentity() {
+  if (!buildIdentity) throw new Error("The browser inspection engine is not initialized.");
+  return buildIdentity();
+}
+
+export function inspectPackageCacheStats() {
+  if (!packageCacheStats) throw new Error("The browser inspection engine is not initialized.");
+  return packageCacheStats();
 }
 
 export async function inspectPackage(packageId, version, framework) {
@@ -316,16 +324,6 @@ export async function inspectTypeSource(request) {
 export async function inspectVocabulary() {
   if (!listVocabulary) throw new Error("The browser inspection engine is not initialized.");
   return JSON.parse(await listVocabulary());
-}
-
-export function inspectPackageCacheStats() {
-  if (!packageCacheStats) return null;
-  return JSON.parse(packageCacheStats());
-}
-
-export function inspectBuildIdentity() {
-  if (!buildIdentity) throw new Error("The browser inspection engine is not initialized.");
-  return JSON.parse(buildIdentity());
 }
 
 export async function inspectMemberCallGraph(request) {

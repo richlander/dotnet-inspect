@@ -9,7 +9,7 @@ using Analysis = ILInspector.Analysis;
 using InspectWeb.Engine;
 
 [SupportedOSPlatform("browser")]
-public static partial class BrowserInspectionEngine
+public static partial class InspectionEngine
 {
     const string PlatformPackageName = "Microsoft.NETCore.App";
 
