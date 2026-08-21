@@ -332,8 +332,8 @@ public sealed partial class CSharpPrinter
         var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
         if (definition is not { Kind: TypeRefKind.Definition })
             return null;
-        int nested = definition.Name.LastIndexOf('+');
-        string innermost = nested < 0 ? definition.Name : definition.Name[(nested + 1)..];
+        IReadOnlyList<string> segments = definition.MetadataNameSegments();
+        string innermost = segments[^1];
         return CSharpNaming.TypeNameSegment(innermost);
     }
 

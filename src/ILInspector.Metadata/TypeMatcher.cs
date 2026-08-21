@@ -79,30 +79,18 @@ public static class TypeMatcher
     /// Gets the base name without generic arity suffixes.
     /// "List`1" → "List"; "Dictionary`2.KeyCollection" → "Dictionary.KeyCollection".
     /// </summary>
+    /// <remarks>
+    /// Only a canonical <c>`N</c> suffix is an arity suffix
+    /// (<see cref="MetadataNameArity"/>), so a search key keeps a backtick that
+    /// is name text: <c>Ns.Widget`1Extra</c> stays itself instead of becoming
+    /// <c>Ns.WidgetExtra</c> and matching an unrelated type. This is search and
+    /// display text whose nesting spelling is already flattened, not an identity
+    /// contract.
+    /// </remarks>
     public static string GetBaseName(string typeName)
     {
-        var backtickIdx = typeName.IndexOf('`');
-        if (backtickIdx < 0)
-            return typeName;
-
-        var result = new System.Text.StringBuilder(typeName.Length);
-        for (var i = 0; i < typeName.Length; i++)
-        {
-            if (typeName[i] != '`')
-            {
-                result.Append(typeName[i]);
-                continue;
-            }
-
-            i++;
-            while (i < typeName.Length && char.IsDigit(typeName[i]))
-                i++;
-
-            if (i < typeName.Length)
-                result.Append(typeName[i]);
-        }
-
-        return result.ToString();
+        ArgumentNullException.ThrowIfNull(typeName);
+        return MetadataNameArity.StripFromFlattenedName(typeName);
     }
 
     /// <summary>
@@ -195,20 +183,25 @@ public static class TypeMatcher
     /// Gets the generic arity from a type name.
     /// "List`1" → 1, "Dictionary`2" → 2, "String" → 0
     /// </summary>
+    /// <remarks>
+    /// The arity is the one declared by the innermost component that carries a
+    /// canonical <c>`N</c> suffix, so a nested spelling
+    /// (<c>Dictionary`2.KeyCollection</c>) answers 2 and both sides of a match
+    /// answer alike. Only <see cref="MetadataNameArity"/>'s canonical form
+    /// counts, so <c>Widget`1Extra</c>, <c>Widget`0</c>, <c>Widget`+1</c>, and an
+    /// out-of-range count are 0 rather than a parsed number.
+    /// </remarks>
     public static int GetGenericArity(string typeName)
     {
-        var backtickIdx = typeName.IndexOf('`');
-        if (backtickIdx < 0)
-            return 0;
+        ArgumentNullException.ThrowIfNull(typeName);
+        int arity = 0;
+        foreach (MetadataNameComponent component in MetadataNameArity.EnumerateComponents(typeName))
+        {
+            if (component.Arity > 0)
+                arity = component.Arity;
+        }
 
-        var digitStart = backtickIdx + 1;
-        var digitEnd = digitStart;
-        while (digitEnd < typeName.Length && char.IsDigit(typeName[digitEnd]))
-            digitEnd++;
-
-        return digitEnd > digitStart && int.TryParse(typeName.AsSpan(digitStart, digitEnd - digitStart), out var arity)
-            ? arity
-            : 0;
+        return arity;
     }
 
     /// <summary>
