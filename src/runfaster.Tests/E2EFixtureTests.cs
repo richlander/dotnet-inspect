@@ -2108,6 +2108,76 @@ public class E2EFixtureTests
     }
 
     [Fact]
+    public void FlattenedPerformanceTriageJsonl_RetainsSupportingCallSite()
+    {
+        string inspectDll =
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "dotnet-inspect.dll");
+        var produced = RunTool(
+            inspectDll,
+            "type",
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "runfaster.Tests.dll"),
+            "runfaster.Tests.E2EFixtureTests.FlattenedScanFixture",
+            "-S",
+            "Performance Triage",
+            "--jsonl");
+
+        Assert.Equal(0, produced.ExitCode);
+        Assert.Empty(produced.Error);
+        var rows = produced.Output.Split(
+            '\n',
+            StringSplitOptions.RemoveEmptyEntries)
+            .Select(static text =>
+                JsonDocument.Parse(text))
+            .ToArray();
+        try
+        {
+            var row = Assert.Single(
+                rows,
+                document => document.RootElement
+                    .GetProperty("shape")
+                    .GetString()
+                    == "scan-method-in-loop-call");
+            Assert.Equal(
+                "analysis.call-site",
+                row.RootElement.GetProperty(
+                        "supporting_finding")
+                    .GetString());
+            Assert.Equal(
+                "newobj",
+                row.RootElement.GetProperty(
+                        "supporting_operation")
+                    .GetString());
+            Assert.StartsWith(
+                "0x",
+                row.RootElement.GetProperty(
+                        "supporting_token")
+                    .GetString(),
+                StringComparison.Ordinal);
+            Assert.StartsWith(
+                "0x06",
+                row.RootElement.GetProperty(
+                        "supporting_evidence_method")
+                    .GetString(),
+                StringComparison.Ordinal);
+            Assert.StartsWith(
+                "IL_",
+                row.RootElement.GetProperty(
+                        "supporting_il")
+                    .GetString(),
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            foreach (var row in rows)
+                row.Dispose();
+        }
+    }
+
+    [Fact]
     public void Correlate_DoesNotTokenMatchAssemblylessFlattenedTriage()
     {
         string inspectDll =
@@ -2625,6 +2695,181 @@ public class E2EFixtureTests
     }
 
     [Fact]
+    public void Correlate_NonAllocationSupport_DoesNotShadowNearestLibrarySite()
+    {
+        string assemblyPath =
+            FixtureCatalog.RunFasterAllocation.AssemblyPath();
+        var allocateOne =
+            typeof(RunFaster.AllocationFixture.Program)
+                .GetMethod(
+                    "AllocateOne",
+                    BindingFlags.Public
+                        | BindingFlags.Static);
+        Assert.NotNull(allocateOne);
+        var occurrence = Assert.Single(
+            LibraryBodyIndex.Open(assemblyPath)
+                .GetAllocationOccurrences()[
+                    allocateOne.MetadataToken]);
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                $$$"""
+                {"performance":{"loop_hot_paths":[{"member":"RunFaster.AllocationFixture.Program.AllocateOne()","assembly":"RunFaster.AllocationFixture","moduleVersionId":"{{{occurrence.Method.ModuleVersionId:D}}}","method_token":"0x{{{allocateOne.MetadataToken:X8}}}","candidate":"pt~aggregate","shape":"scan-method-in-loop-call","provenance":"aggregate","supporting_finding":"analysis.call-site","supporting_operation":"call","supporting_token":"0x0A000001","supporting_evidence_method":"0x{{{allocateOne.MetadataToken:X8}}}","supporting_il":"IL_{{{occurrence.ILOffset + 1:X4}}}"}]}}
+                """);
+
+            var result = RunCorrelate(
+                "--library",
+                assemblyPath,
+                "--triage",
+                triagePath,
+                "--trace",
+                FixtureCatalog.RunFasterAllocation
+                    .AssetPath("fixture.nettrace"),
+                "--json");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using var output =
+                JsonDocument.Parse(result.Output);
+            var sameMethod = output.RootElement
+                .GetProperty("candidates")
+                .EnumerateArray()
+                .Where(candidate => candidate
+                    .GetProperty("method")
+                    .GetString()!
+                    .EndsWith(
+                        ".AllocateOne()",
+                        StringComparison.Ordinal))
+                .ToArray();
+            var triage = Assert.Single(
+                sameMethod,
+                candidate => candidate
+                    .GetProperty("source")
+                    .GetString() == "triage");
+            var library = Assert.Single(
+                sameMethod,
+                candidate => candidate
+                    .GetProperty("source")
+                    .GetString() == "library");
+            Assert.Equal(
+                0,
+                triage.GetProperty("allocationBytes")
+                    .GetInt64());
+            Assert.Equal(
+                "cold-for-this-workload",
+                triage.GetProperty("status")
+                    .GetString());
+            Assert.Equal(
+                1_167_872,
+                library.GetProperty("allocationBytes")
+                    .GetInt64());
+            Assert.Equal(
+                "shape-hot",
+                library.GetProperty("status")
+                    .GetString());
+        }
+        finally
+        {
+            File.Delete(triagePath);
+        }
+    }
+
+    [Fact]
+    public void Correlate_ExactAndAggregateSameSite_PrefersAggregateSupport()
+    {
+        string assemblyPath =
+            FixtureCatalog.RunFasterAllocation.AssemblyPath();
+        var allocateOne =
+            typeof(RunFaster.AllocationFixture.Program)
+                .GetMethod(
+                    "AllocateOne",
+                    BindingFlags.Public
+                        | BindingFlags.Static);
+        Assert.NotNull(allocateOne);
+        var occurrence = Assert.Single(
+            LibraryBodyIndex.Open(assemblyPath)
+                .GetAllocationOccurrences()[
+                    allocateOne.MetadataToken]);
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                $$$"""
+                {"performance":{"objects":[{"member":"RunFaster.AllocationFixture.Program.AllocateOne()","assembly":"RunFaster.AllocationFixture","moduleVersionId":"{{{occurrence.Method.ModuleVersionId:D}}}","method_token":"0x{{{allocateOne.MetadataToken:X8}}}","candidate":"pt~exact","shape":"object-allocation","provenance":"exact","operation":"newobj","token":"0x0A000001","il":"IL_{{{occurrence.ILOffset:X4}}}","allocation":"System.Object"}],"loop_hot_paths":[{"member":"RunFaster.AllocationFixture.Program.AllocateOne()","assembly":"RunFaster.AllocationFixture","moduleVersionId":"{{{occurrence.Method.ModuleVersionId:D}}}","method_token":"0x{{{allocateOne.MetadataToken:X8}}}","candidate":"pt~aggregate","shape":"scan-method-in-loop-call","provenance":"aggregate","supporting_finding":"analysis.call-site","supporting_operation":"newobj","supporting_token":"0x0A000001","supporting_evidence_method":"0x{{{allocateOne.MetadataToken:X8}}}","supporting_il":"IL_{{{occurrence.ILOffset:X4}}}"}]}}
+                """);
+
+            var result = RunCorrelate(
+                "--library",
+                assemblyPath,
+                "--triage",
+                triagePath,
+                "--trace",
+                FixtureCatalog.RunFasterAllocation
+                    .AssetPath("fixture.nettrace"),
+                "--json");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using var output =
+                JsonDocument.Parse(result.Output);
+            var sameMethod = output.RootElement
+                .GetProperty("candidates")
+                .EnumerateArray()
+                .Where(candidate => candidate
+                    .GetProperty("method")
+                    .GetString()!
+                    .EndsWith(
+                        ".AllocateOne()",
+                        StringComparison.Ordinal))
+                .ToArray();
+            var aggregate = Assert.Single(
+                sameMethod,
+                candidate => candidate.TryGetProperty(
+                        "candidate",
+                        out var id)
+                    && id.GetString()
+                        == "pt~aggregate");
+            var exact = Assert.Single(
+                sameMethod,
+                candidate => candidate.TryGetProperty(
+                        "candidate",
+                        out var id)
+                    && id.GetString() == "pt~exact");
+            Assert.Equal(
+                1_167_872,
+                aggregate.GetProperty("allocationBytes")
+                    .GetInt64());
+            Assert.Equal(
+                0,
+                exact.GetProperty("allocationBytes")
+                    .GetInt64());
+            Assert.Equal(
+                "superseded-by-triage",
+                exact.GetProperty("status")
+                    .GetString());
+            Assert.DoesNotContain(
+                sameMethod,
+                candidate => candidate
+                    .GetProperty("source")
+                    .GetString() == "library"
+                    && candidate.GetProperty(
+                            "allocationBytes")
+                        .GetInt64() > 0);
+        }
+        finally
+        {
+            File.Delete(triagePath);
+        }
+    }
+
+    [Fact]
     public void Correlate_AmbiguousAggregateSupports_DoNotClaimLibraryEvidence()
     {
         string assemblyPath =
@@ -2713,10 +2958,16 @@ public class E2EFixtureTests
         "must be supplied together")]
     [InlineData(
         "\"supporting_evidence_method\":\"not-a-token\",\"supporting_il\":\"IL_0000\"",
-        "Invalid supporting call-site coordinate")]
+        "Invalid supporting evidence method")]
     [InlineData(
         "\"supporting_evidence_method\":\"0x06000001\",\"supporting_il\":\"IL_0000\",\"il\":\"IL_0000\"",
         "cannot be combined with IL or Evidence Method")]
+    [InlineData(
+        "\"supporting_evidence_method\":\"0x06000001\",\"supportingEvidenceMethod\":\"0x06000002\",\"supporting_il\":\"IL_0000\"",
+        "Conflicting supporting evidence method values")]
+    [InlineData(
+        "\"supporting_evidence_method\":\"0x06000001\",\"supporting_il\":\"IL_0000\",\"supportingIL\":\"IL_0001\"",
+        "Conflicting supporting IL values")]
     public void Correlate_InvalidSupportingCoordinate_FailsVisibly(
         string coordinateProperties,
         string expectedError)
@@ -2987,6 +3238,31 @@ public class E2EFixtureTests
         {
             File.Delete(triagePath);
             File.Delete(logPath);
+        }
+    }
+
+    public static class FlattenedScanFixture
+    {
+        public static int FilterThenFirstOrDefault(
+            IEnumerable<int> source,
+            int key)
+            => Enumerable.FirstOrDefault(
+                Enumerable.Where(
+                    source,
+                    value => value == key));
+
+        public static int CallFilterInLoop(
+            IEnumerable<int> source,
+            int[] keys)
+        {
+            int result = 0;
+            foreach (int key in keys)
+            {
+                result += FilterThenFirstOrDefault(
+                    source,
+                    key);
+            }
+            return result;
         }
     }
 

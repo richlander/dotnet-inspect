@@ -632,18 +632,10 @@ static bool TryCreateCandidateFromJson(
         "methodToken");
     int? evidenceMethodToken =
         ReadOptionalEvidenceMethodToken(element);
-    string? supportingMethodTokenText = GetJsonString(
-        element,
-        "Supporting Evidence Method",
-        "supporting_evidence_method",
-        "SupportingEvidenceMethod",
-        "supportingEvidenceMethod");
-    string? supportingOffsetText = GetJsonString(
-        element,
-        "Supporting IL",
-        "supporting_il",
-        "SupportingIL",
-        "supportingIL");
+    int? supportingMethodToken =
+        ReadOptionalSupportingMethodToken(element);
+    int? supportingOffset =
+        ReadOptionalSupportingIlOffset(element);
     string? operandTokenText = GetJsonString(
         element,
         "MetadataToken",
@@ -666,48 +658,25 @@ static bool TryCreateCandidateFromJson(
         ? parsedOperandToken
         : null;
     int offset = TryParseFlexibleInt(offsetText, out var parsedOffset) ? parsedOffset : -1;
-    bool supportingMethodSupplied =
-        !string.IsNullOrWhiteSpace(
-            supportingMethodTokenText);
-    bool supportingOffsetSupplied =
-        !string.IsNullOrWhiteSpace(
-            supportingOffsetText);
-    bool hasSupportingMethod =
-        TryParseFlexibleInt(
-            supportingMethodTokenText,
-            out var supportingMethodToken);
-    bool hasSupportingOffset =
-        TryParseFlexibleInt(
-            supportingOffsetText,
-            out var supportingOffset);
-    if (supportingMethodSupplied
-        != supportingOffsetSupplied)
+    if (supportingMethodToken.HasValue
+        != supportingOffset.HasValue)
     {
         throw new InvalidDataException(
             "Supporting Evidence Method and Supporting IL "
             + "must be supplied together.");
     }
-    if (supportingMethodSupplied
-        && (!hasSupportingMethod
-            || !hasSupportingOffset
-            || !ProgramSupport.IsMethodDefinitionToken(
-                supportingMethodToken)
-            || supportingOffset < 0))
+    if (supportingMethodToken is int supportMethod
+        && supportingOffset is int supportIl)
     {
-        throw new InvalidDataException(
-            "Invalid supporting call-site coordinate.");
-    }
-    if (hasSupportingMethod)
-    {
-        if (offset >= 0
+        if (!string.IsNullOrWhiteSpace(offsetText)
             || evidenceMethodToken is not null)
         {
             throw new InvalidDataException(
                 "A supporting call-site coordinate cannot "
                 + "be combined with IL or Evidence Method.");
         }
-        evidenceMethodToken = supportingMethodToken;
-        offset = supportingOffset;
+        evidenceMethodToken = supportMethod;
+        offset = supportIl;
     }
     Guid? moduleVersionId =
         ReadOptionalModuleVersionId(element);
@@ -746,7 +715,7 @@ static bool TryCreateCandidateFromJson(
         GetJsonString(element, "Post Dominance", "post_dominance", "postDominance"),
         candidateId: GetJsonString(element, "Candidate", "candidate"),
         provenance: GetJsonString(element, "Provenance", "provenance"),
-        operation: hasSupportingMethod
+        operation: supportingMethodToken is not null
             ? GetJsonString(
                 element,
                 "Supporting Operation",
@@ -757,7 +726,7 @@ static bool TryCreateCandidateFromJson(
                 element,
                 "Operation",
                 "operation"),
-        operandToken: hasSupportingMethod
+        operandToken: supportingMethodToken is not null
             ? ReadOptionalFlexibleInt(
                 element,
                 "Supporting Token",
@@ -766,7 +735,8 @@ static bool TryCreateCandidateFromJson(
                 "supportingToken")
             : operandToken,
         evidenceMethodToken: evidenceMethodToken,
-        supportingCallSite: hasSupportingMethod);
+        supportingCallSite:
+            supportingMethodToken is not null);
     return true;
 }
 
@@ -836,6 +806,86 @@ static bool IsEvidenceMethodProperty(
         or "evidence_method"
         or "EvidenceMethod"
         or "evidenceMethod";
+
+static int? ReadOptionalSupportingMethodToken(
+    JsonElement element)
+    => ReadOptionalSupportingCoordinatePart(
+        element,
+        IsSupportingEvidenceMethodProperty,
+        "supporting evidence method",
+        static value =>
+            ProgramSupport.IsMethodDefinitionToken(value));
+
+static int? ReadOptionalSupportingIlOffset(
+    JsonElement element)
+    => ReadOptionalSupportingCoordinatePart(
+        element,
+        IsSupportingIlProperty,
+        "supporting IL",
+        static value => value >= 0);
+
+static int? ReadOptionalSupportingCoordinatePart(
+    JsonElement element,
+    Func<string, bool> isProperty,
+    string description,
+    Func<int, bool> isValid)
+{
+    int? result = null;
+    foreach (var property in element.EnumerateObject())
+    {
+        if (!isProperty(property.Name))
+            continue;
+        if (property.Value.ValueKind
+                == JsonValueKind.Null
+            || (property.Value.ValueKind
+                    == JsonValueKind.String
+                && string.IsNullOrWhiteSpace(
+                    property.Value.GetString())))
+        {
+            continue;
+        }
+
+        string? text =
+            property.Value.ValueKind switch
+            {
+                JsonValueKind.String =>
+                    property.Value.GetString(),
+                JsonValueKind.Number =>
+                    property.Value.GetRawText(),
+                _ => null,
+            };
+        if (!TryParseFlexibleInt(text, out int parsed)
+            || !isValid(parsed))
+        {
+            throw new InvalidDataException(
+                $"Invalid {description} in "
+                + $"'{property.Name}'.");
+        }
+        if (result is int existing
+            && existing != parsed)
+        {
+            throw new InvalidDataException(
+                $"Conflicting {description} values "
+                + "were supplied.");
+        }
+        result = parsed;
+    }
+    return result;
+}
+
+static bool IsSupportingEvidenceMethodProperty(
+    string name)
+    => name is "Supporting Evidence Method"
+        or "supporting_evidence_method"
+        or "SupportingEvidenceMethod"
+        or "supportingEvidenceMethod";
+
+static bool IsSupportingIlProperty(
+    string name)
+    => name is "Supporting IL"
+        or "supporting_il"
+        or "SupportingIL"
+        or "supportingIL";
 
 static Guid? ReadOptionalModuleVersionId(
     JsonElement element)
@@ -1068,6 +1118,41 @@ static bool TryCorrelateNetTrace(
                                 coordinateCandidates,
                                 data.TypeName))
                     .ToArray();
+                var supportingTargets =
+                    matchedCandidates.Where(
+                        static candidate =>
+                            candidate
+                                .SupportingCallSite)
+                    .ToArray();
+                if (supportingTargets.Length == 1)
+                {
+                    foreach (var exactTriage
+                             in matchedCandidates.Where(
+                                 static candidate =>
+                                     !candidate
+                                         .SupportingCallSite
+                                     && string.Equals(
+                                         candidate.Source,
+                                         "triage",
+                                         StringComparison
+                                             .Ordinal)))
+                    {
+                        exactTriage.SupersededByTriage =
+                            true;
+                    }
+                    matchedCandidates =
+                    [
+                        .. matchedCandidates.Where(
+                            static candidate =>
+                                candidate
+                                    .SupportingCallSite
+                                || string.Equals(
+                                    candidate.Source,
+                                    "library",
+                                    StringComparison
+                                        .Ordinal)),
+                    ];
+                }
                 var supersededLibraries =
                     ProgramSupport.FindTraceLibrariesSupersededByTriage(
                         matchedCandidates,
@@ -3094,6 +3179,10 @@ sealed class CandidateLookup
     readonly Dictionary<(int Token, int Offset), List<AllocationCandidate>> _byTokenOffset;
     readonly Dictionary<(int Token, int Offset), AllocationCandidate[]> _rejectedByTokenOffset;
     readonly Dictionary<(string Module, int Token), List<AllocationCandidate>> _byModuleMethodToken;
+    readonly Dictionary<(string Module, int Token), List<AllocationCandidate>>
+        _rawLibrariesByModuleMethodToken;
+    readonly Dictionary<(string Module, int Token), List<AllocationCandidate>>
+        _supportsByModuleMethodToken;
     readonly HashSet<string> _candidateModules;
     readonly Dictionary<int, string>
         _stableAttributionKeys = [];
@@ -3114,6 +3203,10 @@ sealed class CandidateLookup
         Dictionary<(int Token, int Offset), List<AllocationCandidate>> byTokenOffset,
         Dictionary<(int Token, int Offset), AllocationCandidate[]> rejectedByTokenOffset,
         Dictionary<(string Module, int Token), List<AllocationCandidate>> byModuleMethodToken,
+        Dictionary<(string Module, int Token), List<AllocationCandidate>>
+            rawLibrariesByModuleMethodToken,
+        Dictionary<(string Module, int Token), List<AllocationCandidate>>
+            supportsByModuleMethodToken,
         HashSet<string> candidateModules,
         List<(
             string Fragment,
@@ -3124,6 +3217,10 @@ sealed class CandidateLookup
         _rejectedByTokenOffset =
             rejectedByTokenOffset;
         _byModuleMethodToken = byModuleMethodToken;
+        _rawLibrariesByModuleMethodToken =
+            rawLibrariesByModuleMethodToken;
+        _supportsByModuleMethodToken =
+            supportsByModuleMethodToken;
         _candidateModules = candidateModules;
         _methodFragments = methodFragments;
     }
@@ -3132,6 +3229,14 @@ sealed class CandidateLookup
     {
         var byTokenOffset = new Dictionary<(int Token, int Offset), List<AllocationCandidate>>();
         var byModuleMethodToken = new Dictionary<(string Module, int Token), List<AllocationCandidate>>();
+        var rawLibrariesByModuleMethodToken =
+            new Dictionary<
+                (string Module, int Token),
+                List<AllocationCandidate>>();
+        var supportsByModuleMethodToken =
+            new Dictionary<
+                (string Module, int Token),
+                List<AllocationCandidate>>();
         var fragments = new List<(
             string Fragment,
             AllocationCandidate Candidate,
@@ -3140,27 +3245,58 @@ sealed class CandidateLookup
         {
             if (candidate.HasRuntimeCoordinate)
             {
-                var key = (
-                    candidate.RuntimeMethodToken,
-                    candidate.IlOffset);
-                if (!byTokenOffset.TryGetValue(key, out var list))
+                if (!candidate.SupportingCallSite)
                 {
-                    list = [];
-                    byTokenOffset.Add(key, list);
+                    var key = (
+                        candidate.RuntimeMethodToken,
+                        candidate.IlOffset);
+                    if (!byTokenOffset.TryGetValue(
+                            key,
+                            out var list))
+                    {
+                        list = [];
+                        byTokenOffset.Add(key, list);
+                    }
+                    list.Add(candidate);
                 }
-                list.Add(candidate);
 
                 foreach (var moduleKey in CandidateModuleKeys(candidate))
                 {
                     var moduleTokenKey = (
                         moduleKey,
                         candidate.RuntimeMethodToken);
-                    if (!byModuleMethodToken.TryGetValue(moduleTokenKey, out var tokenList))
+                    var index = candidate.SupportingCallSite
+                        ? supportsByModuleMethodToken
+                        : byModuleMethodToken;
+                    if (!index.TryGetValue(
+                            moduleTokenKey,
+                            out var tokenList))
                     {
                         tokenList = [];
-                        byModuleMethodToken.Add(moduleTokenKey, tokenList);
+                        index.Add(
+                            moduleTokenKey,
+                            tokenList);
                     }
                     tokenList.Add(candidate);
+
+                    if (string.Equals(
+                            candidate.Source,
+                            "library",
+                            StringComparison.Ordinal))
+                    {
+                        if (!rawLibrariesByModuleMethodToken
+                            .TryGetValue(
+                                moduleTokenKey,
+                                out var rawList))
+                        {
+                            rawList = [];
+                            rawLibrariesByModuleMethodToken
+                                .Add(
+                                    moduleTokenKey,
+                                    rawList);
+                        }
+                        rawList.Add(candidate);
+                    }
                 }
             }
 
@@ -3190,6 +3326,20 @@ sealed class CandidateLookup
 
         foreach (var tokenList in byModuleMethodToken.Values)
             tokenList.Sort(static (left, right) => left.IlOffset.CompareTo(right.IlOffset));
+        foreach (var tokenList
+                 in rawLibrariesByModuleMethodToken.Values)
+        {
+            tokenList.Sort(static (left, right) =>
+                left.IlOffset.CompareTo(
+                    right.IlOffset));
+        }
+        foreach (var tokenList
+                 in supportsByModuleMethodToken.Values)
+        {
+            tokenList.Sort(static (left, right) =>
+                left.IlOffset.CompareTo(
+                    right.IlOffset));
+        }
 
         var textSupersessions =
             new List<TextSupersession>();
@@ -3299,6 +3449,37 @@ sealed class CandidateLookup
                 .ToList();
         }
 
+        foreach (var support in candidates.Where(
+                     static candidate =>
+                         candidate.SupportingCallSite))
+        {
+            foreach (var library in candidates.Where(candidate =>
+                         string.Equals(
+                             candidate.Source,
+                             "library",
+                             StringComparison.Ordinal)
+                         && string.Equals(
+                             candidate.AssemblyModuleKey,
+                             support.AssemblyModuleKey,
+                             StringComparison.OrdinalIgnoreCase)
+                         && candidate.RuntimeMethodToken
+                             == support.RuntimeMethodToken
+                         && candidate.IlOffset
+                             == support.IlOffset
+                         && ProgramSupport.SameBuild(
+                             candidate,
+                             support)))
+            {
+                if (!support.ProjectedLibraries.Any(
+                        projected =>
+                            projected.Id == library.Id))
+                {
+                    support.ProjectedLibraries.Add(
+                        library);
+                }
+            }
+        }
+
         foreach (var group in candidates
                      .Where(static candidate =>
                          !candidate.ProjectedByTriage)
@@ -3348,6 +3529,8 @@ sealed class CandidateLookup
             byTokenOffset,
             rejectedByTokenOffset,
             byModuleMethodToken,
+            rawLibrariesByModuleMethodToken,
+            supportsByModuleMethodToken,
             [.. byModuleMethodToken.Keys.Select(static key => key.Module)],
             fragments);
 
@@ -3661,28 +3844,101 @@ sealed class CandidateLookup
         if (search.Length == 0)
             return [];
 
+        var result = NearestByBuild(search)
+            .ToList();
+        var rawSearch = moduleKeys
+            .SelectMany(moduleKey =>
+                _rawLibrariesByModuleMethodToken
+                    .TryGetValue(
+                        (moduleKey, token),
+                        out var candidates)
+                    ? candidates
+                    : [])
+            .Where(candidate =>
+                candidate.IlOffset <= ilOffset)
+            .DistinctBy(static candidate =>
+                candidate.Id)
+            .ToArray();
+        var supports = moduleKeys
+            .SelectMany(moduleKey =>
+                _supportsByModuleMethodToken
+                    .TryGetValue(
+                        (moduleKey, token),
+                        out var candidates)
+                    ? candidates
+                    : [])
+            .DistinctBy(static candidate =>
+                candidate.Id)
+            .ToArray();
+        if (moduleKeys.Length == 0
+            && !string.IsNullOrWhiteSpace(methodName))
+        {
+            rawSearch =
+            [
+                .. _rawLibrariesByModuleMethodToken
+                    .Where(pair =>
+                        pair.Key.Token == token)
+                    .SelectMany(static pair =>
+                        pair.Value)
+                    .Where(candidate =>
+                        candidate.IlOffset <= ilOffset
+                        && MethodMatches(
+                            candidate,
+                            methodName))
+                    .DistinctBy(static candidate =>
+                        candidate.Id),
+            ];
+            supports =
+            [
+                .. _supportsByModuleMethodToken
+                    .Where(pair =>
+                        pair.Key.Token == token)
+                    .SelectMany(static pair =>
+                        pair.Value)
+                    .Where(candidate =>
+                        MethodMatches(
+                            candidate,
+                            methodName))
+                    .DistinctBy(static candidate =>
+                        candidate.Id),
+            ];
+        }
+
+        foreach (var raw in NearestByBuild(rawSearch))
+        {
+            result.AddRange(supports.Where(support =>
+                support.IlOffset == raw.IlOffset
+                && ProgramSupport.SameBuild(
+                    support,
+                    raw)));
+        }
         return
         [
-            .. search
-                .GroupBy(static candidate => (
-                    candidate.AssemblyModuleKey,
-                    BuildIdentity:
-                        candidate.ModuleVersionId
-                            ?.ToString("D")
-                        ?? candidate
-                            .UnknownBuildInputIdentity))
-                .SelectMany(static buildCandidates =>
-                {
-                    int nearest = buildCandidates.Max(
-                        static candidate =>
-                            candidate.IlOffset);
-                    return buildCandidates.Where(
-                        candidate =>
-                            candidate.IlOffset
-                                == nearest);
-                })
+            .. result.DistinctBy(
+                static candidate => candidate.Id),
         ];
     }
+
+    static IEnumerable<AllocationCandidate>
+        NearestByBuild(
+            IEnumerable<AllocationCandidate> candidates)
+        => candidates
+            .GroupBy(static candidate => (
+                candidate.AssemblyModuleKey,
+                BuildIdentity:
+                    candidate.ModuleVersionId
+                        ?.ToString("D")
+                    ?? candidate
+                        .UnknownBuildInputIdentity))
+            .SelectMany(static buildCandidates =>
+            {
+                int nearest = buildCandidates.Max(
+                    static candidate =>
+                        candidate.IlOffset);
+                return buildCandidates.Where(
+                    candidate =>
+                        candidate.IlOffset == nearest);
+            });
 
     public List<MethodTextMatch> FindByMethodText(string line)
     {
@@ -4174,21 +4430,21 @@ internal static class ProgramSupport
         if (compatibleSupports != 1)
             return false;
 
-        return coordinateCandidates.Any(library =>
-            string.Equals(
-                library.Source,
-                "library",
-                StringComparison.Ordinal)
-            && library.IlOffset == candidate.IlOffset
-            && SameBuild(candidate, library));
+        return candidate.ProjectedLibraries.Any(
+            library =>
+                library.IlOffset
+                    == candidate.IlOffset
+                && SameBuild(
+                    candidate,
+                    library));
     }
 
-    static bool SameBuild(
+    public static bool SameBuild(
         AllocationCandidate left,
         AllocationCandidate right)
     {
-        if (left.ModuleVersionId is Guid leftMvid
-            || right.ModuleVersionId is Guid)
+        if (left.ModuleVersionId is not null
+            || right.ModuleVersionId is not null)
         {
             return left.ModuleVersionId
                 == right.ModuleVersionId;

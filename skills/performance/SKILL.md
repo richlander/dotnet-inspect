@@ -208,8 +208,12 @@ an allocation observation only when the same build has a raw library allocation
 at that coordinate and exactly one aggregate support claims it. The raw site is
 the attribution anchor; sampled allocation types can differ
 because GC allocation ticks resolve to the nearest preceding IL allocation
-site. Otherwise the aggregate remains cold for the workload and the raw row
-keeps the evidence.
+site. RunFaster resolves the nearest raw allocation first, then attaches support
+at that exact coordinate; a later non-allocation scan-call support therefore
+cannot hide the raw site. When an exact triage row and one aggregate support
+both project the same raw site, the aggregate carries the evidence and the
+exact row is superseded rather than splitting bytes. Otherwise the aggregate
+remains cold for the workload and the raw row keeps the evidence.
 Type-level ambiguity and its site cap count the shared coordinate once unless
 several library MVIDs make an older MVID-less triage row's module version
 ambiguous.

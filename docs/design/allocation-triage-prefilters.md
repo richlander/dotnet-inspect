@@ -176,11 +176,21 @@ RunFaster promotes allocation evidence from a raw library row to a
 coordinate-bearing scan aggregate only when the raw row has the same build and
 coordinate and exactly one supporting aggregate claims that coordinate. The
 raw site's predicted type need not match the sampled type: GC allocation ticks
-are attributed to the nearest preceding IL allocation site. The raw row is then
-`superseded-by-triage`; otherwise it retains the evidence.
+are attributed to the nearest preceding IL allocation site. Supporting
+coordinates are indexed separately: RunFaster selects the nearest raw
+allocation first and attaches only support at that exact offset, so a later
+non-allocation scan call cannot shadow the raw evidence. If an exact triage row
+also projects the same raw site, the unique aggregate support owns the
+observation and the exact row is superseded rather than sharing bytes. The raw
+row is then `superseded-by-triage`; otherwise it retains the evidence.
 `Correlate_AggregateSupportingCallSite_PromotesExactLibraryEvidence` and
-`Correlate_AmbiguousAggregateSupports_DoNotClaimLibraryEvidence` are the
-non-vacuity gates for those outcomes.
+`Correlate_AmbiguousAggregateSupports_DoNotClaimLibraryEvidence`,
+`Correlate_NonAllocationSupport_DoesNotShadowNearestLibrarySite`, and
+`Correlate_ExactAndAggregateSameSite_PrefersAggregateSupport` are the
+non-vacuity gates for those outcomes. The flattened projection gate
+`FlattenedPerformanceTriageJsonl_RetainsSupportingCallSite` keeps all five
+`Supporting*` fields available in JSONL and tabular output as well as nested
+JSON.
 
 ## Opt-in allocation fanout
 
