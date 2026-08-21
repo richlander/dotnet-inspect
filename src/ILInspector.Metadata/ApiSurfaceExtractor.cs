@@ -660,6 +660,32 @@ public static class ApiSurfaceExtractor
                     observeDecodeWork);
             }
 
+            // Capture the wire-fidelity-relevant facts for an enum's JSON serialization: whether
+            // it is [Flags] (STJ serializes a combination as a comma-joined string, not a single
+            // declared name) and whether it carries a JsonStringEnumConverter (STJ serializes by
+            // declared name rather than by numeric value only when this converter is present).
+            var jsonTypeAttributes = typeDef.GetCustomAttributes();
+            if (apiType.Kind == "enum")
+            {
+                apiType.IsFlagsEnum = AttributeReader.HasFlagsAttribute(
+                    reader,
+                    jsonTypeAttributes,
+                    observeDecodeWork);
+                apiType.HasJsonStringEnumConverter = AttributeReader.HasJsonStringEnumConverterAttribute(
+                    reader,
+                    jsonTypeAttributes,
+                    observeDecodeWork);
+            }
+
+            if (AttributeReader.TryGetJsonSourceGenerationPropertyNamingPolicy(
+                    reader,
+                    jsonTypeAttributes,
+                    out JsonWireNamingPolicy? namingPolicy,
+                    observeDecodeWork))
+            {
+                apiType.JsonPropertyNamingPolicy = namingPolicy;
+            }
+
             // Check if this is an extension class (static class with [Extension] attribute)
             bool isExtensionClass = apiType.IsStatic
                 && AttributeReader.HasExtensionAttribute(
@@ -1021,6 +1047,26 @@ public static class ApiSurfaceExtractor
                     Accessibility = GetAccessibility(bestAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
+                    IsCompilerGenerated = AttributeReader.HasAttribute(
+                        reader,
+                        prop.GetCustomAttributes(),
+                        KnownAttributeNames.CompilerGeneratedAttribute,
+                        observeDecodeWork),
+                    HasJsonInclude = AttributeReader.HasJsonIncludeAttribute(
+                        reader,
+                        prop.GetCustomAttributes(),
+                        observeDecodeWork),
+                    HasJsonIgnore = AttributeReader.HasJsonIgnoreAttribute(
+                        reader,
+                        prop.GetCustomAttributes(),
+                        observeDecodeWork),
+                    JsonPropertyName = AttributeReader.TryGetJsonPropertyName(
+                        reader,
+                        prop.GetCustomAttributes(),
+                        out string? jsonPropertyName,
+                        observeDecodeWork)
+                        ? jsonPropertyName
+                        : null,
                     Attributes = RenderMemberAttributes(
                         reader,
                         prop.GetCustomAttributes(),

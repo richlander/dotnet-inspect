@@ -191,6 +191,17 @@ This is the currency that replaces the bare `string`. #2051 introduced
 through it. The structured forwarding design evolves it in its second delivery slice from the
 original value-equal record to a registration-backed, non-equatable descriptor:
 
+> **Current implementation and migration note:** the source-specific
+> `AssemblyResolutionProvenance` hierarchy below describes the current
+> implementation. The target
+> [artifact acquisition design](artifact-acquisition-and-workspaces.md)
+> replaces that Metadata-owned union with an artifact identity and acquisition
+> registration. Source adapters retain their own typed provenance and
+> correspondence proof. It also replaces the parameterless opener with
+> content access guarded by an owner-issued admission or current-query
+> authorization lease; a descriptor path is not read authority. Do not add
+> another source variant to Metadata as the target integration seam.
+
 ```csharp
 public abstract record AssemblyResolutionProvenance
 {
@@ -218,6 +229,16 @@ public abstract record AssemblyResolutionProvenance
 
     public static AssemblyResolutionProvenance Local(string resolverSource) =>
         new LocalAsset(resolverSource);
+
+    public static AssemblyResolutionProvenance Embedded(
+        string contentRef,
+        string digest,
+        string declaredName) =>
+        new EmbeddedAsset(contentRef, digest, declaredName);
+
+    public static AssemblyResolutionProvenance Designated(
+        string resolverSource) =>
+        new DesignatedAsset(resolverSource);
 
     public sealed record PackageAsset(
         string PackageId,
@@ -249,6 +270,20 @@ public abstract record AssemblyResolutionProvenance
     {
         private protected override int Discriminator => 3;
     }
+
+    public sealed record EmbeddedAsset(
+        string ContentRef,
+        string Digest,
+        string DeclaredName) : AssemblyResolutionProvenance
+    {
+        private protected override int Discriminator => 4;
+    }
+
+    public sealed record DesignatedAsset(
+        string ResolverSource) : AssemblyResolutionProvenance
+    {
+        private protected override int Discriminator => 5;
+    }
 }
 
 var reference = ResolvedAssemblyReference.Create(
@@ -264,9 +299,11 @@ descriptor exposes the selected image's identity, path, opener, structured prove
 registration. The incoming `AssemblyRef` identity remains request evidence, not descriptor
 identity. See
 [Type forwarding resolution](type-forwarding-resolution.md#assembly-candidate) for the
-authoritative identity, ownership, and migration contract. Provenance still widens from
-`string?` into a structured value — package@version, tfm, rid, platform-or-not, resolver source
-— so inspection reads provenance back instead of re-deriving it.
+authoritative identity, ownership, and migration contract. During the current
+migration, provenance widens from `string?` into a structured value so
+inspection does not re-derive it. In the target artifact architecture, the
+source adapter retains that structured value and Metadata carries only the
+source-neutral correspondence currency described above.
 
 **Multi-assembly locations (one query type).** There is a **single** `InspectionQuery`; there is
 no separate `PackageInspectionQuery`. Resolving `Target.Location` yields
@@ -938,11 +975,17 @@ The end state is large; get there without a big-bang rewrite. Suggested order:
    `MemberCodeProvider` and the current `ResearchViews.ProjectMember` implementation next (see
    [the sibling seam](#the-sibling-seam-method-body--coordinate-inspection)).
 
-The provenance breadth is resolved by `AssemblyResolutionProvenance`: package assets carry
-package/version/tfm/rid, platform assets carry framework/version/source, project assets carry
-project/tfm/rid, and local assets carry resolver source. This is the minimum current consumers
-read back; adding another field or arm requires a named consumer rather than turning provenance
-into a grab bag.
+During the current migration, provenance breadth is resolved by
+`AssemblyResolutionProvenance`: package assets carry package/version/tfm/rid,
+platform assets carry framework/version/source, project assets carry
+project/tfm/rid, local assets carry resolver source, and embedded assets carry
+content reference/digest/declared name. `DesignatedAsset` additionally carries
+the caller's explicit corpus/build-layout designation used by current
+core-library trust policy. This is the minimum current consumers read back. The
+target artifact design moves source records to their adapters and designation
+to authorized workspace-role evidence instead of widening this hierarchy;
+either way, adding a field requires a named consumer rather than turning
+provenance into a grab bag.
 
 ## Open questions
 
