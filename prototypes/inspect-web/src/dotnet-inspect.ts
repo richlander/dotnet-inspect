@@ -154,6 +154,7 @@ import {
   type SpotlightResult,
   visibleSpotlightPackageHits,
 } from "./spotlight.ts";
+import { createSpotlightPackageSearch } from "./spotlight-package-search.ts";
 import { fmtBytes, statusBarHtml } from "./status-bar.ts";
 import type {
   BrowserAnnotatedSource,
@@ -970,6 +971,13 @@ function currentPackage(): AppPackage {
   return state.package;
 }
 
+const spotlightPackageSearch = createSpotlightPackageSearch({
+  state,
+  queryPackages: querySpotlightPackages,
+  schedule: (callback, delay) => setTimeout(() => void callback(), delay),
+  cancelScheduled: clearTimeout,
+  updateResults: () => spotlight.updateResults(),
+});
 const spotlight = createSpotlight({
   state,
   lenses,
@@ -982,8 +990,8 @@ const spotlight = createSpotlight({
   commandContext: () => !state.home && state.package
     ? { command: state.spotlightQuery, package: state.package }
     : null,
-  schedulePackageFetch: scheduleSpotlightPackageFetch,
-  resetPackageSearch: resetSpotlightPackageSearch,
+  schedulePackageFetch: spotlightPackageSearch.schedule,
+  resetPackageSearch: spotlightPackageSearch.reset,
   packageSearchLoading: () => state.spotlightPkgLoading,
   packageCount: () => state.packages.length,
   activeFramework: () => state.package?.activeFramework || "",
@@ -4677,51 +4685,6 @@ function spotlightResults(): SpotlightResult[] {
   return results;
 }
 
-// Debounced client-side NuGet discovery. Guards against stale queries via spotlightPkgQuery
-// and refreshes results only when the resolved query still matches the input.
-let spotlightPkgTimer: ReturnType<typeof setTimeout> | null = null;
-let spotlightPkgGeneration = 0;
-
-function resetSpotlightPackageSearch() {
-  spotlightPkgGeneration++;
-  if (spotlightPkgTimer) clearTimeout(spotlightPkgTimer);
-  spotlightPkgTimer = null;
-  state.spotlightPkgHits = [];
-  state.spotlightPkgQuery = "";
-  state.spotlightPkgLoading = false;
-}
-
-function scheduleSpotlightPackageFetch() {
-  const query = state.spotlightQuery.trim();
-  if (spotlightPkgTimer) {
-    clearTimeout(spotlightPkgTimer);
-    spotlightPkgTimer = null;
-  }
-  if (state.spotlightScope !== "all" && state.spotlightScope !== "packages") {
-    spotlightPkgGeneration++;
-    state.spotlightPkgLoading = false;
-    return;
-  }
-  if (query.length < 2) {
-    spotlightPkgGeneration++;
-    state.spotlightPkgHits = [];
-    state.spotlightPkgQuery = "";
-    state.spotlightPkgLoading = false;
-    return;
-  }
-  if (query === state.spotlightPkgQuery) {
-    spotlightPkgGeneration++;
-    state.spotlightPkgLoading = false;
-    return;
-  }
-  const generation = ++spotlightPkgGeneration;
-  state.spotlightPkgLoading = true;
-  spotlightPkgTimer = setTimeout(() => {
-    spotlightPkgTimer = null;
-    fetchSpotlightPackages(query, generation);
-  }, 220);
-}
-
 interface NugetSearchResult {
   id: string;
   version: string;
@@ -4732,32 +4695,16 @@ interface NugetSearchResponse {
   data?: NugetSearchResult[];
 }
 
-async function fetchSpotlightPackages(query: string, generation: number) {
+async function querySpotlightPackages(query: string): Promise<SpotlightPackageHit[]> {
   const url = `https://azuresearch-usnc.nuget.org/query?q=${encodeURIComponent(query)}&take=8&prerelease=true&semVerLevel=2.0.0`;
-  try {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const payload = await response.json() as NugetSearchResponse;
-    if (generation !== spotlightPkgGeneration
-      || state.spotlightQuery.trim() !== query) return;
-    state.spotlightPkgHits = (payload.data || []).map(item => ({
-      id: item.id,
-      version: item.version,
-      description: item.description || "",
-    }));
-    state.spotlightPkgQuery = query;
-  } catch (error) {
-    if (generation !== spotlightPkgGeneration
-      || state.spotlightQuery.trim() !== query) return;
-    state.spotlightPkgHits = [];
-    state.spotlightPkgQuery = query;
-  } finally {
-    if (generation === spotlightPkgGeneration
-      && state.spotlightQuery.trim() === query) {
-      state.spotlightPkgLoading = false;
-      spotlight.updateResults();
-    }
-  }
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const payload = await response.json() as NugetSearchResponse;
+  return (payload.data || []).map(item => ({
+    id: item.id,
+    version: item.version,
+    description: item.description || "",
+  }));
 }
 
 // Compare two NuGet SemVer-ish versions descending (newest first). Falls back to string

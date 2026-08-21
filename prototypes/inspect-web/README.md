@@ -605,13 +605,17 @@ wiring.
 
 `src/spotlight.ts` owns the modal workbench search, embedded home search,
 scope/result rendering, selection, and keyboard interaction.
+`src/spotlight-package-search.ts` owns debounced NuGet discovery, generation
+cancellation, result publication, and reset state.
 `src/command-bar.ts` supplies its typed Commands-scope grammar and results;
-`dotnet-inspect.ts` retains command effects and delegates package/network work
-to the acquisition owner so the components do not acquire engine or workspace
-authority.
-`test/spotlight.test.js` and `test/command-bar.test.ts` gate both presentation
-modes, scope ownership, completion and replacement behavior, bounded results,
-command metadata, and escaping.
+`dotnet-inspect.ts` retains command effects, the NuGet query endpoint, package
+navigation, and acquisition so the components do not acquire engine or
+workspace authority. `test/spotlight.test.js` and
+`test/command-bar.test.ts` gate both presentation modes, scope ownership,
+completion and replacement behavior, bounded results, command metadata, and
+escaping; `test/spotlight-package-search.test.ts` gates debounce, scope and
+query eligibility, cancellation, stale suppression, failure settlement, and
+mounted-result refresh.
 
 The typed `src/status-bar.ts` component renders both the full-width workspace
 data bar and the home readiness bar. The workspace bar occupies the bottom row

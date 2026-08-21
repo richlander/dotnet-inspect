@@ -183,6 +183,9 @@ const callGraphInspectionSource = readFileSync(
 const documentInspectionSource = readFileSync(
   new URL("../src/document-inspection.ts", import.meta.url),
   "utf8");
+const spotlightPackageSearchSource = readFileSync(
+  new URL("../src/spotlight-package-search.ts", import.meta.url),
+  "utf8");
 const memberFocusSource = readFileSync(
   new URL("../src/member-focus.ts", import.meta.url),
   "utf8");
@@ -324,31 +327,28 @@ test("typed document inspection owns package document request coordination", () 
 });
 
 test("leaving package search clears its pending loading state", () => {
-  const scheduler =
-    appSource.match(/function scheduleSpotlightPackageFetch\(\)[\s\S]*?\n}\n\nasync function fetchSpotlightPackages/)?.[0]
-    ?? "";
   assert.match(
-    scheduler,
+    spotlightPackageSearchSource,
     /state\.spotlightScope !== "all"[\s\S]*state\.spotlightPkgLoading = false;[\s\S]*return;/);
   assert.match(
     appSource,
     /event\.key === "Escape" && !event\.defaultPrevented && !typing/);
   assert.match(
-    scheduler,
-    /query === state\.spotlightPkgQuery[\s\S]*spotlightPkgGeneration\+\+;[\s\S]*state\.spotlightPkgLoading = false;[\s\S]*return;/);
+    spotlightPackageSearchSource,
+    /query === state\.spotlightPkgQuery[\s\S]*generation\+\+;[\s\S]*state\.spotlightPkgLoading = false;[\s\S]*return;/);
   assert.match(
     appSource,
     /visibleSpotlightPackageHits\(\s*query,\s*state\.spotlightPkgQuery,\s*state\.spotlightPkgHits,\s*\)/);
 });
 
 test("Spotlight async work is generation-gated and refreshes either mounted surface", () => {
-  assert.match(appSource, /let spotlightPkgGeneration = 0/);
   assert.match(
     appSource,
-    /generation !== spotlightPkgGeneration[\s\S]*state\.spotlightQuery\.trim\(\) !== query/);
+    /createSpotlightPackageSearch\(\{[\s\S]*queryPackages: querySpotlightPackages,[\s\S]*updateResults: \(\) => spotlight\.updateResults\(\)/);
   assert.match(
-    appSource,
-    /if \(!state\.spotlightOpen && !state\.home\) return;[\s\S]*spotlight\.refresh\(\)/);
+    spotlightPackageSearchSource,
+    /requestGeneration !== generation[\s\S]*state\.spotlightQuery\.trim\(\) !== query/);
+  assert.doesNotMatch(appSource, /spotlightPkgGeneration|spotlightPkgTimer/);
 });
 
 test("global workbench shortcuts respect the topmost modal", () => {
