@@ -165,6 +165,114 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+type PackageInspectionCoordinator =
+  ReturnType<typeof createPackageInspectionCoordinator>;
+
+interface PackageLensFixture<T> {
+  name: string;
+  result: T;
+  createCoordinator:
+    (state: PackageInspectionState, query: () => Promise<T>) =>
+      PackageInspectionCoordinator;
+  load: (coordinator: PackageInspectionCoordinator, signature: string) =>
+    Promise<void>;
+  readResult: (state: PackageInspectionState) => T | null;
+  readLoading: (state: PackageInspectionState) => boolean;
+  readError: (state: PackageInspectionState) => string;
+  setKey: (state: PackageInspectionState, key: string) => void;
+  setError: (state: PackageInspectionState, error: string) => void;
+}
+
+async function verifyPackageLensLifecycle<T>(
+  fixture: PackageLensFixture<T>,
+) {
+  {
+    const state = inspectionState();
+    const coordinator = fixture.createCoordinator(
+      state,
+      async () => fixture.result);
+
+    await fixture.load(coordinator, "current");
+
+    assert.deepEqual(
+      fixture.readResult(state),
+      fixture.result,
+      `${fixture.name} current result`);
+    assert.equal(
+      fixture.readLoading(state),
+      false,
+      `${fixture.name} current loading`);
+    assert.equal(
+      fixture.readError(state),
+      "",
+      `${fixture.name} current error`);
+  }
+
+  {
+    const state = inspectionState();
+    const coordinator = fixture.createCoordinator(state, async () => {
+      throw new Error("current failure");
+    });
+
+    await fixture.load(coordinator, "current");
+
+    assert.equal(
+      fixture.readResult(state),
+      null,
+      `${fixture.name} failed result`);
+    assert.equal(
+      fixture.readLoading(state),
+      false,
+      `${fixture.name} failed loading`);
+    assert.equal(
+      fixture.readError(state),
+      "current failure",
+      `${fixture.name} current failure`);
+  }
+
+  {
+    let queries = 0;
+    const state = inspectionState();
+    fixture.setKey(state, "cached");
+    fixture.setError(state, "cached failure");
+    const coordinator = fixture.createCoordinator(state, async () => {
+      queries++;
+      return fixture.result;
+    });
+
+    await fixture.load(coordinator, "cached");
+
+    assert.equal(queries, 0, `${fixture.name} cached query`);
+    assert.equal(
+      fixture.readError(state),
+      "cached failure",
+      `${fixture.name} cached failure`);
+  }
+
+  {
+    const query = deferred<T>();
+    const state = inspectionState();
+    const coordinator = fixture.createCoordinator(
+      state,
+      async () => query.promise);
+
+    const load = fixture.load(coordinator, "first");
+    fixture.setKey(state, "second");
+    fixture.setError(state, "newer failure");
+    query.reject(new Error("stale failure"));
+    await load;
+
+    assert.equal(
+      fixture.readError(state),
+      "newer failure",
+      `${fixture.name} stale failure`);
+    assert.equal(
+      fixture.readLoading(state),
+      true,
+      `${fixture.name} stale loading`);
+  }
+}
+
 test("workspace dependency keys normalize complete package coordinates", () => {
   assert.equal(
     workspaceDependencyKey({
@@ -328,6 +436,91 @@ test("package lens loaders reuse cached failures without querying", async () => 
   assert.equal(state.packagePerformanceError, "cached failure");
 });
 
+test("every package lens preserves its complete request lifecycle", async () => {
+  const packageItem = packageModel();
+
+  await verifyPackageLensLifecycle({
+    name: "dependencies",
+    result: dependencyResult(),
+    createCoordinator: (state, query) =>
+      createPackageInspectionCoordinator(
+        inspectionDependencies(state, {
+          queryDependencies: async () => query(),
+        })),
+    load: (coordinator, signature) =>
+      coordinator.loadDependencies(packageItem, signature),
+    readResult: state => state.packageDependencies,
+    readLoading: state => state.packageDependenciesLoading,
+    readError: state => state.packageDependenciesError,
+    setKey: (state, key) => { state.packageDependenciesKey = key; },
+    setError: (state, error) => { state.packageDependenciesError = error; },
+  });
+  await verifyPackageLensLifecycle({
+    name: "integrations",
+    result: integrationsResult(),
+    createCoordinator: (state, query) =>
+      createPackageInspectionCoordinator(
+        inspectionDependencies(state, {
+          queryPackageIntegrations: async () => query(),
+        })),
+    load: (coordinator, signature) =>
+      coordinator.loadIntegrations(packageItem, signature, null),
+    readResult: state => state.packageIntegrations,
+    readLoading: state => state.packageIntegrationsLoading,
+    readError: state => state.packageIntegrationsError,
+    setKey: (state, key) => { state.packageIntegrationsKey = key; },
+    setError: (state, error) => { state.packageIntegrationsError = error; },
+  });
+  await verifyPackageLensLifecycle({
+    name: "opportunities",
+    result: opportunitiesResult(),
+    createCoordinator: (state, query) =>
+      createPackageInspectionCoordinator(
+        inspectionDependencies(state, {
+          queryPackageOpportunities: async () => query(),
+        })),
+    load: (coordinator, signature) =>
+      coordinator.loadOpportunities(packageItem, signature, null),
+    readResult: state => state.packageOpportunities,
+    readLoading: state => state.packageOpportunitiesLoading,
+    readError: state => state.packageOpportunitiesError,
+    setKey: (state, key) => { state.packageOpportunitiesKey = key; },
+    setError: (state, error) => { state.packageOpportunitiesError = error; },
+  });
+  await verifyPackageLensLifecycle({
+    name: "performance",
+    result: performanceResult(),
+    createCoordinator: (state, query) =>
+      createPackageInspectionCoordinator(
+        inspectionDependencies(state, {
+          queryPackagePerformance: async () => query(),
+        })),
+    load: (coordinator, signature) =>
+      coordinator.loadPerformance(packageItem, signature, null),
+    readResult: state => state.packagePerformance,
+    readLoading: state => state.packagePerformanceLoading,
+    readError: state => state.packagePerformanceError,
+    setKey: (state, key) => { state.packagePerformanceKey = key; },
+    setError: (state, error) => { state.packagePerformanceError = error; },
+  });
+  await verifyPackageLensLifecycle({
+    name: "metadata",
+    result: metadataResult(),
+    createCoordinator: (state, query) =>
+      createPackageInspectionCoordinator(
+        inspectionDependencies(state, {
+          queryPackageMetadata: async () => query(),
+        })),
+    load: (coordinator, signature) =>
+      coordinator.loadMetadata(packageItem, signature, null),
+    readResult: state => state.packageMetadata,
+    readLoading: state => state.packageMetadataLoading,
+    readError: state => state.packageMetadataError,
+    setKey: (state, key) => { state.packageMetadataKey = key; },
+    setError: (state, error) => { state.packageMetadataError = error; },
+  });
+});
+
 test("stale package lens rejection cannot overwrite newer state", async () => {
   const packageItem = packageModel();
   const request = deferred<PackagePerformance>();
@@ -487,6 +680,53 @@ test("removed packages cannot publish an in-flight workspace dependency result",
   assert.equal(
     Object.hasOwn(state.workspaceDependencies, workspaceDependencyKey(packageItem)),
     false);
+  assert.equal(state.workspaceDependencyLoads.size, 0);
+});
+
+test("packages removed before their workspace turn are not queried", async () => {
+  const first = packageModel({ id: "Example.First" });
+  const removed = packageModel({ id: "Example.Removed" });
+  const firstRequest = deferred<BrowserPackageDependencies>();
+  const queries: string[] = [];
+  const state = inspectionState({ packages: [first, removed] });
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDependencies: async packageItem => {
+        queries.push(packageItem.id);
+        return packageItem === first
+          ? firstRequest.promise
+          : dependencyResult(packageItem.id);
+      },
+    }));
+
+  const load = coordinator.ensureWorkspaceDependencies();
+  state.packages = [first];
+  firstRequest.resolve(dependencyResult(first.id));
+  await load;
+
+  assert.deepEqual(queries, [first.id]);
+  assert.equal(
+    Object.hasOwn(state.workspaceDependencies, workspaceDependencyKey(removed)),
+    false);
+});
+
+test("removed packages cannot publish rejected workspace dependency requests", async () => {
+  const packageItem = packageModel();
+  const request = deferred<BrowserPackageDependencies>();
+  const state = inspectionState({ packages: [packageItem] });
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDependencies: async () => request.promise,
+    }));
+
+  const load = coordinator.ensureWorkspaceDependencies();
+  state.packages = [];
+  request.reject(new Error("stale failure"));
+  await load;
+
+  const key = workspaceDependencyKey(packageItem);
+  assert.equal(Object.hasOwn(state.workspaceDependencies, key), false);
+  assert.equal(Object.hasOwn(state.workspaceDependencyErrors, key), false);
   assert.equal(state.workspaceDependencyLoads.size, 0);
 });
 
