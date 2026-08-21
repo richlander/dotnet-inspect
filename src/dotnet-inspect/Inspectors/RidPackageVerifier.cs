@@ -108,7 +108,7 @@ public static class RidPackageVerifier
                     var candidateBudget =
                         new LocalCaseVariantProbeBudget();
                     var probedPaths =
-                        new HashSet<string>(LocalPathComparer);
+                        new HashSet<string>(StringComparer.Ordinal);
                     foreach (string versionSpelling in
                              LocalVersionSpellings(
                                  version,
@@ -177,7 +177,7 @@ public static class RidPackageVerifier
             HashSet<string>? probedPaths = null)
     {
         candidateBudget ??= new LocalCaseVariantProbeBudget();
-        probedPaths ??= new HashSet<string>(LocalPathComparer);
+            probedPaths ??= new HashSet<string>(StringComparer.Ordinal);
         string expectedPath =
             Path.Combine(snapshot.LocalDirectory, expectedFileName);
         probedPaths.Add(expectedPath);
@@ -197,6 +197,15 @@ public static class RidPackageVerifier
         {
             if (!probedPaths.Add(candidatePath))
                 continue;
+            if (exact.Status != NuspecProbeStatus.Absent
+                && candidates.Paths.Count == 1
+                && string.Equals(
+                    expectedPath,
+                    candidatePath,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
 
             if (!candidateBudget.TryConsume())
             {
@@ -273,7 +282,7 @@ public static class RidPackageVerifier
                         _paths.Add(fileName, paths);
                     }
 
-                    if (paths.Count < MaxLocalCaseVariantCandidates)
+                    if (paths.Count < MaxLocalCaseVariantCandidates + 1)
                         paths.Add(path);
                     else
                         _overflow.Add(fileName);
@@ -320,11 +329,6 @@ public static class RidPackageVerifier
             return true;
         }
     }
-
-    private static StringComparer LocalPathComparer { get; } =
-        OperatingSystem.IsWindows()
-            ? StringComparer.OrdinalIgnoreCase
-            : StringComparer.Ordinal;
 
     private static bool? ToAvailability(NuspecProbeStatus status) =>
         status switch

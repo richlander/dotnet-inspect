@@ -1134,6 +1134,130 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             excludeUnbounded: true));
     }
 
+    [Fact]
+    public void PackageCommand_BareDiscoveryUsesBoundedProducerCandidates()
+    {
+        var pipeline =
+            PackageSectionDescriptors.CreateCatalog().Pipeline;
+        var options = new InspectionOptions
+        {
+            Discover = [],
+            Verbosity = Verbosity.Detailed,
+        };
+
+        InspectionOptions producerOptions =
+            PackageCommand.CreateProducerOptions(
+                options,
+                userVerbosity: Verbosity.Minimal,
+                pipeline);
+        HashSet<string> includeSections =
+            producerOptions.IncludeSections!;
+
+        Assert.Contains(
+            PackageSections.Manifest,
+            includeSections);
+        Assert.DoesNotContain(
+            PackageSections.SourceLinkFiles,
+            includeSections);
+        Assert.DoesNotContain(
+            PackageSections.SourceLinkAvailability,
+            includeSections);
+        Assert.DoesNotContain(
+            PackageSections.SourceLinkIntegrity,
+            includeSections);
+        Assert.DoesNotContain(
+            PackageSections.SourceLinkMissingFiles,
+            includeSections);
+        Assert.Empty(pipeline.GetRequiredQueries(
+            producerOptions.Verbosity,
+            includeSections,
+            producerOptions.FixedOverview,
+            excludeUnbounded: true));
+
+        options = options with
+        {
+            IncludeSections =
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    PackageSections.SourceLinkFiles,
+                },
+        };
+        producerOptions = PackageCommand.CreateProducerOptions(
+            options,
+            userVerbosity: Verbosity.Minimal,
+            pipeline);
+
+        Assert.Empty(producerOptions.IncludeSections!);
+    }
+
+    [Fact]
+    public async Task PackageCommand_BareDiscoveryDoesNotAcquireSignalPdbs()
+    {
+        string packageId =
+            $"Private.Discovery.{Guid.NewGuid():N}";
+        string normalizedId = packageId.ToLowerInvariant();
+        const string source =
+            "https://bounded-discovery.example/v3/index.json";
+        byte[] package = CreatePackage(
+            packageId,
+            assemblyPath:
+                typeof(PackageInspectorMetadataSourceTests)
+                    .Assembly.Location);
+        var requests = new List<Uri>();
+        using var client = new HttpClient(
+            new RoutingHandler(request =>
+            {
+                requests.Add(request.RequestUri!);
+                return request.RequestUri!.AbsolutePath switch
+                {
+                    "/v3/index.json" => Json($$"""
+                        {
+                          "version": "3.0.0",
+                          "resources": [
+                            {
+                              "@id": "https://bounded-discovery.example/flat/",
+                              "@type": "PackageBaseAddress/3.0.0"
+                            }
+                          ]
+                        }
+                        """),
+                    var path when path
+                        == $"/flat/{normalizedId}/index.json" =>
+                        Json("""{ "versions": [ "1.0.0" ] }"""),
+                    var path when path
+                        == $"/flat/{normalizedId}/1.0.0/"
+                            + $"{normalizedId}.1.0.0.nupkg" =>
+                        Bytes(package),
+                    _ => new HttpResponseMessage(
+                        HttpStatusCode.NotFound),
+                };
+            }));
+
+        var discovered = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                new InspectionOptions
+                {
+                    PackageArgs = [$"{packageId}@1.0.0"],
+                    Discover = [],
+                    ForceLatest = true,
+                    SourceOptions = new NuGetSourceOptions
+                    {
+                        Sources = [source],
+                    },
+                },
+                new CommandContext(
+                    verbose: false,
+                    client)));
+
+        Assert.Equal(0, discovered.ExitCode);
+        Assert.Contains("| Signals | section |", discovered.Output);
+        Assert.DoesNotContain(
+            requests,
+            request => request.AbsolutePath.EndsWith(
+                ".snupkg",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
     [Theory]
     [InlineData(PackageSections.Statistics)]
     [InlineData(PackageSections.Vulnerabilities)]
@@ -1298,7 +1422,8 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
 
     private static byte[] CreatePackage(
         string packageId,
-        string? dependencyId = null)
+        string? dependencyId = null,
+        string? assemblyPath = null)
     {
         string dependencies = dependencyId is null
             ? ""
@@ -1313,24 +1438,33 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             ZipArchiveMode.Create,
             leaveOpen: true))
         {
-            using var writer = new StreamWriter(
+            using (var writer = new StreamWriter(
                 archive.CreateEntry(
                     $"{packageId}.nuspec").Open(),
                 new UTF8Encoding(
-                    encoderShouldEmitUTF8Identifier: false));
-            writer.Write(
-                $$"""
-                <?xml version="1.0" encoding="utf-8"?>
-                <package>
-                  <metadata>
-                    <id>{{packageId}}</id>
-                    <version>1.0.0</version>
-                    <authors>Test</authors>
-                    <description>Test package</description>
-                {{dependencies}}
-                  </metadata>
-                </package>
-                """);
+                    encoderShouldEmitUTF8Identifier: false)))
+            {
+                writer.Write(
+                    $$"""
+                    <?xml version="1.0" encoding="utf-8"?>
+                    <package>
+                      <metadata>
+                        <id>{{packageId}}</id>
+                        <version>1.0.0</version>
+                        <authors>Test</authors>
+                        <description>Test package</description>
+                    {{dependencies}}
+                      </metadata>
+                    </package>
+                    """);
+            }
+            if (assemblyPath is not null)
+            {
+                using Stream assembly = File.OpenRead(assemblyPath);
+                using Stream entry = archive.CreateEntry(
+                    "lib/net8.0/Test.dll").Open();
+                assembly.CopyTo(entry);
+            }
         }
         return stream.ToArray();
     }

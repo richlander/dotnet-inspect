@@ -822,7 +822,7 @@ public class PackageCommand
                     result);
             }
 
-            if (wantsSignals)
+            if (wantsSignals && options.Discover is not { Length: 0 })
             {
                 await PopulatePackageSignalsAsync(
                     result, extractPath, packageName, version, client, logger, options.SourceOptions);
@@ -1545,10 +1545,13 @@ public class PackageCommand
         HashSet<string>? producerSections = options.IncludeSections;
         if (options.Discover is not null)
         {
-            IEnumerable<string> candidates =
-                options.IncludeSections is { } selectedSections
-                    ? selectedSections
-                    : pipeline.SelectableSectionNames;
+            HashSet<string> candidates =
+                pipeline.GetCandidateSections(
+                    options.Verbosity,
+                    fixedOverview: options.FixedOverview);
+            if (options.IncludeSections is { } selectedSections)
+                candidates.IntersectWith(selectedSections);
+
             producerSections = candidates
                 .Where(section => DiscoverRequestsSection(
                     options.Discover,

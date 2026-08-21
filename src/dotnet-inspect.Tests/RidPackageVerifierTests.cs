@@ -503,8 +503,17 @@ public class RidPackageVerifierTests
         }
     }
 
-    [Fact]
-    public async Task VerifyAsync_ExactArchiveDoesNotConsumeCaseVariantBudget()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(6)]
+    [InlineData(7)]
+    public async Task VerifyAsync_ExactArchiveDoesNotConsumeCaseVariantBudget(
+        int validVariant)
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
@@ -514,46 +523,51 @@ public class RidPackageVerifierTests
         {
             string exactPath = Path.Combine(
                 directory,
-                "TestPackage.linux-x64.1.0.nupkg");
+                "TestPackage.linux-x64.1.0.0.nupkg");
             File.WriteAllBytes(exactPath, []);
-            string[] rawVersionVariants =
+            string[] variants =
             [
-                "testPackage.linux-x64.1.0.nupkg",
-                "tEstPackage.linux-x64.1.0.nupkg",
-                "teStPackage.linux-x64.1.0.nupkg",
-                "tesTPackage.linux-x64.1.0.nupkg",
-                "testPAckage.linux-x64.1.0.nupkg",
-                "testPaCkage.linux-x64.1.0.nupkg",
-                "testPacKage.linux-x64.1.0.nupkg",
+                "testPackage.linux-x64.1.0.0.nupkg",
+                "tEstPackage.linux-x64.1.0.0.nupkg",
+                "teStPackage.linux-x64.1.0.0.nupkg",
+                "tesTPackage.linux-x64.1.0.0.nupkg",
+                "testPAckage.linux-x64.1.0.0.nupkg",
+                "testPaCkage.linux-x64.1.0.0.nupkg",
+                "testPacKage.linux-x64.1.0.0.nupkg",
+                "testPackAge.linux-x64.1.0.0.nupkg",
             ];
             if (File.Exists(Path.Combine(
                     directory,
-                    rawVersionVariants[0])))
+                    variants[0])))
             {
                 Assert.Skip(
                     "The filesystem does not support case-distinct sibling files.");
                 return;
             }
 
-            foreach (string fileName in rawVersionVariants)
+            for (int index = 0; index < variants.Length; index++)
             {
-                File.WriteAllBytes(
-                    Path.Combine(directory, fileName),
-                    []);
-            }
-
-            WritePackageArchive(
-                Path.Combine(
+                string path = Path.Combine(
                     directory,
-                    "testpackage.linux-x64.1.0.0.nupkg"),
-                "testpackage.linux-x64",
-                "1.0.0");
+                    variants[index]);
+                if (index == validVariant)
+                {
+                    WritePackageArchive(
+                        path,
+                        "testpackage.linux-x64",
+                        "1.0.0");
+                }
+                else
+                {
+                    File.WriteAllBytes(path, []);
+                }
+            }
             InspectionResult result = CreateResult();
 
             await RidPackageVerifier.VerifyAsync(
                 new HttpClient(),
                 result,
-                "1.0",
+                "1.0.0",
                 directory,
                 new VerboseLogger(enabled: false));
 
