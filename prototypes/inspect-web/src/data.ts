@@ -1060,8 +1060,11 @@ export function resolveOpportunitySourceType<
   pack: RuntimeGraphPackage<TType> | null | undefined,
   opportunity: OpportunitySourceIdentity | null | undefined,
 ): TType | null {
-  if (!opportunity?.sourceDefinitionId) return null;
-  const candidate = resolveGraphTargetCandidate([pack], {
+  if (!pack || !opportunity?.sourceDefinitionId) return null;
+  const candidate = resolveGraphTargetCandidate<
+    RuntimeGraphPackage<TType>,
+    TType
+  >([pack], {
     assembly: opportunity.sourceAssembly,
     assemblyVersion: opportunity.sourceAssemblyVersion,
     assemblyCulture: opportunity.sourceAssemblyCulture,
