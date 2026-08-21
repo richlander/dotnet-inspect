@@ -165,6 +165,36 @@ test("normalizing a history entry keeps its consumed position and later entries"
 });
 
 const appSource = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.url), "utf8");
+const workspaceNavigationSource = readFileSync(
+  new URL("../src/workspace-navigation.ts", import.meta.url),
+  "utf8");
+const packageAcquisitionSource = readFileSync(
+  new URL("../src/package-acquisition.ts", import.meta.url),
+  "utf8");
+const packageInspectionSource = readFileSync(
+  new URL("../src/package-inspection.ts", import.meta.url),
+  "utf8");
+const sourceInspectionSource = readFileSync(
+  new URL("../src/source-inspection.ts", import.meta.url),
+  "utf8");
+const metadataInspectionSource = readFileSync(
+  new URL("../src/metadata-inspection.ts", import.meta.url),
+  "utf8");
+const memberDetailInspectionSource = readFileSync(
+  new URL("../src/member-detail-inspection.ts", import.meta.url),
+  "utf8");
+const callGraphInspectionSource = readFileSync(
+  new URL("../src/call-graph-inspection.ts", import.meta.url),
+  "utf8");
+const documentInspectionSource = readFileSync(
+  new URL("../src/document-inspection.ts", import.meta.url),
+  "utf8");
+const spotlightPackageSearchSource = readFileSync(
+  new URL("../src/spotlight-package-search.ts", import.meta.url),
+  "utf8");
+const catalogRequestsSource = readFileSync(
+  new URL("../src/catalog-requests.ts", import.meta.url),
+  "utf8");
 const memberFocusSource = readFileSync(
   new URL("../src/member-focus.ts", import.meta.url),
   "utf8");
@@ -233,10 +263,16 @@ test("platform call graphs carry the target pack into lazy acquisition", () => {
     "aspnetcore.app");
   assert.match(
     appSource,
-    /inspectExpandPlatformCallGraph\(\s*currentPackage\(\)\.activeFramework,\s*node\.assembly,\s*platformPackForAssembly\(node\.assembly,\s*node\.platformPack\)/);
+    /callGraphInspection\.drill\(\{[\s\S]*pack:\s*platformPackForAssembly\(node\.assembly,\s*node\.platformPack\)/);
   assert.match(
     appSource,
-    /inspectExpandPlatformCallGraph\(\s*currentPackage\(\)\.activeFramework,\s*type\.assembly,\s*platformPackForAssembly\(type\.assembly,\s*type\.platformPack\),\s*type\.definitionId\s*\?\?\s*type\.metadataId/);
+    /platformType:\s*type\.definitionId\s*\?\?\s*type\.metadataId[\s\S]*platformPack:\s*platformPackForAssembly\(type\.assembly,\s*type\.platformPack\)/);
+  assert.match(
+    callGraphInspectionSource,
+    /pack:\s*request\.platformPack/);
+  assert.match(
+    appSource,
+    /inspectExpandPlatformCallGraph\(\s*request\.framework,\s*request\.assembly,\s*request\.pack/);
 });
 
 test("shared platform state preserves an exact pack token", () => {
@@ -244,10 +280,10 @@ test("shared platform state preserves an exact pack token", () => {
   assert.equal(platformPackToken("netcore.app"), "netcore.app");
   assert.equal(platformPackToken("unknown.app"), null);
   assert.match(
-    appSource,
-    /packet\.p\s*=\s*platformPackForAssembly\(packet\.l\)/);
+    workspaceNavigationSource,
+    /if \(state\.libraryPack\) packet\.p = state\.libraryPack/);
   assert.match(
-    appSource,
+    workspaceNavigationSource,
     /libraryPack:\s*platformPackToken\(raw\.p\)/);
   assert.match(
     appSource,
@@ -269,10 +305,10 @@ test("platform inspection notices survive cumulative surface loads", () => {
       "First: omitted 1 metadata row."),
     "First: omitted 1 metadata row.");
   assert.match(
-    appSource,
+    packageAcquisitionSource,
     /existing\.inspectionError\s*=\s*mergeInspectionErrors\(/);
   assert.match(
-    appSource,
+    packageAcquisitionSource,
     /inspectionError:\s*result\.inspectionError\s*\|\|\s*""/);
 });
 
@@ -295,34 +331,148 @@ test("typed Spotlight owns search presentation and hosts commands", () => {
 
 test("workspace data bar receives package acquisition provenance", () => {
   assert.match(appSource, /source: pkg\.source/);
-  assert.match(appSource, /source: \{ kind: "nuget\.org" \}/);
-  assert.match(appSource, /source: \{ kind: "platform" \}/);
+  assert.match(
+    appSource,
+    /createPackageAcquisition\(\{[\s\S]*queryPackage:[\s\S]*loadRuntimePack:[\s\S]*loadRuntimePackAssembly:/);
+  assert.match(appSource, /packageAcquisition\.loadPackage\(\{/);
+  assert.match(appSource, /packageAcquisition\.loadRuntimePack\(/);
+  assert.match(appSource, /packageAcquisition\.loadRuntimePackAssembly\(/);
+  assert.doesNotMatch(appSource, /runtimePackLoadPromise|waitForRuntimePackLoad/);
+  assert.match(
+    appSource,
+    /interface RuntimeLoadResult \{[\s\S]*failureMessage: string;[\s\S]*const result = await packageAcquisition\.loadRuntimePack\([\s\S]*failureMessage: result\.error === null \? "" : errorMessage\(result\.error\)/);
+  assert.match(packageAcquisitionSource, /source: \{ kind: "nuget\.org" \}/);
+  assert.match(packageAcquisitionSource, /source: \{ kind: "platform" \}/);
+  assert.doesNotMatch(appSource, /source: \{ kind: "(?:nuget\.org|platform)" \}/);
   assert.match(statusBarSource, /Source: \$\{escapeHtml\(packageSourceLabel\(model\.source\)\)\}/);
 });
 
-test("leaving package search clears its pending loading state", () => {
-  const scheduler =
-    appSource.match(/function scheduleSpotlightPackageFetch\(\)[\s\S]*?\n}\n\nasync function fetchSpotlightPackages/)?.[0]
+test("typed package inspection owns package-root request coordination", () => {
+  const dependenciesLoader =
+    appSource.match(/async function loadPackageDependencies\(\) \{[\s\S]*?\n}/)?.[0]
     ?? "";
   assert.match(
-    scheduler,
+    appSource,
+    /createPackageInspectionCoordinator\(\{[\s\S]*queryDependencies:[\s\S]*queryPackageIntegrations:[\s\S]*queryPlatformMetadata:/);
+  assert.match(
+    appSource,
+    /queryDependencies: packageModel => inspectPackageDependencies\(\s*packageModel\.id,\s*packageModel\.version,\s*packageModel\.activeFramework,\s*packageModel\.assemblyId\)/);
+  for (const engine of [
+    "inspectPackageIntegrations",
+    "inspectPackageOpportunities",
+    "inspectPackagePerformance",
+    "inspectPackageMetadata",
+  ]) {
+    assert.match(
+      appSource,
+      new RegExp(
+        `${engine}\\(\\s*packageModel\\.id,\\s*`
+        + "packageModel\\.version,\\s*packageModel\\.activeFramework\\)"));
+  }
+  for (const engine of [
+    "inspectPlatformIntegrations",
+    "inspectPlatformOpportunities",
+    "inspectPlatformPerformance",
+    "inspectPlatformMetadata",
+  ]) {
+    assert.match(
+      appSource,
+      new RegExp(
+        `${engine}\\(\\s*framework,\\s*assemblyFileName,\\s*pack\\)`));
+  }
+  assert.match(
+    dependenciesLoader,
+    /function loadPackageDependencies\(\) \{\s*return packageInspection\.loadDependencies\(/);
+  assert.match(appSource, /packageInspection\.ensureWorkspaceDependencies\(\)/);
+  assert.match(appSource, /packageInspection\.loadIntegrations\(/);
+  assert.match(appSource, /packageInspection\.loadOpportunities\(/);
+  assert.match(appSource, /packageInspection\.loadPerformance\(/);
+  assert.match(appSource, /packageInspection\.loadMetadata\(/);
+  assert.match(
+    packageInspectionSource,
+    /async loadDependencies\(packageModel, signature\)[\s\S]*state\.packageDependenciesKey/);
+  assert.doesNotMatch(dependenciesLoader, /state\.packageDependenciesKey/);
+});
+
+test("typed document inspection owns package document request coordination", () => {
+  const documentLoader =
+    appSource.match(/function openPackageDocument\(path: string\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  const documentCloser =
+    appSource.match(/function closeDocViewer\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    appSource,
+    /createDocumentInspectionCoordinator\(\{[\s\S]*queryDocument:[\s\S]*renderMarkdown,[\s\S]*renderMarkdownInline,/);
+  assert.match(
+    appSource,
+    /queryDocument: request => inspectPackageDocument\(\s*request\.packageId,\s*request\.version,\s*request\.document\.path\)/);
+  assert.match(
+    documentLoader,
+    /return documentInspection\.open\(\{\s*packageId: pkg\.id,\s*version: pkg\.version,\s*document: doc,\s*\}\)/);
+  assert.match(documentCloser, /documentInspection\.close\(\)/);
+  assert.doesNotMatch(documentLoader, /state\.docViewer(?:Seq|Open|Loading)/);
+  assert.doesNotMatch(documentCloser, /state\.docViewer(?:Seq|Open|Loading)/);
+  assert.match(
+    documentInspectionSource,
+    /async open\(request: PackageDocumentRequest\)[\s\S]*state\.docViewerSeq/);
+});
+
+test("typed catalog requests own release and package-version coordination", () => {
+  const releaseLoader =
+    appSource.match(/function ensureDotnetReleases\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  const versionLoader =
+    appSource.match(/function ensurePackageVersions\(pkg: AppPackage \| null\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    appSource,
+    /createCatalogRequests\(\{[\s\S]*queryDotnetReleases,[\s\S]*queryPackageVersions: packageId => inspectPackageVersions\(packageId\),[\s\S]*updatePlatformVersionSelect,[\s\S]*updatePackageVersionSelect: updateVersionSelect,/);
+  assert.match(
+    appSource,
+    /raw\.githubusercontent\.com\/dotnet\/core\/refs\/heads\/main\/release-notes\/releases-index\.json/);
+  assert.match(releaseLoader, /return catalogRequests\.ensureDotnetReleases\(\)/);
+  assert.match(versionLoader, /return catalogRequests\.ensurePackageVersions\(pkg\)/);
+  assert.doesNotMatch(
+    `${releaseLoader}\n${versionLoader}`,
+    /dotnetReleasesLoading|packageVersionsLoading|state\.packages/);
+  assert.match(
+    catalogRequestsSource,
+    /state\.dotnetReleasesLoading = true[\s\S]*dependencies\.queryDotnetReleases\(\)[\s\S]*state\.dotnetReleasesLoading = false/);
+  assert.match(
+    catalogRequestsSource,
+    /state\.packageVersionsLoading\[packageId\] = true[\s\S]*dependencies\.queryPackageVersions\(packageId\)[\s\S]*packageIsResident\(packageId\)/);
+  assert.doesNotMatch(
+    catalogRequestsSource,
+    /\bfetch\(|\bdocument\b|inspectPackageVersions/);
+});
+
+test("leaving package search clears its pending loading state", () => {
+  assert.match(
+    spotlightPackageSearchSource,
     /state\.spotlightScope !== "all"[\s\S]*state\.spotlightPkgLoading = false;[\s\S]*return;/);
   assert.match(
     appSource,
     /event\.key === "Escape" && !event\.defaultPrevented && !typing/);
   assert.match(
-    scheduler,
-    /query === state\.spotlightPkgQuery[\s\S]*spotlightPkgGeneration\+\+;[\s\S]*state\.spotlightPkgLoading = false;[\s\S]*return;/);
+    spotlightPackageSearchSource,
+    /query === state\.spotlightPkgQuery[\s\S]*generation\+\+;[\s\S]*state\.spotlightPkgLoading = false;[\s\S]*return;/);
   assert.match(
     appSource,
     /visibleSpotlightPackageHits\(\s*query,\s*state\.spotlightPkgQuery,\s*state\.spotlightPkgHits,\s*\)/);
 });
 
 test("Spotlight async work is generation-gated and refreshes either mounted surface", () => {
-  assert.match(appSource, /let spotlightPkgGeneration = 0/);
   assert.match(
     appSource,
-    /generation !== spotlightPkgGeneration[\s\S]*state\.spotlightQuery\.trim\(\) !== query/);
+    /createSpotlightPackageSearch\(\{[\s\S]*queryPackages: querySpotlightPackages,[\s\S]*updateResults: \(\) => spotlight\.updateResults\(\)/);
+  assert.match(
+    appSource,
+    /schedule: \(callback, delay\) => setTimeout\(\(\) => void callback\(\), delay\),\s*cancelScheduled: handle => clearTimeout\(handle\),/);
+  assert.match(
+    spotlightPackageSearchSource,
+    /requestGeneration !== generation[\s\S]*state\.spotlightQuery\.trim\(\) !== query/);
+  assert.doesNotMatch(appSource, /spotlightPkgGeneration|spotlightPkgTimer/);
   assert.match(
     appSource,
     /if \(!state\.spotlightOpen && !state\.home\) return;[\s\S]*spotlight\.refresh\(\)/);
@@ -506,8 +656,8 @@ test("member filters retain accessible controls and focus across rerenders", () 
     appSource,
     /id="clear-member-filter"[^>]*aria-label="Clear member filters"/);
   assert.match(
-    appSource,
-    /const preservedFocus = renderPreservingMemberFocus\(\);[\s\S]*state\.memberDocumentationLoading = false;\s*if \(memberRequestIsCurrent\(signature\)\)\s*renderPreservingMemberFocus\(preservedFocus\)/);
+    memberDetailInspectionSource,
+    /async loadDocumentation\(request\)[\s\S]*const preservedFocus = dependencies\.renderPreservingMemberFocus\(\);[\s\S]*state\.memberDocumentationLoading = false;[\s\S]*dependencies\.renderPreservingMemberFocus\(preservedFocus\)/);
   assert.match(
     stylesSource,
     /\.type-browser:not\(\.member-nav\) \.namespace-chips, \.pane-footer \{ display: none; \}/);
@@ -532,15 +682,22 @@ test("member filters retain accessible controls and focus across rerenders", () 
   const platformDrill =
     appSource.match(/async function drillPlatformNode\([\s\S]*?\n}\n\nfunction popPlatformDrill/)?.[0]
     ?? "";
+  assert.match(
+    platformDrill,
+    /return callGraphInspection\.drill\(\{[\s\S]*type: callGraphTargetTypeId\(node\)[\s\S]*metadataToken: node\.metadataToken \?\? 0/);
+  const coordinatedDrill =
+    callGraphInspectionSource.match(/async drill\(request\)[\s\S]*?\n    },/)?.[0]
+    ?? "";
   assert.equal(
-    [...platformDrill.matchAll(/renderPreservingMemberFocus\(preservedFocus\)/g)].length,
+    [...coordinatedDrill.matchAll(
+      /dependencies\.renderPreservingMemberFocus\(preservedFocus\)/g)].length,
     2);
   const platformNavigation =
     appSource.match(/async function navigateOrDrillPlatform\([\s\S]*?\n}\n\n\/\/ Enter the resident runtime pack/)?.[0]
     ?? "";
   assert.match(
     platformNavigation,
-    /const originSignature = memberRequestSignature\(type, overload, true\);[\s\S]*state\.memberSection === "call-graph"[\s\S]*memberRequestIsCurrent\(originSignature, true\)[\s\S]*loadRuntimePack\([\s\S]*ownsNavigation\)[\s\S]*if \(!ownsNavigation\(\)\) \{[\s\S]*state\.platformDrillLoading = false;[\s\S]*state\.platformDrillError = state\.runtimePackError[\s\S]*renderPreservingMemberFocus\(preservedFocus\)/);
+    /const originSignature = memberRequestSignature\(type, overload, true\);[\s\S]*state\.memberSection === "call-graph"[\s\S]*memberRequestIsCurrent\(originSignature, true\)[\s\S]*loadRuntimePack\([\s\S]*ownsNavigation\)[\s\S]*if \(!ownsNavigation\(\)\) \{[\s\S]*state\.platformDrillLoading = false;[\s\S]*state\.platformDrillError = runtimeResult\.failureMessage[\s\S]*state\.runtimePackError[\s\S]*renderPreservingMemberFocus\(preservedFocus\)/);
   assert.match(
     appSource,
     /function applyMemberSection\(id: MemberSection\) \{[\s\S]*state\.memberSection === "call-graph" && id !== "call-graph"[\s\S]*invalidateMemberCallGraphWork\(state\)/);
@@ -550,10 +707,12 @@ test("member filters retain accessible controls and focus across rerenders", () 
 });
 
 test("shared member views retain scope and filter state", () => {
-  const encoder = appSource.match(
-    /function encodeShareState\(\)[\s\S]*?\n}\n\nfunction decodeShareState/)?.[0] ?? "";
-  const decoder = appSource.match(
-    /function decodeShareState\([\s\S]*?\n}\n\n\/\/ Maps a view token/)?.[0] ?? "";
+  const capture = appSource.match(
+    /function captureWorkspaceUrlState\(\)[\s\S]*?\n}\n\nfunction buildStateUrl/)?.[0] ?? "";
+  const encoder = workspaceNavigationSource.match(
+    /function encodeWorkspaceShareState\([\s\S]*?\n}\n\nfunction decodeWorkspaceShareState/)?.[0] ?? "";
+  const decoder = workspaceNavigationSource.match(
+    /function decodeWorkspaceShareState\([\s\S]*?\n}\n\nfunction resolveView/)?.[0] ?? "";
   const deepLink = appSource.match(
     /function applyDeepLink\([\s\S]*?\n}\n\n\/\/ Kick off/)?.[0] ?? "";
   assert.match(encoder, /packet\.b = 1/);
@@ -564,6 +723,12 @@ test("shared member views retain scope and filter state", () => {
   assert.match(encoder, /packet\.d = encodeBodyTarget\(state\.selectedBodyTarget\)/);
   assert.match(decoder, /memberBrowse: raw\.b === 1/);
   assert.match(decoder, /bodyTarget: decodeBodyTarget\(raw\.d\)/);
+  assert.match(capture, /selectedBodyTarget: state\.selectedBodyTarget/);
+  assert.match(capture, /memberBrowse: memberScopeIsActive\(state, selectedType\(\)\?\.id\)/);
+  assert.match(capture, /memberTextFilter: state\.memberTextFilter/);
+  assert.match(capture, /memberKindFilter: state\.memberKindFilter/);
+  assert.match(capture, /memberAccessibilityFilter: state\.memberAccessibilityFilter/);
+  assert.match(capture, /memberTraitFilter: state\.memberTraitFilter/);
   assert.match(appSource, /if \(deep\.memberBrowse && groups\.length\)\s*state\.memberBrowseTypeId = type\.id/);
   assert.match(
     deepLink,
@@ -665,7 +830,7 @@ test("lens-scoped Platform library changes reset type-specific member state", ()
     ?? "";
   assert.match(
     picker,
-    /const openLibrary = async \([\s\S]*originPackage: AppPackage = currentPackage\(\),[\s\S]*noticeRetryState: NoticeRetryState \| null = null[\s\S]*if \(!state\.packages\.includes\(originPackage\)[\s\S]*!packageIdentityEquals\(state\.package, originPackage\)[\s\S]*state\.queryNoticeRetryAction === noticeRetryState\.action[\s\S]*state\.queryNotice = removeAppendedNotice\([\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*const loaded = await loadRuntimePackAssembly\([\s\S]*\(\) => state\.packages\.includes\(originPackage\)\);[\s\S]*previous: state\.queryNotice[\s\S]*const retryAction = \(\) =>\s*openLibrary\(name, pack, originPackage, noticeState\);[\s\S]*noticeState\.appended = state\.queryNotice;[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*state\.libraryScope = new Set\(\[key\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*loader\(\)/);
+    /const openLibrary = async \([\s\S]*originPackage: AppPackage = currentPackage\(\),[\s\S]*noticeRetryState: NoticeRetryState \| null = null[\s\S]*if \(!state\.packages\.includes\(originPackage\)[\s\S]*!packageIdentityEquals\(state\.package, originPackage\)[\s\S]*state\.queryNoticeRetryAction === noticeRetryState\.action[\s\S]*state\.queryNotice = removeAppendedNotice\([\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*const runtimeResult = await loadRuntimePackAssembly\([\s\S]*\(\) => state\.packages\.includes\(originPackage\)\);[\s\S]*const loaded = runtimeResult\.packageModel;[\s\S]*previous: state\.queryNotice[\s\S]*const retryAction = \(\) =>\s*openLibrary\(name, pack, originPackage, noticeState\);[\s\S]*runtimeResult\.failureMessage[\s\S]*noticeState\.appended = state\.queryNotice;[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*state\.libraryScope = new Set\(\[key\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*loader\(\)/);
   assert.doesNotMatch(picker, /select\.isConnected/);
   assert.match(
     appSource,
@@ -697,21 +862,70 @@ test("authoritative location restore clears filters and applies aggregate Platfo
 
 test("type projection completions render only while current and preserve navigation focus", () => {
   const typeSource =
-    appSource.match(/async function loadSelectedTypeSource\([\s\S]*?\n}\n\nasync function loadSelectedTypeMetadata/)?.[0]
+    sourceInspectionSource.match(/async loadTypeSource\(request\)[\s\S]*?\n    },/)?.[0]
     ?? "";
   assert.match(
     typeSource,
-    /const preservedFocus = renderPreservingMemberFocus\(\);[\s\S]*const ownsRequest = \(\) =>[\s\S]*const isCurrent = \(\) =>[\s\S]*if \(ownsRequest\(\)\) \{\s*state\.typeSourceLoading = false;\s*if \(isCurrent\(\)\)\s*renderPreservingMemberFocus\(preservedFocus\);/);
-  assert.doesNotMatch(typeSource, /finally \{[\s\S]*\n\s*render\(\);\s*}/);
+    /const preservedFocus = dependencies\.renderPreservingMemberFocus\(\);[\s\S]*const ownsRequest = \(\) =>[\s\S]*if \(ownsRequest\(\)\) \{\s*state\.typeSourceLoading = false;\s*if \(request\.isVisible\(\)\) \{\s*dependencies\.renderPreservingMemberFocus\(preservedFocus\);/);
+  assert.doesNotMatch(typeSource, /finally \{[\s\S]*dependencies\.render\(\)/);
   const typeMetadata =
     appSource.match(/async function loadSelectedTypeMetadata\([\s\S]*?\n}\n\n\/\/ Projects/)?.[0]
     ?? "";
   assert.match(
     typeMetadata,
-    /const generation = \+\+state\.typeMetadataGeneration;[\s\S]*const preservedFocus = renderPreservingMemberFocus\(\);[\s\S]*generation === state\.typeMetadataGeneration[\s\S]*!state\.home[\s\S]*!state\.settings[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!workbenchOverlayOwnsFocus\(\)[\s\S]*typeMetadataSignature\(currentType, pkg\) === signature[\s\S]*if \(isCurrent\(\)\) \{[\s\S]*renderPreservingMemberFocus\(preservedFocus\)/);
+    /return metadataInspection\.loadTypeMetadata\(\{[\s\S]*packageId: pkg\.id,[\s\S]*assembly: type\.assembly,[\s\S]*type: type\.queryId \?\? type\.id,[\s\S]*isVisible: \(\) => \{[\s\S]*!state\.home[\s\S]*!state\.settings[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!workbenchOverlayOwnsFocus\(\)[\s\S]*typeMetadataSignature\(currentType, pkg\) === signature/);
+  assert.doesNotMatch(typeMetadata, /typeMetadataGeneration|inspectTypeProjection/);
+  const typeMetadataCoordinator =
+    metadataInspectionSource.match(/async loadTypeMetadata\(request\)[\s\S]*?\n    },/)?.[0]
+    ?? "";
+  assert.match(
+    typeMetadataCoordinator,
+    /const generation = \+\+state\.typeMetadataGeneration;[\s\S]*const preservedFocus = dependencies\.renderPreservingMemberFocus\(\);[\s\S]*generation === state\.typeMetadataGeneration[\s\S]*if \(ownsRequest\(\)\) state\.typeMetadata = result;[\s\S]*if \(request\.isVisible\(\)\) \{\s*dependencies\.renderPreservingMemberFocus\(preservedFocus\);/);
   assert.doesNotMatch(
-    typeMetadata,
+    typeMetadataCoordinator,
     /renderPreservingMemberFocus\(preservedFocus\);\s*if \(state\.typeMetadata\?\.graphNodes/);
+});
+
+test("metadata explorer request coordination stays outside the composition root", () => {
+  const windowLoader =
+    appSource.match(/async function loadExplorerWindow\([\s\S]*?\n}\n\n\/\/ Lists/)?.[0]
+    ?? "";
+  const heapLoader =
+    appSource.match(/async function loadExplorerHeap\([\s\S]*?\n}\n\/\/ ref->def/)?.[0]
+    ?? "";
+  assert.match(
+    windowLoader,
+    /return metadataInspection\.loadExplorerWindow\(index, startRowId, maxRows\)/);
+  assert.match(
+    heapLoader,
+    /return metadataInspection\.loadExplorerHeap\(heapName\)/);
+  assert.doesNotMatch(
+    `${windowLoader}\n${heapLoader}`,
+    /inspectPackageMetadataTable|inspectPlatformMetadataTable|inspectPackageHeapEntries|inspectPlatformHeapEntries/);
+  assert.match(
+    metadataInspectionSource,
+    /dependencies\.queryPlatformTable[\s\S]*dependencies\.queryPackageTable[\s\S]*state\.explorer !== explorer[\s\S]*index === explorer\.focusIndex && !explorer\.focusHeap/);
+  assert.match(
+    metadataInspectionSource,
+    /dependencies\.queryPlatformHeap[\s\S]*dependencies\.queryPackageHeap[\s\S]*state\.explorer !== explorer[\s\S]*explorer\.focusHeap === heapName/);
+});
+
+test("call graph request coordination stays outside the composition root", () => {
+  const loader =
+    appSource.match(/async function loadSelectedMemberCallGraph\([\s\S]*?\n}\n\n\/\/ Update just/)?.[0]
+    ?? "";
+  assert.match(
+    loader,
+    /return callGraphInspection\.load\(\{[\s\S]*type: type\.queryId \?\? type\.id,[\s\S]*typeIdentity: type\.definitionId \?\? type\.id,[\s\S]*platformType:\s*type\.definitionId \?\? type\.metadataId \?\? type\.queryId \?\? type\.id,[\s\S]*platformPack: platformPackForAssembly\(type\.assembly, type\.platformPack\),[\s\S]*isCurrent: \(\) => memberRequestIsCurrent\(signature, true\)/);
+  assert.doesNotMatch(
+    loader,
+    /memberCallGraphSeq|inspectMemberCallGraph|inspectExpandPlatformCallGraph/);
+  assert.match(
+    callGraphInspectionSource,
+    /dependencies\.queryWorkspace\(request, \[\]\)[\s\S]*dependencies\.nextPaint\(\)[\s\S]*request\.workspacePackages[\s\S]*dependencies\.patchCallGraphSection\(previousMermaid\)/);
+  assert.match(
+    callGraphInspectionSource,
+    /request\.isRuntimePack[\s\S]*loadPlatformGraph\(request\)/);
 });
 
 test("typeless member lookup and request guards stay empty", () => {
@@ -725,7 +939,7 @@ test("typeless member lookup and request guards stay empty", () => {
 
 test("history validates saved type and member identity before restoring Member state", () => {
   const applyView =
-    appSource.match(/function applyView\(view: NavigationEntry\["view"\]\) \{[\s\S]*?\n}\n\nfunction navBack/)?.[0]
+    appSource.match(/function applyView\(view: WorkspaceView\) \{[\s\S]*?\n}\n\nconst navigationHistory/)?.[0]
     ?? "";
   assert.match(applyView, /const type = pkg\.types\.find\(item => item\.id === view\.selectedTypeId\)/);
   assert.match(
@@ -739,13 +953,16 @@ test("history validates saved type and member identity before restoring Member s
     /state\.selectedOverloadIndex = memberHistory\.selectedOverloadIndex;[\s\S]*state\.memberSection = isMemberSection\(memberHistory\.memberSection\)[\s\S]*\? memberHistory\.memberSection[\s\S]*state\.selectedBodyTarget = memberHistory\.selectedBodyTarget/);
   assert.match(
     applyView,
-    /normalizeCurrentNavEntry\(\);[\s\S]*loadSelectedMemberSource\(\)[\s\S]*else \{\s*render\(\)/);
+    /navigationHistory\.normalizeCurrent\(\);[\s\S]*loadSelectedMemberSource\(\)[\s\S]*else \{\s*render\(\)/);
   assert.match(
     appSource,
-    /function normalizeCurrentNavEntry\(\) \{\s*replaceCurrentNavigationEntry\(nav, viewSignature\(\), captureView\(\)\)/);
+    /const navigationHistory = createNavigationHistory\(\{\s*capture: captureView,\s*signature: workspaceViewSignature,\s*apply: applyView/);
+  assert.match(
+    workspaceNavigationSource,
+    /function workspaceViewSignature\([\s\S]*b: encodeBodyTarget\(view\.bodyTarget\)/);
   assert.match(
     appSource,
-    /function viewSignature\(\) \{[\s\S]*b: encodeBodyTarget\(state\.selectedBodyTarget\)/);
+    /function captureView\(\): WorkspaceView \| null \{[\s\S]*bodyTarget: state\.selectedBodyTarget/);
   assert.match(
     appSource,
     /else if \(state\.selectedTypeId !== current\.id\) \{\s*state\.selectedTypeId = current\.id;\s*state\.selectedMemberKey = "";\s*state\.memberBrowseTypeId = "";\s*state\.selectedOverloadIndex = null;\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\)/);
@@ -766,14 +983,17 @@ test("Platform scope restoration defers selection, rendering, and data loading",
 
 test("Type Source completion settles behind workbench overlays", () => {
   const typeSource =
-    appSource.match(/async function loadSelectedTypeSource\([\s\S]*?\n}\n\nasync function loadSelectedTypeMetadata/)?.[0]
+    sourceInspectionSource.match(/async loadTypeSource\(request\)[\s\S]*?\n    },/)?.[0]
     ?? "";
   assert.match(
     appSource,
     /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\)\s*\|\| state\.tasteOpen;[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| state\.graphSourceOpen\s*\|\| state\.docViewerOpen;/);
   assert.match(
+    appSource,
+    /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*activeSourceOperationKind\(state\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);
+  assert.match(
     typeSource,
-    /const ownsRequest = \(\) =>[\s\S]*const isCurrent = \(\) =>\s*ownsRequest\(\)\s*&& activeSourceOperationKind\(state\) === "type"\s*&& !workbenchModalOwnsFocus\(\);[\s\S]*if \(ownsRequest\(\)\) \{\s*state\.typeSourceLoading = false;\s*if \(isCurrent\(\)\)\s*renderPreservingMemberFocus\(preservedFocus\)/);
+    /const ownsRequest = \(\) =>[\s\S]*if \(ownsRequest\(\)\) \{\s*state\.typeSourceLoading = false;\s*if \(request\.isVisible\(\)\) \{\s*dependencies\.renderPreservingMemberFocus\(preservedFocus\)/);
   assert.match(
     appSource,
     /function isInteractiveElement\(element: Element \| null\)[\s\S]*"button, a\[href\], input, select, textarea, summary, "[\s\S]*\[role=button\][\s\S]*!isInteractiveElement\([\s\S]*event\.target instanceof Element \? event\.target : null\)[\s\S]*event\.key === "Enter"/);
@@ -900,12 +1120,13 @@ test("dependency graph binds navigation to generated node identities", () => {
 });
 
 test("dependency navigation reserves identity and surfaces resolution failures", () => {
+  assert.doesNotMatch(appSource, /state\.navigationSeq/);
   assert.match(
     appSource,
-    /const navigationSeq = \+\+state\.navigationSeq;\s+state\.loading = true;[\s\S]*?await resolveDependencyVersion/);
+    /const navigationSeq = navigationSequence\.begin\(\);\s+state\.loading = true;[\s\S]*?await resolveDependencyVersion/);
   assert.match(
     appSource,
-    /if \(navigationSeq !== state\.navigationSeq\) return;\s+state\.loading = false;\s+appendQueryNotice/);
+    /if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s+state\.loading = false;\s+appendQueryNotice/);
   assert.match(
     graphSource,
     /packageIdentityKey\(uniqueCompatiblePackage\(\s+model\.packages,\s+dependency\.id,\s+dependency\.versionRange\)\) === target\.packageKey/);
@@ -990,13 +1211,18 @@ test("annotated source request identity includes the selected body", () => {
   assert.match(
     annotatedLoader,
     /const signature = memberRequestSignature\(type, overload, true, true\)/);
-  assert.equal(
-    [...annotatedLoader.matchAll(
-      /memberRequestIsCurrent\(signature, true, true\)/g)].length,
-    3);
+  assert.match(
+    annotatedLoader,
+    /isCurrent: \(\) => memberRequestIsCurrent\(signature, true, true\)/);
   assert.match(
     annotatedLoader,
     /state\.selectedBodyTarget\?\.selectorKey \?\? overload\.graphSelectorKey,[\s\S]*?state\.selectedBodyTarget\?\.metadataToken \?\? overload\.metadataToken/);
+  const annotatedCoordinator =
+    memberDetailInspectionSource.match(/async loadAnnotated\(request\)[\s\S]*?\n    },/)?.[0]
+    ?? "";
+  assert.equal(
+    [...annotatedCoordinator.matchAll(/request\.isCurrent\(\)/g)].length,
+    3);
 
   const request = [
     "Example.Package",
@@ -1010,6 +1236,53 @@ test("annotated source request identity includes the selected body", () => {
   assert.notEqual(
     memberRequestKey([...request, 0x06000001, "M:Run"]),
     memberRequestKey([...request, 0x06000002, "M:<Run>b__0_0"]));
+});
+
+test("member detail adapters preserve exact engine coordinates", () => {
+  const coordinator =
+    appSource.match(
+      /const memberDetailInspection = createMemberDetailInspectionCoordinator\(\{[\s\S]*?\n}\);/)?.[0]
+    ?? "";
+  const documentationLoader =
+    appSource.match(
+      /async function loadSelectedMemberDocumentation\(\)[\s\S]*?\n}\n\nasync function loadSelectedMemberSource/)?.[0]
+    ?? "";
+  const annotatedLoader =
+    appSource.match(
+      /async function loadSelectedMemberAnnotatedSource\(\)[\s\S]*?\n}\n\nfunction memberRequestSignature/)?.[0]
+    ?? "";
+  const factsLoader =
+    appSource.match(
+      /async function loadSelectedMemberFacts\(\)[\s\S]*?\n}\n\ninterface LoadPackageOptions/)?.[0]
+    ?? "";
+
+  assert.match(
+    coordinator,
+    /inspectMemberDocumentation\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*documentationId\)/);
+  assert.match(
+    coordinator,
+    /inspectMemberAnnotatedSource\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.typeIdentity,\s*request\.type,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken,\s*request\.taste\)/);
+  assert.match(
+    coordinator,
+    /const document = result\.document;\s*validateAnnotatedSourceDocument\(document\);\s*return \{ \.\.\.result, document \};/);
+  assert.match(
+    coordinator,
+    /inspectMemberFacts\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.type,\s*request\.member,\s*request\.memberSignature\)/);
+  assert.match(
+    documentationLoader,
+    /const signature = memberRequestSignature\(type, overload\)/);
+  assert.match(
+    documentationLoader,
+    /return memberDetailInspection\.loadDocumentation\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*overload,\s*isRuntimePack: Boolean\(state\.package\?\.isRuntimePack\),\s*isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
+  assert.match(
+    annotatedLoader,
+    /loadAnnotated\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*type: type\.queryId \?\? type\.id,\s*member: overload\.name,\s*memberSignature: overload\.signature,[\s\S]*taste: JSON\.stringify\(state\.taste\)/);
+  assert.match(
+    factsLoader,
+    /const signature = memberRequestSignature\(type, overload\)/);
+  assert.match(
+    factsLoader,
+    /return memberDetailInspection\.loadFacts\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*type: type\.queryId \?\? type\.id,\s*member: overload\.name,\s*memberSignature: overload\.signature,\s*isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
 });
 
 test("type source identity includes decompiler taste", () => {
@@ -1034,9 +1307,17 @@ test("source operations cancel when superseded or hidden", () => {
   const renderBody =
     appSource.match(/function render\(\)[\s\S]*?\n}/)?.[0]
     ?? "";
-  assert.match(renderBody, /sourceSurfaceIsVisible\(state\)/);
-  assert.match(renderBody, /cancelSourceRequestState\(state\)/);
-  assert.match(renderBody, /cancelSourceInspection\?\.\(\)/);
+  assert.match(renderBody, /sourceInspection\.cancelHiddenRequest\(\)/);
+  assert.match(
+    appSource,
+    /createSourceInspectionCoordinator\(\{[\s\S]*cancelEngineSourceRequest: \(\) => cancelSourceInspection\?\.\(\)/);
+  assert.match(
+    sourceInspectionSource,
+    /cancelHiddenRequest\(\)[\s\S]*sourceSurfaceIsVisible\(state\)[\s\S]*cancelSourceRequestState\(state\)/);
+  assert.match(appSource, /sourceInspection\.loadMemberSource\(\{/);
+  assert.match(appSource, /sourceInspection\.loadTypeSource\(\{/);
+  assert.match(appSource, /sourceInspection\.openGraphSource\(request, title\)/);
+  assert.match(appSource, /sourceInspection\.closeGraphSource\(\)/);
   const reloadBody =
     appSource.match(/function reloadVisibleSource\(\)[\s\S]*?\n}/)?.[0]
     ?? "";
@@ -1058,10 +1339,15 @@ test("source operations cancel when superseded or hidden", () => {
     appSource.match(
       /async function loadSelectedMemberAnnotatedSource\(\)[\s\S]*?\n}\n\nfunction memberRequestSignature/)?.[0]
     ?? "";
-  assert.match(annotatedLoader, /sourceRequestNeedsLoad\(/);
-  assert.match(annotatedLoader, /state\.memberAnnotatedLoading/);
-  assert.match(annotatedLoader, /state\.memberAnnotated/);
-  assert.match(annotatedLoader, /state\.memberAnnotatedError/);
+  assert.match(
+    annotatedLoader,
+    /return memberDetailInspection\.loadAnnotated\(\{/);
+  assert.doesNotMatch(
+    annotatedLoader,
+    /sourceRequestNeedsLoad|memberAnnotatedLoading/);
+  assert.match(
+    memberDetailInspectionSource,
+    /async loadAnnotated\(request\)[\s\S]*sourceRequestNeedsLoad\([\s\S]*state\.memberAnnotatedLoading[\s\S]*state\.memberAnnotatedError/);
 
   const visible = {
     settings: false,
@@ -1740,7 +2026,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     appSource,
     /type: type\.queryId \?\? type\.id,\s+typeIdentity: type\.definitionId \?\? type\.id/);
   assert.match(
-    appSource,
+    workspaceNavigationSource,
     /if \(!pkg && tabs\.length\) \{\s+const target = tabs\[/);
   assert.match(
     appSource,

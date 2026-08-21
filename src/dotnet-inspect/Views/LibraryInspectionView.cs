@@ -887,16 +887,19 @@ public class LibraryInspectionView
     // Each section is absent when its kind has no findings (il-offset context-section model).
     private List<PerformanceRow>? PerformanceRowsFor(string section)
     {
-        var rows = _data.OptimizationOpportunities?
+        var rows = _data.PerformanceTriageOpportunities
             .Where(o => PerformanceKinds.SectionForShape(o.Shape) == section)
             .Select(o => new PerformanceRow(
-                MarkoutInline.Code(o.Member),
+                MarkoutInline.Code(
+                    LibraryMetadataService.FormatMethod(o.Method)),
                 MarkoutInline.Code(o.Evidence),
-                o.Allocation is null ? null : MarkoutInline.Code(o.Allocation),
-                string.IsNullOrEmpty(o.Loop) ? null : o.Loop,
+                o.RuntimeAllocationType is null
+                    ? null
+                    : MarkoutInline.Code(o.RuntimeAllocationType),
+                LibraryMetadataService.IteratesInLoop(o) ? "loop" : null,
                 o.RootReach.ToString(),
                 o.Weight,
-                o.Priority,
+                LibraryMetadataService.TriagePriority(o),
                 o.Confidence))
             .ToList();
         return rows is { Count: > 0 } ? rows : null;
@@ -907,20 +910,25 @@ public class LibraryInspectionView
     internal List<PerformanceGroupRow> PerformanceGroupRows(IReadOnlyCollection<string> selectedSections)
     {
         var rows = new List<PerformanceGroupRow>();
-        foreach (var opportunity in _data.OptimizationOpportunities ?? [])
+        foreach (var opportunity in _data.PerformanceTriageOpportunities)
         {
             var section = PerformanceKinds.SectionForShape(opportunity.Shape);
             if (!selectedSections.Contains(section))
                 continue;
             rows.Add(new PerformanceGroupRow(
                 PerformanceKinds.KindLabel(section),
-                MarkoutInline.Code(opportunity.Member),
+                MarkoutInline.Code(
+                    LibraryMetadataService.FormatMethod(opportunity.Method)),
                 MarkoutInline.Code(opportunity.Evidence),
-                opportunity.Allocation is null ? null : MarkoutInline.Code(opportunity.Allocation),
-                string.IsNullOrEmpty(opportunity.Loop) ? null : opportunity.Loop,
+                opportunity.RuntimeAllocationType is null
+                    ? null
+                    : MarkoutInline.Code(opportunity.RuntimeAllocationType),
+                LibraryMetadataService.IteratesInLoop(opportunity)
+                    ? "loop"
+                    : null,
                 opportunity.RootReach.ToString(),
                 opportunity.Weight,
-                opportunity.Priority,
+                LibraryMetadataService.TriagePriority(opportunity),
                 opportunity.Confidence));
         }
         return rows;
