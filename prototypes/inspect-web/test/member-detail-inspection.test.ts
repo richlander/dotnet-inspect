@@ -506,6 +506,31 @@ test("cached annotated source renders without querying again", async () => {
   assert.deepEqual(state.memberAnnotatedNodeIds, [7, 8]);
 });
 
+test("another member does not reuse a cached annotated source", async () => {
+  const cached = annotatedResult();
+  const current = annotatedResult();
+  let queries = 0;
+  const state = inspectionState({
+    memberAnnotated: cached,
+    memberAnnotatedKey: "previous",
+  });
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryAnnotated: async () => {
+        queries++;
+        return current;
+      },
+    }));
+
+  await coordinator.loadAnnotated(annotatedRequest());
+
+  assert.equal(queries, 1);
+  assert.equal(state.memberAnnotatedKey, "annotated");
+  assert.equal(state.memberAnnotated, current);
+  assert.notEqual(state.memberAnnotated, cached);
+  assert.equal(state.memberAnnotatedLoading, false);
+});
+
 test("duplicate in-flight annotated requests do not query or mutate state", async () => {
   let queries = 0;
   let renders = 0;
@@ -532,6 +557,41 @@ test("duplicate in-flight annotated requests do not query or mutate state", asyn
   assert.equal(renders, 1);
   assert.equal(state.memberAnnotated, null);
   assert.equal(state.memberAnnotatedLoading, true);
+});
+
+test("another member starts while an annotated request is in flight", async () => {
+  const previous = deferred<AnnotatedSourceResult>();
+  const current = deferred<AnnotatedSourceResult>();
+  let queries = 0;
+  const state = inspectionState();
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryAnnotated: request => {
+        queries++;
+        return request.signature === "previous"
+          ? previous.promise
+          : current.promise;
+      },
+    }));
+
+  const previousLoad = coordinator.loadAnnotated(
+    annotatedRequest({ signature: "previous" }));
+  const currentLoad = coordinator.loadAnnotated(annotatedRequest());
+
+  assert.equal(queries, 2);
+  assert.equal(state.memberAnnotatedKey, "annotated");
+  assert.equal(state.memberAnnotatedLoading, true);
+
+  previous.resolve(annotatedResult());
+  await previousLoad;
+  assert.equal(state.memberAnnotated, null);
+  assert.equal(state.memberAnnotatedLoading, true);
+
+  const currentResult = annotatedResult();
+  current.resolve(currentResult);
+  await currentLoad;
+  assert.equal(state.memberAnnotated, currentResult);
+  assert.equal(state.memberAnnotatedLoading, false);
 });
 
 test("current annotated rejection remains visible", async () => {
