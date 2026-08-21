@@ -81,13 +81,26 @@ type EscapeHtml = (value: unknown) => string;
 
 export interface TypePanelBindingActions {
   onClearFilters: () => void;
+  onCopyAnchor: (
+    anchor: "selector" | "digest" | "canonical" | undefined,
+  ) => void;
+  onCopyMemberSource: () => void;
+  onCopyName: () => void;
+  onCopySignature: () => void;
+  onCopyTypeSource: () => void;
   onKindSelect: (kind: string) => void;
   onListKeyDown: (event: KeyboardEvent) => void;
   onMemberAccessibilityFilterSelect: (accessibility: string | undefined) => void;
+  onMemberBack: () => void;
+  onMemberCompositionAccessibilitySelect: (accessibility: string) => void;
+  onMemberCompositionKindSelect: (kind: string) => void;
+  onMemberCompositionTraitSelect: (trait: string) => void;
   onMemberFilterChange: (value: string) => void;
   onMemberFilterClear: () => void;
   onMemberFilterKeyDown: (event: KeyboardEvent, value: string) => void;
+  onMemberGroupOpen: (memberKey: string) => void;
   onMemberKindFilterSelect: (kind: string | undefined) => void;
+  onMemberOverloadOpen: (index: number) => void;
   onMemberSelect: (memberKey: string | undefined) => void;
   onMemberTraitFilterSelect: (trait: string | undefined) => void;
   onNamespaceSelect: (namespace: string) => void;
@@ -122,6 +135,32 @@ export function bindTypePanel(
     button.addEventListener(
       "click",
       () => actions.onOverloadSelect(Number(button.dataset.navOverload))));
+  root.querySelectorAll<HTMLElement>("[data-member-jump-kind]")
+    .forEach(button =>
+      button.addEventListener(
+        "click",
+        () => actions.onMemberCompositionKindSelect(
+          button.dataset.memberJumpKind ?? "all")));
+  root.querySelectorAll<HTMLElement>("[data-member-jump-access]")
+    .forEach(button =>
+      button.addEventListener(
+        "click",
+        () => actions.onMemberCompositionAccessibilitySelect(
+          button.dataset.memberJumpAccess ?? "all")));
+  root.querySelectorAll<HTMLElement>("[data-member-jump-trait]")
+    .forEach(button =>
+      button.addEventListener(
+        "click",
+        () => actions.onMemberCompositionTraitSelect(
+          button.dataset.memberJumpTrait ?? "")));
+  root.querySelectorAll<HTMLElement>("[data-member]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onMemberGroupOpen(button.dataset.member ?? "")));
+  root.querySelectorAll<HTMLElement>("[data-overload]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onMemberOverloadOpen(Number(button.dataset.overload))));
   root.querySelectorAll<HTMLElement>("[data-member-kind-filter]")
     .forEach(button =>
       button.addEventListener(
@@ -149,6 +188,29 @@ export function bindTypePanel(
   root.querySelector("#clear-member-filter")?.addEventListener(
     "click",
     actions.onMemberFilterClear);
+  root.querySelector("#member-back")?.addEventListener(
+    "click",
+    actions.onMemberBack);
+  root.querySelector("#copy-name")?.addEventListener(
+    "click",
+    actions.onCopyName);
+  root.querySelector("#copy-signature")?.addEventListener(
+    "click",
+    actions.onCopySignature);
+  root.querySelectorAll<HTMLElement>("[data-copy-anchor]").forEach(button =>
+    button.addEventListener("click", () => {
+      const anchor = button.dataset.copyAnchor;
+      actions.onCopyAnchor(
+        anchor === "selector" || anchor === "digest" || anchor === "canonical"
+          ? anchor
+          : undefined);
+    }));
+  root.querySelector("#copy-source")?.addEventListener(
+    "click",
+    actions.onCopyMemberSource);
+  root.querySelector("#copy-type-source")?.addEventListener(
+    "click",
+    actions.onCopyTypeSource);
 
   const namespaceJump =
     root.querySelector<HTMLSelectElement>("#namespace-jump");

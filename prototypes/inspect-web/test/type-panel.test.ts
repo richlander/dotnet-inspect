@@ -139,15 +139,39 @@ const jsonDocument: TypeSummary = {
 function recordingActions(calls: string[]): TypePanelBindingActions {
   return {
     onClearFilters: () => calls.push("clear"),
+    onCopyAnchor: value => {
+      calls.push(`copy-anchor:${value}`);
+    },
+    onCopyMemberSource: () => {
+      calls.push("copy-member-source");
+    },
+    onCopyName: () => {
+      calls.push("copy-name");
+    },
+    onCopySignature: () => {
+      calls.push("copy-signature");
+    },
+    onCopyTypeSource: () => {
+      calls.push("copy-type-source");
+    },
     onKindSelect: value => calls.push(`kind:${value}`),
     onListKeyDown: event => calls.push(`list:${event.key}`),
     onMemberAccessibilityFilterSelect: value =>
       calls.push(`member-access:${value}`),
+    onMemberBack: () => calls.push("member-back"),
+    onMemberCompositionAccessibilitySelect: value =>
+      calls.push(`member-jump-access:${value}`),
+    onMemberCompositionKindSelect: value =>
+      calls.push(`member-jump-kind:${value}`),
+    onMemberCompositionTraitSelect: value =>
+      calls.push(`member-jump-trait:${value}`),
     onMemberFilterChange: value => calls.push(`member-filter:${value}`),
     onMemberFilterClear: () => calls.push("member-filter-clear"),
     onMemberFilterKeyDown: (event, value) =>
       calls.push(`member-filter-key:${event.key}:${value}`),
+    onMemberGroupOpen: value => calls.push(`member-open:${value}`),
     onMemberKindFilterSelect: value => calls.push(`member-kind:${value}`),
+    onMemberOverloadOpen: value => calls.push(`member-overload:${value}`),
     onMemberSelect: value => calls.push(`member:${value}`),
     onMemberTraitFilterSelect: value => calls.push(`member-trait:${value}`),
     onNamespaceSelect: value => calls.push(`namespace:${value}`),
@@ -297,6 +321,77 @@ test("type panel bindings dispatch the rendered member navigation controls", () 
     "overload:0",
     "types",
     "list:Home",
+  ]);
+});
+
+test("type panel bindings dispatch member composition and detail controls", () => {
+  const root = new FakeRoot();
+  const jumpKind = new FakeElement({ memberJumpKind: "method" });
+  const defaultJumpKind = new FakeElement();
+  const jumpAccess = new FakeElement({ memberJumpAccess: "protected" });
+  const defaultJumpAccess = new FakeElement();
+  const jumpTrait = new FakeElement({ memberJumpTrait: "isStatic" });
+  const defaultJumpTrait = new FakeElement();
+  const member = new FakeElement({ member: "M:Parse" });
+  const defaultMember = new FakeElement();
+  const overload = new FakeElement({ overload: "2" });
+  const defaultOverload = new FakeElement();
+  const anchor = new FakeElement({ copyAnchor: "digest" });
+  const invalidAnchor = new FakeElement({ copyAnchor: "unknown" });
+  root.addAll("[data-member-jump-kind]", jumpKind, defaultJumpKind);
+  root.addAll("[data-member-jump-access]", jumpAccess, defaultJumpAccess);
+  root.addAll("[data-member-jump-trait]", jumpTrait, defaultJumpTrait);
+  root.addAll("[data-member]", member, defaultMember);
+  root.addAll("[data-overload]", overload, defaultOverload);
+  root.addAll("[data-copy-anchor]", anchor, invalidAnchor);
+  const back = root.add("#member-back", new FakeElement());
+  const copyName = root.add("#copy-name", new FakeElement());
+  const copySignature = root.add("#copy-signature", new FakeElement());
+  const copyMemberSource = root.add("#copy-source", new FakeElement());
+  const copyTypeSource = root.add("#copy-type-source", new FakeElement());
+  const calls: string[] = [];
+
+  bindTypePanel(
+    root as unknown as ParentNode,
+    recordingActions(calls));
+
+  assert.deepEqual(calls, []);
+  jumpKind.dispatch("click");
+  defaultJumpKind.dispatch("click");
+  jumpAccess.dispatch("click");
+  defaultJumpAccess.dispatch("click");
+  jumpTrait.dispatch("click");
+  defaultJumpTrait.dispatch("click");
+  member.dispatch("click");
+  defaultMember.dispatch("click");
+  overload.dispatch("click");
+  defaultOverload.dispatch("click");
+  back.dispatch("click");
+  copyName.dispatch("click");
+  copySignature.dispatch("click");
+  anchor.dispatch("click");
+  invalidAnchor.dispatch("click");
+  copyMemberSource.dispatch("click");
+  copyTypeSource.dispatch("click");
+
+  assert.deepEqual(calls, [
+    "member-jump-kind:method",
+    "member-jump-kind:all",
+    "member-jump-access:protected",
+    "member-jump-access:all",
+    "member-jump-trait:isStatic",
+    "member-jump-trait:",
+    "member-open:M:Parse",
+    "member-open:",
+    "member-overload:2",
+    "member-overload:NaN",
+    "member-back",
+    "copy-name",
+    "copy-signature",
+    "copy-anchor:digest",
+    "copy-anchor:undefined",
+    "copy-member-source",
+    "copy-type-source",
   ]);
 });
 

@@ -3731,6 +3731,11 @@ function bindTypePanelEvents() {
     }
     renderWithMemberFocus(preserved);
   };
+  const enterMemberNavigation = (action: () => void) => {
+    const focusGeneration = beginSpotlightNavigation();
+    action();
+    focusTypeList(focusGeneration);
+  };
   bindTypePanel(document, {
     onClearFilters: () => {
       state.typeFilter = "";
@@ -3740,6 +3745,41 @@ function bindTypePanelEvents() {
       state.accessibilityFilter = defaultAccessibilityFilter(state.package);
       render();
       focusFilter({ immediate: true });
+    },
+    onCopyAnchor: anchor => {
+      const type = selectedType();
+      const member = selectedMember(type);
+      const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
+      const values = {
+        selector: overload?.stableSelector,
+        digest: overload?.anchorDigest,
+        canonical: overload?.canonicalSignature
+      };
+      const value = anchor ? values[anchor] : undefined;
+      if (value) void copyText(value, `${anchor} copied`);
+    },
+    onCopyMemberSource: () => {
+      if (state.memberSource)
+        void copyText(state.memberSource.text, "source copied");
+    },
+    onCopyName: () => {
+      const type = selectedType();
+      if (!type) return;
+      const typeName = `${type.namespace ? `${type.namespace}.` : ""}${type.name}`;
+      const member = selectedMember(type);
+      const fullName = member ? `${typeName}.${member.name}` : typeName;
+      void copyText(fullName, "name copied");
+    },
+    onCopySignature: () => {
+      const type = selectedType();
+      const member = selectedMember(type);
+      const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
+      if (overload)
+        void copyText(overload.signature, "signature copied");
+    },
+    onCopyTypeSource: () => {
+      if (state.typeSource)
+        void copyText(state.typeSource.text, "source copied");
     },
     onKindSelect: kind => {
       state.kindFilter = kind;
@@ -3756,6 +3796,31 @@ function bindTypePanelEvents() {
       state.memberAccessibilityFilter = value ?? "all";
       normalizeMemberSelection();
       renderMemberFilterAndRestoreFocus();
+    },
+    onMemberBack: drillOut,
+    onMemberCompositionAccessibilitySelect: value => {
+      enterMemberNavigation(() => {
+        resetMemberFilters();
+        state.memberAccessibilityFilter = value;
+        enterMemberScope();
+        render();
+      });
+    },
+    onMemberCompositionKindSelect: value => {
+      enterMemberNavigation(() => {
+        resetMemberFilters();
+        state.memberKindFilter = value;
+        enterMemberScope();
+        render();
+      });
+    },
+    onMemberCompositionTraitSelect: value => {
+      enterMemberNavigation(() => {
+        resetMemberFilters();
+        state.memberTraitFilter = value;
+        enterMemberScope();
+        render();
+      });
     },
     onMemberFilterChange: value => {
       state.memberTextFilter = value;
@@ -3784,11 +3849,15 @@ function bindTypePanelEvents() {
       event.preventDefault();
       stepMemberNav(event.key === "ArrowDown" ? 1 : -1, true);
     },
+    onMemberGroupOpen: memberKey => {
+      enterMemberNavigation(() => openMemberGroup(memberKey));
+    },
     onMemberKindFilterSelect: value => {
       state.memberKindFilter = value ?? "all";
       normalizeMemberSelection();
       renderMemberFilterAndRestoreFocus();
     },
+    onMemberOverloadOpen: openOverload,
     onMemberSelect: memberKey => {
       const group = memberGroups(selectedType())
         .find(item => item.key === memberKey);
@@ -4044,79 +4113,6 @@ function bindEvents() {
       button.dataset.perfAssembly ?? "",
       button.dataset.perfType ?? "");
   }));
-  const enterMemberNavigation = (action: () => void) => {
-    const focusGeneration = beginSpotlightNavigation();
-    action();
-    focusTypeList(focusGeneration);
-  };
-  document.querySelectorAll<HTMLElement>("[data-member-jump-kind]").forEach(button => button.addEventListener("click", () => {
-    enterMemberNavigation(() => {
-      resetMemberFilters();
-      state.memberKindFilter = button.dataset.memberJumpKind ?? "all";
-      enterMemberScope();
-      render();
-    });
-  }));
-  document.querySelectorAll<HTMLElement>("[data-member-jump-access]").forEach(button => button.addEventListener("click", () => {
-    enterMemberNavigation(() => {
-      resetMemberFilters();
-      state.memberAccessibilityFilter = button.dataset.memberJumpAccess ?? "all";
-      enterMemberScope();
-      render();
-    });
-  }));
-  document.querySelectorAll<HTMLElement>("[data-member-jump-trait]").forEach(button => button.addEventListener("click", () => {
-    enterMemberNavigation(() => {
-      resetMemberFilters();
-      state.memberTraitFilter = button.dataset.memberJumpTrait ?? "";
-      enterMemberScope();
-      render();
-    });
-  }));
-  document.querySelectorAll<HTMLElement>("[data-member]").forEach(button => button.addEventListener("click", () => {
-    enterMemberNavigation(() => openMemberGroup(button.dataset.member ?? ""));
-  }));
-  document.querySelectorAll<HTMLElement>("[data-overload]").forEach(button => button.addEventListener("click", () => {
-    openOverload(Number(button.dataset.overload));
-  }));
-  document.querySelector("#member-back")?.addEventListener("click", () => {
-    drillOut();
-  });
-  document.querySelector("#copy-name")?.addEventListener("click", () => {
-    const type = selectedType();
-    if (!type) return;
-    const typeName = `${type.namespace ? `${type.namespace}.` : ""}${type.name}`;
-    const member = selectedMember(type);
-    const fullName = member ? `${typeName}.${member.name}` : typeName;
-    void copyText(fullName, "name copied");
-  });
-  document.querySelector("#copy-signature")?.addEventListener("click", () => {
-    const type = selectedType();
-    const member = selectedMember(type);
-    const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
-    if (overload) void copyText(overload.signature, "signature copied");
-  });
-  document.querySelectorAll<HTMLElement>("[data-copy-anchor]").forEach(button => button.addEventListener("click", () => {
-    const type = selectedType();
-    const member = selectedMember(type);
-    const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
-    const values = {
-      selector: overload?.stableSelector,
-      digest: overload?.anchorDigest,
-      canonical: overload?.canonicalSignature
-    };
-    const anchor = button.dataset.copyAnchor;
-    const value = anchor === "selector" || anchor === "digest" || anchor === "canonical"
-      ? values[anchor]
-      : undefined;
-    if (value) void copyText(value, `${anchor} copied`);
-  }));
-  document.querySelector("#copy-source")?.addEventListener("click", () => {
-    if (state.memberSource) void copyText(state.memberSource.text, "source copied");
-  });
-  document.querySelector("#copy-type-source")?.addEventListener("click", () => {
-    if (state.typeSource) void copyText(state.typeSource.text, "source copied");
-  });
   document.querySelectorAll<HTMLElement>("[data-library-chip]").forEach(button => button.addEventListener("click", () => {
     toggleLibraryChip(button.dataset.libraryChip ?? "");
     afterLibraryScopeChange();
