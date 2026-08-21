@@ -158,7 +158,7 @@ test("normalizing a history entry keeps its consumed position and later entries"
   ]);
 });
 
-const appSource = readFileSync(new URL("../src/app.ts", import.meta.url), "utf8");
+const appSource = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.url), "utf8");
 const memberFocusSource = readFileSync(
   new URL("../src/member-focus.ts", import.meta.url),
   "utf8");

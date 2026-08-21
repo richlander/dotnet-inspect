@@ -15,9 +15,9 @@ namespace tsbindgen;
 /// </summary>
 /// <remarks>
 /// <c>initializeEngine</c> returns the raw <c>getAssemblyExports()</c> object so a caller that
-/// still needs an export this module hasn't been asked to wrap yet (e.g. a hand-written shim
-/// mid-migration) can reuse the same wasm runtime instance instead of calling
-/// <c>dotnet.create()</c> a second time, which would load a second full runtime in the browser.
+/// needs an export this module hasn't been asked to wrap can reuse the same wasm runtime instance
+/// instead of calling <c>dotnet.create()</c> a second time, which would load a second full runtime
+/// in the browser.
 /// </remarks>
 static class JsEmitter
 {

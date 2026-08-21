@@ -35,10 +35,10 @@ test("the site artifact rejects a missing Vite output", (context) => {
     "index.html": {
       file: "assets/index.js",
       css: ["assets/index.css"],
-      dynamicImports: ["src/app.ts"],
+      dynamicImports: ["src/dotnet-inspect.ts"],
       isEntry: true,
     },
-    "src/app.ts": {
+    "src/dotnet-inspect.ts": {
       file: "assets/app.js",
       isDynamicEntry: true,
     },
@@ -54,14 +54,14 @@ test("the site artifact rejects a missing Vite output", (context) => {
   writeFileSync(join(site, "assets/app.js"), "");
 
   assert.doesNotThrow(() => verifySiteArtifact(site));
-  delete manifest["src/app.ts"];
+  delete manifest["src/dotnet-inspect.ts"];
   writeFileSync(join(site, "manifest.json"), JSON.stringify(manifest));
   assert.throws(
     () => verifySiteArtifact(site),
-    /entry 'index\.html' imports missing entry 'src\/app\.ts'/,
+    /entry 'index\.html' imports missing entry 'src\/dotnet-inspect\.ts'/,
   );
 
-  manifest["src/app.ts"] = {
+  manifest["src/dotnet-inspect.ts"] = {
     file: "assets/app.js",
     isDynamicEntry: true,
   };

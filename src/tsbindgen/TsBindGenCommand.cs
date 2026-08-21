@@ -35,7 +35,7 @@ public static class TsBindGenCommand
         {
             Description = "Path to write a generated runtime .js wrapper module (the wasm bootstrap "
                 + "plus one typed function per [JSExport] export, replacing a hand-maintained shim "
-                + "for a hand-maintained bridge) alongside the printed/diffed .d.ts output.",
+                + "with a generated bridge module) alongside the printed/diffed .d.ts output.",
         };
 
         var rootCommand = new RootCommand(
