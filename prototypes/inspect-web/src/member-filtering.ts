@@ -1,6 +1,6 @@
 import type { MemberGroup, MemberOverloadSummary } from "./type-panel.ts";
 
-export const MEMBER_TRAITS: readonly (readonly [string, string])[] = [
+export const MEMBER_TRAITS = [
   ["isStatic", "static"],
   ["isUnsafe", "unsafe"],
   ["isVirtual", "virtual"],
@@ -8,7 +8,7 @@ export const MEMBER_TRAITS: readonly (readonly [string, string])[] = [
   ["isOverride", "override"],
   ["isExtension", "extension"],
   ["isObsolete", "obsolete"],
-];
+] as const;
 
 export interface MemberGroupFilters {
   query?: string;
@@ -20,7 +20,13 @@ export interface MemberGroupFilters {
 /** The overload fields the filter predicates and body-target matching read. */
 export interface FilterableMemberOverload extends MemberOverloadSummary {
   accessibility?: string;
-  [trait: string]: unknown;
+  isStatic?: boolean;
+  isUnsafe?: boolean;
+  isVirtual?: boolean;
+  isAbstract?: boolean;
+  isOverride?: boolean;
+  isExtension?: boolean;
+  isObsolete?: boolean;
 }
 
 export interface FilterableMemberGroup extends MemberGroup {
@@ -42,7 +48,9 @@ export function memberGroupMatches(
         && overload.accessibility !== filters.accessibility) {
       return false;
     }
-    if (filters.trait && !overload[filters.trait]) {
+    if (filters.trait
+        && !MEMBER_TRAITS.some(
+          ([property]) => property === filters.trait && overload[property])) {
       return false;
     }
     return !query

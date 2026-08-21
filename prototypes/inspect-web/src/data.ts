@@ -1,7 +1,7 @@
 // Shared, pure data-shape and pure-function helpers used across the workspace UI: package
 // identity keys, dependency-graph traversal primitives, workspace tab persistence/sharing,
 // call-graph target resolution, member/source request-state machines, and small text
-// helpers (mermaid label escaping, parameter titles). `app.js` owns all mutable state and
+// helpers (mermaid label escaping, parameter titles). `app.ts` owns all mutable state and
 // wiring; these functions are pure transforms over explicit inputs/outputs so they can be
 // unit-tested and reused (e.g. by `graph-mermaid.ts`) without the render/event-wiring layer.
 
@@ -40,6 +40,7 @@ export function packageIdentityKey(pkg: PackageIdentity | null | undefined): str
 export interface AssemblyDescriptor {
   id?: string;
   name?: string;
+  publicMembers?: number;
 }
 
 export interface AssemblyDescribedType {
@@ -280,7 +281,7 @@ export interface RetainWorkspacePackageResult<T> {
 
 export function retainWorkspacePackage<T extends PackageIdentity>(
   packages: readonly T[],
-  activePackage: T,
+  activePackage: T | null | undefined,
   packageModel: T,
   replacedPackage: T | null = null,
 ): RetainWorkspacePackageResult<T> {
@@ -349,7 +350,7 @@ export interface DependencyGroupDependency {
 
 export interface DependencyGroupData {
   dependencyGroups?: readonly DependencyGroup[];
-  dependencyGroupError?: string;
+  dependencyGroupError?: string | null;
 }
 
 export function dependencyGroupSelectionMessage(data: DependencyGroupData | null | undefined): string {
@@ -413,9 +414,9 @@ export function packageForView<T extends PackageForViewCandidate>(
 }
 
 export interface PackageCoordinateLocation {
-  package?: string;
-  version?: string;
-  framework?: string;
+  package?: string | null;
+  version?: string | null;
+  framework?: string | null;
 }
 
 export function packageCoordinateMatchesLocation(
@@ -465,13 +466,13 @@ export function replaceCurrentNavigationEntry(nav: NavigationState, sig: string,
 }
 
 export interface CallGraphTarget {
-  typeDefinitionId?: string;
-  typeMetadataId?: string;
-  assembly?: string;
-  assemblyVersion?: string;
-  assemblyCulture?: string;
-  assemblyPublicKeyToken?: string;
-  kind?: string;
+  typeDefinitionId?: string | null;
+  typeMetadataId?: string | null;
+  assembly?: string | null;
+  assemblyVersion?: string | null;
+  assemblyCulture?: string | null;
+  assemblyPublicKeyToken?: string | null;
+  kind?: string | null;
 }
 
 export function callGraphTargetTypeId(target: CallGraphTarget | null | undefined): string {
