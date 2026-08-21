@@ -1118,56 +1118,9 @@ static bool TryCorrelateNetTrace(
                                 coordinateCandidates,
                                 data.TypeName))
                     .ToArray();
-                var supportingTargets =
-                    matchedCandidates.Where(
-                        static candidate =>
-                            candidate
-                                .SupportingCallSite)
-                    .ToArray();
-                if (supportingTargets.Length == 1)
-                {
-                    var support =
-                        supportingTargets[0];
-                    foreach (var exactTriage
-                             in matchedCandidates.Where(
-                                 candidate =>
-                                     !candidate
-                                         .SupportingCallSite
-                                     && string.Equals(
-                                         candidate.Source,
-                                         "triage",
-                                         StringComparison
-                                             .Ordinal)
-                                     && candidate.IlOffset
-                                         == support.IlOffset
-                                     && ProgramSupport
-                                         .SameBuild(
-                                             candidate,
-                                             support)))
-                    {
-                        exactTriage.SupersededByTriage =
-                            true;
-                    }
-                    matchedCandidates =
-                    [
-                        .. matchedCandidates.Where(
-                            candidate =>
-                                candidate
-                                    .SupportingCallSite
-                                || !(
-                                    string.Equals(
-                                        candidate.Source,
-                                        "triage",
-                                        StringComparison
-                                            .Ordinal)
-                                    && candidate.IlOffset
-                                        == support.IlOffset
-                                    && ProgramSupport
-                                        .SameBuild(
-                                            candidate,
-                                            support))),
-                    ];
-                }
+                matchedCandidates = ProgramSupport
+                    .ApplyAcceptedSupportPrecedence(
+                        matchedCandidates);
                 var supersededLibraries =
                     ProgramSupport.FindTraceLibrariesSupersededByTriage(
                         matchedCandidates,
@@ -4476,6 +4429,52 @@ internal static class ProgramSupport
                 && SameBuild(
                     candidate,
                     library));
+    }
+
+    public static AllocationCandidate[]
+        ApplyAcceptedSupportPrecedence(
+            AllocationCandidate[] matchedCandidates)
+    {
+        var supports = matchedCandidates
+            .Where(static candidate =>
+                candidate.SupportingCallSite)
+            .Where(support =>
+                matchedCandidates.Count(other =>
+                    other.SupportingCallSite
+                    && other.IlOffset
+                        == support.IlOffset
+                    && SameBuild(
+                        other,
+                        support)) == 1)
+            .ToArray();
+        if (supports.Length == 0)
+            return matchedCandidates;
+
+        bool IsProjectedExact(
+            AllocationCandidate candidate)
+            => !candidate.SupportingCallSite
+                && string.Equals(
+                    candidate.Source,
+                    "triage",
+                    StringComparison.Ordinal)
+                && supports.Any(support =>
+                    candidate.IlOffset
+                        == support.IlOffset
+                    && SameBuild(
+                        candidate,
+                        support));
+
+        foreach (var exactTriage
+                 in matchedCandidates.Where(
+                     IsProjectedExact))
+        {
+            exactTriage.SupersededByTriage = true;
+        }
+        return
+        [
+            .. matchedCandidates.Where(candidate =>
+                !IsProjectedExact(candidate)),
+        ];
     }
 
     public static bool SameBuild(

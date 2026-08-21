@@ -920,6 +920,56 @@ public class TypeConfirmationTests
     }
 
     [Fact]
+    public void ApplyAcceptedSupportPrecedence_IsIndependentPerBuild()
+    {
+        Guid firstMvid = Guid.Parse(
+            "11111111-1111-1111-1111-111111111111");
+        Guid secondMvid = Guid.Parse(
+            "22222222-2222-2222-2222-222222222222");
+        var firstExact = CandidateWithType(
+            1,
+            "Fixture.A.M()",
+            "System.Object",
+            source: "triage",
+            moduleVersionId: firstMvid);
+        var firstSupport = CandidateWithType(
+            2,
+            "Fixture.A.M()",
+            "System.Object",
+            source: "triage",
+            moduleVersionId: firstMvid,
+            supportingCallSite: true);
+        var secondExact = CandidateWithType(
+            3,
+            "Fixture.A.M()",
+            "System.Object",
+            source: "triage",
+            moduleVersionId: secondMvid);
+        var secondSupport = CandidateWithType(
+            4,
+            "Fixture.A.M()",
+            "System.Object",
+            source: "triage",
+            moduleVersionId: secondMvid,
+            supportingCallSite: true);
+
+        var selected = ProgramSupport
+            .ApplyAcceptedSupportPrecedence(
+                [
+                    firstExact,
+                    firstSupport,
+                    secondExact,
+                    secondSupport,
+                ]);
+
+        Assert.Equal(
+            [firstSupport, secondSupport],
+            selected);
+        Assert.True(firstExact.SupersededByTriage);
+        Assert.True(secondExact.SupersededByTriage);
+    }
+
+    [Fact]
     public void ApplyTypeConfirmation_CollapsesOnlyMatchingTriageModuleVersion()
     {
         Guid firstMvid = Guid.Parse(

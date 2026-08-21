@@ -205,8 +205,9 @@ candidate, the shape-compatible triage row carries the runtime evidence.
 The raw library row is marked `superseded-by-triage`, not workload-cold.
 For a repeated-scan aggregate with a supporting call site, `runfaster` promotes
 an allocation observation only when the same build has a raw library allocation
-at that coordinate and exactly one aggregate support claims it. The raw site is
-the attribution anchor; sampled allocation types can differ
+at that coordinate and exactly one aggregate support in that build claims it.
+Each build resolves independently before cross-build ambiguity attribution.
+The raw site is the attribution anchor; sampled allocation types can differ
 because GC allocation ticks resolve to the nearest preceding IL allocation
 site. RunFaster resolves the nearest raw allocation first, then attaches support
 at that exact coordinate; a later non-allocation scan-call support therefore
