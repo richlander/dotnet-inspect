@@ -309,6 +309,9 @@ test("typed document inspection owns package document request coordination", () 
   assert.match(
     appSource,
     /createDocumentInspectionCoordinator\(\{[\s\S]*queryDocument:[\s\S]*renderMarkdown,[\s\S]*renderMarkdownInline,/);
+  assert.match(
+    appSource,
+    /queryDocument: request => inspectPackageDocument\(\s*request\.packageId,\s*request\.version,\s*request\.document\.path\)/);
   assert.match(documentLoader, /return documentInspection\.open\(\{/);
   assert.match(documentCloser, /documentInspection\.close\(\)/);
   assert.doesNotMatch(documentLoader, /state\.docViewer(?:Seq|Open|Loading)/);
