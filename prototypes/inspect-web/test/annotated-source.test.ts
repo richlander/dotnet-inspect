@@ -3,7 +3,7 @@ import test from "node:test";
 import { renderAnnotatedSource } from "../src/annotated-source.ts";
 import { sampleDocument } from "../../annotated-source-viewer/src/sample-document.js";
 
-function escapeHtml(value) {
+function escapeHtml(value: unknown) {
   return String(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -11,7 +11,11 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
-const result = { document: sampleDocument, provenance: "decompiled from IL" };
+const result = {
+  document: sampleDocument,
+  provenance: "decompiled from IL",
+  contextLimitation: null,
+};
 
 test("an invalid document is rejected with a message instead of throwing", () => {
   const html = renderAnnotatedSource({
@@ -155,6 +159,7 @@ test("source text is escaped as it is rendered into spans", () => {
         targets: [],
       },
       provenance: "decompiled from IL",
+      contextLimitation: null,
     },
     media: undefined,
     selectedFactId: null,

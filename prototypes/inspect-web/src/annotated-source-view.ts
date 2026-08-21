@@ -82,7 +82,7 @@ export const MEDIUM_LABELS: Readonly<Record<SourceMedium, string>> = {
 };
 
 export function buildAnnotatedView(
-  document: AnnotatedSourceDocument,
+  document: unknown,
   state: AnnotatedViewState = {},
 ): AnnotatedView {
   validateDocument(document);

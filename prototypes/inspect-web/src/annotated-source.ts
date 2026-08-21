@@ -15,7 +15,7 @@ export type AnnotatedSourceResult = Omit<BrowserAnnotatedSource, "document"> & {
 };
 
 export interface RenderAnnotatedSourceOptions {
-  result: AnnotatedSourceResult;
+  result: BrowserAnnotatedSource;
   media: AnnotatedViewState["media"];
   selectedFactId: AnnotatedViewState["selectedFactId"];
   selectedNodeIds: AnnotatedViewState["selectedNodeIds"];

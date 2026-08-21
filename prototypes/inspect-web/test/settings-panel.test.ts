@@ -6,7 +6,7 @@ import {
   styleCatalogGroupsHtml,
 } from "../src/settings-panel.ts";
 
-function escapeHtml(value) {
+function escapeHtml(value: unknown) {
   return String(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
