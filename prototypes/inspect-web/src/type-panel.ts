@@ -1,10 +1,10 @@
 // The type selector (the "PUBLIC TYPES" / "MEMBERS" nav pane) and the type viewer (the
 // type heading, metadata, and source sections shown for the "type" scope) as pure,
-// dependency-injected render functions. `app.ts` owns the type index, filters, member
+// dependency-injected render functions. `dotnet-inspect.ts` owns the type index, filters, member
 // grouping, and navigation/click handling; this module owns only markup shape given an
 // explicit snapshot of the data those helpers already computed. Shared text helpers
 // (kindIcon, shortKind, typeDisplayName, highlight, highlightCSharp, factRows,
-// factEvidence, relatedTypeChip) stay in `app.ts`, since they are used well beyond the
+// factEvidence, relatedTypeChip) stay in `dotnet-inspect.ts`, since they are used well beyond the
 // type panel, and are passed in rather than duplicated here.
 
 export interface TypeSummary {
