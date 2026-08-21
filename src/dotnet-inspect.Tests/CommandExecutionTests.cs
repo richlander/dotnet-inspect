@@ -19,6 +19,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Queries.EmbeddedFixtures;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
@@ -5668,6 +5669,29 @@ public partial class CommandExecutionTests
         Assert.Equal(markdownRows, tsvLines.Length - 1);
         Assert.Equal(markdownRows, jsonlRows);
         Assert.Equal(markdownRows.ToString(), count.Trim());
+    }
+
+    [Fact]
+    public async Task Type_Listing_PlainTextHonorsRowWindow()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Text.Json",
+            "-S",
+            "Classes",
+            "--plaintext",
+            "--rows",
+            "2",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(
+            2,
+            SplitOutputLines(output).Count(
+                line => line.StartsWith("System.", StringComparison.Ordinal)
+                    && line.Contains("  ", StringComparison.Ordinal)));
     }
 
     [Theory]
@@ -14256,6 +14280,73 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_Discover_AdvertisesEmbeddedSourceLinkDoor()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            typeof(EmbeddedSourceFixture).Assembly.Location,
+            "-D",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("@SourceLink", output);
+        Assert.DoesNotContain("SourceLink: Availability", output);
+        Assert.DoesNotContain("SourceLink: Files", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_Discover_BoundsEmbeddedPdbExpansion()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(EmbeddedSourceFixture).Assembly.Location);
+        using (var stream = new MemoryStream(image, writable: false))
+        using (var reader = new PEReader(stream))
+        {
+            DebugDirectoryEntry embedded =
+                Assert.Single(
+                    reader.ReadDebugDirectory(),
+                    entry =>
+                        entry.Type
+                        == DebugDirectoryEntryType.EmbeddedPortablePdb);
+            BinaryPrimitives.WriteInt32LittleEndian(
+                image.AsSpan(
+                    embedded.DataPointer + sizeof(uint),
+                    sizeof(int)),
+                LibraryMetadataService
+                    .DiscoveryMaxEmbeddedPdbBytes
+                    + 1);
+        }
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"oversized-embedded-pdb-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, image);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                path,
+                "-D",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "Could not read library",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task LibraryCommand_ComputedPolesAreUnresolvable()
     {
         // Authored categories own every section, so computed @All/@Hidden poles no longer exist.
@@ -17062,6 +17153,24 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("| Location | column |", output);
         Assert.Contains("| Concerns | column |", output);
+    }
+
+    [Fact]
+    public async Task Package_DiscoverSchema_ListsPackageContentAuditColumns()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "-D",
+            PackageSections.AuditFindings,
+            "--schema",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Path | column |", output);
+        Assert.Contains("| Kind | column |", output);
+        Assert.Contains("| Encoded Text | column |", output);
     }
 
     [Fact]
@@ -21108,6 +21217,26 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_QuietSignedValuePerformsExplicitVerification()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "System.CommandLine@2.0.3",
+            "-S",
+            "Package Info",
+            "--fields",
+            "Signed",
+            "--value",
+            "-v:q",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("Verified", output.Trim());
+    }
+
+    [Fact]
     public async Task Package_PrintRequiresSingleSelectedSection()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Print.Requires.Select", "README.md", "readme", "agents");
@@ -21334,18 +21463,18 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_NuspecPrint_KeepsAByteOrderMarkThePackageShipped()
+    public async Task Package_NuspecPrint_EncodesBomOnStdoutAndPreservesItInExplicitExport()
     {
         // ReadAllText consumes a byte order mark, so a document that ships with one would be
         // printed three bytes shorter than it exists in the package -- silently, and invisibly
         // in any text comparison, because a StreamReader strips it from the expectation too.
         // Real packages ship BOM'd manifests (EntityFramework does), and a caller printing a
-        // manifest to hash or diff it is asking for the bytes, not for an equivalent document.
+        // manifest to hash or diff it can ask for exact bytes through --out.
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
         var packageRoot = Path.Combine(tempDir, "content");
         Directory.CreateDirectory(packageRoot);
         var nuspec = """
-            <?xml version="1.0" encoding="utf-8"?>
+            <?xml version="1.0" encoding="utf-16"?>
             <package>
               <metadata>
                 <id>Test.Bom.Nuspec</id>
@@ -21355,7 +21484,10 @@ public partial class CommandExecutionTests
               </metadata>
             </package>
             """;
-        var encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
+        var encoding = new UnicodeEncoding(
+            bigEndian: false,
+            byteOrderMark: true,
+            throwOnInvalidBytes: true);
         var shipped = (byte[])[.. encoding.GetPreamble(), .. encoding.GetBytes(nuspec)];
         File.WriteAllBytes(Path.Combine(packageRoot, "Test.Bom.Nuspec.nuspec"), shipped);
         var packagePath = Path.Combine(tempDir, "Test.Bom.Nuspec.1.0.0.nupkg");
@@ -21363,15 +21495,31 @@ public partial class CommandExecutionTests
 
         try
         {
-            Assert.Equal(0xEF, shipped[0]);
+            Assert.Equal(0xFF, shipped[0]);
 
             var (exit, output, error) = await RunAppAsync(
                 "package", packagePath, "-S", "Package nuspec file", "--print", "--bare");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Equal(shipped, Encoding.UTF8.GetBytes(output));
-            Assert.StartsWith("\uFEFF", output, StringComparison.Ordinal);
+            Assert.StartsWith(@"\uFEFF", output, StringComparison.Ordinal);
+            Assert.DoesNotContain('\uFEFF', output);
+
+            string outputPath = Path.Combine(tempDir, "exported.nuspec");
+            var export = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Package nuspec file",
+                "--print",
+                "--bare",
+                "--out",
+                outputPath);
+
+            Assert.Equal(0, export.Exit);
+            Assert.Empty(export.Output);
+            Assert.Empty(export.Error);
+            Assert.Equal(shipped, File.ReadAllBytes(outputPath));
         }
         finally
         {
@@ -24705,6 +24853,388 @@ public partial class CommandExecutionTests
         finally
         {
             Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageAudit_RendersContentAndSourceLinkFindings()
+    {
+        const string HostileSource = "https://api.\u202Etegun\u202C.org/v3/index.json";
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.PackageContentAudit",
+            "README.md",
+            $"Use {HostileSource}",
+            extraFiles:
+            [
+                ("content/INSTRUCTIONS.md", "\u001B]52;c;WW91IHRvb2sgYSB3cm9uZyB0dXJuLgo=\u0007"),
+                ("content/nuget.config", $$"""
+                    <?xml version="1.0" encoding="utf-8"?>
+                    <configuration>
+                      <packageSources>
+                        <clear />
+                        <add key="nuget.org" value="{{HostileSource}}" />
+                      </packageSources>
+                    </configuration>
+                    """),
+            ]);
+        try
+        {
+            string hostileAssembly = FixtureCatalog.HostileLiterals.AssemblyPath();
+            using (ZipArchive archive = ZipFile.Open(packagePath, ZipArchiveMode.Update))
+            {
+                archive.CreateEntryFromFile(
+                    hostileAssembly,
+                    "lib/net11.0/AuditCanary.dll");
+                archive.CreateEntryFromFile(
+                    Path.ChangeExtension(hostileAssembly, ".pdb"),
+                    "lib/net11.0/AuditCanary.pdb");
+            }
+
+            var markdown = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                $"Signals,{PackageSections.AuditFindings}",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, markdown.Exit);
+            Assert.Empty(markdown.Error);
+            Assert.Contains("| Audit | Findings | Detected | 7 findings", markdown.Output);
+            Assert.Contains("4 text-bearing files and 1 SourceLink map", markdown.Output);
+            Assert.Contains("## Audit: Findings", markdown.Output);
+            Assert.Contains("| Path | Kind | Encoded Text |", markdown.Output);
+            Assert.Contains("| README.md | format/bidi (Cf) | Use https://api.\\u202Etegun\\u202C.org/v3/index.json |", markdown.Output);
+            Assert.Contains("| content/INSTRUCTIONS.md | control (Cc) | \\^[]52;", markdown.Output);
+            Assert.Contains("| content/nuget.config | restore sources cleared |", markdown.Output);
+            Assert.Contains("| content/nuget.config | package source declared |", markdown.Output);
+            Assert.Contains(
+                "| lib/net11.0/AuditCanary.pdb | SourceLink control (Cc), format/bidi (Cf) |",
+                markdown.Output);
+            Assert.Contains(
+                "| lib/net11.0/AuditCanary.pdb | SourceLink parent path segment |",
+                markdown.Output);
+            Assert.Contains(
+                "https://example.test/organization/repository-a/../repository-b/",
+                markdown.Output);
+            Assert.Contains("\\^KX/*", markdown.Output);
+            Assert.DoesNotContain('\u202E', markdown.Output);
+            Assert.DoesNotContain('\u202C', markdown.Output);
+            Assert.DoesNotContain('\u001B', markdown.Output);
+            Assert.DoesNotContain('\u0007', markdown.Output);
+
+            var jsonl = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                PackageSections.AuditFindings,
+                "--jsonl",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, jsonl.Exit);
+            Assert.Empty(jsonl.Error);
+            string[] lines = jsonl.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            Assert.Equal(7, lines.Length);
+            using JsonDocument document = JsonDocument.Parse(lines[1]);
+            Assert.Equal("content/INSTRUCTIONS.md", document.RootElement.GetProperty("path").GetString());
+            Assert.Equal("control (Cc)", document.RootElement.GetProperty("kind").GetString());
+            Assert.Contains("\\^[", document.RootElement.GetProperty("encoded_text").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageAudit_InspectsStandalonePackagePdbWithoutAnAssembly()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.StandalonePdbAudit",
+            "README.md",
+            "readme");
+        try
+        {
+            string hostileAssembly = FixtureCatalog.HostileLiterals.AssemblyPath();
+            using (ZipArchive archive = ZipFile.Open(packagePath, ZipArchiveMode.Update))
+            {
+                archive.CreateEntryFromFile(
+                    Path.ChangeExtension(hostileAssembly, ".pdb"),
+                    "symbols/AuditCanary.PDB");
+            }
+
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                $"Signals,{PackageSections.AuditFindings}",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.Contains("| Audit | Findings | Detected | 2 findings", result.Output);
+            Assert.Contains("1 SourceLink map", result.Output);
+            Assert.Contains(
+                "| symbols/AuditCanary.PDB | SourceLink control (Cc), format/bidi (Cf) |",
+                result.Output);
+            Assert.Contains(
+                "| symbols/AuditCanary.PDB | SourceLink parent path segment |",
+                result.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageAudit_MalformedStandaloneSourceLinkMapReportsPartial()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.MalformedStandalonePdbAudit",
+            "README.md",
+            "readme");
+        try
+        {
+            using (ZipArchive archive = ZipFile.Open(packagePath, ZipArchiveMode.Update))
+            {
+                archive.CreateEntryFromFile(
+                    Path.ChangeExtension(
+                        FixtureCatalog.SourceLinkMalformed.AssemblyPath(),
+                        ".pdb"),
+                    "symbols/Malformed.pdb");
+            }
+
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                $"Signals,{PackageSections.AuditFindings}",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.Contains("| Audit | Findings | Partial |", result.Output);
+            Assert.Contains(
+                "| symbols/Malformed.pdb | invalid SourceLink map |",
+                result.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageContentOutput_ContainsNoLiveControlsOnStdoutAndPreservesExplicitFileExport()
+    {
+        const string Hostile = "prefix\u202E\u001B]52;c;QQ==\u0007suffix";
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.PackageContentOutput",
+            "README.md",
+            "readme",
+            extraFiles: [("content/INSTRUCTIONS.md", Hostile)]);
+        var encoding = new UnicodeEncoding(
+            bigEndian: false,
+            byteOrderMark: true,
+            throwOnInvalidBytes: true);
+        byte[] shipped = [.. encoding.GetPreamble(), .. encoding.GetBytes(Hostile)];
+        using (ZipArchive archive = ZipFile.Open(packagePath, ZipArchiveMode.Update))
+        {
+            ZipArchiveEntry entry = Assert.Single(
+                archive.Entries,
+                value => value.FullName == "content/INSTRUCTIONS.md");
+            entry.Delete();
+            ZipArchiveEntry replacement = archive.CreateEntry("content/INSTRUCTIONS.md");
+            using Stream stream = replacement.Open();
+            stream.Write(shipped);
+        }
+
+        string bareOutputPath = Path.Combine(tempDir, "exported-bare.txt");
+        string blockOutputPath = Path.Combine(tempDir, "exported-block.txt");
+        try
+        {
+            var stdout = await RunAppAsync(
+                "package",
+                packagePath,
+                "--path",
+                "content/INSTRUCTIONS.md",
+                "--content",
+                "--bare",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, stdout.Exit);
+            Assert.Empty(stdout.Error);
+            Assert.Contains("prefix\\u202E\\^[]52;c;QQ==\\^Gsuffix", stdout.Output);
+            Assert.DoesNotContain('\u202E', stdout.Output);
+            Assert.DoesNotContain('\u001B', stdout.Output);
+            Assert.DoesNotContain('\u0007', stdout.Output);
+
+            var export = await RunAppAsync(
+                "package",
+                packagePath,
+                "--path",
+                "content/INSTRUCTIONS.md",
+                "--content",
+                "--bare",
+                "--out",
+                bareOutputPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, export.Exit);
+            Assert.Empty(export.Output);
+            Assert.Empty(export.Error);
+            Assert.Equal(shipped, File.ReadAllBytes(bareOutputPath));
+
+            var blockExport = await RunAppAsync(
+                "package",
+                packagePath,
+                "--path",
+                "content/INSTRUCTIONS.md",
+                "--content",
+                "--out",
+                blockOutputPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, blockExport.Exit);
+            Assert.Empty(blockExport.Output);
+            Assert.Empty(blockExport.Error);
+            Assert.Equal(shipped, File.ReadAllBytes(blockOutputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageContentOutput_MultipleFilesRefusesBeforeCreatingExport()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.PackageContentOutput.Many",
+            "README.md",
+            "readme",
+            extraFiles:
+            [
+                ("docs/FIRST.md", "first"),
+                ("docs/SECOND.md", "second"),
+            ]);
+        string outputPath = Path.Combine(tempDir, "should-not-exist.txt");
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--path",
+                "docs/*.md",
+                "--content",
+                "--out",
+                outputPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "--content --out requires exactly one selected package content file; found 2.",
+                result.Error);
+            Assert.False(File.Exists(outputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageContentOutput_MultiplePackagesRefuseGlobalCardinality()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.PackageContentOutput.First",
+                "README.md",
+                "first");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.PackageContentOutput.Second",
+                "README.md",
+                "second");
+        string outputPath =
+            Path.Combine(firstDir, "should-not-exist.txt");
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "--path",
+                "@readme",
+                "--content",
+                "--out",
+                outputPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "--content --out requires exactly one selected package content file; found 2.",
+                result.Error);
+            Assert.False(File.Exists(outputPath));
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageContentOutput_MultiplePackagesHydrateOneGlobalMatch()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.PackageContentOutput.WithoutAgents",
+                "README.md",
+                "first");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.PackageContentOutput.WithAgents",
+                "README.md",
+                "second",
+                "agents payload");
+        string outputPath = Path.Combine(firstDir, "agents.txt");
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "--path",
+                "@agents",
+                "--content",
+                "--out",
+                outputPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Empty(result.Error);
+            Assert.Equal(
+                "agents payload",
+                File.ReadAllText(outputPath));
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
         }
     }
 }

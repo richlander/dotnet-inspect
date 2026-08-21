@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using ILInspector.Findings;
 using ILInspector.Instructions;
@@ -327,12 +328,15 @@ public static class ILOffsetProjectionProducer
         Analysis.LibraryBodyIndex index,
         int methodToken,
         int ilOffset)
-        => Analysis.SemanticFactProjection.CostFacts(
-                index.GetDirectCallsByCaller(),
-                methodToken,
-                ilOffset)
+    {
+        index.GetDirectCallsByEvidenceMethod()
+            .TryGetValue(methodToken, out var calls);
+        return Analysis.SemanticFactProjection.CostFacts(
+                calls.IsDefault ? [] : calls,
+                ilOffset: ilOffset)
             .Select(ToILOffsetCostContext)
             .ToList();
+    }
 
     static ILOffsetSafetyContext ToILOffsetSafetyContext(Analysis.SafetyFact fact)
         => new()

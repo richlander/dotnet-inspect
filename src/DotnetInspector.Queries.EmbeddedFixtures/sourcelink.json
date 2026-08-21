@@ -1,0 +1,5 @@
+{
+  "documents": {
+    "/_/*": "https://example.test/dotnet-inspect/*"
+  }
+}

@@ -383,8 +383,9 @@ output-bound string to `InertString`. `InspectionResultView`,
 metadata rows consume that currency, so package renderers cannot disagree about
 which metadata crossed containment. Markdown takes strings apart only in its
 sink properties; structured rows do so only in serializer-facing getters.
-Document bodies remain raw payload values under the explicit contract described
-in `output-shapes.md`; structured modes apply JSON escaping. The package file
+Document bodies are visually encoded on terminal-facing stdout under the
+explicit contract described in `output-shapes.md`; `--out` preserves exact
+payloads, and structured modes preserve values behind format escaping. The package file
 collection is projected lazily, so an ordinary summary does not allocate one
 wrapper per archive entry; asking for its section or for the exhaustive
 aggregate materializes it.
@@ -403,8 +404,8 @@ structured schema and benign values.
 `PackageFileText_IsLazyUntilTheAggregateRequiresIt` and
 `PackageFileFamily_ProjectsOnlySelectedRows` gate the large-collection
 allocation boundary. `PayloadLensContainmentTests` gates the focused table,
-JSONL, content-metadata, and dependency-tree sinks while preserving raw
-document payloads. The description-specific gates remain
+JSONL, content-metadata, dependency-tree, encoded-stdout, and exact-export
+sinks. The description-specific gates remain
 `NuspecHardeningTests.PresentationBoundDescription_IsCarriedAsInertString` and
 `HostileDescription_RemainsQuotedInMarkdownAndContainedInJson`.
 

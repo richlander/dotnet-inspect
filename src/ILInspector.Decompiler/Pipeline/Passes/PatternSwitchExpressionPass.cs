@@ -1,3 +1,5 @@
+using ILInspector.Metadata;
+
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
@@ -699,8 +701,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             : (type.Name, type.Namespace);
         if (ns != "System" || name is null)
             return false;
-        int tick = name.IndexOf('`');
-        string simple = tick < 0 ? name : name[..tick];
+        string simple = MetadataNameArity.StripFromSegment(name);
         return simple is "Span" or "ReadOnlySpan" or "TypedReference" or "ArgIterator" or "RuntimeArgumentHandle";
     }
 
