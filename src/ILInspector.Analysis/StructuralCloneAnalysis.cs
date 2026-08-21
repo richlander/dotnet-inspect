@@ -183,7 +183,7 @@ public sealed record StructuralCloneVerificationReceipt(
 /// <summary>Resource limits for exact and near structural comparison.</summary>
 public sealed record StructuralCloneComparisonLimits(
     int MaximumInstructions = 10_000,
-    int MaximumBlocks = 128,
+    int MaximumBlocks = 1_024,
     int MaximumEdges = 100_000,
     int MaximumLocals = 256,
     int MaximumVerificationSteps = 100_000,
