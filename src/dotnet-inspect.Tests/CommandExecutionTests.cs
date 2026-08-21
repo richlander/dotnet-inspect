@@ -974,6 +974,84 @@ public partial class CommandExecutionTests
     }
 
     private static (string AssemblyPath, string FixtureDir)
+        CreateEmbeddedSourceLinkDiscoveryAssembly()
+    {
+        const string source =
+            """
+            namespace DiscoveryFixtures;
+
+            public static class EmbeddedSourceLink
+            {
+                public static int Value() => 42;
+            }
+            """;
+        var fixtureDir = Path.Combine(
+            AppContext.BaseDirectory,
+            $"embedded-sourcelink-discovery-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(fixtureDir);
+
+        try
+        {
+            var assemblyPath = Path.Combine(
+                fixtureDir,
+                "EmbeddedSourceLinkDiscovery.dll");
+            var references =
+                ((string)AppContext.GetData(
+                    "TRUSTED_PLATFORM_ASSEMBLIES")!)
+                .Split(Path.PathSeparator)
+                .Select(path =>
+                    MetadataReference.CreateFromFile(path));
+            var compilation = CSharpCompilation.Create(
+                "EmbeddedSourceLinkDiscovery",
+                [
+                    CSharpSyntaxTree.ParseText(
+                        SourceText.From(source, Encoding.UTF8),
+                        new CSharpParseOptions(
+                            LanguageVersion.Preview),
+                        path: "/_/EmbeddedSourceLinkDiscovery.cs")
+                ],
+                references,
+                new CSharpCompilationOptions(
+                    OutputKind.DynamicallyLinkedLibrary,
+                    optimizationLevel: OptimizationLevel.Release,
+                    deterministic: true));
+
+            using (var assembly = File.Create(assemblyPath))
+            using (var sourceLink = new MemoryStream(
+                Encoding.UTF8.GetBytes(
+                    """{"documents":{"/_/*":"https://example.test/*"}}""")))
+            {
+                EmitResult result = compilation.Emit(
+                    assembly,
+                    sourceLinkStream: sourceLink,
+                    options: new EmitOptions(
+                        debugInformationFormat:
+                            DebugInformationFormat.Embedded,
+                        pdbFilePath:
+                            "EmbeddedSourceLinkDiscovery.pdb"));
+                Assert.True(
+                    result.Success,
+                    string.Join(
+                        Environment.NewLine,
+                        result.Diagnostics));
+            }
+
+            using var service =
+                SourceLinkService.Open(assemblyPath);
+            Assert.True(service.Context.HasEmbeddedPdb);
+            Assert.True(service.HasSourceLink);
+            return (assemblyPath, fixtureDir);
+        }
+        catch
+        {
+            Directory.Delete(
+                fixtureDir,
+                recursive: true);
+            throw;
+        }
+    }
+
+    private static (string AssemblyPath, string FixtureDir)
         CreateIncompleteUnsafeDiscoveryAssembly()
     {
         const string source =
@@ -7486,6 +7564,64 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.DoesNotContain("@SourceLink", output);
+    }
+
+    [Fact]
+    public async Task Discover_Bare_PreservesEmbeddedSourceLinkDoor()
+    {
+        var (assemblyPath, fixtureDir) =
+            CreateEmbeddedSourceLinkDiscoveryAssembly();
+        try
+        {
+            var (markdownExit, markdown, markdownError) =
+                await RunAppAsync(
+                    "library", assemblyPath,
+                    "-D",
+                    "--tips", "q");
+            var (jsonExit, json, jsonError) =
+                await RunAppAsync(
+                    "library", assemblyPath,
+                    "-D",
+                    "--json",
+                    "--tips", "q");
+            var (treeExit, tree, treeError) =
+                await RunAppAsync(
+                    "library", assemblyPath,
+                    "-D",
+                    "--tree",
+                    "--tips", "q");
+
+            Assert.Equal(0, markdownExit);
+            Assert.Empty(markdownError);
+            Assert.Contains(
+                "| @SourceLink | category |",
+                markdown);
+
+            Assert.Equal(0, jsonExit);
+            Assert.Empty(jsonError);
+            using JsonDocument document =
+                JsonDocument.Parse(json);
+            Assert.Contains(
+                document.RootElement.EnumerateArray(),
+                item =>
+                    item.GetProperty("name").GetString()
+                        == "@SourceLink"
+                    && item.GetProperty("kind").GetString()
+                        == "category");
+
+            Assert.Equal(0, treeExit);
+            Assert.Empty(treeError);
+            Assert.Contains("@SourceLink", tree);
+            Assert.Contains(
+                SectionNames.SourceLinkAvailability,
+                tree);
+        }
+        finally
+        {
+            Directory.Delete(
+                fixtureDir,
+                recursive: true);
+        }
     }
 
     [Fact]

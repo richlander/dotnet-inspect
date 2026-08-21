@@ -282,11 +282,12 @@ public class PdbContext : IDisposable
         => Open(assemblyPath, log, PEStreamOptions.Default, loadLocalPdb: false);
 
     /// <summary>
-    /// Prefetches the complete PE image without loading an embedded or adjacent PDB.
+    /// Prefetches the complete PE image and loads an embedded PDB when present without probing
+    /// for an adjacent PDB.
     /// </summary>
     /// <remarks>
     /// Gate:
-    /// <c>PdbContext_MetadataOnlyPrefetch_RetainsImageWithoutLoadingPdb</c>.
+    /// <c>PdbContext_MetadataOnlyPrefetch_RetainsImageWithoutLoadingAdjacentPdb</c>.
     /// </remarks>
     public static PdbContext OpenMetadataOnlyPrefetched(
         string assemblyPath,
@@ -296,8 +297,7 @@ public class PdbContext : IDisposable
             log,
             PEStreamOptions.PrefetchEntireImage
                 | PEStreamOptions.LeaveOpen,
-            loadLocalPdb: false,
-            loadEmbeddedPdb: false);
+            loadLocalPdb: false);
 
     /// <summary>
     /// Opens descriptor-owned PE metadata, including an embedded PDB when present, without
@@ -319,11 +319,12 @@ public class PdbContext : IDisposable
     }
 
     /// <summary>
-    /// Prefetches descriptor-owned PE content without loading an embedded or adjacent PDB.
+    /// Prefetches descriptor-owned PE content and loads an embedded PDB when present without
+    /// probing for an adjacent PDB.
     /// </summary>
     /// <remarks>
     /// Gate:
-    /// <c>PdbContext_MetadataOnlyPrefetch_RetainsImageWithoutLoadingPdb</c>.
+    /// <c>PdbContext_MetadataOnlyPrefetch_RetainsImageWithoutLoadingAdjacentPdb</c>.
     /// </remarks>
     public static PdbContext OpenMetadataOnlyPrefetched(
         ResolvedAssemblyReference assembly,
@@ -338,8 +339,7 @@ public class PdbContext : IDisposable
             PEStreamOptions.PrefetchEntireImage
                 | PEStreamOptions.LeaveOpen,
             assembly.LastWriteTimeUtc,
-            loadLocalPdb: false,
-            loadEmbeddedPdb: false);
+            loadLocalPdb: false);
     }
 
     /// <summary>
@@ -417,8 +417,7 @@ public class PdbContext : IDisposable
         string assemblyPath,
         Action<string>? log,
         PEStreamOptions streamOptions,
-        bool loadLocalPdb = true,
-        bool loadEmbeddedPdb = true)
+        bool loadLocalPdb = true)
         => Open(
             File.OpenRead(assemblyPath),
             assemblyPath,
@@ -426,8 +425,7 @@ public class PdbContext : IDisposable
             log,
             streamOptions,
             lastWriteTimeUtc: null,
-            loadLocalPdb,
-            loadEmbeddedPdb);
+            loadLocalPdb);
 
     static PdbContext Open(
         Stream stream,
@@ -436,8 +434,7 @@ public class PdbContext : IDisposable
         Action<string>? log,
         PEStreamOptions streamOptions,
         DateTime? lastWriteTimeUtc,
-        bool loadLocalPdb = true,
-        bool loadEmbeddedPdb = true)
+        bool loadLocalPdb = true)
     {
         PEReader? peReader = null;
         PdbContext? context = null;
@@ -458,7 +455,7 @@ public class PdbContext : IDisposable
             if (!peReader.HasMetadata)
                 return context;
 
-            context.ReadDebugDirectory(loadEmbeddedPdb);
+            context.ReadDebugDirectory();
             if (loadLocalPdb)
                 context.TryLoadLocalPdb();
 
@@ -1625,7 +1622,7 @@ public class PdbContext : IDisposable
 
     // --- Private implementation ---
 
-    private void ReadDebugDirectory(bool loadEmbeddedPdb)
+    private void ReadDebugDirectory()
     {
         CodeViewDebugDirectoryData? portableCodeView = null;
         CodeViewDebugDirectoryData? windowsCodeView = null;
@@ -1687,8 +1684,6 @@ public class PdbContext : IDisposable
                 HasEmbeddedPdb = true;
                 PdbFormat = "Portable";
                 PdbLocation = "Embedded";
-                if (!loadEmbeddedPdb)
-                    continue;
 
                 var provider = _peReader.ReadEmbeddedPortablePdbDebugDirectoryData(entry);
                 _disposables.Add(provider);

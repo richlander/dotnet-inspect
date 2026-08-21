@@ -71,8 +71,12 @@ public class IndexBuildInvariantTests
                     optimizationLevel: OptimizationLevel.Release,
                     deterministic: true));
             using var assembly = File.Create(assemblyPath);
+            using var sourceLink = new MemoryStream(
+                Encoding.UTF8.GetBytes(
+                    """{"documents":{"/_/*":"https://example.test/*"}}"""));
             EmitResult result = compilation.Emit(
                 assembly,
+                sourceLinkStream: sourceLink,
                 options: new EmitOptions(
                     debugInformationFormat:
                         DebugInformationFormat.Embedded,
@@ -283,7 +287,7 @@ public class IndexBuildInvariantTests
     }
 
     [Fact]
-    public void PdbContext_MetadataOnlyPrefetch_RetainsImageWithoutLoadingPdb()
+    public void PdbContext_MetadataOnlyPrefetch_RetainsImageWithoutLoadingAdjacentPdb()
     {
         Assert.True(
             File.Exists(
@@ -334,6 +338,7 @@ public class IndexBuildInvariantTests
                 Assert.True(
                     embedded.Context.HasEmbeddedPdb);
                 Assert.True(embedded.HasPdb);
+                Assert.True(embedded.HasSourceLink);
             }
 
             using var embeddedPrefetched =
@@ -342,8 +347,8 @@ public class IndexBuildInvariantTests
                         embeddedAssembly);
             Assert.True(
                 embeddedPrefetched.Context.HasEmbeddedPdb);
-            Assert.False(embeddedPrefetched.HasPdb);
-            Assert.False(embeddedPrefetched.HasSourceLink);
+            Assert.True(embeddedPrefetched.HasPdb);
+            Assert.True(embeddedPrefetched.HasSourceLink);
         }
         finally
         {
