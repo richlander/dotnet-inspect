@@ -241,6 +241,19 @@ const commandBarSource = readFileSync(
   new URL("../src/command-bar.ts", import.meta.url),
   "utf8");
 
+function startsRegexLiteral(source, index) {
+  if (source[index + 1] === "=") return false;
+  let cursor = index - 1;
+  while (cursor >= 0 && /\s/.test(source[cursor])) cursor--;
+  if (cursor < 0) return true;
+  if ("([{=,:;!&|?+-*%^~<>".includes(source[cursor])) return true;
+  const wordEnd = cursor + 1;
+  while (cursor >= 0 && /[$\w]/.test(source[cursor])) cursor--;
+  const word = source.slice(cursor + 1, wordEnd);
+  return /^(?:await|case|delete|in|instanceof|of|return|throw|typeof|void|yield)$/
+    .test(word);
+}
+
 function maskNonCode(source) {
   const masked = [...source];
   for (let index = 0; index < source.length; index++) {
@@ -258,6 +271,26 @@ function maskNonCode(source) {
       masked[index] = " ";
       masked[index + 1] = " ";
       index++;
+    } else if (quote === "/" && startsRegexLiteral(source, index)) {
+      masked[index] = " ";
+      let inCharacterClass = false;
+      for (index++; index < source.length; index++) {
+        masked[index] = " ";
+        if (source[index] === "\\") {
+          masked[++index] = " ";
+        } else if (source[index] === "[") {
+          inCharacterClass = true;
+        } else if (source[index] === "]") {
+          inCharacterClass = false;
+        } else if (source[index] === "/" && !inCharacterClass) {
+          while (/[A-Za-z]/.test(source[index + 1] ?? "")) {
+            masked[++index] = " ";
+          }
+          break;
+        } else if (source[index] === "\n") {
+          break;
+        }
+      }
     } else if (quote === "\"" || quote === "'" || quote === "`") {
       masked[index] = " ";
       for (index++; index < source.length; index++) {
@@ -305,10 +338,12 @@ function assertDirectCompositionCall(
 test("composition call gates distinguish direct calls from textual nesting", () => {
   const direct = `function bind() {
     const options = { label: "{ready}" };
+    const pattern = /[{};]/g;
+    const quotient = 8 / 2;
     // A brace in a comment is not composition.
     bindTarget();
   }`;
-  assertDirectCompositionCall(direct, "bind", "bindTarget", 1);
+  assertDirectCompositionCall(direct, "bind", "bindTarget", 3);
   assert.throws(() =>
     assertDirectCompositionCall(
       "function bind() { if (false) bindTarget(); }",
@@ -321,6 +356,12 @@ test("composition call gates distinguish direct calls from textual nesting", () 
       "bind",
       "bindTarget",
       0));
+  assert.throws(() =>
+    assertDirectCompositionCall(
+      "function bind() { if (false) { /}/; bindTarget(); } }",
+      "bind",
+      "bindTarget",
+      1));
   assert.throws(() =>
     assertDirectCompositionCall(
       "function bind() { if (false) return; bindTarget(); }",
@@ -614,9 +655,6 @@ test("typed settings panel owns its rendered control bindings", () => {
   const bindEvents =
     appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
     ?? "";
-  const bindHomeEvents =
-    appSource.match(/function bindHomeEvents\(\) \{[\s\S]*?\n}(?=\n\n\/\/ The two package demos)/)?.[0]
-    ?? "";
   assert.match(
     binding,
     /bindSettingsPanel\(document, \{\s*onClose: closeSettings,\s*onOpen: openSettings,\s*onTasteClear: clearTaste,\s*onTasteOpenToggle: \(\) => \{[\s\S]*state\.tasteOpen = !state\.tasteOpen;[\s\S]*render\(\);[\s\S]*\},\s*onTasteToggle: toggleTaste,\s*onThemeSelect: setTheme,/);
@@ -648,11 +686,11 @@ test("typed settings panel owns its rendered control bindings", () => {
     settingsPanelSource,
     /export function bindSettingsPanel\([\s\S]*#settings-close[\s\S]*#home-settings[\s\S]*#open-settings[\s\S]*#taste-btn[\s\S]*stopPropagation\(\)[\s\S]*\.settings-seg\[data-theme\][\s\S]*\.settings-taste \[data-taste\][\s\S]*#settings-taste-clear[\s\S]*#taste-popover \[data-taste\][\s\S]*#taste-clear/);
   assert.doesNotMatch(
-    bindEvents,
-    /querySelector\("#(?:open-settings|taste-btn)"\)/);
+    appSource,
+    /querySelector\("#(?:home-settings|open-settings)"\)/);
   assert.doesNotMatch(
-    bindHomeEvents,
-    /querySelector\("#home-settings"\)/);
+    bindEvents,
+    /querySelector\("#taste-btn"\)/);
   for (const selector of [
     "#settings-close",
     ".settings-seg[data-theme]",
