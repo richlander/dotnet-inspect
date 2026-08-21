@@ -167,6 +167,42 @@ public sealed record BrowserBuildIdentity(
     string? CommitUrl);
 
 /// <summary>
+/// One vocabulary field's discoverable contract, mapped verbatim from
+/// <c>DotnetInspector.Vocabulary.VocabularyWireField</c>. Kept as a browser-local record (rather
+/// than reusing the product's wire type directly) so <c>tsbindgen</c>'s JSON-wire-contract
+/// discovery — which only walks types physically defined in this assembly — can generate a real
+/// TypeScript interface for it instead of collapsing to <c>unknown</c>.
+/// </summary>
+public sealed record BrowserVocabularyField(
+    string Id,
+    string Label,
+    string Summary,
+    string Type,
+    string[] Operators);
+
+/// <summary>One vocabulary section, mapped verbatim from <c>DotnetInspector.Vocabulary.VocabularyWireSection</c>.</summary>
+public sealed record BrowserVocabularySection(
+    string Id,
+    string Name,
+    string Summary,
+    string[] Categories,
+    [property: JsonPropertyName("accepted_by")]
+    string[] AcceptedBy,
+    BrowserVocabularyField[] Fields,
+    JsonElement[] Values);
+
+/// <summary>
+/// The product-owned query vocabulary document, mapped verbatim from
+/// <c>DotnetInspector.Vocabulary.VocabularyWireDocument</c>. The browser receives the same
+/// section/field/value document as the CLI and retains no separate labels, ordering, defaults, or
+/// query semantics.
+/// </summary>
+public sealed record BrowserVocabularyDocument(
+    [property: JsonPropertyName("schema_version")]
+    int SchemaVersion,
+    BrowserVocabularySection[] Sections);
+
+/// <summary>
 /// One type's metadata projection, adapted from <c>ResearchViews.TypeProjectionResult</c> — the
 /// presentation-neutral seam the CLI consumes — so the browser never reimplements type-fact
 /// composition.
@@ -440,4 +476,5 @@ public sealed record BrowserWorkspacePackage(
 [JsonSerializable(typeof(BrowserTypeCandidate[]))]
 [JsonSerializable(typeof(BrowserTypeSearchHit[]))]
 [JsonSerializable(typeof(string[]))]
+[JsonSerializable(typeof(BrowserVocabularyDocument))]
 internal sealed partial class BrowserJsonContext : JsonSerializerContext;
