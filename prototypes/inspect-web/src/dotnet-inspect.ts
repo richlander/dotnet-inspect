@@ -155,6 +155,11 @@ import {
   visibleSpotlightPackageHits,
 } from "./spotlight.ts";
 import { createSpotlightPackageSearch } from "./spotlight-package-search.ts";
+import {
+  compareVersionsDesc,
+  createCatalogRequests,
+  type DotnetRelease,
+} from "./catalog-requests.ts";
 import { fmtBytes, statusBarHtml } from "./status-bar.ts";
 import type {
   BrowserAnnotatedSource,
@@ -370,12 +375,6 @@ interface SpotlightMemberCandidate {
 interface SpotlightMemberCache {
   signature: string;
   pool: SpotlightMemberCandidate[];
-}
-
-interface DotnetRelease {
-  major: number;
-  tfm: string;
-  version: string;
 }
 
 interface PlatformRecent {
@@ -977,6 +976,13 @@ const spotlightPackageSearch = createSpotlightPackageSearch({
   schedule: (callback, delay) => setTimeout(() => void callback(), delay),
   cancelScheduled: handle => clearTimeout(handle),
   updateResults: () => spotlight.updateResults(),
+});
+const catalogRequests = createCatalogRequests({
+  state,
+  queryDotnetReleases,
+  queryPackageVersions: packageId => inspectPackageVersions(packageId),
+  updatePlatformVersionSelect,
+  updatePackageVersionSelect: updateVersionSelect,
 });
 const spotlight = createSpotlight({
   state,
@@ -4707,26 +4713,6 @@ async function querySpotlightPackages(query: string): Promise<SpotlightPackageHi
   }));
 }
 
-// Compare two NuGet SemVer-ish versions descending (newest first). Falls back to string
-// comparison for non-numeric pre-release tails so the list stays deterministic.
-function compareVersionsDesc(a: string, b: string) {
-  const parse = (value: string): Array<number | string> =>
-    value.split(/[.\-+]/).map(part =>
-      /^\d+$/.test(part) ? Number(part) : part);
-  const pa = parse(a);
-  const pb = parse(b);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const x = pa[i];
-    const y = pb[i];
-    if (x === y) continue;
-    if (x === undefined) return 1;   // shorter (release) sorts before its prerelease
-    if (y === undefined) return -1;
-    if (typeof x === "number" && typeof y === "number") return y - x;
-    return String(y).localeCompare(String(x));
-  }
-  return 0;
-}
-
 // Build the <option> list for the version selector. Always includes the currently loaded
 // version (even before the flatcontainer index has been fetched) so the control is never empty.
 function versionOptionsHtml(pkg: AppPackage) {
@@ -4761,41 +4747,37 @@ function platformVersionOptionsHtml(pkg: AppPackage) {
     .join("");
 }
 
-// Lazily fetch the .NET release channels (latest patch per major) from the dotnet/core
-// release index (CORS-enabled), keep only in-support majors (8+), cache them, and repaint the
-// Platform version selector in place. Powers the Platform version dropdown; a transient
-// failure leaves the selector on the single current-version option.
-async function ensureDotnetReleases() {
-  if (state.dotnetReleases || state.dotnetReleasesLoading) return;
-  state.dotnetReleasesLoading = true;
-  try {
-    const url = "https://raw.githubusercontent.com/dotnet/core/refs/heads/main/release-notes/releases-index.json";
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const payload = await response.json() as {
-      "releases-index"?: Array<{
-        "channel-version": string;
-        "latest-release": string;
-      }>;
-    };
-    const rows = (payload["releases-index"] || [])
-      .map(entry => {
-        const major = parseInt(entry["channel-version"], 10);
-        return { major, tfm: `net${entry["channel-version"]}`, version: entry["latest-release"] };
-      })
-      .filter(row => Number.isFinite(row.major) && row.major >= 8 && row.version)
-      .sort((a, b) => b.major - a.major);
-    state.dotnetReleases = rows;
-    if (state.package?.isRuntimePack) {
-      const select = document.querySelector("#package-version");
-      if (select) select.innerHTML = versionOptionsHtml(state.package);
-    }
-  } catch {
-    // Leave the selector on the single current-version option; a transient index failure
-    // must not break the workbench.
-  } finally {
-    state.dotnetReleasesLoading = false;
-  }
+async function queryDotnetReleases(): Promise<DotnetRelease[]> {
+  const url = "https://raw.githubusercontent.com/dotnet/core/refs/heads/main/release-notes/releases-index.json";
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const payload = await response.json() as {
+    "releases-index"?: Array<{
+      "channel-version": string;
+      "latest-release": string;
+    }>;
+  };
+  return (payload["releases-index"] || [])
+    .map(entry => {
+      const major = parseInt(entry["channel-version"], 10);
+      return {
+        major,
+        tfm: `net${entry["channel-version"]}`,
+        version: entry["latest-release"],
+      };
+    })
+    .filter(row => Number.isFinite(row.major) && row.major >= 8 && row.version)
+    .sort((a, b) => b.major - a.major);
+}
+
+function ensureDotnetReleases() {
+  return catalogRequests.ensureDotnetReleases();
+}
+
+function updatePlatformVersionSelect() {
+  if (!state.package?.isRuntimePack) return;
+  const select = document.querySelector("#package-version");
+  if (select) select.innerHTML = versionOptionsHtml(state.package);
 }
 
 // Switch the resident Platform to a different .NET major (by TFM). Drops the current
@@ -4856,30 +4838,8 @@ async function switchPlatformVersion(
   loadSelectionData();
 }
 
-// Lazily fetch the full published-version list through the engine's bounded acquisition owner,
-// cache it, and repaint the version selector in place.
-async function ensurePackageVersions(pkg: AppPackage | null) {
-  if (!pkg || pkg.isRuntimePack) return;
-  const idLower = pkg.id.toLowerCase();
-  if (state.packageVersions[idLower] || state.packageVersionsLoading[idLower]) return;
-  state.packageVersionsLoading[idLower] = true;
-  try {
-    const versions = (await inspectPackageVersions(idLower))
-      .slice()
-      .sort(compareVersionsDesc);
-    if (state.packages.some(item => item.id.toLowerCase() === idLower)) {
-      state.packageVersions[idLower] = versions;
-      updateVersionSelect(idLower);
-    }
-  } catch {
-    // Leave the selector on the single current-version option; a transient index failure
-    // must not break the workbench.
-  } finally {
-    if (state.packages.some(item => item.id.toLowerCase() === idLower))
-      state.packageVersionsLoading[idLower] = false;
-    else
-      delete state.packageVersionsLoading[idLower];
-  }
+function ensurePackageVersions(pkg: AppPackage | null) {
+  return catalogRequests.ensurePackageVersions(pkg);
 }
 
 // Repaint just the version <select> options without a full re-render, so an async index
