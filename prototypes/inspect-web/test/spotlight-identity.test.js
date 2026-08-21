@@ -182,6 +182,9 @@ const packageViewSource = readFileSync(
 const libraryControlsSource = readFileSync(
   new URL("../src/library-controls.ts", import.meta.url),
   "utf8");
+const shellControlsSource = readFileSync(
+  new URL("../src/shell-controls.ts", import.meta.url),
+  "utf8");
 const sourceInspectionSource = readFileSync(
   new URL("../src/source-inspection.ts", import.meta.url),
   "utf8");
@@ -524,6 +527,72 @@ test("typed library controls own library and Platform picker bindings", () => {
     appSource,
     /\[data-(?:library-chip|access-chip|platform-(?:library-select|integrations-library|opportunities-library|analysis-library|metadata-library))\]|#library-jump/);
   assert.doesNotMatch(appSource, /bindPlatformLensPicker/);
+});
+
+test("typed shell controls own workbench, home, and load-error bindings", () => {
+  const workbenchActions =
+    appSource.match(/const workbenchShellActions: WorkbenchShellBindingActions = \{[\s\S]*?\n};/)?.[0]
+    ?? "";
+  const homeActions =
+    appSource.match(/const homeShellActions: HomeShellBindingActions = \{[\s\S]*?\n};/)?.[0]
+    ?? "";
+  const loadErrorActions =
+    appSource.match(/const loadErrorShellActions: LoadErrorShellBindingActions = \{[\s\S]*?\n};/)?.[0]
+    ?? "";
+  const workspaceBinding =
+    appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
+    ?? "";
+  const homeBinding =
+    appSource.match(/function bindHomeEvents\(\) \{[\s\S]*?\n}(?=\n\n\/\/ The two package demos)/)?.[0]
+    ?? "";
+  const loadingBinding =
+    appSource.match(/function renderLoading\(\) \{[\s\S]*?\n}(?=\n\nasync function loadSelectedMemberDocumentation)/)?.[0]
+    ?? "";
+  assert.match(
+    shellControlsSource,
+    /export function bindWorkbenchShell\([\s\S]*#share[\s\S]*#dismiss-notice[\s\S]*#retry-notice[\s\S]*#dismiss-package-notice[\s\S]*#nav-back[\s\S]*#nav-forward[\s\S]*#go-home[\s\S]*#theme-toggle[\s\S]*#help/);
+  assert.match(
+    shellControlsSource,
+    /export function bindHomeShell\([\s\S]*#home-theme[\s\S]*#dismiss-notice[\s\S]*\[data-home-demo\]/);
+  assert.match(
+    shellControlsSource,
+    /export function bindLoadErrorShell\([\s\S]*#retry-load[\s\S]*#error-package-query[\s\S]*#error-package-input[\s\S]*#toggle-error-detail[\s\S]*\.load-error-detail/);
+  assert.match(
+    shellControlsSource,
+    /import \{ parsePackageQuery \} from "\.\/package-bar\.ts"/);
+  assert.equal(
+    workspaceBinding.match(/\bbindWorkbenchShell\(\b/g)?.length,
+    1);
+  assert.match(
+    workspaceBinding,
+    /bindWorkbenchShell\(document, workbenchShellActions\)/);
+  assert.match(
+    homeBinding,
+    /bindHomeShell\(document, homeShellActions\)[\s\S]*spotlight\.bind\(document, "inline"\)[\s\S]*#spotlight-input/);
+  assert.match(
+    loadingBinding,
+    /app\.innerHTML = `[\s\S]*bindLoadErrorShell\(document, loadErrorShellActions\)/);
+  assert.match(
+    workbenchActions,
+    /onDismissNotice: \(\) => \{[\s\S]*state\.queryNotice = "";[\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*render\(\);\s*\},\n  onDismissPackageNotice:/);
+  assert.match(
+    workbenchActions,
+    /onDismissPackageNotice: \(\) => \{[\s\S]*currentPackage\(\)\.inspectionError = "";[\s\S]*render\(\);\s*\},\n  onGoHome:/);
+  assert.match(
+    workbenchActions,
+    /onGoHome: goHome,[\s\S]*onHelp: \(\) => showToast\([\s\S]*onNavigateBack: navBack,[\s\S]*onNavigateForward: navForward,[\s\S]*onRetryNotice: \(\) => state\.queryNoticeRetryAction\?\.\(\),[\s\S]*onShare: share,[\s\S]*onToggleTheme: toggleTheme/);
+  assert.match(
+    homeActions,
+    /onDemo: runHomeDemo,\s*onDismissNotice: \(\) => \{[\s\S]*state\.queryNotice = "";[\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*render\(\);\s*\},\n  onToggleTheme: toggleTheme/);
+  assert.match(
+    loadErrorActions,
+    /onOpenPackage: openPackageFromError,\s*onRetry: \(\) => \(state\.retryAction \?\? bootstrap\)\(\)/);
+  assert.doesNotMatch(
+    appSource,
+    /document\.querySelector(?:<[^>]+>)?\("#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|go-home|theme-toggle|help|home-theme|retry-load|error-package-query|error-package-input|toggle-error-detail)"\)/);
+  assert.doesNotMatch(
+    appSource,
+    /document\.querySelectorAll<HTMLElement>\("\[data-home-demo\]"\)/);
 });
 
 test("typed document inspection owns package document request coordination", () => {
@@ -907,7 +976,7 @@ test("modal viewers own their rendered close bindings", () => {
 
 test("annotated source owns its rendered control bindings", () => {
   const binding =
-    appSource.match(/function bindAnnotatedSourceEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
+    appSource.match(/function bindAnnotatedSourceEvents\(\) \{[\s\S]*?\n}(?=\n\nconst workbenchShellActions)/)?.[0]
     ?? "";
   assert.match(
     binding,
@@ -1092,7 +1161,7 @@ test("bare home paints before wasm engine download", () => {
   const homePaintWait =
     appSource.match(/function waitForHomePaint\(\)[\s\S]*?\n}\n\nfunction loadStoredTaste/)?.[0] ?? "";
   const errorPackageRecovery =
-    appSource.match(/function openPackageFromError[\s\S]*?\n}\n\nfunction renderLoading/)?.[0] ?? "";
+    appSource.match(/function openPackageFromError[\s\S]*?\n}\n\nconst loadErrorShellActions/)?.[0] ?? "";
   const loadingView =
     appSource.match(/function renderLoading\(\)[\s\S]*?\n}\n\nasync function loadSelectedMemberDocumentation/)?.[0] ?? "";
   assert.doesNotMatch(appSource, /from "\/engine\.js"/);
@@ -1123,10 +1192,10 @@ test("bare home paints before wasm engine download", () => {
     /if \(!state\.engineReady\) \{[\s\S]*window\.location\.assign\(url\);[\s\S]*return;[\s\S]*\}\s*loadPackage\(packageId, version, ""\)/);
   assert.match(
     loadingView,
-    /#error-package-query[\s\S]*openPackageFromError\(packageId, version\)/);
+    /id="error-package-query"[\s\S]*bindLoadErrorShell\(document, loadErrorShellActions\)/);
   assert.doesNotMatch(
     loadingView,
-    /#error-package-query[\s\S]*loadPackage\(packageId, version/);
+    /id="error-package-query"[\s\S]*(?:openPackageFromError|loadPackage)\(/);
 });
 
 test("Spotlight uses local type matches until the engine is ready", () => {
