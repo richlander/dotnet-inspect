@@ -632,6 +632,8 @@ operation deadline. A complete join reports authoritative `listed` and
 registration data returns the flat-container candidates as a typed partial
 result with `unknown` state. Duplicate JSON properties are malformed rather
 than allowing one of several possible listing readings to become authoritative.
+Deadline expiry during coverage or final authority projection also returns the
+partial result, while caller cancellation outranks a concurrent page failure.
 
 Canonical NuGet.org and custom v3 enumeration still report `unknown`, because
 a raw flat-container list can include unlisted versions without carrying their
@@ -671,6 +673,8 @@ The local-folder descriptor remains modeled without a runtime client.
 `GalleryMalformedExternalPageIsTypedPartialEnumeration`,
 `GalleryIncompleteRegistrationIsTypedPartialEnumeration`,
 `GalleryCallerCancellationDuringRegistrationRemainsCancellation`,
+`GalleryCallerCancellationOutranksConcurrentRegistrationFault`,
+`GalleryFinalListingProjectionExpiresToPartial`,
 `GalleryEscapesUnicodePackageIdsAsOneSegment`,
 `GalleryRequestsUseLibraryDeadlines`,
 `CanonicalV3EnumerationReportsUnknownListingState`,

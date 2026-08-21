@@ -67,10 +67,12 @@ shortening the selected assembly set.
    `GalleryExternalRegistrationPageIsValidatedAndRebased`, and
    `GalleryExternalPagesUseBoundedConcurrency`,
    `GalleryMalformedRegistrationIsTypedPartialEnumeration`, and
-   `GalleryIncompleteRegistrationIsTypedPartialEnumeration` gate the source
-   contract. `GalleryCallerCancellationDuringRegistrationRemainsCancellation`
-   distinguishes actual caller cancellation from optional-registration
-   fallback. `DependencyRangeUsesAuthoritativeGalleryListingState`,
+   `GalleryIncompleteRegistrationIsTypedPartialEnumeration`, and
+   `GalleryFinalListingProjectionExpiresToPartial` gate the source contract.
+   `GalleryCallerCancellationDuringRegistrationRemainsCancellation` and
+   `GalleryCallerCancellationOutranksConcurrentRegistrationFault` distinguish
+   actual caller cancellation from optional-registration fallback.
+   `DependencyRangeUsesAuthoritativeGalleryListingState`,
    `BrowserGalleryDeadlineLeavesTimeForPartialRegistration`, and
    `VersionPickerRetainsFlatListWhenRegistrationTimesOut` gate Browser
    consumption.

@@ -152,17 +152,11 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                 if (listings is null)
                     return partial;
 
-                operation.ThrowIfExpired();
-                return new PackageVersionResult(
-                    [
-                        .. partial.Candidates.Select(candidate =>
-                            candidate with
-                            {
-                                ListingState =
-                                    listings[candidate.Coordinate.Version],
-                            }),
-                    ],
-                    hasAuthoritativeListingState: true);
+                return ApplyRegistrationListingsOrPartial(
+                    partial,
+                    listings,
+                    operation,
+                    cancellationToken);
             },
             cancellationToken).ConfigureAwait(false);
     }
@@ -237,11 +231,18 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                 }
             }
 
-            return candidates.All(candidate =>
-                    listings.ContainsKey(
+            foreach (PackageCandidateObservation candidate in candidates)
+            {
+                operation.ThrowIfExpired();
+                if (!listings.ContainsKey(
                         candidate.Coordinate.Version))
-                ? listings
-                : null;
+                {
+                    return null;
+                }
+            }
+
+            operation.ThrowIfExpired();
+            return listings;
         }
         catch (OperationCanceledException)
             when (callerCancellation.IsCancellationRequested)
@@ -251,7 +252,49 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
         catch (Exception exception)
             when (RegistrationIsUnavailable(exception))
         {
+            callerCancellation.ThrowIfCancellationRequested();
             return null;
+        }
+    }
+
+    internal static PackageVersionResult
+        ApplyRegistrationListingsOrPartial(
+            PackageVersionResult partial,
+            IReadOnlyDictionary<string, PackageListingState> listings,
+            NuGetOperationDeadline operation,
+            CancellationToken callerCancellation)
+    {
+        try
+        {
+            var candidates =
+                new PackageCandidateObservation[partial.Candidates.Count];
+            for (int i = 0; i < candidates.Length; i++)
+            {
+                operation.ThrowIfExpired();
+                PackageCandidateObservation candidate =
+                    partial.Candidates[i];
+                candidates[i] = candidate with
+                {
+                    ListingState =
+                        listings[candidate.Coordinate.Version],
+                };
+            }
+
+            operation.ThrowIfExpired();
+            return new PackageVersionResult(
+                candidates,
+                hasAuthoritativeListingState: true);
+        }
+        catch (OperationCanceledException)
+            when (callerCancellation.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+            when (RegistrationIsUnavailable(exception))
+        {
+            callerCancellation.ThrowIfCancellationRequested();
+            return partial;
         }
     }
 

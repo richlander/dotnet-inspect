@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
 using NuGetFetch;
 
 namespace NuGetFetch.Tests;
@@ -1269,6 +1270,68 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
+    public async Task GalleryCallerCancellationOutranksConcurrentRegistrationFault()
+    {
+        var handler = new FaultAndCancelRegistrationHandler();
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+        using var cancellation = new CancellationTokenSource();
+        Task<PackageSourceOperationResult<PackageVersionResult>> operation =
+            runtime.GetVersionsAsync(
+                "contoso",
+                cancellation.Token);
+        await handler.BothPagesStarted.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+
+        cancellation.Cancel();
+        handler.ReleaseFault.TrySetResult();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => operation);
+    }
+
+    [Fact]
+    public void GalleryFinalListingProjectionExpiresToPartial()
+    {
+        var candidate = new PackageCandidateObservation(
+            PackageSourceCoordinate.Create("contoso", "1.0.0"),
+            PackageSourceIdentity.NuGetOrg,
+            PackageDiscoveryContract.CompleteVersionEnumeration,
+            PackageListingState.Unknown);
+        var partial = new PackageVersionResult(
+            new DelayedList<PackageCandidateObservation>(candidate),
+            hasAuthoritativeListingState: false);
+        var listings =
+            new Dictionary<string, PackageListingState>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                ["1.0.0"] = PackageListingState.Listed,
+            };
+        using var operation = new NuGetOperationDeadline(
+            new NuGetFetchOptions
+            {
+                RequestTimeout = TimeSpan.FromSeconds(1),
+                OperationTimeout = TimeSpan.FromMilliseconds(20),
+            },
+            Timeout.InfiniteTimeSpan,
+            TestContext.Current.CancellationToken);
+
+        PackageVersionResult result =
+            NuGetGalleryPackageSourceClient
+                .ApplyRegistrationListingsOrPartial(
+                    partial,
+                    listings,
+                    operation,
+                    TestContext.Current.CancellationToken);
+
+        Assert.Same(partial, result);
+        Assert.False(result.HasAuthoritativeListingState);
+        Assert.Equal(
+            PackageListingState.Unknown,
+            Assert.Single(result.Candidates).ListingState);
+    }
+
+    [Fact]
     public async Task GalleryMissingSymbolsAreTypedAbsence()
     {
         var handler = new RecordingHandler();
@@ -2331,6 +2394,68 @@ public sealed class PackageSourceClientTests
             throw new InvalidOperationException(
                 "The registration stall completed without cancellation.");
         }
+    }
+
+    private sealed class FaultAndCancelRegistrationHandler
+        : HttpMessageHandler
+    {
+        private int _pageRequests;
+
+        public TaskCompletionSource BothPagesStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseFault { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.AbsoluteUri;
+            if (url == GalleryVersions)
+            {
+                return Response(
+                    """{"versions":["1.0.0","2.0.0"]}""");
+            }
+
+            if (url == GalleryRegistration)
+            {
+                return Response(
+                    """
+                    {
+                      "items": [
+                        {
+                          "@id": "https://api.nuget.org/v3/registration5-gz-semver2/contoso/page/1.0.0/1.0.0.json"
+                        },
+                        {
+                          "@id": "https://api.nuget.org/v3/registration5-gz-semver2/contoso/page/2.0.0/2.0.0.json"
+                        }
+                      ]
+                    }
+                    """);
+            }
+
+            int page = Interlocked.Increment(ref _pageRequests);
+            if (page == 2)
+                BothPagesStarted.TrySetResult();
+            if (page == 1)
+            {
+                await ReleaseFault.Task;
+                throw new JsonException(
+                    "Simulated registration page failure.");
+            }
+
+            await Task.Delay(
+                Timeout.InfiniteTimeSpan,
+                cancellationToken);
+            throw new InvalidOperationException(
+                "The registration stall completed without cancellation.");
+        }
+
+        private static HttpResponseMessage Response(string json) =>
+            new(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json),
+            };
     }
 
     private sealed class TransientGalleryHandler(
