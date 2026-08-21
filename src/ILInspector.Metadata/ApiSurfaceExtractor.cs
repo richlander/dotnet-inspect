@@ -6905,6 +6905,8 @@ public static class ApiSurfaceExtractor
     {
         const int DecodeWorkWeight = 16;
         const int RetainedTextDecodeWorkCreditWeight = DecodeWorkWeight * 4;
+        // A MethodImpl projection decodes an interface identity plus two method signatures.
+        const int ProjectionTextDecodeWorkCreditWeight = DecodeWorkWeight * 5;
         // Small exact retention budgets still need enough work room to decode one ordinary type.
         // It is granted once per extraction; retained model text then earns bounded additional
         // work so rejected or amplification-heavy candidates cannot rearm the floor.
@@ -7037,13 +7039,14 @@ public static class ApiSurfaceExtractor
                 throw new ArgumentOutOfRangeException(nameof(encodedCharacters));
             long next =
                 (long)encodedCharacters * DecodeWorkWeight + _decodeWork;
-            long creditedCharacters =
+            long retainedTextCharacters =
                 (long)_retainedTextCharacters
-                + _pendingTextCharacters
-                + _committedProjectionTextCharacters;
+                + _pendingTextCharacters;
             long limit =
                 MinimumDecodeWorkLimit
-                + creditedCharacters * RetainedTextDecodeWorkCreditWeight;
+                + retainedTextCharacters * RetainedTextDecodeWorkCreditWeight
+                + _committedProjectionTextCharacters
+                    * ProjectionTextDecodeWorkCreditWeight;
             if (next > limit || next < 0)
             {
                 throw new ExtractionBoundExceededException(
