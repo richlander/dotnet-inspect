@@ -651,6 +651,11 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   assert.match(
     callGraphBinding,
     /callGraph\.targets\?\.find\(candidate => candidate\.id === nodeId\)[\s\S]*state\.platformStack\.length > 0[\s\S]*target\.id === "n0"[\s\S]*navigateOrDrillPlatform\(target\)[\s\S]*resolveLoadedGraphTargetCandidate[\s\S]*graphTargetNavigationDisposition[\s\S]*navigateToMember\([\s\S]*openGraphSource\([\s\S]*navigateOrDrillPlatform\(target\)/);
+  assert.equal(appSource.match(/\bbindGraphBack\(/g)?.length, 1);
+  assert.equal(appSource.match(/\bbindGraphPanZoom\(/g)?.length, 3);
+  assert.equal(appSource.match(/\bbindTypeGraphNodes\(/g)?.length, 1);
+  assert.equal(appSource.match(/\bbindDependencyGraphNodes\(/g)?.length, 1);
+  assert.equal(appSource.match(/\bcallGraphNodeBinding\(/g)?.length, 2);
   assert.doesNotMatch(
     `${typeGraph}\n${dependencyGraph}\n${callGraph}`,
     /\.addEventListener\(|querySelectorAll<SVGGElement>\("g\.node"\)/);
