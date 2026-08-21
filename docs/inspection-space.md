@@ -696,12 +696,16 @@ multi-source plan against aggregate artifact-count, peak-acquisition-byte, and
 retained-byte budgets that also include concurrent admissions and retained
 generations. Before atomic publication, admission materializes every selected
 logical artifact into retained immutable content, validates identity and every
-budget dimension, and projects all required assembly participants. Later opens
-use only that retained content; they perform no source acquisition, archive
-expansion, participant minting, or catalog mutation. This reservation is
-distinct from each adapter's transport/archive limits and the assembly group's
-image budget. Later queries receive separate query leases and must reauthorize
-the retained catalog generation before participant selection.
+budget dimension, and projects all required assembly participants. Equivalent
+concurrent demands for the same context generation and admission-policy
+snapshot join one workspace-owned operation and consume no second reservation,
+including across Browser/Wasm awaited reentrancy. Cancellation-draining
+operations accept no new join or late publication. Later opens use only
+retained content; they perform no source acquisition, archive expansion,
+participant minting, or catalog mutation. This reservation is distinct from
+each adapter's transport/archive limits and the assembly group's image budget.
+Later queries receive separate query leases and must reauthorize the retained
+catalog generation before participant selection.
 
 Hosts statically register the bundles they choose to ship. Excluded bundles and
 their definitions and embedded artifact bytes do not enter the build. Included

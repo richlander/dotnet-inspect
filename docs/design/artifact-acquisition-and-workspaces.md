@@ -249,13 +249,28 @@ URL. If retained content can no longer be opened, the operation fails visibly
 rather than reacquiring or reading replacement bytes.
 
 The workspace registers an admission operation before its first asynchronous
-adapter call and owns that operation through atomic group publication.
-Workspace disposal first closes admission, requests cancellation of in-flight
-operations, and prevents a late result from publishing a session or group. A
-late acquisition outcome transfers directly to cleanup: every returned lease
-is disposed even when the adapter did not observe cancellation. This rule also
-handles single-threaded Browser/Wasm reentrancy; it does not depend on a
-parallel thread reaching a lock.
+adapter call and owns that operation through atomic group publication. The
+operation is single-flight for one normalized context generation and admission
+policy snapshot. The first authorized demand enters the in-flight state before
+reserving budget or calling an adapter. A compatible concurrent demand
+reauthorizes that exact admission generation, joins the operation, observes
+its typed outcome, and consumes no second reservation. It receives no catalog
+or participant detail until its own query lease later authorizes selection.
+
+Caller cancellation detaches that wait. When no authorized waiter remains, the
+owner requests cancellation and enters a draining state. A new demand does not
+join a draining operation; after cleanup it may start a fresh admission if the
+workspace remains open. An incompatible policy generation likewise cannot join
+or start duplicate work for the same context while the prior admission is
+active; it waits for the terminal transition and replans.
+
+Workspace disposal first closes admission, rejects new demands, requests
+cancellation of in-flight operations, and prevents a late result from
+publishing a session or group. A late acquisition outcome transfers directly
+to cleanup: every returned lease is disposed even when the adapter did not
+observe cancellation. These transitions also handle single-threaded
+Browser/Wasm awaited reentrancy; they do not depend on a parallel thread
+reaching a lock.
 
 Disposal then disposes published groups. A group may already have an active
 callback that has not performed its first lazy content open. Artifact leases
@@ -476,12 +491,14 @@ The adapter would:
 6. materialize every selected entry as immutable retained logical content;
 7. contribute the validated neutral-artifact descriptors and content leases
    before sealing;
-8. retain the download/archive and materialized-entry leases until the owning
+8. dispose the download/archive lease after materialization and before
+   publication, while retaining materialized-entry leases until the owning
    artifact session's dependent groups are quiescent.
 
 Later queries reauthorize that provider, repository/project, run/build, and
-artifact coordinate before receiving a query access lease. Retaining the
-download does not preserve a credential grant after the host removes it.
+artifact coordinate before receiving a query access lease. Retaining
+materialized content does not preserve a credential grant after the host
+removes it.
 
 The workspace could then compare:
 
@@ -767,6 +784,9 @@ The target remains unverified until tests equivalent to these exist:
 - `ArtifactSetSession_SealingRequiresMaterializedBoundedContent`
 - `ArtifactAdmission_OverrunOrIdentityMismatchRejectsPublication`
 - `ArtifactAdmission_PublicationIncludesEveryRequiredParticipant`
+- `ArtifactAdmission_IsSingleFlightAcrossConcurrentContextDemands`
+- `ArtifactAdmission_CancellationDrainRejectsJoinAndLatePublication`
+- `BrowserArtifactAdmission_IsSingleFlightAcrossAwaitedReentrancy`
 - `ArtifactOpen_AfterPublicationPerformsNoAcquisitionOrExpansion`
 - `WorkspaceAdmissionBudget_ReleasesOnlyAfterCleanupOrSessionQuiescence`
 - `DesignatedArtifactTrust_RequiresAuthorizedAdmissionRole`
