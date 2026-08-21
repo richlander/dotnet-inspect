@@ -394,6 +394,12 @@ test("typed package view owns package navigation bindings", () => {
   const workspaceBinding =
     appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
     ?? "";
+  const packageViewBinding =
+    appSource.match(/function bindPackageViewEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction bindPackageDependencyListEvents)/)?.[0]
+    ?? "";
+  const dependencyListBinding =
+    appSource.match(/function bindPackageDependencyListEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction bindStatusBarEvents)/)?.[0]
+    ?? "";
   const dependencyPatch =
     appSource.match(/function patchDependenciesGroup\(\) \{[\s\S]*?\n}/)?.[0]
     ?? "";
@@ -406,6 +412,18 @@ test("typed package view owns package navigation bindings", () => {
   assert.equal(
     workspaceBinding.match(/\bbindPackageViewEvents\(\)/g)?.length,
     1);
+  assert.match(
+    packageViewBinding,
+    /bindPackageView\(document, packageViewActions\)/);
+  assert.doesNotMatch(
+    packageViewBinding,
+    /\bquerySelector(?:All)?\b|\baddEventListener\b/);
+  assert.match(
+    dependencyListBinding,
+    /bindPackageDependencyList\(document, packageViewActions\)/);
+  assert.doesNotMatch(
+    dependencyListBinding,
+    /\bquerySelector(?:All)?\b|\baddEventListener\b/);
   assert.match(
     dependencyPatch,
     /listSection\.outerHTML = dependencyListSectionHtml[\s\S]*bindPackageDependencyListEvents\(\);[\s\S]*renderDependencyGraph\(\)/);
@@ -430,6 +448,9 @@ test("typed package view owns package navigation bindings", () => {
   assert.doesNotMatch(
     appSource,
     /document\.querySelectorAll<HTMLElement>\("\[data-(?:dep-group|dep-open|dep-load|kind-jump|namespace-jump|lib-scope|graph-type|perf-token)\]"\)/);
+  assert.doesNotMatch(
+    workspaceBinding,
+    /\[data-(?:dep-group|dep-open|dep-load|kind-jump|namespace-jump|lib-scope|graph-type|perf-token)\]/);
   assert.doesNotMatch(appSource, /function bindDependencyListHandlers\(/);
 });
 
