@@ -5,14 +5,15 @@
 // the metadata image rather than the API surface within it — so they live in one module, the
 // way `type-panel.ts` combines the type selector and the type viewer.
 //
-// `dotnet-inspect.ts` keeps everything that is not markup: `state`, the engine calls that fetch a
-// metadata image, a table row window, or a heap listing (`loadPackageMetadata`,
-// `loadExplorerWindow`, `loadExplorerHeap`), the explorer's focus/history stack
-// (`openExplorer`, `pushExplorerFocus`, `applyExplorerFocus`, `explorerHistoryBack/Forward`,
-// `explorerShowOverview`, `closeExplorer`), the DOM event binding, the `IntersectionObserver`
-// that hydrates cards lazily, the resize listener, and the global keydown handler. This
-// module owns only the markup shape given an explicit snapshot of that state, matching how
-// `type-panel.ts` left comparably rich navigation state in `dotnet-inspect.ts`.
+// `package-inspection.ts` coordinates the package-level metadata request, while
+// `metadata-inspection.ts` coordinates type metadata and the explorer's table-window and
+// heap-listing requests. `dotnet-inspect.ts` keeps `state` and the explorer's focus/history
+// stack (`openExplorer`, `pushExplorerFocus`, `applyExplorerFocus`,
+// `explorerHistoryBack/Forward`, `explorerShowOverview`, `closeExplorer`), the DOM event
+// binding, the `IntersectionObserver` that hydrates cards lazily, the resize listener, and
+// the global keydown handler. This module owns only the markup shape given an explicit
+// snapshot of that state, matching how `type-panel.ts` left comparably rich navigation
+// state in `dotnet-inspect.ts`.
 //
 // The shared text helpers used well beyond these views (`escapeHtml`, `fmtBytes`) and the
 // shared lens chrome (`platformLensPicker`, `scopedPlatformLibrary`, `packageScopeSignature`,
