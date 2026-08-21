@@ -741,6 +741,14 @@ inspection effects behind typed callbacks. `test/package-view.test.ts` gates
 dataset decoding, missing values, replacement dependency-list binding, inactive
 surfaces, and no eager dispatch.
 
+`src/library-controls.ts` owns library/accessibility filters, the primary
+Platform library selector, and the lens-scoped Platform library selectors.
+`dotnet-inspect.ts` still owns filter mutation, runtime-pack acquisition,
+generation checks, visible retry state, and lens reload effects behind typed
+callbacks. `test/library-controls.test.ts` gates selector mapping, pack
+provenance/defaults, empty selections, inactive surfaces, and no eager
+dispatch.
+
 `src/settings-panel.ts` owns the Settings page and the decompiler "taste"
 popover it shares its style catalog with, including each surface's rendered DOM
 bindings and the home/workbench controls that open them. `dotnet-inspect.ts`
