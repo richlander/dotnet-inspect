@@ -706,7 +706,9 @@ The local-folder descriptor remains modeled without a runtime client.
 `CanonicalNuGetOrgV3DoesNotReintroduceSearchShortcut`, and
 `LegacyLocalSourceRemainsAnExplicitUnsupportedKind` gate these boundaries.
 `BrowserEngineBoundaryTests.DependencyRangeUsesAuthoritativeGalleryListingState`
-gates the Browser's listing-aware dependency range selection.
+gates the Browser's listing-aware dependency range selection, and
+`BrowserEngineBoundaryTests.DependencyRangeFailsClosedWhenGalleryRegistrationTimesOut`
+gates that a partial result cannot select an unknown candidate.
 `BrowserEngineBoundaryTests.BrowserGalleryDeadlineLeavesTimeForPartialRegistration`
 and
 `BrowserEngineBoundaryTests.VersionPickerRetainsFlatListWhenRegistrationTimesOut`

@@ -78,6 +78,7 @@ shortening the selected assembly set.
    `GalleryCallerCancellationOutranksConcurrentRegistrationFault` distinguish
    actual caller cancellation from optional-registration fallback.
    `DependencyRangeUsesAuthoritativeGalleryListingState`,
+   `DependencyRangeFailsClosedWhenGalleryRegistrationTimesOut`,
    `BrowserGalleryDeadlineLeavesTimeForPartialRegistration`, and
    `VersionPickerRetainsFlatListWhenRegistrationTimesOut` gate Browser
    consumption.
