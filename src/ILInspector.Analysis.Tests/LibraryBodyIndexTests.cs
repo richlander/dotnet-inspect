@@ -8829,6 +8829,76 @@ public class LibraryBodyIndexTests
         Assert.Equal("low", op.Confidence);
         Assert.Contains("Where+FirstOrDefault", op.Evidence, StringComparison.Ordinal);
         Assert.Contains(nameof(OptimizationOpportunityFixtures.CallsComposedScanHelperInLoop), op.Evidence, StringComparison.Ordinal);
+        var support = Assert.IsType<OptimizationSupportingCallSite>(
+            op.SupportingCallSite);
+        var whereCall = Assert.Single(
+            index.GetDirectCallsByCaller()[
+                    op.Method.MetadataToken]
+                .Where(call =>
+                    call.Callee.Name == "Where"));
+        var supportCall = Assert.Single(
+            index.GetDirectCallsByCaller()[
+                    op.Method.MetadataToken]
+                .Where(call =>
+                    call.Kind == CallKind.NewObject
+                    && call.ReturnAddress
+                        == whereCall.ILOffset));
+        Assert.Equal(
+            supportCall.EvidenceMethod.MetadataToken,
+            support.EvidenceMethodToken);
+        Assert.Equal(
+            supportCall.ILOffset,
+            support.ILOffset);
+        Assert.Equal(
+            AnalysisFindings.CallSiteDescriptor.Id,
+            support.SourceFinding);
+        Assert.Equal(
+            supportCall.Opcode,
+            support.Operation);
+        Assert.Equal(
+            supportCall.OperandToken,
+            support.OperandToken);
+        Assert.Null(op.ILOffset);
+        Assert.Null(op.SourceFinding);
+        Assert.Equal(
+            PerformanceTriageProvenance.Aggregate,
+            op.Provenance);
+        Assert.Equal(
+            PerformanceTriageCandidateId.Create(
+                op,
+                descriptor: null,
+                findingKey: null,
+                ordinal: null),
+            PerformanceTriageCandidateId.Create(
+                op with
+                {
+                    SupportingCallSite = null,
+                },
+                descriptor: null,
+                findingKey: null,
+                ordinal: null));
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_DoNotChooseAmbiguousScanSupport()
+    {
+        var index = LibraryBodyIndex.Open(
+            typeof(OptimizationOpportunityFixtures)
+                .Assembly.Location);
+
+        var op = Assert.Single(
+            index.OptimizationOpportunities.Where(o =>
+                o.Method.Name
+                    == nameof(
+                        OptimizationOpportunityFixtures
+                            .ContainsEither)
+                && o.Shape
+                    == "scan-method-in-loop-call"));
+
+        Assert.Null(op.SupportingCallSite);
+        Assert.Equal(
+            PerformanceTriageProvenance.Aggregate,
+            op.Provenance);
     }
 
     [Fact]
@@ -13132,6 +13202,31 @@ public class OptimizationOpportunityFixtures
         foreach (var key in keys)
         {
             n += FilterThenFirstOrDefault(source, key);
+        }
+        return n;
+    }
+
+    public static bool ContainsEither(
+        System.Collections.Generic.IEnumerable<int> source,
+        int first,
+        int second)
+        => System.Linq.Enumerable.Any(
+                source,
+                x => x == first)
+            || System.Linq.Enumerable.Any(
+                source,
+                x => x == second);
+
+    public static int CallsAmbiguousScanHelperInLoop(
+        System.Collections.Generic.IEnumerable<int> source,
+        int[] keys)
+    {
+        var n = 0;
+        foreach (var key in keys)
+        {
+            n += ContainsEither(source, key, key + 1)
+                ? 1
+                : 0;
         }
         return n;
     }

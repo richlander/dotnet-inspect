@@ -2519,6 +2519,245 @@ public class E2EFixtureTests
     }
 
     [Fact]
+    public void Correlate_AggregateSupportingCallSite_PromotesExactLibraryEvidence()
+    {
+        string assemblyPath =
+            FixtureCatalog.RunFasterAllocation.AssemblyPath();
+        var allocateOne =
+            typeof(RunFaster.AllocationFixture.Program)
+                .GetMethod(
+                    "AllocateOne",
+                    BindingFlags.Public
+                        | BindingFlags.Static);
+        Assert.NotNull(allocateOne);
+        var occurrence = Assert.Single(
+            LibraryBodyIndex.Open(assemblyPath)
+                .GetAllocationOccurrences()[
+                    allocateOne.MetadataToken]);
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                $$$"""
+                {"performance":{"loop_hot_paths":[{"member":"RunFaster.AllocationFixture.Program.AllocateOne()","assembly":"RunFaster.AllocationFixture","moduleVersionId":"{{{occurrence.Method.ModuleVersionId:D}}}","method_token":"0x{{{allocateOne.MetadataToken:X8}}}","candidate":"pt~aggregate","shape":"scan-method-in-loop-call","provenance":"aggregate","supporting_finding":"analysis.call-site","supporting_operation":"newobj","supporting_token":"0x0A000001","supporting_evidence_method":"0x{{{allocateOne.MetadataToken:X8}}}","supporting_il":"IL_{{{occurrence.ILOffset:X4}}}"}]}}
+                """);
+
+            var result = RunCorrelate(
+                "--library",
+                assemblyPath,
+                "--triage",
+                triagePath,
+                "--trace",
+                FixtureCatalog.RunFasterAllocation
+                    .AssetPath("fixture.nettrace"),
+                "--json");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using var output =
+                JsonDocument.Parse(result.Output);
+            var sameMethod = output.RootElement
+                .GetProperty("candidates")
+                .EnumerateArray()
+                .Where(candidate => candidate
+                    .GetProperty("method")
+                    .GetString()!
+                    .EndsWith(
+                        ".AllocateOne()",
+                        StringComparison.Ordinal))
+                .ToArray();
+            var triage = Assert.Single(
+                sameMethod,
+                candidate => candidate
+                    .GetProperty("source")
+                    .GetString() == "triage");
+            var library = Assert.Single(
+                sameMethod,
+                candidate => candidate
+                    .GetProperty("source")
+                    .GetString() == "library");
+            Assert.Equal(
+                "supporting-call-site",
+                triage.GetProperty("coordinateRole")
+                    .GetString());
+            Assert.Equal(
+                occurrence.ILOffset,
+                triage.GetProperty(
+                    "supportingIlOffset")
+                    .GetInt32());
+            Assert.Equal(
+                allocateOne.MetadataToken,
+                triage.GetProperty(
+                    "supportingEvidenceMethodToken")
+                    .GetInt32());
+            Assert.False(
+                triage.TryGetProperty(
+                    "ilOffset",
+                    out _));
+            Assert.False(
+                triage.TryGetProperty(
+                    "operation",
+                    out _));
+            Assert.Equal(
+                1_167_872,
+                triage.GetProperty("allocationBytes")
+                    .GetInt64());
+            Assert.Equal(
+                "il-offset-hot",
+                triage.GetProperty("status")
+                    .GetString());
+            Assert.Equal(
+                0,
+                library.GetProperty("allocationBytes")
+                    .GetInt64());
+            Assert.Equal(
+                "superseded-by-triage",
+                library.GetProperty("status")
+                    .GetString());
+        }
+        finally
+        {
+            File.Delete(triagePath);
+        }
+    }
+
+    [Fact]
+    public void Correlate_AmbiguousAggregateSupports_DoNotClaimLibraryEvidence()
+    {
+        string assemblyPath =
+            FixtureCatalog.RunFasterAllocation.AssemblyPath();
+        var allocateOne =
+            typeof(RunFaster.AllocationFixture.Program)
+                .GetMethod(
+                    "AllocateOne",
+                    BindingFlags.Public
+                        | BindingFlags.Static);
+        Assert.NotNull(allocateOne);
+        var occurrence = Assert.Single(
+            LibraryBodyIndex.Open(assemblyPath)
+                .GetAllocationOccurrences()[
+                    allocateOne.MetadataToken]);
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        try
+        {
+            string rowProperties =
+                $$$"""
+                "member":"RunFaster.AllocationFixture.Program.AllocateOne()","assembly":"RunFaster.AllocationFixture","moduleVersionId":"{{{occurrence.Method.ModuleVersionId:D}}}","method_token":"0x{{{allocateOne.MetadataToken:X8}}}","shape":"scan-method-in-loop-call","provenance":"aggregate","supporting_finding":"analysis.call-site","supporting_operation":"newobj","supporting_token":"0x0A000001","supporting_evidence_method":"0x{{{allocateOne.MetadataToken:X8}}}","supporting_il":"IL_{{{occurrence.ILOffset:X4}}}"
+                """;
+            File.WriteAllText(
+                triagePath,
+                string.Concat(
+                    "{\"performance\":{\"loop_hot_paths\":[{",
+                    rowProperties,
+                    ",\"candidate\":\"pt~first\"},{",
+                    rowProperties,
+                    ",\"candidate\":\"pt~second\"}]}}"));
+
+            var result = RunCorrelate(
+                "--library",
+                assemblyPath,
+                "--triage",
+                triagePath,
+                "--trace",
+                FixtureCatalog.RunFasterAllocation
+                    .AssetPath("fixture.nettrace"),
+                "--json");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using var output =
+                JsonDocument.Parse(result.Output);
+            var sameMethod = output.RootElement
+                .GetProperty("candidates")
+                .EnumerateArray()
+                .Where(candidate => candidate
+                    .GetProperty("method")
+                    .GetString()!
+                    .EndsWith(
+                        ".AllocateOne()",
+                        StringComparison.Ordinal))
+                .ToArray();
+            Assert.All(
+                sameMethod.Where(candidate =>
+                    candidate.GetProperty("source")
+                        .GetString() == "triage"),
+                candidate => Assert.Equal(
+                    0,
+                    candidate.GetProperty(
+                        "allocationBytes")
+                        .GetInt64()));
+            var library = Assert.Single(
+                sameMethod,
+                candidate => candidate
+                    .GetProperty("source")
+                    .GetString() == "library");
+            Assert.Equal(
+                1_167_872,
+                library.GetProperty("allocationBytes")
+                    .GetInt64());
+        }
+        finally
+        {
+            File.Delete(triagePath);
+        }
+    }
+
+    [Theory]
+    [InlineData(
+        "\"supporting_evidence_method\":\"0x06000001\"",
+        "must be supplied together")]
+    [InlineData(
+        "\"supporting_evidence_method\":\"not-a-token\",\"supporting_il\":\"IL_0000\"",
+        "Invalid supporting call-site coordinate")]
+    [InlineData(
+        "\"supporting_evidence_method\":\"0x06000001\",\"supporting_il\":\"IL_0000\",\"il\":\"IL_0000\"",
+        "cannot be combined with IL or Evidence Method")]
+    public void Correlate_InvalidSupportingCoordinate_FailsVisibly(
+        string coordinateProperties,
+        string expectedError)
+    {
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                string.Concat(
+                    "{\"performance\":{\"loop_hot_paths\":[{",
+                    "\"member\":\"RunFaster.AllocationFixture.Program.AllocateOne()\",",
+                    "\"assembly\":\"RunFaster.AllocationFixture\",",
+                    "\"method_token\":\"0x06000002\",",
+                    "\"shape\":\"scan-method-in-loop-call\",",
+                    coordinateProperties,
+                    "}]}}"));
+
+            var result = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--trace",
+                FixtureCatalog.RunFasterAllocation
+                    .AssetPath("fixture.nettrace"));
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Contains(
+                expectedError,
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.Empty(result.Output);
+        }
+        finally
+        {
+            File.Delete(triagePath);
+        }
+    }
+
+    [Fact]
     public void Correlate_KnownMvidMismatch_DoesNotCollapseLibrarySite()
     {
         string assemblyPath =

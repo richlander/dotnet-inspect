@@ -1570,6 +1570,23 @@ internal static class LibraryMetadataService
             Token = FormatToken(opportunity.OperandToken),
             EvidenceMethod = FormatToken(
                 opportunity.EvidenceMethodToken),
+            SupportingFinding =
+                opportunity.SupportingCallSite
+                    ?.SourceFinding,
+            SupportingOperation =
+                opportunity.SupportingCallSite
+                    ?.Operation,
+            SupportingToken = FormatToken(
+                opportunity.SupportingCallSite
+                    ?.OperandToken),
+            SupportingEvidenceMethod = FormatToken(
+                opportunity.SupportingCallSite
+                    ?.EvidenceMethodToken),
+            SupportingIL =
+                opportunity.SupportingCallSite is
+                    { ILOffset: var supportingOffset }
+                    ? $"IL_{supportingOffset:X4}"
+                    : null,
             Evidence = opportunity.Evidence,
             Fix = opportunity.SafeFixDirection,
             Priority = TriagePriority(opportunity),

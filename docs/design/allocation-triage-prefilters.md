@@ -155,12 +155,32 @@ This separates two joins that have different stability contracts. `Candidate`
 is exact within one assembly build and is the key for runtime/static trace
 correlation. Cross-version onset still uses the producer-native
 `diff --finding` or `timeline --finding` matcher, where IL offsets and metadata
-tokens remain provenance rather than correspondence identity. Aggregate rows
-such as `allocation-hotspot` have no exact source occurrence and therefore use
-`Provenance=aggregate` while keeping their `Finding`, `Operation`, and `Token`
-fields empty. Candidate IDs are checked for uniqueness when an index is built;
-a truncated-prefix collision is deterministically lengthened rather than
-creating an ambiguous join.
+tokens remain provenance rather than correspondence identity. Aggregate rows such as `allocation-hotspot` have no exact source occurrence and
+therefore use `Provenance=aggregate` while keeping their `Finding`, `Operation`,
+`Token`, and `IL` fields empty. A composite repeated-scan judgment may retain
+one exact local call in the separately typed `SupportingCallSite` coordinate:
+the argument-producing allocation call when one directly feeds the scan,
+otherwise the scan call itself. It projects as `SupportingFinding`,
+`SupportingOperation`,
+`SupportingToken`, `SupportingEvidenceMethod`, and `SupportingIL`. This
+supporting coordinate enables same-build runtime correspondence without
+changing aggregate provenance, candidate identity, confidence, or rank.
+`OptimizationOpportunities_FlagsImmediateLazyQueryTerminalInvokedInCallerLoop`
+pins the allocation-producing `Where` call for the composed scan case, while
+`OptimizationOpportunities_DoNotChooseAmbiguousScanSupport` requires multiple
+local scans to remain coordinate-free. Candidate IDs are checked for uniqueness
+when an index is built; a truncated-prefix collision is deterministically
+lengthened rather than creating an ambiguous join.
+
+RunFaster promotes allocation evidence from a raw library row to a
+coordinate-bearing scan aggregate only when the raw row has the same build and
+coordinate and exactly one supporting aggregate claims that coordinate. The
+raw site's predicted type need not match the sampled type: GC allocation ticks
+are attributed to the nearest preceding IL allocation site. The raw row is then
+`superseded-by-triage`; otherwise it retains the evidence.
+`Correlate_AggregateSupportingCallSite_PromotesExactLibraryEvidence` and
+`Correlate_AmbiguousAggregateSupports_DoNotClaimLibraryEvidence` are the
+non-vacuity gates for those outcomes.
 
 ## Opt-in allocation fanout
 

@@ -886,6 +886,40 @@ public class TypeConfirmationTests
     }
 
     [Fact]
+    public void FindTraceLibrariesSupersededByTriage_SupportCoordinateDoesNotRequireSampledTypeMatch()
+    {
+        Guid mvid = Guid.Parse(
+            "22222222-2222-2222-2222-222222222222");
+        var triage = CandidateWithType(
+            1,
+            "Fixture.A.M()",
+            "System.Func<System.String, bool>",
+            source: "triage",
+            moduleVersionId: mvid,
+            libraryPath: "/tmp/triage.json",
+            supportingCallSite: true);
+        var library = CandidateWithType(
+            2,
+            "Fixture.A.M()",
+            "System.Func<System.String, bool>",
+            source: "library",
+            moduleVersionId: mvid);
+
+        var superseded =
+            ProgramSupport
+                .FindTraceLibrariesSupersededByTriage(
+                    [triage, library],
+                    [triage, library],
+                    "System.Linq.Enumerable+WhereIterator<System.String>");
+
+        Assert.Collection(
+            superseded,
+            candidate => Assert.Same(
+                library,
+                candidate));
+    }
+
+    [Fact]
     public void ApplyTypeConfirmation_CollapsesOnlyMatchingTriageModuleVersion()
     {
         Guid firstMvid = Guid.Parse(
@@ -1277,7 +1311,8 @@ public class TypeConfirmationTests
         int ilOffset = 0x0010,
         Guid? moduleVersionId = null,
         string libraryPath = "/tmp/Fixture.dll",
-        int? evidenceMethodToken = null)
+        int? evidenceMethodToken = null,
+        bool supportingCallSite = false)
     {
         string methodKey = method[..method.IndexOf('(')];
         int lastDot = methodKey.LastIndexOf('.');
@@ -1310,6 +1345,7 @@ public class TypeConfirmationTests
             null,
             null,
             null,
-            evidenceMethodToken: evidenceMethodToken);
+            evidenceMethodToken: evidenceMethodToken,
+            supportingCallSite: supportingCallSite);
     }
 }

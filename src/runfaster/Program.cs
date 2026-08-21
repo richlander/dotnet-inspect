@@ -632,6 +632,18 @@ static bool TryCreateCandidateFromJson(
         "methodToken");
     int? evidenceMethodToken =
         ReadOptionalEvidenceMethodToken(element);
+    string? supportingMethodTokenText = GetJsonString(
+        element,
+        "Supporting Evidence Method",
+        "supporting_evidence_method",
+        "SupportingEvidenceMethod",
+        "supportingEvidenceMethod");
+    string? supportingOffsetText = GetJsonString(
+        element,
+        "Supporting IL",
+        "supporting_il",
+        "SupportingIL",
+        "supportingIL");
     string? operandTokenText = GetJsonString(
         element,
         "MetadataToken",
@@ -654,6 +666,49 @@ static bool TryCreateCandidateFromJson(
         ? parsedOperandToken
         : null;
     int offset = TryParseFlexibleInt(offsetText, out var parsedOffset) ? parsedOffset : -1;
+    bool supportingMethodSupplied =
+        !string.IsNullOrWhiteSpace(
+            supportingMethodTokenText);
+    bool supportingOffsetSupplied =
+        !string.IsNullOrWhiteSpace(
+            supportingOffsetText);
+    bool hasSupportingMethod =
+        TryParseFlexibleInt(
+            supportingMethodTokenText,
+            out var supportingMethodToken);
+    bool hasSupportingOffset =
+        TryParseFlexibleInt(
+            supportingOffsetText,
+            out var supportingOffset);
+    if (supportingMethodSupplied
+        != supportingOffsetSupplied)
+    {
+        throw new InvalidDataException(
+            "Supporting Evidence Method and Supporting IL "
+            + "must be supplied together.");
+    }
+    if (supportingMethodSupplied
+        && (!hasSupportingMethod
+            || !hasSupportingOffset
+            || !ProgramSupport.IsMethodDefinitionToken(
+                supportingMethodToken)
+            || supportingOffset < 0))
+    {
+        throw new InvalidDataException(
+            "Invalid supporting call-site coordinate.");
+    }
+    if (hasSupportingMethod)
+    {
+        if (offset >= 0
+            || evidenceMethodToken is not null)
+        {
+            throw new InvalidDataException(
+                "A supporting call-site coordinate cannot "
+                + "be combined with IL or Evidence Method.");
+        }
+        evidenceMethodToken = supportingMethodToken;
+        offset = supportingOffset;
+    }
     Guid? moduleVersionId =
         ReadOptionalModuleVersionId(element);
 
@@ -691,10 +746,44 @@ static bool TryCreateCandidateFromJson(
         GetJsonString(element, "Post Dominance", "post_dominance", "postDominance"),
         candidateId: GetJsonString(element, "Candidate", "candidate"),
         provenance: GetJsonString(element, "Provenance", "provenance"),
-        operation: GetJsonString(element, "Operation", "operation"),
-        operandToken: operandToken,
-        evidenceMethodToken: evidenceMethodToken);
+        operation: hasSupportingMethod
+            ? GetJsonString(
+                element,
+                "Supporting Operation",
+                "supporting_operation",
+                "SupportingOperation",
+                "supportingOperation")
+            : GetJsonString(
+                element,
+                "Operation",
+                "operation"),
+        operandToken: hasSupportingMethod
+            ? ReadOptionalFlexibleInt(
+                element,
+                "Supporting Token",
+                "supporting_token",
+                "SupportingToken",
+                "supportingToken")
+            : operandToken,
+        evidenceMethodToken: evidenceMethodToken,
+        supportingCallSite: hasSupportingMethod);
     return true;
+}
+
+static int? ReadOptionalFlexibleInt(
+    JsonElement element,
+    params string[] names)
+{
+    string? text = GetJsonString(
+        element,
+        names);
+    if (string.IsNullOrWhiteSpace(text))
+        return null;
+    if (TryParseFlexibleInt(text, out int parsed))
+        return parsed;
+
+    throw new InvalidDataException(
+        $"Invalid integer value in '{names[0]}'.");
 }
 
 static int? ReadOptionalEvidenceMethodToken(
@@ -973,8 +1062,11 @@ static bool TryCorrelateNetTrace(
                             candidate.Source,
                             "triage",
                             StringComparison.Ordinal)
-                        || candidate.MatchesAllocatedType(
-                            data.TypeName))
+                        || ProgramSupport
+                            .CanAcceptTraceAllocation(
+                                candidate,
+                                coordinateCandidates,
+                                data.TypeName))
                     .ToArray();
                 var supersededLibraries =
                     ProgramSupport.FindTraceLibrariesSupersededByTriage(
@@ -2310,19 +2402,51 @@ static void WriteCandidateJsonObject(Utf8JsonWriter writer, AllocationCandidate 
         candidate.HasRuntimeCoordinate);
     writer.WriteString("tokenIl", candidate.TokenAndOffset);
     writer.WriteNumber("methodToken", candidate.MethodToken);
-    if (candidate.EvidenceMethodToken is int evidenceMethodToken)
+    if (candidate.SupportingCallSite)
+    {
+        writer.WriteString(
+            "coordinateRole",
+            "supporting-call-site");
         writer.WriteNumber(
-            "evidenceMethodToken",
-            evidenceMethodToken);
-    writer.WriteNumber("ilOffset", candidate.IlOffset);
+            "supportingEvidenceMethodToken",
+            candidate.RuntimeMethodToken);
+        writer.WriteNumber(
+            "supportingIlOffset",
+            candidate.IlOffset);
+    }
+    else
+    {
+        if (candidate.EvidenceMethodToken is
+            int evidenceMethodToken)
+        {
+            writer.WriteNumber(
+                "evidenceMethodToken",
+                evidenceMethodToken);
+        }
+        writer.WriteNumber(
+            "ilOffset",
+            candidate.IlOffset);
+    }
     if (candidate.CandidateId is not null)
         writer.WriteString("candidate", candidate.CandidateId);
     if (candidate.Provenance is not null)
         writer.WriteString("provenance", candidate.Provenance);
     if (candidate.Operation is not null)
-        writer.WriteString("operation", candidate.Operation);
+    {
+        writer.WriteString(
+            candidate.SupportingCallSite
+                ? "supportingOperation"
+                : "operation",
+            candidate.Operation);
+    }
     if (candidate.OperandToken is int operandToken)
-        writer.WriteNumber("operandToken", operandToken);
+    {
+        writer.WriteNumber(
+            candidate.SupportingCallSite
+                ? "supportingOperandToken"
+                : "operandToken",
+            operandToken);
+    }
     writer.WriteString("kind", candidate.AllocationKind);
     if (candidate.EscapeKind is not null)
         writer.WriteString("escapeKind", candidate.EscapeKind);
@@ -2629,7 +2753,8 @@ sealed class AllocationCandidate(
     string? provenance = null,
     string? operation = null,
     int? operandToken = null,
-    int? evidenceMethodToken = null)
+    int? evidenceMethodToken = null,
+    bool supportingCallSite = false)
 {
     public int Id { get; } = id;
     public string Source { get; } = source;
@@ -2658,6 +2783,8 @@ sealed class AllocationCandidate(
     public string? Provenance { get; } = provenance;
     public string? Operation { get; } = operation;
     public int? OperandToken { get; } = operandToken;
+    public bool SupportingCallSite { get; } =
+        supportingCallSite;
     public string Method { get; } = method;
     public string MethodKey { get; } = methodKey;
     public string MethodStackKey { get; } = methodStackKey;
@@ -4026,6 +4153,53 @@ internal static class ProgramSupport
         }
     }
 
+    public static bool CanAcceptTraceAllocation(
+        AllocationCandidate candidate,
+        IReadOnlyList<AllocationCandidate>
+            coordinateCandidates,
+        string allocatedType)
+    {
+        if (!candidate.SupportingCallSite)
+        {
+            return candidate.MatchesAllocatedType(
+                allocatedType);
+        }
+
+        int compatibleSupports =
+            coordinateCandidates.Count(other =>
+                other.SupportingCallSite
+                && other.IlOffset
+                    == candidate.IlOffset
+                && SameBuild(candidate, other));
+        if (compatibleSupports != 1)
+            return false;
+
+        return coordinateCandidates.Any(library =>
+            string.Equals(
+                library.Source,
+                "library",
+                StringComparison.Ordinal)
+            && library.IlOffset == candidate.IlOffset
+            && SameBuild(candidate, library));
+    }
+
+    static bool SameBuild(
+        AllocationCandidate left,
+        AllocationCandidate right)
+    {
+        if (left.ModuleVersionId is Guid leftMvid
+            || right.ModuleVersionId is Guid)
+        {
+            return left.ModuleVersionId
+                == right.ModuleVersionId;
+        }
+
+        return string.Equals(
+            left.UnknownBuildInputIdentity,
+            right.UnknownBuildInputIdentity,
+            StringComparison.Ordinal);
+    }
+
     // Backstop the site-join with type-level confirmation (issue #2264). When a small allocating
     // method is inlined, its GCAllocationTick leaf frame belongs to the inliner, so the IL-offset
     // site-join misses it — but the allocated type is still realized-hot. For each unobserved
@@ -4417,9 +4591,11 @@ internal static class ProgramSupport
                             "triage",
                             StringComparison.Ordinal)
                         && triage.IlOffset ==
-                            candidate.IlOffset)
-                    && candidate.MatchesAllocatedType(
-                        allocatedType)))
+                            candidate.IlOffset
+                        && (triage.SupportingCallSite
+                            || candidate
+                                .MatchesAllocatedType(
+                                    allocatedType)))))
                 .DistinctBy(static candidate => candidate.Id)
                 .ToArray());
     }
