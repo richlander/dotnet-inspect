@@ -10,8 +10,8 @@
 ## Status
 
 Design. Tracking: [#4472](https://github.com/richlander/dotnet-inspect/issues/4472).
-Not implemented. r1–r10 were BLOCKED; this revision is the replacement
-after integrating `origin/main` `9557e31f3`.
+Not implemented. r1–r13 were BLOCKED; this revision is the replacement
+after integrating `origin/main` `99747bc2c`.
 
 `ClassicAsyncReconstructionPass` remains the current fixture-shaped raise.
 
@@ -164,22 +164,25 @@ ImportObservation
   HasInternalError        DEC0001 was present when import returned
 
 StageBodyProjection
-  Prepared(IrFunctionSnapshot, Decided(Decision, Outcome))
+  Prepared(IrFunctionSnapshot, ClassicAsyncStageState)
   Failed(Diagnostics, ClassicAsyncStageState)
 
 ClassicAsyncStageState
+  Unavailable(ImportInternalError)
   NotReached              stage failed before the classic pass
   DecisionFailed          pass ran but produced no valid decision
   Decided(Decision, Outcome)
 
 PreparedStageBody.Render(PrinterOptions)
   RenderedFunction       private clone after print analysis
-  DecompilerResult       includes ClassicAsyncOutcome
+  DecompilerResult       includes ClassicAsyncOutcome when Decided
   PrintedRanges
 
 PassContext.ClassicAsyncDecision
   None                   pass recognizes and records on the host function
   Supplied(Decision)     pass validates host identity and applies only
+  Unavailable(ImportInternalError)
+                         pass deliberately produces no classic outcome
 
 ClassicAsyncDecision
   KickoffIdentity        module-scoped MethodDef identity
@@ -200,7 +203,7 @@ IrFunctionSnapshot
   TypeFacts
   Diagnostics
   FunctionFacts
-  ClassicAsyncDecision
+  ClassicAsyncDecision?
 
 ClassicAsyncOutcome
   NotClassic
@@ -257,16 +260,29 @@ are owned mutable IR; consumers print detached root clones, not the
 stored instances.
 
 Stage materialization is serialized. While `CapturedDecision` is absent,
-the next stage runs with `None`. If the classic pass records a decision,
-the projector captures it even when a later pass fails; once captured,
-every later stage receives `Supplied`. Each stage freezes its own
-`ClassicAsyncStageState`: `NotReached` if it failed before the pass,
+the next healthy-import stage runs with `None`. If the classic pass
+records a decision, the projector captures it even when a later pass
+fails; once captured, every later healthy-import stage receives
+`Supplied`. When the frozen import observation has DEC0001, every stage
+instead receives `Unavailable(ImportInternalError)`: the classic pass
+deliberately leaves the diagnosed crash function unchanged and records
+no `NotClassic`, `Reconstructed`, or `Declined`.
+In an independent pipeline with directive `None`, DEC0001 already
+present when the classic pass begins is the same terminal no-decision
+case. The projector supplies the typed directive so stage state uses the
+frozen import observation rather than rereading diagnostics after other
+passes.
+
+Each stage freezes its own `ClassicAsyncStageState`: `Unavailable` for
+that import-health exemption, `NotReached` if it failed before the pass,
 `DecisionFailed` if the pass ran but recognition/application or supplied
 identity validation did not produce a valid decision, and `Decided` once
-the pass produced/applied one. A prepared stage is always `Decided`.
-Every `Decided` value must equal `CapturedDecision`; neither consumers
-nor `DecompilerResult` infer an earlier failed stage's outcome from a
-decision captured by a different stage.
+the pass produced/applied one. A prepared stage is `Decided`, except
+that a stage over a frozen DEC0001 import is `Unavailable`. Every
+`Decided` value must equal `CapturedDecision`; an unavailable projection
+never has a captured decision. Neither consumers nor `DecompilerResult`
+infer an earlier failed stage's outcome from a decision captured by a
+different stage.
 `PreparedStageBody.Render` is the sole
 source-body emission seam: it clones the stored snapshot, performs
 the selected style lenses plus print analysis without rerunning the
@@ -275,12 +291,14 @@ result, and printed ranges as one value.
 
 The pass remains in `IrPasses.Default` and `IrPasses.Lowered`. A
 standalone seam-enabled pipeline with no supplied decision recognizes
-through that same implementation, records the outcome on its function,
-and produces the same body as prepared output. This keeps stage dumps,
-corpus sensors, validity/fidelity harnesses, and render A/B on the
-shipped policy without requiring a MethodDef handle. A null-seam
+through that same implementation, records an available outcome on its
+function, and produces the same body as prepared output. This keeps
+stage dumps, corpus sensors, validity/fidelity harnesses, and render A/B
+on the shipped policy without requiring a MethodDef handle. A null-seam
 physical pipeline cannot recognize a companion machine and keeps no
-classic outcome.
+classic outcome. A diagnosed DEC0001 crash function also keeps no
+classic outcome under the independent path; parity includes preserving
+its importer marker rather than manufacturing a classic decision.
 
 The cached decision borrows no `IrNode`, block, local, edge, mutable
 diagnostic collection, or other function sidecar from the first stage
@@ -302,14 +320,25 @@ prepared snapshot, another stage, or a later render. Applying a
 decision to a different module-scoped kickoff remains a typed stage
 failure.
 
-A supplied decision is scoped to only the prepared top-level host.
-`PassContext.NestedPipelineContext` preserves the sibling-import seam,
-type oracle, and shared recursion guard but resets
-`ClassicAsyncDecision` to `None`, including on non-stepping runs.
-Imported lambdas, local functions, and reconstruction companions
-therefore recognize/decline under their own identity. Any embedded
-marker/body travels with their IR, but their decision cannot overwrite
-the outer prepared outcome.
+A supplied or unavailable classic directive is scoped to only the
+prepared top-level host. `PassContext.RunForeignFunctionPipeline` is the
+sole entry for running passes over any separately imported function. It
+always derives a nested context that preserves the sibling-import seam,
+type oracle, and shared recursion guard while resetting
+`ClassicAsyncDecision` to `None`; it never returns the parent context as
+a non-stepping optimization. `CrossMethodPipelineScope.Run`, lambda and
+local-function raising, classic companion inspection, and the reducible
+and foreach iterator reconstruction helpers all use that entry instead
+of calling `IrPasses.Run` with the parent's context.
+
+Imported lambdas, local functions, iterator `MoveNext` bodies, and other
+reconstruction companions therefore recognize/decline under their own
+identity. Any embedded marker/body travels with their IR, but their
+decision cannot overwrite the outer prepared outcome. A source-
+architecture gate inventories every product call that runs a pass list
+over a foreign function and permits only
+`PassContext.RunForeignFunctionPipeline`; direct parent-context
+`IrPasses.Run` is zero.
 
 Once an address resolves, its classification is metadata-only and
 exists even when the method is bodyless or body preparation fails. The
@@ -330,13 +359,18 @@ post-import stage failure, and a decided body:
   `StageBodyProjection` is `Failed`. It includes nonfatal diagnostics and
   DEC0001 crash functions; `ImportObservation` preserves their
   import-time classification without deleting the renderable function
-- every successfully prepared stage with `IsClassicAsync = Yes` is
-  `Reconstructed` or `Declined`; `NotClassic` is invalid there
-- `NotReached` and `DecisionFailed` stages have no outcome, regardless of
-  whether another stage later captures one; a stage failure after
-  `Decided` retains its own outcome. Render failure likewise retains the
-  prepared stage's outcome. Every failure remains visible and does not
-  need a marker in nonexistent output
+- every successfully prepared stage with `IsClassicAsync = Yes` and no
+  import-time DEC0001 is `Reconstructed` or `Declined`; `NotClassic` is
+  invalid there
+- a DEC0001 crash function is
+  `Unavailable(ImportInternalError)`, has no classic outcome, and keeps
+  its visible importer marker/diagnostic and metadata declaration
+  modifier; this diagnosed import-health exemption is not `NotClassic`
+- `Unavailable`, `NotReached`, and `DecisionFailed` stages have no
+  outcome, regardless of whether another stage later captures one; a
+  stage failure after `Decided` retains its own outcome. Render failure
+  likewise retains the prepared stage's outcome. Every failure remains
+  visible and does not need a marker in nonexistent output
 - an unsupported custom builder is
   `Declined(UnsupportedBuilder, PreservedOriginal)`, not outside the
   classified population
@@ -359,7 +393,9 @@ projection:
   An imported DEC0001 crash function follows the body-bearing path
   instead: Decompiled Source retains its rendered `(importer crash)`
   marker body, diagnostics, successful result, and style-consumption
-  latch, while Fidelity Causes retains its existing typed `Failed`.
+  latch, while Fidelity Causes retains its existing typed `Failed`. Its
+  classic stage state is `Unavailable`, it carries no classic outcome or
+  added classic marker, and an async metadata declaration keeps `async`.
 - `ResearchViews.ProjectMember` accepts that value. Direct Research and
   Research-query callers that do not come through `MemberCodeProvider`
   call the same Decompiler front door once. Annotated Source, Annotated
@@ -419,8 +455,9 @@ projection:
 - A `DecompilerResult` rendered from a successful
   `StageBodyProjection` or seam-enabled canonical pipeline carries the
   same outcome. `AddressFailed`, `Bodyless`, `ImportFailed`,
-  `NotReached`, `DecisionFailed`, null-seam physical rendering, and
-  intentionally passless raw-IR rendering have no classic outcome.
+  `Unavailable`, `NotReached`, `DecisionFailed`, null-seam physical
+  rendering, and intentionally passless raw-IR rendering have no
+  classic outcome.
   `DecompilerResult` takes outcome only from its own stage state, never
   from `MetadataBodyProjection.CapturedDecision`. Its hand-written
   `Equals` and `GetHashCode` include outcome presence, decline reason,
@@ -443,19 +480,24 @@ provenance, and unchanged non-classic line/offset output.
 
 The declaration rule uses the exact facts:
 
-| Metadata fact | Projection outcome | Declaration `async` |
+| Metadata fact | Resolved/body stage state | Declaration `async` |
 | --- | --- | --- |
 | Any classification | `Bodyless` | `false`; declaration/skeleton only |
-| `RuntimeAsync` | prepared or failed | Preserve metadata `true` |
-| `IsClassicAsync = Yes` | preparation failed | Preserve metadata `true`; body is visibly failed |
-| `IsClassicAsync = Yes` | `Reconstructed` | `true` |
-| `IsClassicAsync = Yes` | `Declined` | `false` (successful render carries marker; failed render is visible) |
-| `IsClassicAsync = Yes` | `NotClassic` | Invalid; fail the gate |
-| Async iterator (`StateMachineAsync`, `IsClassicAsync = No`) | `NotClassic` | Preserve current `false` |
-| Other | `NotClassic` | `false` |
+| `RuntimeAsync` | Any body-bearing state or failure | Preserve metadata `true` |
+| `IsClassicAsync = Yes` | Body-bearing address/import failure with no stage | Preserve metadata `true`; failure is visible |
+| `IsClassicAsync = Yes` | `Unavailable(ImportInternalError)` | Preserve metadata `true`; DEC0001/importer marker is visible |
+| `IsClassicAsync = Yes` | failed `NotReached` or `DecisionFailed` | Preserve metadata `true`; failure is visible |
+| `IsClassicAsync = Yes` | prepared or failed `Decided(Reconstructed)` | `true` |
+| `IsClassicAsync = Yes` | prepared or failed `Decided(Declined)` | `false`; a successful render carries the classic marker |
+| `IsClassicAsync = Yes` | `Decided(NotClassic)` | Invalid; fail the gate |
+| Async iterator (`StateMachineAsync`, `IsClassicAsync = No`) | Any body-bearing state or failure | Preserve current `false` |
+| Other | Any body-bearing state or failure | `false` |
 
 This preserves runtime-async methods whose awaiter recovery declined.
-It also keeps async iterators out of the classic contract.
+It also keeps async iterators out of the classic contract. Stage-local
+state takes precedence over the carrier's success/failure status:
+post-classic failure cannot move `Decided(Declined)` back into the
+generic preparation-failure row.
 
 `TypeShellProducer.RequiresAsyncBodyModifier` is true for
 `StateMachineAsync` plus `HasAsyncStateMachineAttribute`, including
@@ -623,15 +665,17 @@ Slice 0 ships **no new accepted raise**. It changes how a declined
 kickoff is presented, and it stops erasing in-domain `MoveNext` in
 the decompiler library and corpus.
 
-1. **Declaration `async` follows classification plus the canonical
-   `ClassicAsyncOutcome`.** MemberCodeProvider declarations, public
+1. **Declaration `async` follows classification plus stage-local
+   classic state.** MemberCodeProvider declarations, public
    typed-body production, whole-member composition, and whole-type
    listings use the table in
    [Where `async` is actually stamped](#where-async-is-actually-stamped).
    Runtime-async keeps its metadata `async`, including when recovery
-   declines. A classic `Declined` body loses `async` only together with
-   the marker. `NotClassic` is impossible only when
-   `IsClassicAsync = Yes`; it is required for async iterators.
+   declines. A classic `Decided(Declined)` body loses `async` even if a
+   later pass failed; its outcome is already stage-local. An unavailable
+   DEC0001 import has no classic outcome and preserves metadata `async`
+   with its existing importer marker. `NotClassic` is impossible only
+   when `IsClassicAsync = Yes`; it is required for async iterators.
    `Bodyless` has no classic outcome and stays a declaration/skeleton
    without `async`, even if malformed metadata carries an async
    attribute.
@@ -681,11 +725,15 @@ the decompiler library and corpus.
    on the default API surface, so whole-type listings do not print
    a second copy of `MoveNext`. Do not reserve a listing-filter
    slice for a non-problem.
-6. **One hop.** An async local-function `MoveNext` maps to that
+6. **One hop and fresh foreign-function context.** An async
+   local-function `MoveNext` maps to that
    local function's stub, not the owning method. A prepared outer
-   decision is never inherited by that nested pipeline: its derived
-   context resets the decision to `None`, so the local function gets
-   its own identity, decision, marker/body, and outcome.
+   decision is never inherited by any foreign-function pipeline: the
+   central execution entry always derives a context and resets the
+   directive to `None`, including when stepping is disabled. Local
+   functions, lambdas, and reducible/foreach iterator `MoveNext`
+   pipelines each get their own identity, decision, marker/body, and
+   outcome.
 7. **Every metadata-addressed declared source-body path uses one front
    door.**
    MemberCodeProvider, direct Research, Research queries,
@@ -714,9 +762,9 @@ the decompiler library and corpus.
    remain a handle-free function sweep because the pass uses its
    function plus sibling-import context.
 
-A concrete observation that would falsify slice 0: any
-successfully prepared `IsClassicAsync` body is neither reconstructed nor
-visibly marked; a non-narrow body's original statement disappears; a
+A concrete observation that would falsify slice 0: any healthy-import
+successfully prepared `IsClassicAsync` body is neither reconstructed
+nor visibly marked; a non-narrow body's original statement disappears; a
 declined classic declaration still says `async`; a declined
 runtime-async method loses its metadata `async`; any declared
 source-body artifact disagrees on outcome; a Fact Row anchor refers to
@@ -726,11 +774,15 @@ loses companion type facts or aliases mutable snapshot state; an outer
 decision reaches a nested function; a bodyless member loses its existing
 visible absence signal, gains C# body output, a marker or modifier, or
 becomes an inspected Body Shape; a null import counts as inspected; an
-imported DEC0001 crash function is erased from a render surface or
-counted as inspected by Body Shape; a nonfatal import diagnostic falls
-outside the union; a stage inherits an outcome captured only by another
-stage; a post-import non-DEC0001 stage failure does not count as
-inspected; the physical C# diff imports a companion body; a stage,
+imported DEC0001 crash function is erased from a render surface,
+counted as inspected by Body Shape, assigned a classic outcome/marker,
+or loses metadata `async`; a nonfatal import diagnostic falls outside
+the union; a stage inherits an outcome captured only by another stage;
+a post-classic failure changes the modifier selected by its retained
+outcome; a post-import non-DEC0001 stage failure does not count as
+inspected; a parent directive reaches a reducible or foreach iterator
+foreign-function pipeline; the physical C# diff imports a companion
+body; a stage,
 corpus, or harness render differs from prepared Raised output for the
 same classic fixture; an in-domain library `MoveNext` still lacks
 distinctive user logic; or an async-iterator `MoveNext` is no longer
@@ -765,7 +817,7 @@ another raise. Do not invent more `TryBuild*` methods.
 
 | Slice | Claim | Residual after it |
 | --- | --- | --- |
-| 0. Honesty | Add SRM `IsClassicAsync`, structured exact-or-selector addressing with resolved `Bodyless`, Decompiler-owned `MetadataBodyProjectionResult`, detached function snapshots, complete classic application values, and typed body carriers. `ClassicAsyncReconstructionPass` remains the single decision implementation: the projector captures/replays one decision across top-level stages, nested contexts reset it, and seam-enabled stage/corpus/harness runs recognize through the same pass. Every declared source-body path canonicalizes through the front door; seam-free physical evidence remains separate. Every classic decline gets a marker: replace exact narrow handoff; prepend while preserving a non-narrow body. Correlate Debug class allocation and void `Return(null)`. Leave legacy raise eligibility unchanged. Stop hollowing in-domain `MoveNext`; library + corpus A/B. | #4472 fixture still declined, but honest. Debug class SMs are honest but not raised. Async-iterator `MoveNext` still hollow. Custom builders visibly decline with preserved bodies. Bodyless members remain absent/declaration-only. Physical C# diff remains MethodDef-scoped and seam-free. No trusted Metadata/Analysis lift. |
+| 0. Honesty | Add SRM `IsClassicAsync`, structured exact-or-selector addressing with resolved `Bodyless`, Decompiler-owned `MetadataBodyProjectionResult`, detached function snapshots, complete classic application values, and typed body carriers. `ClassicAsyncReconstructionPass` remains the single decision implementation: the projector captures/replays one decision across top-level stages, import-internal-error crash functions remain outcome-unavailable, and one foreign-function pipeline entry always resets the parent directive. Seam-enabled stage/corpus/harness runs use the same pass. Every declared source-body path canonicalizes through the front door; seam-free physical evidence remains separate. Every healthy classic decline gets a marker: replace exact narrow handoff; prepend while preserving a non-narrow body. Correlate Debug class allocation and void `Return(null)`. Leave legacy raise eligibility unchanged. Stop hollowing in-domain `MoveNext`; library + corpus A/B. | #4472 fixture still declined, but honest. Debug class SMs are honest but not raised. Async-iterator `MoveNext` still hollow. Custom builders visibly decline with preserved bodies. Bodyless members remain absent/declaration-only. Importer crash markers and metadata modifiers remain unchanged. Physical C# diff remains MethodDef-scoped and seam-free. No trusted Metadata/Analysis lift. |
 | 1. Void-await then statements then return | Accept `await Task.Yield(); return ReadValue(value);` as the first inverse raise from `AwaitPoints` + `UserRegions`, not as a new `TryBuild*` and not as a `HasUnexpectedStore` allow-list tweak. Must consume void `GetResult` as a statement, following statements, a non-await `SetResult` operand, the Yield operand temp, and an explicit `LoadLocalAddress` decline-then-remap. Hoisted parameter binding is already present. The smaller `await Task.Yield();` (no later statements) is the accepted boundary of the same slice. Blocked until the Correct measurement exists. | General multi-state dispatch, class SM, custom awaiters, structural Metadata descriptor, census-defined raises. |
 
 ## Proof obligations (every raise slice)
@@ -827,8 +879,8 @@ another raise. Do not invent more `TryBuild*` methods.
 | Frozen import diagnostics / DEC0001 observation | Decompiler `MetadataBodyProjector` at importer return |
 | Complete root snapshot clone | Decompiler `IrFunctionSnapshot` |
 | Shared cross-stage replay authority | Decompiler `MetadataBodyProjection` + `PassContext`, scoped to one top-level prepared host |
-| Stage-local decision/outcome state | Decompiler `StageBodyProjection` |
-| Nested decision reset | Decompiler `PassContext.NestedPipelineContext` |
+| Stage-local decision/outcome/unavailable state | Decompiler `StageBodyProjection` |
+| Foreign-function execution and classic-directive reset | Decompiler `PassContext.RunForeignFunctionPipeline` |
 | Canonical classic projection | Decompiler stage snapshots + `NotClassic` / `Reconstructed` / `Declined` |
 | Public typed-body carrier | Decompiler `MemberBodyProductionResult` |
 | Whole-type body/outcome carrier | Decompiler internal `DecompiledBodyProjection` |
@@ -848,27 +900,28 @@ predicate. They must not assume current kickoffs are Full.
 
 | Gate | Surface | Fails if |
 | --- | --- | --- |
-| Exact async population matrix | Metadata + Decompiler tests | Async iterator is rejected as invalid `NotClassic`, or custom classic builder escapes visible `Declined` |
+| Exact async population matrix | Metadata + Decompiler tests | Async iterator is rejected as invalid `NotClassic`; custom classic builder escapes visible `Declined`; or a DEC0001 crash function is forced into `NotClassic`, `Reconstructed`, or `Declined` instead of `Unavailable` |
 | Canonical front-door architecture | Source-architecture test `MetadataAddressedBodyProjectionUsesCanonicalFrontDoor` | Product-consumer references outside `CSharpPrinter` / pass definitions to any body-emitting printer API or direct top-level `IrPasses.Run*` differ from the complete set: `MetadataBodyProjector` / `PreparedStageBody`, seam-free `CSharpBodyDiff`, and canonical-stage `PipelineStages` |
 | Body-status policy ownership | Source-architecture test `DeclaredSourceBodyStatusUsesProjector` | A declared-source consumer uses RVA/`HasBody`/null import to choose `Bodyless` versus import/preparation/render or to map that state to a carrier; the exact retained body-reference manifest differs, or any named migration site remains |
 | Exact/selector address parity | Decompiler projector + existing `ClassicAsyncWithoutAwait_UsesResolvedMethodBodyModifier` valid/stale-token rows + bodyless overload ordinal | A resolvable selector bypasses the projector, resolves a different MethodDef, drops a bodyless method from ordinal counting, or differs from exact-address classification/state/outcome/render; unresolved selection becomes plausible output |
 | Resolved bodyless lifecycle | Decompiler + `RenderStyleConfigTests.NoBodyMethod_ProducesResultWithoutOutput_SoNoStyledSource` + `FidelityCauseSectionTests.BuildInspection_DistinguishesNoBodyFromImporterFailure` + `AnnotatedSourceDocumentProjectionTests.BodylessMemberDocumentFailureKeepsSiblingProjection` + whole-member/type + Body Shape | Exact/selector bodyless results differ; typed body is not `Absent` with its existing absence diagnostic; CLI/Research loses its existing visible absence failure, emits C# body output, marks style consumed, or changes Fidelity Causes from `Absent`; a marker or modifier appears; whole-member is not `Complete` declaration-only text; whole-type is not diagnostic-free declaration-only; Body Shape counts it as inspected/incomplete/failure |
 | Import observation totality | Decompiler projector tests with clean, nonfatal DEC0004/DEC0005, DEC0001 crash-function, and null-import seams | A non-null function is not `Imported`; import-time diagnostics change after a pass; `HasInternalError` is inferred from later diagnostics; or a null import has a stage |
-| Importer-crash cross-surface preservation | Existing `CommandExecutionTests.Member_SelectedOverload_SelectFidelityCauses_ImporterCrashIsFailed` plus CLI Decompiled Source/style latch, public typed body, whole-member/type, and Body Shape rows over one malformed fixture | The crash marker/DEC0001 disappears; CLI output ceases to be a successful body render or style consumption changes; Fidelity Causes ceases to be `Failed`; `ProduceBody` ceases to be `Complete`; whole-member ceases to fail; whole-type loses the marker body; or Body Shape increments `MethodsInspected` |
+| Importer-crash cross-surface preservation | Existing `CommandExecutionTests.Member_SelectedOverload_SelectFidelityCauses_ImporterCrashIsFailed` plus CLI Decompiled Source/style latch, public typed body, whole-member/type, and Body Shape rows over one malformed classic-classified fixture | The crash marker/DEC0001 disappears; CLI output ceases to be a successful body render or style consumption changes; Fidelity Causes ceases to be `Failed`; `ProduceBody` ceases to be `Complete`; whole-member ceases to fail; whole-type loses the marker body; Body Shape increments `MethodsInspected`; the stage is not `Unavailable`; a classic outcome/marker is added; or metadata `async` is omitted |
 | Complete classic application replay | Decompiler pass/projector tests with accepted interface-fact + declined diagnostic fixtures | A second prepared stage recognizes again; supplied replay differs in body, local state, type facts, diagnostics, provenance/fidelity, modifier state, or outcome; a supplied decision applies to a different kickoff |
-| Stage-local decision state | Decompiler projector tests with injected pre-classic, in-classic, and post-classic failures in both Raised-first and Lowered-first order | `Prepared` lacks `Decided`; a pre-pass failure acquires another stage's later outcome; recognition/application or supplied-identity failure is not `DecisionFailed`; a post-pass failure loses its own decision/outcome; or two `Decided` stages disagree with shared replay authority |
+| Stage-local classic state | Decompiler projector tests with a frozen DEC0001 import and injected pre-classic, in-classic, and post-classic failures in both Raised-first and Lowered-first order | A healthy `Prepared` stage lacks `Decided`; a DEC0001 `Prepared` stage is not `Unavailable` or acquires a captured decision; a pre-pass failure acquires another stage's later outcome; recognition/application or supplied-identity failure is not `DecisionFailed`; a post-pass failure loses its own decision/outcome; or two `Decided` stages disagree with shared replay authority |
 | Snapshot clone isolation | Decompiler snapshot/render tests with diagnostic-producing fixture | Mutating one render clone changes a prepared snapshot, another stage/render, diagnostics, local state, type facts, or outcome |
-| Nested decision scope | Decompiler pass/projector test with compiler-produced classic async local function/lambda | Outer supplied decision reaches a nested pipeline, nested identity validation fails against the outer kickoff, or nested marker/body/outcome is attributed to the outer decision |
-| Prepared/canonical pipeline parity | `PipelineStageTests.DumpMethod_FinalCSharp_IsTheShippedProductOutput` with compiler-produced reconstructed + declined fixtures | Terminal seam-enabled stage C# or outcome differs from prepared Raised output |
+| Foreign-function decision scope | Decompiler pass/projector tests with compiler-produced classic async local function/lambda plus reducible and foreach iterator paths, each at Raised and Lowered stages | An outer supplied/unavailable directive reaches a foreign-function pipeline; non-stepping execution returns the parent context; nested identity validation fails against the outer kickoff; or nested marker/body/outcome is attributed to the outer decision |
+| Foreign-function pipeline architecture | Source-architecture test over product pass-run sites | Any pass list runs over a separately imported function outside `PassContext.RunForeignFunctionPipeline`, or a direct foreign-function `IrPasses.Run` site appears |
+| Prepared/canonical pipeline parity | `PipelineStageTests.DumpMethod_FinalCSharp_IsTheShippedProductOutput` with compiler-produced reconstructed + declined fixtures and a malformed importer-crash fixture | Terminal seam-enabled stage C# or outcome presence/value differs from prepared Raised output |
 | Corpus/harness classic policy | Decompiler harness contract tests + `CorpusSensor` classic profile | Handle-free sweep or fidelity/validity/render A/B bypasses the pass, misses a decline marker, or loses an accepted reconstruction |
 | Declined classic body, narrow and non-narrow | Five CLI code views + public typed body + whole-type | Render lacks the unsupported marker comment |
 | Same declined classic body | CLI Fidelity Causes | Lacks DEC0004 |
 | Non-narrow classic body with extra call/store | Five CLI code views + public typed body + whole-type | Any original statement disappears |
-| Declaration modifier by exact classic outcome | CLI declarations + public typed body + whole-member/whole-type | `Declined` still says `async`, `Reconstructed` omits it, `IsClassicAsync` yields `NotClassic`, or an async iterator is treated as classic |
+| Declaration modifier by stage-local classic state | CLI declarations + public typed body + whole-member/whole-type with prepared and post-classic-failed `Reconstructed`/`Declined`, pre-classic failure, and unavailable importer-crash rows | `Decided(Declined)` still says `async`; `Decided(Reconstructed)` omits it; post-classic carrier failure changes either decision's modifier; `Unavailable` or pre-classic failure loses metadata `async`; `IsClassicAsync` yields `NotClassic`; or an async iterator is treated as classic |
 | Canonical outcome across member artifacts | CLI + direct `ResearchViews.ProjectMember` + Research queries | Views disagree, Source Document reimports, or an overlay without an import seam recomputes the machine |
 | Raised/Lowered Research contract | Annotated Source + Annotated Source Document | Stage snapshots recompute the outcome or unsupported stage preparation falls back to raw unmarked kickoff |
 | Fact Row source-line identity | Direct Research + CLI Facts | C# lines are mapped against a separately raised function |
-| Address/bodyless/import/stage/render union | Decompiler + CLI + Research + whole-type + Body Shape accounting | `AddressFailed`, `Bodyless`, null `ImportFailed`, imported diagnostics, and stage-local failure states collapse; null import counts as inspected; DEC0001 import counts as inspected; nonfatal import does not; a failure has a success-shaped outcome/body; or stage/render failure drops its own captured outcome |
+| Address/bodyless/import/stage/render union | Decompiler + CLI + Research + whole-type + Body Shape accounting | `AddressFailed`, `Bodyless`, null `ImportFailed`, imported diagnostics, `Unavailable`, and stage-local failure states collapse; null import counts as inspected; DEC0001 import counts as inspected; nonfatal import does not; an unavailable or pre-decision failure has a success-shaped outcome; or post-decision stage/render failure drops its own captured outcome |
 | Declined runtime-async fixture | CLI declarations + public typed body + whole-member/whole-type | Loses metadata `async` |
 | Debug class narrow handoff | Decompiler library | Correlated `StoreLocal(NewObject(SM::.ctor))` prevents recognition |
 | Async-void narrow handoff | Decompiler library | Terminal `Return(null)` prevents recognition |
@@ -907,9 +960,11 @@ current accepted reconstruction and one visible decline; extending the
 existing non-async-only stage test without those fixtures is vacuous.
 Dropping a function-state field from application replay must fail the
 complete-application or clone-isolation gate. Reusing a supplied
-top-level decision in `NestedPipelineContext` must fail the nested
-classic fixture. Removing selector canonicalization must fail the
-stale-token row, not silently retain a direct printer branch.
+top-level directive in any foreign-function pipeline must fail the
+local/lambda and iterator fixtures at both stages. Bypassing
+`RunForeignFunctionPipeline` must independently fail the architecture
+inventory. Removing selector canonicalization must fail the stale-token
+row, not silently retain a direct printer branch.
 Collapsing `Bodyless` into `ImportFailed`, a failed stage, `NotClassic`,
 or a consumer-side RVA precheck must fail exact/selector bodyless parity
 and all three surface dispositions. Adding a consumer-side body-status
@@ -948,7 +1003,7 @@ The post-migration retained manifest is exhaustive:
 | `IlProjection` | 2 | Explicit physical IL projection |
 | `ConstructorConfinementFacts` | 2 | Raw constructor-body proof |
 | `CSharpBodyDiff` | 6 | Explicit seam-free physical body inventory/decode |
-| `ResearchDiff.MethodBodyProvider` | 2 | Physical IL diff decode |
+| `ResearchDiff.MethodBodyLookup.TryDecode` | 2 | Physical IL diff decode |
 | `ImplementationDiff` | 3 | Two-sided physical-body comparability |
 | `AppContextSwitchProjectionProducer` | 1 | Analysis over `MethodBodySource` bodies |
 | `MemberBodyProducer.AccessorReferencesBackingField` | 2 | Raw-IL backing-field proof |
