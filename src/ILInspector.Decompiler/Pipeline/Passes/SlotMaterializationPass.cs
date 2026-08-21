@@ -13,9 +13,13 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <see cref="LoadStackSlot"/> nodes stop reaching the printer. What remains
 /// on slots is the counted residual the printer's unifier still owns:
 /// ambiguous testimony, cross-family (true disjoint ranges), and nested-body
-/// scopes (this increment materializes function-scope slots only). The
-/// terminus is C2: when the residual census reaches zero, the print-time
-/// unifier deletes cleanly.
+/// scopes (this increment materializes function-scope slots only). Direct
+/// slot-copy webs retire as one connected component only when every member is
+/// independently decided; an undecided member keeps the whole component on
+/// slots. The terminus is C2: when the residual census reaches zero, the
+/// print-time unifier deletes cleanly. The component boundary is gated by
+/// <c>MaterializesCompleteDirectCopyComponent</c> and
+/// <c>DefersWholeDirectCopyComponentWhenOneSlotIsUndecided</c>.
 /// </summary>
 public sealed class SlotMaterializationPass : IIrPass
 {
@@ -125,16 +129,17 @@ public sealed class SlotMaterializationPass : IIrPass
                     && CoercionSinks.StoreElementTarget(element, function.TypeShapes) is { } elementTarget
                     && !elementTarget.Equals(slotType)))
                 continue;
-            // A slot whose store copies from another slot stays deferred:
-            // materializing one end of a slot-to-slot copy defeats the
-            // printer's copy folding (`switch ((uint)S_256)` gained an
-            // intermediate `long S_0 = S_256;`). It materializes when its
-            // source does — a later increment's coupled-component walk.
-            if (slotStores.Any(store => store.Value is LoadStackSlot))
-                continue;
-
             decided.Add((slot, slotType, slotStores, slotLoads));
         }
+
+        // A direct slot copy couples the source and destination identities.
+        // Rewriting only one end defeated the printer's copy folding in 5b-2.
+        // Retire a whole connected component only when every member already
+        // cleared the independent type, scope, and rendering gates above.
+        var decidedSlots = CompleteCopyComponents(
+            stores,
+            decided.Select(candidate => candidate.Slot));
+        decided.RemoveAll(candidate => !decidedSlots.Contains(candidate.Slot));
 
         // Two-phase rewrite (review: CRITICAL clone-orphaning): replace ALL
         // loads across ALL decided slots first — in-place subtree mutation
@@ -162,6 +167,56 @@ public sealed class SlotMaterializationPass : IIrPass
                 context.Stepper.StepOver($"materialize slot {slot} store as local {indices[slot]}", store);
                 store.ReplaceWith(new StoreLocal(indices[slot], slotType, (IrExpression)store.Value.Clone()));
             }
+        }
+
+        static HashSet<int> CompleteCopyComponents(
+            IReadOnlyDictionary<int, List<StoreStackSlot>> stores,
+            IEnumerable<int> individuallyDecidedSlots)
+        {
+            var decided = individuallyDecidedSlots.ToHashSet();
+            var graph = new Dictionary<int, HashSet<int>>();
+
+            HashSet<int> Neighbors(int slot)
+                => graph.TryGetValue(slot, out var neighbors)
+                    ? neighbors
+                    : graph[slot] = [];
+
+            foreach (var (destination, slotStores) in stores)
+            {
+                foreach (var source in slotStores
+                    .Select(store => store.Value)
+                    .OfType<LoadStackSlot>())
+                {
+                    Neighbors(destination).Add(source.Slot);
+                    Neighbors(source.Slot).Add(destination);
+                }
+            }
+
+            var visited = new HashSet<int>();
+            foreach (int seed in graph.Keys)
+            {
+                if (!visited.Add(seed))
+                    continue;
+
+                var component = new HashSet<int> { seed };
+                var pending = new Stack<int>();
+                pending.Push(seed);
+                while (pending.TryPop(out int slot))
+                {
+                    foreach (int neighbor in graph[slot])
+                    {
+                        if (!visited.Add(neighbor))
+                            continue;
+                        component.Add(neighbor);
+                        pending.Push(neighbor);
+                    }
+                }
+
+                if (!component.All(decided.Contains))
+                    decided.ExceptWith(component);
+            }
+
+            return decided;
         }
     }
 }

@@ -11,6 +11,31 @@ namespace tsbindgen;
 /// </summary>
 static class TsTypeMapper
 {
+    public static bool IsAsyncReturnType(string csharpType)
+    {
+        string trimmed = csharpType.Trim();
+        return TryUnwrapGeneric(trimmed, "System.Threading.Tasks.Task", out _)
+            || TryUnwrapGeneric(trimmed, "Task", out _)
+            || TryUnwrapGeneric(trimmed, "System.Threading.Tasks.ValueTask", out _)
+            || TryUnwrapGeneric(trimmed, "ValueTask", out _)
+            || trimmed is "System.Threading.Tasks.Task" or "Task"
+                or "System.Threading.Tasks.ValueTask" or "ValueTask";
+    }
+
+    public static bool IsJsonEnvelopeReturnType(string csharpType)
+    {
+        string trimmed = csharpType.Trim();
+        if (trimmed is "string" or "System.String")
+            return true;
+
+        return ((TryUnwrapGeneric(trimmed, "System.Threading.Tasks.Task", out string? taskArg)
+                    || TryUnwrapGeneric(trimmed, "Task", out taskArg))
+                && taskArg!.Trim() is "string" or "System.String")
+            || ((TryUnwrapGeneric(trimmed, "System.Threading.Tasks.ValueTask", out string? valueTaskArg)
+                    || TryUnwrapGeneric(trimmed, "ValueTask", out valueTaskArg))
+                && valueTaskArg!.Trim() is "string" or "System.String");
+    }
+
     public static string MapReturnType(
         string csharpType,
         IReadOnlySet<string> recordNames,
@@ -59,24 +84,8 @@ static class TsTypeMapper
         string trimmed = csharpType.Trim();
         string dtoType = Map(wireDtoName, recordNames, diagnostics, location);
 
-        if ((TryUnwrapGeneric(trimmed, "System.Threading.Tasks.Task", out string? taskArg)
-                || TryUnwrapGeneric(trimmed, "Task", out taskArg))
-            && taskArg!.Trim() is "string" or "System.String")
-        {
-            return $"Promise<{dtoType}>";
-        }
-
-        if ((TryUnwrapGeneric(trimmed, "System.Threading.Tasks.ValueTask", out string? valueTaskArg)
-                || TryUnwrapGeneric(trimmed, "ValueTask", out valueTaskArg))
-            && valueTaskArg!.Trim() is "string" or "System.String")
-        {
-            return $"Promise<{dtoType}>";
-        }
-
-        if (trimmed is "string" or "System.String")
-        {
-            return dtoType;
-        }
+        if (IsJsonEnvelopeReturnType(trimmed))
+            return IsAsyncReturnType(trimmed) ? $"Promise<{dtoType}>" : dtoType;
 
         return MapReturnType(csharpType, recordNames, diagnostics, location);
     }

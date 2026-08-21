@@ -26,6 +26,9 @@ static partial class DtsEmitter
         foreach (ApiType record in surface.Records.OrderBy(r => r.Name, StringComparer.Ordinal))
             EmitRecord(sb, record, knownTypeNames, diagnostics);
 
+        sb.Append(
+            "export declare function initializeEngine(onStatus?: (status: string) => void): Promise<unknown>;\n");
+
         foreach (JsExportFunction function in surface.Functions.OrderBy(f => f.Name, StringComparer.Ordinal))
             EmitFunction(sb, function, knownTypeNames, diagnostics);
 
@@ -102,7 +105,7 @@ static partial class DtsEmitter
             $"{CamelCase.FromPascalCase(p.Name)}: {TsTypeMapper.MapParameterType(p.Type, knownTypeNames, diagnostics, $"{function.Name}.{p.Name}")}");
 
         sb.Append("export declare function ")
-          .Append(function.Name)
+          .Append(CamelCase.FromPascalCase(function.Name))
           .Append('(')
           .Append(string.Join(", ", parameters))
           .Append("): ")

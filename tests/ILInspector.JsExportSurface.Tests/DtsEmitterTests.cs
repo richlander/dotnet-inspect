@@ -69,24 +69,28 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
-    public void Emit_DeclaresFunctionsWithVerbatimNamesAndPromiseReturnTypes()
+    public void Emit_DeclaresWrapperFunctionsWithCamelCaseNamesAndPromiseReturnTypes()
     {
         string dts = EmitFixtureDts();
 
         Assert.Contains(
-            "export declare function GetWidget(name: string, count: number): string;",
+            "export declare function getWidget(name: string, count: number): string;",
             dts,
             StringComparison.Ordinal);
         Assert.Contains(
-            "export declare function GetWidgetAsync(name: string): Promise<string>;",
+            "export declare function getWidgetAsync(name: string): Promise<string>;",
             dts,
             StringComparison.Ordinal);
         Assert.Contains(
-            "export declare function Ping(): Promise<void>;",
+            "export declare function ping(): Promise<void>;",
             dts,
             StringComparison.Ordinal);
         Assert.Contains(
-            "export declare function QueryPackage(packageId: string): string;",
+            "export declare function queryPackage(packageId: string): string;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function initializeEngine(onStatus?: (status: string) => void): Promise<unknown>;",
             dts,
             StringComparison.Ordinal);
     }
@@ -97,11 +101,11 @@ public sealed class DtsEmitterTests
         string dts = EmitFixtureDts();
 
         Assert.Contains(
-            "export declare function GetWidget(name: string, count: number): string;",
+            "export declare function getWidget(name: string, count: number): string;",
             dts,
             StringComparison.Ordinal);
         Assert.Contains(
-            "export declare function GetWidgetAsync(name: string): Promise<string>;",
+            "export declare function getWidgetAsync(name: string): Promise<string>;",
             dts,
             StringComparison.Ordinal);
     }
@@ -112,7 +116,7 @@ public sealed class DtsEmitterTests
         string dts = EmitFixtureDtsWithWireContracts();
 
         Assert.Contains(
-            "export declare function GetWidget(name: string, count: number): WidgetDto;",
+            "export declare function getWidget(name: string, count: number): WidgetDto;",
             dts,
             StringComparison.Ordinal);
     }
@@ -123,7 +127,7 @@ public sealed class DtsEmitterTests
         string dts = EmitFixtureDtsWithWireContracts();
 
         Assert.Contains(
-            "export declare function GetWidgetAsync(name: string): Promise<WidgetDto>;",
+            "export declare function getWidgetAsync(name: string): Promise<WidgetDto>;",
             dts,
             StringComparison.Ordinal);
     }
@@ -134,8 +138,62 @@ public sealed class DtsEmitterTests
         string dts = EmitFixtureDtsWithWireContracts();
 
         Assert.Contains(
-            "export declare function Ping(): Promise<void>;",
+            "export declare function ping(): Promise<void>;",
             dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void JsEmitter_UsesTheDeclarationEmittersReturnShapeClassification()
+    {
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Functions =
+            [
+                new()
+                {
+                    DeclaringType = "FixtureExports",
+                    Name = "GetTaskInfo",
+                    ReturnType = "TaskInfo",
+                },
+                new()
+                {
+                    DeclaringType = "FixtureExports",
+                    Name = "Ping",
+                    ReturnType = "void",
+                    ReturnWireType = "WidgetDto",
+                },
+                new()
+                {
+                    DeclaringType = "FixtureExports",
+                    Name = "QueryWidget",
+                    ReturnType = "System.Threading.Tasks.Task<string>",
+                    ReturnWireType = "WidgetDto",
+                },
+            ],
+        };
+
+        string js = JsEmitter.Emit(surface);
+
+        Assert.Contains(
+            "export function getTaskInfo()",
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function ping()",
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "return pingExport();",
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export async function queryWidget()",
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "const result = await queryWidgetExport();\n  return JSON.parse(result);",
+            js,
             StringComparison.Ordinal);
     }
 
@@ -145,7 +203,7 @@ public sealed class DtsEmitterTests
         string dts = EmitFixtureDtsWithWireContracts();
 
         Assert.Contains(
-            "export declare function RenameWidget(widgetJson: string, newName: string): WidgetDto;",
+            "export declare function renameWidget(widgetJson: string, newName: string): WidgetDto;",
             dts,
             StringComparison.Ordinal);
     }
@@ -156,7 +214,7 @@ public sealed class DtsEmitterTests
         string dts = EmitFixtureDtsWithWireContracts();
 
         Assert.Contains(
-            "export declare function GetWidgetArray(): WidgetDto[];",
+            "export declare function getWidgetArray(): WidgetDto[];",
             dts,
             StringComparison.Ordinal);
     }
@@ -167,7 +225,7 @@ public sealed class DtsEmitterTests
         string dts = EmitFixtureDtsWithWireContracts();
 
         Assert.Contains(
-            "export declare function GetWidgetOrOwner(wantOwner: boolean): string;",
+            "export declare function getWidgetOrOwner(wantOwner: boolean): string;",
             dts,
             StringComparison.Ordinal);
     }

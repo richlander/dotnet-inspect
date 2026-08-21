@@ -121,7 +121,14 @@ public sealed partial class CSharpPrinter
                 : $"({string.Join(", ", lambda.Parameters.Select(p => CSharpNaming.ContainedIdentifier(p.Name)))})";
 
         if (lambda.ExpressionBody is { } expr)
+        {
+            if (_stackSlotTelemetry is not null
+                && NeedsNestedLambdaScope(lambda))
+            {
+                _ = LambdaBodyTextWithLocalScope(lambda);
+            }
             return LambdaConversionText(lambda, $"{parameters} => {ExpressionTreeBodyText(lambda, expr)}");
+        }
 
         int statementCount = lambda.Body.Blocks.SelectMany(b => b.Children).Count();
         if (LambdaReturnType(lambda) is { } fallbackReturnType
@@ -291,7 +298,12 @@ public sealed partial class CSharpPrinter
                 SkipLocalsInit = lambda.SkipLocalsInit,
             };
             function.CopyTypeFactsFrom(_function);
-            return new CSharpPrinter(function, _options, CurrentScopeNames()).PrintBody(function).Trim();
+            return new CSharpPrinter(
+                function,
+                _options,
+                CurrentScopeNames(),
+                _stackSlotTelemetry,
+                stackSlotTelemetryScope: lambda).PrintBody(function).Trim();
         }
         finally
         {
