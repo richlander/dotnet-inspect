@@ -614,12 +614,15 @@ test("typed settings panel owns its rendered control bindings", () => {
   const renderSettings =
     appSource.match(/function renderSettingsViewHtml\(\) \{[\s\S]*?\n}\n\nfunction renderGraphSource/)?.[0]
     ?? "";
+  const bindHomeEvents =
+    appSource.match(/function bindHomeEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
+    ?? "";
   assert.match(
     appSource,
-    /function bindSettingsPanelEvents\(\) \{\s*bindSettingsPanel\(document, \{\s*onClose: closeSettings,\s*onTasteClear: clearTaste,\s*onTasteToggle: toggleTaste,\s*onThemeSelect: setTheme,/);
+    /function bindSettingsPanelEvents\(\) \{\s*bindSettingsPanel\(document, \{\s*onClose: closeSettings,\s*onOpen: openSettings,\s*onTasteClear: clearTaste,\s*onTasteOpenToggle: \(\) => \{[\s\S]*state\.tasteOpen = !state\.tasteOpen;[\s\S]*render\(\);[\s\S]*\},\s*onTasteToggle: toggleTaste,\s*onThemeSelect: setTheme,/);
   assert.equal(
     appSource.match(/\bbindSettingsPanelEvents\b/g)?.length,
-    3);
+    4);
   assert.equal(
     appSource.match(/\bbindSettingsPanel\b/g)?.length,
     2);
@@ -629,9 +632,18 @@ test("typed settings panel owns its rendered control bindings", () => {
   assert.equal(
     renderSettings.match(/\bbindSettingsPanelEvents\(\)/g)?.length,
     1);
+  assert.equal(
+    bindHomeEvents.match(/\bbindSettingsPanelEvents\(\)/g)?.length,
+    1);
   assert.match(
     settingsPanelSource,
-    /export function bindSettingsPanel\([\s\S]*#settings-close[\s\S]*\.settings-seg\[data-theme\][\s\S]*\.settings-taste \[data-taste\][\s\S]*#settings-taste-clear[\s\S]*#taste-popover \[data-taste\][\s\S]*#taste-clear/);
+    /export function bindSettingsPanel\([\s\S]*#settings-close[\s\S]*#home-settings[\s\S]*#open-settings[\s\S]*#taste-btn[\s\S]*stopPropagation\(\)[\s\S]*\.settings-seg\[data-theme\][\s\S]*\.settings-taste \[data-taste\][\s\S]*#settings-taste-clear[\s\S]*#taste-popover \[data-taste\][\s\S]*#taste-clear/);
+  assert.doesNotMatch(
+    bindEvents,
+    /querySelector\("#(?:open-settings|taste-btn)"\)/);
+  assert.doesNotMatch(
+    bindHomeEvents,
+    /querySelector\("#home-settings"\)/);
   for (const selector of [
     "#settings-close",
     ".settings-seg[data-theme]",

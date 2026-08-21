@@ -671,8 +671,9 @@ open-package query parsing, and package selection dispatch.
 
 `src/settings-panel.ts` owns the Settings page and the decompiler "taste"
 popover it shares its style catalog with, including each surface's rendered DOM
-bindings. `dotnet-inspect.ts` still owns `state`, localStorage persistence, and
-the theme/taste/close effects, supplying those actions through typed callbacks.
+bindings and the home/workbench controls that open them. `dotnet-inspect.ts`
+still owns `state`, localStorage persistence, and the
+theme/taste/open/close effects, supplying those actions through typed callbacks.
 `test/settings-panel.test.ts` gates the mutually exclusive Settings and popover
 binding shapes, input validation, the style catalog's tier grouping,
 byte-divergent badges and checked state, the taste popover's active/default

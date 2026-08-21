@@ -3791,7 +3791,12 @@ function bindScopeBarEvents() {
 function bindSettingsPanelEvents() {
   bindSettingsPanel(document, {
     onClose: closeSettings,
+    onOpen: openSettings,
     onTasteClear: clearTaste,
+    onTasteOpenToggle: () => {
+      state.tasteOpen = !state.tasteOpen;
+      render();
+    },
     onTasteToggle: toggleTaste,
     onThemeSelect: setTheme,
   });
@@ -4130,11 +4135,6 @@ function bindEvents() {
   ensurePackageVersions(state.package);
   if (state.package?.isRuntimePack) ensureDotnetReleases();
   if (state.spotlightOpen) spotlight.bind(document, "modal");
-  document.querySelector("#taste-btn")?.addEventListener("click", event => {
-    event.stopPropagation();
-    state.tasteOpen = !state.tasteOpen;
-    render();
-  });
   document.querySelector("#share")?.addEventListener("click", share);
   document.querySelector("[data-graph-back]")?.addEventListener("click", popPlatformDrill);
   document.querySelector("#dismiss-notice")?.addEventListener("click", () => {
@@ -4152,7 +4152,6 @@ function bindEvents() {
   document.querySelector("#nav-forward")?.addEventListener("click", navForward);
   document.querySelector("#go-home")?.addEventListener("click", goHome);
   document.querySelector("#theme-toggle")?.addEventListener("click", toggleTheme);
-  document.querySelector("#open-settings")?.addEventListener("click", () => openSettings("workbench"));
   document.querySelector("#help")?.addEventListener("click", () => showToast("⌘K command · ⌘P / type to find a type · ⌘F filter · 1—5 lenses · ↑↓ types · Alt+←/→ back/forward · graph: wheel zoom, click node to open, +/− zoom, 0 fit, arrows pan"));
 }
 
@@ -5469,8 +5468,8 @@ function homeArtSvg() {
 
 function bindHomeEvents() {
   bindStatusBarEvents();
+  bindSettingsPanelEvents();
   document.querySelector("#home-theme")?.addEventListener("click", toggleTheme);
-  document.querySelector("#home-settings")?.addEventListener("click", () => openSettings("home"));
   document.querySelector("#dismiss-notice")?.addEventListener("click", () => {
     state.queryNotice = "";
     state.queryNoticeRetryAction = null;

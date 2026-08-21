@@ -22,9 +22,9 @@ class FakeElement {
     this.listeners.set(type, listeners);
   }
 
-  dispatch(type: string) {
+  dispatch(type: string, event: Event = {} as Event) {
     for (const listener of this.listeners.get(type) ?? []) {
-      listener({} as Event);
+      listener(event);
     }
   }
 }
@@ -55,7 +55,9 @@ class FakeRoot {
 function recordingActions(calls: string[]): SettingsPanelBindingActions {
   return {
     onClose: () => calls.push("close"),
+    onOpen: from => calls.push(`open:${from}`),
     onTasteClear: () => calls.push("clear"),
+    onTasteOpenToggle: () => calls.push("taste-open"),
     onTasteToggle: taste => calls.push(`taste:${taste}`),
     onThemeSelect: theme => calls.push(`theme:${theme}`),
   };
@@ -78,6 +80,33 @@ const styleOptions = [
   { id: "readable-locals", tier: "naming", title: "Readable local names", summary: "Synthesize readable local names.", oracle_endorsed: true },
   { id: "expanded-braces", tier: "layout", title: "Expanded braces", summary: "Always use braces." },
 ];
+
+test("settings bindings dispatch entry controls and contain taste clicks", () => {
+  const root = new FakeRoot();
+  const home = root.add("#home-settings", new FakeElement());
+  const workbench = root.add("#open-settings", new FakeElement());
+  const taste = root.add("#taste-btn", new FakeElement());
+  const propagation = { stopped: false };
+  const event = {
+    stopPropagation: () => {
+      propagation.stopped = true;
+    },
+  } as unknown as Event;
+  const calls: string[] = [];
+
+  bindSettingsPanel(
+    root as unknown as ParentNode,
+    recordingActions(calls));
+
+  assert.deepEqual(calls, []);
+  home.dispatch("click");
+  assert.deepEqual(calls, ["open:home"]);
+  workbench.dispatch("click");
+  assert.deepEqual(calls, ["open:home", "open:workbench"]);
+  taste.dispatch("click", event);
+  assert.deepEqual(calls, ["open:home", "open:workbench", "taste-open"]);
+  assert.equal(propagation.stopped, true);
+});
 
 test("settings bindings dispatch valid settings-page controls", () => {
   const root = new FakeRoot();
