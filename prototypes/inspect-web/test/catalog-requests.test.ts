@@ -35,6 +35,11 @@ function createHarness(
 ) {
   let platformUpdates = 0;
   const packageUpdates: string[] = [];
+  const platformUpdateSnapshots: Array<DotnetRelease[] | null> = [];
+  const packageUpdateSnapshots: Array<{
+    packageId: string;
+    versions: string[] | undefined;
+  }> = [];
   let releaseQueries = 0;
   const versionQueries: string[] = [];
   const dependencies: CatalogRequestDependencies = {
@@ -49,9 +54,14 @@ function createHarness(
     },
     updatePlatformVersionSelect: () => {
       platformUpdates++;
+      platformUpdateSnapshots.push(state.dotnetReleases);
     },
     updatePackageVersionSelect: packageId => {
       packageUpdates.push(packageId);
+      packageUpdateSnapshots.push({
+        packageId,
+        versions: state.packageVersions[packageId],
+      });
     },
     ...overrides,
   };
@@ -61,8 +71,14 @@ function createHarness(
     get packageUpdates() {
       return packageUpdates;
     },
+    get packageUpdateSnapshots() {
+      return packageUpdateSnapshots;
+    },
     get platformUpdates() {
       return platformUpdates;
+    },
+    get platformUpdateSnapshots() {
+      return platformUpdateSnapshots;
     },
     get releaseQueries() {
       return releaseQueries;
@@ -92,6 +108,7 @@ test("release requests cache rows and refresh the resident Platform selector", a
   assert.notEqual(state.dotnetReleases, rows);
   assert.equal(state.dotnetReleasesLoading, false);
   assert.equal(harness.platformUpdates, 1);
+  assert.deepEqual(harness.platformUpdateSnapshots, [rows]);
 });
 
 test("release completion does not refresh a non-Platform selector", async () => {
@@ -132,8 +149,12 @@ test("release requests deduplicate in-flight work and reuse cached rows", async 
 });
 
 test("release failures remain silent, clear loading, and allow retry", async () => {
+  const state = createState();
+  const runtime = { id: ".NET Platform", isRuntimePack: true };
+  state.package = runtime;
+  state.packages = [runtime];
   let queryCount = 0;
-  const harness = createHarness(createState(), {
+  const harness = createHarness(state, {
     queryDotnetReleases: async () => {
       queryCount++;
       if (queryCount === 1) throw new Error("offline");
@@ -151,6 +172,7 @@ test("release failures remain silent, clear loading, and allow retry", async () 
   assert.deepEqual(harness.state.dotnetReleases, [
     { major: 8, tfm: "net8.0", version: "8.0.20" },
   ]);
+  assert.equal(harness.platformUpdates, 1);
 });
 
 test("package requests ignore missing and Platform packages", async () => {
@@ -183,6 +205,10 @@ test("package requests normalize identity, sort versions, and refresh by identit
   );
   assert.equal(state.packageVersionsLoading["example.package"], false);
   assert.deepEqual(harness.packageUpdates, ["example.package"]);
+  assert.deepEqual(harness.packageUpdateSnapshots, [{
+    packageId: "example.package",
+    versions: ["10.0.0", "2.1.0", "2.0.0", "1.9.0"],
+  }]);
 });
 
 test("package requests deduplicate in-flight work and reuse cached versions", async () => {
