@@ -658,17 +658,19 @@ Product-resident home demos ship as a static id→factory registry
 peer records and requires a `ProductDemoSections` binding. Home demos are closed
 presets over the open query/section product: the registry fixes inputs and names
 **existing product section(s)** (`ProductDemoSections.ExpandRunSections` expands
-Call Graph presets to Call Graph + Callers so the closed set matches multi-package
-caller-scope companion behavior); the CLI host runs them through the normal
-type/member section pipelines (`DemoScenarioRunner` → `TypeCommand` /
-`MemberCommand`) and returns those sections in ordinary formats (including
-`--mermaid`). Demos must not call past sections into ad hoc inspection APIs; a
-capability that is not a product section is not a home demo until the section
-exists. CLI argv, definition plans, and browser engine operations (including a
-generated TypeScript binding of that engine surface) must be encodings of the
-same preset—not parallel demo systems. Residual: minted view-facet ids,
-`WorkspaceContextLoader` group run, inspect-web button convergence, and Call
-Graph structured-JSON projection (see workspace-definitions). Detail:
+Call Graph presets format-aware: Markdown keeps Call Graph + Callers;
+table/tsv/jsonl keep Callers alone so caller-scope re-add stays one section;
+mermaid keeps Call Graph; document JSON fails closed until graph projection
+lands); the CLI host runs them through the normal type/member section pipelines
+(`DemoScenarioRunner` → `TypeCommand` / `MemberCommand`) and returns those
+sections in ordinary formats. Demos must not call past sections into ad hoc
+inspection APIs; a capability that is not a product section is not a home demo
+until the section exists. CLI argv, definition plans, and browser engine
+operations (including a generated TypeScript binding of that engine surface)
+must be encodings of the same preset—not parallel demo systems. Residual:
+minted view-facet ids, `WorkspaceContextLoader` group run, inspect-web button
+convergence, and Call Graph structured-JSON projection (see
+workspace-definitions). Detail:
 [workspace-definitions.md — Product demos are closed section
 presets](design/workspace-definitions.md#product-demos-are-closed-section-presets).
 

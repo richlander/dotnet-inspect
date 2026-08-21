@@ -406,16 +406,20 @@ The product registry (`ProductInspectionDemos`) stays a static id→metadata
 table plus peer definition records lowered to a `ResolvedScenario`. Listing
 remains metadata-only. **Home demos now bind product section display names**
 through `ProductDemoSections` (today: `Methods` for STJ and platform List`1`;
-`Call Graph` primary bind for the extensions member, expanded at run to
-`Call Graph` + `Callers` via `ExpandRunSections` so the closed preset matches
-the multi-package `--caller-package` companion rule rather than under-declaring
-the runtime section set) and `ResolveHomeScenario` fails when a home demo omits
+`Call Graph` primary bind for the extensions member, expanded at run via
+`ExpandRunSections` / `DemoScenarioRunner` so the closed preset matches the
+multi-package `--caller-package` companion rule: Markdown keeps
+`Call Graph` + `Callers`; table/tsv/jsonl select `Callers` alone (MemberCommand
+re-adds Callers under caller scope, so Call Graph-only tabular silently fell
+back to a member inventory); standalone `--mermaid` keeps `Call Graph`;
+document `--json` fails closed for Call Graph demos until graph sections
+project into that payload. `ResolveHomeScenario` fails when a home demo omits
 `View.Section` or names a section outside that allow list
 (`ProductHomeDemos_AllBindKnownProductSections`,
-`ProductDemoSections_AreProductSectionNames`). Formats stay orthogonal on
-`demo` (including `--mermaid` for Call Graph demos; Methods demos reject
-standalone mermaid rather than falling through to the type shape tree). Full minted view-facet ids
-remain open ([Open questions](#open-questions) — view-facet registry binding).
+`ProductDemoSections_AreProductSectionNames`). Methods demos reject standalone
+mermaid rather than falling through to the type shape tree. Full minted
+view-facet ids remain open ([Open questions](#open-questions) — view-facet
+registry binding).
 **CLI run** lowers the resolved plan to `TypeCommand` / `MemberCommand` options
 (`DemoScenarioRunner`) so `dotnet-inspect demo <id>` returns ordinary section
 output from the existing pipelines; multi-package workspaces encode extra
@@ -962,11 +966,12 @@ Definition records and product demos (this slice):
   definitions;
 - `ProductDemoSections` is the closed allow list of product section display names
   home demos may select until minted view-facet ids land; `ExpandRunSections`
-  expands Call Graph binds to Call Graph + Callers;
+  expands Call Graph binds format-aware (Markdown: Call Graph + Callers;
+  table/tsv/jsonl: Callers);
 - CLI `demo list` / `demo <id>` (`DemoCommand` + `DemoScenarioRunner`) lists
   metadata and **runs** the bound section through `TypeCommand` /
   `MemberCommand` (not a resolve-only plan dump), with orthogonal formats
-  including `--mermaid`;
+  including `--mermaid` and fail-closed Call Graph `--json`;
 - `InspectionDefinitionTests` / `DemoCommandTests` gate round-trip, separation,
   demo-parity, section binding, CLI lowering, and real section output for the
   three homes; and

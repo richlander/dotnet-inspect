@@ -288,9 +288,11 @@ public static class DemoScenarioRunner
     }
 
     /// <summary>
-    /// One-section formats (standalone mermaid; table/tsv/jsonl) keep the primary
-    /// graph section only. Markdown/JSON keep Call Graph + Callers companions.
-    /// Standalone mermaid is rejected unless the expanded set is exactly Call Graph.
+    /// Format-aware section expansion for a closed home-demo binding.
+    /// Markdown: Call Graph + Callers. Table/tsv/jsonl: Callers only (survives
+    /// MemberCommand's caller-scope Callers inject). Standalone mermaid: Call
+    /// Graph only. Structured document JSON is rejected for Call Graph demos
+    /// until graph sections project into that payload.
     /// </summary>
     private static bool TryResolveRunSections(
         string boundSection,
@@ -300,20 +302,35 @@ public static class DemoScenarioRunner
         out string? error)
     {
         error = null;
-        var singleSectionFormat = format is OutputFormat.Table or OutputFormat.Tsv or OutputFormat.Jsonl
-            || (format is OutputFormat.Mermaid && !embeddedMermaid);
-        runSections = ProductDemoSections.ExpandRunSections(boundSection, singleSectionFormat);
+        runSections = [];
 
-        if (format is OutputFormat.Mermaid && !embeddedMermaid
-            && (runSections.Count != 1
-                || !string.Equals(runSections[0], ProductDemoSections.CallGraph, StringComparison.Ordinal)))
+        var isCallGraph = string.Equals(
+            boundSection, ProductDemoSections.CallGraph, StringComparison.Ordinal);
+
+        if (format is OutputFormat.Mermaid && !embeddedMermaid)
+        {
+            if (!isCallGraph)
+            {
+                error =
+                    $"--mermaid requires a Call Graph home demo (got bound section '{boundSection}'). "
+                    + "Use default Markdown or another format for Methods demos.";
+                return false;
+            }
+
+            runSections = [ProductDemoSections.CallGraph];
+            return true;
+        }
+
+        if (format is OutputFormat.Json && isCallGraph)
         {
             error =
-                $"--mermaid requires a Call Graph home demo (got bound section '{boundSection}'). "
-                + "Use default Markdown or another format for Methods demos.";
+                "--json cannot represent Call Graph/Callers section output yet. "
+                + "Use default Markdown, --mermaid, or --table/--tsv/--jsonl (Callers rows).";
             return false;
         }
 
+        var singleSectionFormat = format is OutputFormat.Table or OutputFormat.Tsv or OutputFormat.Jsonl;
+        runSections = ProductDemoSections.ExpandRunSections(boundSection, singleSectionFormat);
         return true;
     }
 

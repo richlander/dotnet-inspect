@@ -35,22 +35,29 @@ public static class ProductDemoSections
     /// <paramref name="boundSection"/>. Call Graph presets expand to Call Graph
     /// + Callers so the closed preset matches the multi-package CLI companion
     /// rule instead of silently gaining a second section at run time.
-    /// One-section formats (<c>--mermaid</c>, <c>--table</c>/<c>--tsv</c>/<c>--jsonl</c>)
-    /// keep Call Graph alone so arity matches the member pipeline; Markdown/JSON
-    /// keep the Callers companion.
     /// </summary>
+    /// <param name="singleSectionFormat">
+    /// When true (table/tsv/jsonl), multi-package Call Graph demos select
+    /// <see cref="Callers"/> only. MemberCommand re-adds Callers whenever
+    /// caller-scope packages are set; starting from Call Graph alone therefore
+    /// becomes {Call Graph, Callers} and the tabular path falls back to a member
+    /// inventory. Callers alone survives that re-add as a true one-section
+    /// projection. Standalone mermaid is not this path — it keeps Call Graph
+    /// only (validated before the Callers inject) and is resolved by the CLI
+    /// runner.
+    /// </param>
     public static IReadOnlyList<string> ExpandRunSections(
         string boundSection,
         bool singleSectionFormat = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(boundSection);
         if (string.Equals(boundSection, CallGraph, StringComparison.Ordinal))
-            return singleSectionFormat ? [CallGraph] : [CallGraph, Callers];
+            return singleSectionFormat ? [Callers] : [CallGraph, Callers];
         return [boundSection];
     }
 
     /// <summary>Section ids home demos may bind today.</summary>
-    public static IReadOnlyCollection<string> Known { get; } = s_known.ToArray();
+    public static IReadOnlyCollection<string> Known { get; } = Array.AsReadOnly(s_known.ToArray());
 
     /// <summary>Returns whether <paramref name="sectionId"/> is in the home-demo allow list.</summary>
     public static bool IsKnown(string? sectionId) =>

@@ -95,8 +95,10 @@ public class DemoCommandTests
         Assert.Equal(
             [SectionNames.CallGraph, SectionNames.Callers],
             ProductDemoSections.ExpandRunSections(ProductDemoSections.CallGraph));
+        // Tabular single-section path selects Callers so MemberCommand's
+        // caller-scope re-add stays one section (not Call Graph+Callers).
         Assert.Equal(
-            [SectionNames.CallGraph],
+            [SectionNames.Callers],
             ProductDemoSections.ExpandRunSections(ProductDemoSections.CallGraph, singleSectionFormat: true));
         Assert.Equal(
             [SectionNames.Methods],
@@ -188,7 +190,7 @@ public class DemoCommandTests
     }
 
     [Fact]
-    public void Runner_CallGraph_Table_UsesSingleSection()
+    public void Runner_CallGraph_Table_UsesCallersSingleSection()
     {
         var resolved = ProductInspectionDemos.ResolveHomeScenario(ProductInspectionDemos.ExtensionsCallGraphScenarioId);
         Assert.True(
@@ -196,11 +198,23 @@ public class DemoCommandTests
                 resolved, OutputFormat.Table, noHeader: false, out var options, out var error),
             error);
         var member = Assert.IsType<MemberOptions>(options);
+        // Callers alone: survives MemberCommand IncludeCallersSection re-add.
         Assert.Equal(
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.CallGraph },
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.Callers },
             member.IncludeSections);
-        Assert.Equal([SectionNames.CallGraph], Assert.IsType<string[]>(member.Select));
+        Assert.Equal([SectionNames.Callers], Assert.IsType<string[]>(member.Select));
         Assert.True(member.Tabular);
+        Assert.NotEmpty(member.CallerScopePackages);
+    }
+
+    [Fact]
+    public void Runner_CallGraph_Json_FailsClosed()
+    {
+        var resolved = ProductInspectionDemos.ResolveHomeScenario(ProductInspectionDemos.ExtensionsCallGraphScenarioId);
+        Assert.False(
+            DemoScenarioRunner.TryCreateOptions(
+                resolved, OutputFormat.Json, noHeader: false, out _, out var error));
+        Assert.Contains("--json cannot represent Call Graph", error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -305,7 +319,7 @@ public class DemoCommandTests
     }
 
     [Fact]
-    public async Task Cli_DemoCallGraph_Table_Succeeds()
+    public async Task Cli_DemoCallGraph_Table_EmitsCallersRows()
     {
         var (exitCode, output, error) = await RunCliAsync(
             "demo",
@@ -314,7 +328,23 @@ public class DemoCommandTests
 
         Assert.True(exitCode == 0, error + "\n" + output);
         Assert.DoesNotContain("Selection matches 2 sections", error, StringComparison.Ordinal);
-        Assert.False(string.IsNullOrWhiteSpace(output));
+        // Must be Callers section rows, not the Kind/Name member inventory fallback.
+        Assert.Contains("Caller", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Return Type", output, StringComparison.Ordinal);
+        Assert.Contains("TryAddEnumerable", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Cli_DemoCallGraph_Json_FailsClosed()
+    {
+        var (exitCode, output, error) = await RunCliAsync(
+            "demo",
+            ProductInspectionDemos.ExtensionsCallGraphScenarioId,
+            "--json");
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("--json cannot represent Call Graph", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"members\"", output, StringComparison.Ordinal);
     }
 
     private static string[] MarkdownSectionHeadings(string markdown) =>
