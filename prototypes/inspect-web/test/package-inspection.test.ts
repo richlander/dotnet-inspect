@@ -172,7 +172,11 @@ interface PackageLensFixture<T> {
   name: string;
   result: T;
   createCoordinator:
-    (state: PackageInspectionState, query: () => Promise<T>) =>
+    (
+      state: PackageInspectionState,
+      query: () => Promise<T>,
+      render?: () => void,
+    ) =>
       PackageInspectionCoordinator;
   load: (coordinator: PackageInspectionCoordinator, signature: string) =>
     Promise<void>;
@@ -187,12 +191,34 @@ async function verifyPackageLensLifecycle<T>(
   fixture: PackageLensFixture<T>,
 ) {
   {
+    const query = deferred<T>();
+    const events: string[] = [];
     const state = inspectionState();
+    fixture.setKey(state, "old");
+    fixture.setError(state, "old failure");
     const coordinator = fixture.createCoordinator(
       state,
-      async () => fixture.result);
+      async () => query.promise,
+      () => events.push("render"));
 
-    await fixture.load(coordinator, "current");
+    const load = fixture.load(coordinator, "current");
+
+    assert.equal(
+      fixture.readResult(state),
+      null,
+      `${fixture.name} cleared result`);
+    assert.equal(
+      fixture.readLoading(state),
+      true,
+      `${fixture.name} started loading`);
+    assert.equal(
+      fixture.readError(state),
+      "",
+      `${fixture.name} cleared error`);
+    assert.deepEqual(events, ["render"], `${fixture.name} start render`);
+
+    query.resolve(fixture.result);
+    await load;
 
     assert.deepEqual(
       fixture.readResult(state),
@@ -206,6 +232,10 @@ async function verifyPackageLensLifecycle<T>(
       fixture.readError(state),
       "",
       `${fixture.name} current error`);
+    assert.deepEqual(
+      events,
+      ["render", "render"],
+      `${fixture.name} completion render`);
   }
 
   {
@@ -318,13 +348,18 @@ test("dependency results cache for a resident package after the foreground lens 
 
 test("package lens loaders reuse cached results without querying or clearing them", async () => {
   const packageItem = packageModel();
+  const dependencies = dependencyResult();
+  const integrations = integrationsResult();
+  const opportunities = opportunitiesResult();
+  const performance = performanceResult();
+  const metadata = metadataResult();
   const cases = [
     {
       name: "dependencies",
-      cached: dependencyResult(),
+      cached: dependencies,
       state: inspectionState({
         packageDependenciesKey: "cached",
-        packageDependencies: dependencyResult(),
+        packageDependencies: dependencies,
       }),
       read: (state: PackageInspectionState) => state.packageDependencies,
       load: (coordinator: ReturnType<typeof createPackageInspectionCoordinator>) =>
@@ -332,10 +367,10 @@ test("package lens loaders reuse cached results without querying or clearing the
     },
     {
       name: "integrations",
-      cached: integrationsResult(),
+      cached: integrations,
       state: inspectionState({
         packageIntegrationsKey: "cached",
-        packageIntegrations: integrationsResult(),
+        packageIntegrations: integrations,
       }),
       read: (state: PackageInspectionState) => state.packageIntegrations,
       load: (coordinator: ReturnType<typeof createPackageInspectionCoordinator>) =>
@@ -343,10 +378,10 @@ test("package lens loaders reuse cached results without querying or clearing the
     },
     {
       name: "opportunities",
-      cached: opportunitiesResult(),
+      cached: opportunities,
       state: inspectionState({
         packageOpportunitiesKey: "cached",
-        packageOpportunities: opportunitiesResult(),
+        packageOpportunities: opportunities,
       }),
       read: (state: PackageInspectionState) => state.packageOpportunities,
       load: (coordinator: ReturnType<typeof createPackageInspectionCoordinator>) =>
@@ -354,10 +389,10 @@ test("package lens loaders reuse cached results without querying or clearing the
     },
     {
       name: "performance",
-      cached: performanceResult(),
+      cached: performance,
       state: inspectionState({
         packagePerformanceKey: "cached",
-        packagePerformance: performanceResult(),
+        packagePerformance: performance,
       }),
       read: (state: PackageInspectionState) => state.packagePerformance,
       load: (coordinator: ReturnType<typeof createPackageInspectionCoordinator>) =>
@@ -365,10 +400,10 @@ test("package lens loaders reuse cached results without querying or clearing the
     },
     {
       name: "metadata",
-      cached: metadataResult(),
+      cached: metadata,
       state: inspectionState({
         packageMetadataKey: "cached",
-        packageMetadata: metadataResult(),
+        packageMetadata: metadata,
       }),
       read: (state: PackageInspectionState) => state.packageMetadata,
       load: (coordinator: ReturnType<typeof createPackageInspectionCoordinator>) =>
@@ -408,7 +443,7 @@ test("package lens loaders reuse cached results without querying or clearing the
 
     assert.equal(queries, 0, fixture.name);
     assert.equal(renders, 1, fixture.name);
-    assert.deepEqual(fixture.read(fixture.state), fixture.cached, fixture.name);
+    assert.strictEqual(fixture.read(fixture.state), fixture.cached, fixture.name);
   }
 });
 
@@ -442,10 +477,11 @@ test("every package lens preserves its complete request lifecycle", async () => 
   await verifyPackageLensLifecycle({
     name: "dependencies",
     result: dependencyResult(),
-    createCoordinator: (state, query) =>
+    createCoordinator: (state, query, render = () => {}) =>
       createPackageInspectionCoordinator(
         inspectionDependencies(state, {
           queryDependencies: async () => query(),
+          render,
         })),
     load: (coordinator, signature) =>
       coordinator.loadDependencies(packageItem, signature),
@@ -458,10 +494,11 @@ test("every package lens preserves its complete request lifecycle", async () => 
   await verifyPackageLensLifecycle({
     name: "integrations",
     result: integrationsResult(),
-    createCoordinator: (state, query) =>
+    createCoordinator: (state, query, render = () => {}) =>
       createPackageInspectionCoordinator(
         inspectionDependencies(state, {
           queryPackageIntegrations: async () => query(),
+          render,
         })),
     load: (coordinator, signature) =>
       coordinator.loadIntegrations(packageItem, signature, null),
@@ -474,10 +511,11 @@ test("every package lens preserves its complete request lifecycle", async () => 
   await verifyPackageLensLifecycle({
     name: "opportunities",
     result: opportunitiesResult(),
-    createCoordinator: (state, query) =>
+    createCoordinator: (state, query, render = () => {}) =>
       createPackageInspectionCoordinator(
         inspectionDependencies(state, {
           queryPackageOpportunities: async () => query(),
+          render,
         })),
     load: (coordinator, signature) =>
       coordinator.loadOpportunities(packageItem, signature, null),
@@ -490,10 +528,11 @@ test("every package lens preserves its complete request lifecycle", async () => 
   await verifyPackageLensLifecycle({
     name: "performance",
     result: performanceResult(),
-    createCoordinator: (state, query) =>
+    createCoordinator: (state, query, render = () => {}) =>
       createPackageInspectionCoordinator(
         inspectionDependencies(state, {
           queryPackagePerformance: async () => query(),
+          render,
         })),
     load: (coordinator, signature) =>
       coordinator.loadPerformance(packageItem, signature, null),
@@ -506,10 +545,11 @@ test("every package lens preserves its complete request lifecycle", async () => 
   await verifyPackageLensLifecycle({
     name: "metadata",
     result: metadataResult(),
-    createCoordinator: (state, query) =>
+    createCoordinator: (state, query, render = () => {}) =>
       createPackageInspectionCoordinator(
         inspectionDependencies(state, {
           queryPackageMetadata: async () => query(),
+          render,
         })),
     load: (coordinator, signature) =>
       coordinator.loadMetadata(packageItem, signature, null),
@@ -542,6 +582,7 @@ test("stale package lens rejection cannot overwrite newer state", async () => {
 
 test("workspace dependency loading records failures and ignores runtime packs", async () => {
   const good = packageModel({ id: "Example.Good" });
+  const partial = packageModel({ id: "Example.Partial" });
   const bad = packageModel({ id: "Example.Bad" });
   const runtime = packageModel({
     id: "Microsoft.NETCore.App",
@@ -550,7 +591,7 @@ test("workspace dependency loading records failures and ignores runtime packs", 
   });
   const events: string[] = [];
   const state = inspectionState({
-    packages: [good, bad, runtime],
+    packages: [good, partial, bad, runtime],
     atPackageRoot: true,
     packageLens: "dependencies",
   });
@@ -559,6 +600,11 @@ test("workspace dependency loading records failures and ignores runtime packs", 
       queryDependencies: async packageItem => {
         events.push(`query:${packageItem.id}`);
         if (packageItem === bad) throw new Error("dependency feed unavailable");
+        if (packageItem === partial) {
+          return dependencyResult(
+            packageItem.id,
+            "no dependency group matches net10.0");
+        }
         return dependencyResult(packageItem.id);
       },
       refreshPackageStats: () => events.push("stats"),
@@ -569,11 +615,19 @@ test("workspace dependency loading records failures and ignores runtime packs", 
 
   assert.deepEqual(events, [
     "query:Example.Good",
+    "query:Example.Partial",
     "query:Example.Bad",
     "render",
     "stats",
   ]);
   assert.ok(state.workspaceDependencies[workspaceDependencyKey(good)]);
+  const partialKey = workspaceDependencyKey(partial);
+  assert.equal(
+    state.workspaceDependencies[partialKey].dependencyGroupError,
+    "no dependency group matches net10.0");
+  assert.equal(
+    state.workspaceDependencyErrors[partialKey],
+    "no dependency group matches net10.0");
   assert.deepEqual(
     state.workspaceDependencies[workspaceDependencyKey(bad)].dependencyGroups,
     []);
@@ -674,6 +728,26 @@ test("removed packages cannot publish an in-flight workspace dependency result",
 
   const load = coordinator.ensureWorkspaceDependencies();
   state.packages = [];
+  request.resolve(dependencyResult());
+  await load;
+
+  assert.equal(
+    Object.hasOwn(state.workspaceDependencies, workspaceDependencyKey(packageItem)),
+    false);
+  assert.equal(state.workspaceDependencyLoads.size, 0);
+});
+
+test("coordinate replacement cannot publish an in-flight workspace dependency result", async () => {
+  const packageItem = packageModel();
+  const request = deferred<BrowserPackageDependencies>();
+  const state = inspectionState({ packages: [packageItem] });
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDependencies: async () => request.promise,
+    }));
+
+  const load = coordinator.ensureWorkspaceDependencies();
+  state.packages = [packageModel({ version: "2.0.0" })];
   request.resolve(dependencyResult());
   await load;
 
