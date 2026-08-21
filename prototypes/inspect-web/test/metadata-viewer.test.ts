@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  bindMetadataExplorer,
   coverageLabel,
   cssEscape,
   estimateExplorerPageSize,
@@ -17,7 +18,88 @@ import {
   renderMetadataExplorer,
   renderPackageMetadata,
   sameFocus,
+  type MetadataExplorerBindingActions,
 } from "../src/metadata-viewer.ts";
+
+class FakeElement {
+  readonly dataset: Record<string, string | undefined>;
+  private readonly closestElements = new Map<string, FakeElement>();
+  private readonly listeners = new Map<string, EventListener[]>();
+
+  constructor(dataset: Record<string, string | undefined> = {}) {
+    this.dataset = dataset;
+  }
+
+  addEventListener(type: string, listener: EventListener) {
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  dispatch(type: string, event: Event = {} as Event) {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener(event);
+    }
+  }
+
+  withClosest(selector: string, element: FakeElement) {
+    this.closestElements.set(selector, element);
+    return this;
+  }
+
+  closest<T>(selector: string): T | null {
+    return (this.closestElements.get(selector) as T | undefined) ?? null;
+  }
+}
+
+class FakeRoot {
+  private readonly single = new Map<string, FakeElement>();
+  private readonly multiple = new Map<string, FakeElement[]>();
+
+  add(selector: string, element: FakeElement) {
+    this.single.set(selector, element);
+    return element;
+  }
+
+  addAll(selector: string, ...elements: FakeElement[]) {
+    this.multiple.set(selector, elements);
+    return elements;
+  }
+
+  querySelector(selector: string) {
+    return this.single.get(selector) ?? null;
+  }
+
+  querySelectorAll(selector: string) {
+    return this.multiple.get(selector) ?? [];
+  }
+}
+
+function recordingActions(calls: string[]): MetadataExplorerBindingActions {
+  return {
+    onClose: () => calls.push("close"),
+    onHistoryBack: () => calls.push("back"),
+    onHistoryForward: () => calls.push("forward"),
+    onHeapFocus: heap => calls.push(`heap:${heap}`),
+    onJump: (index, rowId) => calls.push(`jump:${index}:${rowId}`),
+    onPage: (index, startRowId) =>
+      calls.push(`page:${index}:${startRowId}`),
+    onRowFocus: (index, rowId) => calls.push(`row:${index}:${rowId}`),
+    onShowOverview: () => calls.push("overview"),
+    onTableFocus: (index, rowId) =>
+      calls.push(`table:${index}:${rowId}`),
+  };
+}
+
+function stoppableEvent() {
+  const state = { stopped: false };
+  const event = {
+    stopPropagation: () => {
+      state.stopped = true;
+    },
+  } as unknown as Event;
+  return { event, state };
+}
 
 function escapeHtml(value: unknown) {
   return String(value)
@@ -32,6 +114,118 @@ function fmtBytes(value: number) {
 }
 
 const helpers = { escapeHtml, fmtBytes };
+
+test("overview bindings dispatch explorer navigation from the wall controls", () => {
+  const root = new FakeRoot();
+  const exit = root.add("#mde-exit", new FakeElement());
+  const back = root.add("#mde-hist-back", new FakeElement());
+  const forward = root.add("#mde-hist-fwd", new FakeElement());
+  const chip = new FakeElement({ mdeChip: "3" });
+  root.addAll("[data-mde-chip]", chip);
+  const heapChip = new FakeElement({ mdeHeapChip: "String" });
+  root.addAll("[data-mde-heap-chip]", heapChip);
+
+  const tableCard = new FakeElement({ mdeIndex: "6" });
+  const tableHead = new FakeElement().withClosest(".mde-card", tableCard);
+  const orphanTableHead = new FakeElement();
+  root.addAll(
+    ".mde-wall .mde-card[data-mde-index] .mde-card-head",
+    tableHead,
+    orphanTableHead);
+  const heapCard = new FakeElement({ mdeHeap: "Blob" });
+  const heapHead = new FakeElement().withClosest(".mde-heap-card", heapCard);
+  root.addAll(
+    ".mde-wall .mde-heap-card[data-mde-heap] .mde-card-head",
+    heapHead);
+  const row = new FakeElement({ mdeRow: "7:8" });
+  root.addAll(".mde-wall .mde-row[data-mde-row]", row);
+
+  const calls: string[] = [];
+  bindMetadataExplorer(
+    root as unknown as ParentNode,
+    { overview: true },
+    recordingActions(calls));
+
+  exit.dispatch("click");
+  back.dispatch("click");
+  forward.dispatch("click");
+  chip.dispatch("click");
+  heapChip.dispatch("click");
+  tableHead.dispatch("click");
+  orphanTableHead.dispatch("click");
+  heapHead.dispatch("click");
+  row.dispatch("click");
+
+  assert.deepEqual(calls, [
+    "close",
+    "back",
+    "forward",
+    "table:3:0",
+    "heap:String",
+    "table:6:0",
+    "heap:Blob",
+    "table:7:8",
+  ]);
+});
+
+test("focus bindings dispatch lightbox controls and keep inner clicks contained", () => {
+  const root = new FakeRoot();
+  const canvas = root.add("#mde-canvas", new FakeElement());
+  const jump = new FakeElement({ mdeJump: "2:4" });
+  root.addAll("[data-mde-jump]", jump);
+  const overview = new FakeElement();
+  root.addAll("[data-mde-overview]", overview);
+  const page = new FakeElement({ mdePage: "5:20" });
+  root.addAll("[data-mde-page]", page);
+  const row = new FakeElement({ mdeRow: "4:9" });
+  root.addAll(".mde-focus .mde-row[data-mde-row]", row);
+  const calls: string[] = [];
+  bindMetadataExplorer(
+    root as unknown as ParentNode,
+    { overview: false },
+    recordingActions(calls));
+  const jumpClick = stoppableEvent();
+  const overviewClick = stoppableEvent();
+  const pageClick = stoppableEvent();
+
+  canvas.dispatch("click");
+  jump.dispatch("click", jumpClick.event);
+  overview.dispatch("click", overviewClick.event);
+  page.dispatch("click", pageClick.event);
+  row.dispatch("click");
+
+  assert.deepEqual(calls, [
+    "overview",
+    "jump:2:4",
+    "overview",
+    "page:5:20",
+    "row:4:9",
+  ]);
+  assert.equal(jumpClick.state.stopped, true);
+  assert.equal(overviewClick.state.stopped, true);
+  assert.equal(pageClick.state.stopped, false);
+});
+
+test("closed explorer bindings expose only exit and history controls", () => {
+  const root = new FakeRoot();
+  const exit = root.add("#mde-exit", new FakeElement());
+  const back = root.add("#mde-hist-back", new FakeElement());
+  const forward = root.add("#mde-hist-fwd", new FakeElement());
+  const chip = new FakeElement({ mdeChip: "3" });
+  root.addAll("[data-mde-chip]", chip);
+  const calls: string[] = [];
+  bindMetadataExplorer(
+    root as unknown as ParentNode,
+    null,
+    recordingActions(calls));
+
+  exit.dispatch("click");
+  back.dispatch("click");
+  forward.dispatch("click");
+  chip.dispatch("click");
+
+  assert.deepEqual(calls, ["close", "back", "forward"]);
+});
 
 function assembly(overrides = {}) {
   return {

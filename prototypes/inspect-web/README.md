@@ -687,24 +687,24 @@ keyboard-shortcut indices, and label escaping.
 `src/metadata-viewer.ts` owns the Metadata lens (the image-level summary of each
 assembly — format stamp, heap sizes, ECMA-335 table row counts, and PE/CLI
 headers) and the Metadata Explorer (the spatial table/heap drill-down laid over
-it) as pure, dependency-injected render functions; both describe the metadata
+it), including the explorer's rendered DOM bindings. Both describe the metadata
 image rather than the API surface within it, so they share one module the way
 `type-panel.ts` combines the type selector and the type viewer.
 `package-inspection.ts` coordinates the package-level image request, while
 `metadata-inspection.ts` coordinates type metadata and the explorer's
 table-window and heap-listing requests. `dotnet-inspect.ts` still owns `state`,
-the explorer's focus/history stack, the DOM event binding, the
-`IntersectionObserver` that hydrates cards lazily, the resize listener, and
-the global keydown handler, and passes each computed slice in explicitly; the
-shared helpers used well beyond these views (`escapeHtml`, `fmtBytes`,
+the explorer's focus/history stack, lazy `IntersectionObserver` hydration,
+resize coordination, and the global keydown handler, supplying those effects
+through typed callbacks; the shared helpers used well beyond these views
+(`escapeHtml`, `fmtBytes`,
 `platformLensPicker`, `scopedPlatformLibrary`, `packageScopeSignature`) stay
 in `dotnet-inspect.ts` and are injected the same way.
 `test/metadata-viewer.test.ts` gates the lens's picker, loading, failure,
 stale-scope, partial-read, and empty-image states and its heap/table ordering;
-the explorer's chips, history-button
-enablement, overview versus focus lightbox, lazy-load hooks, pager bounds, row
-highlight and selection, ref->def jump targets, cell escaping, heap addressing
-and coverage notes, and the row inspector.
+the explorer's mutually exclusive overview/focus binding shapes, chips,
+history-button enablement, overview versus focus lightbox, lazy-load hooks,
+pager bounds, row highlight and selection, ref->def jump targets, cell
+escaping, heap addressing and coverage notes, and the row inspector.
 
 `src/doc-viewer.ts` owns the package document modal (the Markdown reader
 opened from a package's documents list) as a pure, dependency-injected render

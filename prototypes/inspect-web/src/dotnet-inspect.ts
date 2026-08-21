@@ -132,6 +132,7 @@ import {
 } from "./type-panel.ts";
 import { createPackageBar, type PackageBarPackage } from "./package-bar.ts";
 import {
+  bindMetadataExplorer,
   cssEscape,
   estimateExplorerPageSize,
   EXPLORER_PAGE,
@@ -2968,62 +2969,29 @@ function renderMetadataExplorer() {
 let explorerObserver: IntersectionObserver | null = null;
 function bindMetadataExplorerEvents() {
   const ex = state.explorer;
-  document.querySelector("#mde-exit")?.addEventListener("click", closeExplorer);
-  document.querySelector("#mde-hist-back")?.addEventListener("click", explorerHistoryBack);
-  document.querySelector("#mde-hist-fwd")?.addEventListener("click", explorerHistoryForward);
+  bindMetadataExplorer(document, ex, {
+    onClose: closeExplorer,
+    onHistoryBack: explorerHistoryBack,
+    onHistoryForward: explorerHistoryForward,
+    onHeapFocus: heap => pushExplorerFocus({ heap }),
+    onJump: explorerJump,
+    onPage: (index, startRowId) => loadExplorerWindow(index, startRowId),
+    onRowFocus: (index, rowId) => {
+      if (!ex) return;
+      const already =
+        ex.detail && ex.detail.index === index && ex.detail.rowId === rowId;
+      ex.detail = already ? null : { index, rowId };
+      ex.highlight = already ? null : { index, rowId };
+      const current = ex.history[ex.historyPos];
+      if (current && current.index === index) {
+        current.rowId = already ? 0 : rowId;
+      }
+      render();
+    },
+    onShowOverview: explorerShowOverview,
+    onTableFocus: (index, rowId) => pushExplorerFocus({ index, rowId }),
+  });
   if (!ex) return;
-  document.querySelectorAll<HTMLElement>("[data-mde-chip]").forEach(chip =>
-    chip.addEventListener("click", () => pushExplorerFocus({ index: Number(chip.dataset.mdeChip), rowId: 0 })));
-  document.querySelectorAll<HTMLElement>("[data-mde-jump]").forEach(btn =>
-    btn.addEventListener("click", event => {
-      event.stopPropagation();
-      const [index, rowId] = (btn.dataset.mdeJump ?? "").split(":").map(Number);
-      explorerJump(index, rowId);
-    }));
-  // The corner ✕ on the focus panel zooms back out to the all-tables wall.
-  document.querySelectorAll<HTMLElement>("[data-mde-overview]").forEach(btn =>
-    btn.addEventListener("click", event => { event.stopPropagation(); explorerShowOverview(); }));
-  document.querySelectorAll<HTMLElement>("[data-mde-page]").forEach(btn =>
-    btn.addEventListener("click", () => {
-      const [index, start] = (btn.dataset.mdePage ?? "").split(":").map(Number);
-      loadExplorerWindow(index, start);
-    }));
-  document.querySelectorAll<HTMLElement>("[data-mde-heap-chip]").forEach(chip =>
-    chip.addEventListener("click", () => pushExplorerFocus({ heap: chip.dataset.mdeHeapChip })));
-
-  if (ex?.overview) {
-    // All-tables view: clicking a card head, a ref, or a row focuses that table.
-    document.querySelectorAll<HTMLElement>(".mde-wall .mde-card[data-mde-index] .mde-card-head").forEach(head =>
-      head.addEventListener("click", () => {
-        const card = head.closest<HTMLElement>(".mde-card");
-        if (card) pushExplorerFocus({ index: Number(card.dataset.mdeIndex), rowId: 0 });
-      }));
-    document.querySelectorAll<HTMLElement>(".mde-wall .mde-heap-card[data-mde-heap] .mde-card-head").forEach(head =>
-      head.addEventListener("click", () => {
-        const card = head.closest<HTMLElement>(".mde-heap-card");
-        if (card) pushExplorerFocus({ heap: card.dataset.mdeHeap });
-      }));
-    document.querySelectorAll<HTMLElement>(".mde-wall .mde-row[data-mde-row]").forEach(tr =>
-      tr.addEventListener("click", () => {
-        const [index, rowId] = (tr.dataset.mdeRow ?? "").split(":").map(Number);
-        pushExplorerFocus({ index, rowId });
-      }));
-  } else {
-    // Focus view: clicking anywhere on the dim wall behind the lightbox zooms out ("click away").
-    document.querySelector("#mde-canvas")?.addEventListener("click", explorerShowOverview);
-    // Selecting a row in the focus panel updates the inspector in place — it refines the current
-    // position (remembered for Back/Forward). Clicking the selected row again deselects it.
-    document.querySelectorAll<HTMLElement>(".mde-focus .mde-row[data-mde-row]").forEach(tr =>
-      tr.addEventListener("click", () => {
-        const [index, rowId] = (tr.dataset.mdeRow ?? "").split(":").map(Number);
-        const already = ex.detail && ex.detail.index === index && ex.detail.rowId === rowId;
-        ex.detail = already ? null : { index, rowId };
-        ex.highlight = already ? null : { index, rowId };
-        const cur = ex.history[ex.historyPos];
-        if (cur && cur.index === index) cur.rowId = already ? 0 : rowId;
-        render();
-      }));
-  }
 
   // Hydrate cards as they scroll into view (the "wall of tables filling in as you pan" feel).
   explorerObserver?.disconnect();
