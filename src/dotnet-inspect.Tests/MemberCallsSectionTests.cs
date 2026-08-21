@@ -122,7 +122,7 @@ public class MemberCallsSectionTests
         {
             CallerScopeSectionImplicitlySelected = true,
             IncludeSections = [SectionNames.Callers],
-            ImplicitCallerMemberTokens = new HashSet<int>()
+            AggregatedCallerMemberTokens = new HashSet<int>()
         };
 
     static Task<(int ExitCode, string Output, string Error)> RunMemberCallsAsync(string memberName, bool tsv = false, bool discover = false, int? overloadIndex = null)
