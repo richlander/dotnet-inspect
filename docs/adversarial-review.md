@@ -12,32 +12,71 @@ than restating it, so the two cannot drift apart.
 
 ## Status discovery
 
-Two questions — is the PR mergeable, and is it green — answered by one
-consolidated query. Which attempts must wait for the answer is the eligibility
-table in [Canonical round flow](../AGENTS.md#canonical-round-flow).
+Two questions — is the PR mergeable, and is it green. What varies is which API
+you spend answering them. Which attempts must wait for the answer is the
+eligibility table in [Canonical round flow](../AGENTS.md#canonical-round-flow).
 
-### The consolidated query
+### Two budgets, not one
 
-Use a single `gh api graphql` request returning the PR's `headRefOid`,
-`baseRefOid`, `baseRef { target { oid } }`, `isDraft`, `mergeable`,
-`mergeStateStatus`, `statusCheckRollup` state and contexts with `pageInfo`, and
-the query's `rateLimit` cost, remaining quota, and reset time.
+REST and GraphQL have separate hourly limits, so spending one does not touch the
+other. Check before choosing:
 
-Request enough contexts for the normal check matrix. If `pageInfo.hasNextPage`
-is true and `ci-required` is absent, fetch the remaining context pages before
+```bash
+gh api rate_limit --jq '.resources|{graphql,core}'
+```
+
+They are not interchangeable in practice. Measured while writing this document:
+GraphQL sat at 4,077 of 5,000 consumed and fell a further 55 points across 45
+seconds in which this session issued no query at all, while REST core held
+steady at 6 of 5,000. Concurrent agents share these buckets, and GraphQL is
+routinely the contended one.
+
+Spend the bucket that has budget. Neither transport is the default, and a
+per-call cost comparison is the wrong measure — what matters is which bucket is
+near exhaustion when you need an answer.
+
+### The REST pair
+
+Two calls, the second pinned to the sha the first returned:
+
+```bash
+gh api repos/{owner}/{repo}/pulls/{n} \
+  --jq '{head:.head.sha,draft,mergeable,mergeable_state}'
+gh api "repos/{owner}/{repo}/commits/{sha}/check-runs?per_page=100" \
+  --jq '[.check_runs[]|select(.name=="ci-required")|{status,conclusion}]'
+```
+
+The pin is an advantage, not merely a second call: check state is read for an
+explicit commit rather than for whatever GitHub considers the latest one. The PR
+endpoint also triggers mergeability computation, which is why it resolves
+`UNKNOWN` when GraphQL does not.
+
+### The GraphQL query
+
+One request, one point, and the only cheap way to read the live base tip that
+the carry-forward decision needs. Prefer it when REST is the contended bucket,
+when a single atomic answer matters, or when you need that base tip.
+
+Return `headRefOid`, `baseRefOid`, `baseRef { target { oid } }`, `isDraft`,
+`mergeable`, `mergeStateStatus`, `statusCheckRollup` state and contexts with
+`pageInfo`, and the query's own `rateLimit` cost, remaining quota, and reset
+time. Request enough contexts for the normal check matrix; if
+`pageInfo.hasNextPage` is true and `ci-required` is absent, page before
 concluding that it is missing.
 
-Confirm that `headRefOid` is the pushed head, `isDraft` is false, `mergeable` is
-`MERGEABLE`, and the current head's `ci-required` check run completed
-successfully. Treat `mergeStateStatus` values `BLOCKED` and `DRAFT` as
-independent readiness blockers: identify and clear the blocker before posting
-`Ready to merge`.
+### Reading either result
 
-Every status check must re-query the aggregate and compare its current
-`headRefOid`; a run or check identifier is pinned to one commit and cannot detect
-a later push. Retain the expected head SHA locally. Separate discovery calls are
-prohibited — additional calls are only for required context pagination or
-one-off details after the aggregate has confirmed the head.
+Confirm that the returned head is the pushed head, the PR is not a draft,
+mergeability is positive, and the current head's `ci-required` completed with a
+`SUCCESS` conclusion. Treat `mergeStateStatus` `BLOCKED` and `DRAFT` — or
+`mergeable_state` `blocked` and `draft` — as independent readiness blockers:
+clear the blocker before posting `Ready to merge`.
+
+Every status check re-reads the head and compares it. A run or check identifier
+is pinned to one commit and cannot detect a later push, so retain the expected
+head SHA locally. Do not scatter discovery beyond the pair or the single query;
+additional calls are for pagination and one-off details, after the head is
+confirmed.
 
 ### Four traps in the result
 
@@ -54,20 +93,18 @@ one-off details after the aggregate has confirmed the head.
   never cite it as validation. If a change should have triggered a job that
   skipped, the path filter is the bug.
 
-### The REST fallback for `UNKNOWN`
+### Resolving `UNKNOWN`
 
 `UNKNOWN` means GitHub has not finished computing the merge, and it does not
-satisfy the zero-conflict gate. When the exact head's `ci-required` is already
-`SUCCESS` and mergeability is the only unknown, immediately make one REST
-`GET /repos/{owner}/{repo}/pulls/{number}` request for `head.sha`, `mergeable`,
-and `mergeable_state`. That endpoint triggers the computation and often returns
-a definite answer while GraphQL still says `UNKNOWN`.
+satisfy the zero-conflict gate. It is a GraphQL answer; the REST PR endpoint
+triggers the computation, so reaching for the REST pair often returns a definite
+result while GraphQL still says `UNKNOWN`.
 
 Accept it only when `head.sha` is the expected head. `mergeable: true` satisfies
 the mergeability half of the gate; `mergeable: false` blocks. A null result is
-still computing: yield five minutes with small random jitter, then re-run both
-queries. Continue that self-recovery until GitHub returns a definite result. Do
-not ask the user to report CI or mergeability.
+still computing: yield five minutes with small random jitter, then ask again.
+Continue that self-recovery until GitHub returns a definite result. Do not ask
+the user to report CI or mergeability.
 
 ### Cadence
 
@@ -80,7 +117,7 @@ detects conflicts early.
 | --- | --- |
 | `ci-required` failed or was cancelled | Stop polling and apply the matching [recovery transition](../AGENTS.md#recovery-transitions): a failure needing an author change supersedes the attempt, while a cancelled or evidenced-transient one keeps the head and re-runs the check. A settled red result is an answer, not something to wait out. |
 | `CONFLICTING` | Apply the conflict transition in [Canonical round flow](../AGENTS.md#canonical-round-flow), then schedule a new five-minute check. |
-| `UNKNOWN`, CI green | Use the REST fallback above. |
+| `UNKNOWN`, CI green | Ask REST, which triggers the computation; see [resolving `UNKNOWN`](#resolving-unknown). |
 | `UNKNOWN`, CI pending or missing | Follow up at 10 minutes plus jitter for documentation-only, or at the 35-minute mark otherwise. |
 | `MERGEABLE`, documentation-only | Treat it as the expected CI completion check. If CI is unexpectedly pending, wait 10 minutes plus jitter. |
 | `MERGEABLE`, not documentation-only | Expect CI at about 35 minutes from the push; schedule the next check about 30 minutes out. |
@@ -90,14 +127,15 @@ check outranks every mergeability value, because `MERGEABLE` describes the merge
 path and never means green.
 
 If both mergeability and CI remain unresolved, keep at least 10 minutes plus
-small random jitter between aggregate queries. Switch to the five-minute
-REST-backed cadence once CI is green and mergeability is the only unknown.
+small random jitter between status checks. Switch to the five-minute cadence
+once CI is green and mergeability is the only unknown.
 
-If the query reports low remaining quota, yield until its reported reset time
-rather than sleeping or continuing to query. These intervals are minimums, not
-targets: wait longer when no decision depends on an immediate result. Yield the
-session or schedule a delayed wake-up between checks. Do not use `gh run watch`,
-`gh pr checks --watch`, or a polling loop.
+If the bucket you are spending is near exhaustion, switch to the other one; if
+both are low, yield until the earlier reset rather than sleeping or continuing
+to query. These intervals are minimums, not targets: wait longer when no
+decision depends on an immediate result. Yield the session or schedule a delayed
+wake-up between checks. Do not use `gh run watch`, `gh pr checks --watch`, or a
+polling loop.
 
 ## Running a round
 
