@@ -610,7 +610,7 @@ cancellation, result publication, and reset state.
 `src/command-bar.ts` supplies its typed Commands-scope grammar and results;
 `dotnet-inspect.ts` retains command effects, the NuGet query endpoint, package
 navigation, and acquisition so the components do not acquire engine or
-workspace authority. `test/spotlight.test.js` and
+workspace authority. `test/spotlight.test.ts` and
 `test/command-bar.test.ts` gate both presentation modes, scope ownership,
 completion and replacement behavior, bounded results, command metadata, and
 escaping; `test/spotlight-package-search.test.ts` gates debounce, scope and
