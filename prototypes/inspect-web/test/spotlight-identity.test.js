@@ -351,6 +351,94 @@ const commandBarSource = readFileSync(
   new URL("../src/command-bar.ts", import.meta.url),
   "utf8");
 
+function maskNonCode(source) {
+  const masked = [...source];
+  for (let index = 0; index < source.length; index++) {
+    const quote = source[index];
+    if (quote === "/" && source[index + 1] === "/") {
+      while (index < source.length && source[index] !== "\n") {
+        masked[index++] = " ";
+      }
+    } else if (quote === "/" && source[index + 1] === "*") {
+      masked[index++] = " ";
+      while (index < source.length
+        && !(source[index] === "*" && source[index + 1] === "/")) {
+        masked[index++] = " ";
+      }
+      masked[index] = " ";
+      masked[index + 1] = " ";
+      index++;
+    } else if (quote === "\"" || quote === "'" || quote === "`") {
+      masked[index] = " ";
+      for (index++; index < source.length; index++) {
+        masked[index] = " ";
+        if (source[index] === "\\") {
+          masked[++index] = " ";
+        } else if (source[index] === quote) {
+          break;
+        }
+      }
+    }
+  }
+  return masked.join("");
+}
+
+function assertDirectCompositionCall(
+  source,
+  functionName,
+  calleeName,
+  expectedIndex,
+) {
+  const functionPrefix = `function ${functionName}() {`;
+  const functionStart = source.indexOf(functionPrefix);
+  assert.notEqual(functionStart, -1);
+  const body = source.slice(functionStart + functionPrefix.length);
+  const masked = maskNonCode(body);
+  const statements = [];
+  let depth = 0;
+  let statementStart = 0;
+  for (let index = 0; index < masked.length; index++) {
+    if (masked[index] === "{") depth++;
+    else if (masked[index] === "}") {
+      if (depth === 0) break;
+      depth--;
+    } else if (masked[index] === ";" && depth === 0) {
+      statements.push(masked.slice(statementStart, index + 1).trim());
+      statementStart = index + 1;
+    }
+  }
+  assert.equal(
+    statements[expectedIndex].replace(/\s+/g, " "),
+    `${calleeName}();`);
+}
+
+test("composition call gates distinguish direct calls from textual nesting", () => {
+  const direct = `function bind() {
+    const options = { label: "{ready}" };
+    // A brace in a comment is not composition.
+    bindTarget();
+  }`;
+  assertDirectCompositionCall(direct, "bind", "bindTarget", 1);
+  assert.throws(() =>
+    assertDirectCompositionCall(
+      "function bind() { if (false) bindTarget(); }",
+      "bind",
+      "bindTarget",
+      0));
+  assert.throws(() =>
+    assertDirectCompositionCall(
+      "function bind() { if (false) { bindTarget(); } }",
+      "bind",
+      "bindTarget",
+      0));
+  assert.throws(() =>
+    assertDirectCompositionCall(
+      "function bind() { if (false) return; bindTarget(); }",
+      "bind",
+      "bindTarget",
+      0));
+});
+
 test("typed Spotlight owns search presentation and hosts commands", () => {
   assert.match(
     appSource,
@@ -384,6 +472,33 @@ test("workspace data bar receives package acquisition provenance", () => {
   assert.match(packageAcquisitionSource, /source: \{ kind: "platform" \}/);
   assert.doesNotMatch(appSource, /source: \{ kind: "(?:nuget\.org|platform)" \}/);
   assert.match(statusBarSource, /Source: \$\{escapeHtml\(packageSourceLabel\(model\.source\)\)\}/);
+});
+
+test("typed status bar owns its rendered toggle binding", () => {
+  const binding =
+    appSource.match(/function bindStatusBarEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
+    ?? "";
+  assert.match(
+    binding,
+    /bindStatusBar\(document, \{\s*onToggle: \(\) => \{[\s\S]*state\.statusBarExpanded = !state\.statusBarExpanded;[\s\S]*render\(\);[\s\S]*\},\s*\}\)/);
+  assert.equal(binding.match(/\bdocument\b/g)?.length, 1);
+  assert.match(
+    statusBarSource,
+    /export function bindStatusBar\([\s\S]*\[data-status-bar-toggle-button\][\s\S]*actions\.onToggle/);
+  assert.doesNotMatch(appSource, /\[data-status-bar-toggle-button\]/);
+  assertDirectCompositionCall(
+    appSource,
+    "bindEvents",
+    "bindStatusBarEvents",
+    0);
+  assertDirectCompositionCall(
+    appSource,
+    "bindHomeEvents",
+    "bindStatusBarEvents",
+    0);
+  assert.equal(
+    appSource.match(/\bbindStatusBarEvents\(\)/g)?.length,
+    3);
 });
 
 test("typed package inspection owns package-root request coordination", () => {
@@ -505,9 +620,14 @@ test("typed type panel owns its rendered control bindings", () => {
   assert.equal(
     rootEventBinder.match(/\bbindTypePanelEvents\(\)/g)?.length,
     1);
-  assert.match(
-    rootEventBinder,
-    /function bindEvents\(\) \{\s*bindStatusBarToggle\(\);\s*packageBar\.bind\(document\);\s*bindTypePanelEvents\(\);/);
+  assert.equal(
+    rootEventBinder.match(/^\s*bindTypePanelEvents\(\);$/gm)?.length,
+    1);
+  assertDirectCompositionCall(
+    appSource,
+    "bindEvents",
+    "bindTypePanelEvents",
+    2);
   assert.match(
     typePanelSource,
     /export function bindTypePanel\([\s\S]*\[data-type\][\s\S]*\[data-namespace\][\s\S]*\[data-kind-filter\][\s\S]*\[data-nav-member\][\s\S]*\[data-nav-overload\][\s\S]*#nav-to-types[\s\S]*#clear-filter[\s\S]*#namespace-jump[\s\S]*#type-list[\s\S]*#type-filter/);

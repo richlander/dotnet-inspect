@@ -170,7 +170,7 @@ import {
   createCatalogRequests,
   type DotnetRelease,
 } from "./catalog-requests.ts";
-import { fmtBytes, statusBarHtml } from "./status-bar.ts";
+import { bindStatusBar, fmtBytes, statusBarHtml } from "./status-bar.ts";
 import type {
   BrowserBuildIdentity,
   BrowserCallGraph,
@@ -3699,11 +3699,13 @@ function highlightCSharp(value: string) {
   return escapeHtml(source);
 }
 
-function bindStatusBarToggle() {
-  document.querySelectorAll<HTMLElement>("[data-status-bar-toggle-button]").forEach(button => button.addEventListener("click", () => {
-    state.statusBarExpanded = !state.statusBarExpanded;
-    render();
-  }));
+function bindStatusBarEvents() {
+  bindStatusBar(document, {
+    onToggle: () => {
+      state.statusBarExpanded = !state.statusBarExpanded;
+      render();
+    },
+  });
 }
 
 function bindTypePanelEvents() {
@@ -3903,7 +3905,7 @@ function bindAnnotatedSourceEvents() {
 }
 
 function bindEvents() {
-  bindStatusBarToggle();
+  bindStatusBarEvents();
   packageBar.bind(document);
   bindTypePanelEvents();
   bindScopeBarEvents();
@@ -5646,7 +5648,7 @@ function homeArtSvg() {
 }
 
 function bindHomeEvents() {
-  bindStatusBarToggle();
+  bindStatusBarEvents();
   document.querySelector("#home-theme")?.addEventListener("click", toggleTheme);
   document.querySelector("#home-settings")?.addEventListener("click", () => openSettings("home"));
   document.querySelector("#dismiss-notice")?.addEventListener("click", () => {

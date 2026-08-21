@@ -691,9 +691,10 @@ removal, and both silent transient-failure paths; the composition-root gate
 checks that network and DOM authority remain outside the coordinator.
 
 The typed `src/status-bar.ts` component renders both the full-width workspace
-data bar and the home readiness bar. The workspace bar occupies the bottom row
-formerly used by the persistent command prompt, giving the bar the full
-viewport width. By default the bar shows a compact, single-line summary in
+data bar and the home readiness bar and owns their rendered toggle binding.
+The workspace bar occupies the bottom row formerly used by the persistent
+command prompt, giving the bar the full viewport width. By default the bar
+shows a compact, single-line summary in
 priority order: app version/commit, package provenance, build date, and a
 one-line performance summary. A dedicated toggle button at the end of the bar
 (so it never overlaps the commit link) expands and collapses the view,
