@@ -1,5 +1,22 @@
 # Release Notes
 
+## Unreleased
+
+### Source and implementation evidence
+
+- Renames `Original Source` to `PDB Source` and the Implementation Diff
+  `--authored-source` flag to `--pdb-source`, reflecting that checksum and
+  SourceLink origin evidence do not independently prove build provenance.
+  Both old spellings remain accepted as hidden compatibility aliases. The
+  Implementation Diff `Mechanism` row value likewise changes from `Source` to
+  `PDB Source` in Markdown, `--table`, `--tsv`, `--jsonl`, and `--json` output
+  (#4381). **Breaking:** when `PDB Source` or `Source Diff` is selected exactly,
+  acquisition failures now return a non-zero exit status under `--count`,
+  `--table`, `--tsv`, `--jsonl`, and document `--json`; Markdown, plaintext,
+  bare, and `--print` projections continue to render the explanatory payload.
+  PDB Source no longer requires a SourceLink map when a local source document
+  named by the PDB can be checksum-verified.
+
 ## v0.21.0
 
 ### Query and package workflows
@@ -110,18 +127,6 @@
   preserves exact ownership and provenance without reconstructing identity
   from assembly names or display labels. Presentation and CLI integration are
   unchanged (#4269).
-- Renames `Original Source` to `PDB Source` and the Implementation Diff
-  `--authored-source` flag to `--pdb-source`, reflecting that checksum and
-  SourceLink origin evidence do not independently prove build provenance.
-  Both old spellings remain accepted as hidden compatibility aliases. The
-  Implementation Diff `Mechanism` row value likewise changes from `Source` to
-  `PDB Source` in Markdown, `--table`, `--tsv`, `--jsonl`, and `--json` output
-  (#4381). **Breaking:** when `PDB Source` or `Source Diff` is selected exactly,
-  acquisition failures now return a non-zero exit status under `--count`,
-  `--table`, `--tsv`, `--jsonl`, and document `--json`; Markdown, plaintext,
-  bare, and `--print` projections continue to render the explanatory payload.
-  PDB Source no longer requires a SourceLink map when a local source document
-  named by the PDB can be checksum-verified.
 
 ### NuGet acquisition
 
