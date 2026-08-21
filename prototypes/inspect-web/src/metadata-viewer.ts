@@ -5,18 +5,18 @@
 // the metadata image rather than the API surface within it — so they live in one module, the
 // way `type-panel.ts` combines the type selector and the type viewer.
 //
-// `app.js` keeps everything that is not markup: `state`, the engine calls that fetch a
+// `dotnet-inspect.ts` keeps everything that is not markup: `state`, the engine calls that fetch a
 // metadata image, a table row window, or a heap listing (`loadPackageMetadata`,
 // `loadExplorerWindow`, `loadExplorerHeap`), the explorer's focus/history stack
 // (`openExplorer`, `pushExplorerFocus`, `applyExplorerFocus`, `explorerHistoryBack/Forward`,
 // `explorerShowOverview`, `closeExplorer`), the DOM event binding, the `IntersectionObserver`
 // that hydrates cards lazily, the resize listener, and the global keydown handler. This
 // module owns only the markup shape given an explicit snapshot of that state, matching how
-// `type-panel.ts` left comparably rich navigation state in `app.js`.
+// `type-panel.ts` left comparably rich navigation state in `dotnet-inspect.ts`.
 //
 // The shared text helpers used well beyond these views (`escapeHtml`, `fmtBytes`) and the
 // shared lens chrome (`platformLensPicker`, `scopedPlatformLibrary`, `packageScopeSignature`,
-// `platformPackForAssembly`) stay in `app.js` and are injected rather than duplicated here.
+// `platformPackForAssembly`) stay in `dotnet-inspect.ts` and are injected rather than duplicated here.
 
 type EscapeHtml = (value: unknown) => string;
 type FormatBytes = (value: number) => string;
@@ -206,7 +206,7 @@ export interface ExplorerRenderContext extends MetadataTextHelpers {
 
 /**
  * A conservative fallback page size; the real one adapts to the focus panel's visible height
- * (see `estimateExplorerPageSize` and `app.js`'s `syncExplorerPageSize`) so a tall panel is
+ * (see `estimateExplorerPageSize` and `dotnet-inspect.ts`'s `syncExplorerPageSize`) so a tall panel is
  * not left half-empty.
  */
 export const EXPLORER_PAGE = 50;
@@ -270,7 +270,7 @@ export interface PackageMetadataOptions extends MetadataTextHelpers {
   /** The scoped platform library name, or "" when the platform lens has no selection yet. */
   scopedLibrary: string;
   activeFramework: string;
-  /** The shared `platformLensPicker` markup, rendered by `app.js` for the platform lens. */
+  /** The shared `platformLensPicker` markup, rendered by `dotnet-inspect.ts` for the platform lens. */
   pickerHtml: string;
   /** True when the loaded metadata (or in-flight load) belongs to the current scope. */
   fresh: boolean;
@@ -384,13 +384,13 @@ export function renderAssemblyMetadataBlock(asm: MetadataAssembly, helpers: Meta
 // -- Metadata Explorer -----------------------------------------------------------------------
 // A spatial "browse the metadata like a database" view. The overview lens hands off an
 // assembly + a starting table; the explorer lays every populated table out as a card,
-// `app.js` lazy-loads each table's row window on demand, and handle/range cells render as
-// ref->def jumps that `app.js` transports you along.
+// `dotnet-inspect.ts` lazy-loads each table's row window on demand, and handle/range cells render as
+// ref->def jumps that `dotnet-inspect.ts` transports you along.
 
 /**
  * The whole explorer surface: the nav bar, the table/heap chips, the wall of cards, and (when
- * not zoomed out to the overview) the focus lightbox. `app.js` mounts this markup and binds
- * its events; every `data-mde-*` attribute here is a binding contract with `app.js`.
+ * not zoomed out to the overview) the focus lightbox. `dotnet-inspect.ts` mounts this markup and binds
+ * its events; every `data-mde-*` attribute here is a binding contract with `dotnet-inspect.ts`.
  */
 export function renderMetadataExplorer(context: ExplorerRenderContext): string {
   const { explorer: ex, escapeHtml, fmtBytes } = context;

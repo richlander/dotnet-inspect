@@ -154,8 +154,8 @@ dnx dotnet-inspect -y -- library System.Text.Json \
 
 | Member | Token | Match |
 | ------ | ----- | ----- |
-| `System.Text.Json.JsonDocument.RootElement~2810741072` | `0x06000260` | `new JsonElement(this, 0)` |
-| `System.Text.Json.JsonDocumentOptions.CommentHandling~4fc3b6f99d` | `0x060002DC` | `new ArgumentOutOfRangeException("value", SR.JsonDocumentDoesNotSupportComments)` |
+| `System.Text.Json.JsonDocument.RootElement~2810741072:1` | `0x06000260` | `new JsonElement(this, 0)` |
+| `System.Text.Json.JsonDocumentOptions.CommentHandling~4fc3b6f99d:2` | `0x060002DC` | `new ArgumentOutOfRangeException("value", SR.JsonDocumentDoesNotSupportComments)` |
 | `System.Text.Json.JsonElement.GetProperty~b07c7787dc` | `0x060002EA` | `new KeyNotFoundException(SR.Format(SR.Arg_KeyNotFoundWithKey, propertyName))` |
 ```
 
@@ -207,7 +207,7 @@ permits a selected non-public member.
 | ---------- | -------- | ---------- |
 | Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, metadata audit, vulnerability data, custom feeds, NuGet config support. |
 | Project skills | `project` | Direct dependency `Skills` rows from package `skills/**/SKILL.md` files with valid required Agent Skills metadata and directory-matching names, plus version-resolved package README/PROJECT docs from restored projects. Invalid metadata and missing restored skill files fail visibly. |
-| Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries, exposed as ordinary discoverable sections and shared with browser/WASM. |
+| Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries, exposed as ordinary discoverable sections. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, OpenTelemetry support, symbols/PDBs, SourceLink and determinism audit, flat or depth-bounded tree references, resources, async method classification. |
 | API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. Add `--project` to resolve type/member queries in the project's restored dependency context. |
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type and member filters, plus opt-in decompiled C#/IL/checksum-verified authored Source evidence. |
@@ -234,7 +234,7 @@ permits a selected non-public member.
 | `implements X` | Find concrete implementors or subclasses. |
 | `depends X` | Walk type, package, or library dependency graphs; emits Mermaid diagrams. |
 | `cache` | Inspect or clear dotnet-inspect caches. |
-| `skill` | Print the base LLM skill; routes to focused skills (`skill list`, `skill source`, `skill performance`). |
+| `skill` | Print the base LLM skill; routes to focused skills (`skill list`, `skill sourcelink`, `skill performance`). |
 
 Remote dependency trees requested with `depends --package`,
 `package -S Dependencies --tree`, or the legacy `package --dependencies` alias
@@ -426,13 +426,16 @@ retains its narrower inbound-only scan.
 Ranking rows carry a copyable `Stable` selector, `Visibility`, and `Selector`;
 add `--all` to drill non-public members.
 
-Export nested JSON when runtime correlation is the next step, then give that
-document and the matching allocation trace to `runfaster`:
+Export nested JSON when runtime correlation is the next step. The `runfaster`
+prototype is available only in this repository and is not included in the
+published `dotnet-inspect` packages. From a source checkout, give it that
+document and a matching allocation trace:
 
 ```bash
 dotnet-inspect library MyLib.dll -S "Performance:*" \
   --where "Priority>=high" --json > triage.json
-runfaster correlate --triage triage.json --trace workload.nettrace
+dotnet run --project src/runfaster -- \
+  correlate --triage triage.json --trace workload.nettrace
 ```
 
 The compact `Performance:* --jsonl` table intentionally carries only the tight

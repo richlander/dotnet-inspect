@@ -845,18 +845,20 @@ public static partial class CSharpBodyDiff
         => methodName is "op_Implicit" or "op_Explicit" or "op_CheckedExplicit";
 
     static string TypeIdentityKey(MetadataReader reader, TypeDefinitionHandle handle)
-        => ResolveIdentityTypeName(reader, handle);
+        => TypeIdentityKey(reader, (EntityHandle)handle);
 
-    static string CanonicalTypeName(TypeRef type)
+    internal static string CanonicalTypeName(TypeRef type)
     {
         if (FindMetadataNameFailure(type) is { } failure)
             throw new MetadataIdentityResolutionException(failure);
 
         return type.Kind switch
         {
-            TypeRefKind.Definition => type.Namespace.Length == 0
-                ? type.Name.Replace("+", ".", StringComparison.Ordinal)
-                : $"{type.Namespace}.{type.Name.Replace("+", ".", StringComparison.Ordinal)}",
+            TypeRefKind.Definition => type.DefinitionName is { } exactName
+                ? CanonicalDefinitionName(exactName)
+                : type.Namespace.Length == 0
+                    ? type.Name.Replace("+", ".", StringComparison.Ordinal)
+                    : $"{type.Namespace}.{type.Name.Replace("+", ".", StringComparison.Ordinal)}",
             TypeRefKind.GenericInstance => $"{CanonicalTypeName(type.ElementType!)}<{string.Join(",", type.TypeArguments.Select(CanonicalTypeName))}>",
             TypeRefKind.SzArray => $"{CanonicalTypeName(type.ElementType!)}[]",
             TypeRefKind.Array => $"{CanonicalTypeName(type.ElementType!)}[{(type.Rank == 1 ? "*" : new string(',', type.Rank - 1))}]",
@@ -868,6 +870,68 @@ public static partial class CSharpBodyDiff
             TypeRefKind.FunctionPointer => CanonicalFunctionPointer(type),
             _ => $"<unsupported:{type.UnsupportedReason}>",
         };
+    }
+
+    static string CanonicalDefinitionName(
+        MetadataTypeDefinitionName name)
+    {
+        static string Escape(string value, bool escapeDot)
+        {
+            var builder = new StringBuilder(value.Length);
+            foreach (char c in value)
+            {
+                if (char.IsLetterOrDigit(c)
+                    || c is '_' or '`'
+                    || c == '.' && !escapeDot)
+                {
+                    builder.Append(c);
+                }
+                else
+                {
+                    builder.Append('\\').Append(c);
+                }
+            }
+            return builder.ToString();
+        }
+
+        string segments = string.Join(
+            "+",
+            name.Segments.Select(
+                segment => Escape(segment, escapeDot: true)));
+        return name.Namespace.Length == 0
+            ? segments
+            : $"{Escape(name.Namespace, escapeDot: false)}.{segments}";
+    }
+
+    static string TypeIdentityKey(
+        MetadataReader reader,
+        EntityHandle handle)
+    {
+        TypeRef type = handle.Kind switch
+        {
+            HandleKind.TypeDefinition =>
+                TypeRefDecoder.Instance.GetTypeFromDefinition(
+                    reader,
+                    (TypeDefinitionHandle)handle,
+                    0),
+            HandleKind.TypeReference =>
+                TypeRefDecoder.Instance.GetTypeFromReference(
+                    reader,
+                    (TypeReferenceHandle)handle,
+                    0),
+            _ => throw new ArgumentException(
+                "A type identity key requires a TypeDef or TypeRef.",
+                nameof(handle)),
+        };
+        return TypeIdentityKey(type)
+            ?? ResolveIdentityTypeName(reader, handle);
+    }
+
+    internal static string? TypeIdentityKey(TypeRef type)
+    {
+        if (FindMetadataNameFailure(type) is { } failure)
+            throw new MetadataIdentityResolutionException(failure);
+        return type.DefinitionName?.ToEscapedFullName();
     }
 
     static MetadataTypeNameFailure? FindMetadataNameFailure(TypeRef type)
@@ -1142,8 +1206,8 @@ public static partial class CSharpBodyDiff
     static string EntityFingerprint(MetadataReader reader, EntityHandle handle)
         => handle.Kind switch
         {
-            HandleKind.TypeDefinition => $"type-def:{ResolveIdentityTypeName(reader, handle)}",
-            HandleKind.TypeReference => $"type-ref:{ResolveIdentityTypeName(reader, handle)}",
+            HandleKind.TypeDefinition => $"type-def:{TypeIdentityKey(reader, handle)}",
+            HandleKind.TypeReference => $"type-ref:{TypeIdentityKey(reader, handle)}",
             HandleKind.TypeSpecification => $"type-spec:{CanonicalTypeName(GuardedDecode.TypeSpecification(reader, (TypeSpecificationHandle)handle, GenericScope.Empty))}",
             HandleKind.MethodDefinition => MethodDefinitionFingerprint(reader, (MethodDefinitionHandle)handle),
             HandleKind.MemberReference => MemberReferenceFingerprint(reader, (MemberReferenceHandle)handle),
@@ -1155,7 +1219,7 @@ public static partial class CSharpBodyDiff
     static string MethodDefinitionFingerprint(MetadataReader reader, MethodDefinitionHandle handle)
     {
         var method = reader.GetMethodDefinition(handle);
-        return $"method-def:{ResolveIdentityTypeName(reader, method.GetDeclaringType())}.{reader.GetString(method.Name)}:{MethodSignatureFingerprint(reader, method)}";
+        return $"method-def:{TypeIdentityKey(reader, method.GetDeclaringType())}.{reader.GetString(method.Name)}:{MethodSignatureFingerprint(reader, method)}";
     }
 
     static string MemberReferenceFingerprint(MetadataReader reader, MemberReferenceHandle handle)
@@ -1177,7 +1241,7 @@ public static partial class CSharpBodyDiff
     static string FieldDefinitionFingerprint(MetadataReader reader, FieldDefinitionHandle handle)
     {
         var field = reader.GetFieldDefinition(handle);
-        return $"field-def:{ResolveIdentityTypeName(reader, field.GetDeclaringType())}.{reader.GetString(field.Name)}:{CanonicalTypeName(GuardedDecode.FieldType(reader, field, GenericScope.Empty))}";
+        return $"field-def:{TypeIdentityKey(reader, field.GetDeclaringType())}.{reader.GetString(field.Name)}:{CanonicalTypeName(GuardedDecode.FieldType(reader, field, GenericScope.Empty))}";
     }
 
     static string MemberParentFingerprint(MetadataReader reader, EntityHandle handle)
@@ -1224,7 +1288,7 @@ public static partial class CSharpBodyDiff
         {
             try
             {
-                map.TryAdd(ResolveIdentityTypeName(reader, handle), handle);
+                map.TryAdd(TypeIdentityKey(reader, handle), handle);
             }
             catch (MetadataIdentityResolutionException)
             {
@@ -1363,7 +1427,7 @@ public static partial class CSharpBodyDiff
         if (IsAssemblyScopedTypeReference(reader, handle))
             return true;
 
-        string metadataName = ResolveIdentityTypeName(reader, handle);
+        string metadataName = TypeIdentityKey(reader, handle);
         if (typeDefinitionsByName.TryGetValue(metadataName, out var typeHandle))
             return IsVisibleInterfaceDefinition(reader, typeHandle, typeDefinitionsByName);
 
@@ -1401,9 +1465,13 @@ public static partial class CSharpBodyDiff
         if (definition.Assembly.Length > 0 && definition.Assembly != currentAssembly)
             return true;
 
-        string metadataName = definition.Namespace.Length == 0
-            ? definition.Name.Replace("+", ".", StringComparison.Ordinal)
-            : $"{definition.Namespace}.{definition.Name.Replace("+", ".", StringComparison.Ordinal)}";
+        string metadataName = TypeIdentityKey(definition)
+            ?? (definition.Namespace.Length == 0
+                ? definition.Name.Replace(
+                    "+",
+                    ".",
+                    StringComparison.Ordinal)
+                : $"{definition.Namespace}.{definition.Name.Replace("+", ".", StringComparison.Ordinal)}");
         if (typeDefinitionsByName.TryGetValue(metadataName, out var typeHandle))
             return IsVisibleInterfaceDefinition(reader, typeHandle, typeDefinitionsByName);
 

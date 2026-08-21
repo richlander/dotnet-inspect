@@ -124,14 +124,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 GenericParameterCanBeValueType,
                 IsStableReceiverGetter,
                 asyncStateMachineTypesBuilt);
-        _liftedSourceOwnerResolver =
-            new LibraryBodyLiftedSourceOwnerResolver(
-                reader,
-                peReader,
-                _primaryMetadataResolver,
-                _methodReferenceResolver,
-                methodBodyReferenceIndexed,
-                typeDefinitionIndexBuilt);
         _asyncSourceResolver =
             new LibraryBodyAsyncSourceResolver(
                 reader,
@@ -139,7 +131,16 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 _primaryMetadataResolver,
                 IsSourceGeneratedTypeOrEnclosing,
                 LocalTypeDefinitions,
-                TypeFromEntity);
+                TypeFromEntity,
+                typeDefinitionIndexBuilt);
+        _liftedSourceOwnerResolver =
+            new LibraryBodyLiftedSourceOwnerResolver(
+                reader,
+                peReader,
+                _primaryMetadataResolver,
+                _methodReferenceResolver,
+                _asyncSourceResolver,
+                methodBodyReferenceIndexed);
         if (resolver is not null && reader.IsAssembly)
             _referenceMetadataResolver =
                 new LibraryBodyReferenceMetadataResolver(
@@ -309,15 +310,13 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         }
 
         MethodIdentity? asyncSource =
-            _asyncSourceResolver.ResolveSourceMethod(
+            _asyncSourceResolver.ResolveDeclaredSourceMethod(
                 method,
                 methodDefinition,
                 typeSourceGenerated);
         if (asyncSource is null
             || asyncSource == method)
-        {
             return asyncSource;
-        }
 
         EntityHandle asyncSourceHandle =
             MetadataTokens.EntityHandle(
@@ -342,6 +341,98 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         }
 
         return asyncSource;
+    }
+
+    bool ILibraryMethodAnalysisInfrastructure
+        .TryResolveUltimateDeclaredMethod(
+            MethodDefinitionHandle methodHandle,
+            MethodDefinition methodDefinition,
+            MethodIdentity method,
+            bool typeSourceGenerated,
+            out MethodIdentity? ultimateOwner)
+    {
+        MethodIdentity? current =
+            ((ILibraryMethodAnalysisInfrastructure)this)
+                .ResolveDeclaredMethod(
+                    methodHandle,
+                    methodDefinition,
+                    method,
+                    typeSourceGenerated,
+                    ownerMethodScope: null,
+                    ownerTypeScope: null,
+                    requestedMethodScope: null,
+                    directlySelectedBody: false);
+        if (current is null
+            || current == method)
+        {
+            ultimateOwner = null;
+            return !CompilerGeneratedNames
+                .RequiresDeclaredOwner(method);
+        }
+
+        return TryResolveUltimateLiftedOwner(
+            current,
+            out ultimateOwner);
+    }
+
+    bool TryResolveUltimateLiftedOwner(
+        MethodIdentity source,
+        out MethodIdentity? ultimateOwner)
+    {
+        MethodIdentity current = source;
+        Span<int> visited =
+            stackalloc int[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        int count = 0;
+        while (CompilerGeneratedNames
+            .IsLocalFunctionOrLambda(current.Name))
+        {
+            if (count == visited.Length)
+            {
+                ultimateOwner = null;
+                return false;
+            }
+            for (int i = 0; i < count; i++)
+            {
+                if (visited[i]
+                    == current.MetadataToken)
+                {
+                    ultimateOwner = null;
+                    return false;
+                }
+            }
+            visited[count++] = current.MetadataToken;
+            EntityHandle currentHandle =
+                MetadataTokens.EntityHandle(
+                    current.MetadataToken);
+            if (currentHandle.Kind
+                    != HandleKind.MethodDefinition)
+            {
+                ultimateOwner = null;
+                return false;
+            }
+            var currentDefinition =
+                _reader.GetMethodDefinition(
+                    (MethodDefinitionHandle)currentHandle);
+            if (!_liftedSourceOwnerResolver.TryResolve(
+                    (MethodDefinitionHandle)currentHandle,
+                    currentDefinition,
+                    current,
+                    out MethodIdentity? sourceOwner,
+                    out _,
+                    ownerMethodScope: null,
+                    ownerTypeScope: null,
+                    directlySelectedBody: false)
+                || sourceOwner is null)
+            {
+                ultimateOwner = null;
+                return false;
+            }
+            current = sourceOwner;
+        }
+
+        ultimateOwner = current;
+        return true;
     }
 
     bool ILibraryMethodAnalysisInfrastructure.DispatchCanTargetOverride(
@@ -482,18 +573,47 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         }
 
         LibraryBodyAnalysisResult analysis = accumulator.Build(results);
+        if (!plan.ScopeExpansionDiagnostics.IsDefaultOrEmpty)
+        {
+            var fallbackDiagnostics =
+                analysis.Diagnostics.ToBuilder();
+            var unique = new HashSet<AnalysisDiagnostic>(
+                analysis.Diagnostics);
+            foreach (AnalysisDiagnostic diagnostic
+                in plan.ScopeExpansionDiagnostics)
+            {
+                if (unique.Add(diagnostic))
+                    fallbackDiagnostics.Add(diagnostic);
+            }
+            analysis = analysis with
+            {
+                Diagnostics = fallbackDiagnostics.ToImmutable(),
+            };
+        }
         if (!includeMethodEvidence)
             return analysis;
 
         IReadOnlyDictionary<int, MethodIdentity> asyncSources =
-            _asyncSourceResolver.SourceMethodsByMoveNextToken();
+            _asyncSourceResolver
+                .DeclaredSourceMethodsByMoveNextToken();
         if (asyncSources.Count == 0)
             return analysis;
 
         var declaredSources = new Dictionary<int, MethodIdentity>(
             analysis.Methods.DeclaredSources);
         foreach ((int token, MethodIdentity source) in asyncSources)
-            declaredSources.TryAdd(token, source);
+        {
+            if (!declaredSources.ContainsKey(token)
+                && TryResolveUltimateLiftedOwner(
+                    source,
+                    out MethodIdentity? ultimateOwner)
+                && ultimateOwner is not null)
+            {
+                declaredSources.Add(
+                    token,
+                    ultimateOwner);
+            }
+        }
         return analysis with
         {
             Methods = analysis.Methods with
@@ -515,6 +635,10 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
 
         var ownersByBody =
             new Dictionary<MethodIdentity, MethodIdentity>();
+        ImmutableArray<AnalysisDiagnostic>.Builder diagnostics =
+            plan.ScopeExpansionDiagnostics.IsDefault
+                ? ImmutableArray.CreateBuilder<AnalysisDiagnostic>()
+                : plan.ScopeExpansionDiagnostics.ToBuilder();
         foreach (TypeDefinitionHandle typeHandle
             in _reader.TypeDefinitions)
         {
@@ -523,6 +647,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             foreach (MethodDefinitionHandle methodHandle
                 in typeDefinition.GetMethods())
             {
+                MethodIdentity method;
                 try
                 {
                     MethodDefinition methodDefinition =
@@ -531,12 +656,30 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                         _primaryMetadataResolver.CreateScope(
                             typeDefinition,
                             methodDefinition);
-                    MethodIdentity method =
+                    method =
                         _primaryMetadataResolver.CreateMethodIdentity(
                             typeHandle,
                             methodHandle,
                             methodDefinition,
                             scope);
+                }
+                catch (Exception ex)
+                    when (IsRecoverableMethodFailure(ex))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    MethodDefinition methodDefinition =
+                        _reader.GetMethodDefinition(methodHandle);
+                    bool directlySelectedBody =
+                        plan.RequestedMethodScope?.Contains(
+                            MetadataTokens.GetToken(methodHandle))
+                            == true
+                        || plan.TypeScope?.Invoke(
+                            method.DeclaringType)
+                            == true;
                     if (_liftedSourceOwnerResolver.TryResolve(
                             methodHandle,
                             methodDefinition,
@@ -545,10 +688,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                             out _,
                             plan.MethodScope,
                             plan.TypeScope,
-                            plan.RequestedMethodScope?.Contains(
-                                MetadataTokens.GetToken(
-                                    methodHandle))
-                                == true)
+                            directlySelectedBody)
                         && sourceOwner is not null)
                     {
                         ownersByBody[method] = sourceOwner;
@@ -557,7 +697,15 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 catch (Exception ex)
                     when (IsRecoverableMethodFailure(ex))
                 {
-                    continue;
+                    diagnostics.Add(new AnalysisDiagnostic(
+                        method.MetadataToken,
+                        LibraryMethodAnalysisRunner
+                            .MethodLabel(
+                                _reader,
+                                typeHandle,
+                                methodHandle),
+                        $"{ex.GetType().Name}: {ex.Message}",
+                        DeclaringType: method.DeclaringType));
                 }
             }
         }
@@ -584,10 +732,13 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             methodScope = expanded;
         }
 
-        Dictionary<int, TypeRef>? evidenceSources =
+        Dictionary<int, ImmutableArray<TypeRef>>?
+            evidenceSources =
             plan.TypeScopeEvidenceSources is null
                 ? null
-                : new Dictionary<int, TypeRef>(
+                : new Dictionary<
+                    int,
+                    ImmutableArray<TypeRef>>(
                     plan.TypeScopeEvidenceSources);
         if (plan.TypeScope is not null)
         {
@@ -597,11 +748,21 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 MethodIdentity owner)
                 in ownersByBody)
             {
-                evidenceSources[body.MetadataToken] =
+                TypeRef declaredSourceType =
                     ResolveDeclaredMethod(
                         owner,
                         ownersByBody)
                     .DeclaringType;
+                ImmutableArray<TypeRef> existing =
+                    evidenceSources.GetValueOrDefault(
+                        body.MetadataToken);
+                if (existing.IsDefault)
+                    existing = [];
+                if (!existing.Contains(declaredSourceType))
+                {
+                    evidenceSources[body.MetadataToken] =
+                        existing.Add(declaredSourceType);
+                }
             }
         }
 
@@ -609,6 +770,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         {
             MethodScope = methodScope,
             TypeScopeEvidenceSources = evidenceSources,
+            ScopeExpansionDiagnostics = diagnostics.ToImmutable(),
         };
     }
 

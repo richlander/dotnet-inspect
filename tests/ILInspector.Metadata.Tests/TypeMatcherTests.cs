@@ -7,10 +7,63 @@ public class TypeMatcherTests
     [Theory]
     [InlineData("System.Diagnostics.Metrics.UpDownCounter`1", "System.Diagnostics.Metrics.UpDownCounter<T>")]
     [InlineData("System.Collections.Generic.Dictionary`2", "System.Collections.Generic.Dictionary<T1, T2>")]
-    [InlineData("Outer`1+Inner`2", "Outer<T>+Inner<T1, T2>")]
+    [InlineData("Outer`1+Inner`2", "Outer`1+Inner`2")]
     [InlineData("System.String", "System.String")]
     public void FormatDisplayName_rewrites_clr_generic_arity(string input, string expected)
         => Assert.Equal(expected, TypeResolver.FormatDisplayName(input));
+
+    [Fact]
+    public void FormatDisplayName_UsesExactSegmentsForNestedGenericNames()
+        => Assert.Equal(
+            "Outer<T>.Inner<T1, T2>",
+            TypeResolver.FormatDisplayName(["Outer`1", "Inner`2"]));
+
+    [Fact]
+    public void FormatDisplayName_DoesNotParseDecorationInsideExactSegments()
+        => Assert.Equal(
+            "Widget`1[]",
+            TypeResolver.FormatDisplayName(["Widget`1[]"]));
+
+    /// <summary>
+    /// #4217: search keys are built from the canonical arity grammar, so a
+    /// backtick that is name text is not deleted. The old prefix-digit grammar
+    /// turned <c>Ns.Widget`1Extra</c> into <c>Ns.WidgetExtra</c> and matched an
+    /// unrelated type.
+    /// </summary>
+    [Theory]
+    [InlineData("System.Collections.Generic.List`1", "System.Collections.Generic.List")]
+    [InlineData("System.Collections.Generic.SortedDictionary`2.KeyCollection", "System.Collections.Generic.SortedDictionary.KeyCollection")]
+    [InlineData("Ns.Widget`1Extra", "Ns.Widget`1Extra")]
+    [InlineData("Ns.Widget`Literal", "Ns.Widget`Literal")]
+    [InlineData("Ns.Widget`0", "Ns.Widget`0")]
+    [InlineData("Ns.Widget`65537", "Ns.Widget`65537")]
+    public void GetBaseName_removes_only_canonical_arity(string typeName, string expected)
+        => Assert.Equal(expected, TypeMatcher.GetBaseName(typeName));
+
+    [Fact]
+    public void Matches_does_not_fold_a_non_arity_backtick_onto_another_type()
+    {
+        Assert.False(TypeMatcher.Matches("Ns.Widget`1Extra", "Ns.WidgetExtra"));
+        Assert.False(TypeMatcher.Matches("Ns.WidgetExtra", "Ns.Widget`1Extra"));
+        Assert.True(TypeMatcher.Matches("Ns.Widget`1Extra", "Ns.Widget`1Extra"));
+
+        // The ordinary generic case still matches its unsuffixed spelling.
+        Assert.True(TypeMatcher.Matches("Ns.Widget`1", "Ns.Widget"));
+    }
+
+    [Theory]
+    [InlineData("List`1", 1)]
+    [InlineData("Dictionary`2", 2)]
+    [InlineData("Dictionary`2.KeyCollection", 2)]
+    [InlineData("Outer`1+Inner`2", 2)]
+    [InlineData("String", 0)]
+    [InlineData("Widget`1Extra", 0)]
+    [InlineData("Widget`+1", 0)]
+    [InlineData("Widget`0", 0)]
+    [InlineData("Widget`65536", 65536)]
+    [InlineData("Widget`65537", 0)]
+    public void GetGenericArity_reads_only_canonical_suffixes(string typeName, int expected)
+        => Assert.Equal(expected, TypeMatcher.GetGenericArity(typeName));
 
     [Theory]
     [InlineData("Option<T>", 1)]

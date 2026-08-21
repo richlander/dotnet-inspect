@@ -336,6 +336,11 @@ method analysis.
 `OptimizationOpportunities_AsyncStateMachineTypesArePrewarmedBeforeParallelAnalysis`
 gate projection, authentication, close-negative scope behavior, and
 read-only parallel cache consumption.
+`LibraryBodyAsyncSiblingSignatureMatcher` supplies the async-sibling
+subsystem's stateless signature decoding, exact identity/comparison, async
+return compatibility, optional cancellation matching, and bounded finding
+display. Reader-relative lookup, caches, accessibility, and dispatch
+suppression remain assembly-builder policy.
 `CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn`,
 `OptimizationOpportunities_AsyncStateMachine_IsAmortized`, and
 `Allocations_ClassifiesCrossAndInAssemblyValueTypeNewobj_ByShape` gate
@@ -349,8 +354,9 @@ instructions for their own policy; this ownership split does not claim one
 instruction traversal overall.
 `MethodInstructionFacts` owns the metadata-free local/argument-slot, operand,
 and single-branch-target grammar shared by safety and allocation interpretation,
-and `CompilerGeneratedNames` owns the unspeakable-name grammar shared by
-allocation escape classification and optimization-opportunity classification.
+and `CompilerGeneratedNames` owns the unspeakable-name grammar and conservative
+containing-type projection shared by allocation escape classification and
+optimization-opportunity classification.
 `SemanticFactProjection` remains the coordinate projection substrate.
 Coordinate scope should be added in Analysis, not rebuilt in CLI code.
 

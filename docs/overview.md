@@ -88,6 +88,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 ## Important systems
 
 - [Inspection space architecture](inspection-space.md): the target Rich, Fast, and Safe core that will be shared by hosts and inspection producers.
+- [Artifact acquisition and workspace composition](design/artifact-acquisition-and-workspaces.md):
+  the target separation between storage, source adapters, multi-source
+  workspace lifetimes, packages, and assembly inspection.
 - [Architecture](architecture.md): command and metadata architecture.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
 - [Inspection graph document](design/inspection-graph-document.md): typed
