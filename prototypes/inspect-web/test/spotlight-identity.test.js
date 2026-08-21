@@ -280,6 +280,12 @@ test("typed status bar owns its rendered toggle binding", () => {
   const binding =
     appSource.match(/function bindStatusBarEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
     ?? "";
+  const workspaceBinding =
+    appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
+    ?? "";
+  const homeBinding =
+    appSource.match(/function bindHomeEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
+    ?? "";
   assert.match(
     binding,
     /bindStatusBar\(document, \{\s*onToggle: \(\) => \{[\s\S]*state\.statusBarExpanded = !state\.statusBarExpanded;[\s\S]*render\(\);[\s\S]*\},\s*\}\)/);
@@ -288,6 +294,15 @@ test("typed status bar owns its rendered toggle binding", () => {
     statusBarSource,
     /export function bindStatusBar\([\s\S]*\[data-status-bar-toggle-button\][\s\S]*actions\.onToggle/);
   assert.doesNotMatch(appSource, /\[data-status-bar-toggle-button\]/);
+  assert.equal(
+    workspaceBinding.match(/\bbindStatusBarEvents\(\)/g)?.length,
+    1);
+  assert.equal(
+    homeBinding.match(/\bbindStatusBarEvents\(\)/g)?.length,
+    1);
+  assert.equal(
+    appSource.match(/\bbindStatusBarEvents\(\)/g)?.length,
+    3);
 });
 
 test("typed package inspection owns package-root request coordination", () => {
