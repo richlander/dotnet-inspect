@@ -182,11 +182,15 @@ allocation first and attaches only support at that exact offset, so a later
 non-allocation scan call cannot shadow the raw evidence. If an exact triage row
 also projects the same raw site, the unique aggregate support owns the
 observation and the exact row is superseded rather than sharing bytes. The raw
-row is then `superseded-by-triage`; otherwise it retains the evidence.
+row is then `superseded-by-triage`; an exact row at a different offset or from
+a different build remains independent. Support anchors are allocation-only:
+method-name or CPU samples may establish method heat on the aggregate but
+cannot supersede its raw allocation row. Otherwise the raw row retains the
+evidence.
 `Correlate_AggregateSupportingCallSite_PromotesExactLibraryEvidence` and
 `Correlate_AmbiguousAggregateSupports_DoNotClaimLibraryEvidence`,
 `Correlate_NonAllocationSupport_DoesNotShadowNearestLibrarySite`, and
-`Correlate_ExactAndAggregateSameSite_PrefersAggregateSupport` are the
+`Correlate_ExactAndAggregateSites_RespectCoordinateAndBuild` are the
 non-vacuity gates for those outcomes. The flattened projection gate
 `FlattenedPerformanceTriageJsonl_RetainsSupportingCallSite` keeps all five
 `Supporting*` fields available in JSONL and tabular output as well as nested

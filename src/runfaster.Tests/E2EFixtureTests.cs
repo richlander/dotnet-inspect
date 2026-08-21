@@ -2778,8 +2778,13 @@ public class E2EFixtureTests
         }
     }
 
-    [Fact]
-    public void Correlate_ExactAndAggregateSameSite_PrefersAggregateSupport()
+    [Theory]
+    [InlineData(0, true)]
+    [InlineData(2, true)]
+    [InlineData(0, false)]
+    public void Correlate_ExactAndAggregateSites_RespectCoordinateAndBuild(
+        int exactOffsetDelta,
+        bool sameBuild)
     {
         string assemblyPath =
             FixtureCatalog.RunFasterAllocation.AssemblyPath();
@@ -2799,10 +2804,14 @@ public class E2EFixtureTests
             $"runfaster-triage-{Guid.NewGuid():N}.json");
         try
         {
+            Guid exactMvid = sameBuild
+                ? occurrence.Method.ModuleVersionId
+                : Guid.Parse(
+                    "99999999-9999-9999-9999-999999999999");
             File.WriteAllText(
                 triagePath,
                 $$$"""
-                {"performance":{"objects":[{"member":"RunFaster.AllocationFixture.Program.AllocateOne()","assembly":"RunFaster.AllocationFixture","moduleVersionId":"{{{occurrence.Method.ModuleVersionId:D}}}","method_token":"0x{{{allocateOne.MetadataToken:X8}}}","candidate":"pt~exact","shape":"object-allocation","provenance":"exact","operation":"newobj","token":"0x0A000001","il":"IL_{{{occurrence.ILOffset:X4}}}","allocation":"System.Object"}],"loop_hot_paths":[{"member":"RunFaster.AllocationFixture.Program.AllocateOne()","assembly":"RunFaster.AllocationFixture","moduleVersionId":"{{{occurrence.Method.ModuleVersionId:D}}}","method_token":"0x{{{allocateOne.MetadataToken:X8}}}","candidate":"pt~aggregate","shape":"scan-method-in-loop-call","provenance":"aggregate","supporting_finding":"analysis.call-site","supporting_operation":"newobj","supporting_token":"0x0A000001","supporting_evidence_method":"0x{{{allocateOne.MetadataToken:X8}}}","supporting_il":"IL_{{{occurrence.ILOffset:X4}}}"}]}}
+                {"performance":{"objects":[{"member":"RunFaster.AllocationFixture.Program.AllocateOne()","assembly":"RunFaster.AllocationFixture","moduleVersionId":"{{{exactMvid:D}}}","method_token":"0x{{{allocateOne.MetadataToken:X8}}}","candidate":"pt~exact","shape":"object-allocation","provenance":"exact","operation":"newobj","token":"0x0A000001","il":"IL_{{{occurrence.ILOffset + exactOffsetDelta:X4}}}","allocation":"System.Object"}],"loop_hot_paths":[{"member":"RunFaster.AllocationFixture.Program.AllocateOne()","assembly":"RunFaster.AllocationFixture","moduleVersionId":"{{{occurrence.Method.ModuleVersionId:D}}}","method_token":"0x{{{allocateOne.MetadataToken:X8}}}","candidate":"pt~aggregate","shape":"scan-method-in-loop-call","provenance":"aggregate","supporting_finding":"analysis.call-site","supporting_operation":"newobj","supporting_token":"0x0A000001","supporting_evidence_method":"0x{{{allocateOne.MetadataToken:X8}}}","supporting_il":"IL_{{{occurrence.ILOffset:X4}}}"}]}}
                 """);
 
             var result = RunCorrelate(
@@ -2842,26 +2851,53 @@ public class E2EFixtureTests
                         "candidate",
                         out var id)
                     && id.GetString() == "pt~exact");
-            Assert.Equal(
-                1_167_872,
-                aggregate.GetProperty("allocationBytes")
-                    .GetInt64());
-            Assert.Equal(
-                0,
-                exact.GetProperty("allocationBytes")
-                    .GetInt64());
-            Assert.Equal(
-                "superseded-by-triage",
-                exact.GetProperty("status")
-                    .GetString());
-            Assert.DoesNotContain(
-                sameMethod,
-                candidate => candidate
-                    .GetProperty("source")
-                    .GetString() == "library"
-                    && candidate.GetProperty(
+            if (sameBuild
+                && exactOffsetDelta == 0)
+            {
+                Assert.Equal(
+                    1_167_872,
+                    aggregate.GetProperty(
+                            "allocationBytes")
+                        .GetInt64());
+                Assert.Equal(
+                    0,
+                    exact.GetProperty("allocationBytes")
+                        .GetInt64());
+                Assert.Equal(
+                    "superseded-by-triage",
+                    exact.GetProperty("status")
+                        .GetString());
+            }
+            else if (sameBuild)
+            {
+                Assert.Equal(
+                    0,
+                    aggregate.GetProperty(
+                            "allocationBytes")
+                        .GetInt64());
+                Assert.Equal(
+                    1_167_872,
+                    exact.GetProperty("allocationBytes")
+                        .GetInt64());
+                Assert.NotEqual(
+                    "superseded-by-triage",
+                    exact.GetProperty("status")
+                        .GetString());
+            }
+            else
+            {
+                Assert.True(
+                    aggregate.GetProperty(
                             "allocationBytes")
                         .GetInt64() > 0);
+                Assert.True(
+                    exact.GetProperty("allocationBytes")
+                        .GetInt64() > 0);
+                Assert.NotEqual(
+                    "superseded-by-triage",
+                    exact.GetProperty("status")
+                        .GetString());
+            }
         }
         finally
         {
@@ -2888,6 +2924,9 @@ public class E2EFixtureTests
         string triagePath = Path.Combine(
             Path.GetTempPath(),
             $"runfaster-triage-{Guid.NewGuid():N}.json");
+        string stackPath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-stack-{Guid.NewGuid():N}.txt");
         try
         {
             string rowProperties =
@@ -2902,6 +2941,9 @@ public class E2EFixtureTests
                     ",\"candidate\":\"pt~first\"},{",
                     rowProperties,
                     ",\"candidate\":\"pt~second\"}]}}"));
+            File.WriteAllText(
+                stackPath,
+                "RunFaster.AllocationFixture.Program.AllocateOne()");
 
             var result = RunCorrelate(
                 "--library",
@@ -2911,6 +2953,8 @@ public class E2EFixtureTests
                 "--trace",
                 FixtureCatalog.RunFasterAllocation
                     .AssetPath("fixture.nettrace"),
+                "--stack",
+                stackPath,
                 "--json");
 
             Assert.Equal(0, result.ExitCode);
@@ -2945,10 +2989,15 @@ public class E2EFixtureTests
                 1_167_872,
                 library.GetProperty("allocationBytes")
                     .GetInt64());
+            Assert.NotEqual(
+                "superseded-by-triage",
+                library.GetProperty("status")
+                    .GetString());
         }
         finally
         {
             File.Delete(triagePath);
+            File.Delete(stackPath);
         }
     }
 

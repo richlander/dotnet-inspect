@@ -212,8 +212,11 @@ site. RunFaster resolves the nearest raw allocation first, then attaches support
 at that exact coordinate; a later non-allocation scan-call support therefore
 cannot hide the raw site. When an exact triage row and one aggregate support
 both project the same raw site, the aggregate carries the evidence and the
-exact row is superseded rather than splitting bytes. Otherwise the aggregate
-remains cold for the workload and the raw row keeps the evidence.
+exact row is superseded rather than splitting bytes. An exact row at another
+offset or from another build remains independent. Method-name and CPU samples
+can mark the aggregate method hot, but only an accepted allocation-coordinate
+join supersedes its raw allocation anchor. Otherwise the aggregate remains cold
+for the workload and the raw row keeps the evidence.
 Type-level ambiguity and its site cap count the shared coordinate once unless
 several library MVIDs make an older MVID-less triage row's module version
 ambiguous.

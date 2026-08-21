@@ -1126,16 +1126,24 @@ static bool TryCorrelateNetTrace(
                     .ToArray();
                 if (supportingTargets.Length == 1)
                 {
+                    var support =
+                        supportingTargets[0];
                     foreach (var exactTriage
                              in matchedCandidates.Where(
-                                 static candidate =>
+                                 candidate =>
                                      !candidate
                                          .SupportingCallSite
                                      && string.Equals(
                                          candidate.Source,
                                          "triage",
                                          StringComparison
-                                             .Ordinal)))
+                                             .Ordinal)
+                                     && candidate.IlOffset
+                                         == support.IlOffset
+                                     && ProgramSupport
+                                         .SameBuild(
+                                             candidate,
+                                             support)))
                     {
                         exactTriage.SupersededByTriage =
                             true;
@@ -1143,14 +1151,21 @@ static bool TryCorrelateNetTrace(
                     matchedCandidates =
                     [
                         .. matchedCandidates.Where(
-                            static candidate =>
+                            candidate =>
                                 candidate
                                     .SupportingCallSite
-                                || string.Equals(
-                                    candidate.Source,
-                                    "library",
-                                    StringComparison
-                                        .Ordinal)),
+                                || !(
+                                    string.Equals(
+                                        candidate.Source,
+                                        "triage",
+                                        StringComparison
+                                            .Ordinal)
+                                    && candidate.IlOffset
+                                        == support.IlOffset
+                                    && ProgramSupport
+                                        .SameBuild(
+                                            candidate,
+                                            support))),
                     ];
                 }
                 var supersededLibraries =
@@ -2929,6 +2944,8 @@ sealed class AllocationCandidate(
     public bool ProjectedByTriage { get; set; }
     public List<AllocationCandidate> ProjectedLibraries
         { get; } = [];
+    public List<AllocationCandidate> SupportingLibraries
+        { get; } = [];
     public bool SupersededByTriage { get; set; }
     public void MarkProjectedLibrariesSuperseded()
     {
@@ -2936,6 +2953,15 @@ sealed class AllocationCandidate(
                  in ProjectedLibraries)
         {
             projectedLibrary.SupersededByTriage =
+                true;
+        }
+    }
+    public void MarkSupportingLibrariesSuperseded()
+    {
+        foreach (var supportingLibrary
+                 in SupportingLibraries)
+        {
+            supportingLibrary.SupersededByTriage =
                 true;
         }
     }
@@ -3470,11 +3496,11 @@ sealed class CandidateLookup
                              candidate,
                              support)))
             {
-                if (!support.ProjectedLibraries.Any(
+                if (!support.SupportingLibraries.Any(
                         projected =>
                             projected.Id == library.Id))
                 {
-                    support.ProjectedLibraries.Add(
+                    support.SupportingLibraries.Add(
                         library);
                 }
             }
@@ -3906,6 +3932,14 @@ sealed class CandidateLookup
 
         foreach (var raw in NearestByBuild(rawSearch))
         {
+            if (!result.Any(candidate =>
+                    candidate.IlOffset == raw.IlOffset
+                    && ProgramSupport.SameBuild(
+                        candidate,
+                        raw)))
+            {
+                continue;
+            }
             result.AddRange(supports.Where(support =>
                 support.IlOffset == raw.IlOffset
                 && ProgramSupport.SameBuild(
@@ -4393,6 +4427,11 @@ internal static class ProgramSupport
         candidate.ExactOffsetObserved |= exactOffset;
         candidate.AmbiguousIlOffsetJoin |= ambiguousIlJoin;
         candidate.MarkProjectedLibrariesSuperseded();
+        if (candidate.SupportingCallSite)
+        {
+            candidate
+                .MarkSupportingLibrariesSuperseded();
+        }
         if (!string.IsNullOrWhiteSpace(allocatedType))
         {
             candidate.ObservedAllocatedTypes[allocatedType] = candidate.ObservedAllocatedTypes.GetValueOrDefault(allocatedType) + sampledBytes;
@@ -4430,7 +4469,7 @@ internal static class ProgramSupport
         if (compatibleSupports != 1)
             return false;
 
-        return candidate.ProjectedLibraries.Any(
+        return candidate.SupportingLibraries.Any(
             library =>
                 library.IlOffset
                     == candidate.IlOffset
@@ -4518,6 +4557,12 @@ internal static class ProgramSupport
             {
                 AddObservedType(
                     projectedLibrary.PredictedType);
+            }
+            foreach (var supportingLibrary
+                     in candidate.SupportingLibraries)
+            {
+                AddObservedType(
+                    supportingLibrary.PredictedType);
             }
             foreach (string observedType
                      in candidate
@@ -4655,7 +4700,12 @@ internal static class ProgramSupport
             var coordinateCandidates = coordinateGroup.ToArray();
             var supersededAtCoordinate =
                 FindLibrariesSupersededByTriage(
-                    coordinateCandidates);
+                    [
+                        .. coordinateCandidates.Where(
+                            static candidate =>
+                                !candidate
+                                    .SupportingCallSite),
+                    ]);
             var supersededIds = supersededAtCoordinate
                 .Select(static candidate => candidate.Id)
                 .ToHashSet();
