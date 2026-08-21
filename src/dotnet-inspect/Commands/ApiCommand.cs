@@ -1748,17 +1748,22 @@ public class ApiCommand
         if (options.Tabular
             && !IsProjectionRequested(options)
             && GetRequestedMemberSections(type, options)
-                .Contains(SectionNames.AnnotatedSource))
+                .FirstOrDefault(CodePayloadSections.Contains) is { } codeSection)
         {
             string format = options.Jsonl
                 ? "--jsonl"
                 : options.Tsv
                     ? "--tsv"
                     : "--table";
+            string guidance = codeSection.Equals(
+                SectionNames.AnnotatedSourceDocument,
+                StringComparison.OrdinalIgnoreCase)
+                    ? "Use --json for its structured document, or use Markdown output or --print."
+                    : "Use Markdown output or --print to project the section payload.";
             CommandError.Write(
                 $"{format} cannot represent section "
-                + $"'{SectionNames.AnnotatedSource}'. "
-                + "Use Markdown output or --print to project the section payload.");
+                + $"'{codeSection}'. "
+                + guidance);
             return 1;
         }
 
@@ -1812,9 +1817,7 @@ public class ApiCommand
 
             if (ExplicitUnsupportedDocumentJsonSection(options) is { } unsupportedSection)
             {
-                string guidance = unsupportedSection.Equals(
-                    SectionNames.AnnotatedSource,
-                    StringComparison.OrdinalIgnoreCase)
+                string guidance = CodePayloadSections.Contains(unsupportedSection)
                         ? "Use Markdown output or --print to project the section payload."
                         : "Use Markdown output or a section-specific --print, --jsonl, "
                             + "--tsv, or --table projection.";
@@ -3198,6 +3201,19 @@ public class ApiCommand
             SectionNames.UnsafeOperations,
             SectionNames.CalledTypes,
             SectionNames.TopLeverage,
+        };
+
+    private static readonly HashSet<string> CodePayloadSections =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            SectionNames.DecompiledSource,
+            SectionNames.AnnotatedSource,
+            SectionNames.AnnotatedSourceDocument,
+            SectionNames.CostOverlay,
+            SectionNames.SemanticsOverlay,
+            SectionNames.OriginalSource,
+            SectionNames.SourceDiff,
+            SectionNames.IL,
         };
 
     private static bool ShouldRenderMemberIndex(ApiOptions options)

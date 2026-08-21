@@ -2540,7 +2540,8 @@ public static class ApiOutputFormatter
                 .Where(diagnostic =>
                     declaredMethodTokens.Contains(diagnostic.MethodToken)
                     || diagnostic.DeclaringType is { } declaringType
-                        && ApiAnalysisInspection.SameType(declaringType, type))
+                        && ApiAnalysisInspection.SameType(declaringType, type)
+                    || diagnostic.DeclaringTypeToken == type.MetadataToken)
                 .Select(diagnostic =>
                 {
                     var row = new UnsafeMemberRow(

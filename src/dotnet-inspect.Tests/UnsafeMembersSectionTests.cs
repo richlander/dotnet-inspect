@@ -378,16 +378,21 @@ public class UnsafeMembersSectionTests
                     DeclaringType: matchingMethod.DeclaringType,
                     DeclaringTypeToken: 0x0200FFFF),
                 new AnalysisDiagnostic(
+                    0x0600FFFD,
+                    "PreIdentityTokenFailure",
+                    "BadImageFormatException: token-attributed signature failure",
+                    DeclaringTypeToken: type.MetadataToken),
+                new AnalysisDiagnostic(
                     otherTypeMethod.MetadataToken,
                     otherTypeMethod.Name,
                     "BadImageFormatException: unrelated body",
-                    DeclaringTypeToken: type.MetadataToken)
+                    DeclaringTypeToken: 0x0200FFFD)
             ]);
 
         var rows = view.UnsafeMemberRows!
             .Where(candidate => candidate.Kind == "diagnostic")
             .ToArray();
-        Assert.Equal(2, rows.Length);
+        Assert.Equal(3, rows.Length);
         Assert.All(rows, row => Assert.Equal("Analysis failed", row.Reason));
         Assert.Contains(
             rows,
@@ -398,6 +403,11 @@ public class UnsafeMembersSectionTests
             rows,
             row => row.Detail.Contains(
                 "pre-identity signature failure",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            rows,
+            row => row.Detail.Contains(
+                "token-attributed signature failure",
                 StringComparison.Ordinal));
         Assert.DoesNotContain(
             view.UnsafeMemberRows!,

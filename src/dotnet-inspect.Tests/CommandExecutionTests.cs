@@ -7228,6 +7228,39 @@ public partial class CommandExecutionTests
         Assert.Contains("--print", error, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("Annotated Source Document", "--jsonl")]
+    [InlineData("Annotated Source Document", "--tsv")]
+    [InlineData("Annotated Source Document", "--table")]
+    [InlineData("Decompiled Source", "--jsonl")]
+    [InlineData("Decompiled Source", "--tsv")]
+    [InlineData("Decompiled Source", "--table")]
+    public async Task Member_CodePayload_RowFormat_FailsVisibly(
+        string section,
+        string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(CommandCaretGestureFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            "-m",
+            $"{nameof(CommandCaretGestureFixture.Pump)}:1",
+            "-S",
+            section,
+            format,
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"{format} cannot represent section '{section}'.",
+            error,
+            StringComparison.Ordinal);
+        Assert.Contains("--print", error, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Member_AnnotatedSource_DocumentJson_RecommendsSupportedProjection()
     {
@@ -7250,6 +7283,52 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("--jsonl", error, StringComparison.Ordinal);
         Assert.DoesNotContain("--tsv", error, StringComparison.Ordinal);
         Assert.DoesNotContain("--table", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Member_DecompiledSource_DocumentJson_RecommendsSupportedProjection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(CommandCaretGestureFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            "-m",
+            $"{nameof(CommandCaretGestureFixture.Pump)}:1",
+            "-S",
+            "Decompiled Source",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--print", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("--jsonl", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("--tsv", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("--table", error, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Original Source")]
+    [InlineData("Source Diff")]
+    [InlineData("IL")]
+    [InlineData("Facts")]
+    public async Task Type_SelectedMemberOnlySection_FailsSelection(string section)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeof(CommandCaretGestureFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            section,
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains($"Select value '{section}' not found", error);
     }
 
     [Fact]

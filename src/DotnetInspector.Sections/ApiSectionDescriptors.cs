@@ -143,12 +143,6 @@ public static class ApiMemberSectionDescriptors
             .Add<DecompiledSource>(
                 HasBodyBackedMembersOrEnum,
                 HasExecutableBodyMembersOrEnum)
-            .Add<OriginalSource>(HasBodyBackedMembers, HasExecutableBodyMembers)
-            .Add<ApiMemberDetailSectionDescriptors.SourceDiff>(
-                HasSingleExecutableBodyMember,
-                isViewApplicable: HasSingleExecutableBodyMember)
-            .Add<ILBody>(HasBodyBackedMembers, HasExecutableBodyMembers)
-            .Add<Facts>(HasSingleBodyBackedMember, HasSingleExecutableBodyMember)
             .AddCategory(SectionCategoryNames.Audit, SectionNames.UnsafeMembers);
     }
 
