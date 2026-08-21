@@ -1061,6 +1061,18 @@ test("member detail adapters preserve exact engine coordinates", () => {
     appSource.match(
       /const memberDetailInspection = createMemberDetailInspectionCoordinator\(\{[\s\S]*?\n}\);/)?.[0]
     ?? "";
+  const documentationLoader =
+    appSource.match(
+      /async function loadSelectedMemberDocumentation\(\)[\s\S]*?\n}\n\nasync function loadSelectedMemberSource/)?.[0]
+    ?? "";
+  const annotatedLoader =
+    appSource.match(
+      /async function loadSelectedMemberAnnotatedSource\(\)[\s\S]*?\n}\n\nfunction memberRequestSignature/)?.[0]
+    ?? "";
+  const factsLoader =
+    appSource.match(
+      /async function loadSelectedMemberFacts\(\)[\s\S]*?\n}\n\ninterface LoadPackageOptions/)?.[0]
+    ?? "";
 
   assert.match(
     coordinator,
@@ -1071,6 +1083,15 @@ test("member detail adapters preserve exact engine coordinates", () => {
   assert.match(
     coordinator,
     /inspectMemberFacts\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.type,\s*request\.member,\s*request\.memberSignature\)/);
+  assert.match(
+    documentationLoader,
+    /loadDocumentation\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*overload,\s*isRuntimePack: Boolean\(state\.package\?\.isRuntimePack\),\s*isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
+  assert.match(
+    annotatedLoader,
+    /loadAnnotated\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*type: type\.queryId \?\? type\.id,\s*member: overload\.name,\s*memberSignature: overload\.signature/);
+  assert.match(
+    factsLoader,
+    /loadFacts\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*type: type\.queryId \?\? type\.id,\s*member: overload\.name,\s*memberSignature: overload\.signature,\s*isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
 });
 
 test("type source identity includes decompiler taste", () => {

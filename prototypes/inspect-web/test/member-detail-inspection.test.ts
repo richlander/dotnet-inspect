@@ -563,6 +563,27 @@ test("cached annotated source renders without querying again", async () => {
   assert.deepEqual(state.memberAnnotatedNodeIds, [7, 8]);
 });
 
+test("cleared annotated source reloads for the same member", async () => {
+  const current = annotatedResult();
+  let queries = 0;
+  const state = inspectionState({
+    memberAnnotatedKey: "annotated",
+  });
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryAnnotated: async () => {
+        queries++;
+        return current;
+      },
+    }));
+
+  await coordinator.loadAnnotated(annotatedRequest());
+
+  assert.equal(queries, 1);
+  assert.equal(state.memberAnnotated, current);
+  assert.equal(state.memberAnnotatedLoading, false);
+});
+
 test("another member does not reuse a cached annotated source", async () => {
   const cached = annotatedResult();
   const current = annotatedResult();
