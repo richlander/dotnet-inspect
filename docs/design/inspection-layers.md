@@ -8,6 +8,8 @@ not a tour of every type.
 See [overview.md](../overview.md) for subsystem ownership,
 [section-model.md](section-model.md) for section selection semantics, and
 [output-shapes.md](output-shapes.md) for the shape ladder this note builds on.
+[Artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md)
+owns the source-neutral boundary below workspace-backed assembly queries.
 
 ## Purpose
 
@@ -458,6 +460,12 @@ canaries, collection is still neither typed nor demand-driven:
 - The collection context is **path-shaped**, so a consumer without a filesystem
   cannot call the residual `LibraryMetadataService` orchestration. The
   implemented queries themselves take a borrowed content owner, not a path.
+- Core assembly queries and workspace composition still reference package
+  implementations directly. The target split keeps storage, artifact
+  acquisition, packages, and assemblies as separate concepts; optional source adapters
+  contribute neutral artifacts to a multi-source workspace. The dependency and
+  lifetime rules are defined in
+  [artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md).
 
 Converting the remaining collection into typed, demand-driven, content-shaped
 queries is therefore the migration path for the split, not a follow-up to it.

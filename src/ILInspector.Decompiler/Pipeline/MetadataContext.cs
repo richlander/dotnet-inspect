@@ -122,7 +122,7 @@ public sealed class MetadataContext : IDisposable
     /// <summary>
     /// Opens an assembly that reference resolution selected, and records
     /// whether its acquisition entitles it to core-library identity. Discovery
-    /// is trusted only by provenance or host policy; see
+    /// is trusted by provenance alone; see
     /// <see cref="CoreLibraryIdentityTrust"/>.
     /// </summary>
     OpenedAssembly? OpenResolved(ResolvedAssemblyReference assembly)
