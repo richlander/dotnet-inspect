@@ -425,9 +425,10 @@ feeds it a real document.
 The viewer reuses the owner's module rather than copying it.
 `prototypes/annotated-source-viewer/src/document-model.js` owns validation,
 UTF-16 coordinates, line derivation, segmentation, and the fact → target → node →
-span walk. `src/document-model.js` here re-exports that owner for Vite and the
-Node tests; Vite bundles the shared implementation into the deployable browser
-artifact. On top of it the typed view module adds only selection state:
+span walk. `src/document-model.ts` provides typed aliases over that owner for
+Vite and the Node tests; Vite bundles the shared implementation into the
+deployable browser artifact without copying its logic. On top of it the typed
+view module adds only selection state:
 canonical lines, C#/IL medium toggles that hide lines without rebasing a
 coordinate, fact selection that highlights every targeted node across both
 media without selecting the text between one node's separated spans,
