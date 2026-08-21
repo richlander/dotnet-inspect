@@ -110,7 +110,7 @@ test("navigation history skips stale views and truncates a forward branch", () =
   assert.equal(exhausted, 0);
 });
 
-test("navigation history advances past entries that become stale", () => {
+test("navigation history removes stale entries and reports exhausted directions", () => {
   let current: TestView | null = { id: "first", revision: 1 };
   const unavailable = new Set<string>();
   const applied: TestView[] = [];
@@ -143,7 +143,20 @@ test("navigation history advances past entries that become stale", () => {
     { id: "latest", revision: 1 },
   ]);
   assert.equal(history.canForward(), false);
-  assert.equal(exhausted, 0);
+
+  unavailable.delete("middle");
+  applied.length = 0;
+  assert.equal(history.back(), true);
+  assert.deepEqual(applied, [{ id: "first", revision: 1 }]);
+  assert.equal(history.back(), false);
+  assert.equal(exhausted, 1);
+
+  unavailable.add("latest");
+  applied.length = 0;
+  assert.equal(history.forward(), false);
+  assert.deepEqual(applied, [{ id: "latest", revision: 1 }]);
+  assert.equal(history.canForward(), false);
+  assert.equal(exhausted, 2);
 });
 
 test("navigation history normalizes the current captured view", () => {
@@ -151,7 +164,7 @@ test("navigation history normalizes the current captured view", () => {
   const applied: TestView[] = [];
   const history = createNavigationHistory({
     capture: () => current && { ...current },
-    signature: view => view.id,
+    signature: view => `${view.id}:${view.revision}`,
     apply: view => {
       applied.push(view);
       current = { ...view };
@@ -161,13 +174,21 @@ test("navigation history normalizes the current captured view", () => {
   });
 
   history.record();
-  current = { id: "first", revision: 2 };
-  history.normalizeCurrent();
   current = { id: "latest", revision: 1 };
   history.record();
-
   assert.equal(history.back(), true);
-  assert.deepEqual(applied, [{ id: "first", revision: 2 }]);
+  current = { id: "first", revision: 2 };
+  history.normalizeCurrent();
+  history.record();
+
+  assert.equal(history.canForward(), true);
+  assert.equal(history.forward(), true);
+  assert.equal(history.back(), true);
+  assert.deepEqual(applied, [
+    { id: "first", revision: 1 },
+    { id: "latest", revision: 1 },
+    { id: "first", revision: 2 },
+  ]);
 });
 
 test("navigation sequence has one monotonic cancellation authority", () => {
