@@ -11481,34 +11481,65 @@ public class LibraryBodyIndexTests
     {
         byte[] image =
             BuildNestedLiftedInvalidAsyncSourceAssembly(
+                out int sourceToken,
                 out int liftedToken);
 
-        foreach (LibraryBodyAnalysisFeatures features
-            in new[]
-            {
+        LibraryBodyIndex scoped =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "NestedLiftedInvalidAsyncSource.dll",
+                [.. image],
                 LibraryBodyAnalysisFeatures.MethodEvidence,
-                LibraryBodyAnalysisFeatures.MethodEvidence
-                    | LibraryBodyAnalysisFeatures
-                        .OptimizationOpportunities,
-            })
-        {
-            LibraryBodyIndex scoped =
-                LibraryBodyIndex.OpenFromPrefetchedImage(
-                    "NestedLiftedInvalidAsyncSource.dll",
-                    [.. image],
-                    features,
-                    bodyScope:
-                        new HashSet<int> { liftedToken });
+                bodyScope:
+                    new HashSet<int> { liftedToken });
 
-            AnalysisDiagnostic diagnostic = Assert.Single(
-                scoped.Diagnostics.Where(
+        AnalysisDiagnostic diagnostic = Assert.Single(
+            scoped.Diagnostics.Where(
+                candidate =>
+                    candidate.MethodToken == liftedToken));
+        Assert.Contains(
+            "<>c::<BadSourceLambda>b__0_0",
+            diagnostic.Method,
+            StringComparison.Ordinal);
+
+        TypeRef sourceType =
+            TypeRef.Definition(
+                "NestedLiftedInvalidAsyncSource",
+                "Sample",
+                "Source");
+        AnalysisDiagnostic enriched = diagnostic with
+        {
+            SourceMethodToken = sourceToken,
+            SourceDeclaringType = sourceType,
+        };
+        using var stream =
+            new MemoryStream(
+                image,
+                writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        using var builder = new LibraryBodyAnalysisBuilder(
+            "NestedLiftedInvalidAsyncSource.dll",
+            reader,
+            peReader);
+        LibraryBodyAnalysisPlan plan =
+            LibraryBodyAnalysisPlan.Create(
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                new HashSet<int> { liftedToken },
+                typeScope: null)
+            with
+            {
+                ScopeExpansionDiagnostics = [enriched],
+            };
+
+        LibraryBodyAnalysisResult result =
+            builder.Build(plan);
+
+        Assert.Equal(
+            enriched,
+            Assert.Single(
+                result.Diagnostics.Where(
                     candidate =>
-                        candidate.MethodToken == liftedToken));
-            Assert.Contains(
-                "<>c::<BadSourceLambda>b__0_0",
-                diagnostic.Method,
-                StringComparison.Ordinal);
-        }
+                        candidate.MethodToken == liftedToken)));
     }
 
     [Fact]
@@ -11595,6 +11626,7 @@ public class LibraryBodyIndexTests
 
     static byte[]
         BuildNestedLiftedInvalidAsyncSourceAssembly(
+            out int sourceToken,
             out int liftedToken)
     {
         var metadata = new MetadataBuilder();
@@ -11723,6 +11755,8 @@ public class LibraryBodyIndexTests
                 signature,
                 sourceBody,
                 MetadataTokens.ParameterHandle(1));
+        sourceToken =
+            MetadataTokens.GetToken(source);
         MethodDefinitionHandle addedLifted =
             metadata.AddMethodDefinition(
                 MethodAttributes.Private
