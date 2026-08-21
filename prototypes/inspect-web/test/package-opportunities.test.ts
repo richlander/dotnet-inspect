@@ -51,11 +51,14 @@ function recordingActions(calls: string[]): PackageOpportunitiesBindingActions {
 test("opportunity bindings dispatch type, package, and search actions", () => {
   const root = new FakeRoot();
   const type = new FakeElement({ oppType: "Contoso.Widget" });
+  const secondType = new FakeElement({ oppType: "Contoso.Gadget" });
   const packageChip = new FakeElement({ oppPackage: "Contoso.Extensions" });
+  const secondPackage = new FakeElement({ oppPackage: "Contoso.Hosting" });
   const lookFor = new FakeElement({ oppLookfor: "AddWidgets" });
-  root.add("[data-opp-type]", type);
-  root.add("[data-opp-package]", packageChip);
-  root.add("[data-opp-lookfor]", lookFor);
+  const secondLookFor = new FakeElement({ oppLookfor: "AddGadgets" });
+  root.add("[data-opp-type]", type, secondType);
+  root.add("[data-opp-package]", packageChip, secondPackage);
+  root.add("[data-opp-lookfor]", lookFor, secondLookFor);
   const calls: string[] = [];
   bindPackageOpportunities(
     root as unknown as ParentNode,
@@ -75,6 +78,18 @@ test("opportunity bindings dispatch type, package, and search actions", () => {
     "type:Contoso.Widget",
     "package:Contoso.Extensions",
     "look:AddWidgets",
+  ]);
+  secondType.dispatch("click");
+  secondPackage.dispatch("click");
+  secondLookFor.dispatch("click");
+
+  assert.deepEqual(calls, [
+    "type:Contoso.Widget",
+    "package:Contoso.Extensions",
+    "look:AddWidgets",
+    "type:Contoso.Gadget",
+    "package:Contoso.Hosting",
+    "look:AddGadgets",
   ]);
 });
 

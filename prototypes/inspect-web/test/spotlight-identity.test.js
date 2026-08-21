@@ -901,9 +901,20 @@ test("package opportunities owns its rendered control bindings", () => {
   const binding =
     appSource.match(/function bindPackageOpportunitiesEvents\(\) \{[\s\S]*?\n}\n\nfunction bindEvents/)?.[0]
     ?? "";
+  const bindEvents =
+    appSource.match(
+      /function bindEvents\(\) \{[\s\S]*?\n}\n\n(?=(?:async )?function )/)?.[0]
+    ?? "";
   assert.match(
     binding,
-    /bindPackageOpportunities\(document, \{\s*onLookForSelect: openSpotlight,\s*onPackageSelect: packageId => openDependencyPackage\(packageId, ""\),\s*onTypeSelect: typeId => \{[\s\S]*currentPackage\(\)\.types\.find\(item => item\.id === typeId\);\s*if \(!target\) \{[\s\S]*openSpotlight\(shortTypeName\(typeId\)\)[\s\S]*state\.atPackageRoot = false;[\s\S]*navigateToTypeByName\(typeId\)/);
+    /bindPackageOpportunities\(document, \{\s*onLookForSelect: openSpotlight,\s*onPackageSelect: packageId => openDependencyPackage\(packageId, ""\),\s*onTypeSelect: typeId => \{[\s\S]*currentPackage\(\)\.types\.find\(item => item\.id === typeId\);\s*if \(!target\) \{[\s\S]*openSpotlight\(shortTypeName\(typeId\)\);\s*return;\s*\}[\s\S]*state\.atPackageRoot = false;[\s\S]*navigateToTypeByName\(typeId\)/);
+  assert.match(
+    bindEvents,
+    /^\s*bindPackageOpportunitiesEvents\(\);\s*$/m);
+  const compositionPrefix =
+    bindEvents.slice(0, bindEvents.indexOf("bindPackageOpportunitiesEvents();"));
+  assert.equal(compositionPrefix.match(/\{/g)?.length, 1);
+  assert.equal(compositionPrefix.match(/\}/g)?.length ?? 0, 0);
   assert.equal(
     appSource.match(/\bbindPackageOpportunitiesEvents\b/g)?.length,
     2);
