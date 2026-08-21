@@ -276,6 +276,20 @@ test("workspace data bar receives package acquisition provenance", () => {
   assert.match(statusBarSource, /Source: \$\{escapeHtml\(packageSourceLabel\(model\.source\)\)\}/);
 });
 
+test("typed status bar owns its rendered toggle binding", () => {
+  const binding =
+    appSource.match(/function bindStatusBarEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
+    ?? "";
+  assert.match(
+    binding,
+    /bindStatusBar\(document, \{\s*onToggle: \(\) => \{[\s\S]*state\.statusBarExpanded = !state\.statusBarExpanded;[\s\S]*render\(\);[\s\S]*\},\s*\}\)/);
+  assert.equal(binding.match(/\bdocument\b/g)?.length, 1);
+  assert.match(
+    statusBarSource,
+    /export function bindStatusBar\([\s\S]*\[data-status-bar-toggle-button\][\s\S]*actions\.onToggle/);
+  assert.doesNotMatch(appSource, /\[data-status-bar-toggle-button\]/);
+});
+
 test("typed package inspection owns package-root request coordination", () => {
   const dependenciesLoader =
     appSource.match(/async function loadPackageDependencies\(\) \{[\s\S]*?\n}/)?.[0]
