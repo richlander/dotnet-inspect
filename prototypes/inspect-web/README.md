@@ -667,13 +667,13 @@ workspace authority. `test/package-bar.test.ts` gates tab markup, active/close
 state, escaping, and open-package query parsing.
 
 `src/settings-panel.ts` owns the Settings page and the decompiler "taste"
-popover it shares its style catalog with, as pure, dependency-injected render
-functions. `dotnet-inspect.ts` still owns `state`, localStorage persistence for theme and
-taste, and event wiring (`setTheme`, `toggleTaste`, `clearTaste`), and passes
-each computed slice in explicitly. `test/settings-panel.test.ts` gates the
-style catalog's tier grouping, byte-divergent badges, and checked state; the
-taste popover's active/default states; and the Settings page's theme segment,
-close-button label, and active-style-count states.
+popover it shares its style catalog with, including each surface's rendered DOM
+bindings. `dotnet-inspect.ts` still owns `state`, localStorage persistence, and
+the theme/taste/close effects, supplying those actions through typed callbacks.
+`test/settings-panel.test.ts` gates the mutually exclusive Settings and popover
+binding shapes, input validation, the style catalog's tier grouping,
+byte-divergent badges and checked state, the taste popover's active/default
+states, and the Settings page's theme, close, and active-style-count states.
 
 `src/scope-bar.ts` owns the scope switcher and lens strip (the segmented
 Package/Types/Member control and the buttons beside it for the active scope's

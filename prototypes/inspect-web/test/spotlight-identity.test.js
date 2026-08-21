@@ -201,6 +201,9 @@ const typePanelSource = readFileSync(
 const scopeBarSource = readFileSync(
   new URL("../src/scope-bar.ts", import.meta.url),
   "utf8");
+const settingsPanelSource = readFileSync(
+  new URL("../src/settings-panel.ts", import.meta.url),
+  "utf8");
 const packageBarSource = readFileSync(
   new URL("../src/package-bar.ts", import.meta.url),
   "utf8");
@@ -419,6 +422,25 @@ test("typed scope bar owns its rendered control bindings", () => {
     "[data-package-lens]",
     "[data-lens]",
     "[data-member-section]",
+  ]) {
+    assert.equal(appSource.split(selector).length - 1, 0, selector);
+  }
+});
+
+test("typed settings panel owns its rendered control bindings", () => {
+  assert.match(
+    appSource,
+    /function bindSettingsPanelEvents\(\) \{\s*bindSettingsPanel\(document, \{/);
+  assert.match(
+    settingsPanelSource,
+    /export function bindSettingsPanel\([\s\S]*#settings-close[\s\S]*\.settings-seg\[data-theme\][\s\S]*\.settings-taste \[data-taste\][\s\S]*#settings-taste-clear[\s\S]*#taste-popover \[data-taste\][\s\S]*#taste-clear/);
+  for (const selector of [
+    "#settings-close",
+    ".settings-seg[data-theme]",
+    ".settings-taste [data-taste]",
+    "#settings-taste-clear",
+    "#taste-popover [data-taste]",
+    "#taste-clear",
   ]) {
     assert.equal(appSource.split(selector).length - 1, 0, selector);
   }
