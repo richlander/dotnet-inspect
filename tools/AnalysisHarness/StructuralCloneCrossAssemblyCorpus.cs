@@ -215,9 +215,18 @@ public static class StructuralCloneCrossAssemblyCorpus
                         new StructuralCloneComparisonLimits(
                             MaximumBlocks:
                                 corpus.Limits.MaximumBlocks)));
+            bool preAdmissionMethodLimit =
+                retrieval.Disposition
+                    == StructuralCloneRetrievalDisposition.LimitReached
+                && retrieval.Receipt.BodyProductions == 0
+                && retrieval.Blockers.Any(static blocker =>
+                    blocker.Kind
+                        == StructuralCloneRetrievalBlockerKind.MethodLimit);
             RequireAddress(
                 retrieval.Seed.Method,
-                seedAddress,
+                preAdmissionMethodLimit
+                    ? new MetadataMethodAddress(Guid.Empty, seed)
+                    : seedAddress,
                 $"query '{query.Id}' seed");
             foreach (StructuralCloneRetrievalCandidate candidate
                 in retrieval.Candidates)

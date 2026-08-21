@@ -104,6 +104,40 @@ public class StructuralCloneCrossAssemblyCorpusTests
     }
 
     [Fact]
+    public void Run_PreservesPreAdmissionMethodLimitAsCorpusFailure()
+    {
+        StructuralCloneCrossAssemblyCorpusDocument corpus = LoadCorpus();
+        StructuralCloneCrossAssemblyCorpusReport report =
+            StructuralCloneCrossAssemblyCorpus.Run(
+                FixtureCatalog.DiffPair.OldAssemblyPath(),
+                FixtureCatalog.DiffPair.NewAssemblyPath(),
+                corpus with
+                {
+                    Limits = corpus.Limits with { MaximumMethods = 1 },
+                });
+
+        Assert.False(report.Success);
+        Assert.All(
+            report.Queries,
+            static query =>
+            {
+                Assert.Equal(
+                    StructuralCloneRetrievalDisposition.LimitReached,
+                    query.RetrievalDisposition);
+                Assert.Equal(
+                    Guid.Empty,
+                    query.Seed.Address.ModuleVersionId);
+                Assert.Equal(0, query.RetrievalReceipt.BodyProductions);
+                Assert.Contains(
+                    query.RetrievalBlockers,
+                    static blocker =>
+                        blocker.Kind
+                            == StructuralCloneRetrievalBlockerKind
+                                .MethodLimit);
+            });
+    }
+
+    [Fact]
     public void Run_RejectsSameArtifactAndAssemblyDrift()
     {
         StructuralCloneCrossAssemblyCorpusDocument corpus = LoadCorpus();
@@ -240,6 +274,57 @@ public class StructuralCloneCrossAssemblyCorpusTests
         Assert.Contains(
             "\"passedQueries\": 7",
             await standardOutput);
+    }
+
+    [Fact]
+    public async Task Command_ReportsMethodLimitAsCorpusFailure()
+    {
+        string ledgerPath = Path.Combine(
+            Path.GetTempPath(),
+            $"cross-assembly-limit-{Guid.NewGuid():N}.json");
+        try
+        {
+            JsonObject ledger = CorpusJson();
+            ledger["limits"]!["maximumMethods"] = 1;
+            File.WriteAllText(ledgerPath, ledger.ToJsonString());
+
+            var start = new ProcessStartInfo("dotnet")
+            {
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+            };
+            start.ArgumentList.Add(
+                typeof(StructuralCloneCrossAssemblyCorpus)
+                    .Assembly.Location);
+            start.ArgumentList.Add("--clone-cross-assembly-corpus");
+            start.ArgumentList.Add(
+                FixtureCatalog.DiffPair.OldAssemblyPath());
+            start.ArgumentList.Add(
+                FixtureCatalog.DiffPair.NewAssemblyPath());
+            start.ArgumentList.Add("--cross-assembly-ledger");
+            start.ArgumentList.Add(ledgerPath);
+            start.ArgumentList.Add("--json");
+
+            using Process process = Process.Start(start)!;
+            CancellationToken cancellationToken =
+                TestContext.Current.CancellationToken;
+            Task<string> standardError =
+                process.StandardError.ReadToEndAsync(cancellationToken);
+            Task<string> standardOutput =
+                process.StandardOutput.ReadToEndAsync(cancellationToken);
+            await process.WaitForExitAsync(cancellationToken);
+
+            Assert.Equal(1, process.ExitCode);
+            Assert.Equal("", await standardError);
+            Assert.Contains(
+                "\"retrievalDisposition\": \"limitReached\"",
+                await standardOutput);
+        }
+        finally
+        {
+            File.Delete(ledgerPath);
+        }
     }
 
     [Fact]

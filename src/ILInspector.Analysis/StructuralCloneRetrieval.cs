@@ -152,6 +152,8 @@ public static partial class StructuralCloneAnalysis
             image,
             methods,
             sameImage: true,
+            nameof(image),
+            nameof(image),
             limits);
     }
 
@@ -173,6 +175,8 @@ public static partial class StructuralCloneAnalysis
             candidateImage,
             methods,
             ReferenceEquals(seedImage, candidateImage),
+            nameof(seedImage),
+            nameof(candidateImage),
             limits);
 
     static StructuralCloneRetrievalResult RetrieveSimilar(
@@ -181,6 +185,8 @@ public static partial class StructuralCloneAnalysis
         PEReader candidateImage,
         ImmutableArray<MethodDefinitionHandle> methods,
         bool sameImage,
+        string seedImageParameter,
+        string candidateImageParameter,
         StructuralCloneRetrievalLimits? limits)
     {
         ArgumentNullException.ThrowIfNull(seedImage);
@@ -232,6 +238,7 @@ public static partial class StructuralCloneAnalysis
 
         if (!TryGetMetadataReader(
                 seedImage,
+                seedImageParameter,
                 out MetadataReader seedReader,
                 out StructuralCloneMetadataFailure metadataFailure))
         {
@@ -247,6 +254,7 @@ public static partial class StructuralCloneAnalysis
         bool candidateReaderAvailable =
             TryGetMetadataReader(
                 candidateImage,
+                candidateImageParameter,
                 out MetadataReader candidateReader,
                 out StructuralCloneMetadataFailure candidateMetadataFailure);
         if (candidateReaderAvailable)

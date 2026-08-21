@@ -384,6 +384,7 @@ public static partial class StructuralCloneAnalysis
             new(Guid.Empty, right);
         if (!TryGetMetadataReader(
                 image,
+                nameof(image),
                 out MetadataReader reader,
                 out StructuralCloneMetadataFailure metadataFailure))
         {
@@ -452,6 +453,7 @@ public static partial class StructuralCloneAnalysis
 
     static bool TryGetMetadataReader(
         PEReader image,
+        string parameter,
         out MetadataReader reader,
         out StructuralCloneMetadataFailure failure)
     {
@@ -475,7 +477,7 @@ public static partial class StructuralCloneAnalysis
         {
             throw new ArgumentException(
                 "Structural clone analysis requires a managed metadata image.",
-                nameof(image));
+                parameter);
         }
 
         try

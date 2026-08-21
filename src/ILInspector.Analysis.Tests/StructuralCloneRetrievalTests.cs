@@ -25,6 +25,32 @@ public class StructuralCloneRetrievalTests
     }
 
     [Fact]
+    public void RetrieveSimilar_MetadataFreeImagesNameCrossImageParameters()
+    {
+        using var metadataFree = new PEReader(
+            new MemoryStream(BuildMetadataFreeImage()));
+        using PEReader managed = OpenFixture();
+
+        ArgumentException seedException =
+            Assert.Throws<ArgumentException>(() =>
+                StructuralCloneAnalysis.RetrieveSimilar(
+                    metadataFree,
+                    default,
+                    managed,
+                    []));
+        Assert.Equal("seedImage", seedException.ParamName);
+
+        ArgumentException candidateException =
+            Assert.Throws<ArgumentException>(() =>
+                StructuralCloneAnalysis.RetrieveSimilar(
+                    managed,
+                    Method(nameof(StructuralCloneFixture.ExactPositiveA)),
+                    metadataFree,
+                    []));
+        Assert.Equal("candidateImage", candidateException.ParamName);
+    }
+
+    [Fact]
     public void RetrieveSimilar_RanksExactAndNearPeersAboveHardNegative()
     {
         using PEReader image = OpenFixture();
@@ -659,6 +685,19 @@ public class StructuralCloneRetrievalTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    static byte[] BuildMetadataFreeImage()
+    {
+        byte[] bytes = File.ReadAllBytes(
+            typeof(StructuralCloneFixture).Assembly.Location);
+        using var image = new PEReader(new MemoryStream(bytes));
+        PEHeader header = image.PEHeaders.PEHeader!;
+        int directoryBase =
+            image.PEHeaders.PEHeaderStartOffset
+            + (header.Magic == PEMagic.PE32Plus ? 112 : 96);
+        Array.Clear(bytes, directoryBase + (14 * 8), 8);
+        return bytes;
     }
 
     static void AddSyntheticMethod(
