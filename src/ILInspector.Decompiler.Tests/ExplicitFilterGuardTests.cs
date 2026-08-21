@@ -495,7 +495,7 @@ public class ExplicitFilterGuardTests
             File.Delete(observedProcessPath);
             foreach (string path in workerDirectories)
             {
-                DeleteDirectoryIfExists(path);
+                await DeleteDirectoryIfExistsAsync(path);
             }
         }
 
@@ -637,8 +637,8 @@ public class ExplicitFilterGuardTests
         }
         finally
         {
-            DeleteDirectoryIfExists(aliasDirectory);
-            DeleteDirectoryIfExists(emptyPath);
+            await DeleteDirectoryIfExistsAsync(aliasDirectory);
+            await DeleteDirectoryIfExistsAsync(emptyPath);
         }
     }
 
@@ -669,11 +669,27 @@ public class ExplicitFilterGuardTests
         ];
     }
 
-    private static void DeleteDirectoryIfExists(string path)
+    private static async Task DeleteDirectoryIfExistsAsync(string path)
     {
-        if (Directory.Exists(path))
+        const int maximumAttempts = 20;
+        for (int attempt = 1; attempt <= maximumAttempts; attempt++)
         {
-            Directory.Delete(path, recursive: true);
+            try
+            {
+                if (Directory.Exists(path))
+                {
+                    Directory.Delete(path, recursive: true);
+                }
+
+                return;
+            }
+            catch (Exception ex) when (
+                OperatingSystem.IsWindows()
+                && attempt < maximumAttempts
+                && ex is IOException or UnauthorizedAccessException)
+            {
+                await Task.Delay(Math.Min(attempt * 25, 250));
+            }
         }
     }
 

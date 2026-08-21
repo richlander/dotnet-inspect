@@ -489,12 +489,15 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    like any local's. What stays on the print-time unifier is the counted
    residual: ambiguous testimony, cross-family (true disjoint ranges),
    element-store identity recovery (the #1751 char class — the printer
-   re-types those slots, which a materialized local would foreclose), slots
-   copied from other slots (coupled components materialize together, later),
-   and nested `Lambda`/`LocalFunctionStatement` scopes (blocked on the inner
-   printer threading outer taken names — #2275). The C2 deletion and the
-   invariant extension follow once the residual census reaches the
-   printer-owned floor.
+   re-types those slots, which a materialized local would foreclose), incomplete
+   slot-copy components, and nested `Lambda`/`LocalFunctionStatement` scopes
+   (blocked on the inner printer threading outer taken names — #2275). Direct
+   slot-copy components now materialize atomically when every member clears the
+   same type, scope, and rendering gates; otherwise every member stays
+   printer-owned. `MaterializesCompleteDirectCopyComponent` and
+   `DefersWholeDirectCopyComponentWhenOneSlotIsUndecided` gate both sides of
+   that boundary. The C2 deletion and the invariant extension follow once the
+   residual census reaches the printer-owned floor.
 
 Each slice reports the standard decompiler-affecting-PR evidence: focused tests,
 the corpus quality-diff card, and improved/still-flat examples. As ReturnToSender
