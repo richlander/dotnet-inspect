@@ -522,12 +522,15 @@ test("typed catalog requests own release and package-version coordination", () =
 });
 
 test("typed type panel owns its rendered control bindings", () => {
+  const binding =
+    appSource.match(/function bindTypePanelEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
+    ?? "";
   const rootEventBinder =
     appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
     ?? "";
   assert.match(
-    appSource,
-    /function bindTypePanelEvents\(\) \{\s*bindTypePanel\(document, \{/);
+    binding,
+    /bindTypePanel\(document, \{/);
   assert.equal(
     appSource.match(/\bbindTypePanelEvents\b/g)?.length,
     2);
@@ -545,6 +548,18 @@ test("typed type panel owns its rendered control bindings", () => {
   assert.match(
     typePanelSource,
     /export function bindTypePanel\([\s\S]*\[data-type\][\s\S]*\[data-namespace\][\s\S]*\[data-kind-filter\][\s\S]*\[data-nav-member\][\s\S]*\[data-nav-overload\][\s\S]*#nav-to-types[\s\S]*#clear-filter[\s\S]*#namespace-jump[\s\S]*#type-list[\s\S]*#type-filter/);
+  assert.match(
+    typePanelSource,
+    /\[data-member-kind-filter\][\s\S]*\[data-member-access-filter\][\s\S]*\[data-member-trait-filter\][\s\S]*#clear-member-filter[\s\S]*#member-filter/);
+  assert.doesNotMatch(
+    appSource,
+    /document\.querySelectorAll<HTMLElement>\("\[data-member-(?:kind|access|trait)-filter\]"\)/);
+  assert.doesNotMatch(
+    appSource,
+    /document\.querySelector(?:<HTMLInputElement>)?\("#(?:member-filter|clear-member-filter)"\)/);
+  assert.match(
+    binding,
+    /onMemberFilterKeyDown: event => \{[\s\S]*event\.key === "Escape"[\s\S]*navMode\(\) === "member"[\s\S]*exitMemberScope\(\)[\s\S]*state\.memberTextFilter = ""[\s\S]*event\.key !== "ArrowUp" && event\.key !== "ArrowDown"[\s\S]*stepMemberNav\(event\.key === "ArrowDown" \? 1 : -1, true\)/);
   const selectorCount = selector =>
     appSource.split(selector).length - 1;
   assert.deepEqual(
@@ -991,6 +1006,9 @@ test("loading brand links back to the site root", () => {
 });
 
 test("member filters retain accessible controls and focus across rerenders", () => {
+  const binding =
+    appSource.match(/function bindTypePanelEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
+    ?? "";
   assert.match(
     appSource,
     /id="clear-member-filter"[^>]*aria-label="Clear member filters"/);
@@ -1001,11 +1019,17 @@ test("member filters retain accessible controls and focus across rerenders", () 
     stylesSource,
     /\.type-browser:not\(\.member-nav\) \.namespace-chips, \.pane-footer \{ display: none; \}/);
   assert.match(
-    appSource,
-    /memberFilter\?\.addEventListener\("input"[\s\S]*renderPreservingMemberFocus\(\)/);
+    typePanelSource,
+    /memberFilter\?\.addEventListener\(\s*"input",\s*\(\) => actions\.onMemberFilterChange\(memberFilter\.value\)\)/);
   assert.match(
-    appSource,
-    /memberFilter\?\.addEventListener\("keydown"[\s\S]*event\.key === "Escape"[\s\S]*if \(navMode\(\) === "member"\)[\s\S]*exitMemberScope\(\)[\s\S]*state\.memberTextFilter = ""[\s\S]*renderMemberFilterAndRestoreFocus\("#member-filter"\)[\s\S]*stepMemberNav/);
+    binding,
+    /onMemberFilterChange: value => \{[\s\S]*state\.memberTextFilter = value;[\s\S]*renderPreservingMemberFocus\(\)/);
+  assert.match(
+    typePanelSource,
+    /memberFilter\?\.addEventListener\(\s*"keydown",\s*actions\.onMemberFilterKeyDown\)/);
+  assert.match(
+    binding,
+    /onMemberFilterKeyDown: event => \{[\s\S]*event\.key === "Escape"[\s\S]*if \(navMode\(\) === "member"\)[\s\S]*exitMemberScope\(\)[\s\S]*state\.memberTextFilter = ""[\s\S]*renderMemberFilterAndRestoreFocus\("#member-filter"\)[\s\S]*stepMemberNav/);
   assert.match(
     appSource,
     /event\.key === "Escape" && !event\.defaultPrevented && !typing[\s\S]*if \(navMode\(\) === "member"\) exitMemberScope\(\)/);

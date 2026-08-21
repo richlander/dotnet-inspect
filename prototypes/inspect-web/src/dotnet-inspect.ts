@@ -3633,6 +3633,14 @@ function bindStatusBarEvents() {
 }
 
 function bindTypePanelEvents() {
+  const renderMemberFilterAndRestoreFocus = (selector = "") => {
+    const preserved = captureMemberFocus(document);
+    if (selector) {
+      preserved.selector = selector;
+      preserved.dataTarget = null;
+    }
+    renderWithMemberFocus(preserved);
+  };
   bindTypePanel(document, {
     onClearFilters: () => {
       state.typeFilter = "";
@@ -3654,10 +3662,51 @@ function bindTypePanelEvents() {
       render();
     },
     onListKeyDown: handleTypeKeys,
+    onMemberAccessibilityFilterSelect: value => {
+      state.memberAccessibilityFilter = value ?? "all";
+      normalizeMemberSelection();
+      renderMemberFilterAndRestoreFocus();
+    },
+    onMemberFilterChange: value => {
+      state.memberTextFilter = value;
+      normalizeMemberSelection();
+      renderPreservingMemberFocus();
+    },
+    onMemberFilterClear: () => {
+      resetMemberFilters();
+      normalizeMemberSelection();
+      renderMemberFilterAndRestoreFocus("#clear-member-filter");
+    },
+    onMemberFilterKeyDown: event => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (navMode() === "member") {
+          exitMemberScope();
+        } else {
+          state.memberTextFilter = "";
+          normalizeMemberSelection();
+          renderMemberFilterAndRestoreFocus("#member-filter");
+        }
+        return;
+      }
+      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+      event.preventDefault();
+      stepMemberNav(event.key === "ArrowDown" ? 1 : -1, true);
+    },
+    onMemberKindFilterSelect: value => {
+      state.memberKindFilter = value ?? "all";
+      normalizeMemberSelection();
+      renderMemberFilterAndRestoreFocus();
+    },
     onMemberSelect: memberKey => {
       const group = memberGroups(selectedType())
         .find(item => item.key === memberKey);
       if (group) selectMemberNavEntry({ kind: "member", group }, false);
+    },
+    onMemberTraitFilterSelect: value => {
+      state.memberTraitFilter = value ?? "";
+      normalizeMemberSelection();
+      renderMemberFilterAndRestoreFocus();
     },
     onNamespaceSelect: namespace => {
       state.namespaceFilter = namespace;
@@ -3894,59 +3943,6 @@ function bindEvents() {
       button.dataset.perfAssembly ?? "",
       button.dataset.perfType ?? "");
   }));
-  const renderMemberFilterAndRestoreFocus = (selector = "") => {
-    const preserved = captureMemberFocus(document);
-    if (selector) {
-      preserved.selector = selector;
-      preserved.dataTarget = null;
-    }
-    renderWithMemberFocus(preserved);
-  };
-  document.querySelectorAll<HTMLElement>("[data-member-kind-filter]").forEach(button => button.addEventListener("click", () => {
-    const value = button.dataset.memberKindFilter;
-    state.memberKindFilter = value ?? "all";
-    normalizeMemberSelection();
-    renderMemberFilterAndRestoreFocus();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-member-access-filter]").forEach(button => button.addEventListener("click", () => {
-    const value = button.dataset.memberAccessFilter;
-    state.memberAccessibilityFilter = value ?? "all";
-    normalizeMemberSelection();
-    renderMemberFilterAndRestoreFocus();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-member-trait-filter]").forEach(button => button.addEventListener("click", () => {
-    const value = button.dataset.memberTraitFilter;
-    state.memberTraitFilter = value ?? "";
-    normalizeMemberSelection();
-    renderMemberFilterAndRestoreFocus();
-  }));
-  const memberFilter = document.querySelector<HTMLInputElement>("#member-filter");
-  memberFilter?.addEventListener("input", event => {
-    state.memberTextFilter = memberFilter.value;
-    normalizeMemberSelection();
-    renderPreservingMemberFocus();
-  });
-  memberFilter?.addEventListener("keydown", event => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      if (navMode() === "member") {
-        exitMemberScope();
-      } else {
-        state.memberTextFilter = "";
-        normalizeMemberSelection();
-        renderMemberFilterAndRestoreFocus("#member-filter");
-      }
-      return;
-    }
-    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
-    event.preventDefault();
-    stepMemberNav(event.key === "ArrowDown" ? 1 : -1, true);
-  });
-  document.querySelector("#clear-member-filter")?.addEventListener("click", () => {
-    resetMemberFilters();
-    normalizeMemberSelection();
-    renderMemberFilterAndRestoreFocus("#clear-member-filter");
-  });
   const enterMemberNavigation = (action: () => void) => {
     const focusGeneration = beginSpotlightNavigation();
     action();

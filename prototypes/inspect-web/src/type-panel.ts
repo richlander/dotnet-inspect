@@ -83,7 +83,13 @@ export interface TypePanelBindingActions {
   onClearFilters: () => void;
   onKindSelect: (kind: string) => void;
   onListKeyDown: (event: KeyboardEvent) => void;
+  onMemberAccessibilityFilterSelect: (accessibility: string | undefined) => void;
+  onMemberFilterChange: (value: string) => void;
+  onMemberFilterClear: () => void;
+  onMemberFilterKeyDown: (event: KeyboardEvent) => void;
+  onMemberKindFilterSelect: (kind: string | undefined) => void;
   onMemberSelect: (memberKey: string | undefined) => void;
+  onMemberTraitFilterSelect: (trait: string | undefined) => void;
   onNamespaceSelect: (namespace: string) => void;
   onOverloadSelect: (index: number) => void;
   onShowTypes: () => void;
@@ -116,12 +122,33 @@ export function bindTypePanel(
     button.addEventListener(
       "click",
       () => actions.onOverloadSelect(Number(button.dataset.navOverload))));
+  root.querySelectorAll<HTMLElement>("[data-member-kind-filter]")
+    .forEach(button =>
+      button.addEventListener(
+        "click",
+        () => actions.onMemberKindFilterSelect(
+          button.dataset.memberKindFilter)));
+  root.querySelectorAll<HTMLElement>("[data-member-access-filter]")
+    .forEach(button =>
+      button.addEventListener(
+        "click",
+        () => actions.onMemberAccessibilityFilterSelect(
+          button.dataset.memberAccessFilter)));
+  root.querySelectorAll<HTMLElement>("[data-member-trait-filter]")
+    .forEach(button =>
+      button.addEventListener(
+        "click",
+        () => actions.onMemberTraitFilterSelect(
+          button.dataset.memberTraitFilter)));
   root.querySelector("#nav-to-types")?.addEventListener(
     "click",
     actions.onShowTypes);
   root.querySelector("#clear-filter")?.addEventListener(
     "click",
     actions.onClearFilters);
+  root.querySelector("#clear-member-filter")?.addEventListener(
+    "click",
+    actions.onMemberFilterClear);
 
   const namespaceJump =
     root.querySelector<HTMLSelectElement>("#namespace-jump");
@@ -131,6 +158,14 @@ export function bindTypePanel(
 
   const typeList = root.querySelector<HTMLElement>("#type-list");
   typeList?.addEventListener("keydown", actions.onListKeyDown);
+  const memberFilter =
+    root.querySelector<HTMLInputElement>("#member-filter");
+  memberFilter?.addEventListener(
+    "input",
+    () => actions.onMemberFilterChange(memberFilter.value));
+  memberFilter?.addEventListener(
+    "keydown",
+    actions.onMemberFilterKeyDown);
   const filter = root.querySelector<HTMLInputElement>("#type-filter");
   filter?.addEventListener(
     "input",
