@@ -13,9 +13,7 @@ internal static class OutputDestination
     {
         if (string.IsNullOrEmpty(outputPath))
         {
-            var console = new LfTextWriter(Console.Out);
-            write(console);
-            console.Flush();
+            write(Console.Out);
             return;
         }
 

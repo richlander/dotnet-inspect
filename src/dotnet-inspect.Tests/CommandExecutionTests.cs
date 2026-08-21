@@ -18327,7 +18327,11 @@ public partial class CommandExecutionTests
                 Assert.Equal(baseline.Exit, redirected.Exit);
                 Assert.Equal(baseline.Error, redirected.Error);
                 Assert.Empty(redirected.Output);
-                Assert.Equal(baseline.Output, File.ReadAllText(outputPath));
+                var written = File.ReadAllText(outputPath);
+                Assert.Equal(
+                    baseline.Output.ReplaceLineEndings("\n"),
+                    written);
+                Assert.DoesNotContain('\r', written);
                 Assert.False(
                     File.ReadAllBytes(outputPath).AsSpan().StartsWith(
                         new byte[] { 0xEF, 0xBB, 0xBF }));
@@ -18345,14 +18349,18 @@ public partial class CommandExecutionTests
             Assert.Equal(0, infoBaseline.Exit);
             Assert.Equal(infoBaseline.Exit, infoRedirected.Exit);
             Assert.Empty(infoRedirected.Output);
-            Assert.Equal(infoBaseline.Output, File.ReadAllText(outputPath));
+            var infoWritten = File.ReadAllText(outputPath);
+            Assert.Equal(
+                infoBaseline.Output.ReplaceLineEndings("\n"),
+                infoWritten);
+            Assert.DoesNotContain('\r', infoWritten);
 
             static string OutputMetric(string error) =>
                 SplitOutputLines(error).Single(line =>
                     line.StartsWith("| Output |", StringComparison.Ordinal));
 
             Assert.Equal(
-                OutputMetric(infoBaseline.Error),
+                $"| Output | {CacheOutputFormatter.FormatSize(infoWritten.Length)} |",
                 OutputMetric(infoRedirected.Error));
             Assert.DoesNotContain(
                 "| Output | 0 B |",
@@ -22030,7 +22038,11 @@ public partial class CommandExecutionTests
                 Assert.Empty(baseline.Error);
                 Assert.Empty(redirected.Error);
                 Assert.Empty(redirected.Output);
-                Assert.Equal(baseline.Output, File.ReadAllText(outputPath));
+                var written = File.ReadAllText(outputPath);
+                Assert.Equal(
+                    baseline.Output.ReplaceLineEndings("\n"),
+                    written);
+                Assert.DoesNotContain('\r', written);
                 if (name == "json")
                     Assert.EndsWith("\n", baseline.Output, StringComparison.Ordinal);
             }
@@ -22090,7 +22102,11 @@ public partial class CommandExecutionTests
                 Assert.Equal(baseline.Exit, redirected.Exit);
                 Assert.Equal(baseline.Error, redirected.Error);
                 Assert.Empty(redirected.Output);
-                Assert.Equal(baseline.Output, File.ReadAllText(outputPath));
+                var written = File.ReadAllText(outputPath);
+                Assert.Equal(
+                    baseline.Output.ReplaceLineEndings("\n"),
+                    written);
+                Assert.DoesNotContain('\r', written);
             }
         }
         finally
@@ -22130,14 +22146,18 @@ public partial class CommandExecutionTests
             Assert.Equal(0, baseline.Exit);
             Assert.Equal(baseline.Exit, redirected.Exit);
             Assert.Empty(redirected.Output);
-            Assert.Equal(baseline.Output, File.ReadAllText(outputPath));
+            var written = File.ReadAllText(outputPath);
+            Assert.Equal(
+                baseline.Output.ReplaceLineEndings("\n"),
+                written);
+            Assert.DoesNotContain('\r', written);
 
             static string OutputMetric(string error) =>
                 SplitOutputLines(error).Single(line =>
                     line.StartsWith("| Output |", StringComparison.Ordinal));
 
             Assert.Equal(
-                OutputMetric(baseline.Error),
+                $"| Output | {CacheOutputFormatter.FormatSize(written.Length)} |",
                 OutputMetric(redirected.Error));
             Assert.DoesNotContain(
                 "| Output | 0 B |",
@@ -22198,8 +22218,11 @@ public partial class CommandExecutionTests
                 Assert.Equal(1, baseline.Output.Count(character => character == '\n'));
                 Assert.Equal(baseline.Exit, redirected.Exit);
                 Assert.Empty(redirected.Output);
-                Assert.Equal(baseline.Output, File.ReadAllText(outputPath));
-                Assert.DoesNotContain('\r', File.ReadAllText(outputPath));
+                var written = File.ReadAllText(outputPath);
+                Assert.Equal(
+                    baseline.Output.ReplaceLineEndings("\n"),
+                    written);
+                Assert.DoesNotContain('\r', written);
                 Assert.False(
                     File.ReadAllBytes(outputPath)
                         .AsSpan()
@@ -22210,7 +22233,7 @@ public partial class CommandExecutionTests
                         line.StartsWith("| Output |", StringComparison.Ordinal));
 
                 Assert.Equal(
-                    OutputMetric(baseline.Error),
+                    $"| Output | {CacheOutputFormatter.FormatSize(written.Length)} |",
                     OutputMetric(redirected.Error));
                 Assert.DoesNotContain(
                     "| Output | 0 B |",

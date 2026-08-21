@@ -58,7 +58,7 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void OutputDestination_NormalizesBufferedAndConsoleLineEndings()
+    public void OutputDestination_NormalizesBufferedLineEndings()
     {
         var tempDirectory = Directory.CreateTempSubdirectory("output-destination-lf-");
         try
