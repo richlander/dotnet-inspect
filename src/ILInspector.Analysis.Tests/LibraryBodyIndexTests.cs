@@ -11573,11 +11573,11 @@ public class LibraryBodyIndexTests
         var sparse = new AnalysisDiagnostic(
             0x06000002,
             "Sample.<Source>d__1::MoveNext()",
-            "BadImageFormatException: Invalid attribute",
-            DeclaringType: evidenceType);
+            "BadImageFormatException: Invalid attribute");
         var enriched = sparse with
         {
             SourceMethodToken = 0x06000001,
+            DeclaringType = evidenceType,
             SourceDeclaringType = sourceType,
         };
         var later = new AnalysisDiagnostic(
@@ -11751,25 +11751,87 @@ public class LibraryBodyIndexTests
                 .Select(
                     diagnostic =>
                         diagnostic.SourceDeclaringType));
+    }
 
-        TypeRef ExactDefinition(
-            string flattenedName,
-            params string[] segments)
-        {
-            var result =
-                Assert.IsType<
-                    MetadataTypeDefinitionNameResult.Valid>(
-                    MetadataTypeDefinitionName.Create(
-                        "Sample",
-                        [.. segments]));
-            return TypeRef.Definition(
-                "Fixture",
-                "Sample",
-                flattenedName,
-                new ResolvableTypeReference(
-                    new TypeReferenceOrigin.CurrentAssembly(),
-                    result.Name));
-        }
+    [Fact]
+    public void
+        ScopeDiagnosticAggregation_DoesNotInferTypeIdentityFromDisplay()
+    {
+        TypeRef arityOne =
+            ExactDefinition(
+                "Value`1",
+                "Value`1");
+        TypeRef arityTwo =
+            ExactDefinition(
+                "Value`2",
+                "Value`2");
+        Assert.NotEqual(
+            arityOne,
+            arityTwo);
+        Assert.Equal(
+            arityOne.ToDisplayString(),
+            arityTwo.ToDisplayString());
+        var declaringArityOne = new AnalysisDiagnostic(
+            0x06000003,
+            "Sample.<Source>d__1::MoveNext()",
+            "Same-display declaring type conflict",
+            DeclaringType: arityOne);
+        AnalysisDiagnostic declaringArityTwo =
+            declaringArityOne with
+            {
+                DeclaringType = arityTwo,
+            };
+        var sourceArityOne = new AnalysisDiagnostic(
+            0x06000003,
+            "Sample.<Source>d__1::MoveNext()",
+            "Same-display source declaring type conflict",
+            SourceDeclaringType: arityOne);
+        AnalysisDiagnostic sourceArityTwo =
+            sourceArityOne with
+            {
+                SourceDeclaringType = arityTwo,
+            };
+
+        ImmutableArray<AnalysisDiagnostic> diagnostics =
+            AnalysisDiagnosticAggregation
+                .MergeInMetadataOrder(
+                    [
+                        declaringArityOne,
+                        sourceArityOne,
+                    ],
+                    [
+                        declaringArityTwo,
+                        sourceArityTwo,
+                    ]);
+
+        Assert.Equal(
+            new[]
+            {
+                arityOne,
+                arityTwo,
+            },
+            diagnostics
+                .Where(
+                    diagnostic =>
+                        diagnostic.Message
+                            == "Same-display declaring type conflict")
+                .Select(
+                    diagnostic =>
+                        diagnostic.DeclaringType));
+        Assert.Equal(
+            new[]
+            {
+                arityOne,
+                arityTwo,
+            },
+            diagnostics
+                .Where(
+                    diagnostic =>
+                        diagnostic.Message
+                            == "Same-display source declaring type conflict")
+                .Select(
+                    diagnostic =>
+                        diagnostic.SourceDeclaringType));
     }
 
     [Fact]
@@ -11850,6 +11912,25 @@ public class LibraryBodyIndexTests
                         diagnostic.MethodToken,
                         diagnostic.Method
                     )));
+    }
+
+    static TypeRef ExactDefinition(
+        string flattenedName,
+        params string[] segments)
+    {
+        var result =
+            Assert.IsType<
+                MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Sample",
+                    [.. segments]));
+        return TypeRef.Definition(
+            "Fixture",
+            "Sample",
+            flattenedName,
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(),
+                result.Name));
     }
 
     static byte[]

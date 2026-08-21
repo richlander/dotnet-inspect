@@ -805,6 +805,7 @@ Research overlay bridge, and the application layer:
   `ScopeDiagnosticAggregation_EnrichesFailuresInMetadataOrder`,
   `ScopeDiagnosticAggregation_PreservesConflictingProvenance`,
   `ScopeDiagnosticAggregation_UsesStructuralTypeProvenanceCompatibility`,
+  `ScopeDiagnosticAggregation_DoesNotInferTypeIdentityFromDisplay`,
   `ScopeDiagnosticAggregation_PreservesDistinctFailureMessages`,
   `ScopeDiagnosticAggregation_PreservesPhysicalFailureIdentity`,
   `TypeTargetedBuild_MatchesFullBuild_ForEveryMethodOfTheType`,
