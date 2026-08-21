@@ -530,16 +530,22 @@ public static class TypeCommand
            && !options.MarkdownExplicitlySet;
 
     private static bool ShouldRejectQuietShape(TypeOptions options)
-        => !options.MarkdownExplicitlySet
-           && !options.JsonOutput
-           && !options.Tabular
-           && !options.Tsv
-           && !options.Jsonl
-           && !options.NoHeader
-           && !options.PlainText
-           && !options.Count
-           && (!options.HasSectionQuery || options.BodyKindQuery.HasFilter)
-           && options.Verbosity == Verbosity.Quiet;
+    {
+        if (options.Verbosity != Verbosity.Quiet)
+            return false;
+        if (options.BodyKindQuery.HasFilter)
+            return true;
+
+        return !options.MarkdownExplicitlySet
+            && !options.JsonOutput
+            && !options.Tabular
+            && !options.Tsv
+            && !options.Jsonl
+            && !options.NoHeader
+            && !options.PlainText
+            && !options.Count
+            && !options.HasSectionQuery;
+    }
 
     internal static async Task<int?> TryExecuteFindIfMissAsync(TypeOptions options)
     {

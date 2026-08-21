@@ -531,6 +531,38 @@ public sealed class BodyShapesSectionTests
         Assert.Empty(result.Output);
     }
 
+    [Theory]
+    [InlineData("--count")]
+    [InlineData("--markdown")]
+    [InlineData("--plaintext")]
+    [InlineData("--no-header")]
+    public async Task TypeKindPredicate_QuietVerbosityWithOutputModifierFailsVisibly(
+        string outputOption)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "type",
+                    typeof(BodyShapeFixture).FullName!,
+                    "--library",
+                    FixturePath,
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                    "-v:q",
+                    outputOption,
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "-v:q is not supported by Body Shapes queries",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Empty(result.Output);
+    }
+
     [Fact]
     public void TypeBodyShapeTokens_ExcludeProjectedExtensionMethods()
     {
