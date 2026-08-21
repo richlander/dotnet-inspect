@@ -39,8 +39,9 @@ public static class MemberCommand
             return 1;
         if (ApiCommand.RejectRouteIndependentOptionShape(options))
             return 1;
-        if (ApiCommand.RejectUnsupportedCallerDocumentJson(options)
-            || ApiCommand.RejectUnsupportedAnnotatedSourceDocumentJson(options))
+        if (options.RouterDeferredTypeOrMember
+            && (ApiCommand.RejectUnsupportedCallerDocumentJson(options)
+                || ApiCommand.RejectUnsupportedAnnotatedSourceDocumentJson(options)))
         {
             return 1;
         }
