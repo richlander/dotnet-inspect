@@ -3802,7 +3802,7 @@ public partial class CommandExecutionTests
             Path.GetTempPath(),
             $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
 
-        var (exit, output, error) = await RunAppAsync(
+        var ambiguous = await RunAppAsync(
             "member",
             "Missing.Type.Member",
             "--library",
@@ -3811,13 +3811,33 @@ public partial class CommandExecutionTests
             "DefinitelyNotASection",
             "--tips",
             "q");
+        var explicitMember = await RunAppAsync(
+            "member",
+            "Missing.Type",
+            "--library",
+            missingAssembly,
+            "-m",
+            "Member",
+            "-S",
+            "DefinitelyNotASection",
+            "--tips",
+            "q");
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("Select value 'DefinitelyNotASection' not found.", error);
-        Assert.DoesNotContain("File not found", error);
-        Assert.DoesNotContain("  Classes", error);
-        Assert.DoesNotContain("  Inspection Failures", error);
+        Assert.Equal(1, ambiguous.Exit);
+        Assert.Equal(1, explicitMember.Exit);
+        Assert.Empty(ambiguous.Output);
+        Assert.Empty(explicitMember.Output);
+        Assert.Contains(
+            "Select value 'DefinitelyNotASection' not found.",
+            ambiguous.Error);
+        Assert.Contains(
+            "Select value 'DefinitelyNotASection' not found.",
+            explicitMember.Error);
+        Assert.DoesNotContain("File not found", ambiguous.Error);
+        Assert.DoesNotContain("File not found", explicitMember.Error);
+        Assert.DoesNotContain("  Classes", ambiguous.Error);
+        Assert.DoesNotContain("  Inspection Failures", ambiguous.Error);
+        Assert.DoesNotContain("  Method Groups", explicitMember.Error);
     }
 
     [Fact]
