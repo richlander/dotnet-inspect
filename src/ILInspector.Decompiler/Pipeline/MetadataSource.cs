@@ -250,6 +250,7 @@ public sealed class MetadataSource : IDisposable
                 AssemblyResolutionProvenance.Local("MetadataSource snapshot"));
             var bindingPolicy = new AssemblyReferenceBindingPolicy(
                 resolver ?? DefaultAssemblyReferenceResolver(path));
+            CoreLibraryIdentityTrust.GrantCoreLibraryIdentity(reader);
             return new MetadataSource(
                 path,
                 fullPath,
@@ -305,6 +306,7 @@ public sealed class MetadataSource : IDisposable
                 fullPath,
                 () => File.OpenRead(fullPath),
                 AssemblyResolutionProvenance.Local("MetadataSource"));
+            CoreLibraryIdentityTrust.GrantCoreLibraryIdentity(reader);
             return new MetadataSource(
                 path,
                 path,
@@ -355,6 +357,10 @@ public sealed class MetadataSource : IDisposable
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
                 : assembly.Identity.Name;
             string path = assembly.Path ?? assembly.Identity.Name;
+            CoreLibraryIdentityTrust.GrantIfEntitled(
+                reader,
+                assembly.Provenance,
+                context?.CoreLibraryTrust ?? CoreLibraryTrustPolicy.DesignatedAndPlatform);
             return new MetadataSource(
                 path,
                 assembly.Path,
