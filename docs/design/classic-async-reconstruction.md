@@ -314,18 +314,29 @@ bounds, and MethodDef ownership against the live source. A raw
 never becomes `Exact` by pairing it with the module that happens to be
 open.
 
-The two current Research request records lose their body-facing raw
-`MethodToken` fields. `ResearchViews.MemberProjectionRequest` carries a
-`MetadataBodyRequest`: graph and other same-source callers mint
-`Exact(MetadataMethodAddress)` while they still own the originating source
-MVID, and API-selected callers carry `Carried(MemberBodyTarget)`.
-`AssemblyContextMemberProjectionRequest` carries a
+Every body-facing query request loses raw MethodDef-token authority.
+`ResearchViews.MemberProjectionRequest` carries a `MetadataBodyRequest`: graph
+and other same-source callers mint `Exact(MetadataMethodAddress)` while they
+still own the originating source MVID, and API-selected callers carry
+`Carried(MemberBodyTarget)`. `AssemblyContextMemberProjectionRequest` carries a
 `MemberBodyTarget` for cross-reader participant projection, or a
 participant-scoped exact address already minted from that participant; it
 never sends one bare token to whichever participant source is later opened.
 `AnnotatedMemberDocumentQuery` converts its graph focus token plus the graph
-source MVID to one exact address before calling Research. No body-facing
-product request retains an `int? MethodToken`.
+source MVID to one exact address before calling Research.
+
+`AssemblyMemberSourceRequest` also carries `MemberBodyTarget`, not
+`ApiMember.MetadataToken` plus `MemberAnchor`. After opening the selected
+participant, `AssemblyContextSourceQuery` resolves that target through
+`MemberBodyTargetResolver` before both authored SourceLink/PDB acquisition and
+decompiled fallback. The one resolved `MetadataMethodAddress` supplies the
+MethodDef token to authored acquisition and the matching carried API member to
+`MemberBodyProducer`; the two paths cannot resolve independently.
+`MemberAnchor` may remain only as presentation copied from the uniquely
+resolved member. Missing, legacy-key, malformed, or ambiguous correspondence
+is a visible member-source failure, never permission to accept a same-token,
+same-anchor candidate. No body-facing product request retains an integral raw
+token field, nullable or otherwise.
 
 Carried API members use `Carried(MemberBodyTarget)`, not
 `MemberAnchor`. Surface anchors and metadata anchors intentionally use
@@ -917,6 +928,7 @@ The identity migrations are explicit:
 | `ResearchViews.MemberProjectionRequest.MethodToken` | `MetadataBodyRequest`, with same-source callers minting `Exact(MetadataMethodAddress)` |
 | `AssemblyContextMemberProjectionRequest.MethodToken` | Carried `MemberBodyTarget` or already participant-scoped exact address |
 | `AnnotatedMemberDocumentQuery` graph focus | Exact address minted from graph-source MVID plus validated MethodDef |
+| `AssemblyMemberSourceRequest.MetadataToken` / `Member` | Carried `MemberBodyTarget`; resolve once per participant, then derive exact authored token and presentation anchor |
 | `DiffCommand.AddResolvedIdentities` / `ResearchMemberIdentity.TryAddTargetIdentity` | Per-side exact/carried body targets, never strings |
 | `CSharpBodyDiff.CreateMethodEntryWithoutFingerprint` | Mint the complete `MemberBodyKey` from the MethodDef |
 | `CSharpBodyDiff.CreateMethodIndex` / `CompareMethodIndexes` | Key, pair, and filter by typed body key/address with typed missing/ambiguous failures |
@@ -1248,10 +1260,12 @@ the decompiler library and corpus.
    address. User/API `MemberTargetSelector` resolution always supplies a
    carried target; its display ordinal, digest, generic arity, aliases,
    accessor semantics, and extension attachment never adapt to a
-   physical selector. The current Research `MethodToken` fields are replaced
-   by typed requests: same-source graph callers mint a complete exact address,
-   participant/cross-reader callers carry a body target, and no bare token is
-   paired with a later-opened source. Only the existing zero-based physical
+   physical selector. Every current body-facing query token is replaced by a
+   typed request: same-source graph callers mint a complete exact address,
+   participant/cross-reader Research and assembly-source callers carry a body
+   target, and no bare token/anchor pair is matched against a later-opened
+   source. Authored member acquisition and decompiled fallback share one
+   participant target resolution. Only the existing zero-based physical
    name/ordinal branch of `MemberProjectionRequest` enters the metadata-order
    selector path.
    A stale or cross-reader hint resolves by structural body-key
@@ -1287,7 +1301,8 @@ runtime-async method loses its metadata `async`; any declared
 source-body artifact disagrees on outcome; a Fact Row anchor refers to
 an independently raised body; a failed preparation becomes a plausible
 body; a carried member/accessor resolves through stale name/ordinal
-identity; a Research raw token is paired with an unrelated open source; a
+identity; a raw Research or assembly-source token is paired with an unrelated
+open source; authored and decompiled member source resolve independently; a
 physical selector bypasses preparation; a physical C# diff filters or pairs
 bodies through display/anchor identity; an abstract member
 or accessor is filtered before classification; replay loses companion
@@ -1346,7 +1361,7 @@ another raise. Do not invent more `TryBuild*` methods.
 
 | Slice | Claim | Residual after it |
 | --- | --- | --- |
-| 0. Honesty | Add one disjoint guarded SRM runtime/classic/iterator classifier and carry its complete `AsyncClassification` through every top-level and foreign import; expected foreign classification failure is typed and never yields an unclassified `IrFunction`. Add structured exact/carried-key/physical-selector addressing with resolved `ClassificationFailed` and `Bodyless`, Decompiler-owned `MetadataBodyProjectionResult`, detached function snapshots, catalog-owned render altitude, complete exact-host application values, and typed body carriers. User/API selectors always resolve to carried targets; Research replaces raw body tokens with exact addresses or carried targets; only existing physical name/ordinal coordinates use metadata ordinals. Carried API methods/accessors resolve by a persisted versioned `MethodStructuralSignature` body key plus relationship role and MVID-scoped hints, never `MemberAnchor` or stale name/ordinal fallback; abstract members project before presentation filtering. Classic companion `MoveNext` resolves by exact signature and `IAsyncStateMachine` implementation. `ClassicAsyncReconstructionPass` remains the single decision implementation: the projector captures/replays one decision across top-level stages, support-method acknowledgment is an application-owned seam-independent local disposition whose builder comes from the declaring type's exact unique builder FieldDef and whose application performs no body/local mutation, import-internal-error crash functions remain outcome-unavailable, and one foreign-function pipeline entry always resets the parent directive. A shared nested-function embedding policy reads the imported complete classification and retains runtime, classic, and iterator async bodies, bodies requiring an async declaration modifier, and unsupported bodies as lowered compiler structure. Seam-enabled stage/corpus/harness runs use the same pass. Every declared source-body path canonicalizes through the front door; physical C# diff rendering remains MethodDef-scoped and seam-free but consumes typed per-side body identity and uses `MemberBodyKey` correspondence. Every healthy classic decline gets a marker: replace exact narrow handoff; prepend while preserving a non-narrow body. Correlate Debug class allocation and void `Return(null)`. Leave legacy raise eligibility unchanged. Stop hollowing every exact support MethodDef; library + corpus A/B. | #4472 fixture still declined, but honest. Debug class SMs are honest but not raised. All support MethodDefs, including async-iterator `MoveNext`, remain physical. Custom builders visibly decline with preserved bodies. Bodyless members remain absent/declaration-only. Resolved classification failures remain typed and visibly failed. Lowered Research suppresses every cataloged byte-divergent lens and retains interleaved IL. Importer crash markers and metadata modifiers remain unchanged. Async local/lambda/iterator declarations are not reconstructed until they have a typed async carrier. Runtime-async recovery is unchanged; only unsafe nested embedding is retained lowered. Physical C# diff remains MethodDef-scoped and seam-free; its selection/correspondence no longer uses display identity, and locally decidable support hosts may carry support acknowledgment. No trusted Metadata/Analysis lift. |
+| 0. Honesty | Add one disjoint guarded SRM runtime/classic/iterator classifier and carry its complete `AsyncClassification` through every top-level and foreign import; expected foreign classification failure is typed and never yields an unclassified `IrFunction`. Add structured exact/carried-key/physical-selector addressing with resolved `ClassificationFailed` and `Bodyless`, Decompiler-owned `MetadataBodyProjectionResult`, detached function snapshots, catalog-owned render altitude, complete exact-host application values, and typed body carriers. User/API selectors always resolve to carried targets; Research and assembly-context source queries replace raw body tokens with exact addresses or carried targets and share one participant resolution across authored/decompiled source; only existing physical name/ordinal coordinates use metadata ordinals. Carried API methods/accessors resolve by a persisted versioned `MethodStructuralSignature` body key plus relationship role and MVID-scoped hints, never `MemberAnchor` or stale name/ordinal fallback; abstract members project before presentation filtering. Classic companion `MoveNext` resolves by exact signature and `IAsyncStateMachine` implementation. `ClassicAsyncReconstructionPass` remains the single decision implementation: the projector captures/replays one decision across top-level stages, support-method acknowledgment is an application-owned seam-independent local disposition whose builder comes from the declaring type's exact unique builder FieldDef and whose application performs no body/local mutation, import-internal-error crash functions remain outcome-unavailable, and one foreign-function pipeline entry always resets the parent directive. A shared nested-function embedding policy reads the imported complete classification and retains runtime, classic, and iterator async bodies, bodies requiring an async declaration modifier, and unsupported bodies as lowered compiler structure. Seam-enabled stage/corpus/harness runs use the same pass. Every declared source-body path canonicalizes through the front door; physical C# diff rendering remains MethodDef-scoped and seam-free but consumes typed per-side body identity and uses `MemberBodyKey` correspondence. Every healthy classic decline gets a marker: replace exact narrow handoff; prepend while preserving a non-narrow body. Correlate Debug class allocation and void `Return(null)`. Leave legacy raise eligibility unchanged. Stop hollowing every exact support MethodDef; library + corpus A/B. | #4472 fixture still declined, but honest. Debug class SMs are honest but not raised. All support MethodDefs, including async-iterator `MoveNext`, remain physical. Custom builders visibly decline with preserved bodies. Bodyless members remain absent/declaration-only. Resolved classification failures remain typed and visibly failed. Lowered Research suppresses every cataloged byte-divergent lens and retains interleaved IL. Importer crash markers and metadata modifiers remain unchanged. Async local/lambda/iterator declarations are not reconstructed until they have a typed async carrier. Runtime-async recovery is unchanged; only unsafe nested embedding is retained lowered. Physical C# diff remains MethodDef-scoped and seam-free; its selection/correspondence no longer uses display identity, and locally decidable support hosts may carry support acknowledgment. No trusted Metadata/Analysis lift. |
 | 1. Void-await then statements then return | Accept `await Task.Yield(); return ReadValue(value);` as the first inverse raise from `AwaitPoints` + `UserRegions`, not as a new `TryBuild*` and not as a `HasUnexpectedStore` allow-list tweak. Must consume void `GetResult` as a statement, following statements, a non-await `SetResult` operand, the Yield operand temp, and an explicit `LoadLocalAddress` decline-then-remap. Hoisted parameter binding is already present. The smaller `await Task.Yield();` (no later statements) is the accepted boundary of the same slice. Blocked until the Correct measurement exists. | General multi-state dispatch, class SM, custom awaiters, structural Metadata descriptor, census-defined raises. |
 
 ### Nested embedding fixture family (slice 0)
@@ -1468,6 +1483,7 @@ another raise. Do not invent more `TryBuild*` methods.
 | `async` on an API skeleton | Omitted |
 | `MoveNext` → declared source | Analysis (`ResolveDeclaredMethod`) |
 | Research annotation, document, overlay, and Fact Row presentation | Research over Decompiler-prepared clones |
+| Assembly-context authored/decompiled member source identity | Queries over one participant-resolved `MemberBodyTarget` / `MetadataMethodAddress`; anchor is presentation only |
 | CLI member presentation | CLI |
 | Physical C# body selection/correspondence | Metadata exact/carried target resolution + `MemberBodyKey`; never `MemberAnchor` or reconstructed display identity |
 | Seam-free physical C# body evidence | Decompiler `CSharpBodyDiff` after typed correspondence (no kickoff outcome; local support acknowledgment allowed) |
@@ -1485,7 +1501,7 @@ predicate. They must not assume current kickoffs are Full.
 | Canonical front-door architecture | Source-architecture test `MetadataAddressedBodyProjectionUsesCanonicalFrontDoor` | Product-consumer references outside `CSharpPrinter` / pass definitions to any body-emitting printer API or direct top-level `IrPasses.Run*` differ from the complete set: `MetadataBodyProjector` / `PreparedStageBody`, seam-free `CSharpBodyDiff`, and canonical-stage `PipelineStages` |
 | Classification policy ownership | Source-architecture test `DeclaredSourceAsyncClassificationUsesProjector` | A declared-source consumer classifies the resolved MethodDef, catches its decode failure, or derives a body modifier outside `MetadataBodyProjector` and the typed projection; exact non-source metadata inventories remain named exceptions |
 | Body-status policy ownership | Source-architecture test `DeclaredSourceBodyStatusUsesProjector` | A declared-source consumer uses RVA/`HasBody`/null import or semantic `ApiMember.IsAbstract` filtering to choose `Bodyless`, suppress a method/accessor, skip classification, or map state to a carrier; the exact retained body-reference/semantic-policy manifest differs, or any named migration site remains |
-| Body-target identity architecture | Metadata + Decompiler source-architecture tests, including Research request records and graph/assembly-context callers | A body-facing request retains a raw `int? MethodToken`; a token is treated as exact without its originating MVID; graph focus fails to mint a same-source address; an assembly-context request pairs one token with a later-opened participant; a carried API member/accessor falls back to name/ordinal or either `MemberAnchor` spelling; an accessor is identified by ordinal rather than role; target resolution parses declaration/display text, reads bodies, or reads custom attributes; an unsupported/legacy body key guesses; or duplicate/unavailable structural correspondence selects a candidate |
+| Body-target identity architecture | Metadata + Decompiler + Queries source-architecture/product tests, including Research request records, graph callers, and assembly-context Research/member-source callers with same-token/same-anchor but body-key-different participants | A body-facing request retains any integral raw token field, nullable or non-nullable; a token is treated as exact without its originating MVID; graph focus fails to mint a same-source address; an assembly-context request pairs one token/anchor with a later-opened participant; `AssemblyMemberSourceRequest` lacks a carried target; authored acquisition and decompiled fallback resolve different identities; `MemberAnchor` participates in acceptance rather than presentation; a carried API member/accessor falls back to name/ordinal or either anchor spelling; an accessor is identified by ordinal rather than role; target resolution parses declaration/display text, reads bodies, or reads custom attributes; an unsupported/legacy body key guesses; or duplicate/unavailable structural correspondence selects a candidate |
 | Selector currency boundary | CLI/API + Metadata architecture/product tests over display/metadata order disagreement, protected overloads, case aliases, `this[]`, property/event accessor ordinals, generic/non-generic overloads in both orders, digests, explicit extensions/generic receivers/static-helper near misses, malformed ExtensionAttribute, and physical bodyless rows | Any `MemberTargetSelector` is converted to `MetadataBodySelector`; display ordinal is arithmetically treated as a MethodDef ordinal; digest, generic arity, alias, accessor, or extension semantics are dropped/reimplemented by the body resolver; a resolved user/API target does not enter as `Carried(MemberBodyTarget)`; extension attachment is duplicated or stores the receiver instead of the actual static holder; malformed/budget-exhausted API selection reaches body projection; or an existing zero-based `MemberProjectionRequest` differs from the legacy exact-name/visibility/metadata-order physical walk |
 | Modifier-complete body-key contract | Metadata key/schema tests deriving specimens from `MethodStructuralSignature`, including safety-limit and hash-collision near cases | API extraction and live carried-key resolution produce different keys for one MethodDef; version or exact declaring type is omitted; a hash-only fingerprint is authoritative; structural safety limits are bypassed or collapsed to missing; API JSON loses the target/key or accessor-specific targets; an attached extension stores the receiver instead of its holder; a legacy missing/unknown version is accepted cross-reader; `modreq`/`modopt`, calling convention, generic constraint, function-pointer, or by-ref drift compares equal; surface/metadata `MemberAnchor` spelling affects the body key; or the optional key changes API anchor/diff/order/presentation identity |
 | Exact/carried/physical-selector address parity | Metadata resolver + Decompiler projector with same-module exact, persisted-key JSON round trip, legacy missing-key failure, stale-MVID, valid-wrong-row token, hidden same-name overload drift, modreq/modopt drift, API-carried true extension/static-helper, overloaded indexer/event accessors, bodyless physical selector, and malformed/contradictory attribute rows | A same-source preferred address fails body-key/role validation; a carried target selects by order; stale or cross-reader identity resolves another MethodDef; custom-modifier drift is accepted; getter/setter or adder/remover roles swap; a persisted key does not round-trip or a legacy missing key guesses; a user selector enters the physical path; fresh zero-based physical selection differs from the existing exact-name/visibility/metadata-order walk; bodyless candidates disappear from physical ordinal counting; exact/carried/physical-selector classification/state/outcome/render/diagnostic differ after resolving the same MethodDef; or missing/ambiguous correspondence becomes plausible output |
@@ -1576,11 +1592,13 @@ with bodyless/null/recursion outcomes must fail the foreign transport gate
 before an embedding assertion can pass. Bypassing
 `NestedFunctionEmbeddingPolicy` or splitting its
 async/unsupported checks between lambda and local-function raising must
-fail the separate embedding architecture inventory. Treating a raw
-token as an exact address, retaining a raw body-facing Research token,
-removing MVID or body-key/role validation, restoring name/ordinal as
-carried-member fallback, or selecting one of duplicate structural-key
-candidates must fail the body-target identity gates. Converting a diff target
+fail the separate embedding architecture inventory. Treating a raw token as an
+exact address, retaining any raw body-facing query token (including a
+non-nullable differently named field), accepting `AssemblyMemberSourceRequest`
+through token plus anchor, resolving authored and decompiled source
+independently, removing MVID or body-key/role validation, restoring
+name/ordinal as carried-member fallback, or selecting one of duplicate
+structural-key candidates must fail the body-target identity gates. Converting a diff target
 to anchor/display strings or pairing with raw/signature-blob keys must fail the
 physical diff identity gate.
 Removing physical-selector canonicalization must fail its current-source
