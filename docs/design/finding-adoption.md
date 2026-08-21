@@ -214,7 +214,16 @@ rows rather than relying on empty fields as an implicit signal. `Candidate` is
 therefore useful for a runtime/static join within one build, while
 `diff --finding` and `timeline --finding` remain the cross-version
 correspondence paths. Aggregate judgments such as `allocation-hotspot`
-deliberately have no exact source Finding.
+deliberately have no exact source Finding. A composite repeated-scan judgment
+can retain one native `analysis.call-site` observation in the separately typed
+`SupportingCallSite` relation. Its projected `Supporting*` fields are an exact
+runtime correspondence coordinate; they do not populate the row's own
+`Finding`, `Operation`, `Token`, or `IL`, change `Provenance=aggregate`, or enter
+the aggregate candidate identity.
+`OptimizationOpportunities_FlagsImmediateLazyQueryTerminalInvokedInCallerLoop`
+and `OptimizationOpportunities_DoNotChooseAmbiguousScanSupport` enforce that
+separation and fail closed when more than one local scan could supply the
+coordinate.
 
 `Resource Triage` follows the same rule. Exact
 `analysis.resource-lifecycle` observations remain policy-free; the

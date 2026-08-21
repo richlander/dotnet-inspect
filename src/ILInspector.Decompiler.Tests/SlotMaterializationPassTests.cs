@@ -45,6 +45,54 @@ public class SlotMaterializationPassTests
         Assert.Equal(4, function.Locals.Length);
     }
 
+    [Fact]
+    public void MaterializesCompleteDirectCopyComponent()
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(256, new LoadArgument(0, "x", Int32)));
+        block.Add(new StoreStackSlot(1, new LoadStackSlot(256, Int32)));
+        block.Add(new StoreStackSlot(0, new LoadStackSlot(1, Int32)));
+        block.Add(new StoreLocal(0, Int32, new LoadStackSlot(0, Int32)));
+        body.Add(block);
+        var function = Function([Int32], body);
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Equal(4, function.Locals.Length);
+        Assert.Contains("int S_256 = x;", output);
+        Assert.Contains("int S_1 = S_256;", output);
+        Assert.Contains("int S_0 = S_1;", output);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DefersWholeDirectCopyComponentWhenOneSlotIsUndecided()
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(256, new LoadArgument(0, "x", Int32)));
+        block.Add(new StoreStackSlot(1, new LoadStackSlot(256, Int32)));
+        block.Add(new StoreStackSlot(0, new LoadStackSlot(1, Int32)));
+        block.Add(new StoreLocal(0, Int32, new LoadStackSlot(0, Int32)));
+        block.Add(new StoreLocal(1, Char, new LoadStackSlot(0, Char)));
+        block.Add(new StoreStackSlot(5, new Constant(1, Int32)));
+        block.Add(new StoreLocal(2, Int32, new LoadStackSlot(5, Int32)));
+        body.Add(block);
+        var function = Function([Int32, Char, Int32], body);
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+
+        Assert.Equal(3, function.Descendants.OfType<StoreStackSlot>().Count());
+        Assert.Equal(4, function.Descendants.OfType<LoadStackSlot>().Count());
+        Assert.Equal(4, function.Locals.Length);
+        Assert.Contains(function.Descendants.OfType<StoreLocal>(), store => store.Index == 3);
+        function.CheckInvariant();
+    }
+
     // Adversarial review (5b-2, HIGH): slot numbering restarts at 0 inside a
     // lambda, and a raised lambda prints through a fresh inner printer with no
     // view of the outer locals table — materializing outer S_0 next to a
