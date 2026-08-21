@@ -30,6 +30,7 @@ public sealed record DeferredCallbackSite(
     string Assembly,
     string Caller,
     int CallerToken,
+    int EvidenceMethodToken,
     string Target,
     int TargetToken,
     int FunctionLoadOffset,
@@ -147,8 +148,11 @@ public static class DeferredCallbackCensus
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maxDepth, 0);
 
-        var callsByCoordinate = directCalls.ToDictionary(
-            static call => (call.Caller.MetadataToken, call.ILOffset));
+        ImmutableArray<DirectCall> physicalCalls =
+            DirectCallEvidence.Physicalize(directCalls);
+        var callsByCoordinate = physicalCalls.ToDictionary(
+            static call =>
+                (call.EvidenceMethod.MetadataToken, call.ILOffset));
         var allocationsByCoordinate = allocations
             .SelectMany(static pair => pair.Value)
             .ToDictionary(
@@ -181,17 +185,17 @@ public static class DeferredCallbackCensus
         {
             FindNearest(
                 methods,
-                directCalls,
+                physicalCalls,
                 coherentSites.Where(static site =>
                     site.Row.Classification == DeferredCallbackSiteClassification.ImmediateInvocation)),
             FindNearest(
                 methods,
-                directCalls,
+                physicalCalls,
                 coherentSites.Where(static site =>
                     site.Row.Classification == DeferredCallbackSiteClassification.FrameworkRegistration)),
             FindNearest(
                 methods,
-                directCalls,
+                physicalCalls,
                 coherentSites.Where(static site =>
                     site.Row.Classification == DeferredCallbackSiteClassification.UnknownConsumer)),
         };
@@ -255,9 +259,13 @@ public static class DeferredCallbackCensus
         AllocationOccurrence? allocation = null;
         DirectCall? consumer = null;
         if (load.ReturnAddress is { } constructionOffset
-            && calls.TryGetValue((load.Caller.MetadataToken, constructionOffset), out var candidateConstruction)
+            && calls.TryGetValue(
+                (load.EvidenceMethod.MetadataToken, constructionOffset),
+                out var candidateConstruction)
             && candidateConstruction.Kind == CallKind.NewObject
-            && allocations.TryGetValue((load.Caller.MetadataToken, constructionOffset), out var candidateAllocation)
+            && allocations.TryGetValue(
+                (load.EvidenceMethod.MetadataToken, constructionOffset),
+                out var candidateAllocation)
             && candidateAllocation.Source == AllocationFactSource.Newobj
             && candidateAllocation.CountsAsHeapAllocation
             && candidateAllocation.AllocatedType?.Equals(candidateConstruction.Callee.DeclaringType) == true
@@ -266,7 +274,9 @@ public static class DeferredCallbackCensus
             construction = candidateConstruction;
             allocation = candidateAllocation;
             if (construction.ReturnAddress is { } consumerOffset
-                && calls.TryGetValue((load.Caller.MetadataToken, consumerOffset), out var candidateConsumer)
+                && calls.TryGetValue(
+                    (load.EvidenceMethod.MetadataToken, consumerOffset),
+                    out var candidateConsumer)
                 && candidateConsumer.Kind is CallKind.Call or CallKind.CallVirtual)
             {
                 consumer = candidateConsumer;
@@ -321,6 +331,7 @@ public static class DeferredCallbackCensus
             assembly,
             MethodDisplay(load.Caller),
             load.Caller.MetadataToken,
+            load.EvidenceMethod.MetadataToken,
             MemberDisplay(load.Callee),
             load.CalleeDefinitionToken,
             load.ILOffset,
@@ -332,7 +343,14 @@ public static class DeferredCallbackCensus
             consumerKind,
             consumptionProven,
             classification);
-        return new SiteEvidence(row, load);
+        return new SiteEvidence(
+            row,
+            load.Caller == load.EvidenceMethod
+                ? load
+                : load with
+                {
+                    Caller = load.EvidenceMethod,
+                });
     }
 
     static DeferredCallbackCensusRow CreateRow(

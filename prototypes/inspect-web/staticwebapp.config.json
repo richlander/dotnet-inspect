@@ -12,5 +12,8 @@
         "Cache-Control": "no-cache, no-store, must-revalidate"
       }
     }
-  ]
+  ],
+  "platform": {
+    "apiRuntime": "dotnet-isolated:8.0"
+  }
 }

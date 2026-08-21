@@ -12,7 +12,7 @@ using ILInspector.Metadata;
 using InspectWeb.Engine;
 
 [SupportedOSPlatform("browser")]
-public static partial class BrowserInspectionEngine
+public static partial class InspectionEngine
 {
     const long MiB = 1024L * 1024;
     static readonly SymbolAcquisitionLimits SourceSymbolLimits =
@@ -23,11 +23,15 @@ public static partial class BrowserInspectionEngine
             maxExpandedPdbBytes: 24 * MiB);
 
     [JSExport]
+    public static void ConfigureHost(string origin) =>
+        BrowserPackageWorkspace.ConfigureMsdlProxy(origin);
+
+    [JSExport]
     public static void CancelSourceQuery() =>
         BrowserSourceOperationCoordinator.CancelCurrent();
 
     [JSExport]
-    public static Task<string> QueryMemberSource(
+    public static async Task<string> QueryMemberSource(
         string packageId,
         string version,
         string targetFramework,
@@ -36,8 +40,9 @@ public static partial class BrowserInspectionEngine
         string memberName,
         string selectorKey,
         int metadataToken,
-        string styleOptionsJson) =>
-        QueryMemberSourceCore(
+        string styleOptionsJson)
+    {
+        BrowserSource source = await QueryMemberSourceCore(
             packageId,
             version,
             targetFramework,
@@ -47,6 +52,10 @@ public static partial class BrowserInspectionEngine
             selectorKey,
             metadataToken,
             styleOptionsJson);
+        return JsonSerializer.Serialize(
+            source,
+            BrowserJsonContext.Default.BrowserSource);
+    }
 
     [JSExport]
     public static async Task<string> QueryTypeSource(
@@ -92,7 +101,7 @@ public static partial class BrowserInspectionEngine
     }
 
     [JSExport]
-    public static Task<string> QueryTypeMemberSource(
+    public static async Task<string> QueryTypeMemberSource(
         string packageId,
         string version,
         string targetFramework,
@@ -101,8 +110,9 @@ public static partial class BrowserInspectionEngine
         string memberName,
         string selectorKey,
         int metadataToken,
-        string styleOptionsJson) =>
-        QueryMemberSourceCore(
+        string styleOptionsJson)
+    {
+        BrowserSource source = await QueryMemberSourceCore(
             packageId,
             version,
             targetFramework,
@@ -112,8 +122,12 @@ public static partial class BrowserInspectionEngine
             selectorKey,
             metadataToken,
             styleOptionsJson);
+        return JsonSerializer.Serialize(
+            source,
+            BrowserJsonContext.Default.BrowserSource);
+    }
 
-    static async Task<string> QueryMemberSourceCore(
+    static async Task<BrowserSource> QueryMemberSourceCore(
         string packageId,
         string version,
         string targetFramework,
@@ -164,9 +178,7 @@ public static partial class BrowserInspectionEngine
                     CreateSourceContext(),
                     operation.CancellationToken));
 
-        return JsonSerializer.Serialize(
-            Adapt(result, participant),
-            BrowserJsonContext.Default.BrowserSource);
+        return Adapt(result, participant);
     }
 
     static async Task<(

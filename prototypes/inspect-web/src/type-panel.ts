@@ -1,10 +1,10 @@
 // The type selector (the "PUBLIC TYPES" / "MEMBERS" nav pane) and the type viewer (the
 // type heading, metadata, and source sections shown for the "type" scope) as pure,
-// dependency-injected render functions. `app.js` owns the type index, filters, member
+// dependency-injected render functions. `dotnet-inspect.ts` owns the type index, filters, member
 // grouping, and navigation/click handling; this module owns only markup shape given an
 // explicit snapshot of the data those helpers already computed. Shared text helpers
 // (kindIcon, shortKind, typeDisplayName, highlight, highlightCSharp, factRows,
-// factEvidence, relatedTypeChip) stay in `app.js`, since they are used well beyond the
+// factEvidence, relatedTypeChip) stay in `dotnet-inspect.ts`, since they are used well beyond the
 // type panel, and are passed in rather than duplicated here.
 
 export interface TypeSummary {
@@ -43,28 +43,27 @@ export interface TypePanelPackageContext {
 
 export interface TypeParameterSummary {
   name: string;
-  variance?: string;
+  variance?: string | null;
   constraints?: readonly string[];
 }
 
 export interface CompositionCounts {
   total: number;
-  [key: string]: number;
 }
 
 export interface TypeMetadata {
   modifiers?: readonly string[];
   kind?: string;
-  accessibility?: string;
-  namespace?: string;
-  assembly?: string;
-  baseType?: string;
-  enumUnderlyingType?: string;
+  accessibility?: string | null;
+  namespace?: string | null;
+  assembly?: string | null;
+  baseType?: string | null;
+  enumUnderlyingType?: string | null;
   typeParameters?: readonly TypeParameterSummary[];
   interfaces?: readonly string[];
   derivedTypes?: readonly string[];
   attributes?: readonly string[];
-  composition?: CompositionCounts;
+  composition?: CompositionCounts | null;
   graphNodes?: readonly unknown[];
   inspectionFailures?: readonly string[];
 }
@@ -72,7 +71,7 @@ export interface TypeMetadata {
 export interface TypeSourceResult {
   provider: string;
   provenance: string;
-  url?: string;
+  url?: string | null;
   text: string;
 }
 
@@ -81,7 +80,7 @@ type EscapeHtml = (value: unknown) => string;
 // -- Type selector (the "PUBLIC TYPES" / "MEMBERS" nav pane) -----------------------------
 
 export interface TypeNavOptions {
-  current: TypeSummary;
+  current?: TypeSummary | null;
   visible: readonly TypeSummary[];
   typeGroups: ReadonlyMap<string, readonly TypeSummary[]>;
   typeFilter: string;
@@ -132,7 +131,7 @@ export function renderTypeNav(options: TypeNavOptions): string {
         ${accessibilityControlHtml}
         ${libraryControlHtml}
       </div>
-      <div class="type-list" role="listbox" tabindex="0" id="type-list">
+      <div class="type-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="types" data-nav-selection="${current ? `type:${escapeHtml(current.id)}` : ""}">
         ${[...typeGroups].map(([namespace, types]) => `
           <section class="type-group">
             <button class="namespace-row" data-namespace="${escapeHtml(namespace)}">
@@ -141,7 +140,7 @@ export function renderTypeNav(options: TypeNavOptions): string {
               <small>${types.length}</small>
             </button>
             ${types.map(item => {
-              const selected = item.id === current.id;
+              const selected = item.id === current?.id;
               return `<button class="type-row ${selected ? "selected" : ""}" data-type="${escapeHtml(item.id)}" role="option" aria-selected="${selected}">
                 <span class="kind-icon">${kindIcon(item.kind)}</span>
                 <span class="type-name">${escapeHtml(typeDisplayName(item))}</span>
@@ -158,6 +157,8 @@ export interface MemberNavOptions {
   type: TypeSummary;
   entries: readonly MemberNavEntry[];
   memberCount: number;
+  visibleMemberCount: number;
+  filterControlsHtml: string;
   selectedMemberKey: string;
   selectedOverloadIndex: number | null;
   escapeHtml: EscapeHtml;
@@ -168,15 +169,21 @@ export interface MemberNavOptions {
 
 export function renderMemberNav(options: MemberNavOptions): string {
   const {
-    type, entries, memberCount, selectedMemberKey, selectedOverloadIndex,
+    type, entries, memberCount, visibleMemberCount, filterControlsHtml,
+    selectedMemberKey, selectedOverloadIndex,
     escapeHtml, typeDisplayName, shortKind, highlight,
   } = options;
+  const navigationSelection = selectedMemberKey
+    ? (selectedOverloadIndex == null
+      ? `member:${selectedMemberKey}`
+      : `overload:${selectedMemberKey}:${selectedOverloadIndex}`)
+    : "";
   return `
     <aside class="type-browser member-nav" aria-label="Members of ${escapeHtml(typeDisplayName(type))}">
       <div class="browser-head">
         <div>
           <span class="pane-label">MEMBERS</span>
-          <span class="result-count">${memberCount} members</span>
+          <span class="result-count">${visibleMemberCount} of ${memberCount}</span>
         </div>
       </div>
       <button class="nav-back-row" id="nav-to-types" title="Back to types (Esc)">
@@ -184,7 +191,8 @@ export function renderMemberNav(options: MemberNavOptions): string {
         <span class="type-name">${escapeHtml(typeDisplayName(type))}</span>
         <small>types</small>
       </button>
-      <div class="type-list member-list" role="listbox" tabindex="0" id="type-list">
+      ${filterControlsHtml}
+      <div class="type-list member-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="members:${escapeHtml(type.id)}" data-nav-selection="${escapeHtml(navigationSelection)}">
         ${entries.map(entry => {
           if (entry.kind === "member") {
             const group = entry.group;
@@ -202,9 +210,9 @@ export function renderMemberNav(options: MemberNavOptions): string {
             <span class="overload-branch">↳</span>
             <code>${highlight(entry.group.overloads[entry.index].signature)}</code>
           </button>`;
-        }).join("")}
+        }).join("") || '<div class="empty-list">No members match these filters.</div>'}
       </div>
-      <footer class="pane-footer"><span>↑↓ members</span><span>←→ sections</span><span>esc types</span></footer>
+      <footer class="pane-footer"><span>↑↓ members</span>${selectedMemberKey ? "<span>←→ sections</span>" : ""}<span>esc types</span></footer>
     </aside>`;
 }
 
@@ -241,42 +249,6 @@ export function typeMetadataSignature(item: TypeSummary, packageContext: TypePan
   return `${packageContext.id}@${packageContext.version}/${packageContext.activeFramework}/${item.assembly}/${item.id}`;
 }
 
-const COMPOSITION_KINDS: readonly (readonly [string, string])[] = [
-  ["methods", "Methods"],
-  ["properties", "Properties"],
-  ["fields", "Fields"],
-  ["events", "Events"],
-  ["constructors", "Constructors"],
-  ["operators", "Operators"],
-  ["extensionMethods", "Extension methods"],
-  ["explicitInterfaceImplementations", "Explicit impls"],
-];
-
-const COMPOSITION_FLAGS: readonly (readonly [string, string])[] = [
-  ["static", "static"],
-  ["unsafe", "unsafe"],
-  ["async", "async"],
-  ["virtual", "virtual"],
-  ["abstract", "abstract"],
-  ["override", "override"],
-  ["extension", "extension"],
-  ["obsolete", "obsolete"],
-];
-
-export function renderCompositionGrid(composition: CompositionCounts): string {
-  const kinds = COMPOSITION_KINDS
-    .filter(([key]) => composition[key] > 0)
-    .map(([key, label]) => `<div class="count-cell"><strong>${composition[key]}</strong><span>${label}</span></div>`)
-    .join("");
-  const flags = COMPOSITION_FLAGS
-    .filter(([key]) => composition[key] > 0)
-    .map(([key, label]) => `<span class="count-flag flag-${key}">${composition[key]} ${label}</span>`)
-    .join("");
-  return `
-    <div class="composition-grid">${kinds || '<div class="count-cell"><strong>0</strong><span>members</span></div>'}</div>
-    ${flags ? `<div class="composition-flags">${flags}</div>` : ""}`;
-}
-
 export interface TypeMetadataStateSlice {
   typeMetadataKey: string;
   typeMetadataLoading: boolean;
@@ -288,13 +260,17 @@ export interface RenderTypeMetadataOptions {
   item: TypeSummary;
   packageContext: TypePanelPackageContext;
   metadataState: TypeMetadataStateSlice;
+  memberCompositionHtml: string;
   escapeHtml: EscapeHtml;
   relatedTypeChip: (name: string) => string;
   factRows: (rows: readonly (readonly [string, string])[]) => string;
 }
 
 export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
-  const { item, packageContext, metadataState, escapeHtml, relatedTypeChip, factRows } = options;
+  const {
+    item, packageContext, metadataState, memberCompositionHtml,
+    escapeHtml, relatedTypeChip, factRows,
+  } = options;
   const current = typeMetadataSignature(item, packageContext);
   const fresh = metadataState.typeMetadataKey === current;
   if (metadataState.typeMetadataLoading && fresh) {
@@ -343,10 +319,10 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
       </section>`
     : "";
 
-  const composition = meta.composition
+  const composition = meta.composition && memberCompositionHtml
     ? `<section class="document-section">
-        <div class="section-title"><h2>Composition</h2><span>${meta.composition.total} member${meta.composition.total === 1 ? "" : "s"}</span></div>
-        ${renderCompositionGrid(meta.composition)}
+        <div class="section-title"><h2>Members</h2><span>click a count to browse the member list</span></div>
+        ${memberCompositionHtml}
       </section>`
     : "";
 
@@ -377,8 +353,8 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
 export function typeSourceSignature(
   item: TypeSummary,
   packageContext: TypePanelPackageContext,
-  taste: readonly unknown[],
-  memberRequestKey: (parts: readonly unknown[], taste: readonly unknown[]) => string,
+  taste: readonly string[],
+  memberRequestKey: (parts: readonly string[], taste: readonly string[]) => string,
 ): string {
   return memberRequestKey([
     packageContext.id,

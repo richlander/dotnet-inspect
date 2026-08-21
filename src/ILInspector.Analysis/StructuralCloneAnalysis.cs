@@ -183,10 +183,10 @@ public sealed record StructuralCloneVerificationReceipt(
 /// <summary>Resource limits for exact and near structural comparison.</summary>
 public sealed record StructuralCloneComparisonLimits(
     int MaximumInstructions = 10_000,
-    int MaximumBlocks = 128,
+    int MaximumBlocks = 1_024,
     int MaximumEdges = 100_000,
     int MaximumLocals = 256,
-    int MaximumVerificationSteps = 100_000,
+    int MaximumVerificationSteps = 2_000_000,
     int MaximumBodyBytes = 1_000_000,
     int MaximumNearAlignmentIndexSteps = 1_000_000,
     int MaximumNearAlignmentCandidates = 10_000,
@@ -2101,12 +2101,6 @@ public static partial class StructuralCloneAnalysis
 
         bool SearchBlocks()
         {
-            if (++steps > maximumSteps)
-            {
-                limitReached = true;
-                return false;
-            }
-
             int nextLeft = -1;
             List<int>? candidates = null;
             for (int leftIndex = 0;
@@ -2120,6 +2114,17 @@ public static partial class StructuralCloneAnalysis
                     rightIndex < right.Graph.Blocks.Length;
                     rightIndex++)
                 {
+                    // Charge one step per candidate block pair actually
+                    // examined here, not once per SearchBlocks call: this
+                    // loop is the O(blocks^2) scan that dominates witness
+                    // search cost, and metering only the recursive-call
+                    // count would leave MaximumVerificationSteps unable to
+                    // bound that quadratic work as MaximumBlocks grows.
+                    if (++steps > maximumSteps)
+                    {
+                        limitReached = true;
+                        return false;
+                    }
                     if (reverseBlocks[rightIndex] < 0
                         && colors.LeftBlocks[leftIndex]
                             == colors.RightBlocks[rightIndex]
@@ -2135,10 +2140,35 @@ public static partial class StructuralCloneAnalysis
                             blockMap,
                             reverseBlocks,
                             leftEdges,
-                            rightEdges))
+                            rightEdges,
+                            ref steps,
+                            maximumSteps,
+                            ref limitReached))
                     {
                         current.Add(rightIndex);
                     }
+                    else if (limitReached)
+                    {
+                        return false;
+                    }
+
+                    // A prior version of this loop broke out here the
+                    // instant current.Count reached 1, on the theory that
+                    // a singleton could not be beaten. That is unsound:
+                    // it truncates the scan before later right blocks are
+                    // examined, so a genuine second (or later) candidate
+                    // for this left block is silently dropped. If the
+                    // retained candidate later fails to extend to a full
+                    // witness, there is no fallback -- the search reports
+                    // Different for methods that are actually exact
+                    // clones. See Compare_RandomPermutedIsomorphicGraph_
+                    // AlwaysFindsWitness for a regression fixture that
+                    // fails against that unsound break. The full inner
+                    // scan below is required for correctness; only the
+                    // outer per-left-block MRV break further down (once
+                    // a singleton candidates list is found across all
+                    // left blocks) is sound, since no other left block
+                    // can ever have fewer than one candidate.
                 }
                 if (current.Count == 0)
                     return false;
@@ -2147,6 +2177,13 @@ public static partial class StructuralCloneAnalysis
                     nextLeft = leftIndex;
                     candidates = current;
                 }
+
+                // A singleton candidate list is already the best possible
+                // outcome (no other block can have fewer than one
+                // candidate), so there is no need to keep scanning
+                // remaining left blocks once one is found.
+                if (candidates is not null && candidates.Count == 1)
+                    break;
             }
 
             if (candidates is null)
@@ -2184,17 +2221,19 @@ public static partial class StructuralCloneAnalysis
 
         bool CompleteLocals()
         {
-            if (++steps > maximumSteps)
-            {
-                limitReached = true;
-                return false;
-            }
-
             int nextLeft = Array.FindIndex(localMap, static value => value < 0);
             if (nextLeft < 0)
                 return true;
             for (int rightIndex = 0; rightIndex < reverseLocals.Length; rightIndex++)
             {
+                // Mirror SearchBlocks: charge per candidate examined, not
+                // once per recursive call, so this loop's cost is metered
+                // the same way regardless of how many locals remain.
+                if (++steps > maximumSteps)
+                {
+                    limitReached = true;
+                    return false;
+                }
                 if (reverseLocals[rightIndex] >= 0
                     || colors.LeftLocals[nextLeft]
                         != colors.RightLocals[rightIndex]
@@ -2330,11 +2369,22 @@ public static partial class StructuralCloneAnalysis
         int[] blockMap,
         int[] reverseBlocks,
         StructuralCloneEdgeIndex leftEdges,
-        StructuralCloneEdgeIndex rightEdges)
+        StructuralCloneEdgeIndex rightEdges,
+        ref int steps,
+        int maximumSteps,
+        ref bool limitReached)
     {
         foreach (StructuralCloneEdge edge
             in left.Graph.Blocks[leftBlock].Outgoing)
         {
+            // Meter this loop too: it is per-candidate-pair work
+            // proportional to block degree, not a constant, so it must
+            // count against the same budget as the outer block scan.
+            if (++steps > maximumSteps)
+            {
+                limitReached = true;
+                return false;
+            }
             if (blockMap[edge.Target] >= 0
                 && !rightEdges.Outgoing[rightBlock].Contains(
                     new StructuralCloneEdge(
@@ -2347,6 +2397,11 @@ public static partial class StructuralCloneAnalysis
         foreach (StructuralCloneEdge edge
             in left.Graph.Blocks[leftBlock].Incoming)
         {
+            if (++steps > maximumSteps)
+            {
+                limitReached = true;
+                return false;
+            }
             if (blockMap[edge.Target] >= 0
                 && !rightEdges.Incoming[rightBlock].Contains(
                     new StructuralCloneEdge(
@@ -2359,6 +2414,11 @@ public static partial class StructuralCloneAnalysis
         foreach (StructuralCloneEdge edge
             in right.Graph.Blocks[rightBlock].Outgoing)
         {
+            if (++steps > maximumSteps)
+            {
+                limitReached = true;
+                return false;
+            }
             if (reverseBlocks[edge.Target] >= 0
                 && !leftEdges.Outgoing[leftBlock].Contains(
                     new StructuralCloneEdge(
@@ -2371,6 +2431,11 @@ public static partial class StructuralCloneAnalysis
         foreach (StructuralCloneEdge edge
             in right.Graph.Blocks[rightBlock].Incoming)
         {
+            if (++steps > maximumSteps)
+            {
+                limitReached = true;
+                return false;
+            }
             if (reverseBlocks[edge.Target] >= 0
                 && !leftEdges.Incoming[leftBlock].Contains(
                     new StructuralCloneEdge(
