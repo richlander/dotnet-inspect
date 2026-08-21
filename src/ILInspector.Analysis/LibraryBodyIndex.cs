@@ -63,6 +63,16 @@ public sealed class LibraryBodyIndex
         DeclaredMethods = analysis.Methods.DeclaredMethods;
         Methods = analysis.Methods.Methods;
         DirectCalls = analysis.Methods.DirectCalls;
+        _physicalDirectCalls =
+        [
+            .. DirectCalls.Select(static call =>
+                call.Caller == call.EvidenceMethod
+                    ? call
+                    : call with
+                    {
+                        Caller = call.EvidenceMethod,
+                    }),
+        ];
         UnsafeEvidence = analysis.Safety.Evidence;
         Diagnostics = analysis.Diagnostics;
         _rawOpportunities = analysis.Optimizations.Opportunities;
@@ -79,12 +89,15 @@ public sealed class LibraryBodyIndex
             analysis.Methods.InAssemblyTypeIsException;
         _suppressedOpportunityTokens =
             analysis.Optimizations.SuppressedMethodTokens;
+        _scopeExcludedOpportunityTokens =
+            analysis.Optimizations.ScopeExcludedMethodTokens;
         _exceptionTypeNames = analysis.Optimizations.ExceptionTypeNames;
         _nonHeapNewObjOperandTokens =
             analysis.Methods.NonHeapNewObjOperandTokens;
         Features = features;
         _leakTriage = analysis.Resources.LeakTriage;
         ArrayPoolOwnership = analysis.OwnershipFlow.Methods;
+        _declaredSources = analysis.Methods.DeclaredSources;
     }
 
     public string Path { get; }
@@ -98,7 +111,16 @@ public sealed class LibraryBodyIndex
     /// <see cref="LibraryBodyAnalysisFeatures.MethodEvidence"/> is enabled.
     /// </summary>
     public ImmutableArray<MethodIdentity> Methods { get; }
+    /// <summary>
+    /// Direct call sites attributed to their declared source caller when the
+    /// existing async or lifted-body resolver recognizes a synthesized body.
+    /// <see cref="DirectCall.EvidenceMethod"/> retains the physical IL-body
+    /// coordinate. <c>DirectCalls_AttributeAsyncCallSitesToSourceMethod</c> and
+    /// <c>DirectCalls_AttributeLiftedBodiesButNotIterators</c> gate this
+    /// contract and its iterator non-action boundary.
+    /// </summary>
     public ImmutableArray<DirectCall> DirectCalls { get; }
+    readonly ImmutableArray<DirectCall> _physicalDirectCalls;
     public ImmutableArray<UnsafeEvidence> UnsafeEvidence { get; }
     public ImmutableArray<AnalysisDiagnostic> Diagnostics { get; }
     /// <summary>The normalized producers included in this index.</summary>
@@ -133,6 +155,8 @@ public sealed class LibraryBodyIndex
     IReadOnlyDictionary<int, CallerLoopEvidence>? _directCallerLoops;
     Dictionary<int, int>? _rootReachByToken;
     IReadOnlyDictionary<int, ImmutableArray<DirectCall>>? _directCallsByCaller;
+    IReadOnlyDictionary<int, ImmutableArray<DirectCall>>?
+        _directCallsByEvidenceMethod;
     IReadOnlyDictionary<int, ImmutableArray<UnsafeEvidence>>? _unsafeEvidenceByMember;
     MethodDefinitionMap? _methodMap;
     IReadOnlyDictionary<int, int>? _distinctCallersByCallee;
@@ -161,6 +185,7 @@ public sealed class LibraryBodyIndex
         _distinctCallersByCallee = null;
         _distinctCallerEdgesByCallee = null;
         _directCallsByCaller = null;
+        _directCallsByEvidenceMethod = null;
     }
 
     /// <summary>
@@ -205,7 +230,7 @@ public sealed class LibraryBodyIndex
                             .AddFallbackMetadata),
                     .. RepeatedScanAnalysis.Collect(
                             Methods,
-                            DirectCalls,
+                            _physicalDirectCalls,
                             _rawOpportunities,
                             _suppressedOpportunityTokens,
                             reachByToken)
@@ -244,8 +269,15 @@ public sealed class LibraryBodyIndex
                 [
                     .. AllocationFanout.Analyze(
                             Methods,
-                            ClassifyExactCallTargets(Path, DirectCalls, Methods),
+                            ClassifyExactCallTargets(
+                                Path,
+                                _physicalDirectCalls,
+                                Methods),
                             _allocationOccurrences)
+                        .Where(summary =>
+                            !_scopeExcludedOpportunityTokens
+                                .Contains(
+                                    summary.Method.MetadataToken))
                         .Select(summary => new OptimizationOpportunity(
                             summary.Method,
                             "allocation-fanout",
@@ -277,7 +309,7 @@ public sealed class LibraryBodyIndex
     IReadOnlyDictionary<int, CallerLoopEvidence> DirectCallerLoops
         => _directCallerLoops ??= CallerLoopEvidenceAnalysis.FindNearest(
             Methods,
-            DirectCalls,
+            _physicalDirectCalls,
             maxDepth: 1);
 
     Dictionary<int, int> RootReachByToken
@@ -341,6 +373,11 @@ public sealed class LibraryBodyIndex
     {
         var allocationFindings = new Dictionary<int, ImmutableArray<Finding<AllocationOccurrence>>>();
         var callSiteFindings = new Dictionary<int, ImmutableArray<Finding<DirectCall>>>();
+        var physicalCallsByCaller = _physicalDirectCalls
+            .GroupBy(call => call.Caller.MetadataToken)
+            .ToDictionary(
+                group => group.Key,
+                group => group.ToImmutableArray());
         var candidateIds = new HashSet<string>(StringComparer.Ordinal);
         var builder = ImmutableArray.CreateBuilder<OptimizationOpportunity>(opportunities.Length);
 
@@ -381,7 +418,7 @@ public sealed class LibraryBodyIndex
                 // newobj and GetEnumerator calls can appear in both censuses. Their triage
                 // shapes describe the allocation, so the allocation Finding owns provenance.
                 if (allocation is null
-                    && GetDirectCallsByCaller().TryGetValue(
+                    && physicalCallsByCaller.TryGetValue(
                         evidenceMethodToken,
                         out var calls))
                 {
@@ -684,11 +721,14 @@ public sealed class LibraryBodyIndex
     public UnsafeModeBreakdown UnsafeModes { get; }
 
     Dictionary<int, MethodSignals>? _signals;
+    readonly IReadOnlyDictionary<int, MethodIdentity> _declaredSources;
     readonly IReadOnlyDictionary<int, BodySignals> _bodySignals;
     readonly IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> _allocationOccurrences;
     readonly IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> _unsafetyOccurrences;
     readonly IReadOnlyDictionary<(string Namespace, string Name), bool> _inAssemblyTypeIsException;
     readonly IReadOnlySet<int> _suppressedOpportunityTokens;
+    readonly IReadOnlySet<int>
+        _scopeExcludedOpportunityTokens;
     readonly IReadOnlySet<string> _exceptionTypeNames;
     readonly IReadOnlySet<int> _nonHeapNewObjOperandTokens;
 
@@ -697,7 +737,7 @@ public sealed class LibraryBodyIndex
     /// throw/catch/finally, evidence offsets), keyed by metadata token. Computed once
     /// from the call index and the body-scan signals, reused by the call-graph builders.
     /// </summary>
-    Dictionary<int, MethodSignals> Signals => _signals ??= MethodSignalAnalysis.Collect(DirectCalls, UnsafeEvidence, _bodySignals, _allocationOccurrences, _inAssemblyTypeIsException, _nonHeapNewObjOperandTokens);
+    Dictionary<int, MethodSignals> Signals => _signals ??= MethodSignalAnalysis.Collect(_physicalDirectCalls, UnsafeEvidence, _bodySignals, _allocationOccurrences, _inAssemblyTypeIsException, _nonHeapNewObjOperandTokens);
 
     /// <summary>
     /// Returns per-method body/call signals keyed by metadata token.
@@ -713,6 +753,46 @@ public sealed class LibraryBodyIndex
         => _directCallsByCaller ??= DirectCalls
             .GroupBy(call => call.Caller.MetadataToken)
             .ToDictionary(group => group.Key, group => group.ToImmutableArray());
+
+    /// <summary>
+    /// Direct call sites grouped by the physical method body that owns their
+    /// IL coordinates. The calls retain their declared <see cref="DirectCall.Caller"/>.
+    /// </summary>
+    public IReadOnlyDictionary<int, ImmutableArray<DirectCall>>
+        GetDirectCallsByEvidenceMethod()
+        => _directCallsByEvidenceMethod ??= DirectCalls
+            .GroupBy(call => call.EvidenceMethod.MetadataToken)
+            .ToDictionary(
+                group => group.Key,
+                group => group.ToImmutableArray());
+
+    /// <summary>
+    /// Maps a compiler-generated body — an async state-machine <c>MoveNext</c>,
+    /// or a lifted local-function/lambda method — to the declared source method
+    /// the existing Analysis resolvers already own. Returns null when
+    /// <paramref name="caller"/> is not such a body.
+    /// <c>ResolveDeclaredMethod_MapsClassicAsyncMoveNextToSource</c> and
+    /// <c>ResolveDeclaredMethod_MapsLiftedLocalFunctionToOwner</c> gate this
+    /// contract.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="DirectCalls"/>, <see cref="FindCalls"/>, and
+    /// <see cref="GetDirectCallsByCaller"/> already expose the declared caller.
+    /// Pass <see cref="DirectCall.EvidenceMethod"/> when a consumer also needs
+    /// to resolve the physical body explicitly.
+    /// </remarks>
+    public MethodIdentity? ResolveDeclaredMethod(MethodIdentity caller)
+    {
+        if (_declaredSources.TryGetValue(
+                caller.MetadataToken,
+                out MethodIdentity? source)
+            && source.MetadataToken != caller.MetadataToken)
+        {
+            return source;
+        }
+
+        return null;
+    }
 
     /// <summary>
     /// Token/signature resolution over this assembly's defined methods. Depends only on
@@ -829,7 +909,9 @@ public sealed class LibraryBodyIndex
     /// </summary>
     public IReadOnlySet<TypeRef> GeneratedFrameworkTypes
         => _generatedFrameworkTypes ??=
-            GeneratedFrameworkTypeAnalysis.Collect(DirectCalls, Methods);
+            GeneratedFrameworkTypeAnalysis.Collect(
+                _physicalDirectCalls,
+                Methods);
 
     /// <summary>
     /// True when <paramref name="type"/> is in
@@ -866,7 +948,8 @@ public sealed class LibraryBodyIndex
                     BodySignals: new Dictionary<int, BodySignals>(),
                     InAssemblyTypeIsException:
                         new Dictionary<(string Namespace, string Name), bool>(),
-                    NonHeapNewObjOperandTokens: new HashSet<int>()),
+                    NonHeapNewObjOperandTokens: new HashSet<int>(),
+                    DeclaredSources: new Dictionary<int, MethodIdentity>()),
                 Safety: new(
                     Evidence: unsafeEvidence,
                     LeverageMethods: [],
@@ -892,6 +975,8 @@ public sealed class LibraryBodyIndex
                 Optimizations: new(
                     Opportunities: [],
                     SuppressedMethodTokens: new HashSet<int>(),
+                    ScopeExcludedMethodTokens:
+                        new HashSet<int>(),
                     ExceptionTypeNames:
                         new HashSet<string>(StringComparer.Ordinal)),
                 OwnershipFlow: new(Methods: []),
@@ -1191,7 +1276,10 @@ public sealed class LibraryBodyIndex
     /// them propagates the requirement to the most callers.
     /// </summary>
     public ImmutableArray<UnsafeMethodLeverage> TopUnsafeLeverage(int count = 6)
-        => UnsafeLeverage.Top(DirectCalls, _unsafeLeverageMethods, count);
+        => UnsafeLeverage.Top(
+            _physicalDirectCalls,
+            _unsafeLeverageMethods,
+            count);
 
     /// <summary>
     /// The most-leveraged methods in this assembly, ranked by distinct direct
@@ -1200,7 +1288,11 @@ public sealed class LibraryBodyIndex
     /// is still measured across every caller in the assembly.
     /// </summary>
     public ImmutableArray<MethodLeverage> TopLeverage(int count = 25, Func<MethodIdentity, bool>? scope = null)
-        => MethodLeverageRanking.Top(DirectCalls, Methods, count, scope);
+        => MethodLeverageRanking.Top(
+            DirectCalls,
+            Methods,
+            count,
+            scope);
 
     /// <summary>
     /// Distinct callee types touched by calls from methods in <paramref name="callerScope"/>.
