@@ -1,5 +1,13 @@
 # Release Notes
 
+## Unreleased
+
+### Library inspection safety
+
+- Library-inspection references, classified methods, resources, performance,
+  source-integrity summaries, failures, and union rows now carry their remaining
+  presentation text through typed inert-text boundaries (#3463).
+
 ## v0.21.0
 
 ### Query and package workflows
@@ -185,9 +193,6 @@
 - Find-result views now carry titles, descriptions, type and member identities,
   source provenance, and row values through typed inert-text boundaries before
   Markout-backed Markdown, TSV, JSONL, and projected JSON rendering (#3463).
-- Library-inspection references, classified methods, resources, performance,
-  source-integrity summaries, failures, and union rows now carry their remaining
-  presentation text through typed inert-text boundaries (#3463).
 - PDB and SourceLink acquisition now handles pathless and content-shaped
   responses while preserving visible diagnostics for rejected evidence
   (#4138).
