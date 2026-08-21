@@ -46,11 +46,14 @@ fast (non-reflection) serialization path requires every (de)serialized type to
 be registered there, so it is exactly the set of shapes that can flow across
 the `[JSExport]` boundary via this pattern.
 
-Generated interfaces include serialized properties and non-static
-`[JsonInclude]` fields. The same wire-member rule drives transitive DTO
-discovery and declaration emission so a discovered field edge cannot become an
-orphaned or incomplete TypeScript shape;
-`DtsEmitterTests.Emit_IncludesJsonIncludedFieldsInParentInterface` gates that
+Generated interfaces include properties with an accessible getter, properties
+whose non-public getter is opted in with `[JsonInclude]`, and non-static
+`[JsonInclude]` fields. Write-only properties remain excluded even when
+annotated. The same wire-member rule drives transitive DTO discovery and
+declaration emission so a discovered edge cannot become an orphaned or
+incomplete TypeScript shape;
+`DtsEmitterTests.Emit_IncludesJsonIncludedFieldsInParentInterface` and
+`DtsEmitterTests.Emit_UsesGetterAccessibilityForCompiledProperties` gate that
 shared-rule invariant.
 
 ### Drift detection
@@ -75,7 +78,10 @@ generation red until the wire contract is corrected. A control character in
 declarations, and reports only the safe CLR type/member without echoing the
 unsafe wire name. This validation covers properties, fields, enum members, and
 field-targeted attributes on auto-properties, including members otherwise
-excluded from serialization.
+excluded from serialization. Duplicate or malformed `[JsonPropertyName]`
+metadata is rejected the same way. Generation also stops when nested types or
+multiple CLR types would produce an illegal or ambiguous TypeScript declaration
+name rather than inventing a disambiguation scheme.
 
 ## Testing
 
