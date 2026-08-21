@@ -1,5 +1,6 @@
 using DotnetInspector.Output;
 using Markout;
+using Markout.Formatting;
 
 namespace DotnetInspector.Tests;
 
@@ -185,6 +186,66 @@ public class ProjectionDiagnosticsTests
                 fields: ["Package"],
                 columns: ["Built*"],
                 """{"package_name":"Example","built_date":"2026-01-01"}""");
+            return Task.FromResult(0);
+        });
+
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task DiagnoseRendered_GraphCreditsResolvedFieldSelector()
+    {
+        var schema = new DocumentSchema()
+            .Add("Call Graph", "field", "Async", "AsyncAlternatives");
+        var options = new MarkoutWriterOptions
+        {
+            Projection = new MarkoutProjection { IncludeFields = ["AsyncA*"] },
+        };
+        var graph = new Graph(
+            [new GraphNode("focus", "Focus")],
+            [],
+            focusKey: "focus");
+
+        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            ProjectionDiagnostics.DiagnoseRendered(
+                fields: ["AsyncA*"],
+                columns: null,
+                (writer, formatter, writerOptions) =>
+                {
+                    ((IHeadingFormatter)formatter).FormatHeading(
+                        writer, 2, "Call Graph", context: null);
+                    ((IGraphFormatter)formatter).FormatGraph(
+                        writer, graph, writerOptions);
+                },
+                options,
+                schema);
+            return Task.FromResult(0);
+        });
+
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task DiagnoseRendered_CrossKindCompatibilityDoesNotReportNoData()
+    {
+        var schema = new DocumentSchema()
+            .Add("Facts", "column", "Category");
+        var options = new MarkoutWriterOptions
+        {
+            Projection = new MarkoutProjection { IncludeFields = ["Category"] },
+        };
+
+        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            ProjectionDiagnostics.DiagnoseRendered(
+                fields: ["Category"],
+                columns: null,
+                (writer, formatter, _) =>
+                    ((IHeadingFormatter)formatter).FormatHeading(
+                        writer, 2, "Facts", context: null),
+                options,
+                schema);
             return Task.FromResult(0);
         });
 

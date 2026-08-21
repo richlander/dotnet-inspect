@@ -139,9 +139,16 @@ public static class ProjectionDiagnostics
             }
         }
 
+        IReadOnlyCollection<string> renderedSections = actual.Sections.Count > 0
+            ? actual.Sections
+            : schema.SectionNames.ToArray();
+        var resolvedFields = ResolveNamesAcrossSections(
+            schema, renderedSections, fields ?? [], "field", null, strictKinds: true);
+        var resolvedColumns = ResolveNamesAcrossSections(
+            schema, renderedSections, columns ?? [], "column", null, strictKinds: true);
         DiagnoseEmitted(
-            fields,
-            columns,
+            fields?.Where(resolvedFields.Contains).ToArray(),
+            columns?.Where(resolvedColumns.Contains).ToArray(),
             emittedFields,
             actual.TableColumns,
             schema);

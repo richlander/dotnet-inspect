@@ -11,6 +11,11 @@ internal sealed class RenderedSectionManifest
         new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, HashSet<string>> _fields =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _sections =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    internal void RecordSection(string section)
+        => _sections.Add(section);
 
     internal void RecordTable(string? section, ReadOnlySpan<string> columns)
     {
@@ -60,6 +65,8 @@ internal sealed class RenderedSectionManifest
     internal IReadOnlySet<string> ContentKeys =>
         _tableColumns.Keys.Concat(_fields.Keys).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+    internal IReadOnlySet<string> Sections => _sections;
+
     internal IReadOnlyList<string> TableColumns =>
         [.. _tableColumns.Values.SelectMany(columns => columns)
             .Distinct(StringComparer.OrdinalIgnoreCase)];
@@ -75,9 +82,11 @@ internal sealed class RenderManifestFormatter :
     IMarkoutFormatter,
     IHeadingFormatter,
     IFieldFormatter,
+    IGraphFormatter,
     ITableFormatter,
     IStreamingTableFormatter
 {
+    private readonly DocumentSchema _schema;
     private readonly HashSet<string> _fieldSections;
     private readonly HashSet<string> _columnSections;
     private string? _currentHeading;
@@ -87,6 +96,7 @@ internal sealed class RenderManifestFormatter :
 
     internal RenderManifestFormatter(DocumentSchema schema)
     {
+        _schema = schema;
         _fieldSections = schema.SectionNames
             .Select(schema.GetSection)
             .Where(section => section is not null
@@ -139,7 +149,10 @@ internal sealed class RenderManifestFormatter :
     public void FormatHeading(TextWriter writer, int level, string text, string? context)
     {
         if (level == _sectionHeadingLevel)
+        {
             _currentHeading = text;
+            Manifest.RecordSection(text);
+        }
     }
 
     public void FormatFieldName(TextWriter writer, string key, bool bold)
@@ -150,6 +163,22 @@ internal sealed class RenderManifestFormatter :
 
     public void FormatFields(TextWriter writer, ReadOnlySpan<MarkoutField> fields, bool bold)
         => Manifest.RecordFields(_currentHeading, fields);
+
+    public void FormatGraph(TextWriter writer, Graph graph, MarkoutWriterOptions options)
+    {
+        if (_currentHeading is null
+            || !_fieldSections.Contains(_currentHeading)
+            || options.Projection?.IncludeFields is not { } requestedFields)
+        {
+            return;
+        }
+
+        foreach (var requestedField in requestedFields)
+        {
+            if (_schema.ValidateProjection(_currentHeading, [requestedField]).Resolved.Length > 0)
+                Manifest.RecordField(_currentHeading, requestedField);
+        }
+    }
 
     public void FormatTable(
         TextWriter writer,
