@@ -8,7 +8,9 @@ internal sealed record LibraryBodyAnalysisPlan(
     Func<TypeRef, bool>? TypeScope,
     IReadOnlyDictionary<int, ImmutableArray<TypeRef>>?
         TypeScopeEvidenceSources = null,
-    IReadOnlySet<int>? RequestedMethodScope = null)
+    IReadOnlySet<int>? RequestedMethodScope = null,
+    ImmutableArray<AnalysisDiagnostic>
+        ScopeExpansionDiagnostics = default)
 {
     internal bool IsScoped
         => MethodScope is not null || TypeScope is not null;
