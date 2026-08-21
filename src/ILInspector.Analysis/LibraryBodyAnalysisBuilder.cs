@@ -705,7 +705,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                                 typeHandle,
                                 methodHandle),
                         $"{ex.GetType().Name}: {ex.Message}",
-                        DeclaringType: method.DeclaringType));
+                        DeclaringType: method.DeclaringType,
+                        DeclaringTypeToken:
+                            MetadataTokens.GetToken(typeHandle)));
                 }
             }
         }

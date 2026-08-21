@@ -348,7 +348,9 @@ internal sealed class LibraryMethodAnalysisRunner(
                         typeHandle,
                         methodHandle),
                     $"{ex.GetType().Name}: {ex.Message}",
-                    DeclaringType: caller.DeclaringType);
+                    DeclaringType: caller.DeclaringType,
+                    DeclaringTypeToken:
+                        MetadataTokens.GetToken(typeHandle));
             }
             leakFailureKind =
                 LeakTriageFailureKind.BodyAcquisition;
@@ -577,7 +579,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                         $"{ex.GetType().Name}: {ex.Message}",
                         asyncSource?.MetadataToken,
                         caller.DeclaringType,
-                        asyncSource?.DeclaringType);
+                        asyncSource?.DeclaringType,
+                        MetadataTokens.GetToken(typeHandle));
                 }
             }
             if (includeOwnershipFlow)

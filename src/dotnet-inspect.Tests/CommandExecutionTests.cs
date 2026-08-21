@@ -6024,7 +6024,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_SingleType_DiscoverEffective_IncludesSelectableCodeSections()
+    public async Task Type_SingleType_DiscoverEffective_OmitsMemberOnlyCodeSections()
     {
         var options = new TypeOptions
         {
@@ -6040,8 +6040,9 @@ public partial class CommandExecutionTests
         Assert.Contains("| Properties | section |", output);
         Assert.Contains("| Method Groups | section |", output);
         Assert.Contains("| Decompiled Source | section (verbose) |", output);
-        Assert.Contains("| Original Source | section (verbose) |", output);
-        Assert.Contains("| IL | section (verbose) |", output);
+        Assert.DoesNotContain("| Original Source | section", output);
+        Assert.DoesNotContain("| Source Diff | section", output);
+        Assert.DoesNotContain("| IL | section", output);
         Assert.DoesNotContain("| Facts | section", output);
     }
 
