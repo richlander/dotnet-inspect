@@ -1006,15 +1006,51 @@ public static class TypeResolver
         IReadOnlyList<string> metadataNameSegments,
         IReadOnlyList<string> typeArguments,
         bool preserveMismatchedArguments = false)
+        => ApplyGenericArguments(
+            metadataNameSegments,
+            typeArguments,
+            introducedTypeParameterCounts: null,
+            preserveMismatchedArguments);
+
+    /// <summary>
+    /// As <see cref="ApplyGenericArguments(IReadOnlyList{string}, IReadOnlyList{string}, bool)"/>,
+    /// but for a segment whose raw name declares no canonical arity suffix,
+    /// <paramref name="introducedTypeParameterCounts"/> — one metadata-verified
+    /// introduced-parameter count per segment, when its length matches
+    /// <paramref name="metadataNameSegments"/> — supplies that segment's true
+    /// arity instead of treating it as zero. This lets a local nested generic
+    /// type whose name lacks (or disagrees with) its canonical <c>`N</c> suffix
+    /// still place arguments on the correct declaring-chain segment, mirroring
+    /// <c>TypeRef.EffectiveSegmentArity</c>. A segment that already declares a
+    /// suffix keeps that declared arity; the trusted count only fills a gap.
+    /// </summary>
+    public static string ApplyGenericArguments(
+        IReadOnlyList<string> metadataNameSegments,
+        IReadOnlyList<string> typeArguments,
+        IReadOnlyList<int>? introducedTypeParameterCounts,
+        bool preserveMismatchedArguments = false)
     {
         ArgumentNullException.ThrowIfNull(metadataNameSegments);
         ArgumentNullException.ThrowIfNull(typeArguments);
 
-        long declaredArity = 0;
-        foreach (string segment in metadataNameSegments)
+        bool hasTrustedCounts =
+            introducedTypeParameterCounts is not null
+            && introducedTypeParameterCounts.Count == metadataNameSegments.Count;
+
+        int EffectiveSegmentArity(int index, string segment)
         {
+            int declared = MetadataNameArity.OfSegment(segment);
+            return declared == 0 && hasTrustedCounts
+                ? introducedTypeParameterCounts![index]
+                : declared;
+        }
+
+        long declaredArity = 0;
+        for (int index = 0; index < metadataNameSegments.Count; index++)
+        {
+            string segment = metadataNameSegments[index];
             ArgumentNullException.ThrowIfNull(segment);
-            declaredArity += MetadataNameArity.OfSegment(segment);
+            declaredArity += EffectiveSegmentArity(index, segment);
         }
 
         string rawName = string.Join('.', metadataNameSegments);
@@ -1045,8 +1081,35 @@ public static class TypeResolver
             if (segmentIndex > 0)
                 result.Append('.');
 
+            string segment = metadataNameSegments[segmentIndex];
+            int declaredSegmentArity = MetadataNameArity.OfSegment(segment);
+            if (declaredSegmentArity == 0)
+            {
+                // No canonical suffix on this segment: append its trusted arity
+                // (if any) directly rather than rewriting a marker that isn't
+                // there, matching TypeRef.RenderNestedDefinition's handling of an
+                // implicit outer-segment arity.
+                int trustedArity = EffectiveSegmentArity(segmentIndex, segment);
+                result.Append(segment);
+                if (trustedArity > 0)
+                {
+                    result.Append('<');
+                    for (int k = 0; k < trustedArity; k++)
+                    {
+                        if (k > 0)
+                            result.Append(", ");
+                        result.Append(argIndex < typeArguments.Count
+                            ? typeArguments[argIndex]
+                            : $"T{argIndex + 1}");
+                        argIndex++;
+                    }
+                    result.Append('>');
+                }
+                continue;
+            }
+
             result.Append(RewriteAritySegments(
-                metadataNameSegments[segmentIndex],
+                segment,
                 (int arity, StringBuilder builder) =>
                 {
                     builder.Append('<');
@@ -1644,10 +1707,35 @@ public static class TypeResolver
         => Malformed<string>(exception, subject, consumedNodes).GetValueOrThrow();
 }
 
-internal sealed class MetadataTypeNameParts(string @namespace, string[] segments)
+internal sealed class MetadataTypeNameParts(
+    string @namespace,
+    string[] segments,
+    IReadOnlyList<int>? introducedTypeParameterCounts = null)
 {
     public string Namespace { get; } = @namespace;
     public IReadOnlyList<string> Segments { get; } = segments;
+
+    /// <summary>
+    /// Metadata-verified, per-segment introduced generic-parameter counts along
+    /// this type's declaring chain — one entry per <see cref="Segments"/> entry,
+    /// or null when unavailable (a <c>TypeReferenceHandle</c> cannot resolve this
+    /// without loading the referenced assembly). Rendering prefers this over a
+    /// segment's raw canonical-suffix arity only where the raw name declares no
+    /// suffix, mirroring <c>TypeRef.EffectiveSegmentArity</c>.
+    /// </summary>
+    public IReadOnlyList<int>? IntroducedTypeParameterCounts { get; }
+        = introducedTypeParameterCounts;
+
+    /// <summary>
+    /// A copy of these parts carrying <paramref name="introducedTypeParameterCounts"/>.
+    /// Used by a caller (such as <c>TypeNodeProvider</c>, for a local
+    /// <c>TypeDefinitionHandle</c>) that computes the trusted counts separately,
+    /// since this project does not depend on the metadata-declaration query that
+    /// produces them.
+    /// </summary>
+    public MetadataTypeNameParts WithIntroducedTypeParameterCounts(
+        IReadOnlyList<int> introducedTypeParameterCounts)
+        => new(Namespace, [.. Segments], introducedTypeParameterCounts);
 
     public string ToDottedName()
     {

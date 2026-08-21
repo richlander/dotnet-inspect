@@ -4,8 +4,13 @@ import {
   buildAnnotatedView,
   factsForNode,
   nodeAtOffset,
+  validateAnnotatedSourceDocument,
 } from "../src/annotated-source-view.ts";
-import { sampleDocument } from "../../annotated-source-viewer/src/sample-document.js";
+import type { AnnotatedSourceDocument } from "../src/annotated-source-view.ts";
+import { sampleDocument as sampleDocumentFixture } from "../../annotated-source-viewer/src/sample-document.js";
+
+validateAnnotatedSourceDocument(sampleDocumentFixture);
+const sampleDocument: AnnotatedSourceDocument = sampleDocumentFixture;
 
 test("an invalid document is refused rather than rendered", () => {
   assert.throws(
@@ -100,9 +105,9 @@ test("facts with no targets stay visible as explicitly unanchored", () => {
 test("clicking text selects the tightest node and its facts", () => {
   const offset = sampleDocument.text.indexOf("new object()");
 
-  assert.equal(nodeAtOffset(sampleDocument, offset).id, 1);
+  assert.equal(nodeAtOffset(sampleDocument, offset)!.id, 1);
   assert.deepEqual(factsForNode(sampleDocument, 1).map(fact => fact.descriptor), ["alloc.new"]);
-  assert.equal(nodeAtOffset(sampleDocument, sampleDocument.text.indexOf("for (")).id, 0);
+  assert.equal(nodeAtOffset(sampleDocument, sampleDocument.text.indexOf("for ("))!.id, 0);
   assert.equal(nodeAtOffset(sampleDocument, sampleDocument.text.length), null);
 });
 
