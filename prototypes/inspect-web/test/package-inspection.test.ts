@@ -213,46 +213,56 @@ test("package lens loaders reuse cached results without querying or clearing the
   const cases = [
     {
       name: "dependencies",
+      cached: dependencyResult(),
       state: inspectionState({
         packageDependenciesKey: "cached",
         packageDependencies: dependencyResult(),
       }),
+      read: (state: PackageInspectionState) => state.packageDependencies,
       load: (coordinator: ReturnType<typeof createPackageInspectionCoordinator>) =>
         coordinator.loadDependencies(packageItem, "cached"),
     },
     {
       name: "integrations",
+      cached: integrationsResult(),
       state: inspectionState({
         packageIntegrationsKey: "cached",
         packageIntegrations: integrationsResult(),
       }),
+      read: (state: PackageInspectionState) => state.packageIntegrations,
       load: (coordinator: ReturnType<typeof createPackageInspectionCoordinator>) =>
         coordinator.loadIntegrations(packageItem, "cached", null),
     },
     {
       name: "opportunities",
+      cached: opportunitiesResult(),
       state: inspectionState({
         packageOpportunitiesKey: "cached",
         packageOpportunities: opportunitiesResult(),
       }),
+      read: (state: PackageInspectionState) => state.packageOpportunities,
       load: (coordinator: ReturnType<typeof createPackageInspectionCoordinator>) =>
         coordinator.loadOpportunities(packageItem, "cached", null),
     },
     {
       name: "performance",
+      cached: performanceResult(),
       state: inspectionState({
         packagePerformanceKey: "cached",
         packagePerformance: performanceResult(),
       }),
+      read: (state: PackageInspectionState) => state.packagePerformance,
       load: (coordinator: ReturnType<typeof createPackageInspectionCoordinator>) =>
         coordinator.loadPerformance(packageItem, "cached", null),
     },
     {
       name: "metadata",
+      cached: metadataResult(),
       state: inspectionState({
         packageMetadataKey: "cached",
         packageMetadata: metadataResult(),
       }),
+      read: (state: PackageInspectionState) => state.packageMetadata,
       load: (coordinator: ReturnType<typeof createPackageInspectionCoordinator>) =>
         coordinator.loadMetadata(packageItem, "cached", null),
     },
@@ -290,6 +300,7 @@ test("package lens loaders reuse cached results without querying or clearing the
 
     assert.equal(queries, 0, fixture.name);
     assert.equal(renders, 1, fixture.name);
+    assert.deepEqual(fixture.read(fixture.state), fixture.cached, fixture.name);
   }
 });
 
@@ -441,6 +452,24 @@ test("workspace dependency loading is sequential and only renders the active len
   assert.equal(stats, 1);
 });
 
+test("workspace dependency loading does not render another active package lens", async () => {
+  const packageItem = packageModel();
+  let renders = 0;
+  const state = inspectionState({
+    packages: [packageItem],
+    atPackageRoot: true,
+    packageLens: "metadata",
+  });
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      render: () => renders++,
+    }));
+
+  await coordinator.ensureWorkspaceDependencies();
+
+  assert.equal(renders, 0);
+});
+
 test("removed packages cannot publish an in-flight workspace dependency result", async () => {
   const packageItem = packageModel();
   const request = deferred<BrowserPackageDependencies>();
@@ -459,6 +488,25 @@ test("removed packages cannot publish an in-flight workspace dependency result",
     Object.hasOwn(state.workspaceDependencies, workspaceDependencyKey(packageItem)),
     false);
   assert.equal(state.workspaceDependencyLoads.size, 0);
+});
+
+test("removed packages cannot publish dependencies loaded by the foreground lens", async () => {
+  const packageItem = packageModel();
+  const request = deferred<BrowserPackageDependencies>();
+  const state = inspectionState({ packages: [packageItem] });
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDependencies: async () => request.promise,
+    }));
+
+  const load = coordinator.loadDependencies(packageItem, "dependencies");
+  state.packages = [];
+  request.resolve(dependencyResult());
+  await load;
+
+  assert.equal(
+    Object.hasOwn(state.workspaceDependencies, workspaceDependencyKey(packageItem)),
+    false);
 });
 
 test("scoped package lenses route platform coordinates and suppress stale results", async () => {
@@ -516,6 +564,185 @@ test("scoped package lenses route platform coordinates and suppress stale result
   assert.equal(state.packagePerformanceLoading, false);
   assert.equal(state.packageMetadata, null);
   assert.equal(state.packageMetadataLoading, true);
+});
+
+test("all scoped runtime package lenses route exact platform coordinates", async () => {
+  const runtime = packageModel({
+    id: "Microsoft.NETCore.App",
+    isRuntimePack: true,
+    source: { kind: "platform" },
+  });
+  const calls: string[] = [];
+  const state = inspectionState({ packages: [runtime] });
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPlatformIntegrations: async (framework, assemblyName, pack) => {
+        calls.push(`integrations:${framework}/${assemblyName}/${pack}`);
+        return integrationsResult();
+      },
+      queryPlatformOpportunities: async (framework, assemblyName, pack) => {
+        calls.push(`opportunities:${framework}/${assemblyName}/${pack}`);
+        return opportunitiesResult();
+      },
+      queryPlatformPerformance: async (framework, assemblyName, pack) => {
+        calls.push(`performance:${framework}/${assemblyName}/${pack}`);
+        return performanceResult();
+      },
+      queryPlatformMetadata: async (framework, assemblyName, pack) => {
+        calls.push(`metadata:${framework}/${assemblyName}/${pack}`);
+        return metadataResult();
+      },
+    }));
+
+  await coordinator.loadIntegrations(runtime, "integrations", "System.Text.Json");
+  await coordinator.loadOpportunities(runtime, "opportunities", "System.Text.Json");
+  await coordinator.loadPerformance(runtime, "performance", "System.Text.Json");
+  await coordinator.loadMetadata(runtime, "metadata", "System.Text.Json");
+
+  assert.deepEqual(calls, [
+    "integrations:net10.0/System.Text.Json.dll/pack:System.Text.Json",
+    "opportunities:net10.0/System.Text.Json.dll/pack:System.Text.Json",
+    "performance:net10.0/System.Text.Json.dll/pack:System.Text.Json",
+    "metadata:net10.0/System.Text.Json.dll/pack:System.Text.Json",
+  ]);
+});
+
+test("package lens results clear before a different request completes", async () => {
+  const packageItem = packageModel();
+
+  {
+    const query = deferred<BrowserPackageDependencies>();
+    const state = inspectionState({
+      packageDependenciesKey: "old",
+      packageDependencies: dependencyResult(),
+    });
+    const coordinator = createPackageInspectionCoordinator(
+      inspectionDependencies(state, {
+        queryDependencies: async () => query.promise,
+      }));
+    const load = coordinator.loadDependencies(packageItem, "new");
+    assert.equal(state.packageDependencies, null);
+    assert.equal(state.packageDependenciesLoading, true);
+    query.resolve(dependencyResult());
+    await load;
+  }
+
+  {
+    const query = deferred<BrowserPackageIntegrations>();
+    const state = inspectionState({
+      packageIntegrationsKey: "old",
+      packageIntegrations: integrationsResult(),
+    });
+    const coordinator = createPackageInspectionCoordinator(
+      inspectionDependencies(state, {
+        queryPackageIntegrations: async () => query.promise,
+      }));
+    const load = coordinator.loadIntegrations(packageItem, "new", null);
+    assert.equal(state.packageIntegrations, null);
+    assert.equal(state.packageIntegrationsLoading, true);
+    query.resolve(integrationsResult());
+    await load;
+  }
+
+  {
+    const query = deferred<BrowserPackageOpportunities>();
+    const state = inspectionState({
+      packageOpportunitiesKey: "old",
+      packageOpportunities: opportunitiesResult(),
+    });
+    const coordinator = createPackageInspectionCoordinator(
+      inspectionDependencies(state, {
+        queryPackageOpportunities: async () => query.promise,
+      }));
+    const load = coordinator.loadOpportunities(packageItem, "new", null);
+    assert.equal(state.packageOpportunities, null);
+    assert.equal(state.packageOpportunitiesLoading, true);
+    query.resolve(opportunitiesResult());
+    await load;
+  }
+
+  {
+    const query = deferred<PackagePerformance>();
+    const state = inspectionState({
+      packagePerformanceKey: "old",
+      packagePerformance: performanceResult(),
+    });
+    const coordinator = createPackageInspectionCoordinator(
+      inspectionDependencies(state, {
+        queryPackagePerformance: async () => query.promise,
+      }));
+    const load = coordinator.loadPerformance(packageItem, "new", null);
+    assert.equal(state.packagePerformance, null);
+    assert.equal(state.packagePerformanceLoading, true);
+    query.resolve(performanceResult());
+    await load;
+  }
+
+  {
+    const query = deferred<PackageMetadata>();
+    const state = inspectionState({
+      packageMetadataKey: "old",
+      packageMetadata: metadataResult(),
+    });
+    const coordinator = createPackageInspectionCoordinator(
+      inspectionDependencies(state, {
+        queryPackageMetadata: async () => query.promise,
+      }));
+    const load = coordinator.loadMetadata(packageItem, "new", null);
+    assert.equal(state.packageMetadata, null);
+    assert.equal(state.packageMetadataLoading, true);
+    query.resolve(metadataResult());
+    await load;
+  }
+});
+
+test("package lens results require their current request key", async () => {
+  const packageItem = packageModel();
+
+  {
+    const query = deferred<BrowserPackageIntegrations>();
+    const state = inspectionState();
+    const coordinator = createPackageInspectionCoordinator(
+      inspectionDependencies(state, {
+        queryPackageIntegrations: async () => query.promise,
+      }));
+    const load = coordinator.loadIntegrations(packageItem, "first", null);
+    state.packageIntegrationsKey = "second";
+    query.resolve(integrationsResult());
+    await load;
+    assert.equal(state.packageIntegrations, null);
+    assert.equal(state.packageIntegrationsLoading, true);
+  }
+
+  {
+    const query = deferred<BrowserPackageOpportunities>();
+    const state = inspectionState();
+    const coordinator = createPackageInspectionCoordinator(
+      inspectionDependencies(state, {
+        queryPackageOpportunities: async () => query.promise,
+      }));
+    const load = coordinator.loadOpportunities(packageItem, "first", null);
+    state.packageOpportunitiesKey = "second";
+    query.resolve(opportunitiesResult());
+    await load;
+    assert.equal(state.packageOpportunities, null);
+    assert.equal(state.packageOpportunitiesLoading, true);
+  }
+
+  {
+    const query = deferred<PackagePerformance>();
+    const state = inspectionState();
+    const coordinator = createPackageInspectionCoordinator(
+      inspectionDependencies(state, {
+        queryPackagePerformance: async () => query.promise,
+      }));
+    const load = coordinator.loadPerformance(packageItem, "first", null);
+    state.packagePerformanceKey = "second";
+    query.resolve(performanceResult());
+    await load;
+    assert.equal(state.packagePerformance, null);
+    assert.equal(state.packagePerformanceLoading, true);
+  }
 });
 
 test("runtime package lenses wait for an explicit library scope", async () => {
