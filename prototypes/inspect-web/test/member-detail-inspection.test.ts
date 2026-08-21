@@ -704,7 +704,10 @@ test("current annotated rejection remains visible", async () => {
 
 test("annotated success requires the current member even when its key is unchanged", async () => {
   let focusRenders = 0;
-  const state = inspectionState();
+  const state = inspectionState({
+    memberAnnotatedKey: "previous",
+    memberAnnotated: annotatedResult(),
+  });
   const coordinator = createMemberDetailInspectionCoordinator(
     inspectionDependencies(state, {
       renderPreservingMemberFocus: () => {
@@ -764,7 +767,10 @@ test("stale annotated rejection cannot replace a newer request", async () => {
 
 test("annotated rejection requires the current member even when its key is unchanged", async () => {
   let focusRenders = 0;
-  const state = inspectionState();
+  const state = inspectionState({
+    memberAnnotatedKey: "previous",
+    memberAnnotatedError: "previous failure",
+  });
   const coordinator = createMemberDetailInspectionCoordinator(
     inspectionDependencies(state, {
       queryAnnotated: async () => {
@@ -993,7 +999,10 @@ test("current member facts failure remains visible", async () => {
 
 test("member facts success requires the current member even when its key is unchanged", async () => {
   let focusRenders = 0;
-  const state = inspectionState();
+  const state = inspectionState({
+    memberFactsKey: "previous",
+    memberFacts: factsResult(),
+  });
   const coordinator = createMemberDetailInspectionCoordinator(
     inspectionDependencies(state, {
       renderPreservingMemberFocus: () => {
@@ -1052,7 +1061,10 @@ test("stale member facts completion cannot publish over a newer key", async () =
 
 test("member facts rejection requires the current member even when its key is unchanged", async () => {
   let focusRenders = 0;
-  const state = inspectionState();
+  const state = inspectionState({
+    memberFactsKey: "previous",
+    memberFactsError: "previous failure",
+  });
   const coordinator = createMemberDetailInspectionCoordinator(
     inspectionDependencies(state, {
       queryFacts: async () => {
