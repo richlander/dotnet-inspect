@@ -32,7 +32,7 @@ import {
   removeAppendedNotice,
   retainWorkspacePackage,
   resolveLoadedGraphTargetCandidate,
-  resolveOpportunitySourceType,
+  resolveOpportunitySourceCandidate,
   resolvePlatformGraphTargetType,
   scopedRequestState,
   sourceReloadKind,

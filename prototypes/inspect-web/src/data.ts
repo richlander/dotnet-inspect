@@ -1054,14 +1054,14 @@ export function resolvePlatformGraphTargetType<
   return candidate.status === "unique" ? candidate.type : null;
 }
 
-export function resolveOpportunitySourceType<
+export function resolveOpportunitySourceCandidate<
   TType extends ResolvableGraphType,
 >(
   pack: RuntimeGraphPackage<TType> | null | undefined,
   opportunity: OpportunitySourceIdentity | null | undefined,
-): TType | null {
-  if (!pack || !opportunity?.sourceDefinitionId) return null;
-  const candidate = resolveGraphTargetCandidate<
+): GraphTargetCandidate<RuntimeGraphPackage<TType>, TType> {
+  if (!pack || !opportunity?.sourceDefinitionId) return { status: "missing" };
+  return resolveGraphTargetCandidate<
     RuntimeGraphPackage<TType>,
     TType
   >([pack], {
@@ -1071,6 +1071,15 @@ export function resolveOpportunitySourceType<
     assemblyPublicKeyToken: opportunity.sourceAssemblyPublicKeyToken,
     typeDefinitionId: opportunity.sourceDefinitionId
   }, true);
+}
+
+export function resolveOpportunitySourceType<
+  TType extends ResolvableGraphType,
+>(
+  pack: RuntimeGraphPackage<TType> | null | undefined,
+  opportunity: OpportunitySourceIdentity | null | undefined,
+): TType | null {
+  const candidate = resolveOpportunitySourceCandidate(pack, opportunity);
   return candidate.status === "unique" ? candidate.type : null;
 }
 

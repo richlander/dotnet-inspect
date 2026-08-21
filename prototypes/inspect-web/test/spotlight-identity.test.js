@@ -60,6 +60,7 @@ import {
   replaceCurrentNavigationEntry,
   retainWorkspacePackage,
   resolveLoadedGraphTargetCandidate,
+  resolveOpportunitySourceCandidate,
   resolveOpportunitySourceType,
   resolvePlatformGraphTargetType,
   resolveRuntimeGraphTargetCandidate,
@@ -4210,6 +4211,29 @@ test("opportunity navigation uses exact source assembly and definition identity"
     sourceAssemblyCulture: null,
     sourceAssemblyPublicKeyToken: null
   }), null);
+  assert.equal(resolveOpportunitySourceCandidate(pack, {
+    sourceDefinitionId: "Example.Widget",
+    sourceAssembly: "Shared",
+    sourceAssemblyVersion: "3.0.0.0",
+    sourceAssemblyCulture: null,
+    sourceAssemblyPublicKeyToken: null
+  }).status, "skew");
+  assert.equal(resolveOpportunitySourceCandidate({
+    ...pack,
+    assemblies: pack.assemblies.map(assembly => ({
+      ...assembly,
+      version: "2.0.0.0"
+    }))
+  }, {
+    sourceDefinitionId: "Example.Widget",
+    sourceAssembly: "Shared",
+    sourceAssemblyVersion: "2.0.0.0",
+    sourceAssemblyCulture: null,
+    sourceAssemblyPublicKeyToken: null
+  }).status, "ambiguous");
+  assert.match(
+    appSource,
+    /if \(!sourceDefinitionId\) \{\s*openSpotlight\(shortTypeName\(id\)\);[\s\S]*?if \(candidate\.status !== "unique"\) \{[\s\S]*?appendQueryNotice\(`The opportunity source could not be opened: \$\{reason\}\.`\);[\s\S]*?navigateToType\(candidate\.type\)/);
 });
 
 test("relationship navigation rejects ambiguous dotted identities", () => {
