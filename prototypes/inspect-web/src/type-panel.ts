@@ -2,11 +2,11 @@ import { pdbSourceLimitationHtml } from "./data.js";
 
 // The type selector (the "PUBLIC TYPES" / "MEMBERS" nav pane) and the type viewer (the
 // type heading, metadata, and source sections shown for the "type" scope) as pure,
-// dependency-injected render functions. `app.js` owns the type index, filters, member
+// dependency-injected render functions. `app.ts` owns the type index, filters, member
 // grouping, and navigation/click handling; this module owns only markup shape given an
 // explicit snapshot of the data those helpers already computed. Shared text helpers
 // (kindIcon, shortKind, typeDisplayName, highlight, highlightCSharp, factRows,
-// factEvidence, relatedTypeChip) stay in `app.js`, since they are used well beyond the
+// factEvidence, relatedTypeChip) stay in `app.ts`, since they are used well beyond the
 // type panel, and are passed in rather than duplicated here.
 
 export interface TypeSummary {
@@ -45,28 +45,27 @@ export interface TypePanelPackageContext {
 
 export interface TypeParameterSummary {
   name: string;
-  variance?: string;
+  variance?: string | null;
   constraints?: readonly string[];
 }
 
 export interface CompositionCounts {
   total: number;
-  [key: string]: number;
 }
 
 export interface TypeMetadata {
   modifiers?: readonly string[];
   kind?: string;
-  accessibility?: string;
-  namespace?: string;
-  assembly?: string;
-  baseType?: string;
-  enumUnderlyingType?: string;
+  accessibility?: string | null;
+  namespace?: string | null;
+  assembly?: string | null;
+  baseType?: string | null;
+  enumUnderlyingType?: string | null;
   typeParameters?: readonly TypeParameterSummary[];
   interfaces?: readonly string[];
   derivedTypes?: readonly string[];
   attributes?: readonly string[];
-  composition?: CompositionCounts;
+  composition?: CompositionCounts | null;
   graphNodes?: readonly unknown[];
   inspectionFailures?: readonly string[];
 }
@@ -74,7 +73,7 @@ export interface TypeMetadata {
 export interface TypeSourceResult {
   provider: string;
   provenance: string;
-  url?: string;
+  url?: string | null;
   pdbSourceLimitation?: string | null;
   text: string;
 }
@@ -357,8 +356,8 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
 export function typeSourceSignature(
   item: TypeSummary,
   packageContext: TypePanelPackageContext,
-  taste: readonly unknown[],
-  memberRequestKey: (parts: readonly unknown[], taste: readonly unknown[]) => string,
+  taste: readonly string[],
+  memberRequestKey: (parts: readonly string[], taste: readonly string[]) => string,
 ): string {
   return memberRequestKey([
     packageContext.id,

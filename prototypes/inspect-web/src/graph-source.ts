@@ -1,12 +1,7 @@
 import { pdbSourceLimitationHtml } from "./data.js";
+import type { BrowserSource } from "./inspect-web-engine.d.ts";
 
-export interface GraphSourceResult {
-  provider: string;
-  provenance: string;
-  url: string | null | undefined;
-  pdbSourceLimitation?: string | null;
-  text: string;
-}
+export type GraphSourceResult = BrowserSource;
 
 export interface RenderGraphSourceOptions {
   title: string;
