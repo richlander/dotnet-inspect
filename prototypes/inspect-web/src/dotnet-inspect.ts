@@ -78,6 +78,11 @@ import {
   type PackageViewBindingActions,
 } from "./package-view.ts";
 import {
+  bindLibraryControls,
+  type LibraryControlBindingActions,
+  type PlatformLibraryLens,
+} from "./library-controls.ts";
+import {
   createSourceInspectionCoordinator,
   type GraphSourceRequest,
 } from "./source-inspection.ts";
@@ -3673,6 +3678,112 @@ const packageViewActions: PackageViewBindingActions = {
   },
 };
 
+interface NoticeRetryState {
+  action: RetryAction;
+  previous: string;
+  appended: string;
+}
+
+const libraryControlActions: LibraryControlBindingActions = {
+  onAccessibilityChipSelect: accessibility => {
+    toggleAccessibilityChip(accessibility);
+    afterLibraryScopeChange();
+  },
+  onLibraryChipSelect: library => {
+    toggleLibraryChip(library);
+    afterLibraryScopeChange();
+  },
+  onLibraryJump: library => {
+    state.libraryScope = library ? new Set([library]) : null;
+    afterLibraryScopeChange();
+  },
+  onPlatformLibrarySelect: openPlatformLibrary,
+  onPlatformLensLibrarySelect: (lens, name, pack) => {
+    void openPlatformLensLibrary(lens, name, pack);
+  },
+};
+
+async function openPlatformLensLibrary(
+  lens: PlatformLibraryLens,
+  name: string,
+  selectedPack: string | undefined,
+  originPackage: AppPackage = currentPackage(),
+  noticeRetryState: NoticeRetryState | null = null,
+) {
+  if (!state.packages.includes(originPackage)
+    || !packageIdentityEquals(state.package, originPackage)
+    || state.home
+    || !state.atPackageRoot
+    || state.packageLens !== lens) {
+    return;
+  }
+  if (noticeRetryState
+    && state.queryNoticeRetryAction === noticeRetryState.action) {
+    state.queryNotice = removeAppendedNotice(
+      state.queryNotice,
+      noticeRetryState.previous,
+      noticeRetryState.appended);
+    state.queryNoticeRetryAction = null;
+  }
+  const navigationSeq = navigationSequence.begin();
+  const isCurrent = () =>
+    navigationSequence.isCurrent(navigationSeq)
+    && !state.home
+    && state.atPackageRoot
+    && state.packageLens === lens
+    && packageIdentityEquals(state.package, originPackage);
+  const key = name.replace(/\.dll$/i, "");
+  const pack = selectedPack || platformPackForAssembly(key);
+  const resident = (runtimePackPackage()?.types || [])
+    .some(type => libraryKey(type) === key);
+  if (!resident) {
+    const runtimeResult = await loadRuntimePackAssembly(
+      platformScopeTfm(),
+      `${key}.dll`,
+      pack,
+      () => state.packages.includes(originPackage));
+    const loaded = runtimeResult.packageModel;
+    if (!loaded) {
+      if (isCurrent()) {
+        const noticeState: NoticeRetryState = {
+          action: null,
+          previous: state.queryNotice,
+          appended: "",
+        };
+        const retryAction = () =>
+          openPlatformLensLibrary(
+            lens,
+            name,
+            pack,
+            originPackage,
+            noticeState);
+        noticeState.action = retryAction;
+        appendQueryNotice(
+          `Couldn’t load ${key}: ${runtimeResult.failureMessage
+            || state.runtimePackError
+            || "runtime pack acquisition failed."}`,
+          retryAction);
+        noticeState.appended = state.queryNotice;
+        render();
+      }
+      return;
+    }
+  }
+  if (!isCurrent()) return;
+  state.libraryScope = new Set([key]);
+  recordPlatformRecent(key, pack);
+  state.atPackageRoot = true;
+  state.packageLens = lens;
+  state.namespaceFilter = "";
+  state.typeFilter = "";
+  state.kindFilter = "";
+  normalizeLibrarySelection();
+  if (lens === "integrations") loadPackageIntegrations();
+  else if (lens === "opportunities") loadPackageOpportunities();
+  else if (lens === "analysis") loadPackagePerformance();
+  else loadPackageMetadata();
+}
+
 function bindPackageViewEvents() {
   bindPackageView(document, packageViewActions);
 }
@@ -3688,6 +3799,10 @@ function bindStatusBarEvents() {
       render();
     },
   });
+}
+
+function bindLibraryControlsEvents() {
+  bindLibraryControls(document, libraryControlActions);
 }
 
 function bindTypePanelEvents() {
@@ -4016,119 +4131,7 @@ function bindEvents() {
   bindDocViewerEvents();
   bindAnnotatedSourceEvents();
   bindPackageViewEvents();
-  document.querySelectorAll<HTMLElement>("[data-library-chip]").forEach(button => button.addEventListener("click", () => {
-    toggleLibraryChip(button.dataset.libraryChip ?? "");
-    afterLibraryScopeChange();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-access-chip]").forEach(button => button.addEventListener("click", () => {
-    toggleAccessibilityChip(button.dataset.accessChip ?? "");
-    afterLibraryScopeChange();
-  }));
-  const libraryJump = document.querySelector<HTMLSelectElement>("#library-jump");
-  if (libraryJump) libraryJump.addEventListener("change", () => {
-    state.libraryScope = libraryJump.value ? new Set([libraryJump.value]) : null;
-    afterLibraryScopeChange();
-  });
-  document.querySelectorAll<HTMLSelectElement>("[data-platform-library-select]").forEach(select => select.addEventListener("change", () => {
-    const name = select.value;
-    if (!name) return;
-    const pack = select.selectedOptions[0]?.dataset.pack || "netcore.app";
-    openPlatformLibrary(name, pack);
-  }));
-  // The lens-scoped library pickers (Integrations, Opportunities, Analysis) scope the scan
-  // without leaving the lens: unlike the main platform selector they keep package (platform)
-  // root + the active lens, then rescan. Types are loaded too so switching to Types/Overview
-  // afterward isn't empty.
-  interface NoticeRetryState {
-    action: RetryAction;
-    previous: string;
-    appended: string;
-  }
-  const bindPlatformLensPicker = (
-    dataAttr: string,
-    lens: string,
-    loader: () => unknown,
-  ) => {
-    const openLibrary = async (
-      name: string,
-      pack: string,
-      originPackage: AppPackage = currentPackage(),
-      noticeRetryState: NoticeRetryState | null = null) => {
-      if (!state.packages.includes(originPackage)
-        || !packageIdentityEquals(state.package, originPackage)
-        || state.home
-        || !state.atPackageRoot
-        || state.packageLens !== lens) {
-        return;
-      }
-      if (noticeRetryState
-        && state.queryNoticeRetryAction === noticeRetryState.action) {
-        state.queryNotice = removeAppendedNotice(
-          state.queryNotice,
-          noticeRetryState.previous,
-          noticeRetryState.appended);
-        state.queryNoticeRetryAction = null;
-      }
-      const navigationSeq = navigationSequence.begin();
-      const isCurrent = () =>
-        navigationSequence.isCurrent(navigationSeq)
-        && !state.home
-        && state.atPackageRoot
-        && state.packageLens === lens
-        && packageIdentityEquals(state.package, originPackage);
-      const key = name.replace(/\.dll$/i, "");
-      const resident = (runtimePackPackage()?.types || []).some(type => libraryKey(type) === key);
-      if (!resident) {
-        const runtimeResult = await loadRuntimePackAssembly(
-          platformScopeTfm(),
-          `${key}.dll`,
-          pack,
-          () => state.packages.includes(originPackage));
-        const loaded = runtimeResult.packageModel;
-        if (!loaded) {
-          if (isCurrent()) {
-                  const noticeState: NoticeRetryState = {
-              action: null,
-              previous: state.queryNotice,
-              appended: "",
-            };
-            const retryAction = () =>
-              openLibrary(name, pack, originPackage, noticeState);
-            noticeState.action = retryAction;
-            appendQueryNotice(
-              `Couldn’t load ${key}: ${runtimeResult.failureMessage
-                || state.runtimePackError
-                || "runtime pack acquisition failed."}`,
-              retryAction);
-            noticeState.appended = state.queryNotice;
-            render();
-          }
-          return;
-        }
-      }
-      if (!isCurrent()) return;
-      state.libraryScope = new Set([key]);
-      recordPlatformRecent(key, pack);
-      state.atPackageRoot = true;
-      state.packageLens = lens;
-      state.namespaceFilter = "";
-      state.typeFilter = "";
-      state.kindFilter = "";
-      normalizeLibrarySelection();
-      loader();
-    };
-    document.querySelectorAll<HTMLSelectElement>(`[${dataAttr}]`).forEach(select => select.addEventListener("change", () => {
-      const name = select.value;
-      if (!name) return;
-      const key = name.replace(/\.dll$/i, "");
-      const pack = select.selectedOptions[0]?.dataset.pack || platformPackForAssembly(key);
-      openLibrary(name, pack);
-    }));
-  };
-  bindPlatformLensPicker("data-platform-integrations-library", "integrations", loadPackageIntegrations);
-  bindPlatformLensPicker("data-platform-opportunities-library", "opportunities", loadPackageOpportunities);
-  bindPlatformLensPicker("data-platform-analysis-library", "analysis", loadPackagePerformance);
-  bindPlatformLensPicker("data-platform-metadata-library", "metadata", loadPackageMetadata);
+  bindLibraryControlsEvents();
   ensurePackageVersions(state.package);
   if (state.package?.isRuntimePack) ensureDotnetReleases();
   if (state.spotlightOpen) spotlight.bind(document, "modal");

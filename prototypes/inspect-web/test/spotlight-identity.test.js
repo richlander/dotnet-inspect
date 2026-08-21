@@ -179,6 +179,9 @@ const packageInspectionSource = readFileSync(
 const packageViewSource = readFileSync(
   new URL("../src/package-view.ts", import.meta.url),
   "utf8");
+const libraryControlsSource = readFileSync(
+  new URL("../src/library-controls.ts", import.meta.url),
+  "utf8");
 const sourceInspectionSource = readFileSync(
   new URL("../src/source-inspection.ts", import.meta.url),
   "utf8");
@@ -465,6 +468,59 @@ test("typed package view owns package navigation bindings", () => {
     workspaceBinding,
     /\[data-(?:dep-group|dep-open|dep-load|kind-jump|namespace-jump|lib-scope|graph-type|perf-token)\]/);
   assert.doesNotMatch(appSource, /function bindDependencyListHandlers\(/);
+});
+
+test("typed library controls own library and Platform picker bindings", () => {
+  const binding =
+    appSource.match(/const libraryControlActions: LibraryControlBindingActions = \{[\s\S]*?\n};/)?.[0]
+    ?? "";
+  const wrapper =
+    appSource.match(/function bindLibraryControlsEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction bindTypePanelEvents)/)?.[0]
+    ?? "";
+  const workspaceBinding =
+    appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
+    ?? "";
+  assert.match(
+    libraryControlsSource,
+    /export function bindLibraryControls\([\s\S]*\[data-library-chip\][\s\S]*\[data-access-chip\][\s\S]*#library-jump[\s\S]*\[data-platform-library-select\]/);
+  for (const lens of [
+    "integrations",
+    "opportunities",
+    "analysis",
+    "metadata",
+  ]) {
+    assert.match(
+      libraryControlsSource,
+      new RegExp(`\\[data-platform-${lens}-library\\]`));
+  }
+  assert.equal(
+    workspaceBinding.match(/\bbindLibraryControlsEvents\(\)/g)?.length,
+    1);
+  assert.match(
+    wrapper,
+    /bindLibraryControls\(document, libraryControlActions\)/);
+  assert.doesNotMatch(
+    wrapper,
+    /\bquerySelector(?:All)?\b|\baddEventListener\b/);
+  assert.match(
+    binding,
+    /onAccessibilityChipSelect: accessibility => \{[\s\S]*toggleAccessibilityChip\(accessibility\);[\s\S]*afterLibraryScopeChange\(\)/);
+  assert.match(
+    binding,
+    /onLibraryChipSelect: library => \{[\s\S]*toggleLibraryChip\(library\);[\s\S]*afterLibraryScopeChange\(\)/);
+  assert.match(
+    binding,
+    /onLibraryJump: library => \{[\s\S]*state\.libraryScope = library \? new Set\(\[library\]\) : null;[\s\S]*afterLibraryScopeChange\(\)/);
+  assert.match(
+    binding,
+    /onPlatformLibrarySelect: openPlatformLibrary/);
+  assert.match(
+    binding,
+    /onPlatformLensLibrarySelect: \(lens, name, pack\) => \{\s*void openPlatformLensLibrary\(lens, name, pack\)/);
+  assert.doesNotMatch(
+    workspaceBinding,
+    /\[data-(?:library-chip|access-chip|platform-(?:library-select|integrations-library|opportunities-library|analysis-library|metadata-library))\]|#library-jump/);
+  assert.doesNotMatch(appSource, /bindPlatformLensPicker/);
 });
 
 test("typed document inspection owns package document request coordination", () => {
@@ -1271,11 +1327,11 @@ test("opening an already-resident Platform resets type-specific member filters",
 
 test("lens-scoped Platform library changes reset type-specific member state", () => {
   const picker =
-    appSource.match(/const bindPlatformLensPicker = [\s\S]*?bindPlatformLensPicker\("data-platform-integrations-library"/)?.[0]
+    appSource.match(/async function openPlatformLensLibrary\([\s\S]*?\n}/)?.[0]
     ?? "";
   assert.match(
     picker,
-    /const openLibrary = async \([\s\S]*originPackage: AppPackage = currentPackage\(\),[\s\S]*noticeRetryState: NoticeRetryState \| null = null[\s\S]*if \(!state\.packages\.includes\(originPackage\)[\s\S]*!packageIdentityEquals\(state\.package, originPackage\)[\s\S]*state\.queryNoticeRetryAction === noticeRetryState\.action[\s\S]*state\.queryNotice = removeAppendedNotice\([\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*const runtimeResult = await loadRuntimePackAssembly\([\s\S]*\(\) => state\.packages\.includes\(originPackage\)\);[\s\S]*const loaded = runtimeResult\.packageModel;[\s\S]*previous: state\.queryNotice[\s\S]*const retryAction = \(\) =>\s*openLibrary\(name, pack, originPackage, noticeState\);[\s\S]*runtimeResult\.failureMessage[\s\S]*noticeState\.appended = state\.queryNotice;[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*state\.libraryScope = new Set\(\[key\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*loader\(\)/);
+    /originPackage: AppPackage = currentPackage\(\),[\s\S]*noticeRetryState: NoticeRetryState \| null = null[\s\S]*if \(!state\.packages\.includes\(originPackage\)[\s\S]*!packageIdentityEquals\(state\.package, originPackage\)[\s\S]*state\.queryNoticeRetryAction === noticeRetryState\.action[\s\S]*state\.queryNotice = removeAppendedNotice\([\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*const pack = selectedPack \|\| platformPackForAssembly\(key\);[\s\S]*const runtimeResult = await loadRuntimePackAssembly\([\s\S]*\(\) => state\.packages\.includes\(originPackage\)\);[\s\S]*const loaded = runtimeResult\.packageModel;[\s\S]*previous: state\.queryNotice[\s\S]*const retryAction = \(\) =>\s*openPlatformLensLibrary\([\s\S]*noticeState\);[\s\S]*runtimeResult\.failureMessage[\s\S]*noticeState\.appended = state\.queryNotice;[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*state\.libraryScope = new Set\(\[key\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*lens === "integrations"[\s\S]*loadPackageIntegrations\(\)[\s\S]*lens === "opportunities"[\s\S]*loadPackageOpportunities\(\)[\s\S]*lens === "analysis"[\s\S]*loadPackagePerformance\(\)[\s\S]*loadPackageMetadata\(\)/);
   assert.doesNotMatch(picker, /select\.isConnected/);
   assert.match(
     appSource,
