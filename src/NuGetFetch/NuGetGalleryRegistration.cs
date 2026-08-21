@@ -15,9 +15,13 @@ internal sealed class NuGetGalleryRegistrationBudget
     internal const int MinimumLeafCount = 4_096;
     private const int LeafCountMultiplier = 4;
 
+    private readonly object _byteGate = new();
     private readonly long _maximumBytes;
     private readonly int _maximumLeafCount;
-    private long _remainingBytes;
+    private long _availableBytes;
+    private long _outstandingBytes;
+    private TaskCompletionSource _reservationCompleted =
+        NewReservationCompletion();
     private int _observedLeafCount;
 
     internal NuGetGalleryRegistrationBudget(
@@ -27,7 +31,7 @@ internal sealed class NuGetGalleryRegistrationBudget
         ArgumentOutOfRangeException.ThrowIfNegative(candidateCount);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumBytes);
         _maximumBytes = maximumBytes;
-        _remainingBytes = maximumBytes;
+        _availableBytes = maximumBytes;
         long scaledCount = (long)candidateCount * LeafCountMultiplier;
         _maximumLeafCount = (int)Math.Min(
             int.MaxValue,
@@ -61,31 +65,64 @@ internal sealed class NuGetGalleryRegistrationBudget
 
     private int ReserveBytes(int requested)
     {
-        while (true)
+        lock (_byteGate)
         {
-            long remaining = Volatile.Read(ref _remainingBytes);
-            if (remaining <= 0)
-                return 0;
-
-            int reserved = (int)Math.Min(requested, remaining);
-            if (Interlocked.CompareExchange(
-                    ref _remainingBytes,
-                    remaining - reserved,
-                    remaining) == remaining)
-            {
-                return reserved;
-            }
+            while (_availableBytes <= 0 && _outstandingBytes > 0)
+                Monitor.Wait(_byteGate);
+            return ReserveAvailableBytes(requested);
         }
     }
 
-    private void ReturnBytes(int count)
+    private async ValueTask<int> ReserveBytesAsync(
+        int requested,
+        CancellationToken cancellationToken)
     {
-        if (count > 0)
-            Interlocked.Add(ref _remainingBytes, count);
+        while (true)
+        {
+            Task reservationCompleted;
+            lock (_byteGate)
+            {
+                if (_availableBytes > 0 || _outstandingBytes == 0)
+                    return ReserveAvailableBytes(requested);
+                reservationCompleted = _reservationCompleted.Task;
+            }
+
+            await reservationCompleted.WaitAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private int ReserveAvailableBytes(int requested)
+    {
+        if (_availableBytes <= 0)
+            return 0;
+
+        int reserved = (int)Math.Min(requested, _availableBytes);
+        _availableBytes -= reserved;
+        _outstandingBytes += reserved;
+        return reserved;
+    }
+
+    private void CompleteReservation(int reserved, int delivered)
+    {
+        TaskCompletionSource reservationCompleted;
+        lock (_byteGate)
+        {
+            _outstandingBytes -= reserved;
+            _availableBytes += reserved - delivered;
+            reservationCompleted = _reservationCompleted;
+            _reservationCompleted = NewReservationCompletion();
+            Monitor.PulseAll(_byteGate);
+        }
+
+        reservationCompleted.TrySetResult();
     }
 
     private void ThrowByteLimitExceeded() =>
         throw new NuGetMetadataResponseTooLargeException(_maximumBytes);
+
+    private static TaskCompletionSource NewReservationCompletion() =>
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private sealed class BudgetedReadStream(
         Stream inner,
@@ -121,12 +158,12 @@ internal sealed class NuGetGalleryRegistrationBudget
             try
             {
                 int read = inner.Read(buffer[..reserved]);
-                budget.ReturnBytes(reserved - read);
+                budget.CompleteReservation(reserved, read);
                 return read;
             }
             catch
             {
-                budget.ReturnBytes(reserved);
+                budget.CompleteReservation(reserved, delivered: 0);
                 throw;
             }
         }
@@ -145,13 +182,14 @@ internal sealed class NuGetGalleryRegistrationBudget
             try
             {
                 int value = inner.ReadByte();
-                if (value < 0)
-                    budget.ReturnBytes(reserved);
+                budget.CompleteReservation(
+                    reserved,
+                    delivered: value < 0 ? 0 : 1);
                 return value;
             }
             catch
             {
-                budget.ReturnBytes(reserved);
+                budget.CompleteReservation(reserved, delivered: 0);
                 throw;
             }
         }
@@ -172,7 +210,9 @@ internal sealed class NuGetGalleryRegistrationBudget
             if (buffer.IsEmpty)
                 return 0;
 
-            int reserved = budget.ReserveBytes(buffer.Length);
+            int reserved = await budget.ReserveBytesAsync(
+                buffer.Length,
+                cancellationToken).ConfigureAwait(false);
             if (reserved == 0)
             {
                 int sentinel = await inner.ReadAsync(
@@ -189,12 +229,12 @@ internal sealed class NuGetGalleryRegistrationBudget
                 int read = await inner.ReadAsync(
                     buffer[..reserved],
                     cancellationToken).ConfigureAwait(false);
-                budget.ReturnBytes(reserved - read);
+                budget.CompleteReservation(reserved, read);
                 return read;
             }
             catch
             {
-                budget.ReturnBytes(reserved);
+                budget.CompleteReservation(reserved, delivered: 0);
                 throw;
             }
         }

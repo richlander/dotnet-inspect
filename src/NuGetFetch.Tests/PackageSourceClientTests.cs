@@ -1408,6 +1408,40 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
+    public async Task GalleryRegistrationReservationWaitsForReturnedCapacity()
+    {
+        var budget = new NuGetGalleryRegistrationBudget(
+            candidateCount: 1,
+            maximumBytes: 2);
+        byte[] buffer = new byte[1];
+        using Stream first = budget.LimitBytes(
+            new MemoryStream([(byte)'a']));
+        Assert.Equal(
+            1,
+            await first.ReadAsync(
+                buffer,
+                TestContext.Current.CancellationToken));
+        var blockedEof = new BlockingEofStream();
+        using Stream eof = budget.LimitBytes(blockedEof);
+        Task<int> eofRead = eof.ReadAsync(
+            buffer,
+            TestContext.Current.CancellationToken).AsTask();
+        await blockedEof.ReadStarted.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+        using Stream final = budget.LimitBytes(
+            new MemoryStream([(byte)'b']));
+        Task<int> finalRead = final.ReadAsync(
+            buffer,
+            TestContext.Current.CancellationToken).AsTask();
+        Assert.False(finalRead.IsCompleted);
+
+        blockedEof.Release.TrySetResult();
+
+        Assert.Equal(0, await eofRead);
+        Assert.Equal(1, await finalRead);
+    }
+
+    [Fact]
     public async Task GalleryRegistrationPageLimitIsTypedPartialEnumeration()
     {
         const string externalPage =
@@ -2485,6 +2519,50 @@ public sealed class PackageSourceClientTests
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             throw new InvalidOperationException("Unreachable.");
         }
+    }
+
+    private sealed class BlockingEofStream : Stream
+    {
+        public TaskCompletionSource ReadStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            ReadStarted.TrySetResult();
+            await Release.Task.WaitAsync(cancellationToken);
+            return 0;
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+        public override void Flush() =>
+            throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
     }
 
     private sealed class ConcurrentRegistrationHandler : HttpMessageHandler
