@@ -4163,13 +4163,34 @@ public class LibraryBodyIndexTests
             call => call.Callee.Name == "Read");
     }
 
+    [Fact]
+    public void
+        LiftedOwners_RejectForgedStateMachineExecutionMethod()
+    {
+        byte[] image =
+            BuildMalformedAsyncSourceAssembly(
+                forgedStateMachineOwnerEvidence: true);
+        var index = LibraryBodyIndex.OpenFromPrefetchedImage(
+            "ForgedStateMachineOwner.dll",
+            [.. image],
+            LibraryBodyAnalysisFeatures.Default);
+        MethodIdentity lifted = Assert.Single(
+            index.Methods,
+            method => method.Name
+                == "<AnalyzeAsync>g__Local|0_0");
+
+        Assert.Null(index.ResolveDeclaredMethod(lifted));
+    }
+
     [Theory]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(false, false, true)]
     public void
         OptimizationOpportunities_ScopedUnauthenticatedAsyncSourceFailsClosed(
             bool malformedAnalyzeSignature,
-            bool duplicateAnalyzeAttribute)
+            bool duplicateAnalyzeAttribute,
+            bool malformedAnalyzeConstructor)
     {
         byte[] image =
             BuildMalformedAsyncSourceAssembly(
@@ -4177,7 +4198,9 @@ public class LibraryBodyIndexTests
                 malformedAnalyzeSignature:
                     malformedAnalyzeSignature,
                 duplicateAnalyzeAttribute:
-                    duplicateAnalyzeAttribute);
+                    duplicateAnalyzeAttribute,
+                malformedAnalyzeConstructor:
+                    malformedAnalyzeConstructor);
         string path = Path.Combine(
             Path.GetTempPath(),
             $"SkippedAsyncOwner-{Guid.NewGuid():N}.dll");
@@ -4225,7 +4248,9 @@ public class LibraryBodyIndexTests
         bool moveNextSmallArray = false,
         bool unresolvedLiftedSource = false,
         bool malformedAnalyzeSignature = false,
-        bool duplicateAnalyzeAttribute = false)
+        bool duplicateAnalyzeAttribute = false,
+        bool malformedAnalyzeConstructor = false,
+        bool forgedStateMachineOwnerEvidence = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -4279,6 +4304,11 @@ public class LibraryBodyIndexTests
                 systemRuntime,
                 metadata.GetOrAddString("System"),
                 metadata.GetOrAddString("Type"));
+        TypeReferenceHandle systemString =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("String"));
         TypeReferenceHandle task =
             metadata.AddTypeReference(
                 systemRuntime,
@@ -4395,7 +4425,9 @@ public class LibraryBodyIndexTests
                     | MethodAttributes.Static,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString(
-                    "CompetingAsync"),
+                    forgedStateMachineOwnerEvidence
+                        ? "<AnalyzeAsync>g__Local|0_0"
+                        : "CompetingAsync"),
                 taskSignature,
                 AddRetBody(bodyEncoder),
                 MetadataTokens.ParameterHandle(1));
@@ -4445,7 +4477,11 @@ public class LibraryBodyIndexTests
                 (byte)ILOpCode.Pop);
         }
         moveNextIl.WriteByte((byte)ILOpCode.Call);
-        moveNextIl.WriteInt32(MetadataTokens.GetToken(read));
+        moveNextIl.WriteInt32(
+            MetadataTokens.GetToken(
+                forgedStateMachineOwnerEvidence
+                    ? competing
+                    : read));
         moveNextIl.WriteByte((byte)ILOpCode.Ret);
         int moveNextBody = bodyEncoder.AddMethodBody(
             new InstructionEncoder(moveNextIl),
@@ -4453,11 +4489,21 @@ public class LibraryBodyIndexTests
         MethodDefinitionHandle moveNext =
             metadata.AddMethodDefinition(
             MethodAttributes.Public
-                | MethodAttributes.Virtual,
+                | (forgedStateMachineOwnerEvidence
+                    ? MethodAttributes.Static
+                    : MethodAttributes.Virtual),
             MethodImplAttributes.IL,
             metadata.GetOrAddString("MoveNext"),
             metadata.GetOrAddBlob(
-                new byte[] { 0x20, 0x00, 0x01 }),
+                forgedStateMachineOwnerEvidence
+                    ? new byte[]
+                    {
+                        0x00, 0x01, 0x01, 0x08,
+                    }
+                    : new byte[]
+                    {
+                        0x20, 0x00, 0x01,
+                    }),
             moveNextBody,
             MetadataTokens.ParameterHandle(1));
         metadata.AddMethodDefinition(
@@ -4515,6 +4561,20 @@ public class LibraryBodyIndexTests
                         (byte)CodedIndex.TypeDefOrRefOrSpec(
                             systemType),
                     }));
+        MemberReferenceHandle malformedAttributeConstructor =
+            metadata.AddMemberReference(
+                asyncStateMachineAttribute,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(
+                    new byte[]
+                    {
+                        0x20,
+                        0x01,
+                        0x01,
+                        0x12,
+                        (byte)CodedIndex.TypeDefOrRefOrSpec(
+                            systemString),
+                    }));
         AddAsyncStateMachineAttribute(
             metadata,
             broken,
@@ -4551,7 +4611,9 @@ public class LibraryBodyIndexTests
         AddAsyncStateMachineAttribute(
             metadata,
             analyze,
-            attributeConstructor,
+            malformedAnalyzeConstructor
+                ? malformedAttributeConstructor
+                : attributeConstructor,
             "Sample.Source+<AnalyzeAsync>d__1, MalformedAsyncSource");
         if (duplicateAnalyzeAttribute)
         {
@@ -10532,6 +10594,22 @@ public class LibraryBodyIndexTests
                     .ToQualifiedDisplayString()
                     .Contains(
                         "ScopedIteratorAsyncLocalAllocationOwner",
+                        StringComparison.Ordinal));
+        Assert.Contains(
+            full.AllocationFanoutOpportunities,
+            opportunity => opportunity.Method.Name == "MoveNext"
+                && opportunity.Method.DeclaringType
+                    .ToQualifiedDisplayString()
+                    .Contains(
+                        "ScopedIndirectAsyncLocalAllocationOwner",
+                        StringComparison.Ordinal));
+        Assert.Contains(
+            full.AllocationFanoutOpportunities,
+            opportunity => opportunity.Method.Name == "MoveNext"
+                && opportunity.Method.DeclaringType
+                    .ToQualifiedDisplayString()
+                    .Contains(
+                        "ScopedNestedAsyncLocalAllocationOwner",
                         StringComparison.Ordinal));
         Assert.Equal(
             full.AllocationFanoutOpportunities,

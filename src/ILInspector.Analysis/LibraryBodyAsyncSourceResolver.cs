@@ -681,28 +681,26 @@ internal sealed class LibraryBodyAsyncSourceResolver
             {
                 continue;
             }
-            if (!HasAsyncStateMachineConstructorShape(
-                    constructor))
-            {
-                sawAttribute = true;
-                rejected = true;
-                continue;
-            }
-
             if (sawAttribute)
                 rejected = true;
             sawAttribute = true;
 
-            if (TryReadSerializedStateMachineType(
+            bool decoded =
+                TryReadSerializedStateMachineType(
                     attribute,
-                    out string? typeName))
+                    out string? typeName);
+            if (decoded
+                && typeName is not null
+                && IsCurrentAssemblyStateMachineType(typeName))
             {
-                if (IsCurrentAssemblyStateMachineType(typeName))
-                    claimedTypes.Add(typeName);
-                continue;
+                claimedTypes.Add(typeName);
             }
-
-            rejected = true;
+            if (!decoded
+                || !HasAsyncStateMachineConstructorShape(
+                    constructor))
+            {
+                rejected = true;
+            }
         }
         ImmutableArray<string> claims =
             claimedTypes.ToImmutable();

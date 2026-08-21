@@ -130,6 +130,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 peReader,
                 _primaryMetadataResolver,
                 _methodReferenceResolver,
+                TypeFromEntity,
                 methodBodyReferenceIndexed,
                 typeDefinitionIndexBuilt);
         _asyncSourceResolver =
