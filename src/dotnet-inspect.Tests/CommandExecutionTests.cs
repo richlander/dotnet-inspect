@@ -9660,6 +9660,48 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_PreResolvedDocumentJson_IgnoresStaleMemberInfoSelector()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                TypeName = typeof(MemberCallsFixture).FullName!,
+                AssemblyPath = TestAssemblyPath,
+                MemberFilter = [nameof(MemberCallsFixture.Overloaded)],
+                OverloadIndex = 1,
+                Select = [SectionNames.MemberInfo],
+                IncludeSections = [SectionNames.Signature],
+                JsonOutput = true,
+                TipLevel = TipLevel.Quiet
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var _ = JsonDocument.Parse(result.Output);
+    }
+
+    [Fact]
+    public async Task Member_PreResolvedMemberInfoDocumentJson_IgnoresStaleSelector()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                TypeName = typeof(MemberCallsFixture).FullName!,
+                AssemblyPath = TestAssemblyPath,
+                Select = [SectionNames.Signature],
+                IncludeSections = [SectionNames.MemberInfo],
+                JsonOutput = true,
+                TipLevel = TipLevel.Quiet
+            }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"section '{SectionNames.MemberInfo}' cannot be represented by whole-document --json.",
+            result.Error);
+    }
+
+    [Fact]
     public async Task Member_DottedStructuralSchema_IncludesBroadMemberInfo()
     {
         var (exit, output, error) = await RunAppAsync(

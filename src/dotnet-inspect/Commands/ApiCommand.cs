@@ -4373,14 +4373,19 @@ public class ApiCommand
     private static bool HasUnsupportedMemberInfoDocumentJsonSelection(
         ApiOptions options)
     {
+        if (options is MemberOptions
+            {
+                MemberSectionsPreResolved: true,
+                IncludeSections: { } authoritativeSections
+            })
+        {
+            return authoritativeSections.Contains(SectionNames.MemberInfo);
+        }
+
         if (options.IncludeSections is { } sections
             && sections.Contains(SectionNames.MemberInfo))
         {
             return sections.Count == 1
-                   || options is MemberOptions
-                   {
-                       MemberSectionsPreResolved: true
-                   }
                    || HasExactMemberInfoSelector(options);
         }
 
