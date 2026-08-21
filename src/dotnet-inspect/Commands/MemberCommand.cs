@@ -32,10 +32,18 @@ public static class MemberCommand
             return 1;
         }
 
+        if (options.IncludeSections is not null)
+            options = options with { MemberSectionsPreResolved = true };
+
         if (ApiCommand.RejectUniversallyInvalidMemberSelect(options))
             return 1;
         if (ApiCommand.RejectRouteIndependentOptionShape(options))
             return 1;
+        if (ApiCommand.RejectUnsupportedCallerDocumentJson(options)
+            || ApiCommand.RejectUnsupportedAnnotatedSourceDocumentJson(options))
+        {
+            return 1;
+        }
 
         var unresolvedOptions = options;
         if (!options.RouterDeferredTypeOrMember)
@@ -44,8 +52,11 @@ public static class MemberCommand
             var (preamble, error) = ApiCommand.RunPreamble(options);
             if (error.HasValue) return error.Value;
             options = (MemberOptions)preamble.Options;
-            if (ApiCommand.RejectUnsupportedCallerDocumentJson(options))
+            if (ApiCommand.RejectUnsupportedCallerDocumentJson(options)
+                || ApiCommand.RejectUnsupportedAnnotatedSourceDocumentJson(options))
+            {
                 return 1;
+            }
         }
         else if (options.Discover != null
                  && !options.EffectiveDiscovery)
@@ -213,8 +224,11 @@ public static class MemberCommand
                     PackageRangeAddress = null,
                     ProjectAssetsPath = projectAssetsPath,
                 };
-                if (ApiCommand.RejectUnsupportedCallerDocumentJson(options))
+                if (ApiCommand.RejectUnsupportedCallerDocumentJson(options)
+                    || ApiCommand.RejectUnsupportedAnnotatedSourceDocumentJson(options))
+                {
                     return 1;
+                }
             }
             var memberPipeline = ApiMemberSectionPipelines.Create(options);
 
@@ -256,8 +270,11 @@ public static class MemberCommand
             else
                 return 1;
 
-            if (ApiCommand.RejectUnsupportedCallerDocumentJson(options))
+            if (ApiCommand.RejectUnsupportedCallerDocumentJson(options)
+                || ApiCommand.RejectUnsupportedAnnotatedSourceDocumentJson(options))
+            {
                 return 1;
+            }
 
             if (options.BodyKindQuery.HasFilter
                 && options.IncludeSections is null

@@ -15633,6 +15633,30 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_DeferredCallerDocumentJsonFailsBeforeSourceAcquisition()
+    {
+        string missingAssembly = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+        var (exit, output, error) = await RunAppAsync(
+            "System.Collections.Generic.List<>.Add",
+            "--library",
+            missingAssembly,
+            "-S",
+            SectionNames.Callers,
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Document --json cannot represent {SectionNames.Callers} analysis.",
+            error);
+        Assert.DoesNotContain("File not found", error);
+    }
+
+    [Fact]
     public async Task Member_SelectedDocumentJsonDoesNotAcquireImplicitCallerScope()
     {
         var missingDirectory = Path.Combine(
@@ -16099,6 +16123,23 @@ public partial class CommandExecutionTests
         using var document = JsonDocument.Parse(output);
         Assert.True(document.RootElement.TryGetProperty("text", out _));
         Assert.False(document.RootElement.TryGetProperty("namespace", out _));
+    }
+
+    [Fact]
+    public async Task Member_AnnotatedSourceDocumentJson_RejectsBeforeCallerScopeAcquisition()
+    {
+        string missingDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}");
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1", "-S", SectionNames.AnnotatedSourceDocument, "--json",
+            "--bin", missingDirectory, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("must be the only selected section under --json", error);
+        Assert.DoesNotContain("Directory not found", error);
     }
 
     [Fact]

@@ -2665,12 +2665,8 @@ public class ApiCommand
     {
         var sink = output ?? Console.Out;
 
-        if (IsInvalidAnnotatedSourceDocumentJsonSelection(options))
-        {
-            CommandError.Write(
-                $"section '{SectionNames.AnnotatedSourceDocument}' must be the only selected section under --json.");
+        if (RejectUnsupportedAnnotatedSourceDocumentJson(options))
             return 1;
-        }
 
         if (RejectUnsupportedCallerDocumentJson(options))
             return 1;
@@ -4173,9 +4169,11 @@ public class ApiCommand
         => options.JsonOutput
            && !options.Count
            && !IsProjectionRequested(options)
-           && options.IncludeSections is { Count: 1 } sections
-           && sections.Contains(SectionNames.AnnotatedSourceDocument)
-           && HasOnlyExplicitAnnotatedSourceDocumentSelectors(options);
+           && (options.IncludeSections is { Count: 1 } sections
+               && sections.Contains(SectionNames.AnnotatedSourceDocument)
+               && HasOnlyExplicitAnnotatedSourceDocumentSelectors(options)
+               || options.IncludeSections is null
+               && HasOnlyExplicitAnnotatedSourceDocumentSelectors(options));
 
     private static bool IsInvalidAnnotatedSourceDocumentJsonSelection(ApiOptions options)
         => options.JsonOutput
@@ -4186,6 +4184,21 @@ public class ApiCommand
            && HasExplicitAnnotatedSourceDocumentSelector(options)
            && (sections.Count != 1
                || !HasOnlyExplicitAnnotatedSourceDocumentSelectors(options));
+
+    internal static bool RejectUnsupportedAnnotatedSourceDocumentJson(
+        ApiOptions options)
+    {
+        if (!IsInvalidAnnotatedSourceDocumentJsonSelection(options)
+            && !(options is MemberOptions { HasCallerScope: true }
+                 && IsAnnotatedSourceDocumentJson(options)))
+        {
+            return false;
+        }
+
+        CommandError.Write(
+            $"section '{SectionNames.AnnotatedSourceDocument}' must be the only selected section under --json.");
+        return true;
+    }
 
     private static bool HasOnlyExplicitAnnotatedSourceDocumentSelectors(ApiOptions options)
         => options is MemberOptions { MemberSectionsPreResolved: true }
