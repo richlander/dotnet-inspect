@@ -1678,6 +1678,34 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task DependencyRangeFailsClosedWhenGalleryRegistrationTimesOut()
+    {
+        var handler = new StallingGalleryRegistrationHandler();
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(
+                handler,
+                new NuGetFetchOptions
+                {
+                    RequestTimeout = TimeSpan.FromMilliseconds(100),
+                    OperationTimeout = TimeSpan.FromMilliseconds(100),
+                });
+
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => BrowserPackageWorkspace.ResolveDependencyVersionAsync(
+                    "contoso",
+                    "[1.0.0,2.0.0)",
+                    source,
+                    TimeSpan.FromSeconds(2)));
+
+        Assert.Contains(
+            "authoritative Gallery listing state is unavailable",
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(2, handler.Requests);
+    }
+
+    [Fact]
     public void BrowserGalleryDeadlineLeavesTimeForPartialRegistration()
     {
         Assert.Equal(
