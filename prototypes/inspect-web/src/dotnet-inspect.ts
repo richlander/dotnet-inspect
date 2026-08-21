@@ -67,6 +67,10 @@ import {
   type WorkspaceView,
 } from "./workspace-navigation.ts";
 import {
+  createPackageAcquisition,
+  type AppPackage,
+} from "./package-acquisition.ts";
+import {
   captureMemberFocus,
   createMemberFocusRestorer,
   type MemberFocusSnapshot,
@@ -133,9 +137,7 @@ import {
 } from "./spotlight.ts";
 import { fmtBytes, statusBarHtml } from "./status-bar.ts";
 import type {
-  BrowserAccessibilityDescriptor,
   BrowserAnnotatedSource,
-  BrowserAssemblySurface,
   BrowserAssemblyReference,
   BrowserBuildIdentity,
   BrowserCallGraph,
@@ -338,30 +340,6 @@ function loadPlatformRecent() {
 }
 
 type RetryAction = (() => unknown) | null;
-
-interface AppPackage {
-  id: string;
-  version: string;
-  frameworks: string[];
-  activeFramework: string;
-  assembly: string;
-  assemblyId: string;
-  assemblyAsset: string;
-  source:
-    | { kind: "file" }
-    | { kind: "nuget.org" }
-    | { kind: "feed"; host: string }
-    | { kind: "platform" }
-    | { kind: "unknown" };
-  assemblies: BrowserAssemblySurface[];
-  types: BrowserTypeSurface[];
-  accessibility: BrowserAccessibilityDescriptor[];
-  totalTypes: number;
-  totalMembers: number;
-  documents: BrowserPackageDocument[];
-  inspectionError?: string;
-  isRuntimePack: boolean;
-}
 
 interface SpotlightCache {
   signature: string;
@@ -7665,40 +7643,16 @@ async function loadPackage(
   }
 
   try {
-    const result = await inspectPackage(packageId, version, framework);
-    if (navigationSeq != null && !navigationSequence.isCurrent(navigationSeq))
-      return null;
-    refreshPackageStats();
-    const types = (result.types ?? []).map(type => ({
-      ...type,
-      api: type.api ?? []
-    }));
-    const defaultAssembly = (result.assemblies ?? [])
-      .find(assembly => assembly.id === result.defaultAssemblyId);
-    if (!defaultAssembly) {
-      throw new Error("The package query did not return its selected assembly descriptor.");
-    }
-    const packageModel: AppPackage = {
-      id: result.package,
-      version: result.version,
-      frameworks: result.frameworks ?? [],
-      activeFramework: result.activeFramework,
-      assembly: defaultAssembly.name,
-      assemblyId: defaultAssembly.id,
-      assemblyAsset: defaultAssembly.asset,
-      source: { kind: "nuget.org" },
-      assemblies: result.assemblies ?? [],
-      types,
-      accessibility: result.accessibility ?? [],
-      totalTypes: (result.assemblies ?? [])
-        .reduce((count, assembly) => count + (assembly.publicTypes ?? 0), 0),
-      totalMembers: result.totalMembers,
-      documents: result.documents ?? [],
-      inspectionError: result.inspectionError || "",
-      isRuntimePack: false,
-    };
-    retainPackageModel(packageModel, options.replacePackage);
-    recordRecentPackage(packageModel.id, packageModel.version, packageModel.activeFramework);
+    const packageModel = await packageAcquisition.loadPackage({
+      packageId,
+      version,
+      framework,
+      replacePackage: options.replacePackage,
+      isCurrent: navigationSeq == null
+        ? undefined
+        : () => navigationSequence.isCurrent(navigationSeq),
+    });
+    if (!packageModel) return null;
     if (background) return packageModel;
     activatePackage(packageModel, { resetAccessibility: true });
     state.typeFilter = "";
@@ -7859,169 +7813,47 @@ function isRuntimePackId(id: string | null | undefined) {
   return String(id || "").toLowerCase() === "microsoft.netcore.app";
 }
 
-// Loads the platform runtime pack (System.Private.CoreLib for the given TFM) and adds it as
-// a resident pseudo-package flagged isRuntimePack, so its BCL types become searchable in
-// Spotlight and browsable/navigable like any package. SPC is fetched eagerly; sibling pack
-// assemblies load lazily as navigation reaches them. Does not switch the active package.
-let runtimePackLoadPromise: Promise<AppPackage | null> | null = null;
-
-async function waitForRuntimePackLoad() {
-  while (runtimePackLoadPromise) {
-    const pending = runtimePackLoadPromise;
-    try { await pending; } catch {}
-  }
-}
+const packageAcquisition = createPackageAcquisition({
+  queryPackage: (packageId, version, framework) =>
+    inspectPackage(packageId, version, framework),
+  loadRuntimePack: framework => inspectLoadRuntimePack(framework),
+  loadRuntimePackAssembly: (framework, assemblyFileName, pack) =>
+    inspectLoadRuntimePackAssembly(framework, assemblyFileName, pack),
+  parseRuntimeSurface: json => parseEngineJson<BrowserPackageSurface>(json),
+  runtimePackage: runtimePackPackage,
+  retainPackage: retainPackageModel,
+  recordRecentPackage,
+  refreshPackageStats,
+  beginRuntimeLoad() {
+    state.runtimePackLoading = true;
+    state.runtimePackError = "";
+  },
+  failRuntimeLoad(error) {
+    state.runtimePackError = errorMessage(error);
+  },
+  endRuntimeLoad() {
+    state.runtimePackLoading = false;
+  },
+});
 
 async function loadRuntimePack(
   framework: string,
   isCurrent: () => boolean = () => true,
 ): Promise<AppPackage | null> {
-  if (runtimePackLoadPromise) await waitForRuntimePackLoad();
-  if (!isCurrent()) return null;
-  const requestedFramework = framework || "";
-  const existing = runtimePackPackage();
-  if (existing
-    && (!requestedFramework
-      || existing.activeFramework.toLowerCase() === requestedFramework.toLowerCase())) {
-    return existing;
-  }
-
-  state.runtimePackLoading = true;
-  state.runtimePackError = "";
-  const operation = (async () => {
-    const result = parseEngineJson<BrowserPackageSurface>(
-      await inspectLoadRuntimePack(requestedFramework));
-    if (!isCurrent()) return null;
-    refreshPackageStats();
-    const types = (result.types ?? []).map(type => ({ ...type, api: type.api ?? [] }));
-    const defaultAssembly = (result.assemblies ?? [])
-      .find(assembly => assembly.id === result.defaultAssemblyId);
-    if (!defaultAssembly) {
-      throw new Error("The platform query did not return its selected assembly descriptor.");
-    }
-    const packageModel: AppPackage = {
-      id: result.package,
-      version: result.version,
-      frameworks: result.frameworks ?? [],
-      activeFramework: result.activeFramework,
-      assembly: defaultAssembly.name,
-      assemblyId: defaultAssembly.id,
-      assemblyAsset: defaultAssembly.asset,
-      source: { kind: "platform" },
-      assemblies: result.assemblies ?? [],
-      types,
-      accessibility: result.accessibility ?? [],
-      totalTypes: types.length,
-      totalMembers: result.totalMembers,
-      documents: result.documents ?? [],
-      isRuntimePack: true
-    };
-    retainPackageModel(packageModel, existing);
-    return packageModel;
-  })();
-  runtimePackLoadPromise = operation;
-  try {
-    return await operation;
-  } catch (error) {
-    state.runtimePackError = errorMessage(error);
-    return null;
-  } finally {
-    if (runtimePackLoadPromise === operation)
-      runtimePackLoadPromise = null;
-    state.runtimePackLoading = false;
-  }
+  return packageAcquisition.loadRuntimePack(framework, isCurrent);
 }
 
-// Loads ONE named runtime-pack assembly (e.g. System.Text.Json.dll from CoreCLR, or
-// Microsoft.AspNetCore.Routing.dll from the ASP.NET Core shared framework) and folds its
-// type surface into the resident runtime pseudo-package, creating that package if it is not
-// resident yet. `pack` names the shared framework (netcore.app | aspnetcore.app), threaded
-// through so per-type/member queries later route to the right pack. This backs index-first
-// Platform drill-in: the Platform scope roster comes from the static index with no download,
-// and picking a library fetches just that assembly here. Types/assemblies are merged (deduped
-// by id/name) so the runtime pack accumulates the libraries the user visits.
 async function loadRuntimePackAssembly(
   framework: string,
   assemblyFileName: string,
   pack: string,
   isCurrent: () => boolean = () => true,
 ): Promise<AppPackage | null> {
-  if (runtimePackLoadPromise) await waitForRuntimePackLoad();
-  if (!isCurrent()) return null;
-  const requestedFramework = framework || "";
-  const resident = runtimePackPackage();
-  if (resident
-    && (!requestedFramework
-      || resident.activeFramework.toLowerCase() === requestedFramework.toLowerCase())
-    && (resident.assemblies || []).some(assembly =>
-      assembly.name.toLowerCase() === String(assemblyFileName).toLowerCase())) {
-    return resident;
-  }
-
-  state.runtimePackLoading = true;
-  state.runtimePackError = "";
-  const operation = (async () => {
-    const result = parseEngineJson<BrowserPackageSurface>(
-      await inspectLoadRuntimePackAssembly(
-        requestedFramework,
-        assemblyFileName,
-        pack || ""));
-    if (!isCurrent()) return null;
-    refreshPackageStats();
-    const newTypes = (result.types ?? []).map(type => ({ ...type, api: type.api ?? [] }));
-    const existing = runtimePackPackage();
-    if (existing
-      && (!requestedFramework
-        || existing.activeFramework.toLowerCase() === requestedFramework.toLowerCase())) {
-      const seenTypes = new Set(existing.types.map(type => type.id));
-      for (const type of newTypes) if (!seenTypes.has(type.id)) existing.types.push(type);
-      const seenAsm = new Set((existing.assemblies || []).map(item => item.name));
-      for (const asm of (result.assemblies ?? [])) if (!seenAsm.has(asm.name)) existing.assemblies.push(asm);
-      const descriptors = new Map(
-        (existing.accessibility || []).map(descriptor => [descriptor.id, descriptor]));
-      for (const descriptor of (result.accessibility ?? [])) {
-        const current = descriptors.get(descriptor.id);
-        descriptors.set(descriptor.id, current
-          ? { ...current, count: current.count + descriptor.count }
-          : descriptor);
-      }
-      existing.accessibility = [...descriptors.values()]
-        .sort((left, right) => left.order - right.order);
-      existing.totalTypes = existing.types.length;
-      existing.totalMembers = (existing.totalMembers || 0) + (result.totalMembers || 0);
-      return existing;
-    }
-    const packageModel: AppPackage = {
-      id: result.package,
-      version: result.version,
-      frameworks: result.frameworks ?? [],
-      activeFramework: result.activeFramework,
-      assembly: result.assemblies[0].name,
-      assemblyId: result.defaultAssemblyId,
-      assemblyAsset: result.assemblies[0].asset,
-      source: { kind: "platform" },
-      assemblies: result.assemblies ?? [],
-      types: newTypes,
-      accessibility: result.accessibility ?? [],
-      totalTypes: newTypes.length,
-      totalMembers: result.totalMembers,
-      documents: result.documents ?? [],
-      isRuntimePack: true
-    };
-    retainPackageModel(packageModel, existing);
-    return packageModel;
-  })();
-  runtimePackLoadPromise = operation;
-  try {
-    return await operation;
-  } catch (error) {
-    state.runtimePackError = errorMessage(error);
-    return null;
-  } finally {
-    if (runtimePackLoadPromise === operation)
-      runtimePackLoadPromise = null;
-    state.runtimePackLoading = false;
-  }
+  return packageAcquisition.loadRuntimePackAssembly(
+    framework,
+    assemblyFileName,
+    pack,
+    isCurrent);
 }
 
 async function runCallGraphDemo() {

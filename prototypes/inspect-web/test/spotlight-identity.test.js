@@ -162,6 +162,9 @@ const appSource = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.u
 const workspaceNavigationSource = readFileSync(
   new URL("../src/workspace-navigation.ts", import.meta.url),
   "utf8");
+const packageAcquisitionSource = readFileSync(
+  new URL("../src/package-acquisition.ts", import.meta.url),
+  "utf8");
 const memberFocusSource = readFileSync(
   new URL("../src/member-focus.ts", import.meta.url),
   "utf8");
@@ -215,8 +218,16 @@ test("typed Spotlight owns search presentation and hosts commands", () => {
 
 test("workspace data bar receives package acquisition provenance", () => {
   assert.match(appSource, /source: pkg\.source/);
-  assert.match(appSource, /source: \{ kind: "nuget\.org" \}/);
-  assert.match(appSource, /source: \{ kind: "platform" \}/);
+  assert.match(
+    appSource,
+    /createPackageAcquisition\(\{[\s\S]*queryPackage:[\s\S]*loadRuntimePack:[\s\S]*loadRuntimePackAssembly:/);
+  assert.match(appSource, /packageAcquisition\.loadPackage\(\{/);
+  assert.match(appSource, /packageAcquisition\.loadRuntimePack\(/);
+  assert.match(appSource, /packageAcquisition\.loadRuntimePackAssembly\(/);
+  assert.doesNotMatch(appSource, /runtimePackLoadPromise|waitForRuntimePackLoad/);
+  assert.match(packageAcquisitionSource, /source: \{ kind: "nuget\.org" \}/);
+  assert.match(packageAcquisitionSource, /source: \{ kind: "platform" \}/);
+  assert.doesNotMatch(appSource, /source: \{ kind: "(?:nuget\.org|platform)" \}/);
   assert.match(statusBarSource, /Source: \$\{escapeHtml\(packageSourceLabel\(model\.source\)\)\}/);
 });
 

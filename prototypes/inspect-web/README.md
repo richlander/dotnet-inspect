@@ -537,11 +537,22 @@ stale-entry removal, navigation cancellation, rich and legacy URL
 compatibility, visible invalid-state failures, and sandboxed history errors;
 `test/spotlight-identity.test.js` gates the composition-root wiring.
 
+`src/package-acquisition.ts` owns NuGet and runtime-pack engine invocation,
+surface-to-workspace-model projection, serialized runtime-pack loading, and
+stale-result checks at the publication boundary. `dotnet-inspect.ts` supplies
+the engine and state ports and retains mutable loading/error state, package
+activation, workspace restoration, notices, retries, and rendering.
+`test/package-acquisition.test.ts` gates package projection, publication
+ordering, runtime request serialization and merging, cancellation after queued
+or in-flight work, retry after failure, and resident-pack reuse;
+`test/spotlight-identity.test.js` gates provenance and composition-root wiring.
+
 `src/spotlight.ts` owns the modal workbench search, embedded home search,
 scope/result rendering, selection, and keyboard interaction.
 `src/command-bar.ts` supplies its typed Commands-scope grammar and results;
-`dotnet-inspect.ts` retains package queries, network acquisition, and command
-effects so the components do not acquire engine or workspace authority.
+`dotnet-inspect.ts` retains command effects and delegates package/network work
+to the acquisition owner so the components do not acquire engine or workspace
+authority.
 `test/spotlight.test.js` and `test/command-bar.test.ts` gate both presentation
 modes, scope ownership, completion and replacement behavior, bounded results,
 command metadata, and escaping.
