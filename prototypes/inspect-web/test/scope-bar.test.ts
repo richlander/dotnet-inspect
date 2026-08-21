@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { renderScopeBar } from "../src/scope-bar.ts";
 
-function escapeHtml(value) {
+function escapeHtml(value: unknown) {
   return String(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -14,7 +14,7 @@ const typeLenses = [
   ["api", "API"],
   ["metadata", "Metadata"],
   ["source", "Source"],
-];
+] as const;
 
 test("package scope marks only the package segment and the active package lens", () => {
   const html = renderScopeBar({
