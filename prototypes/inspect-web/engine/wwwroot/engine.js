@@ -1,5 +1,3 @@
-import { initializeEngine as initializeGeneratedEngine } from "./inspect-web-engine.js";
-
 let queryPackage;
 let queryPackageVersions;
 let resolvePackageDependencyVersion;
@@ -32,15 +30,18 @@ let queryMemberDocumentation;
 let queryMemberFacts;
 let searchTypes;
 let listVocabulary;
+let buildIdentity;
+let packageCacheStats;
 
-// initializeGeneratedEngine (from the tsbindgen-generated inspect-web-engine.js) owns the single
-// dotnet.create() / getAssemblyExports() bootstrap and ConfigureHost call; this shim reuses its
-// returned exports instead of starting a second wasm runtime instance. buildIdentity and
-// packageCacheStats have already moved to the generated module's own typed wrappers — see
-// status-bar.ts's import of inspect-web-engine.js — so they're no longer captured here.
+// The generated module owns the single dotnet.create() / getAssemblyExports() bootstrap and
+// ConfigureHost call. Import it only when initialization begins so a bare home page can paint
+// before the runtime graph starts downloading.
 export async function initializeEngine(onStatus = () => {}) {
   onStatus("Loading .NET 11 WebAssembly…");
-  const exports = await initializeGeneratedEngine(onStatus);
+  const generated = await import("./inspect-web-engine.js");
+  const exports = await generated.initializeEngine(onStatus);
+  buildIdentity = generated.buildIdentity;
+  packageCacheStats = generated.packageCacheStats;
   queryPackage = exports.InspectionEngine.QueryPackage;
   queryPackageVersions = exports.InspectionEngine.QueryPackageVersions;
   resolvePackageDependencyVersion = exports.InspectionEngine.ResolvePackageDependencyVersion;
@@ -74,6 +75,16 @@ export async function initializeEngine(onStatus = () => {}) {
   searchTypes = exports.InspectionEngine.SearchTypes;
   listVocabulary = exports.InspectionEngine.ListVocabulary;
   onStatus("Reading package assemblies…");
+}
+
+export function inspectBuildIdentity() {
+  if (!buildIdentity) throw new Error("The browser inspection engine is not initialized.");
+  return buildIdentity();
+}
+
+export function inspectPackageCacheStats() {
+  if (!packageCacheStats) throw new Error("The browser inspection engine is not initialized.");
+  return packageCacheStats();
 }
 
 export async function inspectPackage(packageId, version, framework) {

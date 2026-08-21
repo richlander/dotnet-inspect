@@ -114,7 +114,18 @@ public static class TsBindGenCommand
             if (emitJsPath is not null)
             {
                 string generatedJs = JsEmitter.Emit(jsExportSurface);
-                File.WriteAllText(emitJsPath, generatedJs);
+                try
+                {
+                    File.WriteAllText(emitJsPath, generatedJs);
+                }
+                catch (Exception ex) when (
+                    ex is IOException or UnauthorizedAccessException
+                        or ArgumentException or NotSupportedException)
+                {
+                    stderr.WriteLine(
+                        $"tsbindgen: could not write JavaScript module to '{emitJsPath}': {ex.Message}");
+                    return 1;
+                }
             }
 
             if (diffAgainst is null)

@@ -145,6 +145,28 @@ public sealed class TsBindGenCommandTests
     }
 
     [Fact]
+    public void Invoke_WithInvalidEmitJsPath_ReturnsOneAndReportsError()
+    {
+        string missingDirectory = Path.Combine(
+            AppContext.BaseDirectory,
+            "missing-tsbindgen-output-directory",
+            "generated.js");
+        var output = new StringWriter();
+        var error = new StringWriter();
+
+        int exitCode = TsBindGenCommand.Invoke(
+            [FixtureAssemblyPath, "--emit-js", missingDirectory],
+            output,
+            error);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains(
+            $"could not write JavaScript module to '{missingDirectory}'",
+            error.ToString(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Invoke_WithMalformedAssembly_ReturnsOneAndReportsErrorInsteadOfCrashing()
     {
         string notAnAssembly = Path.Combine(AppContext.BaseDirectory, "tsbindgen-not-an-assembly.txt");

@@ -144,6 +144,60 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
+    public void JsEmitter_UsesTheDeclarationEmittersReturnShapeClassification()
+    {
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Functions =
+            [
+                new()
+                {
+                    DeclaringType = "FixtureExports",
+                    Name = "GetTaskInfo",
+                    ReturnType = "TaskInfo",
+                },
+                new()
+                {
+                    DeclaringType = "FixtureExports",
+                    Name = "Ping",
+                    ReturnType = "void",
+                    ReturnWireType = "WidgetDto",
+                },
+                new()
+                {
+                    DeclaringType = "FixtureExports",
+                    Name = "QueryWidget",
+                    ReturnType = "System.Threading.Tasks.Task<string>",
+                    ReturnWireType = "WidgetDto",
+                },
+            ],
+        };
+
+        string js = JsEmitter.Emit(surface);
+
+        Assert.Contains(
+            "export function getTaskInfo()",
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function ping()",
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "return pingExport();",
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export async function queryWidget()",
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "const result = await queryWidgetExport();\n  return JSON.parse(result);",
+            js,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Emit_WithWireContracts_DoesNotGuessParameterAttributionWithMultipleStringParams()
     {
         string dts = EmitFixtureDtsWithWireContracts();

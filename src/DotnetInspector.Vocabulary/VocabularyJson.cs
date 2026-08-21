@@ -34,19 +34,13 @@ public sealed record VocabularyWireDocument(
 
 /// <summary>
 /// The <see cref="JsonSerializerContext"/> for <see cref="VocabularyJson"/>'s NativeAOT-safe,
-/// reflection-free serialization of <see cref="VocabularyWireDocument"/>. Property names are
-/// pinned per-member via <see cref="JsonPropertyNameAttribute"/> above (not a naming policy), so
-/// this context — and any other <c>JsonSerializerContext</c> that also lists
-/// <see cref="VocabularyWireDocument"/>, such as a consuming assembly's own exported-surface
-/// context — serializes the identical wire shape regardless of its own naming policy.
+/// reflection-free serialization of <see cref="VocabularyWireDocument"/>. The context's camel-case
+/// policy and the explicit <see cref="JsonPropertyNameAttribute"/> names above define the wire
+/// shape.
 /// </summary>
 [JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(VocabularyWireDocument))]
-public sealed partial class VocabularyWireJsonContext : JsonSerializerContext
-{
-    /// <summary>The non-indented sibling context, sharing every other generation option.</summary>
-    public static VocabularyWireCompactJsonContext Compact { get; } = new();
-}
+public sealed partial class VocabularyWireJsonContext : JsonSerializerContext;
 
 [JsonSourceGenerationOptions(WriteIndented = false, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(VocabularyWireDocument))]
@@ -64,7 +58,7 @@ public static class VocabularyJson
         VocabularyWireDocument wire = ToWireDocument(document, sections);
         JsonTypeInfo<VocabularyWireDocument> typeInfo = indented
             ? VocabularyWireJsonContext.Default.VocabularyWireDocument
-            : VocabularyWireJsonContext.Compact.VocabularyWireDocument;
+            : VocabularyWireCompactJsonContext.Default.VocabularyWireDocument;
         return JsonSerializer.Serialize(wire, typeInfo);
     }
 

@@ -72,9 +72,9 @@ static class JsEmitter
     static void EmitFunction(StringBuilder sb, JsExportFunction function)
     {
         string tsName = CamelCase.FromPascalCase(function.Name);
-        bool isAsync = function.ReturnType.Contains("Task", StringComparison.Ordinal)
-            || function.ReturnType.Contains("ValueTask", StringComparison.Ordinal);
-        bool parsesJson = function.ReturnWireType is not null;
+        bool isAsync = TsTypeMapper.IsAsyncReturnType(function.ReturnType);
+        bool parsesJson = function.ReturnWireType is not null
+            && TsTypeMapper.IsJsonEnvelopeReturnType(function.ReturnType);
         var parameters = function.Parameters.Select(p => CamelCase.FromPascalCase(p.Name)).ToArray();
         string parameterList = string.Join(", ", parameters);
 

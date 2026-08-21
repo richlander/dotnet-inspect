@@ -369,9 +369,12 @@ test("bare home paints before wasm engine download", () => {
   const loadingView =
     appSource.match(/function renderLoading\(\)[\s\S]*?\n}\n\nasync function loadSelectedMemberDocumentation/)?.[0] ?? "";
   assert.doesNotMatch(appSource, /from "\/engine\.js"/);
+  assert.doesNotMatch(appSource, /from "\/inspect-web-engine\.js"/);
   assert.match(
     appSource,
     /async function loadEngineModule\(\)[\s\S]*await import\("\/engine\.js"\)/);
+  assert.doesNotMatch(engineSource, /^import .*inspect-web-engine\.js/m);
+  assert.match(engineSource, /await import\("\.\/inspect-web-engine\.js"\)/);
   assert.match(
     homePaintWait,
     /first-contentful-paint[\s\S]*observer\.observe\(\{ type: "paint", buffered: true \}\)/);
@@ -1067,15 +1070,22 @@ test("browser engine configures the same-origin managed MSDL API", () => {
 });
 
 test("generated source wrappers parse their JSON envelopes", () => {
+  const wrapper = name => {
+    const start = generatedEngineSource.search(
+      new RegExp(`\\nexport (?:async )?function ${name}\\(`));
+    assert.notEqual(start, -1, `missing generated wrapper ${name}`);
+    const end = generatedEngineSource.indexOf("\nexport ", start + 1);
+    return generatedEngineSource.slice(start, end < 0 ? undefined : end);
+  };
+
   for (const name of [
     "queryMemberAnnotatedSource",
     "queryMemberSource",
     "queryTypeMemberSource",
   ]) {
-    assert.match(
-      generatedEngineSource,
-      new RegExp(`export async function ${name}\\([\\s\\S]*?return JSON\\.parse\\(result\\);`));
+    assert.match(wrapper(name), /return JSON\.parse\(result\);/);
   }
+  assert.doesNotMatch(wrapper("queryMemberFacts"), /JSON\.parse\(result\)/);
 });
 
 test("MethodDef-only member sections are hidden for bodiless APIs", () => {

@@ -99,10 +99,6 @@ import {
   visibleSpotlightPackageHits,
 } from "/src/spotlight.ts";
 import { fmtBytes, statusBarHtml } from "/src/status-bar.ts";
-import {
-  buildIdentity as inspectBuildIdentity,
-  packageCacheStats as inspectPackageCacheStats,
-} from "/inspect-web-engine.js";
 
 let initializeEngine;
 let cancelSourceInspection;
@@ -135,6 +131,8 @@ let inspectSearchTypes;
 let inspectTypeMemberSource;
 let inspectTypeProjection;
 let inspectTypeSource;
+let inspectBuildIdentity;
+let inspectPackageCacheStats;
 let matchPackageDependencyCoordinate;
 let resolveDependencyVersion;
 
@@ -171,6 +169,8 @@ async function loadEngineModule() {
     inspectTypeMemberSource,
     inspectTypeProjection,
     inspectTypeSource,
+    inspectBuildIdentity,
+    inspectPackageCacheStats,
     matchPackageDependencyCoordinate,
     resolveDependencyVersion
   } = await import("/engine.js"));
