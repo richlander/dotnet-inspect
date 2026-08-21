@@ -89,6 +89,109 @@ public class MemberIdentityValueEqualityTests
     }
 
     [Fact]
+    public void TypeRefExactAndLegacySimpleNames_AgreeWithoutDelimiterInference()
+    {
+        static TypeRef Exact(params string[] segments)
+        {
+            MetadataTypeDefinitionName name =
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "Sample",
+                        [.. segments]))
+                .Name;
+            return TypeRef.Definition(
+                "Sample",
+                "Sample",
+                string.Join('+', segments),
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin.CurrentAssembly(),
+                    name));
+        }
+
+        TypeRef legacy =
+            TypeRef.Definition("Sample", "Sample", "Widget");
+        TypeRef exact = Exact("Widget");
+
+        Assert.Equal(legacy, exact);
+        Assert.Equal(legacy.GetHashCode(), exact.GetHashCode());
+        Assert.Equal(
+            GenericMemberIdentity.KeyFragment(legacy),
+            GenericMemberIdentity.KeyFragment(exact));
+        Assert.Equal(
+            0,
+            MeasureEqualityAllocations(legacy, exact));
+        Assert.Equal(
+            0,
+            MeasureHashAllocations(exact));
+        Assert.NotEqual(
+            TypeRef.Definition(
+                "Sample",
+                "Sample",
+                "Outer+Inner"),
+            Exact("Outer+Inner"));
+        Assert.NotEqual(
+            TypeRef.Definition(
+                "Sample",
+                "Sample",
+                "Outer+Inner"),
+            Exact("Outer", "Inner"));
+
+        TypeRef owner =
+            TypeRef.Definition("Sample", "Sample", "Owner");
+        var method = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "M",
+            [exact],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            true);
+        var call = new DirectCall(
+            method,
+            new MemberRef(
+                owner,
+                "M",
+                [legacy],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method),
+            0,
+            0x0A000001,
+            0x0A000001,
+            CallKind.Call);
+
+        Assert.Equal(
+            0x06000001,
+            MethodDefinitionMap.Create([method]).Resolve(call));
+    }
+
+    [Fact]
+    public void GenericMemberKey_DistinguishesLiteralArraySyntaxFromArrayShape()
+    {
+        static TypeRef Exact(string name)
+        {
+            MetadataTypeDefinitionName exactName =
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "",
+                        [name]))
+                .Name;
+            return TypeRef.Definition(
+                "Sample",
+                "",
+                name,
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin.CurrentAssembly(),
+                    exactName));
+        }
+
+        Assert.NotEqual(
+            GenericMemberIdentity.KeyFragment(Exact("X[]")),
+            GenericMemberIdentity.KeyFragment(
+                TypeRef.SzArray(Exact("X"))));
+    }
+
+    [Fact]
     public void AsyncSiblingExactIdentity_DistinguishesOriginsWithinSharedDag()
     {
         MetadataTypeDefinitionName name =

@@ -272,6 +272,278 @@ public class SignatureDecoderSafetyTests
     }
 
     [Fact]
+    public void SelfTypeSignature_RejectsCyclicDeclaringType()
+    {
+        TypeDefinitionHandle typeHandle = default;
+        MetadataReader reader = BuildAssembly(metadata =>
+        {
+            typeHandle = metadata.AddTypeDefinition(
+                TypeAttributes.NestedPublic,
+                default,
+                metadata.GetOrAddString("Loop"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddNestedType(typeHandle, typeHandle);
+        });
+
+        Assert.Throws<BadImageFormatException>(() =>
+            MetadataDeclarationQuery.SelfTypeSignature(
+                reader,
+                reader.GetTypeDefinition(typeHandle)));
+    }
+
+    [Fact]
+    public void SelfTypeSignature_RejectsOversizedRootNameBeforeMaterialization()
+    {
+        TypeDefinitionHandle typeHandle = default;
+        MetadataReader reader = BuildAssembly(metadata =>
+        {
+            typeHandle = metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString(new string('X', 100_000)),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+        });
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        Assert.Throws<BadImageFormatException>(() =>
+            MetadataDeclarationQuery.SelfTypeSignature(
+                reader,
+                reader.GetTypeDefinition(typeHandle)));
+
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.True(
+            allocated < 64 * 1024,
+            $"Oversized root type name allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void SignatureDecoder_ReusesEmptyNameWithoutRetentionCollision()
+    {
+        TypeReferenceHandle first = default;
+        TypeReferenceHandle second = default;
+        MetadataReader reader = BuildAssembly(metadata =>
+        {
+            first = metadata.AddTypeReference(
+                default,
+                default,
+                default);
+            second = metadata.AddTypeReference(
+                default,
+                default,
+                default);
+        });
+        var decoder = new SignatureDecoder();
+
+        Assert.Equal(
+            "",
+            decoder.GetTypeFromReference(reader, first, 0));
+        Assert.Equal(
+            "",
+            decoder.GetTypeFromReference(reader, second, 0));
+    }
+
+    [Fact]
+    public void SignatureDecoder_DoesNotRetainAcceptedNamesPastCacheBudget()
+    {
+        int count =
+            SignatureDecoder.MaxAcceptedNameCacheCharacters
+                / ((MetadataSafetyPolicy.MaxTypeNameCharacters - 8) * 2)
+            + 2;
+        TypeReferenceHandle[] handles = new TypeReferenceHandle[count];
+        MetadataReader reader = BuildAssembly(metadata =>
+        {
+            StringHandle sharedName = metadata.GetOrAddString(
+                new string(
+                    'A',
+                    MetadataSafetyPolicy.MaxTypeNameCharacters - 8));
+            for (int i = 0; i < handles.Length; i++)
+            {
+                handles[i] = metadata.AddTypeReference(
+                    default,
+                    default,
+                    sharedName);
+            }
+        });
+
+        var decoder = new SignatureDecoder();
+        (WeakReference<string> first, WeakReference<string> last) =
+            DecodeAcceptedNames(decoder, reader, handles);
+        ForceCollection();
+
+        Assert.True(first.TryGetTarget(out _));
+        Assert.False(last.TryGetTarget(out _));
+        GC.KeepAlive(decoder);
+        GC.KeepAlive(reader);
+    }
+
+    [Fact]
+    public void SignatureDecoder_DoesNotRetainRejectionsPastCacheBudget()
+    {
+        int count = SignatureDecoder.MaxAcceptedNameCacheEntries + 1;
+        TypeReferenceHandle[] handles =
+            new TypeReferenceHandle[count];
+        MetadataReader reader = BuildAssembly(metadata =>
+        {
+            StringHandle sharedName = metadata.GetOrAddString(
+                new string(
+                    'A',
+                    MetadataSafetyPolicy.MaxTypeNameCharacters + 1));
+            for (int i = 0; i < handles.Length; i++)
+            {
+                handles[i] = metadata.AddTypeReference(
+                    default,
+                    default,
+                    sharedName);
+            }
+        });
+        var decoder = new SignatureDecoder();
+
+        foreach (TypeReferenceHandle handle in handles)
+        {
+            AssertRejected(
+                SignatureDecoder.Decode(
+                    () => decoder.GetTypeFromReference(
+                        reader,
+                        handle,
+                        rawTypeKind: 0)),
+                SignatureDecodeRejectionKind.NameBudget);
+        }
+
+        Assert.True(
+            decoder.GetCachedEntryCount(reader)
+                <= SignatureDecoder.MaxAcceptedNameCacheEntries);
+        Assert.True(
+            decoder.GetCachedEntryCount(reader) < handles.Length);
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(
+        System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    static (WeakReference<string> First, WeakReference<string> Last)
+        DecodeAcceptedNames(
+            SignatureDecoder decoder,
+            MetadataReader reader,
+            IReadOnlyList<TypeReferenceHandle> handles)
+    {
+        WeakReference<string>? first = null;
+        WeakReference<string>? last = null;
+        for (int i = 0; i < handles.Count; i++)
+        {
+            string name = decoder.GetTypeFromReference(
+                reader,
+                handles[i],
+                rawTypeKind: 0);
+            if (i == 0)
+                first = new(name);
+            if (i == handles.Count - 1)
+                last = new(name);
+        }
+        return (first!, last!);
+    }
+
+    static void ForceCollection()
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+        }
+    }
+
+    [Fact]
+    public void SignatureDecoder_RejectsExactNameBeforeOversizedSegmentDecode()
+    {
+        TypeReferenceHandle leaf = default;
+        MetadataReader reader = BuildAssembly(metadata =>
+        {
+            StringHandle sharedName =
+                metadata.GetOrAddString(new string('A', 1024 * 1024));
+            EntityHandle scope = default;
+            for (int i = 0;
+                i < MetadataSafetyPolicy.MaxRelationshipNodes;
+                i++)
+            {
+                leaf = metadata.AddTypeReference(
+                    scope,
+                    default,
+                    sharedName);
+                scope = leaf;
+            }
+        });
+        int decoderWork = 0;
+        var decoder = new SignatureDecoder(length => decoderWork += length);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        AssertRejected(
+            SignatureDecoder.Decode(
+                () => decoder.GetTypeFromReference(reader, leaf, 0)),
+            SignatureDecodeRejectionKind.NameBudget);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(
+            allocated < 1024 * 1024,
+            $"Oversized exact-name rejection allocated {allocated:N0} bytes.");
+        int firstDecoderWork = decoderWork;
+        long secondDecodeBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        AssertRejected(
+            SignatureDecoder.Decode(
+                () => decoder.GetTypeFromReference(reader, leaf, 0)),
+            SignatureDecodeRejectionKind.NameBudget);
+        long secondDecodeAllocation =
+            GC.GetAllocatedBytesForCurrentThread()
+            - secondDecodeBefore;
+        Assert.True(decoderWork > firstDecoderWork);
+        Assert.True(
+            secondDecodeAllocation < 64 * 1024,
+            $"Cached rejection allocated {secondDecodeAllocation:N0} bytes.");
+
+        int providerWork = 0;
+        var provider = new TypeNodeProvider(
+            beforeMaterialize: length => providerWork += length);
+        Assert.IsType<DegradedTypeNode>(
+            provider.GetTypeFromReference(reader, leaf, 0));
+        int firstProviderWork = providerWork;
+        long secondProviderBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        Assert.IsType<DegradedTypeNode>(
+            provider.GetTypeFromReference(reader, leaf, 0));
+        long secondProviderAllocation =
+            GC.GetAllocatedBytesForCurrentThread()
+            - secondProviderBefore;
+        Assert.True(providerWork > firstProviderWork);
+        Assert.True(
+            secondProviderAllocation < 64 * 1024,
+            $"Cached node rejection allocated {secondProviderAllocation:N0} bytes.");
+    }
+
+    [Fact]
+    public void SignatureDecoder_AcceptsUtf8ExpansionWithinCharacterBudget()
+    {
+        string name = new('あ', 2000);
+        TypeReferenceHandle handle = default;
+        MetadataReader reader = BuildAssembly(metadata =>
+        {
+            handle = metadata.AddTypeReference(
+                default,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(name));
+        });
+        var decoder = new SignatureDecoder();
+
+        var decoded = Assert.IsType<SignatureDecodeResult<string>.Decoded>(
+            SignatureDecoder.Decode(
+                () => decoder.GetTypeFromReference(reader, handle, 0)));
+
+        Assert.Equal($"N.{name}", decoded.Value);
+    }
+
+    [Fact]
     public void TypeSpec_AboveCumulativeBudget_IsRejected()
     {
         var reader = BuildTypeSpec(signature =>

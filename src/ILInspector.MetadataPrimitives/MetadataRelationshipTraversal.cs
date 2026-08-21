@@ -117,6 +117,34 @@ public static class MetadataSafetyPolicy
     public const int MaxTypeNameCharacters = 4096;
 
     /// <summary>
+    /// Decodes one component of an aggregate metadata type name only when its
+    /// encoded length can still produce a decoded value within the caller's
+    /// remaining UTF-16 character budget.
+    /// </summary>
+    public static bool TryReadTypeNameComponent(
+        MetadataReader reader,
+        StringHandle handle,
+        ref int remainingCharacters,
+        out string value)
+    {
+        const int MaxUtf8BytesPerUtf16Character = 3;
+        ArgumentOutOfRangeException.ThrowIfNegative(remainingCharacters);
+        value = "";
+        if (reader.GetBlobReader(handle).Length
+            > (long)remainingCharacters
+                * MaxUtf8BytesPerUtf16Character)
+            return false;
+
+        string decoded = reader.GetString(handle);
+        if (decoded.Length > remainingCharacters)
+            return false;
+
+        remainingCharacters -= decoded.Length;
+        value = decoded;
+        return true;
+    }
+
+    /// <summary>
     /// Decodes one metadata string only after its UTF-8 storage is within the
     /// structural-signature ceiling. Projected virtual strings may be materialized
     /// by SRM while their storage length is obtained, but remain subject to the

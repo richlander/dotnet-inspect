@@ -117,6 +117,9 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 EnclosingTypeFrom(assembly, definitionName),
                 definitionName,
                 resolutionAssembly: null,
+                [.. MetadataDeclarationQuery.GetIntroducedTypeParameterCounts(
+                    reader,
+                    handle)],
                 definitionHandle: handle,
                 definitionModuleVersionId: ModuleVersionId(reader));
         }

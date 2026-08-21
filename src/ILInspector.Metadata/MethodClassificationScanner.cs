@@ -106,7 +106,9 @@ public static class MethodClassificationScanner
                 continue;
 
             string ns = reader.GetString(typeDef.Namespace);
-            string fullTypeName = reader.GetFullTypeName(typeDef);
+            string fullTypeName = FormatDeclaringTypeName(
+                reader,
+                typeDefHandle);
 
             foreach (var methodHandle in typeDef.GetMethods())
             {
@@ -241,6 +243,23 @@ public static class MethodClassificationScanner
         }
 
         return results;
+    }
+
+    static string FormatDeclaringTypeName(
+        MetadataReader reader,
+        TypeDefinitionHandle handle)
+    {
+        if (MetadataTypeDefinitionNameReader.Read(reader, handle)
+            is MetadataTypeDefinitionNameReadResult.Read read)
+        {
+            string displayName =
+                TypeResolver.FormatDisplayName(read.Name.Segments);
+            return read.Name.Namespace.Length == 0
+                ? displayName
+                : $"{read.Name.Namespace}.{displayName}";
+        }
+
+        return reader.GetFullTypeName(reader.GetTypeDefinition(handle));
     }
 
     /// <summary>
