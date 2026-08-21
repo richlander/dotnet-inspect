@@ -2818,8 +2818,7 @@ public static class ApiSurfaceExtractor
                     continue;
                 }
 
-                if (target.InterfaceMembershipProven)
-                    ObserveTarget(target);
+                ObserveTarget(target);
                 targets.Add(target);
             }
 
@@ -2852,8 +2851,7 @@ public static class ApiSurfaceExtractor
                         GetDeclarationSignature,
                         out var target))
                 {
-                    if (target.InterfaceMembershipProven)
-                        ObserveTarget(target);
+                    ObserveTarget(target);
                 }
             }
         }

@@ -939,6 +939,36 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void UndeterminedInterfaceProjection_EarnsCommittedDecodeWorkCredit()
+    {
+        byte[] image = BuildMethodImplFloodImage(
+            methodImplCount: 1,
+            nameLength: 64,
+            includeMethodImpls: true,
+            declarationOnUnresolvedInheritedInterface: true);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition typeDef = reader.GetTypeDefinition(
+            reader.TypeDefinitions.Single(handle =>
+                reader.GetString(reader.GetTypeDefinition(handle).Name) == "Implementer"));
+        int retainedText = 0;
+
+        Dictionary<MethodDefinitionHandle, List<ExplicitInterfaceMethodTarget>> targets =
+            ApiSurfaceExtractor.GetExplicitInterfaceImplementationTargets(
+                reader,
+                typeDef,
+                observeText: text => retainedText += text.Length);
+
+        ExplicitInterfaceMethodTarget target =
+            Assert.Single(Assert.Single(targets).Value);
+        Assert.False(target.InterfaceMembershipProven);
+        Assert.True(
+            retainedText > 0,
+            "an undetermined retained MethodImpl target earned no decode-work credit");
+    }
+
+    [Fact]
     public void PendingProjectionAndRetainedMemberText_ShareOneOrderIndependentBound()
     {
         byte[] image = BuildMethodImplFloodImage(
@@ -2524,7 +2554,8 @@ public sealed class ApiSurfaceExtractorBoundsTests
         int methodImplCount,
         int nameLength,
         bool includeMethodImpls,
-        bool hideBodies = false)
+        bool hideBodies = false,
+        bool declarationOnUnresolvedInheritedInterface = false)
     {
         var metadata = Metadata("MethodImplFlood");
         AssemblyReferenceHandle assembly = metadata.AddAssemblyReference(
@@ -2538,6 +2569,13 @@ public sealed class ApiSurfaceExtractorBoundsTests
             assembly,
             metadata.GetOrAddString("Contracts"),
             metadata.GetOrAddString(new string('I', nameLength)));
+        TypeReferenceHandle declarationInterface =
+            declarationOnUnresolvedInheritedInterface
+                ? metadata.AddTypeReference(
+                    assembly,
+                    metadata.GetOrAddString("Contracts"),
+                    metadata.GetOrAddString(new string('B', nameLength)))
+                : interfaceType;
         TypeDefinitionHandle type = AddModuleAndPublicType(
             metadata,
             "Implementer",
@@ -2572,7 +2610,7 @@ public sealed class ApiSurfaceExtractorBoundsTests
             for (int index = 0; index < methodImplCount; index++)
             {
                 MemberReferenceHandle declaration = metadata.AddMemberReference(
-                    interfaceType,
+                    declarationInterface,
                     metadata.GetOrAddString($"M{index}"),
                     signature);
                 metadata.AddMethodImplementation(type, bodies[index], declaration);
