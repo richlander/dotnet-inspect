@@ -298,11 +298,52 @@ test("an opportunity row splits the API into short name and qualifier", () => {
 
   assert.match(html, /<span class="opp-type-name">PipelineMessage<\/span><span class="opp-type-ns">System\.ClientModel\.Primitives<\/span>/);
   assert.match(html, /data-opp-type="System\.ClientModel\.Primitives\.PipelineMessage"/);
+  assert.match(html, /data-opp-source-identity="exact"/);
   assert.match(html, /data-opp-source-definition="System\.ClientModel\.Primitives\.Pipeline&quot;Message"/);
   assert.match(html, /data-opp-source-assembly="System\.ClientModel"/);
   assert.match(html, /data-opp-source-version="1\.2\.3\.4"/);
   assert.match(html, /data-opp-source-culture=""/);
   assert.match(html, /data-opp-source-token="0011223344556677"/);
+});
+
+test("an explicitly unknown source identity remains distinct from a legacy row", () => {
+  const currentHtml = renderPackageOpportunities({
+    ...baseOptions,
+    data: {
+      categories: [{
+        integration: "AI",
+        items: [{
+          api: "Example.Current",
+          integrationType: "IServiceCollection registration",
+          lookFor: "",
+          sourceDefinitionId: null,
+          sourceAssembly: "Example",
+          sourceAssemblyVersion: "",
+          sourceAssemblyCulture: null,
+          sourceAssemblyPublicKeyToken: null,
+        }],
+      }],
+      totalOpportunities: 1,
+    },
+  });
+  const legacyHtml = renderPackageOpportunities({
+    ...baseOptions,
+    data: {
+      categories: [{
+        integration: "AI",
+        items: [{
+          api: "Example.Legacy",
+          integrationType: "IServiceCollection registration",
+          lookFor: "",
+        }],
+      }],
+      totalOpportunities: 1,
+    },
+  });
+
+  assert.match(currentHtml, /data-opp-source-identity="unknown"/);
+  assert.doesNotMatch(currentHtml, /data-opp-source-definition=/);
+  assert.doesNotMatch(legacyHtml, /data-opp-source-identity=/);
 });
 
 test("an integration kind with a leading dotted namespace renders a load-on-demand package chip", () => {

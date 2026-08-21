@@ -4233,7 +4233,23 @@ test("opportunity navigation uses exact source assembly and definition identity"
   }).status, "ambiguous");
   assert.match(
     appSource,
-    /if \(!sourceDefinitionId\) \{\s*openSpotlight\(shortTypeName\(id\)\);[\s\S]*?if \(candidate\.status !== "unique"\) \{[\s\S]*?appendQueryNotice\(`The opportunity source could not be opened: \$\{reason\}\.`\);[\s\S]*?navigateToType\(candidate\.type\)/);
+    /if \(!sourceIdentity\) \{\s*openSpotlight\(shortTypeName\(id\)\);[\s\S]*?sourceIdentity !== "exact" \|\| !sourceDefinitionId[\s\S]*?exact identity is unavailable[\s\S]*?if \(candidate\.status !== "unique"\) \{[\s\S]*?appendQueryNotice\(`The opportunity source could not be opened: \$\{reason\}\.`\);[\s\S]*?navigateToType\(candidate\.type\)/);
+});
+
+test("cold platform graph navigation acquires the exact assembly before any default runtime", () => {
+  const navigation =
+    appSource.match(/async function navigateOrDrillPlatform[\s\S]*?(?=\n\})/)?.[0]
+    ?? "";
+  const coldLoad =
+    navigation.match(/if \(!pack\) \{[\s\S]*?(?=\n  let candidate)/)?.[0]
+    ?? "";
+
+  assert.match(
+    coldLoad,
+    /if \(node\.assembly\) \{[\s\S]*?platformPackForGraphAssembly\(node\.assembly, node\.platformPack\)[\s\S]*?loadRuntimePackAssembly\([\s\S]*?targetPack \?\? ""[\s\S]*?\} else \{[\s\S]*?loadRuntimePack\(/);
+  assert.ok(
+    coldLoad.indexOf("loadRuntimePackAssembly(")
+      < coldLoad.indexOf("loadRuntimePack("));
 });
 
 test("relationship navigation rejects ambiguous dotted identities", () => {
