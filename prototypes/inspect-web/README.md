@@ -677,12 +677,12 @@ close-button label, and active-style-count states.
 
 `src/scope-bar.ts` owns the scope switcher and lens strip (the segmented
 Package/Types/Member control and the buttons beside it for the active scope's
-lenses or member sections) as a pure, dependency-injected render function.
+lenses or member sections), including their rendered DOM bindings.
 `dotnet-inspect.ts` still owns the current scope, the package/type/member lens
-definitions, and the active lens/section per scope, and passes each computed
-slice in explicitly. `test/scope-bar.test.ts` gates the active scope segment,
-the active lens/section marking per scope, keyboard-shortcut indices, and
-label escaping.
+definitions, and each navigation state transition, supplying those effects
+through typed callbacks. `test/scope-bar.test.ts` gates each mutually exclusive
+binding shape, the active scope segment, active lens/section marking,
+keyboard-shortcut indices, and label escaping.
 
 `src/metadata-viewer.ts` owns the Metadata lens (the image-level summary of each
 assembly — format stamp, heap sizes, ECMA-335 table row counts, and PE/CLI
