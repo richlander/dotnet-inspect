@@ -67,7 +67,7 @@ public sealed class GraphNodeStorageKey : IEquatable<GraphNodeStorageKey>
             source.Identity,
             moduleVersionId,
             GraphNodeStorageKind.CallSite,
-            call.Caller.MetadataToken,
+            call.EvidenceMethod.MetadataToken,
             call.ILOffset,
             call.OperandToken);
 
@@ -170,6 +170,15 @@ public sealed class GraphNodeIdentity : IEquatable<GraphNodeIdentity>
             GraphStructuralMemberKey.Create(member));
     }
 
+    /// <summary>
+    /// Creates the structural graph identity of a method definition.
+    /// </summary>
+    public static GraphNodeIdentity FromMethod(MethodIdentity method)
+    {
+        ArgumentNullException.ThrowIfNull(method);
+        return FromMember(CallTreeMember.FromDefinition(method));
+    }
+
     public bool Equals(GraphNodeIdentity? other) =>
         other is not null
         && Kind == other.Kind
@@ -214,16 +223,41 @@ public sealed class GraphNodeEvidence
     internal GraphNodeEvidence(
         GraphNodeStorageKey storage,
         GraphNodeIdentity identity,
-        CatalogMemberJoinProjection? correspondence)
+        CatalogMemberJoinProjection? correspondence,
+        GraphNodeStorageKey? definitionStorage = null)
     {
+        if (definitionStorage is not null
+            && definitionStorage.Kind
+                != GraphNodeStorageKind.Definition)
+        {
+            throw new ArgumentException(
+                "Definition evidence requires definition storage.",
+                nameof(definitionStorage));
+        }
+
         Storage = storage;
         Identity = identity;
         Correspondence = correspondence;
+        DefinitionStorage = definitionStorage;
     }
 
     public GraphNodeStorageKey Storage { get; }
     public GraphNodeIdentity Identity { get; }
     public CatalogMemberJoinProjection? Correspondence { get; }
+
+    /// <summary>
+    /// Exact definition selected to supply body facts for this occurrence,
+    /// when its physical storage is a call site.
+    /// </summary>
+    public GraphNodeStorageKey? DefinitionStorage { get; }
+
+    internal GraphNodeEvidence WithDefinitionStorage(
+        GraphNodeStorageKey definitionStorage) =>
+        new(
+            Storage,
+            Identity,
+            Correspondence,
+            definitionStorage);
 
     public GraphCorrespondenceKind Kind => Correspondence switch
     {

@@ -5,8 +5,8 @@ using System.Text.Json;
 namespace DotnetInspector.Tests;
 
 /// <summary>
-/// Pins the one place the CLI deliberately emits untrusted bytes verbatim, and
-/// the stream split that makes doing so safe (issue #3319).
+/// Pins visually encoded payload stdout, exact explicit file export, and the
+/// companion-section stream split (issue #3319).
 /// </summary>
 /// <remarks>
 /// Every rendered surface in this tool contains what it shows: line terminators
@@ -14,36 +14,23 @@ namespace DotnetInspector.Tests;
 /// pointed at the README payload emitting raw VT, ESC, bidi, and LS to
 /// stdout and read it as the containment work having missed a channel.
 ///
-/// It had not. The README payload and <c>--content</c> are payload lenses: their
-/// job is to hand over the bytes of a file the way <c>cat</c> does, and
-/// escaping those bytes would corrupt the payload and defeat the flag. Piping
-/// that payload to a file has to reproduce the README.
-///
-/// But "defensible" and "declared" are different things, and the gap the
-/// reviewer actually found was the second one: the behavior was correct,
-/// undocumented, and ungated, which reads exactly like an oversight and would
-/// have been indistinguishable from one to the next reader. The contract now
-/// lives in <c>docs/design/output-shapes.md</c>, and this is the gate it names.
-///
-/// The contract is not "the payload is raw" on its own -- that alone would be a
-/// leak. It is a conjunction, and this class asserts both halves because either
-/// one without the other is unsafe:
+/// README and <c>--content</c> payloads are visually encoded when written to
+/// stdout. Callers that need exact bytes make that intent explicit with
+/// <c>--out</c>. The contract lives in <c>docs/design/output-shapes.md</c>, and
+/// this is the gate it names:
 ///
 /// <list type="number">
 /// <item><description>
-/// stdout carries the payload <b>byte for byte</b>, and
+/// stdout carries an invertibly encoded payload with no live rendering hazard,
 /// </description></item>
 /// <item><description>
-/// stdout carries <b>no tool-authored framing</b> -- every heading, table, and
-/// diagnostic the tool composes goes to stderr, contained.
+/// explicit file export carries the payload <b>byte for byte</b>, and companion
+/// headings, tables, and diagnostics go to stderr, contained.
 /// </description></item>
 /// </list>
 ///
-/// A test that checked only the first half would keep passing if someone added
-/// a heading to stdout, which is the change that would turn a defensible
-/// <c>cat</c> into a forgeable report. That is the regression this exists to
-/// catch, so <see cref="ReadmeLens_PutsNoToolFramingOnTheStreamItEmitsRawBytesOn"/>
-/// runs the hazard payload with <c>--info</c> specifically -- the mode that
+/// <see cref="ReadmeLens_PutsNoToolFramingOnEncodedStdout"/> runs the hazard
+/// payload with <c>--info</c> specifically -- the mode that
 /// does put a real <c># Info</c> table in the picture -- and asserts the table
 /// landed on the other stream.
 /// </remarks>
@@ -58,7 +45,7 @@ public class PayloadLensContainmentTests : IDisposable
     private bool _deleteCacheOnDispose = true;
 
     /// <summary>
-    /// The README bytes every test here plants and expects back unchanged.
+    /// The README payload every test here plants.
     /// </summary>
     /// <remarks>
     /// Each hazard is followed by a distinct marker so a partial or reordered
@@ -102,44 +89,48 @@ public class PayloadLensContainmentTests : IDisposable
     }
 
     [Fact]
-    public void ReadmeLens_ReproducesThePayloadByteForByte()
+    public void ReadmeLens_VisuallyEncodesThePayloadOnStdout()
     {
         using var package = HostilePackage.Create();
 
         var (output, _) = RunCli([package.Path, ..ReadmeLens]);
 
-        AssertIsThePayload(output);
+        AssertIsEncodedPayload(output);
     }
 
-    /// <summary>
-    /// Asserts stdout is the README bytes, unescaped and unaltered.
-    /// </summary>
-    /// <remarks>
-    /// Equality, not "contains a marker": a lens that escaped one of the three
-    /// hazards, or normalized line endings, would still satisfy a
-    /// containment-style assertion while failing at the job the flag exists for.
-    ///
-    /// The retired <c>--readme</c> lens appended one line terminator, which was
-    /// measured rather than assumed. The <c>--print</c> path it was replaced by
-    /// appends nothing: re-measured against payloads ending in zero, one, and
-    /// two newlines, each comes back with exactly the count it went in with, so
-    /// the payload is now byte-identical to <c>cat</c> with no departure at
-    /// all. Equality is asserted rather than a looser check so that a future
-    /// change to how the payload is written has to come back through this test.
-    /// </remarks>
-    private static void AssertIsThePayload(string output)
+    private static void AssertIsEncodedPayload(string output)
     {
-        Assert.Equal(
-            HostileReadme,
-            output.Replace("\r\n", "\n", StringComparison.Ordinal));
+        HostileOutputAssert.MarkersRendered(
+            output,
+            "readme-stdout",
+            "MARKERBIDI",
+            "MARKERESC",
+            "MARKERLS");
+        HostileOutputAssert.NoRenderingHazard(output, "readme-stdout");
+        Assert.Contains(@"\u202E", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReadmeLens_ExplicitFileExportReproducesThePayloadByteForByte()
+    {
+        using var package = HostilePackage.Create();
+        string outputPath = System.IO.Path.Combine(
+            package.Directory,
+            "README.export.md");
+
+        var (output, error) = RunCli(
+            [package.Path, ..ReadmeLens, "--out", outputPath]);
+
+        Assert.Empty(output);
+        Assert.Empty(error);
+        Assert.Equal(HostileReadme, File.ReadAllText(outputPath));
     }
 
     /// <summary>
-    /// The half that keeps the raw half honest: raw bytes are only safe on a
-    /// stream that never speaks for the tool.
+    /// Companion tool-authored framing remains on the contained diagnostic stream.
     /// </summary>
     [Fact]
-    public void ReadmeLens_PutsNoToolFramingOnTheStreamItEmitsRawBytesOn()
+    public void ReadmeLens_PutsNoToolFramingOnEncodedStdout()
     {
         using var package = HostilePackage.Create();
 
@@ -147,7 +138,7 @@ public class PayloadLensContainmentTests : IDisposable
         // so it is the one that can put framing and payload on one stream.
         var (output, error) = RunCli([package.Path, ..ReadmeLens, "--info"]);
 
-        AssertIsThePayload(output);
+        AssertIsEncodedPayload(output);
 
         // The framing exists -- otherwise this test would pass by the section
         // having been silently dropped, which is a different bug that would
@@ -202,17 +193,8 @@ public class PayloadLensContainmentTests : IDisposable
     /// A multi-file payload needs a separator, so <c>--content</c> delimits each
     /// match with <c>------------ &lt;package&gt; :: &lt;path&gt;
     /// ------------</c>. That path is a zip entry name, which is attacker
-    /// controlled, so the banner is a rendered surface even though the bytes
-    /// beneath it are not -- and it is covered by the containment rule rather
-    /// than by the lens exemption.
-    ///
-    /// The banner's *shape* remains forgeable by the payload: a file whose
-    /// content includes that exact line makes one file look like two. That is
-    /// pre-existing (it reproduces identically on the pre-fix baseline), is
-    /// outside the metadata-containment scope of #3319, and is deliberately not
-    /// claimed here. This test pins the half that is fixed -- the fields -- so
-    /// that the unfixed half stays a known, written-down limitation rather than
-    /// an assumption.
+    /// controlled, so both the banner fields and payload beneath it use the
+    /// terminal-facing containment policy.
     /// </remarks>
     [Fact]
     public void ContentLens_ContainsTheFieldsOfItsOwnBanner()
@@ -371,7 +353,7 @@ public class PayloadLensContainmentTests : IDisposable
             Path = path;
         }
 
-        private string Directory { get; }
+        public string Directory { get; }
 
         public string Path { get; }
 

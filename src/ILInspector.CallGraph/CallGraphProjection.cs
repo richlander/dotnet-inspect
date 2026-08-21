@@ -122,17 +122,22 @@ public readonly record struct CallGraphEdge(
 /// <summary>
 /// Opaque identity for one physical call receipt. Catalog identities retain
 /// acquisition registration; synthetic identities retain structural caller
-/// identity.
+/// identity. Both retain the evidence method's MVID and metadata token because
+/// multiple synthesized bodies can share one declared caller and IL offset.
 /// </summary>
 public sealed class CallGraphCallSiteIdentity
     : IEquatable<CallGraphCallSiteIdentity>
 {
     readonly GraphNodeStorageKey? _callerStorage;
     readonly GraphNodeIdentity? _structuralCaller;
+    readonly Guid _evidenceModuleVersionId;
+    readonly int _evidenceMethodToken;
 
     internal CallGraphCallSiteIdentity(
         GraphNodeStorageKey? callerStorage,
         GraphNodeIdentity? structuralCaller,
+        Guid evidenceModuleVersionId,
+        int evidenceMethodToken,
         int ilOffset,
         int operandToken)
     {
@@ -144,6 +149,8 @@ public sealed class CallGraphCallSiteIdentity
 
         _callerStorage = callerStorage;
         _structuralCaller = structuralCaller;
+        _evidenceModuleVersionId = evidenceModuleVersionId;
+        _evidenceMethodToken = evidenceMethodToken;
         ILOffset = ilOffset;
         OperandToken = operandToken;
     }
@@ -158,6 +165,10 @@ public sealed class CallGraphCallSiteIdentity
         other is not null
         && Equals(_callerStorage, other._callerStorage)
         && Equals(_structuralCaller, other._structuralCaller)
+        && _evidenceModuleVersionId
+            == other._evidenceModuleVersionId
+        && _evidenceMethodToken
+            == other._evidenceMethodToken
         && ILOffset == other.ILOffset
         && OperandToken == other.OperandToken;
 
@@ -168,6 +179,8 @@ public sealed class CallGraphCallSiteIdentity
         HashCode.Combine(
             _callerStorage,
             _structuralCaller,
+            _evidenceModuleVersionId,
+            _evidenceMethodToken,
             ILOffset,
             OperandToken);
 }
@@ -203,6 +216,19 @@ public enum CallGraphRowMatch
     NotProjected,
 
     /// <summary>More than one projected edge claims the call.</summary>
+    Ambiguous,
+}
+
+/// <summary>The outcome of locating a method definition in a projection.</summary>
+public enum CallGraphNodeMatch
+{
+    /// <summary>The method maps to exactly one projected logical node.</summary>
+    Found,
+
+    /// <summary>The bounded projection contains no node for the method.</summary>
+    NotProjected,
+
+    /// <summary>More than one projected node can represent the method.</summary>
     Ambiguous,
 }
 
@@ -304,6 +330,62 @@ public sealed partial class CallGraphProjection
         FindCalleeRow(Focus.Id, call, out row);
 
     /// <summary>
+    /// Resolves one method definition to its projected logical node. Exact
+    /// physical definition evidence wins; structural identity handles
+    /// evidence-free projections.
+    /// </summary>
+    public CallGraphNodeMatch FindNode(
+        MethodIdentity method,
+        out CallGraphNode node)
+    {
+        ArgumentNullException.ThrowIfNull(method);
+
+        CallGraphNode[] exact =
+        [
+            .. Nodes.Where(candidate =>
+                candidate.GraphEvidence.Any(evidence =>
+                    MatchesDefinition(evidence.Storage, method)
+                    || evidence.DefinitionStorage is { } definition
+                        && MatchesDefinition(definition, method))),
+        ];
+        if (exact.Length == 1)
+        {
+            node = exact[0];
+            return CallGraphNodeMatch.Found;
+        }
+        if (exact.Length > 1)
+        {
+            node = null!;
+            return CallGraphNodeMatch.Ambiguous;
+        }
+
+        GraphNodeIdentity identity =
+            GraphNodeIdentity.FromMethod(method);
+        CallGraphNode[] structural =
+        [
+            .. Nodes.Where(candidate =>
+                candidate.Identity == identity),
+        ];
+        if (structural.Length == 1)
+        {
+            node = structural[0];
+            return CallGraphNodeMatch.Found;
+        }
+
+        node = null!;
+        return structural.Length > 1
+            ? CallGraphNodeMatch.Ambiguous
+            : CallGraphNodeMatch.NotProjected;
+
+        static bool MatchesDefinition(
+            GraphNodeStorageKey storage,
+            MethodIdentity candidate) =>
+            storage.Kind == GraphNodeStorageKind.Definition
+            && storage.ModuleVersionId == candidate.ModuleVersionId
+            && storage.MethodToken == candidate.MetadataToken;
+    }
+
+    /// <summary>
     /// Resolves one physical call site from a projected caller node to its
     /// stable logical edge row.
     /// </summary>
@@ -362,12 +444,12 @@ public sealed partial class CallGraphProjection
     static bool SamePhysicalCallSite(
         DirectCall first,
         DirectCall second) =>
-        first.Caller.AssemblyName
-            == second.Caller.AssemblyName
-        && first.Caller.ModuleVersionId
-            == second.Caller.ModuleVersionId
-        && first.Caller.MetadataToken
-            == second.Caller.MetadataToken
+        first.EvidenceMethod.AssemblyName
+            == second.EvidenceMethod.AssemblyName
+        && first.EvidenceMethod.ModuleVersionId
+            == second.EvidenceMethod.ModuleVersionId
+        && first.EvidenceMethod.MetadataToken
+            == second.EvidenceMethod.MetadataToken
         && first.ILOffset == second.ILOffset
         && first.OperandToken == second.OperandToken;
 
@@ -702,6 +784,8 @@ public sealed partial class CallGraphProjection
                         ? null
                         : GraphNodeIdentity.FromMember(
                             _nodes[from].Member),
+                    call.EvidenceMethod.ModuleVersionId,
+                    call.EvidenceMethod.MetadataToken,
                     call.ILOffset,
                     call.OperandToken);
                 if (_callSiteIds.TryGetValue(
@@ -710,7 +794,9 @@ public sealed partial class CallGraphProjection
                 {
                     CallGraphCallSite existing =
                         _callSites[existingId];
-                    if (existing.Call != call)
+                    if (!SameCallEvidence(
+                            existing.Call,
+                            call))
                     {
                         throw new InvalidOperationException(
                             "One physical call-site identity cannot carry contradictory evidence.");
@@ -744,6 +830,15 @@ public sealed partial class CallGraphProjection
                 edge.CallSiteIds.Add(id);
             }
         }
+
+        static bool SameCallEvidence(
+            DirectCall first,
+            DirectCall second) =>
+            first == second
+            || first with
+            {
+                Caller = second.Caller,
+            } == second;
 
         static void AddLegacyFallbackEvidence(
             MutableEdge edge,

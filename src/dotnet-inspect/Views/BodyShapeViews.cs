@@ -1,32 +1,7 @@
-using Markout;
 using DotnetInspector.Output;
+using Markout;
 
 namespace DotnetInspector.Views;
-
-[MarkoutSerializable(
-    TitleProperty = nameof(Title),
-    DescriptionProperty = nameof(Description),
-    FieldLayout = FieldLayout.Table)]
-public sealed class BodyShapeResultView
-{
-    [MarkoutIgnore]
-    public string Title
-    {
-        get => field;
-        init => field = CSharpIdentifier.ContainRenderedText(value);
-    } = "";
-
-    [MarkoutIgnore]
-    [MarkoutSkipNull]
-    public string? Description
-    {
-        get => field;
-        init => field = value is null ? null : CSharpIdentifier.ContainRenderedText(value);
-    }
-
-    [MarkoutSection(Name = "Matches")]
-    public List<BodyShapeRow>? Matches { get; init; }
-}
 
 [MarkoutSerializable]
 public sealed record BodyShapeRow(

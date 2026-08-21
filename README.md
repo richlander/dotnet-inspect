@@ -154,8 +154,8 @@ dnx dotnet-inspect -y -- library System.Text.Json \
 
 | Member | Token | Match |
 | ------ | ----- | ----- |
-| `System.Text.Json.JsonDocument.RootElement~2810741072` | `0x06000260` | `new JsonElement(this, 0)` |
-| `System.Text.Json.JsonDocumentOptions.CommentHandling~4fc3b6f99d` | `0x060002DC` | `new ArgumentOutOfRangeException("value", SR.JsonDocumentDoesNotSupportComments)` |
+| `System.Text.Json.JsonDocument.RootElement~2810741072:1` | `0x06000260` | `new JsonElement(this, 0)` |
+| `System.Text.Json.JsonDocumentOptions.CommentHandling~4fc3b6f99d:2` | `0x060002DC` | `new ArgumentOutOfRangeException("value", SR.JsonDocumentDoesNotSupportComments)` |
 | `System.Text.Json.JsonElement.GetProperty~b07c7787dc` | `0x060002EA` | `new KeyNotFoundException(SR.Format(SR.Arg_KeyNotFoundWithKey, propertyName))` |
 ```
 
@@ -184,11 +184,17 @@ Use the same predicate with one exact member name or stable selector to inspect
 only that member's MethodDef body:
 
 ```bash
+dnx dotnet-inspect -y -- type JsonDocument \
+  --platform System.Text.Json \
+  --where "Kind=ObjectCreationExpression" --jsonl
+
 dnx dotnet-inspect -y -- member JsonDocument RootElement:1 \
   --platform System.Text.Json \
   --where "Kind=ObjectCreationExpression" --jsonl
 ```
 
+Type scope searches the MethodDef and accessor bodies owned by exactly one
+resolved type. Member scope narrows that set to one selected body.
 An unambiguous method or single-accessor member is auto-selected. Overloaded
 names require `Name:N` or `Name~digest`. A property or event with multiple body
 accessors requires an accessor selector; use the durable
@@ -201,14 +207,14 @@ permits a selected non-public member.
 | ---------- | -------- | ---------- |
 | Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, metadata audit, vulnerability data, custom feeds, NuGet config support. |
 | Project skills | `project` | Direct dependency `Skills` rows from package `skills/**/SKILL.md` files with valid required Agent Skills metadata and directory-matching names, plus version-resolved package README/PROJECT docs from restored projects. Invalid metadata and missing restored skill files fail visibly. |
-| Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries, exposed as ordinary discoverable sections and shared with browser/WASM. |
+| Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries, exposed as ordinary discoverable sections. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, OpenTelemetry support, symbols/PDBs, SourceLink and determinism audit, flat or depth-bounded tree references, resources, async method classification. |
 | API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. Add `--project` to resolve type/member queries in the project's restored dependency context. |
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type and member filters, plus opt-in decompiled C#/IL/checksum-verified authored Source evidence. |
 | Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. Add `--project` to search project-referenced packages. |
 | Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"Original Source"` | SourceLink URLs, member file/line locations, checksum-verified source fetching with final-origin redirect validation, token+IL-offset to source-line resolution. |
 | Performance analysis *(experimental)* | `library -S @Performance` (kind sections: `"Performance: Boxing"`, `"Performance: Arrays"`, …), `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly call-graph leverage ranking — direct callers, root reach, fanout, depth, loop calls — with opt-in per-node cost signals (alloc, copy, unsafe, reflection, throw/exception, catch/finally), actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
-| Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `Original Source`, `Source Diff`, `IL`); `member M --where "Kind=ObjectCreationExpression"`; `library X --where "Kind=ObjectCreationExpression"`; `body-shape Kind --library path/to.dll` | Raises method bodies to C#, interleaves IL and hidden-fact annotations, searches one selected member or one assembly for exact stable rendered-syntax kinds and ranges, diffs SourceLink-backed source against decompiled source, and exposes typed `DEC####` fidelity causes rather than emitting plausible-but-wrong source. |
+| Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `Original Source`, `Source Diff`, `IL`); `member M --where "Kind=ObjectCreationExpression"`; `type T --where "Kind=ObjectCreationExpression"`; `library X --where "Kind=ObjectCreationExpression"` | Raises method bodies to C#, interleaves IL and hidden-fact annotations, searches one selected member, type, or assembly for exact stable rendered-syntax kinds and ranges, diffs SourceLink-backed source against decompiled source, and exposes typed `DEC####` fidelity causes rather than emitting plausible-but-wrong source. |
 | Raw metadata | `library -S @Metadata` (table sections: `"Metadata: TypeDef"`, `"Metadata: MethodDef"`, …, plus `"Metadata: Image"`, the heap sections, and `--heap "#Strings:0x1a4"`) | The ECMA-335 metadata tables of an assembly, with handles resolved to the rows they point at and heap offsets to their values. Opt-in only: the tables are unbounded, so no verbosity renders them. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--plaintext`, `--json`, Mermaid diagrams, section/field projection, `--count`, table row limiting, built-in head/tail limiting. |
 
@@ -223,13 +229,12 @@ permits a selected non-public member.
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, rendered body shapes (`--where "Kind=<ID>"`), SourceLink-backed original source, and IL. |
 | `find X` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, e.g. `.Serialize`) to search member names instead. |
 | `vocabulary` | Discover product-owned query vocabularies; select sections such as `Accessibility`, `C# Style Choices`, or `C# Body Kinds` to enumerate their legal values. |
-| `body-shape X` | Search one library's full-fidelity bodies for an exact stable rendered-syntax kind, returning the containing member, MethodDef token, exact range, and selected text. |
 | `diff X` | Compare API surfaces by default; opt into analysis or peer decompiled C#, IL, and checksum-verified authored Source implementation evidence. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
 | `depends X` | Walk type, package, or library dependency graphs; emits Mermaid diagrams. |
 | `cache` | Inspect or clear dotnet-inspect caches. |
-| `skill` | Print the base LLM skill; routes to focused skills (`skill list`, `skill source`, `skill performance`). |
+| `skill` | Print the base LLM skill; routes to focused skills (`skill list`, `skill sourcelink`, `skill performance`). |
 
 Remote dependency trees requested with `depends --package`,
 `package -S Dependencies --tree`, or the legacy `package --dependencies` alias
@@ -277,6 +282,20 @@ coverage. `PackageSignals_ReportsEveryArtifactTextConcernKindWithoutContent`,
 `PackageArtifactTextAudit_ListsLocationsAndKindsInMarkdownAndJsonl` gate the
 summary, single/multi-package parity, provenance, and listing.
 
+Select `Audit: Findings` (or `@Audit`) to scan text-bearing files and decoded
+SourceLink mappings inside the package. It reports one row per finding with
+`Path`, `Kind`, and `Encoded Text`, including control/bidi text, cleared restore
+sources, declared package sources, concerning SourceLink map text, and literal
+`../` references in SourceLink document keys or URLs. A parent-path row is a
+prompt to review the mapping, not a maliciousness verdict. The scan is explicit
+because its work scales with package content; candidate paths, text reads,
+SourceLink carriers, and embedded-PDB expansion are bounded. Package
+document payloads are visually encoded on stdout; `--out
+<path>` on a single-file selection remains the byte-exact payload export.
+`PackageContentAuditTests` and
+`PackageAudit_RendersContentAndSourceLinkFindings` gate the scan and
+its Markdown/JSONL shape with compiler-produced PDB evidence.
+
 Library and package Signals also report `Identifier confusion` for assembly
 names and package IDs. Every non-ASCII identifier character is reported as an
 identity concern. Names whose leading characters exactly match `System`,
@@ -300,6 +319,7 @@ transitive reference closure.
 | `library X -S "SourceLink: Integrity"` | Content verification (slow, opt-in) | Downloads every tracked source file and compares its hash to the PDB checksum; a mismatch exits non-zero. Never runs in a default flow. |
 | `package X -S Signals` | Full package signals | Package and dependency signals, including identifier confusion, artifact-text containment kinds, known vulnerabilities, package age, dependency vulnerability/deprecation counts, and dependency age. |
 | `package X -S "Signals,Audit: Artifact Text"` | Artifact-text audit | Adds a content-free listing of the package-model field locations and Unicode concern kinds that required containment. |
+| `package X -S "Signals,Audit: Findings"` | Package audit | Scans text-bearing package files and decoded SourceLink maps, listing each finding as path, kind, and safely encoded evidence. |
 | `package X -S "Signals,Audit: Identifier Confusion"` | Identifier audit | Adds content-free package-ID and dependency-ID locations, classifications, similarity, and code points. |
 | `package X -S "SourceLink: Availability,SourceLink: Missing Files"` | Package SourceLink reachability | Audits the selected package libraries and retains library provenance on missing-file rows. |
 | `package X -S "SourceLink: Integrity"` | Package content verification (slow, opt-in) | Aggregates checksum results across selected package libraries; any mismatch exits non-zero. |
@@ -387,10 +407,11 @@ targets. Exact allocation and call-site rows also retain a `Candidate` id, their
 native `Finding` descriptor, `Provenance=exact`, `Operation`, and metadata
 `Token`. Aggregate rows are marked `Provenance=aggregate`; `unmatched`
 identifies an instruction-level row that could not be joined to a producer
-occurrence. `Assembly` + `MethodToken` + `IL` form the allocation-trace join
-coordinate; `ModuleVersionId` distinguishes physical module builds when static
-inputs carry it. `Token` is the operand of the reported IL operation and must
-not be used as the declaring method token. Those fields let trace and
+occurrence. `Assembly` + (`EvidenceMethod` when present, otherwise
+`MethodToken`) + `IL` form the allocation-trace join coordinate;
+`ModuleVersionId` distinguishes physical module builds when static inputs carry
+it. `Token` is the operand of the reported IL operation and must not be used as
+the declaring method token. Those fields let trace and
 version-diff tooling join a triage row to
 `analysis.allocation` or `analysis.call-site` evidence without parsing
 `Evidence` prose. Use `--top`, `--loop`, `--min-confidence`, and
@@ -407,7 +428,10 @@ kinds. `-n N`
 remains a renderer cap and is applied afterward if both are supplied. Drill
 candidates with `Call Graph` (a bounded bidirectional graph: inbound callers up
 to entry points and outbound calls in one view), and project per-node cost with
-`--fields`. Its row unit is a call edge, so `--count` reports relationships and
+`--fields`; `AsyncAlternatives` carries the count of
+`sync-call-in-async` opportunities on each method while Performance Triage
+retains the exact call-site evidence and replacement. Its row unit is a call
+edge, so `--count` reports relationships and
 `--rows` selects the same ordered relationships in every rendering. Markdown
 defaults to an edge table; add `--tree` for a standalone tree, `--mermaid` for a
 standalone diagram, or `--markdown --mermaid` for an embedded diagram.
@@ -417,19 +441,27 @@ retains its narrower inbound-only scan.
 Ranking rows carry a copyable `Stable` selector, `Visibility`, and `Selector`;
 add `--all` to drill non-public members.
 
-Export nested JSON when runtime correlation is the next step, then give that
-document and the matching allocation trace to `runfaster`:
+Export nested JSON when runtime correlation is the next step. The `runfaster`
+prototype is available only in this repository and is not included in the
+published `dotnet-inspect` packages. From a source checkout, give it that
+document and a matching allocation trace:
 
 ```bash
 dotnet-inspect library MyLib.dll -S "Performance:*" \
   --where "Priority>=high" --json > triage.json
-runfaster correlate --triage triage.json --trace workload.nettrace
+dotnet run --project src/runfaster -- \
+  correlate --triage triage.json --trace workload.nettrace
 ```
 
 The compact `Performance:* --jsonl` table intentionally carries only the tight
 human-facing columns and therefore cannot support an exact trace join.
 `runfaster` reports those rows as not runtime-correlatable rather than treating
-them as negative workload evidence.
+them as negative workload evidence. For nested rows, it preserves the
+source-facing `MethodToken` but uses `EvidenceMethod` as the physical body token
+when supplied. Blank flattened cells are treated as absent; invalid non-empty
+or conflicting supplied evidence-method tokens fail visibly.
+Method-name samples can still establish method-level heat, but only a complete
+runtime coordinate can produce an exact `confirmed-hot` result.
 For filtered triage exports, allocation-stack correlation stops at the first
 frame in the represented assembly. If that method has no exported row, the
 allocation remains unattributed rather than being credited to an outer caller.
@@ -482,6 +514,7 @@ dotnet-inspect library MyLib.dll --where "Finding=analysis.call-site" --jsonl
 dotnet-inspect library MyLib.dll --where "CallerLoop=direct" --order-by "CallerLoopDepth desc" --jsonl
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Call Graph,Facts"
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Call Graph" --fields "Throw,Catch,Finally"
+dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Call Graph" --fields "Fanin,Loop,AsyncAlternatives"
 dotnet-inspect member MyType Value:1 --library MyLib.dll -S "Call Graph"
 dotnet-inspect member MyType Value:2 --library MyLib.dll -S "Call Graph"
 ```
@@ -740,6 +773,7 @@ dotnet-inspect library System.Text.Json -S "Signals,SourceLink: Availability,Sou
 dotnet-inspect library System.Text.Json -S "SourceLink: Integrity"
 dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Artifact Text"
+dotnet-inspect package System.Text.Json -S "Signals,Audit: Findings"
 dotnet-inspect package System.Text.Json -S @Package
 dotnet-inspect package System.Text.Json -S @Dependencies
 dotnet-inspect package System.Text.Json -S @Audit

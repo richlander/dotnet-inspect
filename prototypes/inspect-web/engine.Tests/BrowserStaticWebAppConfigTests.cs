@@ -24,6 +24,12 @@ public class BrowserStaticWebAppConfigTests
         Assert.Equal(2, routes.Length);
         AssertRoute(routes[0], "/");
         AssertRoute(routes[1], "/index.html");
+        Assert.Equal(
+            "dotnet-isolated:8.0",
+            config.RootElement
+                .GetProperty("platform")
+                .GetProperty("apiRuntime")
+                .GetString());
 
         XDocument project = XDocument.Load(Path.Combine(
             repository,

@@ -1,4 +1,5 @@
 using System.Reflection;
+using ILInspector.Analysis;
 using ILInspector.Metadata;
 
 namespace ILInspector.Research.Tests;
@@ -27,4 +28,58 @@ public class ILOffsetProjectionProducerTests
     }
 
     static int AddOne(int value) => value + 1;
+
+    [Fact]
+    public void
+        ProjectILOffset_CostContextUsesPhysicalAsyncBody()
+    {
+        MethodInfo sourceMethod =
+            typeof(ILOffsetProjectionProducerTests).GetMethod(
+                nameof(CallVirtualAsync),
+                BindingFlags.Static
+                    | BindingFlags.NonPublic)!;
+        string path =
+            typeof(ILOffsetProjectionProducerTests)
+                .Assembly.Location;
+        LibraryBodyIndex index =
+            LibraryBodyIndex.Open(path);
+        DirectCall call = Assert.Single(
+            index.DirectCalls,
+            call => call.Caller.MetadataToken
+                    == sourceMethod.MetadataToken
+                && call.EvidenceMethod != call.Caller
+                && call.Callee.Name
+                    == nameof(OffsetVirtualTarget.Compute));
+        using var source = SourceLinkService.Open(path);
+
+        ILOffsetProjectionOutcome outcome =
+            ResearchViews.ProjectILOffset(
+                new ILOffsetProjectionRequest(
+                    source,
+                    call.EvidenceMethod.MetadataToken,
+                    call.ILOffset,
+                    ILOffsetProjectionCapabilities
+                        .CostContext));
+
+        Assert.True(outcome.Succeeded);
+        ILOffsetCostContext cost = Assert.Single(
+            outcome.Projection!.CostContext!);
+        Assert.Equal("virtual dispatch", cost.CostKind);
+        Assert.Contains(
+            nameof(OffsetVirtualTarget.Compute),
+            cost.Operation,
+            StringComparison.Ordinal);
+    }
+
+    static async Task<int> CallVirtualAsync(
+        OffsetVirtualTarget target)
+    {
+        await Task.Yield();
+        return target.Compute();
+    }
+
+    class OffsetVirtualTarget
+    {
+        public virtual int Compute() => 1;
+    }
 }

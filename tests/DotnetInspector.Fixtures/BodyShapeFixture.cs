@@ -58,6 +58,11 @@ public sealed class BodyShapeFixture : IBodyShapeValue
     }
 }
 
+public static class BodyShapeFixtureExtensions
+{
+    public static object ProjectedCreation(this BodyShapeFixture value) => new();
+}
+
 public sealed class GenericBodyShapeFixture<T>
 {
     public static object Create() => new object();

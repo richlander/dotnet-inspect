@@ -831,6 +831,44 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
+    public void
+        AnnotatedMemberDocument_DoesNotMergeGeneratedBodyOffsets()
+    {
+        string path =
+            typeof(MemberCallGraphSession).Assembly.Location;
+        int selectIds = MemberToken(
+            path,
+            "ApiInventoryQuery",
+            "SelectIds");
+        using GraphContext context =
+            GraphContext.Create(path);
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            selectIds,
+            new MemberCallGraphOptions
+            {
+                Features =
+                    Analysis.LibraryBodyAnalysisFeatures
+                        .MethodEvidence,
+            });
+        MemberCallGraphView view = graph.Callees();
+
+        Assert.NotEmpty(view.FocusCallSites);
+        Assert.All(
+            view.FocusCallSites,
+            call => Assert.Equal(
+                selectIds,
+                call.EvidenceMethod.MetadataToken));
+        using var source = MetadataSource.Open(path);
+        Assert.IsType<AnnotatedMemberDocumentResult.Complete>(
+            AnnotatedMemberDocumentQuery.Execute(
+                new AnnotatedMemberDocumentInput(
+                    source,
+                    view)));
+    }
+
+    [Fact]
     public void AnnotatedMemberDocument_ReportsAMutualCycleAtTheCallerTier()
     {
         using GraphContext context =

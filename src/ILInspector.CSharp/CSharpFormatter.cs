@@ -67,6 +67,58 @@ public sealed record CSharpFormattedDeclaration(
 /// </summary>
 public sealed class CSharpFormatter
 {
+    public static string FormatDeclarationLeafMetadataName(ApiType type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+
+        if (type.DefinitionName is { } exactName)
+        {
+            string rawLeaf = exactName.Segments[^1];
+            IReadOnlyList<int>? introducedCounts =
+                type.IntroducedTypeParameterCounts;
+            bool hasDeclaredArity = MetadataNameArity.TryReadSuffix(
+                rawLeaf,
+                out int arity,
+                out _);
+            bool arityMatches =
+                hasDeclaredArity
+                && introducedCounts is { Count: > 0 }
+                && introducedCounts.Count == exactName.Segments.Length
+                && introducedCounts[^1] == arity;
+            if (string.Equals(
+                    type.MetadataName,
+                    rawLeaf,
+                    StringComparison.Ordinal)
+                && !string.Equals(
+                    type.Name,
+                    rawLeaf,
+                    StringComparison.Ordinal)
+                && (!hasDeclaredArity || arityMatches))
+            {
+                return type.Name;
+            }
+
+            string leaf = rawLeaf
+                .Replace("\\", "\\\\", StringComparison.Ordinal)
+                .Replace(".", "\\.", StringComparison.Ordinal)
+                .Replace("+", "\\+", StringComparison.Ordinal);
+            if (arityMatches)
+            {
+                return MetadataNameArity.StripFromSegment(leaf);
+            }
+            return leaf;
+        }
+
+        string name = type.Name;
+        int separator = name.LastIndexOfAny(['.', '+']);
+        if (separator >= 0)
+            name = name[(separator + 1)..];
+        int angle = name.IndexOf('<');
+        if (angle >= 0)
+            name = name[..angle];
+        return MetadataNameArity.StripFromSegment(name);
+    }
+
     readonly CSharpDeclarationOptions _declarationOptions;
 
     public CSharpFormatter(CSharpFormatOptions? options = null)
@@ -260,15 +312,19 @@ public sealed class CSharpFormatter
         => CSharpDeclarationWriter.AliasPrimitiveTypeNames(type);
 
     /// <summary>
-    /// Strips a CLR generic-arity suffix (e.g. <c>List`1</c> becomes <c>List</c>)
-    /// from a metadata type name segment. Returns the input unchanged when no
-    /// backtick is present.
+    /// Strips the CLR generic-arity suffix (e.g. <c>List`1</c> becomes <c>List</c>)
+    /// from each segment of an <see cref="ApiType.Name"/>-shaped type-name chain,
+    /// whose nesting boundary is spelled <c>.</c> (<c>Outer`1.Inner`2</c> becomes
+    /// <c>Outer.Inner</c>). Pass the type-name chain only: a namespace is not a
+    /// type-name segment and carries no arity, so callers keep it aside (as
+    /// <see cref="ApiType.Namespace"/> already does) and re-attach it afterwards.
+    /// A segment whose backtick does not introduce a canonical decimal arity
+    /// (<c>Widget`Literal</c>) is preserved unchanged rather than truncated, so
+    /// distinct metadata names do not collapse into one spelling candidate;
+    /// <see cref="MetadataNameArity"/> owns that rule and names its gate.
     /// </summary>
     public static string StripArity(string name)
-    {
-        int tick = name.IndexOf('`');
-        return tick >= 0 ? name[..tick] : name;
-    }
+        => MetadataNameArity.StripFromDottedChain(name);
 
     /// <summary>
     /// Normalizes a raw metadata/IL type display string into C# source spelling:
@@ -459,12 +515,156 @@ public sealed class CSharpFormatter
     public static string FormatTypeName(ApiType type, bool includeVariance = false)
     {
         ArgumentNullException.ThrowIfNull(type);
-        int tick = type.Name.IndexOf('`');
-        string name = tick >= 0 ? type.Name[..tick] : type.Name;
-        name = CSharpIdentifier.ContainIdentifierForDeclaration(name);
-        return type.TypeParameters.Count == 0
+        if (type.DefinitionName is { } exactName)
+        {
+            bool leafOnly =
+                exactName.Segments.Length > 1
+                && (string.Equals(
+                        type.Name,
+                        exactName.Segments[^1],
+                        StringComparison.Ordinal)
+                    || string.Equals(
+                        type.MetadataName,
+                        exactName.Segments[^1],
+                        StringComparison.Ordinal));
+            return FormatExactTypeName(
+                exactName,
+                type.TypeParameters,
+                type.IntroducedTypeParameterCounts,
+                includeVariance,
+                leafOnly,
+                string.Equals(
+                    type.MetadataName,
+                    exactName.Segments[^1],
+                    StringComparison.Ordinal)
+                    && !string.Equals(
+                        type.Name,
+                        exactName.Segments[^1],
+                        StringComparison.Ordinal)
+                        ? type.Name
+                        : null);
+        }
+
+        bool ambiguousLegacyName = HasArityBeforeFlatBoundary(type.Name);
+        string typeName = ambiguousLegacyName
+                ? type.Name
+                : MetadataNameArity.StripFromDottedChain(type.Name);
+        string name = CSharpIdentifier.ContainIdentifierForDeclaration(
+            typeName);
+        return type.TypeParameters.Count == 0 || ambiguousLegacyName
             ? name
             : $"{name}<{string.Join(", ", type.TypeParameters.Select(parameter => FormatTypeParameter(parameter, includeVariance)))}>";
+    }
+
+    static string FormatExactTypeName(
+        MetadataTypeDefinitionName name,
+        IReadOnlyList<TypeParameter> typeParameters,
+        IReadOnlyList<int>? introducedTypeParameterCounts,
+        bool includeVariance,
+        bool leafOnly,
+        string? leafNameOverride)
+    {
+        long declaredArity = 0;
+        foreach (string segment in name.Segments)
+            declaredArity += MetadataNameArity.OfSegment(segment);
+
+        bool hasParameterOwnership =
+            introducedTypeParameterCounts is not null
+            && introducedTypeParameterCounts.Count
+                == name.Segments.Length
+            && introducedTypeParameterCounts.All(
+                static count => count >= 0);
+        bool ownershipMatchesArity =
+            hasParameterOwnership
+            && name.Segments
+                .Select((segment, index) =>
+                {
+                    int declared =
+                        MetadataNameArity.OfSegment(segment);
+                    int introduced =
+                        introducedTypeParameterCounts![index];
+                    return declared == 0
+                        || declared == introduced;
+                })
+                .All(static matches => matches);
+        long expectedParameterCount = leafOnly
+            ? introducedTypeParameterCounts is { Count: > 0 }
+                ? introducedTypeParameterCounts[^1]
+                : -1
+            : hasParameterOwnership
+                ? introducedTypeParameterCounts!.Sum(
+                    static count => (long)count)
+                : declaredArity;
+        bool arityMatches =
+            hasParameterOwnership
+                ? ownershipMatchesArity
+                    && expectedParameterCount == typeParameters.Count
+                : !leafOnly
+                    && declaredArity == typeParameters.Count;
+        bool unboundOuterDisplay =
+            typeParameters.Count == 0
+            && !hasParameterOwnership;
+        int parameterIndex = 0;
+        var parts = new List<string>(name.Segments.Length);
+        for (int segmentIndex = leafOnly
+                ? name.Segments.Length - 1
+                : 0;
+            segmentIndex < name.Segments.Length;
+            segmentIndex++)
+        {
+            string segment = name.Segments[segmentIndex];
+            int arity = hasParameterOwnership
+                ? introducedTypeParameterCounts![segmentIndex]
+                : MetadataNameArity.OfSegment(segment);
+            bool stripArity =
+                arityMatches
+                || (unboundOuterDisplay
+                    && segmentIndex < name.Segments.Length - 1);
+            string simpleName = stripArity
+                ? MetadataNameArity.StripFromSegment(segment)
+                : segment;
+            simpleName =
+                segmentIndex == name.Segments.Length - 1
+                && arityMatches
+                && leafNameOverride is not null
+                    ? CSharpIdentifier.ContainIdentifierForDeclaration(
+                        leafNameOverride)
+                    : ContainExactSegment(simpleName);
+            if (arityMatches && arity > 0)
+            {
+                var parameters = typeParameters
+                    .Skip(parameterIndex)
+                    .Take(arity)
+                    .Select(parameter =>
+                        FormatTypeParameter(
+                            parameter,
+                            includeVariance));
+                simpleName += $"<{string.Join(", ", parameters)}>";
+                parameterIndex += arity;
+            }
+            parts.Add(simpleName);
+        }
+        return leafOnly
+            ? parts[^1]
+            : string.Join(".", parts);
+    }
+
+    static string ContainExactSegment(string segment)
+        => CSharpIdentifier.ContainIdentifierForDeclaration(
+            segment
+                .Replace("\\", "\\\\", StringComparison.Ordinal)
+                .Replace(".", "\\.", StringComparison.Ordinal)
+                .Replace("+", "\\+", StringComparison.Ordinal));
+
+    static bool HasArityBeforeFlatBoundary(string name)
+    {
+        foreach (MetadataNameComponent component in MetadataNameArity.EnumerateComponents(name))
+        {
+            if (component.Arity > 0 && component.Delimiter is not null)
+                return true;
+        }
+
+        return false;
     }
 
     public static string NormalizeGeneratedMetadataTypeName(string metadataName)
@@ -473,8 +673,7 @@ public sealed class CSharpFormatter
         if (!IsGeneratedMetadataName(metadataName))
             return metadataName;
 
-        int arity = metadataName.IndexOf('`');
-        string sourceName = arity < 0 ? metadataName : metadataName[..arity];
+        string sourceName = MetadataNameArity.StripFromSegment(metadataName);
         var builder = new System.Text.StringBuilder(sourceName.Length + 1);
         if (sourceName.Length == 0 || !(char.IsLetter(sourceName[0]) || sourceName[0] == '_'))
             builder.Append('_');

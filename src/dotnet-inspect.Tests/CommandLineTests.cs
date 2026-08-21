@@ -102,13 +102,13 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void BodyShapeCommand_AcceptsKnownExactKind()
+    public void BodyShapeCommand_IsNoLongerRegistered()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(
-            CommandLineBuilder.PreprocessArgs(
-                ["body-shape", "ObjectCreationExpression", "--library", "sample.dll"]));
+        var root = CommandLineBuilder.CreateRootCommand();
 
-        Assert.Empty(result.Errors);
+        Assert.DoesNotContain(
+            root.Subcommands,
+            command => command.Name == "body-shape");
     }
 
     [Fact]
@@ -130,27 +130,11 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void BodyShapeCommand_RejectsUnknownOrCaseVariantKind()
+    public void BodyShapeCommand_IsNotReservedForImplicitRouting()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(
-            CommandLineBuilder.PreprocessArgs(
-                ["body-shape", "objectcreationexpression", "--library", "sample.dll"]));
-
-        var error = Assert.Single(result.Errors);
-        Assert.Contains("not recognized", error.Message, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Theory]
-    [InlineData("abc")]
-    [InlineData("99999999999")]
-    public void BodyShapeCommand_InvalidLimitReportsParseError(string limit)
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(
-            CommandLineBuilder.PreprocessArgs(
-                ["body-shape", "LiteralExpression", "--library", "sample.dll", "--limit", limit]));
-
-        Assert.Contains(result.Errors, error =>
-            error.Message.Contains("Cannot parse", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(
+            "body-shape",
+            ArgumentPreprocessor.KnownCommands);
     }
 
     [Fact]

@@ -653,12 +653,26 @@ the definition without running a preset or acquiring its inputs.
 
 Product-resident home demos ship as a static id→factory registry
 (`DotnetInspector.Queries.Definitions.ProductInspectionDemos`, smooth-markdown-table
-`RendererRegistry` style); hosts activate one demo via
-`ProductInspectionDemos.ResolveHomeScenario`, which allocates only that demo.
-Group-subscription grammar and share-packet transposition remain design-ahead
-of that loader. Selecting a scenario lowers into the same acquisition and typed query paths
-used by an interactive request; it does not create a second demo-only execution
-path.
+`RendererRegistry` style); hosts resolve one demo via
+`ProductInspectionDemos.ResolveHomeScenario`, which allocates only that demo's
+peer records (coordinates and view focus today). The **target** run model is a
+closed preset over the open query/section product: the registry fixes inputs
+and names **existing product section(s)**; the host runs the normal section
+pipeline and returns those sections in ordinary formats. That full section
+binding and run path are not implemented yet—current plans are a partial
+binding (see the workspace-definitions residual). Demos must not call past
+sections into ad hoc inspection APIs; a capability that is not a product
+section is not a home demo until the section exists. Once section binding and
+run exist, CLI argv, definition plans, and browser engine operations (including
+a generated TypeScript binding of that engine surface) must be encodings of the
+same preset—not parallel demo systems. Group-subscription grammar and
+share-packet transposition remain design-ahead of that loader. When run exists,
+selecting a scenario must lower into the same acquisition and typed query paths
+used by an interactive request—it must not create a second demo-only execution
+path. Today resolve stops at the plan (`ResolvedScenario`); acquisition and
+section execution are still host/future work on top of that plan. Detail:
+[workspace-definitions.md — Product demos are closed section
+presets](design/workspace-definitions.md#product-demos-are-closed-section-presets).
 
 A bundle contains no live streams, `PEReader` instances, sessions, acquisition
 registrations, candidate ids, catalog generations, join tokens, cached verdicts,
@@ -673,6 +687,25 @@ workspace-free query asks its source or artifact owner only for the narrow
 context its operation declares; no assembly registration, group, or catalog is
 implied. A persistent host may retain a resulting workspace afterward under the
 normal lifetime and budget rules.
+
+The target
+[artifact acquisition design](design/artifact-acquisition-and-workspaces.md)
+names the owner-issued access for that first projection the admission lease.
+Before its first adapter call, the workspace reserves the complete
+multi-source plan against aggregate artifact-count, peak-acquisition-byte, and
+retained-byte budgets that also include concurrent admissions and retained
+generations. Before atomic publication, admission materializes every selected
+logical artifact into retained immutable content, validates identity and every
+budget dimension, and projects all required assembly participants. Equivalent
+concurrent demands for the same context generation and admission-policy
+snapshot join one workspace-owned operation and consume no second reservation,
+including across Browser/Wasm awaited reentrancy. Cancellation-draining
+operations accept no new join or late publication. Later opens use only
+retained content; they perform no source acquisition, archive expansion,
+participant minting, or catalog mutation. This reservation is distinct from
+each adapter's transport/archive limits and the assembly group's image budget.
+Later queries receive separate query leases and must reauthorize the retained
+catalog generation before participant selection.
 
 Hosts statically register the bundles they choose to ship. Excluded bundles and
 their definitions and embedded artifact bytes do not enter the build. Included
@@ -820,10 +853,19 @@ The architecture is the contract above and the ownership of each transition.
 
 ### Identity and provenance
 
-Resolution returns a descriptor such as `ResolvedAssemblyReference`: identity,
-an opener for the selected content, and structured resolution provenance.
-Inspection does not discard that information into a bare path and later
-reconstruct it.
+The current implementation returns a descriptor such as
+`ResolvedAssemblyReference`: identity, an opener for the selected content, and
+structured resolution provenance. Inspection does not discard that information
+into a bare path and later reconstruct it.
+
+The target
+[artifact acquisition design](design/artifact-acquisition-and-workspaces.md)
+makes that descriptor source-neutral: artifact/acquisition identity plus
+owner-guarded content access. Source adapters retain typed source-specific
+provenance beside the workspace participant rather than extending a
+Metadata-owned provenance hierarchy. Caller designation and other trust inputs
+remain separate authorized workspace roles rather than provenance inferred from
+paths or assembly names.
 
 Identity, correspondence, provenance, and display remain separate. Joins use
 the typed currencies; presentation chooses spelling afterward.

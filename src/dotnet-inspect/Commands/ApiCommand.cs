@@ -303,9 +303,8 @@ public class ApiCommand
         {
             if (SelectOutput.WriteUnresolved(selectResult))
                 return (null!, 1);
-            if (options is MemberOptions bodyMemberOptions
-                && ApplyBodyShapeSelectionRequirements(
-                    bodyMemberOptions,
+            if (ApplyBodyShapeSelectionRequirements(
+                    options,
                     selectResult) is { } bodyShapeError)
             {
                 CommandError.Write(bodyShapeError);
@@ -314,7 +313,7 @@ public class ApiCommand
             if (selectResult.Sections != null)
                 options = options with { IncludeSections = selectResult.Sections };
         }
-        if (options is MemberOptions
+        if (options is
             {
                 BodyKindQuery.HasFilter: true,
                 Select: null,
@@ -464,7 +463,7 @@ public class ApiCommand
     }
 
     internal static string? ApplyBodyShapeSelectionRequirements(
-        MemberOptions options,
+        ApiOptions options,
         SelectResult selectResult)
     {
         if (selectResult.Sections is not { } sections)
@@ -498,7 +497,7 @@ public class ApiCommand
     }
 
     internal static bool TargetsBodyShapes(
-        MemberOptions options,
+        ApiOptions options,
         string[]? selectors)
     {
         if (selectors is not { Length: > 0 })
@@ -864,6 +863,8 @@ public class ApiCommand
             // lossy '+'→'.' fallback) when it reaches the type-scope analysis path.
             MetadataName = type.MetadataName,
             DefinitionName = type.DefinitionName,
+            IntroducedTypeParameterCounts =
+                type.IntroducedTypeParameterCounts,
             Kind = type.Kind,
             // Every identity fact carries over: this copy exists to narrow Members, and anything
             // else it drops silently changes what sections and discovery see. Omitting the two
@@ -915,29 +916,17 @@ public class ApiCommand
         if (!ApiMemberSectionPipelines.UsesDetailPipeline(options))
             return detailSchema;
         if (detailSchema.GetSection(SectionNames.Calls) == null)
-            detailSchema.Add(SectionNames.Calls, "column", "IL Offset", "Opcode", "Call Kind", "Callee", "Operand Token", "Return Address");
+            detailSchema.Add(SectionNames.Calls, "column", "IL Offset", "Evidence Method", "Opcode", "Call Kind", "Callee", "Operand Token", "Return Address");
         if (detailSchema.GetSection(SectionNames.Callers) == null)
-            detailSchema.Add(SectionNames.Callers, "column", "Caller", "IL Offset", "Opcode", "Call Kind", "Operand Token", "Return Address");
+            detailSchema.Add(SectionNames.Callers, "column", "Caller", "Evidence Method", "IL Offset", "Opcode", "Call Kind", "Operand Token", "Return Address");
         if (detailSchema.GetSection(SectionNames.UnsafeOperations) == null)
             detailSchema.Add(SectionNames.UnsafeOperations, "column", "Reason", "Detail", "Kind", "IL", "Token");
         // One bidirectional section, so one field list: the union of what the outbound and inbound
         // halves each used to declare separately.
-        detailSchema.Add(SectionNames.CallGraph, "field",
-            "Fanout", "FanoutCount",
-            "Fanin", "FaninCount",
-            "Depth", "MaxDepth",
-            "Loop", "InLoop", "Looping",
-            "Root", "RootKind", "Classification",
-            "Source", "Assembly",
-            "Alloc", "Allocations",
-            "Copy", "Copies",
-            "Unsafe",
-            "Reflection",
-            "Throw", "Throws", "ThrowSites",
-            "Exceptions", "ExceptionTypes", "ConstructedExceptions",
-            "Catch", "Catches",
-            "Finally", "Finallys",
-            "EvidenceIL", "Evidence", "IL");
+        detailSchema.Add(
+            SectionNames.CallGraph,
+            "field",
+            CallGraphFieldSelection.Names);
         return detailSchema;
     }
 
@@ -1038,7 +1027,7 @@ public class ApiCommand
             if (!resolved.HasError && resolved.Sections is { Count: > 0 })
                 sections.UnionWith(resolved.Sections);
         }
-        if (options is MemberOptions { BodyKindQuery.HasFilter: false }
+        if (!options.BodyKindQuery.HasFilter
             && options.Discover is not null)
         {
             sections.Remove(SectionNames.BodyShapes);
@@ -1236,6 +1225,7 @@ public class ApiCommand
         else
         {
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
+            writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
             if (options.PlainText)
             {
                 // Buffered rather than written straight to the console so the empty-render gate
@@ -1250,7 +1240,6 @@ public class ApiCommand
             }
             else
             {
-                writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
                 var markdownWriter = new StringWriter { NewLine = "\n" };
                 MarkoutSerializer.Serialize(
                     view, markdownWriter, new MarkdownFormatter(), ApiViewContext.Default, writerOptions);
@@ -1863,6 +1852,18 @@ public class ApiCommand
                 }
             }
 
+            if (options is TypeOptions
+                && options.DllPath is { } typeBodyShapeDllPath
+                && GetRequestedMemberSections(type, options).Contains(SectionNames.BodyShapes))
+            {
+                ApiOutputFormatter.PopulateBodyShapes(
+                    view,
+                    typeBodyShapeDllPath,
+                    options.PdbPath,
+                    ApiOutputFormatter.ResolveTypeBodyShapeMethodTokens(type),
+                    options);
+            }
+
             // Type-scope analysis sections share one index build per type (built lazily, only
             // when such a section is requested) instead of opening one session per section.
             Analysis.LibraryBodyIndex? typeAnalysisIndex = null;
@@ -2100,6 +2101,7 @@ public class ApiCommand
         else
         {
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
+            writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
             if (options.PlainText)
             {
                 var writer = new Markout.MarkoutWriter(sink, options.CreateFormatter(), writerOptions);
@@ -2121,7 +2123,6 @@ public class ApiCommand
                     writerOptions.SectionOrder = pipeline.InfoSectionNames;
                 }
 
-                writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
                 var sw = new StringWriter { NewLine = "\n" };
                 var writer = new Markout.MarkoutWriter(sw, options.CreateFormatter(), writerOptions);
                 ApiOutputFormatter.SerializeTypeDocument(
@@ -2517,7 +2518,7 @@ public class ApiCommand
         var fullSchema = GetTypeDocumentSchema(options);
         var filteredType = BuildFilteredTypeForSections(apiType, options);
         var effective = memberPipeline.GetDiscoverableSections(filteredType, options.IncludeSections);
-        if (options is MemberOptions { BodyKindQuery.HasFilter: false })
+        if (!options.BodyKindQuery.HasFilter)
         {
             effective = effective
                 .Where(section => !section.Equals(
@@ -2757,6 +2758,18 @@ public class ApiCommand
                     memberOptions.MemberSourceCoordinatesInvalid);
             }
 
+            if (renderOptions is TypeOptions
+                && renderOptions.DllPath is { } typeBodyShapeDllPath
+                && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.BodyShapes))
+            {
+                ApiOutputFormatter.PopulateBodyShapes(
+                    view,
+                    typeBodyShapeDllPath,
+                    renderOptions.PdbPath,
+                    ApiOutputFormatter.ResolveTypeBodyShapeMethodTokens(type),
+                    renderOptions);
+            }
+
             Analysis.LibraryBodyIndex? typeAnalysisIndex = null;
             Analysis.LibraryBodyIndex TypeAnalysisIndex() =>
                 typeAnalysisIndex ??= ApiAnalysisInspection.OpenTypeAnalysisIndex(
@@ -2955,6 +2968,8 @@ public class ApiCommand
                 Name = type.Name,
                 MetadataName = type.MetadataName,
                 DefinitionName = type.DefinitionName,
+                IntroducedTypeParameterCounts =
+                    type.IntroducedTypeParameterCounts,
                 Kind = type.Kind,
                 IsSealed = type.IsSealed,
                 IsAbstract = type.IsAbstract,
@@ -3088,6 +3103,8 @@ public class ApiCommand
             Name = type.Name,
             MetadataName = type.MetadataName,
             DefinitionName = type.DefinitionName,
+            IntroducedTypeParameterCounts =
+                type.IntroducedTypeParameterCounts,
             Kind = type.Kind,
             IsSealed = type.IsSealed,
             IsAbstract = type.IsAbstract,

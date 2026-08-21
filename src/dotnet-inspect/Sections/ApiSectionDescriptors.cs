@@ -137,6 +137,7 @@ public static class ApiMemberSectionDescriptors
             .Add<CostFacts>()
             .Add<TopLeverage>()
             .Add<OptimizationOpportunities>()
+            .Add<ApiMemberDetailSectionDescriptors.BodyShapes>()
             .Add<SourceFiles>()
             .Add<DecompiledSource>()
             .Add<OriginalSource>()
@@ -922,8 +923,7 @@ public static class ApiMemberDetailSectionDescriptors
             SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Count == 1
-               && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+            => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
 
     /// <summary>

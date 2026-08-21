@@ -190,11 +190,11 @@ public static class CommandLineBuilder
         // Product-owned query vocabulary
         rootCommand.Subcommands.Add(VocabularyCommandDefinitions.CreateVocabularyCommand(opts));
 
-        // Body shape command
-        rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateBodyShapeCommand(opts));
-
         // Implements command
         rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateImplementsCommand(opts));
+
+        // Match command (pairwise structural-clone correspondence)
+        rootCommand.Subcommands.Add(MatchCommandDefinitions.CreateMatchCommand(opts));
 
         // Package command
         rootCommand.Subcommands.Add(PackageCommandDefinitions.CreatePackageCommand(opts));

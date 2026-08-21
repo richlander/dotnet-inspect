@@ -42,6 +42,12 @@ public class CSharpNamingTests
     [InlineData("class`1", "@class")]
     [InlineData("Normal`1", "Normal")]
     [InlineData("<>c__DisplayClass0_0", "___c__DisplayClass0_0")]
+    // #4217: only the canonical `N is an arity suffix. A literal backtick is kept
+    // and sanitized into a visibly distinct identifier instead of truncating the
+    // segment to the unrelated `Widget`.
+    [InlineData("Widget`Literal", "Widget_Literal")]
+    [InlineData("Widget`0", "Widget_0")]
+    [InlineData("Widget`1Extra", "Widget_1Extra")]
     public void TypeNameSegment_StripsArityAndEscapesKeywords(string metadataName, string expected)
         => Assert.Equal(expected, CSharpNaming.TypeNameSegment(metadataName));
 

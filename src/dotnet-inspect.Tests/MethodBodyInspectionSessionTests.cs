@@ -232,9 +232,9 @@ public class MethodBodyInspectionSessionTests
             projection.CallSites
                 .Select(site =>
                     (
-                        site.Call.Caller.AssemblyName,
-                        site.Call.Caller.ModuleVersionId,
-                        site.Call.Caller.MetadataToken,
+                        site.Call.EvidenceMethod.AssemblyName,
+                        site.Call.EvidenceMethod.ModuleVersionId,
+                        site.Call.EvidenceMethod.MetadataToken,
                         site.Call.ILOffset,
                         site.Call.OperandToken))
                 .Distinct()
