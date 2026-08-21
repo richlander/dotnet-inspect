@@ -759,6 +759,41 @@ test("typed settings panel owns its rendered control bindings", () => {
   }
 });
 
+test("metadata viewer owns its rendered explorer control bindings", () => {
+  const binding =
+    appSource.match(/function bindMetadataExplorerEvents\(\) \{[\s\S]*?\/\/ Hydrate cards/)?.[0]
+    ?? "";
+  assert.match(
+    binding,
+    /bindMetadataExplorer\(document, ex, \{[\s\S]*onClose: closeExplorer,[\s\S]*onHistoryBack: explorerHistoryBack,[\s\S]*onHistoryForward: explorerHistoryForward,[\s\S]*onHeapFocus: heap => pushExplorerFocus\(\{ heap \}\),[\s\S]*onJump: explorerJump,[\s\S]*onPage: \(index, startRowId\) => loadExplorerWindow\(index, startRowId\),[\s\S]*onRowFocus: \(index, rowId\) => \{[\s\S]*ex\.detail = already \? null : \{ index, rowId \};[\s\S]*ex\.highlight = already \? null : \{ index, rowId \};[\s\S]*onShowOverview: explorerShowOverview,[\s\S]*onTableFocus: \(index, rowId\) => pushExplorerFocus\(\{ index, rowId \}\),/);
+  assert.equal(
+    appSource.match(/\bbindMetadataExplorerEvents\b/g)?.length,
+    2);
+  assert.equal(
+    appSource.match(/\bbindMetadataExplorer\b/g)?.length,
+    2);
+  assert.match(
+    metadataViewerSource,
+    /export function bindMetadataExplorer\([\s\S]*#mde-exit[\s\S]*#mde-hist-back[\s\S]*#mde-hist-fwd[\s\S]*\[data-mde-chip\][\s\S]*\[data-mde-jump\][\s\S]*\[data-mde-overview\][\s\S]*\[data-mde-page\][\s\S]*\[data-mde-heap-chip\][\s\S]*\.mde-wall \.mde-card\[data-mde-index\] \.mde-card-head[\s\S]*\.mde-wall \.mde-heap-card\[data-mde-heap\] \.mde-card-head[\s\S]*\.mde-wall \.mde-row\[data-mde-row\][\s\S]*#mde-canvas[\s\S]*\.mde-focus \.mde-row\[data-mde-row\]/);
+  for (const selector of [
+    "#mde-exit",
+    "#mde-hist-back",
+    "#mde-hist-fwd",
+    "[data-mde-chip]",
+    "[data-mde-jump]",
+    "[data-mde-overview]",
+    "[data-mde-page]",
+    "[data-mde-heap-chip]",
+    ".mde-wall .mde-card[data-mde-index] .mde-card-head",
+    ".mde-wall .mde-heap-card[data-mde-heap] .mde-card-head",
+    ".mde-wall .mde-row[data-mde-row]",
+    ".mde-focus .mde-row[data-mde-row]",
+  ]) {
+    assert.equal(appSource.split(selector).length - 1, 0, selector);
+  }
+  assert.equal(appSource.split("#mde-canvas").length - 1, 1);
+});
+
 test("leaving package search clears its pending loading state", () => {
   assert.match(
     spotlightPackageSearchSource,
