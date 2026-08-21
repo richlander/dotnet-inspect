@@ -358,6 +358,21 @@ test("typed catalog requests own release and package-version coordination", () =
     /\bfetch\(|\bdocument\b|inspectPackageVersions/);
 });
 
+test("typed type panel owns its rendered control bindings", () => {
+  assert.match(
+    appSource,
+    /function bindTypePanelEvents\(\) \{\s*bindTypePanel\(document, \{/);
+  assert.match(
+    typePanelSource,
+    /export function bindTypePanel\([\s\S]*\[data-type\][\s\S]*\[data-namespace\][\s\S]*\[data-kind-filter\][\s\S]*\[data-nav-member\][\s\S]*\[data-nav-overload\][\s\S]*#nav-to-types[\s\S]*#clear-filter[\s\S]*#namespace-jump[\s\S]*#type-list[\s\S]*#type-filter/);
+  assert.doesNotMatch(
+    appSource,
+    /querySelectorAll<HTMLElement>\("\[data-(?:type|namespace|kind-filter|nav-member|nav-overload)\]"\)/);
+  assert.doesNotMatch(
+    appSource,
+    /querySelector(?:<[^>]+>)?\("#(?:nav-to-types|clear-filter|namespace-jump|type-filter)"\)\??\.addEventListener/);
+});
+
 test("leaving package search clears its pending loading state", () => {
   assert.match(
     spotlightPackageSearchSource,
@@ -583,7 +598,7 @@ test("member filters retain accessible controls and focus across rerenders", () 
     /event\.key === "Escape" && !event\.defaultPrevented && !typing[\s\S]*if \(navMode\(\) === "member"\) exitMemberScope\(\)/);
   assert.match(
     appSource,
-    /#nav-to-types"\)\?\.addEventListener\("click", \(\) => \{\s*exitMemberScope\(\)/);
+    /onShowTypes: exitMemberScope/);
   assert.match(
     appSource,
     /const renderMemberFilterAndRestoreFocus = \(selector = ""\) => \{[\s\S]*renderWithMemberFocus\(preserved\)/);

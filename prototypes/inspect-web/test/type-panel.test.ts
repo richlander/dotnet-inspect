@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  bindTypePanel,
   renderMemberNav,
   renderTypeMetadata,
   renderTypeNav,
@@ -11,8 +12,70 @@ import {
 } from "../src/type-panel.ts";
 import type {
   MemberNavEntry,
+  TypePanelBindingActions,
   TypeSummary,
 } from "../src/type-panel.ts";
+
+class FakeElement {
+  readonly dataset: Record<string, string | undefined>;
+  value = "";
+  focused = false;
+  private readonly listeners = new Map<string, EventListener[]>();
+
+  constructor(dataset: Record<string, string | undefined> = {}) {
+    this.dataset = dataset;
+  }
+
+  addEventListener(type: string, listener: EventListener) {
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  dispatch(type: string, event: Event = {} as Event) {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener(event);
+    }
+  }
+
+  focus() {
+    this.focused = true;
+  }
+}
+
+class FakeRoot {
+  private readonly single = new Map<string, FakeElement>();
+  private readonly multiple = new Map<string, FakeElement[]>();
+
+  add(selector: string, element: FakeElement) {
+    this.single.set(selector, element);
+    return element;
+  }
+
+  addAll(selector: string, ...elements: FakeElement[]) {
+    this.multiple.set(selector, elements);
+    return elements;
+  }
+
+  querySelector(selector: string) {
+    return this.single.get(selector) ?? null;
+  }
+
+  querySelectorAll(selector: string) {
+    return this.multiple.get(selector) ?? [];
+  }
+}
+
+function keyboardEvent(key: string) {
+  const state = { prevented: false };
+  const event = {
+    key,
+    preventDefault: () => {
+      state.prevented = true;
+    },
+  } as unknown as KeyboardEvent;
+  return { event, state };
+}
 
 function escapeHtml(value: unknown) {
   return String(value)
@@ -71,6 +134,123 @@ const jsonDocument: TypeSummary = {
   accessibility: "public",
   assembly: "System.Text.Json.dll",
 };
+
+test("type panel bindings dispatch every rendered navigation control", () => {
+  const root = new FakeRoot();
+  const type = new FakeElement({ type: "System.String" });
+  const namespace = new FakeElement({ namespace: "System" });
+  const kind = new FakeElement({ kindFilter: "class" });
+  const member = new FakeElement({ navMember: "M:Length" });
+  const overload = new FakeElement({ navOverload: "2" });
+  root.addAll("[data-type]", type);
+  root.addAll("[data-namespace]", namespace);
+  root.addAll("[data-kind-filter]", kind);
+  root.addAll("[data-nav-member]", member);
+  root.addAll("[data-nav-overload]", overload);
+  const showTypes = root.add("#nav-to-types", new FakeElement());
+  const clear = root.add("#clear-filter", new FakeElement());
+  const namespaceJump = root.add("#namespace-jump", new FakeElement());
+  namespaceJump.value = "System.Text";
+  const filter = root.add("#type-filter", new FakeElement());
+  filter.value = "json";
+  const typeList = root.add("#type-list", new FakeElement());
+
+  const calls: string[] = [];
+  let listEvent: KeyboardEvent | null = null;
+  const actions: TypePanelBindingActions = {
+    onClearFilters: () => calls.push("clear"),
+    onKindSelect: value => calls.push(`kind:${value}`),
+    onListKeyDown: event => {
+      listEvent = event;
+    },
+    onMemberSelect: value => calls.push(`member:${value}`),
+    onNamespaceSelect: value => calls.push(`namespace:${value}`),
+    onOverloadSelect: value => calls.push(`overload:${value}`),
+    onShowTypes: () => calls.push("types"),
+    onTypeFilterChange: value => calls.push(`filter:${value}`),
+    onTypeFilterEscape: () => calls.push("escape"),
+    onTypeSelect: value => calls.push(`type:${value}`),
+  };
+  bindTypePanel(root as unknown as ParentNode, actions);
+
+  type.dispatch("click");
+  namespace.dispatch("click");
+  namespaceJump.dispatch("change");
+  kind.dispatch("click");
+  member.dispatch("click");
+  overload.dispatch("click");
+  showTypes.dispatch("click");
+  clear.dispatch("click");
+  filter.dispatch("input");
+  const listKey = keyboardEvent("ArrowDown");
+  typeList.dispatch("keydown", listKey.event);
+
+  assert.deepEqual(calls, [
+    "type:System.String",
+    "namespace:System",
+    "namespace:System.Text",
+    "kind:class",
+    "member:M:Length",
+    "overload:2",
+    "types",
+    "clear",
+    "filter:json",
+  ]);
+  assert.equal(listEvent, listKey.event);
+});
+
+test("type filter keys preserve list focus and Escape behavior", () => {
+  const root = new FakeRoot();
+  const filter = root.add("#type-filter", new FakeElement());
+  const typeList = root.add("#type-list", new FakeElement());
+  let escapes = 0;
+  bindTypePanel(root as unknown as ParentNode, {
+    onClearFilters: () => {},
+    onKindSelect: () => {},
+    onListKeyDown: () => {},
+    onMemberSelect: () => {},
+    onNamespaceSelect: () => {},
+    onOverloadSelect: () => {},
+    onShowTypes: () => {},
+    onTypeFilterChange: () => {},
+    onTypeFilterEscape: () => {
+      escapes++;
+    },
+    onTypeSelect: () => {},
+  });
+
+  const ignored = keyboardEvent("a");
+  filter.dispatch("keydown", ignored.event);
+  assert.equal(typeList.focused, false);
+  assert.equal(ignored.state.prevented, false);
+  assert.equal(escapes, 0);
+
+  const down = keyboardEvent("ArrowDown");
+  filter.dispatch("keydown", down.event);
+  assert.equal(typeList.focused, true);
+  assert.equal(down.state.prevented, true);
+
+  const escape = keyboardEvent("Escape");
+  filter.dispatch("keydown", escape.event);
+  assert.equal(escapes, 1);
+  assert.equal(escape.state.prevented, false);
+});
+
+test("type panel binding tolerates controls from the inactive nav being absent", () => {
+  const root = new FakeRoot();
+  assert.doesNotThrow(() => bindTypePanel(root as unknown as ParentNode, {
+    onClearFilters: () => {},
+    onKindSelect: () => {},
+    onListKeyDown: () => {},
+    onMemberSelect: () => {},
+    onNamespaceSelect: () => {},
+    onOverloadSelect: () => {},
+    onShowTypes: () => {},
+    onTypeFilterChange: () => {},
+    onTypeFilterEscape: () => {},
+    onTypeSelect: () => {},
+  }));
+});
 
 test("the type nav lists namespace groups with the current type selected", () => {
   const html = renderTypeNav({

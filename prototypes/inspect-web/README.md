@@ -646,17 +646,18 @@ Symbol/PDB acquisition status is not yet surfaced here — no backend contract
 reports it today — and is a tracked fast-follow.
 
 `src/type-panel.ts` owns the type selector (the "PUBLIC TYPES" / "MEMBERS" nav
-pane) and the type viewer (the type heading, metadata, and source sections
-shown for the "type" scope) as pure, dependency-injected render functions.
+pane), its rendered DOM control bindings, and the type viewer (the type
+heading, metadata, and source sections shown for the "type" scope).
 `dotnet-inspect.ts` still owns the type index, filtering, member grouping, and
-click/keyboard navigation, and passes each computed slice in explicitly; the
+navigation state transitions, and supplies them through typed callbacks; the
 shared text helpers used well beyond the type panel (`kindIcon`, `shortKind`,
 `typeDisplayName`, `highlight`, `highlightCSharp`, `factRows`,
 `relatedTypeChip`) stay in `dotnet-inspect.ts` and are injected the same way.
-`test/type-panel.test.ts` gates namespace grouping and selection in the type
-list, active-group and overload selection in the member list, the type
-heading's package/library fields, the metadata- and source-signature cache
-keys, and the metadata/source panels' loading, error, and loaded states.
+`test/type-panel.test.ts` gates every rendered control binding, type-filter
+keyboard behavior, namespace grouping and selection in the type list,
+active-group and overload selection in the member list, the type heading's
+package/library fields, the metadata- and source-signature cache keys, and the
+metadata/source panels' loading, error, and loaded states.
 
 `src/package-bar.ts` owns the package tab strip (including the always-present
 Platform tab), the open-package query form, and their keyboard/mouse/wheel
