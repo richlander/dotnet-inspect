@@ -749,6 +749,15 @@ callbacks. `test/library-controls.test.ts` gates selector mapping, pack
 provenance/defaults, empty selections, inactive surfaces, and no eager
 dispatch.
 
+`src/shell-controls.ts` owns the rendered workbench chrome, home demo/theme
+controls, and load-error retry/query/detail bindings. It reuses the package
+query grammar from `package-bar.ts`; `dotnet-inspect.ts` still owns notice and
+package state, navigation/history, sharing, theme effects, demo orchestration,
+retry selection, and package loading behind typed callbacks.
+`test/shell-controls.test.ts` gates every selector, valid and invalid home demo
+identities, replacement-package parsing, local error-detail state, inactive
+surfaces, and no eager dispatch.
+
 `src/settings-panel.ts` owns the Settings page and the decompiler "taste"
 popover it shares its style catalog with, including each surface's rendered DOM
 bindings and the home/workbench controls that open them. `dotnet-inspect.ts`

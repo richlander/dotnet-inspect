@@ -79,6 +79,14 @@ import {
   type PlatformLibraryLens,
 } from "./library-controls.ts";
 import {
+  bindHomeShell,
+  bindLoadErrorShell,
+  bindWorkbenchShell,
+  type HomeShellBindingActions,
+  type LoadErrorShellBindingActions,
+  type WorkbenchShellBindingActions,
+} from "./shell-controls.ts";
+import {
   createSourceInspectionCoordinator,
   type GraphSourceRequest,
 } from "./source-inspection.ts";
@@ -4219,6 +4227,31 @@ function bindAnnotatedSourceEvents() {
   });
 }
 
+const workbenchShellActions: WorkbenchShellBindingActions = {
+  onDismissNotice: () => {
+    state.queryNotice = "";
+    state.queryNoticeRetryAction = null;
+    render();
+  },
+  onDismissPackageNotice: () => {
+    currentPackage().inspectionError = "";
+    render();
+  },
+  onGoHome: goHome,
+  onHelp: () => showToast(
+    "⌘K command · ⌘P / type to find a type · ⌘F filter · "
+    + "1—5 lenses · ↑↓ types · Alt+←/→ back/forward · "
+    + "graph: wheel zoom, click node to open, +/− zoom, 0 fit, arrows pan"),
+  onNavigateBack: navBack,
+  onNavigateForward: navForward,
+  onRetryNotice: () => {
+    const retryAction = state.queryNoticeRetryAction;
+    if (retryAction) observeAction(retryAction, "Retrying the inspection");
+  },
+  onShare: () => void share(),
+  onToggleTheme: toggleTheme,
+};
+
 function bindEvents() {
   bindStatusBarEvents();
   packageBar.bind(document);
@@ -4232,32 +4265,14 @@ function bindEvents() {
   bindAnnotatedSourceEvents();
   bindPackageViewEvents();
   bindLibraryControlsEvents();
+  bindWorkbenchShell(document, workbenchShellActions);
   observeAsync(ensurePackageVersions(state.package), "Loading package versions");
   if (state.package?.isRuntimePack)
     observeAsync(ensureDotnetReleases(), "Loading .NET release information");
   if (state.spotlightOpen) spotlight.bind(document, "modal");
-  document.querySelector("#share")?.addEventListener("click", () => void share());
   document.querySelector("[data-graph-back]")?.addEventListener(
     "click",
     popPlatformDrill);
-  document.querySelector("#dismiss-notice")?.addEventListener("click", () => {
-    state.queryNotice = "";
-    state.queryNoticeRetryAction = null;
-    render();
-  });
-  document.querySelector("#retry-notice")?.addEventListener("click", () => {
-    const retryAction = state.queryNoticeRetryAction;
-    if (retryAction) observeAction(retryAction, "Retrying the inspection");
-  });
-  document.querySelector("#dismiss-package-notice")?.addEventListener("click", () => {
-    currentPackage().inspectionError = "";
-    render();
-  });
-  document.querySelector("#nav-back")?.addEventListener("click", navBack);
-  document.querySelector("#nav-forward")?.addEventListener("click", navForward);
-  document.querySelector("#go-home")?.addEventListener("click", goHome);
-  document.querySelector("#theme-toggle")?.addEventListener("click", toggleTheme);
-  document.querySelector("#help")?.addEventListener("click", () => showToast("⌘K command · ⌘P / type to find a type · ⌘F filter · 1—5 lenses · ↑↓ types · Alt+←/→ back/forward · graph: wheel zoom, click node to open, +/− zoom, 0 fit, arrows pan"));
 }
 
 function toggleTheme() {
@@ -5635,23 +5650,21 @@ function homeArtSvg() {
   return `<img class="home-art-img" src="/assets/dotnet-inspect-bot.png" width="680" height="680" alt="dotnet-bot inspecting through a magnifying glass" />`;
 }
 
-function bindHomeEvents() {
-  bindStatusBarEvents();
-  bindSettingsPanelEvents();
-  document.querySelector("#home-theme")?.addEventListener("click", toggleTheme);
-  document.querySelector("#dismiss-notice")?.addEventListener("click", () => {
+const homeShellActions: HomeShellBindingActions = {
+  onDemo: runHomeDemo,
+  onDismissNotice: () => {
     state.queryNotice = "";
     state.queryNoticeRetryAction = null;
     render();
-  });
+  },
+  onToggleTheme: toggleTheme,
+};
+
+function bindHomeEvents() {
+  bindStatusBarEvents();
+  bindSettingsPanelEvents();
+  bindHomeShell(document, homeShellActions);
   spotlight.bind(document, "inline");
-  document.querySelectorAll<HTMLElement>("[data-home-demo]").forEach(button =>
-    button.addEventListener("click", () => {
-      const demo = button.dataset.homeDemo;
-      if (demo === "stj" || demo === "runtime" || demo === "callgraph") {
-        runHomeDemo(demo);
-      }
-    }));
   requestAnimationFrame(() =>
     document.querySelector<HTMLInputElement>("#spotlight-input")?.focus());
 }
@@ -5772,6 +5785,14 @@ function openPackageFromError(packageId: string, version: string) {
   observeAsync(loadPackage(packageId, version, ""), "Loading a package");
 }
 
+const loadErrorShellActions: LoadErrorShellBindingActions = {
+  onOpenPackage: openPackageFromError,
+  onRetry: () =>
+    observeAction(
+      state.retryAction ?? bootstrap,
+      "Retrying the inspection"),
+};
+
 function renderLoading() {
   app.innerHTML = `
     <div class="loading-screen">
@@ -5792,26 +5813,7 @@ function renderLoading() {
            </div>`
         : `<div class="load-progress"><img class="loading-bot" src="${interstitialBotSrc()}" width="200" height="200" alt="dotnet-bot inspector mascot" /><span class="loader"></span><strong>${escapeHtml(state.loadingMessage)}</strong><small>${state.loadingSubtitle ? escapeHtml(state.loadingSubtitle) : `${escapeHtml(state.requestedPackage)}@${escapeHtml(state.requestedVersion)} · ${escapeHtml(state.requestedFramework || "best framework")}`}</small></div>`}
     </div>`;
-  document.querySelector("#retry-load")?.addEventListener(
-    "click",
-    () => observeAction(
-      state.retryAction ?? bootstrap,
-      "Retrying the inspection"));
-  document.querySelector("#error-package-query")?.addEventListener("submit", event => {
-    event.preventDefault();
-    const input =
-      document.querySelector<HTMLInputElement>("#error-package-input");
-    const value = input?.value.trim() ?? "";
-    const separator = value.lastIndexOf("@");
-    if (!value || separator === value.length - 1) return;
-    const packageId = separator > 0 ? value.slice(0, separator) : value;
-    const version = separator > 0 ? value.slice(separator + 1) : "latest";
-    openPackageFromError(packageId, version);
-  });
-  document.querySelector("#toggle-error-detail")?.addEventListener("click", () => {
-    const pre = document.querySelector<HTMLElement>(".load-error-detail");
-    if (pre) pre.hidden = !pre.hidden;
-  });
+  bindLoadErrorShell(document, loadErrorShellActions);
 }
 
 async function loadSelectedMemberDocumentation() {
