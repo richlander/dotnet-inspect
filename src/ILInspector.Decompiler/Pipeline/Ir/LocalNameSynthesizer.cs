@@ -1,3 +1,5 @@
+using ILInspector.Metadata;
+
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
@@ -82,11 +84,9 @@ static class LocalNameSynthesizer
     static string SimpleName(TypeRef type)
     {
         string name = type.Kind == TypeRefKind.GenericInstance && type.ElementType is { } element ? element.Name : type.Name;
-        int tick = name.IndexOf('`');
-        if (tick >= 0) name = name[..tick];
         int plus = name.LastIndexOf('+');
         if (plus >= 0) name = name[(plus + 1)..];
-        return name;
+        return MetadataNameArity.StripFromSegment(name);
     }
 
     static string? CamelCase(string name)

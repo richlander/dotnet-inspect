@@ -15,6 +15,15 @@ import { verifySiteArtifact } from "../scripts/verify-site-artifact.js";
 const packageLock = JSON.parse(
   readFileSync(new URL("../package-lock.json", import.meta.url), "utf8"),
 );
+const packageJson = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+);
+const browserTsconfig = JSON.parse(
+  readFileSync(new URL("../tsconfig.json", import.meta.url), "utf8"),
+);
+const testTsconfig = JSON.parse(
+  readFileSync(new URL("tsconfig.json", import.meta.url), "utf8"),
+);
 
 test("the package lock pins every registry artifact", () => {
   const missingArtifactIdentity = Object.entries(packageLock.packages)
@@ -27,6 +36,18 @@ test("the package lock pins every registry artifact", () => {
   assert.deepEqual(missingArtifactIdentity, []);
 });
 
+test("TypeScript compiler contexts keep Node globals out of browser source", () => {
+  assert.deepEqual(browserTsconfig.compilerOptions.types, []);
+  assert.deepEqual(browserTsconfig.include, ["src/**/*.ts"]);
+  assert.equal(testTsconfig.extends, "../tsconfig.json");
+  assert.deepEqual(testTsconfig.compilerOptions.types, ["node"]);
+  assert.deepEqual(testTsconfig.include, ["./**/*.ts"]);
+  assert.equal(
+    packageJson.scripts.typecheck,
+    "tsc --noEmit && tsc --noEmit -p test/tsconfig.json",
+  );
+});
+
 test("the site artifact rejects a missing Vite output", (context) => {
   const site = mkdtempSync(join(tmpdir(), "inspect-web-artifact-"));
   context.after(() => rmSync(site, { recursive: true, force: true }));
@@ -35,10 +56,10 @@ test("the site artifact rejects a missing Vite output", (context) => {
     "index.html": {
       file: "assets/index.js",
       css: ["assets/index.css"],
-      dynamicImports: ["src/app.ts"],
+      dynamicImports: ["src/dotnet-inspect.ts"],
       isEntry: true,
     },
-    "src/app.ts": {
+    "src/dotnet-inspect.ts": {
       file: "assets/app.js",
       isDynamicEntry: true,
     },
@@ -54,14 +75,14 @@ test("the site artifact rejects a missing Vite output", (context) => {
   writeFileSync(join(site, "assets/app.js"), "");
 
   assert.doesNotThrow(() => verifySiteArtifact(site));
-  delete manifest["src/app.ts"];
+  delete manifest["src/dotnet-inspect.ts"];
   writeFileSync(join(site, "manifest.json"), JSON.stringify(manifest));
   assert.throws(
     () => verifySiteArtifact(site),
-    /entry 'index\.html' imports missing entry 'src\/app\.ts'/,
+    /entry 'index\.html' imports missing entry 'src\/dotnet-inspect\.ts'/,
   );
 
-  manifest["src/app.ts"] = {
+  manifest["src/dotnet-inspect.ts"] = {
     file: "assets/app.js",
     isDynamicEntry: true,
   };

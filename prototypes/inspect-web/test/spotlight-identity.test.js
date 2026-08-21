@@ -158,7 +158,7 @@ test("normalizing a history entry keeps its consumed position and later entries"
   ]);
 });
 
-const appSource = readFileSync(new URL("../src/app.ts", import.meta.url), "utf8");
+const appSource = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.url), "utf8");
 const memberFocusSource = readFileSync(
   new URL("../src/member-focus.ts", import.meta.url),
   "utf8");
@@ -177,12 +177,9 @@ const metadataViewerSource = readFileSync(
 const applicationSources =
   `${appSource}\n${graphSource}\n${packageBarSource}\n${metadataViewerSource}`;
 const stylesSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
-const engineModuleUrls = [
-  new URL("../engine/wwwroot/engine.js", import.meta.url),
-  new URL("../engine/wwwroot/inspect-web-engine.js", import.meta.url),
-];
-const engineSource = readFileSync(engineModuleUrls[0], "utf8");
-const generatedEngineSource = readFileSync(engineModuleUrls[1], "utf8");
+const generatedEngineModuleUrl =
+  new URL("../engine/wwwroot/inspect-web-engine.js", import.meta.url);
+const generatedEngineSource = readFileSync(generatedEngineModuleUrl, "utf8");
 const deploySource = readFileSync(
   new URL("../../../.github/workflows/deploy-inspect-web.yml", import.meta.url),
   "utf8");
@@ -375,8 +372,6 @@ test("bare home paints before wasm engine download", () => {
   assert.match(
     appSource,
     /async function loadEngineModule\(\)[\s\S]*await import\("\/inspect-web-engine\.js"\)/);
-  assert.doesNotMatch(engineSource, /^import .*inspect-web-engine\.js/m);
-  assert.match(engineSource, /await import\("\.\/inspect-web-engine\.js"\)/);
   assert.match(
     homePaintWait,
     /first-contentful-paint[\s\S]*observer\.observe\(\{ type: "paint", buffered: true \}\)/);
@@ -385,7 +380,7 @@ test("bare home paints before wasm engine download", () => {
     /requestAnimationFrame\(\(\) => setTimeout\(resolve, 0\)\)/);
   assert.match(
     appSource,
-    /state\.loading = !state\.home;[\s\S]*render\(\);[\s\S]*if \(state\.home\) await waitForHomePaint\(\);[\s\S]*await loadEngineModule\(\);[\s\S]*reportEngineStatus\("Loading \.NET 11 WebAssembly…"\);[\s\S]*await initializeEngine\(reportEngineStatus\);[\s\S]*reportEngineStatus\("Reading package assemblies…"\)/);
+    /state\.loading = !state\.home;[\s\S]*render\(\);[\s\S]*if \(state\.home\) await waitForHomePaint\(\);[\s\S]*await loadEngineModule\(\);[\s\S]*await initializeEngine\(reportEngineStatus\);[\s\S]*reportEngineStatus\("Reading package assemblies…"\)/);
   assert.match(
     appSource,
     /class="home-search \$\{enginePending[\s\S]*class="home-engine-status"/);
@@ -765,9 +760,12 @@ test("all dependency navigation paths use one product-owned coordinate matcher",
     [...applicationSources.matchAll(/uniqueCompatiblePackage\(/g)].length,
     6);
   assert.match(
-    engineSource,
-    /MatchPackageDependencyCoordinate[\s\S]*JSON\.stringify\(candidates\)/);
-  assert.doesNotMatch(engineSource, /PackageVersionSatisfiesDependencyRange/);
+    generatedEngineSource,
+    /matchPackageDependencyCoordinateExport = exports\.InspectionEngine\.MatchPackageDependencyCoordinate/);
+  assert.match(
+    appSource,
+    /matchPackageDependencyCoordinate\([\s\S]*?JSON\.stringify\(dependencyCoordinateCandidates\(packages\)\)/);
+  assert.doesNotMatch(generatedEngineSource, /PackageVersionSatisfiesDependencyRange/);
   assert.doesNotMatch(appSource, /dependencyVersionSatisfies/);
 });
 
@@ -941,11 +939,14 @@ test("type source identity includes decompiler taste", () => {
 
 test("source operations cancel when superseded or hidden", () => {
   assert.match(
-    engineSource,
-    /cancelSourceQuery = exports\.InspectionEngine\.CancelSourceQuery/);
+    generatedEngineSource,
+    /cancelSourceQueryExport = exports\.InspectionEngine\.CancelSourceQuery/);
   assert.match(
-    engineSource,
-    /export function cancelSourceInspection\(\)[\s\S]*?cancelSourceQuery\?\.\(\)/);
+    generatedEngineSource,
+    /export function cancelSourceQuery\(\)[\s\S]*?return cancelSourceQueryExport\(\)/);
+  assert.match(
+    appSource,
+    /cancelSourceQuery: cancelSourceInspection/);
 
   const renderBody =
     appSource.match(/function render\(\)[\s\S]*?\n}/)?.[0]
@@ -1080,17 +1081,15 @@ test("browser engine configures the same-origin managed MSDL API", () => {
     /configureHostExport = exports\.InspectionEngine\.ConfigureHost[\s\S]*?configureHostExport\(window\.location\.origin\)/);
 });
 
-test("browser engine modules are syntactically valid", () => {
-  for (const url of engineModuleUrls) {
-    const result = spawnSync(
-      process.execPath,
-      ["--check", fileURLToPath(url)],
-      { encoding: "utf8" });
-    assert.equal(
-      result.status,
-      0,
-      `${fileURLToPath(url)} failed syntax validation:\n${result.stderr}`);
-  }
+test("generated browser engine module is syntactically valid", () => {
+  const result = spawnSync(
+    process.execPath,
+    ["--check", fileURLToPath(generatedEngineModuleUrl)],
+    { encoding: "utf8" });
+  assert.equal(
+    result.status,
+    0,
+    `${fileURLToPath(generatedEngineModuleUrl)} failed syntax validation:\n${result.stderr}`);
 });
 
 test("generated source wrappers parse their JSON envelopes", () => {
@@ -1125,16 +1124,14 @@ test("MethodDef-only member sections are hidden for bodiless APIs", () => {
 
 test("source requests carry exact type and member identities", () => {
   const memberBridge =
-    engineSource.match(/export async function inspectMemberSource\(request\)[\s\S]*?\n}/)?.[0]
+    generatedEngineSource.match(/export async function queryMemberSource\([\s\S]*?\n}/)?.[0]
     ?? "";
   const memberLoader =
     appSource.match(/async function loadSelectedMemberSource\(\)[\s\S]*?\n}/)?.[0]
     ?? "";
   assert.match(
     memberBridge,
-    /request\.typeIdentity \?\? request\.type/);
-  assert.match(memberBridge, /request\.selectorKey \?\? ""/);
-  assert.match(memberBridge, /request\.metadataToken \?\? 0/);
+    /typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson/);
   assert.match(
     memberLoader,
     /type\.definitionId \?\? type\.id,[\s\S]*?state\.selectedBodyTarget\?\.memberName[\s\S]*?state\.selectedBodyTarget\?\.selectorKey[\s\S]*?state\.selectedBodyTarget\?\.metadataToken/);

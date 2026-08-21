@@ -1,9 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { renderAnnotatedSource } from "../src/annotated-source.ts";
-import { sampleDocument } from "../../annotated-source-viewer/src/sample-document.js";
+import type { AnnotatedSourceRenderResult } from "../src/annotated-source.ts";
+import { validateAnnotatedSourceDocument } from "../src/annotated-source-view.ts";
+import type { AnnotatedSourceDocument } from "../src/annotated-source-view.ts";
+import { sampleDocument as sampleDocumentFixture } from "../../annotated-source-viewer/src/sample-document.js";
 
-function escapeHtml(value) {
+validateAnnotatedSourceDocument(sampleDocumentFixture);
+const sampleDocument: AnnotatedSourceDocument = sampleDocumentFixture;
+
+function escapeHtml(value: unknown) {
   return String(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -11,7 +17,15 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
-const result = { document: sampleDocument, provenance: "decompiled from IL" };
+const result: AnnotatedSourceRenderResult = {
+  document: sampleDocument,
+  provenance: "decompiled from IL",
+};
+
+test("the render result preserves the validated document contract", () => {
+  const document: AnnotatedSourceDocument = result.document;
+  assert.equal(document, sampleDocument);
+});
 
 test("an invalid document is rejected with a message instead of throwing", () => {
   const html = renderAnnotatedSource({
@@ -155,6 +169,7 @@ test("source text is escaped as it is rendered into spans", () => {
         targets: [],
       },
       provenance: "decompiled from IL",
+      contextLimitation: null,
     },
     media: undefined,
     selectedFactId: null,

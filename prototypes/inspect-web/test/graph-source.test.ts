@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { renderGraphSource } from "../src/graph-source.ts";
 
-function escapeHtml(value) {
+function escapeHtml(value: unknown) {
   return String(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -10,7 +10,7 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
-function highlightCSharp(value) {
+function highlightCSharp(value: unknown) {
   return `<mark>${escapeHtml(value)}</mark>`;
 }
 

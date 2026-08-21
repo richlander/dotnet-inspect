@@ -73,6 +73,13 @@ internal static class ApiAnalysisInspection
     {
         if (typeRef.Kind != Analysis.TypeRefKind.Definition)
             return false;
+
+        if (typeRef.Resolution?.Type is { } referenceName
+            && type.DefinitionName is { } definitionName)
+        {
+            return referenceName == definitionName;
+        }
+
         if (!string.Equals(typeRef.Namespace, type.Namespace ?? "", StringComparison.Ordinal))
             return false;
 
