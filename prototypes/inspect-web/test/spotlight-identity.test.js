@@ -168,6 +168,9 @@ const packageAcquisitionSource = readFileSync(
 const packageInspectionSource = readFileSync(
   new URL("../src/package-inspection.ts", import.meta.url),
   "utf8");
+const sourceInspectionSource = readFileSync(
+  new URL("../src/source-inspection.ts", import.meta.url),
+  "utf8");
 const memberFocusSource = readFileSync(
   new URL("../src/member-focus.ts", import.meta.url),
   "utf8");
@@ -689,12 +692,12 @@ test("authoritative location restore clears filters and applies aggregate Platfo
 
 test("type projection completions render only while current and preserve navigation focus", () => {
   const typeSource =
-    appSource.match(/async function loadSelectedTypeSource\([\s\S]*?\n}\n\nasync function loadSelectedTypeMetadata/)?.[0]
+    sourceInspectionSource.match(/async loadTypeSource\(request\)[\s\S]*?\n    },/)?.[0]
     ?? "";
   assert.match(
     typeSource,
-    /const preservedFocus = renderPreservingMemberFocus\(\);[\s\S]*const ownsRequest = \(\) =>[\s\S]*const isCurrent = \(\) =>[\s\S]*if \(ownsRequest\(\)\) \{\s*state\.typeSourceLoading = false;\s*if \(isCurrent\(\)\)\s*renderPreservingMemberFocus\(preservedFocus\);/);
-  assert.doesNotMatch(typeSource, /finally \{[\s\S]*\n\s*render\(\);\s*}/);
+    /const preservedFocus = dependencies\.renderPreservingMemberFocus\(\);[\s\S]*const ownsRequest = \(\) =>[\s\S]*if \(ownsRequest\(\)\) \{\s*state\.typeSourceLoading = false;\s*if \(request\.isVisible\(\)\) \{\s*dependencies\.renderPreservingMemberFocus\(preservedFocus\);/);
+  assert.doesNotMatch(typeSource, /finally \{[\s\S]*dependencies\.render\(\)/);
   const typeMetadata =
     appSource.match(/async function loadSelectedTypeMetadata\([\s\S]*?\n}\n\n\/\/ Projects/)?.[0]
     ?? "";
@@ -761,14 +764,17 @@ test("Platform scope restoration defers selection, rendering, and data loading",
 
 test("Type Source completion settles behind workbench overlays", () => {
   const typeSource =
-    appSource.match(/async function loadSelectedTypeSource\([\s\S]*?\n}\n\nasync function loadSelectedTypeMetadata/)?.[0]
+    sourceInspectionSource.match(/async loadTypeSource\(request\)[\s\S]*?\n    },/)?.[0]
     ?? "";
   assert.match(
     appSource,
     /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\)\s*\|\| state\.tasteOpen;[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| state\.graphSourceOpen\s*\|\| state\.docViewerOpen;/);
   assert.match(
+    appSource,
+    /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*activeSourceOperationKind\(state\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);
+  assert.match(
     typeSource,
-    /const ownsRequest = \(\) =>[\s\S]*const isCurrent = \(\) =>\s*ownsRequest\(\)\s*&& activeSourceOperationKind\(state\) === "type"\s*&& !workbenchModalOwnsFocus\(\);[\s\S]*if \(ownsRequest\(\)\) \{\s*state\.typeSourceLoading = false;\s*if \(isCurrent\(\)\)\s*renderPreservingMemberFocus\(preservedFocus\)/);
+    /const ownsRequest = \(\) =>[\s\S]*if \(ownsRequest\(\)\) \{\s*state\.typeSourceLoading = false;\s*if \(request\.isVisible\(\)\) \{\s*dependencies\.renderPreservingMemberFocus\(preservedFocus\)/);
   assert.match(
     appSource,
     /function isInteractiveElement\(element: Element \| null\)[\s\S]*"button, a\[href\], input, select, textarea, summary, "[\s\S]*\[role=button\][\s\S]*!isInteractiveElement\([\s\S]*event\.target instanceof Element \? event\.target : null\)[\s\S]*event\.key === "Enter"/);
@@ -1030,9 +1036,17 @@ test("source operations cancel when superseded or hidden", () => {
   const renderBody =
     appSource.match(/function render\(\)[\s\S]*?\n}/)?.[0]
     ?? "";
-  assert.match(renderBody, /sourceSurfaceIsVisible\(state\)/);
-  assert.match(renderBody, /cancelSourceRequestState\(state\)/);
-  assert.match(renderBody, /cancelSourceInspection\?\.\(\)/);
+  assert.match(renderBody, /sourceInspection\.cancelHiddenRequest\(\)/);
+  assert.match(
+    appSource,
+    /createSourceInspectionCoordinator\(\{[\s\S]*cancelEngineSourceRequest: \(\) => cancelSourceInspection\?\.\(\)/);
+  assert.match(
+    sourceInspectionSource,
+    /cancelHiddenRequest\(\)[\s\S]*sourceSurfaceIsVisible\(state\)[\s\S]*cancelSourceRequestState\(state\)/);
+  assert.match(appSource, /sourceInspection\.loadMemberSource\(\{/);
+  assert.match(appSource, /sourceInspection\.loadTypeSource\(\{/);
+  assert.match(appSource, /sourceInspection\.openGraphSource\(request, title\)/);
+  assert.match(appSource, /sourceInspection\.closeGraphSource\(\)/);
   const reloadBody =
     appSource.match(/function reloadVisibleSource\(\)[\s\S]*?\n}/)?.[0]
     ?? "";
