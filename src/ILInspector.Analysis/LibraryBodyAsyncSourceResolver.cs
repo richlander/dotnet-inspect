@@ -469,6 +469,22 @@ internal sealed class LibraryBodyAsyncSourceResolver
         var sources = new Dictionary<int, MethodIdentity>(
             DeclaredSourceMethodsByMoveNextToken());
         foreach ((
+            int executionToken,
+            MethodIdentity source)
+            in _stateMachineExecutionMethods.Value
+                .SourceByExecutionToken)
+        {
+            if (sources.TryGetValue(
+                    executionToken,
+                    out MethodIdentity? existing)
+                && existing != source)
+            {
+                sources.Remove(executionToken);
+                continue;
+            }
+            sources[executionToken] = source;
+        }
+        foreach ((
             int moveNextToken,
             MethodIdentity source)
             in _classicAsyncExecutionMethods.Value
@@ -501,9 +517,13 @@ internal sealed class LibraryBodyAsyncSourceResolver
 
         IReadOnlyDictionary<int, MethodIdentity> actionableSources =
             AsyncStateMachineSourceMethods();
-        IReadOnlySet<MetadataTypeDefinitionName> rejected =
-            _classicAsyncExecutionMethods.Value
-                .RejectedStateMachines;
+        var rejected =
+            new HashSet<MetadataTypeDefinitionName>(
+                _classicAsyncExecutionMethods.Value
+                    .RejectedStateMachines);
+        rejected.UnionWith(
+            _stateMachineExecutionMethods.Value
+                .RejectedStateMachines);
         if (rejected.Count == 0)
         {
             _declaredSourceMethodsByMoveNextToken =
@@ -517,14 +537,16 @@ internal sealed class LibraryBodyAsyncSourceResolver
             int moveNextToken,
             MethodIdentity source) in actionableSources)
         {
-            if (!IsRejectedClassicSource(source, rejected))
+            if (!IsRejectedStateMachineSource(
+                    source,
+                    rejected))
                 filtered.Add(moveNextToken, source);
         }
         _declaredSourceMethodsByMoveNextToken = filtered;
         return filtered;
     }
 
-    bool IsRejectedClassicSource(
+    bool IsRejectedStateMachineSource(
         MethodIdentity source,
         IReadOnlySet<MetadataTypeDefinitionName> rejected)
     {
@@ -541,10 +563,9 @@ internal sealed class LibraryBodyAsyncSourceResolver
             MethodDefinition definition =
                 _reader.GetMethodDefinition(
                     (MethodDefinitionHandle)handle);
-            AsyncStateMachineAttributeInfo attribute =
-                AsyncStateMachineAttribute(
-                    definition.GetCustomAttributes(),
-                    includeAsyncIterator: false);
+            StateMachineAttributeInfo attribute =
+                StateMachineExecutionAttribute(
+                    definition.GetCustomAttributes());
             return attribute.SerializedType is { } serialized
                 && StateMachineTypeDefinitionName(serialized)
                     is { } stateMachineType
@@ -733,15 +754,21 @@ internal sealed class LibraryBodyAsyncSourceResolver
                     sourceMethod.GetDeclaringType();
                 TypeDefinition sourceType =
                     _reader.GetTypeDefinition(sourceTypeHandle);
-                sourceByExecutionToken.Add(
-                    MetadataTokens.GetToken(executionMethod),
-                    _primaryMetadataResolver.CreateMethodIdentity(
-                        sourceTypeHandle,
-                        source.Source,
-                        sourceMethod,
-                        _primaryMetadataResolver.CreateScope(
-                            sourceType,
-                            sourceMethod)));
+                if (source.Kind != StateMachineKind.Iterator)
+                {
+                    sourceByExecutionToken.Add(
+                        MetadataTokens.GetToken(
+                            executionMethod),
+                        _primaryMetadataResolver
+                            .CreateMethodIdentity(
+                                sourceTypeHandle,
+                                source.Source,
+                                sourceMethod,
+                                _primaryMetadataResolver
+                                    .CreateScope(
+                                        sourceType,
+                                        sourceMethod)));
+                }
                 authenticatedStateMachines.Add(
                     stateMachineType);
             }

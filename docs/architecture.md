@@ -791,7 +791,9 @@ Research overlay bridge, and the application layer:
   `AllocationFanout_TypeScopeAdmittingEveryFixtureTypePreservesAsyncLocals`
   gates async locals reached through iterator execution and those helpers,
   including generic methods, generic containing types, and generated async
-  iterators. `LiftedOwners_TopLevelRejectsMalformedManagedEntryPoint` and the
+  iterators; it also gates exact generated source-type acquisition of the
+  authenticated async-iterator `MoveNext`.
+  `LiftedOwners_TopLevelRejectsMalformedManagedEntryPoint` and the
   runtime-async `OptimizationOpportunities_AsyncTopLevelLocalFunction_IsReported`
   gate the top-level close cases.
   It consumes primary metadata identity, generated-code
@@ -844,7 +846,8 @@ Research overlay bridge, and the application layer:
   on the same source method.
   `LiftedOwners_RejectUnauthenticatedIteratorExecution` gates explicit
   synchronous-iterator implementations with named decoys, duplicate iterator
-  source claims, and async-iterator claims over classic-only state machines.
+  source claims, and async-iterator claims over classic-only state machines,
+  including the declared-source fallback for their rejected `MoveNext`.
   `AsyncSource_MethodImplRequiresValidSourceMethodShape` gates the kickoff and
   state-machine body requirements. The resolver reuses primary metadata
   identity and generated-code judgments plus the builder's shared local

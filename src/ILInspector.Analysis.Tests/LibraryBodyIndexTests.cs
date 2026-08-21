@@ -4682,6 +4682,16 @@ public class LibraryBodyIndexTests
                 == "<OwnerA>g__Local|0_0");
 
         Assert.Null(index.ResolveDeclaredMethod(lifted));
+        if (probe
+            == IteratorOwnershipProbe
+                .AsyncIteratorWrongKind)
+        {
+            MethodIdentity moveNext = Assert.Single(
+                index.Methods,
+                method => method.Name == "MoveNext");
+            Assert.Null(
+                index.ResolveDeclaredMethod(moveNext));
+        }
     }
 
     [Theory]
@@ -11588,6 +11598,28 @@ public class LibraryBodyIndexTests
         var scoped = LibraryBodyIndex.Open(
             path,
             bodyTypeScope: _ => true);
+        MethodIdentity generatedSource = Assert.Single(
+            full.Methods,
+            method => method.Name == "StreamAsync"
+                && method.DeclaringType
+                    .ToQualifiedDisplayString()
+                    .Contains(
+                        "GeneratedAsyncIteratorOwner",
+                        StringComparison.Ordinal));
+        MethodIdentity generatedMoveNext = Assert.Single(
+            full.Methods,
+            method => method.Name == "MoveNext"
+                && method.DeclaringType
+                    .ToQualifiedDisplayString()
+                    .Contains(
+                        "GeneratedAsyncIteratorOwner.<StreamAsync>",
+                        StringComparison.Ordinal));
+        var generatedSourceScoped =
+            LibraryBodyIndex.Open(
+                path,
+                bodyTypeScope:
+                    type => type.Equals(
+                        generatedSource.DeclaringType));
 
         Assert.Contains(
             full.AllocationFanoutOpportunities,
@@ -11658,6 +11690,14 @@ public class LibraryBodyIndexTests
             diagnostic => diagnostic.Method.Contains(
                 "GeneratedAsyncIteratorOwner",
                 StringComparison.Ordinal));
+        Assert.Equal(
+            generatedSource,
+            generatedSourceScoped.ResolveDeclaredMethod(
+                generatedMoveNext));
+        Assert.Contains(
+            generatedSourceScoped.DirectCalls,
+            call => call.EvidenceMethod
+                == generatedMoveNext);
         Assert.Equal(
             full.AllocationFanoutOpportunities,
             scoped.AllocationFanoutOpportunities);
