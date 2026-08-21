@@ -812,11 +812,19 @@ internal sealed class LibraryMethodAnalysisRunner(
 
     string MethodLabel(
         TypeDefinitionHandle typeHandle,
+        MethodDefinitionHandle methodHandle) =>
+        MethodLabel(
+            _infrastructure.Reader,
+            typeHandle,
+            methodHandle);
+
+    internal static string MethodLabel(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
         MethodDefinitionHandle methodHandle)
     {
         try
         {
-            MetadataReader reader = _infrastructure.Reader;
             var typeDefinition =
                 reader.GetTypeDefinition(typeHandle);
             string ns =
