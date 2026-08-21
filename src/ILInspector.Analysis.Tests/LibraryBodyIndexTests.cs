@@ -4169,15 +4169,68 @@ public class LibraryBodyIndexTests
     {
         byte[] image =
             BuildMalformedAsyncSourceAssembly(
+                moveNextSmallArray: true,
                 forgedStateMachineOwnerEvidence: true);
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"ForgedStateMachineOwner-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(path, image);
+            var full = LibraryBodyIndex.Open(path);
+            MethodIdentity lifted = Assert.Single(
+                full.Methods,
+                method => method.Name
+                    == "<AnalyzeAsync>g__Local|0_0");
+            MethodIdentity invalidMoveNext = Assert.Single(
+                full.Methods,
+                method => method.Name == "MoveNext"
+                    && method.IsStatic);
+            Assert.Null(full.ResolveDeclaredMethod(lifted));
+            Assert.Contains(
+                full.OptimizationOpportunities,
+                opportunity => opportunity.Method
+                    == invalidMoveNext);
+
+            var scoped = LibraryBodyIndex.Open(
+                path,
+                bodyTypeScope:
+                    type => type.Equals(
+                        invalidMoveNext.DeclaringType));
+            Assert.Contains(
+                scoped.GetAllocationOccurrences(),
+                pair => pair.Key
+                    == invalidMoveNext.MetadataToken);
+            Assert.DoesNotContain(
+                scoped.OptimizationOpportunities,
+                opportunity => opportunity.Method
+                    == invalidMoveNext);
+            Assert.DoesNotContain(
+                scoped.AllocationFanoutOpportunities,
+                opportunity => opportunity.Method
+                    == invalidMoveNext);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void
+        LiftedOwners_TopLevelRejectsForgedStateMachineExecutionMethod()
+    {
+        byte[] image =
+            BuildMalformedAsyncSourceAssembly(
+                forgedTopLevelOwnerEvidence: true);
         var index = LibraryBodyIndex.OpenFromPrefetchedImage(
-            "ForgedStateMachineOwner.dll",
+            "ForgedTopLevelOwner.exe",
             [.. image],
             LibraryBodyAnalysisFeatures.Default);
         MethodIdentity lifted = Assert.Single(
             index.Methods,
             method => method.Name
-                == "<AnalyzeAsync>g__Local|0_0");
+                == "<<Main>$>g__Local|0_0");
 
         Assert.Null(index.ResolveDeclaredMethod(lifted));
     }
@@ -4250,7 +4303,8 @@ public class LibraryBodyIndexTests
         bool malformedAnalyzeSignature = false,
         bool duplicateAnalyzeAttribute = false,
         bool malformedAnalyzeConstructor = false,
-        bool forgedStateMachineOwnerEvidence = false)
+        bool forgedStateMachineOwnerEvidence = false,
+        bool forgedTopLevelOwnerEvidence = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -4360,6 +4414,17 @@ public class LibraryBodyIndexTests
                 maxStack: 0);
         }
 
+        var entryPointIl = new BlobBuilder();
+        entryPointIl.WriteByte((byte)ILOpCode.Call);
+        entryPointIl.WriteInt32(
+            MetadataTokens.GetToken(
+                MetadataTokens.MethodDefinitionHandle(6)));
+        entryPointIl.WriteByte((byte)ILOpCode.Pop);
+        entryPointIl.WriteByte((byte)ILOpCode.Ret);
+        int entryPointBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(entryPointIl),
+            maxStack: 1);
+
         BlobHandle taskSignature = metadata.GetOrAddBlob(
             new byte[]
             {
@@ -4388,7 +4453,9 @@ public class LibraryBodyIndexTests
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString("BrokenAsync"),
                 metadata.GetOrAddBlob(new byte[] { 0x00 }),
-                AddRetBody(bodyEncoder),
+                forgedTopLevelOwnerEvidence
+                    ? entryPointBody
+                    : AddRetBody(bodyEncoder),
                 MetadataTokens.ParameterHandle(1));
         MethodDefinitionHandle malformedValue =
             metadata.AddMethodDefinition(
@@ -4427,6 +4494,8 @@ public class LibraryBodyIndexTests
                 metadata.GetOrAddString(
                     forgedStateMachineOwnerEvidence
                         ? "<AnalyzeAsync>g__Local|0_0"
+                        : forgedTopLevelOwnerEvidence
+                            ? "<<Main>$>g__Local|0_0"
                         : "CompetingAsync"),
                 taskSignature,
                 AddRetBody(bodyEncoder),
@@ -4439,6 +4508,8 @@ public class LibraryBodyIndexTests
                 metadata.GetOrAddString(
                     unresolvedLiftedSource
                         ? "<Outer>b__0_0"
+                        : forgedTopLevelOwnerEvidence
+                            ? "<Main>$"
                         : "AnalyzeAsync"),
                 malformedAnalyzeSignature
                     ? metadata.GetOrAddBlob(
@@ -4480,6 +4551,7 @@ public class LibraryBodyIndexTests
         moveNextIl.WriteInt32(
             MetadataTokens.GetToken(
                 forgedStateMachineOwnerEvidence
+                    || forgedTopLevelOwnerEvidence
                     ? competing
                     : read));
         moveNextIl.WriteByte((byte)ILOpCode.Ret);
@@ -4490,12 +4562,14 @@ public class LibraryBodyIndexTests
             metadata.AddMethodDefinition(
             MethodAttributes.Public
                 | (forgedStateMachineOwnerEvidence
+                    || forgedTopLevelOwnerEvidence
                     ? MethodAttributes.Static
                     : MethodAttributes.Virtual),
             MethodImplAttributes.IL,
             metadata.GetOrAddString("MoveNext"),
             metadata.GetOrAddBlob(
                 forgedStateMachineOwnerEvidence
+                    || forgedTopLevelOwnerEvidence
                     ? new byte[]
                     {
                         0x00, 0x01, 0x01, 0x08,
@@ -4625,11 +4699,16 @@ public class LibraryBodyIndexTests
         }
 
         var pe = new ManagedPEBuilder(
-            PEHeaderBuilder.CreateLibraryHeader(),
+            forgedTopLevelOwnerEvidence
+                ? PEHeaderBuilder.CreateExecutableHeader()
+                : PEHeaderBuilder.CreateLibraryHeader(),
             new MetadataRootBuilder(
                 metadata,
                 suppressValidation: true),
             bodies,
+            entryPoint: forgedTopLevelOwnerEvidence
+                ? broken
+                : default,
             flags: CorFlags.ILOnly);
         var image = new BlobBuilder();
         pe.Serialize(image);
@@ -10610,6 +10689,14 @@ public class LibraryBodyIndexTests
                     .ToQualifiedDisplayString()
                     .Contains(
                         "ScopedNestedAsyncLocalAllocationOwner",
+                        StringComparison.Ordinal));
+        Assert.Contains(
+            full.AllocationFanoutOpportunities,
+            opportunity => opportunity.Method.Name == "MoveNext"
+                && opportunity.Method.DeclaringType
+                    .ToQualifiedDisplayString()
+                    .Contains(
+                        "ScopedIteratorFinallyAsyncLocalAllocationOwner",
                         StringComparison.Ordinal));
         Assert.Equal(
             full.AllocationFanoutOpportunities,

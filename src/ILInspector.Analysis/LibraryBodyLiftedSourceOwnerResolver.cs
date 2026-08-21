@@ -274,14 +274,51 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         var referencedMembers = new HashSet<MethodReferenceKey>(
             MethodReferenceKeyComparer.Instance);
         var pending = new Queue<MethodDefinitionHandle>();
-        var visited = new HashSet<MethodDefinitionHandle>();
-        pending.Enqueue(executionHandle);
+        var scheduled = new HashSet<MethodDefinitionHandle>();
+        var authenticatedStateMachineTypes =
+            new HashSet<TypeDefinitionHandle>();
+
+        void Enqueue(MethodDefinitionHandle method)
+        {
+            if (!scheduled.Add(method))
+                return;
+            if (scheduled.Count
+                > MetadataSafetyPolicy.MaxRelationshipNodes)
+            {
+                throw new BadImageFormatException(
+                    "The lifted owner family exceeds the relationship limit.");
+            }
+            pending.Enqueue(method);
+        }
+
+        void EnqueueLifted(MethodDefinitionHandle lifted)
+        {
+            Enqueue(lifted);
+            if (TryGetStateMachineExecutionMethod(
+                    _reader.GetMethodDefinition(lifted),
+                    out MethodDefinitionHandle stateMachineExecution))
+            {
+                authenticatedStateMachineTypes.Add(
+                    _reader.GetMethodDefinition(
+                        stateMachineExecution).GetDeclaringType());
+                Enqueue(stateMachineExecution);
+            }
+        }
+
+        Enqueue(executionHandle);
+        if (IsAuthenticatedStateMachineExecution(
+                executionHandle,
+                out TypeDefinitionHandle executionType))
+        {
+            authenticatedStateMachineTypes.Add(executionType);
+        }
         while (pending.Count > 0)
         {
             MethodDefinitionHandle current = pending.Dequeue();
-            if (!visited.Add(current))
-                continue;
-
+            MethodDefinition currentMethod =
+                _reader.GetMethodDefinition(current);
+            TypeDefinitionHandle currentType =
+                currentMethod.GetDeclaringType();
             MethodBodyReferenceEvidence references =
                 MethodBodyReferences(current);
             references.ThrowIfReferenceIncomplete();
@@ -297,22 +334,28 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                 EntityHandle handle =
                     MetadataTokens.EntityHandle(token);
                 if (handle.Kind
-                        != HandleKind.MethodDefinition
-                    || !IsLiftedWithinOwnerType(
-                        (MethodDefinitionHandle)handle,
-                        ownerType))
+                        != HandleKind.MethodDefinition)
                 {
                     continue;
                 }
 
-                var lifted =
+                var referenced =
                     (MethodDefinitionHandle)handle;
-                pending.Enqueue(lifted);
-                if (TryGetStateMachineExecutionMethod(
-                        _reader.GetMethodDefinition(lifted),
-                        out MethodDefinitionHandle stateMachineExecution))
+                MethodDefinition referencedMethod =
+                    _reader.GetMethodDefinition(referenced);
+                if (IsLiftedWithinOwnerType(
+                        referenced,
+                        ownerType))
                 {
-                    pending.Enqueue(stateMachineExecution);
+                    EnqueueLifted(referenced);
+                    continue;
+                }
+                if (authenticatedStateMachineTypes.Contains(
+                        currentType)
+                    && referencedMethod.GetDeclaringType()
+                        == currentType)
+                {
+                    Enqueue(referenced);
                 }
             }
             IReadOnlyDictionary<
@@ -330,13 +373,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                     continue;
                 }
 
-                pending.Enqueue(lifted.Method);
-                if (TryGetStateMachineExecutionMethod(
-                        _reader.GetMethodDefinition(lifted.Method),
-                        out MethodDefinitionHandle stateMachineExecution))
-                {
-                    pending.Enqueue(stateMachineExecution);
-                }
+                EnqueueLifted(lifted.Method);
             }
         }
 
@@ -346,6 +383,25 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             referencedMembers,
             null,
             null);
+    }
+
+    bool IsAuthenticatedStateMachineExecution(
+        MethodDefinitionHandle method,
+        out TypeDefinitionHandle stateMachineType)
+    {
+        stateMachineType =
+            _reader.GetMethodDefinition(
+                method).GetDeclaringType();
+        TypeDefinition type =
+            _reader.GetTypeDefinition(stateMachineType);
+        return ImplementsAsyncStateMachine(type)
+                && IsStateMachineMoveNext(
+                    method,
+                    iterator: false)
+            || ImplementsIteratorStateMachine(type)
+                && IsStateMachineMoveNext(
+                    method,
+                    iterator: true);
     }
 
     IReadOnlyDictionary<
@@ -573,30 +629,17 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                 ownerHandle);
         }
 
-        if (!TryGetStateMachineType(
+        if (!TryGetStateMachineExecutionMethod(
                 ownerMethod,
-                out TypeDefinitionHandle stateMachineHandle,
-                out _))
+                out MethodDefinitionHandle moveNextHandle))
         {
             return null;
         }
 
-        TypeDefinition executionType =
-            _reader.GetTypeDefinition(stateMachineHandle);
-        MethodDefinitionHandle moveNextHandle = default;
-        foreach (MethodDefinitionHandle methodHandle
-            in executionType.GetMethods())
-        {
-            MethodDefinition method = _reader.GetMethodDefinition(methodHandle);
-            if (!_reader.StringComparer.Equals(method.Name, "MoveNext"))
-                continue;
-            if (!moveNextHandle.IsNil)
-                return null;
-            moveNextHandle = methodHandle;
-        }
-        return moveNextHandle.IsNil
-            ? null
-            : new(stateMachineHandle, moveNextHandle);
+        return new(
+            _reader.GetMethodDefinition(
+                moveNextHandle).GetDeclaringType(),
+            moveNextHandle);
     }
 
     MethodBodyReferenceEvidence MethodBodyReferences(

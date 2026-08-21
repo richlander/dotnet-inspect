@@ -329,9 +329,12 @@ internal sealed class LibraryBodyAsyncSourceResolver
         MetadataTypeDefinitionName? stateMachineType =
             physicalMethod.DeclaringType.Resolution?.Type;
         return stateMachineType is not null
-            && _unresolvedAsyncStateMachineTypes?.Contains(
-                stateMachineType)
-                == true
+            && (_unresolvedAsyncStateMachineTypes?.Contains(
+                    stateMachineType)
+                    == true
+                || _ambiguousAsyncStateMachineTypes?.Contains(
+                    stateMachineType)
+                    == true)
             ? AsyncSourceResolution.Unresolved
             : AsyncSourceResolution.None;
     }
