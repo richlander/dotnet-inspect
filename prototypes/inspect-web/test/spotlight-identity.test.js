@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   activeSourceOperationKind,
@@ -48,11 +50,11 @@ import {
   spotlightCandidateSignature,
   uniqueTypeByQueryId,
   workspaceCoordinatesMatch
-} from "../src/data.js";
+} from "../src/data.ts";
 import {
   buildDependencyGraphMermaid,
   buildTypeGraphMermaid
-} from "../src/graph-mermaid.js";
+} from "../src/graph-mermaid.ts";
 
 const packageAt = (version, framework, types = 1) => ({
   id: "Example.Package",
@@ -161,7 +163,7 @@ const memberFocusSource = readFileSync(
   new URL("../src/member-focus.ts", import.meta.url),
   "utf8");
 const graphSource = readFileSync(
-  new URL("../src/graph-mermaid.js", import.meta.url),
+  new URL("../src/graph-mermaid.ts", import.meta.url),
   "utf8");
 const typePanelSource = readFileSync(
   new URL("../src/type-panel.ts", import.meta.url),
@@ -175,9 +177,12 @@ const metadataViewerSource = readFileSync(
 const applicationSources =
   `${appSource}\n${graphSource}\n${packageBarSource}\n${metadataViewerSource}`;
 const stylesSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
-const engineSource = readFileSync(
+const engineModuleUrls = [
   new URL("../engine/wwwroot/engine.js", import.meta.url),
-  "utf8");
+  new URL("../engine/wwwroot/inspect-web-engine.js", import.meta.url),
+];
+const engineSource = readFileSync(engineModuleUrls[0], "utf8");
+const generatedEngineSource = readFileSync(engineModuleUrls[1], "utf8");
 const deploySource = readFileSync(
   new URL("../../../.github/workflows/deploy-inspect-web.yml", import.meta.url),
   "utf8");
@@ -366,9 +371,12 @@ test("bare home paints before wasm engine download", () => {
   const loadingView =
     appSource.match(/function renderLoading\(\)[\s\S]*?\n}\n\nasync function loadSelectedMemberDocumentation/)?.[0] ?? "";
   assert.doesNotMatch(appSource, /from "\/engine\.js"/);
+  assert.doesNotMatch(appSource, /from "\/inspect-web-engine\.js"/);
   assert.match(
     appSource,
     /async function loadEngineModule\(\)[\s\S]*await import\("\/engine\.js"\)/);
+  assert.doesNotMatch(engineSource, /^import .*inspect-web-engine\.js/m);
+  assert.match(engineSource, /await import\("\.\/inspect-web-engine\.js"\)/);
   assert.match(
     homePaintWait,
     /first-contentful-paint[\s\S]*observer\.observe\(\{ type: "paint", buffered: true \}\)/);
@@ -925,7 +933,7 @@ test("type source identity includes decompiler taste", () => {
 test("source operations cancel when superseded or hidden", () => {
   assert.match(
     engineSource,
-    /cancelSourceQuery = exports\.BrowserInspectionEngine\.CancelSourceQuery/);
+    /cancelSourceQuery = exports\.InspectionEngine\.CancelSourceQuery/);
   assert.match(
     engineSource,
     /export function cancelSourceInspection\(\)[\s\S]*?cancelSourceQuery\?\.\(\)/);
@@ -1059,8 +1067,40 @@ test("source operations cancel when superseded or hidden", () => {
 
 test("browser engine configures the same-origin managed MSDL API", () => {
   assert.match(
-    engineSource,
-    /exports\.BrowserInspectionEngine\.ConfigureHost\(window\.location\.origin\)/);
+    generatedEngineSource,
+    /configureHostExport = exports\.InspectionEngine\.ConfigureHost[\s\S]*?configureHostExport\(window\.location\.origin\)/);
+});
+
+test("browser engine modules are syntactically valid", () => {
+  for (const url of engineModuleUrls) {
+    const result = spawnSync(
+      process.execPath,
+      ["--check", fileURLToPath(url)],
+      { encoding: "utf8" });
+    assert.equal(
+      result.status,
+      0,
+      `${fileURLToPath(url)} failed syntax validation:\n${result.stderr}`);
+  }
+});
+
+test("generated source wrappers parse their JSON envelopes", () => {
+  const wrapper = name => {
+    const start = generatedEngineSource.search(
+      new RegExp(`\\nexport (?:async )?function ${name}\\(`));
+    assert.notEqual(start, -1, `missing generated wrapper ${name}`);
+    const end = generatedEngineSource.indexOf("\nexport ", start + 1);
+    return generatedEngineSource.slice(start, end < 0 ? undefined : end);
+  };
+
+  for (const name of [
+    "queryMemberAnnotatedSource",
+    "queryMemberSource",
+    "queryTypeMemberSource",
+  ]) {
+    assert.match(wrapper(name), /return JSON\.parse\(result\);/);
+  }
+  assert.doesNotMatch(wrapper("queryMemberFacts"), /JSON\.parse\(result\)/);
 });
 
 test("MethodDef-only member sections are hidden for bodiless APIs", () => {

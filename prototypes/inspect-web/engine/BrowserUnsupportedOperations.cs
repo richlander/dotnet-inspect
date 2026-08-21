@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 
-// The bridge in wwwroot/engine.js binds exports.BrowserInspectionEngine.*, so this type stays
+// The bridge in wwwroot/engine.js binds exports.InspectionEngine.*, so this type stays
 // in the global namespace. Its helpers live in InspectWeb.Engine.
 using InspectWeb.Engine;
 
@@ -27,7 +27,7 @@ using InspectWeb.Engine;
 /// </para>
 /// </remarks>
 [SupportedOSPlatform("browser")]
-public static partial class BrowserInspectionEngine
+public static partial class InspectionEngine
 {
     const string NoPlatformWorkspace =
         "no product acquisition owner produces runtime-pack participants from content, so no "
