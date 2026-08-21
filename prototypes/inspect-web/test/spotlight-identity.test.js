@@ -312,7 +312,9 @@ test("typed document inspection owns package document request coordination", () 
   assert.match(
     appSource,
     /queryDocument: request => inspectPackageDocument\(\s*request\.packageId,\s*request\.version,\s*request\.document\.path\)/);
-  assert.match(documentLoader, /return documentInspection\.open\(\{/);
+  assert.match(
+    documentLoader,
+    /return documentInspection\.open\(\{\s*packageId: pkg\.id,\s*version: pkg\.version,\s*document: doc,\s*\}\)/);
   assert.match(documentCloser, /documentInspection\.close\(\)/);
   assert.doesNotMatch(documentLoader, /state\.docViewer(?:Seq|Open|Loading)/);
   assert.doesNotMatch(documentCloser, /state\.docViewer(?:Seq|Open|Loading)/);

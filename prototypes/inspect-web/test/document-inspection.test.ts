@@ -297,6 +297,43 @@ test("replacement during acquisition does not enter stale rendering", async () =
   assert.equal(state.docViewerHtml, "<p>current</p>");
 });
 
+test("reopening the same document during acquisition rejects stale identity", async () => {
+  const first = deferred<BrowserPackageDocumentContent>();
+  const second = deferred<BrowserPackageDocumentContent>();
+  let queries = 0;
+  const state = inspectionState();
+  const coordinator = createDocumentInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDocument: () => ++queries === 1 ? first.promise : second.promise,
+      renderMarkdown: async text => `<p>${String(text)}</p>`,
+    }));
+
+  const firstOpen = coordinator.open({
+    packageId: "Example.Package",
+    version: "1.2.3",
+    document,
+  });
+  coordinator.close();
+  const secondOpen = coordinator.open({
+    packageId: "Example.Package",
+    version: "1.2.3",
+    document,
+  });
+  first.resolve(content("stale"));
+  await firstOpen;
+
+  assert.equal(state.docViewer, document);
+  assert.equal(state.docViewerLoading, true);
+  assert.equal(state.docViewerError, "");
+  assert.equal(state.docViewerHtml, "");
+  assert.equal(state.docViewerMeta, null);
+
+  second.resolve(content("current"));
+  await secondOpen;
+  assert.equal(state.docViewerHtml, "<p>current</p>");
+  assert.equal(state.docViewerLoading, false);
+});
+
 test("replacement during body rendering suppresses stale description work", async () => {
   const body = deferred<string>();
   const bodyEntered = deferred<void>();
@@ -348,6 +385,56 @@ test("replacement during body rendering suppresses stale description work", asyn
   assert.equal(state.docViewerHtml, "<p>current</p>");
 });
 
+test("reopening the same document during body rendering suppresses stale work", async () => {
+  const body = deferred<string>();
+  const bodyEntered = deferred<void>();
+  const second = deferred<BrowserPackageDocumentContent>();
+  let queries = 0;
+  let inlineRenders = 0;
+  const state = inspectionState();
+  const coordinator = createDocumentInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDocument: () => ++queries === 1
+        ? Promise.resolve(content("---\ndescription: Summary\n---\nBody"))
+        : second.promise,
+      renderMarkdown: async text => {
+        if (text === "Body") {
+          bodyEntered.resolve();
+          return body.promise;
+        }
+        return `<p>${String(text)}</p>`;
+      },
+      renderMarkdownInline: async () => {
+        inlineRenders++;
+        return "<p>stale description</p>";
+      },
+    }));
+
+  const firstOpen = coordinator.open({
+    packageId: "Example.Package",
+    version: "1.2.3",
+    document,
+  });
+  await bodyEntered.promise;
+  coordinator.close();
+  const secondOpen = coordinator.open({
+    packageId: "Example.Package",
+    version: "1.2.3",
+    document,
+  });
+  body.resolve("<p>stale body</p>");
+  await firstOpen;
+
+  assert.equal(inlineRenders, 0);
+  assert.equal(state.docViewer, document);
+  assert.equal(state.docViewerLoading, true);
+  assert.equal(state.docViewerHtml, "");
+  assert.equal(state.docViewerMeta, null);
+
+  second.resolve(content("current"));
+  await secondOpen;
+});
+
 test("replacement during description rendering suppresses stale publication", async () => {
   const description = deferred<string>();
   const descriptionEntered = deferred<void>();
@@ -391,6 +478,48 @@ test("replacement during description rendering suppresses stale publication", as
   assert.equal(state.docViewerHtml, "<p>current</p>");
 });
 
+test("reopening the same document during description rendering suppresses stale publication", async () => {
+  const description = deferred<string>();
+  const descriptionEntered = deferred<void>();
+  const second = deferred<BrowserPackageDocumentContent>();
+  let queries = 0;
+  const state = inspectionState();
+  const coordinator = createDocumentInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDocument: () => ++queries === 1
+        ? Promise.resolve(content("---\ndescription: Summary\n---\nBody"))
+        : second.promise,
+      renderMarkdown: async text => `<p>${String(text)}</p>`,
+      renderMarkdownInline: async () => {
+        descriptionEntered.resolve();
+        return description.promise;
+      },
+    }));
+
+  const firstOpen = coordinator.open({
+    packageId: "Example.Package",
+    version: "1.2.3",
+    document,
+  });
+  await descriptionEntered.promise;
+  coordinator.close();
+  const secondOpen = coordinator.open({
+    packageId: "Example.Package",
+    version: "1.2.3",
+    document,
+  });
+  description.resolve("<p>stale description</p>");
+  await firstOpen;
+
+  assert.equal(state.docViewer, document);
+  assert.equal(state.docViewerLoading, true);
+  assert.equal(state.docViewerHtml, "");
+  assert.equal(state.docViewerMeta, null);
+
+  second.resolve(content("current"));
+  await secondOpen;
+});
+
 test("rejected replaced documents cannot settle the current request", async () => {
   const first = deferred<BrowserPackageDocumentContent>();
   const second = deferred<BrowserPackageDocumentContent>();
@@ -429,6 +558,41 @@ test("rejected replaced documents cannot settle the current request", async () =
   assert.equal(state.docViewerHtml, "<p>current</p>");
   assert.equal(state.docViewerLoading, false);
   assert.equal(renders, 3);
+});
+
+test("reopening the same document suppresses a stale rejection", async () => {
+  const first = deferred<BrowserPackageDocumentContent>();
+  const second = deferred<BrowserPackageDocumentContent>();
+  let queries = 0;
+  const state = inspectionState();
+  const coordinator = createDocumentInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDocument: () => ++queries === 1 ? first.promise : second.promise,
+      renderMarkdown: async text => `<p>${String(text)}</p>`,
+    }));
+
+  const firstOpen = coordinator.open({
+    packageId: "Example.Package",
+    version: "1.2.3",
+    document,
+  });
+  coordinator.close();
+  const secondOpen = coordinator.open({
+    packageId: "Example.Package",
+    version: "1.2.3",
+    document,
+  });
+  first.reject(new Error("stale failure"));
+  await firstOpen;
+
+  assert.equal(state.docViewer, document);
+  assert.equal(state.docViewerLoading, true);
+  assert.equal(state.docViewerError, "");
+
+  second.resolve(content("current"));
+  await secondOpen;
+  assert.equal(state.docViewerError, "");
+  assert.equal(state.docViewerLoading, false);
 });
 
 test("closing during body rendering suppresses description and publication", async () => {
@@ -546,6 +710,7 @@ test("current document failures remain visible and settle loading", async () => 
 });
 
 test("opening another document clears a prior visible failure", async () => {
+  const replacement = deferred<BrowserPackageDocumentContent>();
   const state = inspectionState();
   const coordinator = createDocumentInspectionCoordinator(
     inspectionDependencies(state, {
@@ -553,7 +718,7 @@ test("opening another document clears a prior visible failure", async () => {
         if (request.document === document) {
           throw new Error("Document unavailable");
         }
-        return content("current");
+        return replacement.promise;
       },
       renderMarkdown: async text => `<p>${String(text)}</p>`,
     }));
@@ -565,7 +730,7 @@ test("opening another document clears a prior visible failure", async () => {
   });
   assert.equal(state.docViewerError, "Document unavailable");
 
-  await coordinator.open({
+  const open = coordinator.open({
     packageId: "Example.Package",
     version: "1.2.3",
     document: guideDocument,
@@ -573,8 +738,49 @@ test("opening another document clears a prior visible failure", async () => {
 
   assert.equal(state.docViewer, guideDocument);
   assert.equal(state.docViewerError, "");
+  assert.equal(state.docViewerLoading, true);
+  assert.equal(state.docViewerHtml, "");
+  assert.equal(state.docViewerMeta, null);
+
+  replacement.resolve(content("current"));
+  await open;
   assert.equal(state.docViewerHtml, "<p>current</p>");
   assert.equal(state.docViewerLoading, false);
+});
+
+test("opening another document clears prior published surfaces immediately", async () => {
+  const replacement = deferred<BrowserPackageDocumentContent>();
+  const state = inspectionState();
+  const coordinator = createDocumentInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDocument: async request =>
+        request.document === document
+          ? content("---\nname: Old\n---\nold body")
+          : replacement.promise,
+      renderMarkdown: async text => `<p>${String(text)}</p>`,
+    }));
+
+  await coordinator.open({
+    packageId: "Example.Package",
+    version: "1.2.3",
+    document,
+  });
+  assert.equal(state.docViewerHtml, "<p>old body</p>");
+  assert.notEqual(state.docViewerMeta, null);
+
+  const open = coordinator.open({
+    packageId: "Example.Package",
+    version: "1.2.3",
+    document: guideDocument,
+  });
+
+  assert.equal(state.docViewerLoading, true);
+  assert.equal(state.docViewerHtml, "");
+  assert.equal(state.docViewerMeta, null);
+
+  replacement.resolve(content("current"));
+  await open;
+  assert.equal(state.docViewerHtml, "<p>current</p>");
 });
 
 test("closing resets every document surface and invalidates its sequence", () => {
