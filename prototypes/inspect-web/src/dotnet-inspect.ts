@@ -89,6 +89,7 @@ import {
   createCallGraphInspectionCoordinator,
   type PlatformStackEntry,
 } from "./call-graph-inspection.ts";
+import { createDocumentInspectionCoordinator } from "./document-inspection.ts";
 import {
   captureMemberFocus,
   createMemberFocusRestorer,
@@ -165,7 +166,6 @@ import type {
   BrowserPackageDependencies,
   BrowserPackageDependencyGroup,
   BrowserPackageDocument,
-  BrowserPackageDocumentContent,
   BrowserPackageIntegrations,
   BrowserPackageOpportunities,
   BrowserPackageSurface,
@@ -754,6 +754,17 @@ const callGraphInspection = createCallGraphInspectionCoordinator({
   nextPaint,
   refreshPackageStats,
   patchCallGraphSection,
+});
+const documentInspection = createDocumentInspectionCoordinator({
+  state,
+  queryDocument: request => inspectPackageDocument(
+    request.packageId,
+    request.version,
+    request.document.path),
+  renderMarkdown,
+  renderMarkdownInline,
+  describeError: errorMessage,
+  render,
 });
 
 function captureView(): WorkspaceView | null {
@@ -6816,89 +6827,19 @@ async function renderMarkdownInline(text: unknown) {
   return DOMPurify.sanitize(html, MARKDOWN_SANITIZE_OPTIONS);
 }
 
-// Skill files carry a leading YAML frontmatter block (---\n…\n---). Rendered as Markdown it turns
-// into a mangled setext heading, so split it out: parse name/version/description (handling folded
-// >-/> and literal |/|- block scalars) and hand back the remaining body for normal rendering.
-interface DocumentFrontmatter {
-  name?: string;
-  version?: string;
-  description?: string;
-  [key: string]: string | undefined;
-}
-
-function splitFrontmatter(text: unknown) {
-  const source = String(text ?? "");
-  const match = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(source);
-  if (!match) return { meta: null, body: source };
-  const meta: DocumentFrontmatter = {};
-  const lines = match[1].split(/\r?\n/);
-  for (let i = 0; i < lines.length; i++) {
-    const kv = /^([A-Za-z0-9_-]+):\s?(.*)$/.exec(lines[i]);
-    if (!kv) continue;
-    let value = kv[2];
-    if (value === ">" || value === ">-" || value === "|" || value === "|-") {
-      const folded = value.startsWith(">");
-      const buffer = [];
-      while (i + 1 < lines.length && (/^\s+\S/.test(lines[i + 1]) || lines[i + 1].trim() === "")) {
-        buffer.push(lines[++i].trim());
-      }
-      value = buffer.join(folded ? " " : "\n").trim();
-    }
-    meta[kv[1]] = value.trim();
-  }
-  return { meta, body: source.slice(match[0].length) };
-}
-
-async function openPackageDocument(path: string) {
+function openPackageDocument(path: string) {
   const pkg = state.package;
   const doc = (pkg?.documents || []).find(candidate => candidate.path === path);
   if (!pkg || !doc) return;
-  const seq = ++state.docViewerSeq;
-  state.docViewerOpen = true;
-  state.docViewer = doc;
-  state.docViewerHtml = "";
-  state.docViewerMeta = null;
-  state.docViewerError = "";
-  state.docViewerLoading = true;
-  render();
-  try {
-    const content = await inspectPackageDocument(pkg.id, pkg.version, path);
-    if (seq !== state.docViewerSeq) return;
-    const { meta, body } = splitFrontmatter(content.text);
-    const html = await renderMarkdown(body);
-    if (seq !== state.docViewerSeq) return;
-    const descriptionHtml = meta?.description
-      ? await renderMarkdownInline(meta.description)
-      : "";
-    if (seq !== state.docViewerSeq) return;
-    const projectedMeta = meta && (meta.name || meta.description)
-      ? {
-          name: meta.name || doc.name,
-          version: meta.version || "",
-          descriptionHtml
-        }
-      : null;
-    state.docViewerHtml = html;
-    state.docViewerMeta = projectedMeta;
-  } catch (error) {
-    if (seq !== state.docViewerSeq) return;
-    state.docViewerError = errorMessage(error);
-  } finally {
-    if (seq !== state.docViewerSeq) return;
-    state.docViewerLoading = false;
-    render();
-  }
+  return documentInspection.open({
+    packageId: pkg.id,
+    version: pkg.version,
+    document: doc,
+  });
 }
 
 function closeDocViewer() {
-  state.docViewerSeq++;
-  state.docViewerOpen = false;
-  state.docViewer = null;
-  state.docViewerHtml = "";
-  state.docViewerMeta = null;
-  state.docViewerError = "";
-  state.docViewerLoading = false;
-  render();
+  documentInspection.close();
 }
 
 function renderDocViewer() {

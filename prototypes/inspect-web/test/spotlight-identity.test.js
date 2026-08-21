@@ -180,6 +180,9 @@ const memberDetailInspectionSource = readFileSync(
 const callGraphInspectionSource = readFileSync(
   new URL("../src/call-graph-inspection.ts", import.meta.url),
   "utf8");
+const documentInspectionSource = readFileSync(
+  new URL("../src/document-inspection.ts", import.meta.url),
+  "utf8");
 const memberFocusSource = readFileSync(
   new URL("../src/member-focus.ts", import.meta.url),
   "utf8");
@@ -294,6 +297,30 @@ test("typed package inspection owns package-root request coordination", () => {
     packageInspectionSource,
     /async loadDependencies\(packageModel, signature\)[\s\S]*state\.packageDependenciesKey/);
   assert.doesNotMatch(dependenciesLoader, /state\.packageDependenciesKey/);
+});
+
+test("typed document inspection owns package document request coordination", () => {
+  const documentLoader =
+    appSource.match(/function openPackageDocument\(path: string\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  const documentCloser =
+    appSource.match(/function closeDocViewer\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    appSource,
+    /createDocumentInspectionCoordinator\(\{[\s\S]*queryDocument:[\s\S]*renderMarkdown,[\s\S]*renderMarkdownInline,/);
+  assert.match(
+    appSource,
+    /queryDocument: request => inspectPackageDocument\(\s*request\.packageId,\s*request\.version,\s*request\.document\.path\)/);
+  assert.match(
+    documentLoader,
+    /return documentInspection\.open\(\{\s*packageId: pkg\.id,\s*version: pkg\.version,\s*document: doc,\s*\}\)/);
+  assert.match(documentCloser, /documentInspection\.close\(\)/);
+  assert.doesNotMatch(documentLoader, /state\.docViewer(?:Seq|Open|Loading)/);
+  assert.doesNotMatch(documentCloser, /state\.docViewer(?:Seq|Open|Loading)/);
+  assert.match(
+    documentInspectionSource,
+    /async open\(request: PackageDocumentRequest\)[\s\S]*state\.docViewerSeq/);
 });
 
 test("leaving package search clears its pending loading state", () => {
