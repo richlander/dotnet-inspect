@@ -155,63 +155,145 @@ public class PlantedCoreLibraryIdentityTests
     }
 
     /// <summary>
-    /// Every concrete acquisition is classified, and exactly two are entitled.
+    /// Every concrete acquisition is classified, exactly two are entitled, and
+    /// entitlement depends only on how the assembly was acquired.
     /// <para>
-    /// The cases above name their provenances one at a time, which leaves a
-    /// gap an adversarial review found: adding <c>ProjectAsset</c> to
-    /// <c>MayMint</c> widened the rule past its own documented allow list and
-    /// left all of them green, because no test mentioned that provenance. This
-    /// gate closes the gap by deriving its coverage from the type hierarchy
-    /// rather than restating it, so a provenance nobody remembered fails here
-    /// until it is classified deliberately — in either direction. Adding a new
-    /// <see cref="AssemblyResolutionProvenance"/> subtype fails until it is
-    /// listed, and entitling one that should not be fails immediately.
+    /// The cases above name their provenances one at a time, which left a gap
+    /// round 1 found: adding <c>ProjectAsset</c> to <c>MayMint</c> widened the
+    /// rule past its own documented allow list and left all of them green,
+    /// because no test mentioned that provenance. This gate derives its
+    /// coverage from the type hierarchy instead, so a provenance nobody
+    /// remembered fails here until it is classified deliberately — in either
+    /// direction.
+    /// </para>
+    /// <para>
+    /// Round 2 showed that deriving the coverage is not enough on its own, and
+    /// each half below answers one of its findings. The enumeration scans the
+    /// whole declaring assembly rather than the base type's public nested
+    /// types, because <c>private protected</c> closes the hierarchy to that
+    /// assembly and nothing more: a same-assembly subtype declared at top level
+    /// or marked <c>internal</c> is perfectly legal, and both were invisible to
+    /// the first version of this gate. It also compares <see cref="Type"/>
+    /// identities rather than names, so two acquisitions that share a short
+    /// name cannot stand in for one another.
+    /// </para>
+    /// <para>
+    /// The second half gates the property that makes the first half meaningful.
+    /// Entitlement must follow the <em>kind</em> of acquisition and never the
+    /// content of its fields, so each provenance is built several times with
+    /// different spellings — including ones a confused rule might key on, such
+    /// as a package literally named <c>System.Runtime</c> — and <c>MayMint</c>
+    /// must answer identically every time. Without this, a rule of the shape
+    /// <c>PackageAsset { PackageId: "System.Runtime" }</c> passed a set-equality
+    /// check unnoticed, because the single placeholder value never matched it.
+    /// </para>
+    /// <para>
+    /// The residual is stated rather than hidden: a property-dependent rule
+    /// keyed on a spelling outside <see cref="ProvenanceSpellings"/> would
+    /// still satisfy this gate. Closing that completely would require proving
+    /// a negative over all strings, which no test can do; the defence is that
+    /// <c>MayMint</c> is a single type-pattern expression, kept small enough to
+    /// audit by reading.
     /// </para>
     /// </summary>
     [Fact]
     public void EveryAcquisitionIsClassified_AndExactlyTwoAreEntitled()
     {
-        var concrete = typeof(AssemblyResolutionProvenance)
-            .GetNestedTypes(BindingFlags.Public)
-            .Where(t => t.IsSubclassOf(typeof(AssemblyResolutionProvenance)))
-            .ToArray();
+        Type[] concrete = ConcreteProvenanceTypes();
 
-        // The hierarchy is closed — the base constructor is private protected —
-        // so this really is every acquisition the product can express.
-        Assert.NotEmpty(concrete);
+        // Guards against the enumeration silently finding nothing, which would
+        // make every assertion below vacuously true.
+        Assert.Equal(6, concrete.Length);
 
-        var entitled = concrete
-            .Where(t => CoreLibraryIdentityTrust.MayMint(Construct(t)))
-            .Select(t => t.Name)
-            .OrderBy(name => name, StringComparer.Ordinal)
+        foreach (Type provenanceType in concrete)
+        {
+            bool[] answers = ProvenanceSpellings
+                .Select(spelling =>
+                    CoreLibraryIdentityTrust.MayMint(
+                        Construct(provenanceType, spelling)))
+                .Distinct()
+                .ToArray();
+
+            Assert.True(
+                answers.Length == 1,
+                $"{provenanceType.Name} is entitled for some field values and "
+                + "denied for others. Core-library trust must follow the "
+                + "acquisition, not what the acquisition happens to contain.");
+        }
+
+        Type[] entitled = concrete
+            .Where(t => CoreLibraryIdentityTrust.MayMint(
+                Construct(t, ProvenanceSpellings[0])))
+            .OrderBy(t => t.Name, StringComparer.Ordinal)
             .ToArray();
 
         Assert.Equal(
-            new[] { "DesignatedAsset", "PlatformAsset" },
+            new[]
+            {
+                typeof(AssemblyResolutionProvenance.DesignatedAsset),
+                typeof(AssemblyResolutionProvenance.PlatformAsset),
+            },
             entitled);
     }
 
     /// <summary>
-    /// Builds a provenance of the given type. Every constructor parameter in
-    /// this hierarchy is a string, and the required ones reject blank input,
-    /// so one non-empty placeholder satisfies all of them without the test
-    /// needing to know which arguments a particular acquisition carries.
+    /// Field values used to build each acquisition. The first is neutral; the
+    /// rest are spellings a rule that wrongly keyed on content might single
+    /// out, so that such a rule answers inconsistently and fails.
     /// </summary>
-    static AssemblyResolutionProvenance Construct(Type provenanceType)
-    {
-        ConstructorInfo constructor = provenanceType
-            .GetConstructors()
-            .Single();
-        object?[] arguments = constructor
-            .GetParameters()
-            .Select(parameter => parameter.ParameterType == typeof(string)
-                ? "probe"
-                : throw new InvalidOperationException(
-                    $"{provenanceType.Name} takes a non-string parameter "
-                    + $"'{parameter.Name}'; this helper needs updating."))
+    static readonly string[] ProvenanceSpellings =
+    [
+        "probe",
+        "System.Runtime",
+        "System.Private.CoreLib",
+        "Microsoft.NETCore.App",
+    ];
+
+    /// <summary>
+    /// Every acquisition the product can express. The base constructor is
+    /// <c>private protected</c>, so subtypes are confined to the declaring
+    /// assembly but not to the base type's nested public scope — hence the
+    /// assembly-wide scan.
+    /// </summary>
+    static Type[] ConcreteProvenanceTypes() =>
+        typeof(AssemblyResolutionProvenance).Assembly
+            .GetTypes()
+            .Where(t => !t.IsAbstract
+                && t.IsSubclassOf(typeof(AssemblyResolutionProvenance)))
+            .OrderBy(t => t.Name, StringComparer.Ordinal)
             .ToArray();
 
-        return (AssemblyResolutionProvenance)constructor.Invoke(arguments);
+    /// <summary>
+    /// Builds a provenance of the given type with <paramref name="spelling"/>
+    /// for every field. Each constructor in this hierarchy takes only strings,
+    /// and the required ones reject blank input, so one non-blank value
+    /// satisfies all of them without the test needing to know which arguments
+    /// a particular acquisition carries.
+    /// </summary>
+    static AssemblyResolutionProvenance Construct(
+        Type provenanceType,
+        string spelling)
+    {
+        ConstructorInfo[] constructors = provenanceType.GetConstructors();
+        Assert.True(
+            constructors.Length == 1,
+            $"{provenanceType.Name} declares {constructors.Length} public "
+            + "constructors; this helper assumes one and needs updating.");
+
+        ParameterInfo[] parameters = constructors[0].GetParameters();
+        Assert.All(
+            parameters,
+            parameter => Assert.True(
+                parameter.ParameterType == typeof(string),
+                $"{provenanceType.Name} takes a non-string parameter "
+                + $"'{parameter.Name}'; this helper needs updating."));
+
+        object?[] arguments = parameters
+            .Select(object? (_) => spelling)
+            .ToArray();
+
+        return (AssemblyResolutionProvenance)constructors[0]
+            .Invoke(arguments);
     }
 
     /// <summary>
