@@ -559,7 +559,10 @@ test("typed type panel owns its rendered control bindings", () => {
     /document\.querySelector(?:<HTMLInputElement>)?\("#(?:member-filter|clear-member-filter)"\)/);
   assert.match(
     binding,
-    /onMemberFilterKeyDown: event => \{[\s\S]*event\.key === "Escape"[\s\S]*navMode\(\) === "member"[\s\S]*exitMemberScope\(\)[\s\S]*state\.memberTextFilter = ""[\s\S]*event\.key !== "ArrowUp" && event\.key !== "ArrowDown"[\s\S]*stepMemberNav\(event\.key === "ArrowDown" \? 1 : -1, true\)/);
+    /onMemberFilterClear: \(\) => \{[\s\S]*resetMemberFilters\(\);[\s\S]*renderMemberFilterAndRestoreFocus\("#clear-member-filter"\)/);
+  assert.match(
+    binding,
+    /onMemberFilterKeyDown: event => \{\s*if \(event\.key === "Escape"\) \{\s*event\.preventDefault\(\);[\s\S]*navMode\(\) === "member"[\s\S]*exitMemberScope\(\)[\s\S]*state\.memberTextFilter = ""[\s\S]*event\.key !== "ArrowUp" && event\.key !== "ArrowDown"[\s\S]*event\.preventDefault\(\);\s*stepMemberNav\(event\.key === "ArrowDown" \? 1 : -1, true\)/);
   const selectorCount = selector =>
     appSource.split(selector).length - 1;
   assert.deepEqual(
