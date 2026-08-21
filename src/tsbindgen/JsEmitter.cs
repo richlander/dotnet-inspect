@@ -6,7 +6,7 @@ namespace tsbindgen;
 /// <summary>
 /// Projects a <see cref="JsExportSurface"/> into a runtime <c>.js</c> module: the wasm bootstrap
 /// (<c>dotnet.create()</c> / <c>getAssemblyExports()</c>) plus one typed wrapper function per
-/// <c>[JSExport]</c> export. This replaces a hand-maintained shim like <c>engine.js</c>, which
+/// <c>[JSExport]</c> export. This replaces a hand-maintained bridge, which
 /// duplicated this exact bootstrap-and-JSON.parse boilerplate by hand and could silently drift
 /// from the assembly's real exports. Every JSON-string envelope this module parses corresponds
 /// exactly to the DTO type <see cref="DtsEmitter"/> already put in the sibling <c>.d.ts</c> via
@@ -15,9 +15,9 @@ namespace tsbindgen;
 /// </summary>
 /// <remarks>
 /// <c>initializeEngine</c> returns the raw <c>getAssemblyExports()</c> object so a caller that
-/// still needs an export this module hasn't been asked to wrap yet (e.g. a hand-written shim
-/// mid-migration) can reuse the same wasm runtime instance instead of calling
-/// <c>dotnet.create()</c> a second time, which would load a second full runtime in the browser.
+/// needs an export this module hasn't been asked to wrap can reuse the same wasm runtime instance
+/// instead of calling <c>dotnet.create()</c> a second time, which would load a second full runtime
+/// in the browser.
 /// </remarks>
 static class JsEmitter
 {

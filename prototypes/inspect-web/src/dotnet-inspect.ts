@@ -3876,7 +3876,7 @@ function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
 
 // The annotated section renders the product's portable AnnotatedSourceDocument directly: canonical
 // lines from its text buffer, structural segments from its nodes, and the fact -> target -> node ->
-// span walk it defines. Coordinates, validation, and segmentation belong to document-model.js.
+// span walk it defines. Coordinates, validation, and segmentation belong to document-model.ts.
 function renderAnnotatedSource(result: AnnotatedSourceResult) {
   return renderAnnotatedSourcePure({
     result,
@@ -8532,7 +8532,6 @@ async function bootstrap() {
       state.engineStatus = message;
       render();
     };
-    reportEngineStatus("Loading .NET 11 WebAssembly…");
     await initializeEngine(reportEngineStatus);
     reportEngineStatus("Reading package assemblies…");
     state.buildIdentity = inspectBuildIdentity();

@@ -8,14 +8,19 @@ import { buildAnnotatedView, MEDIA, MEDIUM_LABELS } from "./annotated-source-vie
 // BrowserAnnotatedSource's "document" field is generated as `unknown` because tsbindgen doesn't
 // model the wire shape of the annotated-source document graph, only which fields are DTO
 // boundaries. AnnotatedSourceDocument (annotated-source-view.ts) is the product-owned structural
-// model of that same JSON payload, kept in lockstep with document-model.js's validation — so this
+// model of that same JSON payload, coupled to document-model.ts's runtime validation — so this
 // narrows the generated field rather than re-declaring the outer DTO shape independently.
 export type AnnotatedSourceResult = Omit<BrowserAnnotatedSource, "document"> & {
   document: AnnotatedSourceDocument;
 };
 
+export type AnnotatedSourceRenderResult =
+  Omit<AnnotatedSourceResult, "contextLimitation"> & {
+    contextLimitation?: BrowserAnnotatedSource["contextLimitation"];
+  };
+
 export interface RenderAnnotatedSourceOptions {
-  result: AnnotatedSourceResult;
+  result: AnnotatedSourceRenderResult;
   media: AnnotatedViewState["media"];
   selectedFactId: AnnotatedViewState["selectedFactId"];
   selectedNodeIds: AnnotatedViewState["selectedNodeIds"];
