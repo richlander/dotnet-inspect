@@ -1,8 +1,6 @@
 import {
   activeSourceOperationKind,
   assemblyDescriptorForType,
-  beginSourceRequestState,
-  cancelSourceRequestState,
   callGraphDiagnosticsMessage,
   callGraphTargetMatchesType,
   callGraphTargetTypeId,
@@ -30,7 +28,6 @@ import {
   retainWorkspacePackage,
   resolveLoadedGraphTargetCandidate,
   scopedRequestState,
-  sourceSurfaceIsVisible,
   sourceReloadKind,
   sourceRequestNeedsLoad,
   selectedDependencyGroup,
@@ -75,6 +72,10 @@ import {
   workspaceDependencyKey,
   type PackagePerformance,
 } from "./package-inspection.ts";
+import {
+  createSourceInspectionCoordinator,
+  type GraphSourceRequest,
+} from "./source-inspection.ts";
 import {
   captureMemberFocus,
   createMemberFocusRestorer,
@@ -422,17 +423,6 @@ interface MemberFacts {
   }>;
 }
 
-interface GraphSourceRequest {
-  packageId: string;
-  version: string;
-  framework: string;
-  assembly: string;
-  type: string;
-  member: string;
-  selectorKey: string;
-  metadataToken: number;
-}
-
 interface Diagnostics {
   downloadMs: number;
   startupMs: number;
@@ -648,6 +638,40 @@ interface StateOverrides {
 type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides;
 
 const state = initialState as AppState;
+const sourceInspection = createSourceInspectionCoordinator({
+  state,
+  queryMemberSource: request => inspectMemberSource(
+    request.packageId,
+    request.version,
+    request.framework,
+    request.assembly,
+    request.type,
+    request.member,
+    request.selectorKey,
+    request.metadataToken,
+    request.taste),
+  queryTypeSource: request => inspectTypeSource(
+    request.packageId,
+    request.version,
+    request.framework,
+    request.assembly,
+    request.type,
+    request.taste),
+  queryGraphSource: (request, taste) => inspectTypeMemberSource(
+    request.packageId,
+    request.version,
+    request.framework,
+    request.assembly,
+    request.type,
+    request.member,
+    request.selectorKey,
+    request.metadataToken,
+    taste),
+  cancelEngineSourceRequest: () => cancelSourceInspection?.(),
+  describeError: errorMessage,
+  render,
+  renderPreservingMemberFocus,
+});
 
 function captureView(): WorkspaceView | null {
   if (!state.package) return null;
@@ -1729,10 +1753,7 @@ function typeDisplayName(
 }
 
 function render() {
-  if (!sourceSurfaceIsVisible(state)
-    && cancelSourceRequestState(state)) {
-    cancelSourceInspection?.();
-  }
+  sourceInspection.cancelHiddenRequest();
 
   // The Settings page is a modal-style full view layered over whatever the user came from
   // (home or a package). It owns no URL — it's a preferences panel, not shareable content —
@@ -5820,53 +5841,22 @@ async function loadSelectedMemberSource() {
     return;
   }
   const signature = memberRequestSignature(type, overload, false, true);
-  if (!sourceRequestNeedsLoad(
-      state.memberSourceKey === signature,
-      state.memberSourceLoading,
-      state.memberSource,
-      state.memberSourceError)) {
-    render();
-    return;
-  }
-
-  const generation = beginSourceRequestState(state);
-  state.memberSourceKey = signature;
-  state.memberSource = null;
-  state.memberSourceLoading = true;
-  state.memberSourceError = "";
-  const preservedFocus = renderPreservingMemberFocus();
   const pkg = currentPackage();
-  try {
-    const result = await inspectMemberSource(
-      pkg.id,
-      pkg.version,
-      pkg.activeFramework,
-      type.assembly,
-      type.definitionId ?? type.id,
-      state.selectedBodyTarget?.memberName ?? overload.name,
+  return sourceInspection.loadMemberSource({
+    signature,
+    packageId: pkg.id,
+    version: pkg.version,
+    framework: pkg.activeFramework,
+    assembly: type.assembly,
+    type: type.definitionId ?? type.id,
+    member: state.selectedBodyTarget?.memberName ?? overload.name,
+    selectorKey:
       state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
+    metadataToken:
       state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0,
-      JSON.stringify(state.taste));
-    if (generation === state.sourceRequestGeneration
-      && memberRequestIsCurrent(signature, false, true)
-      && state.memberSourceKey === signature) {
-      state.memberSource = result;
-    }
-  } catch (error) {
-    if (generation === state.sourceRequestGeneration
-      && memberRequestIsCurrent(signature, false, true)
-      && state.memberSourceKey === signature) {
-      state.memberSourceError = errorMessage(error);
-    }
-  } finally {
-    const current = generation === state.sourceRequestGeneration
-      && state.memberSourceKey === signature;
-    if (current) {
-      state.memberSourceLoading = false;
-      if (memberRequestIsCurrent(signature, false, true))
-        renderPreservingMemberFocus(preservedFocus);
-    }
-  }
+    taste: JSON.stringify(state.taste),
+    isCurrent: () => memberRequestIsCurrent(signature, false, true),
+  });
 }
 
 async function loadSelectedMemberAnnotatedSource() {
@@ -5981,49 +5971,18 @@ async function loadSelectedTypeSource() {
   const pkg = currentPackage();
   const signature =
     typeSourceSignature(type, pkg, state.taste, memberRequestKey);
-  if (!sourceRequestNeedsLoad(
-      state.typeSourceKey === signature,
-      state.typeSourceLoading,
-      state.typeSource,
-      state.typeSourceError)) {
-    renderPreservingMemberFocus();
-    return;
-  }
-  const generation = beginSourceRequestState(state);
-  state.typeSourceKey = signature;
-  state.typeSource = null;
-  state.typeSourceError = "";
-  state.typeSourceLoading = true;
-  const preservedFocus = renderPreservingMemberFocus();
-  const ownsRequest = () =>
-    generation === state.sourceRequestGeneration
-    && state.typeSourceKey === signature;
-  const isCurrent = () =>
-    ownsRequest()
-    && activeSourceOperationKind(state) === "type"
-    && !workbenchModalOwnsFocus();
-  try {
-    const result = await inspectTypeSource(
-      pkg.id,
-      pkg.version,
-      pkg.activeFramework,
-      type.assembly,
-      type.definitionId ?? type.id,
-      JSON.stringify(state.taste));
-    if (ownsRequest()) {
-      state.typeSource = result;
-    }
-  } catch (error) {
-    if (ownsRequest()) {
-      state.typeSourceError = errorMessage(error);
-    }
-  } finally {
-    if (ownsRequest()) {
-      state.typeSourceLoading = false;
-      if (isCurrent())
-        renderPreservingMemberFocus(preservedFocus);
-    }
-  }
+  return sourceInspection.loadTypeSource({
+    signature,
+    packageId: pkg.id,
+    version: pkg.version,
+    framework: pkg.activeFramework,
+    assembly: type.assembly,
+    type: type.definitionId ?? type.id,
+    taste: JSON.stringify(state.taste),
+    isVisible: () =>
+      activeSourceOperationKind(state) === "type"
+      && !workbenchModalOwnsFocus(),
+  });
 }
 
 async function loadSelectedTypeMetadata() {
@@ -7067,53 +7026,11 @@ function stripArity(name: string) {
 }
 
 async function openGraphSource(request: GraphSourceRequest, title: string) {
-  const generation = beginSourceRequestState(state);
-  const seq = ++state.graphSourceSeq;
-  state.graphSourceOpen = true;
-  state.graphSourceTitle = title;
-  state.graphSourceRequest = { request, title };
-  state.graphSource = null;
-  state.graphSourceError = "";
-  state.graphSourceLoading = true;
-  render();
-  try {
-    const source = await inspectTypeMemberSource(
-      request.packageId,
-      request.version,
-      request.framework,
-      request.assembly,
-      request.type,
-      request.member,
-      request.selectorKey,
-      request.metadataToken,
-      JSON.stringify(state.taste));
-    if (generation !== state.sourceRequestGeneration
-      || seq !== state.graphSourceSeq
-      || !state.graphSourceOpen) return;
-    state.graphSource = source;
-  } catch (error) {
-    if (generation !== state.sourceRequestGeneration
-      || seq !== state.graphSourceSeq
-      || !state.graphSourceOpen) return;
-    state.graphSourceError = errorMessage(error);
-  } finally {
-    if (generation !== state.sourceRequestGeneration
-      || seq !== state.graphSourceSeq
-      || !state.graphSourceOpen) return;
-    state.graphSourceLoading = false;
-    render();
-  }
+  return sourceInspection.openGraphSource(request, title);
 }
 
 function closeGraphSource() {
-  if (cancelSourceRequestState(state)) cancelSourceInspection?.();
-  state.graphSourceSeq++;
-  state.graphSourceOpen = false;
-  state.graphSource = null;
-  state.graphSourceError = "";
-  state.graphSourceLoading = false;
-  state.graphSourceRequest = null;
-  render();
+  sourceInspection.closeGraphSource();
 }
 
 // Lazily load marked + DOMPurify (mirrors the mermaid CDN-ESM pattern). marked renders GFM

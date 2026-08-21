@@ -559,6 +559,17 @@ resident-package checks, visible partial/failure results, package/platform
 routing, stale publication, and explicit Platform library scope;
 `test/spotlight-identity.test.js` gates the composition-root wiring.
 
+`src/source-inspection.ts` owns the mutually exclusive member, type, and
+call-graph source request lifecycle: shared cancellation, generation and
+per-surface identity checks, loading/error/result transitions, graph-modal
+open/close state, and focus-preserving completion. `dotnet-inspect.ts`
+validates the active selection, builds typed engine requests, supplies mutable
+state and rendering ports, and retains annotated-source coordination.
+`test/source-inspection.test.ts` gates hidden cancellation, stale member
+selection, visible failure, hidden type completion, graph close/cancellation,
+and graph failure; `test/spotlight-identity.test.js` gates engine and
+composition-root wiring.
+
 `src/spotlight.ts` owns the modal workbench search, embedded home search,
 scope/result rendering, selection, and keyboard interaction.
 `src/command-bar.ts` supplies its typed Commands-scope grammar and results;
@@ -659,9 +670,10 @@ and is not escaped).
 
 `src/graph-source.ts` owns the member source modal (the code viewer opened
 from a call graph node) as a pure, dependency-injected render function.
-`dotnet-inspect.ts` still owns `state`, the sequence-guarded async source-inspection
-lifecycle, and the `highlightCSharp` Prism wrapper, and passes each computed
-slice in explicitly. `test/graph-source.test.ts` gates the loading state, the
+`source-inspection.ts` owns its sequence-guarded async lifecycle;
+`dotnet-inspect.ts` supplies `state`, the typed engine port, and the
+`highlightCSharp` Prism wrapper, and passes each computed slice explicitly.
+`test/graph-source.test.ts` gates the loading state, the
 original-versus-decompiled provenance labels, the open-source link's presence
 only when a `url` is provided, the error state's fallback message, and title
 escaping in both the header and loading status.
