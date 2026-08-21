@@ -688,6 +688,25 @@ context its operation declares; no assembly registration, group, or catalog is
 implied. A persistent host may retain a resulting workspace afterward under the
 normal lifetime and budget rules.
 
+The target
+[artifact acquisition design](design/artifact-acquisition-and-workspaces.md)
+names the owner-issued access for that first projection the admission lease.
+Before its first adapter call, the workspace reserves the complete
+multi-source plan against aggregate artifact-count, peak-acquisition-byte, and
+retained-byte budgets that also include concurrent admissions and retained
+generations. Before atomic publication, admission materializes every selected
+logical artifact into retained immutable content, validates identity and every
+budget dimension, and projects all required assembly participants. Equivalent
+concurrent demands for the same context generation and admission-policy
+snapshot join one workspace-owned operation and consume no second reservation,
+including across Browser/Wasm awaited reentrancy. Cancellation-draining
+operations accept no new join or late publication. Later opens use only
+retained content; they perform no source acquisition, archive expansion,
+participant minting, or catalog mutation. This reservation is distinct from
+each adapter's transport/archive limits and the assembly group's image budget.
+Later queries receive separate query leases and must reauthorize the retained
+catalog generation before participant selection.
+
 Hosts statically register the bundles they choose to ship. Excluded bundles and
 their definitions and embedded artifact bytes do not enter the build. Included
 bundles require no runtime plugin discovery or reflection loading. A
@@ -834,10 +853,19 @@ The architecture is the contract above and the ownership of each transition.
 
 ### Identity and provenance
 
-Resolution returns a descriptor such as `ResolvedAssemblyReference`: identity,
-an opener for the selected content, and structured resolution provenance.
-Inspection does not discard that information into a bare path and later
-reconstruct it.
+The current implementation returns a descriptor such as
+`ResolvedAssemblyReference`: identity, an opener for the selected content, and
+structured resolution provenance. Inspection does not discard that information
+into a bare path and later reconstruct it.
+
+The target
+[artifact acquisition design](design/artifact-acquisition-and-workspaces.md)
+makes that descriptor source-neutral: artifact/acquisition identity plus
+owner-guarded content access. Source adapters retain typed source-specific
+provenance beside the workspace participant rather than extending a
+Metadata-owned provenance hierarchy. Caller designation and other trust inputs
+remain separate authorized workspace roles rather than provenance inferred from
+paths or assembly names.
 
 Identity, correspondence, provenance, and display remain separate. Joins use
 the typed currencies; presentation chooses spelling afterward.

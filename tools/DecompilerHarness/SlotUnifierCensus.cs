@@ -60,6 +60,7 @@ static class SlotUnifierCensus
         Console.WriteLine("| --- | ---: |");
         Console.WriteLine($"| StoreStackSlot nodes reaching printer | {totals.StoreNodes} |");
         Console.WriteLine($"| LoadStackSlot nodes reaching printer | {totals.LoadNodes} |");
+        Console.WriteLine($"| Direct slot-copy stores reaching printer | {totals.DirectCopyStores} |");
         Console.WriteLine($"| Distinct slots considered by printer unifier | {totals.DistinctSlots} |");
         Console.WriteLine($"| Methods with residual stack slots | {totals.MethodsWithSlots} |");
         Console.WriteLine($"| Single-candidate slots | {totals.SingleCandidateSlots} |");
@@ -84,6 +85,7 @@ static class SlotUnifierCensus
         public long PassBugs;
         public long StoreNodes;
         public long LoadNodes;
+        public long DirectCopyStores;
         public long DistinctSlots;
         public long CandidateSlots;
         public long SingleCandidateSlots;
@@ -96,6 +98,7 @@ static class SlotUnifierCensus
         {
             StoreNodes += telemetry.StoreNodes;
             LoadNodes += telemetry.LoadNodes;
+            DirectCopyStores += telemetry.DirectCopyStores;
             DistinctSlots += telemetry.DistinctSlots;
             CandidateSlots += telemetry.CandidateSlots;
             SingleCandidateSlots += telemetry.SingleCandidateSlots;
