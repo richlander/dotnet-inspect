@@ -286,6 +286,36 @@ public sealed class MetadataDeclarationQueryTests
         Assert.Equal((MethodDefinitionHandle)implementation.MethodDeclaration, slot.Method);
     }
 
+    [Fact]
+    public void SameAssemblyOverrideSlot_AllowsReferenceConstrainedGenericCovariantMethodImpl()
+    {
+        var derivedHandle = GetTypeDefinitionHandle(
+            typeof(MetadataDeclarationQueryFixtures.GenericCovariantReturnDerived<>));
+        var derived = Reader.GetTypeDefinition(derivedHandle);
+        var methodHandle = GetMethodHandle(derived, "Value");
+        var method = Reader.GetMethodDefinition(methodHandle);
+        var implementation = Assert.Single(
+            derived.GetMethodImplementations().Select(Reader.GetMethodImplementation),
+            candidate => candidate.MethodBody == methodHandle);
+
+        Assert.True((method.Attributes & MethodAttributes.NewSlot) != 0);
+        Assert.Equal(HandleKind.MethodDefinition, implementation.MethodDeclaration.Kind);
+
+        var declaration = MetadataDeclarationQuery.GetMethod(Reader, derived, method);
+        var slot = Assert.IsType<MetadataOverrideSlot>(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                Reader,
+                derivedHandle,
+                methodHandle));
+
+        Assert.True(declaration.IsOverride);
+        Assert.False(declaration.IsVirtual);
+        Assert.Equal(
+            GetTypeDefinitionHandle(typeof(MetadataDeclarationQueryFixtures.ObjectCovariantReturnBase)),
+            slot.DeclaringType);
+        Assert.Equal((MethodDefinitionHandle)implementation.MethodDeclaration, slot.Method);
+    }
+
     [Theory]
     [InlineData(
         typeof(MetadataDeclarationQueryFixtures.CovariantPropertyDerived),
@@ -1279,6 +1309,12 @@ public class MetadataDeclarationQueryFixtures
     public class CovariantReturnDerived : CovariantReturnBase
     {
         public override CovariantDog Value() => new();
+    }
+
+    public class GenericCovariantReturnDerived<T> : ObjectCovariantReturnBase
+        where T : class
+    {
+        public override T Value() => default!;
     }
 
     public class CovariantPropertyBase

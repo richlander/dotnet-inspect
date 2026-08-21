@@ -581,6 +581,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         return new GenericParameterNode(
             name,
             hasValueTypeConstraint: context?.HasMethodParameterValueTypeConstraint(index) == true,
+            hasReferenceTypeConstraint: context?.HasMethodParameterReferenceTypeConstraint(index) == true,
             isMethodParameter: true,
             index);
     }
@@ -593,6 +594,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         return new GenericParameterNode(
             name,
             hasValueTypeConstraint: context?.HasTypeParameterValueTypeConstraint(index) == true,
+            hasReferenceTypeConstraint: context?.HasTypeParameterReferenceTypeConstraint(index) == true,
             isMethodParameter: false,
             index);
     }

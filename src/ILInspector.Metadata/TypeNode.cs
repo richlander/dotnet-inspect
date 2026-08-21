@@ -711,10 +711,11 @@ internal sealed class ByRefTypeNode(TypeNode elementType) : TypeNode
 internal sealed class GenericParameterNode(
     string name,
     bool hasValueTypeConstraint,
+    bool hasReferenceTypeConstraint,
     bool isMethodParameter,
     int index) : TypeNode
 {
-    public override bool IsReferenceType => false;
+    public override bool IsReferenceType => hasReferenceTypeConstraint;
     public override long EstimatedRenderedLength => name.Length + 1L;
 
     internal override string StructuralIdentity()

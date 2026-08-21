@@ -635,7 +635,18 @@ public static class CompileBackSourceComposer
                         continue;
                     var produced = Produce(methodToken, $"{request.Type.FullName}.{member.Name}");
                     if (produced.Body is { } body)
+                    {
+                        if (body is CSharpBlockBody
+                            {
+                                ConstructorInitializer.Kind:
+                                    CSharpConstructorInitializerKind.Base
+                            } block
+                            && request.Type.BaseType is null)
+                        {
+                            body = block with { ConstructorInitializer = null };
+                        }
                         policies[member] = new CSharpMemberPolicy(member, CSharpBodyPolicy.Full, body);
+                    }
                     continue;
                 }
 
@@ -2910,6 +2921,7 @@ public static class CompileBackSourceComposer
         if (closureFacts.TryGetValue(targetType, out var targetClosureFacts))
             targetFacts.AddRange(targetClosureFacts);
 
+        CompileBackTypeKind targetShellKind = ShellKind(reader, targetTypeDef, targetFacts);
         var chainParameterTypes = bodyFacts.ChainParameterTypes;
         string? targetConstructorInitializer = null;
         if (constructorChain is { } chain)
@@ -3092,7 +3104,7 @@ public static class CompileBackSourceComposer
         {
             new(
                 targetIdentity,
-                ShellKind(reader, targetTypeDef, targetFacts),
+                targetShellKind,
                 targetMembers,
                 primaryConstructor,
                 targetFacts)
@@ -3166,7 +3178,10 @@ public static class CompileBackSourceComposer
         {
             if (chainParameterTypes is null
                 || targetTypeDef.BaseType.Kind != HandleKind.TypeDefinition
-                || TypeShellProducer.ReconstructedBaseTypeDisplay(reader, targetTypeDef, isClass: true) is null)
+                || TypeShellProducer.ReconstructedBaseTypeDisplay(
+                    reader,
+                    targetTypeDef,
+                    isClass: targetShellKind == CompileBackTypeKind.Class) is null)
             {
                 return false;
             }
@@ -4750,6 +4765,9 @@ public static class CompileBackSourceComposer
             CompileBackMemberRequirement left,
             CompileBackMemberRequirement right)
         {
+            if (MemberMethodTokens(left).Intersect(MemberMethodTokens(right)).Any())
+                return true;
+
             bool sameKind = left.Kind == right.Kind
                 || left.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet
                     && right.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet
@@ -4764,6 +4782,7 @@ public static class CompileBackSourceComposer
 
         static void NormalizeOverrideMembers(
             MetadataReader reader,
+            IReadOnlyDictionary<string, CompileBackTypeRequirement> requirementsByMetadataName,
             IReadOnlyDictionary<MethodDefinitionHandle, MethodDefinitionHandle> materializedOverrideSlots,
             List<CompileBackMemberRequirement> members)
         {
@@ -4800,7 +4819,29 @@ public static class CompileBackSourceComposer
 
                 var method = reader.GetMethodDefinition(methodHandle);
                 if (!materializedOverrideSlots.TryGetValue(methodHandle, out var slotHandle))
-                    return IsIntrinsicObjectOverride(reader, method.GetDeclaringType(), methodHandle);
+                {
+                    var fallbackSlot = MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                        reader,
+                        method.GetDeclaringType(),
+                        methodHandle);
+                    if (fallbackSlot is null)
+                        return IsIntrinsicObjectOverride(reader, method.GetDeclaringType(), methodHandle);
+
+                    var slotType = reader.GetTypeDefinition(fallbackSlot.DeclaringType);
+                    var slotIdentity = CompileBackTypeIdentity.FromDefinition(reader, slotType);
+                    if (!requirementsByMetadataName.TryGetValue(
+                            slotIdentity.MetadataFullName,
+                            out var slotRequirement)
+                        || !slotRequirement.IncludeMemberSurface
+                            && !slotRequirement.RequiredMembers.Any(member =>
+                                MemberMethodTokens(member).Contains(
+                                    MetadataTokens.GetToken(fallbackSlot.Method))))
+                    {
+                        return false;
+                    }
+
+                    slotHandle = fallbackSlot.Method;
+                }
 
                 var slot = reader.GetMethodDefinition(slotHandle);
                 return (slot.Attributes & MethodAttributes.NewSlot) != 0
@@ -5327,6 +5368,7 @@ public static class CompileBackSourceComposer
             }
             NormalizeOverrideMembers(
                 reader,
+                requirementsByMetadataName,
                 materializedOverrideSlots,
                 members);
             // A synthetic constructor must not collide with a private parameterless
@@ -5674,12 +5716,12 @@ public static class CompileBackSourceComposer
             string metadataFullName = requirement.Type.MetadataFullName;
             foreach (var other in requirementsByMetadataName.Values)
             {
-                if (other.Type.MetadataFullName == metadataFullName)
-                    continue;
                 if (FindType(reader, other.Type.MetadataFullName) is not { } otherHandle)
                     continue;
                 if (NestedTypeDerivesFrom(reader, otherHandle, metadataFullName))
                     return true;
+                if (other.Type.MetadataFullName == metadataFullName)
+                    continue;
                 if (TypeDerivesFrom(reader, otherHandle, metadataFullName)
                     && TypeNeedsImplicitBaseSupport(reader, other, useFullBodies))
                 {

@@ -364,6 +364,86 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_AllFullPreservesReferenceConstrainedGenericCovariantMethodImpl()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Base
+            {
+                public virtual object Value() => "base";
+            }
+
+            public class Derived<T> : Base
+                where T : class
+            {
+                public override T Value() => default!;
+
+                public int Call() => 1;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Derived`1", "Call", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Source}{Environment.NewLine}{result.Detail}");
+            Assert.True(
+                result.Source.Contains("override T Value()", StringComparison.Ordinal),
+                result.Source);
+            Assert.DoesNotContain(
+                "public virtual T Value()",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_AllFullDoesNotDuplicateTargetedOverrideSlot()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Base
+            {
+                public virtual string Value() => "base";
+            }
+
+            public class Derived : Base
+            {
+                public override string Value() => "derived";
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Base", "Value", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Source}{Environment.NewLine}{result.Detail}");
+            const string declaration = "public virtual string Value()";
+            Assert.Contains(declaration, result.Source, StringComparison.Ordinal);
+            Assert.Equal(
+                result.Source.IndexOf(declaration, StringComparison.Ordinal),
+                result.Source.LastIndexOf(declaration, StringComparison.Ordinal));
+            Assert.DoesNotContain("CS0111", result.Detail, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_AllFullDoesNotIntroduceFilteredGenericOverrideObligation()
     {
         var assemblyPath = CompileFixture("""
@@ -5563,6 +5643,47 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    [Fact]
+    public void CompileBackTargets_SelectedSynthesizesConstructorForOwnNestedDerivedType()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Base
+            {
+                public Base(int seed)
+                {
+                }
+
+                public class Nested : Base
+                {
+                    public Nested(int seed) : base(seed)
+                    {
+                    }
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Base", ".ctor", 0)],
+                RoundTripScope.Cluster,
+                RoundTripBodyPolicy.Selected));
+
+            Assert.False(
+                result.UsedCompileBackFloor,
+                $"{result.Source}{Environment.NewLine}{result.Detail}");
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Source}{Environment.NewLine}{result.Detail}");
+            Assert.Contains("public Base()", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("CS7036", result.Detail, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
     [Theory]
     [InlineData("private")]
     [InlineData("internal")]
@@ -5677,6 +5798,50 @@ public class ReturnToSenderPrototypeTests
             Assert.False(result.UsedCompileBackFloor, result.Detail);
             Assert.Contains(": base(seed)", result.Source, StringComparison.Ordinal);
             Assert.DoesNotContain("public Base()", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RecordShellDropsExplicitBaseInitializerWithDroppedBaseList()
+    {
+        var assemblyPath = CompileFixture("""
+            public record B
+            {
+                public B(int seed)
+                {
+                }
+            }
+
+            public record R : B
+            {
+                public int Value { get; init; }
+
+                public R(int seed) : base(seed)
+                {
+                }
+
+                public R Copy() => this with { Value = 1 };
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("R", "Copy", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.False(
+                result.UsedCompileBackFloor,
+                $"{result.Source}{Environment.NewLine}{result.Detail}");
+            Assert.Contains("record R", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain(": base(", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("CS1729", result.Detail, StringComparison.Ordinal);
+            Assert.DoesNotContain("CS8868", result.Detail, StringComparison.Ordinal);
         }
         finally
         {

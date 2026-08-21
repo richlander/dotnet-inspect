@@ -11,12 +11,14 @@ public class GenericContext
 {
     readonly IReadOnlyList<bool> _typeValueTypeConstraints;
     readonly IReadOnlyList<bool> _methodValueTypeConstraints;
+    readonly IReadOnlyList<bool> _typeReferenceTypeConstraints;
+    readonly IReadOnlyList<bool> _methodReferenceTypeConstraints;
 
     public IReadOnlyList<string> TypeParameters { get; }
     public IReadOnlyList<string> MethodParameters { get; }
 
     public GenericContext(IReadOnlyList<string> typeParameters, IReadOnlyList<string> methodParameters)
-        : this(typeParameters, methodParameters, [], [])
+        : this(typeParameters, methodParameters, [], [], [], [])
     {
     }
 
@@ -24,12 +26,16 @@ public class GenericContext
         IReadOnlyList<string> typeParameters,
         IReadOnlyList<string> methodParameters,
         IReadOnlyList<bool> typeValueTypeConstraints,
-        IReadOnlyList<bool> methodValueTypeConstraints)
+        IReadOnlyList<bool> methodValueTypeConstraints,
+        IReadOnlyList<bool> typeReferenceTypeConstraints,
+        IReadOnlyList<bool> methodReferenceTypeConstraints)
     {
         TypeParameters = typeParameters;
         MethodParameters = methodParameters;
         _typeValueTypeConstraints = typeValueTypeConstraints;
         _methodValueTypeConstraints = methodValueTypeConstraints;
+        _typeReferenceTypeConstraints = typeReferenceTypeConstraints;
+        _methodReferenceTypeConstraints = methodReferenceTypeConstraints;
     }
 
     /// <summary>
@@ -47,6 +53,18 @@ public class GenericContext
     /// </summary>
     public bool HasMethodParameterValueTypeConstraint(int index)
         => HasValueTypeConstraint(_methodValueTypeConstraints, index);
+
+    /// <summary>
+    /// Whether the indexed type parameter carries the metadata reference-type constraint flag.
+    /// </summary>
+    public bool HasTypeParameterReferenceTypeConstraint(int index)
+        => HasConstraint(_typeReferenceTypeConstraints, index);
+
+    /// <summary>
+    /// Whether the indexed method parameter carries the metadata reference-type constraint flag.
+    /// </summary>
+    public bool HasMethodParameterReferenceTypeConstraint(int index)
+        => HasConstraint(_methodReferenceTypeConstraints, index);
 
     /// <summary>
     /// Creates a context for a type definition (type parameters only).
@@ -68,7 +86,13 @@ public class GenericContext
             reader,
             typeDef.GetGenericParameters(),
             beforeMaterialize);
-        return new GenericContext(typeParameters.Names, [], typeParameters.ValueTypeConstraints, []);
+        return new GenericContext(
+            typeParameters.Names,
+            [],
+            typeParameters.ValueTypeConstraints,
+            [],
+            typeParameters.ReferenceTypeConstraints,
+            []);
     }
 
     /// <summary>
@@ -89,7 +113,9 @@ public class GenericContext
             typeParameters.Names,
             methodParameters.Names,
             typeParameters.ValueTypeConstraints,
-            methodParameters.ValueTypeConstraints);
+            methodParameters.ValueTypeConstraints,
+            typeParameters.ReferenceTypeConstraints,
+            methodParameters.ReferenceTypeConstraints);
     }
 
     static void ValidateDeclaringTypeParameterCounts(
@@ -161,10 +187,15 @@ public class GenericContext
             typeContext.TypeParameters,
             methodParameters.Names,
             typeContext._typeValueTypeConstraints,
-            methodParameters.ValueTypeConstraints);
+            methodParameters.ValueTypeConstraints,
+            typeContext._typeReferenceTypeConstraints,
+            methodParameters.ReferenceTypeConstraints);
     }
 
-    static (List<string> Names, List<bool> ValueTypeConstraints) ReadParameters(
+    static (
+        List<string> Names,
+        List<bool> ValueTypeConstraints,
+        List<bool> ReferenceTypeConstraints) ReadParameters(
         MetadataReader reader,
         GenericParameterHandleCollection handles,
         Action<int>? beforeMaterialize)
@@ -178,6 +209,7 @@ public class GenericContext
 
         var names = new List<string>(handles.Count);
         var valueTypeConstraints = new List<bool>(handles.Count);
+        var referenceTypeConstraints = new List<bool>(handles.Count);
         int totalNameLength = 0;
         foreach (var handle in handles)
         {
@@ -202,8 +234,10 @@ public class GenericContext
             names.Add(name);
             valueTypeConstraints.Add(
                 (parameter.Attributes & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0);
+            referenceTypeConstraints.Add(
+                (parameter.Attributes & GenericParameterAttributes.ReferenceTypeConstraint) != 0);
         }
-        return (names, valueTypeConstraints);
+        return (names, valueTypeConstraints, referenceTypeConstraints);
     }
 
     public static void ValidateParameterIndices(
@@ -224,5 +258,8 @@ public class GenericContext
     }
 
     static bool HasValueTypeConstraint(IReadOnlyList<bool> constraints, int index)
+        => HasConstraint(constraints, index);
+
+    static bool HasConstraint(IReadOnlyList<bool> constraints, int index)
         => index >= 0 && index < constraints.Count && constraints[index];
 }

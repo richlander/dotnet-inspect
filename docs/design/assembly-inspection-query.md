@@ -451,7 +451,12 @@ Closure constructor surfaces retain each metadata overload. A synthetic paramete
 is added only when no parameterless instance-constructor signature already occupies the C# member
 set. A private or internal metadata constructor omitted from that emitted shell does not occupy
 its member set and therefore does not suppress synthesis; a non-public constructor that is emitted
-still prevents a duplicate signature.
+still prevents a duplicate signature. Nested types emitted inside the same enclosing requirement
+are checked before that requirement is excluded from direct self-derivation, so a nested type that
+derives from its enclosing type still receives the parameterless base support its implicit
+`base()` needs. A Full-body constructor retains an explicit `base(...)` initializer only when the
+printed shell retains a base list; record and other flattened shells drop the now-unbindable
+initializer rather than targeting the compiler-implied base.
 Same-assembly override closure also authenticates Roslyn's covariant-return encoding: a virtual
 `NewSlot` method or property/indexer accessor is still a source `override` when an unambiguous
 `MethodImpl` maps its body to a source-declarable virtual method on its base-class chain with
@@ -459,9 +464,14 @@ compatible declaration shape. Locally resolved return types must prove covarianc
 reference-type returns are external `TypeRef`s, the authenticated slot is preserved and the C#
 compiler validates the referenced hierarchy during compile-back rather than silently severing
 the slot. Local arrays and constructed generic returns are compared structurally, including array
-element covariance and the declared variance of local generic parameters. Full member-surface
-closure queues authenticated `NewSlot` class-MethodImpl members even when they are not the selected
-target, so an unrelated target cannot sever their rebuilt slots.
+element covariance and the declared variance of local generic parameters. A generic return
+parameter whose metadata carries the reference-type constraint is reference-compatible; absence
+of that flag is not inferred to mean reference type. Full member-surface closure queues
+authenticated `NewSlot` class-MethodImpl members even when they are not the selected target, so an
+unrelated target cannot sever their rebuilt slots. Members discovered during that surface pass
+retain `override` when their authenticated slot declaration is present in the emitted surface.
+Target and synthesized slot declarations are deduplicated first by their shared metadata or
+accessor token, with declaration-shape comparison only as a fallback.
 Interface, unrelated-class, external, malformed, and ambiguous `MethodImpl` declarations do not
 materialize a class override slot. The reconstructed source must compile back to the same
 `NewSlot` plus class-`MethodImpl` relationship, not merely reproduce the target body.
@@ -559,8 +569,17 @@ relationships. `SameAssemblyOverrideSlot_DeclinesIncompatibleStructuredReturn` g
 structured-return rejection.
 `CompileBackTargets_AllFullDoesNotDuplicatePrivateParameterlessConstructor` and
 `CompileBackTargets_SelectedSynthesizesConstructorWhenMetadataSignatureIsOmitted` gate constructor
-overload retention and emitted-signature-safe synthesis. `SkeletonEmitsExplicitInterfaceTargets`
-gates
+overload retention and emitted-signature-safe synthesis.
+`CompileBackTargets_SelectedSynthesizesConstructorForOwnNestedDerivedType` gates the enclosing
+requirement's nested-derived scan, and
+`CompileBackTargets_RecordShellDropsExplicitBaseInitializerWithDroppedBaseList` gates Full-body
+initializer removal when the emitted shell has no base list.
+`SameAssemblyOverrideSlot_AllowsReferenceConstrainedGenericCovariantMethodImpl` and
+`CompileBackTargets_AllFullPreservesReferenceConstrainedGenericCovariantMethodImpl` gate
+reference-constrained generic covariance, while
+`SameAssemblyOverrideSlot_DeclinesIncompatibleCovariantReturn` remains its value-return negative.
+`CompileBackTargets_AllFullDoesNotDuplicateTargetedOverrideSlot` gates metadata-token slot
+deduplication. `SkeletonEmitsExplicitInterfaceTargets` gates
 selected explicit methods and
 accessors,
 `SkeletonExplicitInterfaceWholeMemberHonorsRequestedView` gates whole-member production rendering
