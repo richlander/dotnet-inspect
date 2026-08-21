@@ -208,23 +208,56 @@ failure before acquisition begins; it does not silently omit a member or
 shorten the context.
 
 Adapters still enforce source-specific download, enumeration, archive, and
-expansion limits inside that reservation. Publication commits actual usage for
-materialized content, rejects an outcome that exceeds its reservation, and
-releases only capacity whose usage is then known. A deferred artifact keeps its
-full peak acquisition/expansion and retained-byte reservation after
-publication. Later query-authorized materialization consumes that existing
-reservation, atomically commits actual usage on success, and only then releases
-the unused remainder.
+expansion limits inside that reservation. Publication commits the
+artifact-count charge for every sealed catalog member. It also commits actual
+usage for materialized content, rejects an outcome that exceeds its
+reservation, and releases only capacity whose usage is then known. A deferred
+artifact keeps its full peak acquisition/expansion and retained-byte
+reservation after publication. Deferral is bytes-only: the sealed catalog
+already contains the artifact identities, count, immutable coordinates,
+digests, and declared byte ceilings. Materialization may fill those entries but
+cannot discover or add catalog members. An adapter that cannot authenticate
+those facts without opening the content must materialize it before publication.
 
-A failed deferred materialization keeps its reservation while retry remains
-possible. A terminally abandoned artifact releases it only after all returned
-resources are cleaned up. Likewise, a rejected or cancelled admission releases
-its reservation after returned leases are cleaned up. Successful
-materialization replaces the deferred reservation with the actual retained
-charge; that charge remains until the artifact session's dependent groups
-quiesce. Workspace disposal beginning is not itself a release boundary.
-Storage caches and assembly groups may apply additional physical-retention and
-image budgets; they do not replace the workspace admission budget.
+Each deferred artifact has one owner-serialized state machine:
+
+```text
+Reserved -> Materializing -> Materialized
+                         |-> Reserved
+                         `-> Terminal
+```
+
+The owner enters `Materializing` before calling the adapter. Concurrent
+authorized openers join that flight and observe its outcome; they neither start
+another acquisition nor consume the reservation again. This transition and
+joining rule also apply under single-threaded awaited reentrancy.
+
+On success, the owner independently validates content identity, artifact count,
+and every byte dimension before atomically publishing `Materialized`. An
+identity mismatch or reservation overrun is a typed terminal materialization
+failure, never an over-commit. Successful materialization replaces the
+deferred retained-byte reservation with the actual retained charge, releases
+the peak-acquisition reservation and unused retained remainder, and keeps the
+artifact-count charge and actual retained charge until dependent groups
+quiesce.
+
+A retryable failure or cancellation retains the reservation and returns to
+`Reserved` only after every partial download, expansion, and returned lease
+from the failed flight is cleaned up. A terminal failure enters `Terminal` only
+after that cleanup, releases the peak and retained-byte reservation, and keeps
+the sealed artifact-count charge until session quiescence. No retry or terminal
+release can overlap an active flight. Joining callers revalidate their own
+query leases. Cancelling one wait detaches that caller without starting a
+second flight or relabeling the shared outcome; the owner requests adapter
+cancellation when disposal closes the session or no authorized waiter remains.
+Cancellation remains cancellation rather than becoming a failure-shaped
+result.
+
+A rejected or cancelled admission likewise releases its reservation only after
+returned leases are cleaned up. Workspace disposal beginning is not itself a
+release boundary. Storage caches and assembly groups may apply additional
+physical-retention and image budgets; they do not replace the workspace
+admission budget.
 
 Reservation is a logical workspace state transition, not a requirement for
 threads or blocking locks. Concurrent hosts serialize the transition;
@@ -459,11 +492,15 @@ The adapter would:
 2. query the provider for the exact immutable run or build;
 3. retain repository, commit, PR, workflow or pipeline, job, artifact name,
    provider artifact id, and digest as provenance;
-4. acquire the artifact archive eagerly, or register deferred acquisition while
-   retaining its full workspace reservation;
-5. apply archive traversal, entry-count, expanded-size, and content limits;
-6. contribute selected entries as neutral artifacts;
-7. retain the download/archive lease until the owning artifact session's
+4. authenticate selected entry identities, count, digests, and byte ceilings
+   from an immutable provider manifest, or acquire the archive eagerly when the
+   provider cannot supply those facts without opening it;
+5. contribute every selected neutral-artifact descriptor before sealing;
+6. either materialize the archive eagerly or register bytes-only deferred
+   acquisition while retaining its full workspace reservation;
+7. apply archive traversal, entry-count, expanded-size, content-identity, and
+   reservation limits without adding entries to a sealed catalog;
+8. retain the download/archive lease until the owning artifact session's
    dependent groups are quiescent.
 
 Later queries reauthorize that provider, repository/project, run/build, and
@@ -752,6 +789,11 @@ The target remains unverified until tests equivalent to these exist:
 - `WorkspaceAdmissionBudget_RejectsAggregateMultiSourcePlanBeforeAdapterCall`
 - `WorkspaceAdmissionBudget_CountsConcurrentAndRetainedGenerations`
 - `WorkspaceAdmissionBudget_DeferredMaterializationRetainsReservation`
+- `DeferredArtifact_SealsIdentityCountDigestAndBoundsBeforePublication`
+- `DeferredMaterialization_IsSingleFlightAcrossConcurrentQueries`
+- `DeferredMaterialization_OverrunFailsTerminallyWithoutOvercommit`
+- `DeferredMaterialization_CleansRetryAndCancellationBeforeReentry`
+- `BrowserDeferredMaterialization_SingleFlightAcrossAwaitedReentrancy`
 - `WorkspaceAdmissionBudget_ReleasesOnlyAfterCleanupOrSessionQuiescence`
 - `DesignatedArtifactTrust_RequiresAuthorizedAdmissionRole`
 - `PlatformArtifactTrust_RequiresAuthorizedAdmissionRole`
