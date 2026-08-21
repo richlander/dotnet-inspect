@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { renderAnnotatedSource } from "../src/annotated-source.ts";
-import { sampleDocument } from "../../annotated-source-viewer/src/sample-document.js";
+import type { AnnotatedSourceRenderResult } from "../src/annotated-source.ts";
+import { validateAnnotatedSourceDocument } from "../src/annotated-source-view.ts";
+import type { AnnotatedSourceDocument } from "../src/annotated-source-view.ts";
+import { sampleDocument as sampleDocumentFixture } from "../../annotated-source-viewer/src/sample-document.js";
+
+validateAnnotatedSourceDocument(sampleDocumentFixture);
+const sampleDocument: AnnotatedSourceDocument = sampleDocumentFixture;
 
 function escapeHtml(value: unknown) {
   return String(value)
@@ -11,10 +17,15 @@ function escapeHtml(value: unknown) {
     .replaceAll('"', "&quot;");
 }
 
-const result = {
+const result: AnnotatedSourceRenderResult = {
   document: sampleDocument,
   provenance: "decompiled from IL",
 };
+
+test("the render result preserves the validated document contract", () => {
+  const document: AnnotatedSourceDocument = result.document;
+  assert.equal(document, sampleDocument);
+});
 
 test("an invalid document is rejected with a message instead of throwing", () => {
   const html = renderAnnotatedSource({

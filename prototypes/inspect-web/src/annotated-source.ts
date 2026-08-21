@@ -15,7 +15,7 @@ export type AnnotatedSourceResult = Omit<BrowserAnnotatedSource, "document"> & {
 };
 
 export type AnnotatedSourceRenderResult =
-  Omit<BrowserAnnotatedSource, "contextLimitation"> & {
+  Omit<AnnotatedSourceResult, "contextLimitation"> & {
     contextLimitation?: BrowserAnnotatedSource["contextLimitation"];
   };
 
