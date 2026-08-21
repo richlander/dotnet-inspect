@@ -36,11 +36,22 @@ internal sealed class LibraryBodyAsyncSourceResolver
     IReadOnlyDictionary<
         int,
         MethodIdentity>? _asyncStateMachineSourceMethods;
+    IReadOnlyDictionary<
+        int,
+        MethodIdentity>? _executionSourceMethodsByMoveNextToken;
+    IReadOnlyDictionary<
+        int,
+        MethodIdentity>? _declaredSourceMethodsByMoveNextToken;
     IReadOnlySet<int>? _classicAsyncSourceMethodTokens;
     IReadOnlySet<MetadataTypeDefinitionName>?
         _ambiguousAsyncStateMachineTypes;
     IReadOnlySet<MetadataTypeDefinitionName>?
         _unresolvedAsyncStateMachineTypes;
+    readonly Lazy<ClassicAsyncExecutionMethods>
+        _classicAsyncExecutionMethods;
+    readonly Lazy<MetadataTypeDefinitionIndex>
+        _typeDefinitionIndex;
+    readonly Action? _typeDefinitionIndexBuilt;
 
     internal LibraryBodyAsyncSourceResolver(
         MetadataReader reader,
@@ -53,7 +64,8 @@ internal sealed class LibraryBodyAsyncSourceResolver
                 MetadataTypeDefinitionName,
                 TypeDefinitionHandle>>
             localTypeDefinitions,
-        Func<EntityHandle, TypeRef> typeFromEntity)
+        Func<EntityHandle, TypeRef> typeFromEntity,
+        Action? typeDefinitionIndexBuilt = null)
     {
         _reader = reader;
         _assemblyIdentity = assemblyIdentity;
@@ -62,6 +74,13 @@ internal sealed class LibraryBodyAsyncSourceResolver
             isSourceGeneratedTypeOrEnclosing;
         _localTypeDefinitions = localTypeDefinitions;
         _typeFromEntity = typeFromEntity;
+        _typeDefinitionIndexBuilt = typeDefinitionIndexBuilt;
+        _classicAsyncExecutionMethods = new(
+            BuildClassicAsyncExecutionMethods,
+            LazyThreadSafetyMode.ExecutionAndPublication);
+        _typeDefinitionIndex = new(
+            BuildTypeDefinitionIndex,
+            LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
     internal LibraryBodyAnalysisPlan ExpandEvidenceScope(
@@ -96,7 +115,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
                 foreach ((
                     int moveNextToken,
                     MethodIdentity source)
-                    in AsyncStateMachineSourceMethods())
+                    in ExecutionSourceMethodsByMoveNextToken())
                 {
                     AddEvidenceSource(
                         typeScopeEvidenceSources,
@@ -199,7 +218,28 @@ internal sealed class LibraryBodyAsyncSourceResolver
     internal MethodIdentity? ResolveSourceMethod(
         MethodIdentity physicalMethod,
         MethodDefinition methodDefinition,
-        bool typeSourceGenerated)
+        bool typeSourceGenerated) =>
+        ResolveSourceMethod(
+            physicalMethod,
+            methodDefinition,
+            typeSourceGenerated,
+            includeGeneratedIntermediate: false);
+
+    internal MethodIdentity? ResolveDeclaredSourceMethod(
+        MethodIdentity physicalMethod,
+        MethodDefinition methodDefinition,
+        bool typeSourceGenerated) =>
+        ResolveSourceMethod(
+            physicalMethod,
+            methodDefinition,
+            typeSourceGenerated,
+            includeGeneratedIntermediate: true);
+
+    MethodIdentity? ResolveSourceMethod(
+        MethodIdentity physicalMethod,
+        MethodDefinition methodDefinition,
+        bool typeSourceGenerated,
+        bool includeGeneratedIntermediate)
     {
         MethodClassification? classification =
             MethodClassificationScanner.ClassifyAsyncMethod(
@@ -235,13 +275,14 @@ internal sealed class LibraryBodyAsyncSourceResolver
         if (stateMachineAttribute.Ignored)
             return null;
 
-        if (methodDefinition.RelativeVirtualAddress == 0
+        if (!HasAnalyzableIlBody(methodDefinition)
             && (stateMachineAttribute.Present
                     && classification
                         == MethodClassification.StateMachineAsync))
         {
             throw new BadImageFormatException(
-                "The async source method does not have an executable body.");
+                "The async source method does not have an analyzable managed "
+                + "IL body.");
         }
 
         if (stateMachineAttribute.Present
@@ -259,6 +300,27 @@ internal sealed class LibraryBodyAsyncSourceResolver
                 return null;
             }
 
+            AsyncStateMachineAttributeInfo classicAttribute =
+                AsyncStateMachineAttribute(
+                    methodDefinition.GetCustomAttributes(),
+                    includeAsyncIterator: false);
+            if (classicAttribute.Present)
+            {
+                EntityHandle sourceHandle =
+                    MetadataTokens.EntityHandle(
+                        physicalMethod.MetadataToken);
+                if (sourceHandle.Kind
+                        != HandleKind.MethodDefinition
+                    || !TryResolveClassicStateMachineMoveNext(
+                        (MethodDefinitionHandle)sourceHandle,
+                        methodDefinition,
+                        out _))
+                {
+                    throw new BadImageFormatException(
+                        "The classic async source does not map to a unique "
+                        + "valid state-machine body.");
+                }
+            }
             _ = AsyncStateMachineSourceMethods();
             if (_classicAsyncSourceMethodTokens!.Contains(
                     physicalMethod.MetadataToken))
@@ -288,21 +350,36 @@ internal sealed class LibraryBodyAsyncSourceResolver
             return null;
         }
 
-        IReadOnlyDictionary<
-            int,
-            MethodIdentity> sources =
-                AsyncStateMachineSourceMethods();
-        if (sources.TryGetValue(
-                physicalMethod.MetadataToken,
-                out MethodIdentity? source))
-        {
-            return source;
-        }
-        if (_ambiguousAsyncStateMachineTypes?.Contains(
+        ClassicAsyncExecutionMethods executionMethods =
+            _classicAsyncExecutionMethods.Value;
+        IReadOnlyDictionary<int, MethodIdentity>
+            actionableSources =
+                DeclaredSourceMethodsByMoveNextToken();
+        if (executionMethods.RejectedStateMachines.Contains(
+                stateMachineType)
+            || _ambiguousAsyncStateMachineTypes?.Contains(
                 stateMachineType) == true)
         {
             throw new BadImageFormatException(
                 "Multiple async source methods name this state-machine type.");
+        }
+        if (executionMethods.SourceByMoveNextToken.TryGetValue(
+                physicalMethod.MetadataToken,
+                out MethodIdentity? source))
+        {
+            if (includeGeneratedIntermediate)
+                return source;
+            return actionableSources.TryGetValue(
+                    physicalMethod.MetadataToken,
+                    out MethodIdentity? actionableSource)
+                ? actionableSource
+                : null;
+        }
+        if (actionableSources.TryGetValue(
+                physicalMethod.MetadataToken,
+                out source))
+        {
+            return source;
         }
         return null;
     }
@@ -334,19 +411,257 @@ internal sealed class LibraryBodyAsyncSourceResolver
                     == true
                 || _ambiguousAsyncStateMachineTypes?.Contains(
                     stateMachineType)
-                    == true)
+                    == true
+                || _classicAsyncExecutionMethods.Value
+                    .RejectedStateMachines.Contains(
+                        stateMachineType))
             ? AsyncSourceResolution.Unresolved
             : AsyncSourceResolution.None;
     }
 
     /// <summary>
-    /// MoveNext token → declared async source. Unique mappings only;
-    /// ambiguous state-machine types are omitted. Safe to call after a
-    /// completed analysis — it does not throw on those omissions.
+    /// MoveNext token → authenticated immediate execution source. The source
+    /// can itself be a generated lifted kickoff; callers that expose declared
+    /// ownership must compose it through the lifted-owner resolver.
     /// </summary>
     internal IReadOnlyDictionary<int, MethodIdentity>
-        SourceMethodsByMoveNextToken()
-        => AsyncStateMachineSourceMethods();
+        ExecutionSourceMethodsByMoveNextToken()
+    {
+        if (_executionSourceMethodsByMoveNextToken is not null)
+            return _executionSourceMethodsByMoveNextToken;
+
+        var sources = new Dictionary<int, MethodIdentity>(
+            DeclaredSourceMethodsByMoveNextToken());
+        foreach ((
+            int moveNextToken,
+            MethodIdentity source)
+            in _classicAsyncExecutionMethods.Value
+                .SourceByMoveNextToken)
+        {
+            if (sources.TryGetValue(
+                    moveNextToken,
+                    out MethodIdentity? existing)
+                && existing != source)
+            {
+                sources.Remove(moveNextToken);
+                continue;
+            }
+            sources[moveNextToken] = source;
+        }
+        _executionSourceMethodsByMoveNextToken = sources;
+        return sources;
+    }
+
+    /// <summary>
+    /// MoveNext token → non-generated declared source. Generated execution
+    /// sources require per-method lifted-owner composition and are omitted
+    /// from this scope-independent fallback.
+    /// </summary>
+    internal IReadOnlyDictionary<int, MethodIdentity>
+        DeclaredSourceMethodsByMoveNextToken()
+    {
+        if (_declaredSourceMethodsByMoveNextToken is not null)
+            return _declaredSourceMethodsByMoveNextToken;
+
+        IReadOnlyDictionary<int, MethodIdentity> actionableSources =
+            AsyncStateMachineSourceMethods();
+        IReadOnlySet<MetadataTypeDefinitionName> rejected =
+            _classicAsyncExecutionMethods.Value
+                .RejectedStateMachines;
+        if (rejected.Count == 0)
+        {
+            _declaredSourceMethodsByMoveNextToken =
+                actionableSources;
+            return actionableSources;
+        }
+
+        var filtered =
+            new Dictionary<int, MethodIdentity>();
+        foreach ((
+            int moveNextToken,
+            MethodIdentity source) in actionableSources)
+        {
+            if (!IsRejectedClassicSource(source, rejected))
+                filtered.Add(moveNextToken, source);
+        }
+        _declaredSourceMethodsByMoveNextToken = filtered;
+        return filtered;
+    }
+
+    bool IsRejectedClassicSource(
+        MethodIdentity source,
+        IReadOnlySet<MetadataTypeDefinitionName> rejected)
+    {
+        try
+        {
+            EntityHandle handle =
+                MetadataTokens.EntityHandle(
+                    source.MetadataToken);
+            if (handle.Kind
+                != HandleKind.MethodDefinition)
+            {
+                return true;
+            }
+            MethodDefinition definition =
+                _reader.GetMethodDefinition(
+                    (MethodDefinitionHandle)handle);
+            AsyncStateMachineAttributeInfo attribute =
+                AsyncStateMachineAttribute(
+                    definition.GetCustomAttributes(),
+                    includeAsyncIterator: false);
+            return attribute.SerializedType is { } serialized
+                && StateMachineTypeDefinitionName(serialized)
+                    is { } stateMachineType
+                && rejected.Contains(stateMachineType);
+        }
+        catch (Exception ex)
+            when (IsRecoverableMethodFailure(ex))
+        {
+            return true;
+        }
+    }
+
+    internal bool TryResolveClassicStateMachineMoveNext(
+        MethodDefinitionHandle sourceHandle,
+        MethodDefinition sourceMethod,
+        out MethodDefinitionHandle moveNext)
+    {
+        moveNext = default;
+        AsyncStateMachineAttributeInfo attribute =
+            AsyncStateMachineAttribute(
+                sourceMethod.GetCustomAttributes(),
+                includeAsyncIterator: false);
+        if (attribute.Rejected)
+        {
+            throw new BadImageFormatException(
+                "The async state-machine attribute is malformed or ambiguous.");
+        }
+        if (attribute.Ignored
+            || attribute.SerializedType is not { } serializedType)
+        {
+            return false;
+        }
+        if (StateMachineTypeDefinitionName(serializedType) is null
+            || !_classicAsyncExecutionMethods.Value
+                .MoveNextBySourceToken.TryGetValue(
+                    MetadataTokens.GetToken(sourceHandle),
+                    out moveNext))
+        {
+            throw new BadImageFormatException(
+                "The classic async source does not map to a unique valid "
+                + "state-machine body.");
+        }
+        return true;
+    }
+
+    internal bool TryResolveStateMachineExecutionMethod(
+        MethodDefinitionHandle sourceHandle,
+        MethodDefinition sourceMethod,
+        out MethodDefinitionHandle executionMethod)
+    {
+        executionMethod = default;
+        string? serializedType = null;
+        bool iterator = false;
+        bool sawAttribute = false;
+        foreach (CustomAttributeHandle handle
+            in sourceMethod.GetCustomAttributes())
+        {
+            CustomAttribute attribute =
+                _reader.GetCustomAttribute(handle);
+            string? name = AttributeDecoder.GetAttributeTypeName(
+                _reader,
+                attribute.Constructor);
+            if (name is not (
+                    KnownAttributeNames.AsyncStateMachineAttribute
+                    or KnownAttributeNames.AsyncIteratorStateMachineAttribute
+                    or KnownAttributeNames.IteratorStateMachineAttribute)
+                || !TryGetTrustedAsyncStateMachineAttribute(
+                    _reader,
+                    attribute.Constructor,
+                    name,
+                    out MemberRef constructor))
+            {
+                continue;
+            }
+            if (sawAttribute
+                || !HasAsyncStateMachineConstructorShape(constructor)
+                || !TryReadSerializedStateMachineType(
+                    attribute,
+                    out string? typeName))
+            {
+                throw new BadImageFormatException(
+                    "The state-machine attribute is malformed or ambiguous.");
+            }
+            sawAttribute = true;
+            serializedType = typeName;
+            iterator =
+                name
+                    == KnownAttributeNames
+                        .IteratorStateMachineAttribute;
+        }
+        if (!sawAttribute
+            || serializedType is null
+            || !IsCurrentAssemblyStateMachineType(serializedType))
+        {
+            return false;
+        }
+        if (!HasAnalyzableIlBody(sourceMethod))
+        {
+            throw new BadImageFormatException(
+                "The state-machine source does not have an analyzable body.");
+        }
+        if (!iterator)
+        {
+            AsyncStateMachineAttributeInfo asyncAttribute =
+                AsyncStateMachineAttribute(
+                    sourceMethod.GetCustomAttributes(),
+                    includeAsyncIterator: true);
+            if (asyncAttribute.Rejected)
+            {
+                throw new BadImageFormatException(
+                    "The async state-machine attribute is malformed or ambiguous.");
+            }
+            if (AsyncStateMachineAttribute(
+                    sourceMethod.GetCustomAttributes(),
+                    includeAsyncIterator: false).Present)
+            {
+                return TryResolveClassicStateMachineMoveNext(
+                    sourceHandle,
+                    sourceMethod,
+                    out executionMethod);
+            }
+        }
+
+        if (StateMachineTypeDefinitionName(serializedType)
+                is not { } stateMachineType
+            || !_typeDefinitionIndex.Value.TryGetUniqueDefinition(
+                stateMachineType,
+                out TypeDefinitionHandle stateMachineHandle)
+            || stateMachineHandle.IsNil
+            || !(iterator
+                ? TryGetIteratorStateMachineMoveNext(
+                    stateMachineHandle,
+                    out executionMethod)
+                : TryGetAsyncStateMachineMoveNext(
+                    stateMachineHandle,
+                    out executionMethod)))
+        {
+            throw new BadImageFormatException(
+                "The state-machine source does not map to a unique valid "
+                + "execution body.");
+        }
+        if (!iterator
+            && (!DeclaredSourceMethodsByMoveNextToken().TryGetValue(
+                    MetadataTokens.GetToken(executionMethod),
+                    out MethodIdentity? declaredSource)
+                || declaredSource.MetadataToken
+                    != MetadataTokens.GetToken(sourceHandle)))
+        {
+            throw new BadImageFormatException(
+                "The async state-machine source is ambiguous.");
+        }
+        return true;
+    }
 
     IReadOnlyDictionary<
         int,
@@ -428,8 +743,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
                                 _reader,
                                 methodDefinition)
                             == MethodClassification.RuntimeAsync
-                        || methodDefinition.RelativeVirtualAddress
-                            == 0
+                        || !HasAnalyzableIlBody(methodDefinition)
                         || attribute.SerializedType is not
                             { } serializedType
                         || StateMachineTypeDefinitionName(serializedType)
@@ -523,6 +837,124 @@ internal sealed class LibraryBodyAsyncSourceResolver
         return methods;
     }
 
+    ClassicAsyncExecutionMethods BuildClassicAsyncExecutionMethods()
+    {
+        var sourcesByStateMachine = new Dictionary<
+            MetadataTypeDefinitionName,
+            MethodDefinitionHandle>();
+        var ambiguous = new HashSet<MetadataTypeDefinitionName>();
+        foreach (MethodDefinitionHandle sourceHandle
+            in _reader.MethodDefinitions)
+        {
+            try
+            {
+                MethodDefinition sourceMethod =
+                    _reader.GetMethodDefinition(sourceHandle);
+                AsyncStateMachineAttributeInfo attribute =
+                    AsyncStateMachineAttribute(
+                        sourceMethod.GetCustomAttributes(),
+                        includeAsyncIterator: false);
+                if (attribute.Rejected
+                    || !HasAnalyzableIlBody(sourceMethod)
+                    || MethodClassificationScanner
+                        .ClassifyAsyncMethod(
+                            _reader,
+                            sourceMethod)
+                        == MethodClassification.RuntimeAsync
+                    || attribute.SerializedType is not
+                        { } serializedType
+                    || StateMachineTypeDefinitionName(serializedType)
+                        is not { } stateMachineType
+                    || ambiguous.Contains(stateMachineType))
+                {
+                    continue;
+                }
+                if (!sourcesByStateMachine.TryAdd(
+                        stateMachineType,
+                        sourceHandle))
+                {
+                    sourcesByStateMachine.Remove(stateMachineType);
+                    ambiguous.Add(stateMachineType);
+                }
+            }
+            catch (Exception ex)
+                when (IsRecoverableMethodFailure(ex))
+            {
+                // The direct source-method pass preserves malformed metadata
+                // diagnostics; this assembly map only retains valid pairs.
+            }
+        }
+
+        var moveNextBySourceToken =
+            new Dictionary<int, MethodDefinitionHandle>();
+        var sourceByMoveNextToken =
+            new Dictionary<int, MethodIdentity>();
+        var rejectedStateMachines =
+            new HashSet<MetadataTypeDefinitionName>(ambiguous);
+        foreach ((
+            MetadataTypeDefinitionName stateMachineType,
+            MethodDefinitionHandle sourceHandle)
+            in sourcesByStateMachine)
+        {
+            try
+            {
+                if (!_typeDefinitionIndex.Value.TryGetUniqueDefinition(
+                        stateMachineType,
+                        out TypeDefinitionHandle stateMachineHandle)
+                    || stateMachineHandle.IsNil
+                    || !TryGetAsyncStateMachineMoveNext(
+                        stateMachineHandle,
+                        out MethodDefinitionHandle moveNext))
+                {
+                    rejectedStateMachines.Add(stateMachineType);
+                    continue;
+                }
+                MethodDefinition sourceMethod =
+                    _reader.GetMethodDefinition(sourceHandle);
+                TypeDefinitionHandle sourceTypeHandle =
+                    sourceMethod.GetDeclaringType();
+                TypeDefinition sourceType =
+                    _reader.GetTypeDefinition(sourceTypeHandle);
+                MethodIdentity source =
+                    _primaryMetadataResolver.CreateMethodIdentity(
+                        sourceTypeHandle,
+                        sourceHandle,
+                        sourceMethod,
+                        _primaryMetadataResolver.CreateScope(
+                            sourceType,
+                            sourceMethod));
+                moveNextBySourceToken.Add(
+                    MetadataTokens.GetToken(sourceHandle),
+                    moveNext);
+                if (!sourceByMoveNextToken.TryAdd(
+                        MetadataTokens.GetToken(moveNext),
+                        source))
+                {
+                    sourceByMoveNextToken.Remove(
+                        MetadataTokens.GetToken(moveNext));
+                    rejectedStateMachines.Add(stateMachineType);
+                }
+            }
+            catch (Exception ex)
+                when (IsRecoverableMethodFailure(ex))
+            {
+                rejectedStateMachines.Add(stateMachineType);
+                // The direct source-method pass preserves malformed metadata
+                // diagnostics; this assembly map only retains valid pairs.
+            }
+        }
+        return new(
+            moveNextBySourceToken,
+            sourceByMoveNextToken,
+            rejectedStateMachines);
+    }
+
+    MetadataTypeDefinitionIndex BuildTypeDefinitionIndex()
+    {
+        _typeDefinitionIndexBuilt?.Invoke();
+        return MetadataTypeDefinitionIndex.Create(_reader);
+    }
+
     bool TryGetAsyncStateMachineMoveNext(
         TypeDefinitionHandle typeHandle,
         out MethodDefinitionHandle moveNext)
@@ -588,6 +1020,35 @@ internal sealed class LibraryBodyAsyncSourceResolver
         return !moveNext.IsNil;
     }
 
+    bool TryGetIteratorStateMachineMoveNext(
+        TypeDefinitionHandle typeHandle,
+        out MethodDefinitionHandle moveNext)
+    {
+        moveNext = default;
+        TypeDefinition type =
+            _reader.GetTypeDefinition(typeHandle);
+        if (!ImplementsIteratorStateMachine(type))
+            return false;
+
+        foreach (MethodDefinitionHandle handle in type.GetMethods())
+        {
+            MethodDefinition method =
+                _reader.GetMethodDefinition(handle);
+            if (!HasAnalyzableIlBody(method)
+                || !_reader.StringComparer.Equals(
+                    method.Name,
+                    "MoveNext")
+                || !IsIteratorMoveNextBody(handle))
+            {
+                continue;
+            }
+            if (!moveNext.IsNil)
+                return false;
+            moveNext = handle;
+        }
+        return !moveNext.IsNil;
+    }
+
     static bool HasAnalyzableIlBody(
         MethodDefinition method)
         => method.RelativeVirtualAddress != 0
@@ -620,6 +1081,26 @@ internal sealed class LibraryBodyAsyncSourceResolver
         return false;
     }
 
+    bool ImplementsIteratorStateMachine(
+        TypeDefinition type)
+    {
+        foreach (InterfaceImplementationHandle handle
+            in type.GetInterfaceImplementations())
+        {
+            TypeRef interfaceType = _typeFromEntity(
+                _reader.GetInterfaceImplementation(
+                    handle).Interface);
+            if (FrameworkIdentity.IsCoreLibraryType(
+                    DefinitionType(interfaceType),
+                    "System.Collections",
+                    "IEnumerator"))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     bool IsMoveNextBody(
         MethodDefinitionHandle handle)
     {
@@ -636,6 +1117,24 @@ internal sealed class LibraryBodyAsyncSourceResolver
                 method.ReturnType,
                 "System",
                 "Void");
+    }
+
+    bool IsIteratorMoveNextBody(
+        MethodDefinitionHandle handle)
+    {
+        MemberRef method = MemberResolver.ResolveMethod(
+            _reader,
+            handle,
+            GenericScope.Empty);
+        return method.HasThis
+            && method.GenericArity == 0
+            && method.ParameterTypes.Length == 0
+            && method.SignatureHeader == 0x20
+            && method.RequiredParameterCount == 0
+            && FrameworkIdentity.IsCoreLibraryType(
+                method.ReturnType,
+                "System",
+                "Boolean");
     }
 
     static bool IsAsyncStateMachineMoveNextDeclaration(
@@ -658,9 +1157,11 @@ internal sealed class LibraryBodyAsyncSourceResolver
                 "Void");
 
     AsyncStateMachineAttributeInfo AsyncStateMachineAttribute(
-        CustomAttributeHandleCollection attributes)
+        CustomAttributeHandleCollection attributes,
+        bool includeAsyncIterator = true)
     {
         bool sawAttribute = false;
+        bool sawIncludedAttribute = false;
         bool rejected = false;
         var claimedTypes =
             ImmutableArray.CreateBuilder<string>();
@@ -670,9 +1171,17 @@ internal sealed class LibraryBodyAsyncSourceResolver
             string? name = AttributeDecoder.GetAttributeTypeName(
                 _reader,
                 attribute.Constructor);
-            if (name is not (
-                    KnownAttributeNames.AsyncStateMachineAttribute
-                    or KnownAttributeNames.AsyncIteratorStateMachineAttribute))
+            if (name is null)
+                continue;
+            bool isClassic =
+                name
+                    == KnownAttributeNames
+                        .AsyncStateMachineAttribute;
+            bool isAsyncIterator =
+                name
+                    == KnownAttributeNames
+                        .AsyncIteratorStateMachineAttribute;
+            if (!isClassic && !isAsyncIterator)
             {
                 continue;
             }
@@ -687,6 +1196,11 @@ internal sealed class LibraryBodyAsyncSourceResolver
             if (sawAttribute)
                 rejected = true;
             sawAttribute = true;
+            bool included =
+                isClassic || includeAsyncIterator;
+            if (!included)
+                continue;
+            sawIncludedAttribute = true;
 
             bool decoded =
                 TryReadSerializedStateMachineType(
@@ -712,9 +1226,10 @@ internal sealed class LibraryBodyAsyncSourceResolver
                 ? claims[0]
                 : null;
         return new(
-            Present: sawAttribute,
-            Rejected: rejected,
-            Ignored: sawAttribute
+            Present: sawIncludedAttribute,
+            Rejected: sawIncludedAttribute
+                && rejected,
+            Ignored: sawIncludedAttribute
                 && !rejected
                 && serializedType is null,
             serializedType,
@@ -910,6 +1425,14 @@ internal sealed class LibraryBodyAsyncSourceResolver
     static bool IsRecoverableMethodFailure(Exception exception) =>
         LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(
             exception);
+
+    sealed record ClassicAsyncExecutionMethods(
+        IReadOnlyDictionary<int, MethodDefinitionHandle>
+            MoveNextBySourceToken,
+        IReadOnlyDictionary<int, MethodIdentity>
+            SourceByMoveNextToken,
+        IReadOnlySet<MetadataTypeDefinitionName>
+            RejectedStateMachines);
 
     readonly record struct AsyncStateMachineAttributeInfo(
         bool Present,

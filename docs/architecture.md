@@ -778,22 +778,62 @@ Research overlay bridge, and the application layer:
   metadata resolver and `LibraryBodyLiftedSourceOwnerResolver` consume that
   same resolution authority. The lifted-source-owner resolver owns
   acquisition-scoped local-function/lambda owner correlation, memoized owner
-  body-reference evidence, top-level entry-point authentication, and classic
-  async state-machine type-name resolution. It consumes primary metadata
-  identity and generated-code judgments rather than duplicating them.
+  execution-body evidence, bounded reference closure across sibling lifted
+  bodies, and top-level entry-point authentication. Authenticated async
+  `MoveNext` bodies from the async-source resolver seed the same closure as
+  ordinary owner bodies. Authenticated synchronous-iterator `MoveNext` bodies
+  also seed it, and bounded traversal through methods on that same state-machine
+  type retains compiler-hoisted `finally` helpers.
+  `AllocationFanout_TypeScopeAdmittingEveryFixtureTypePreservesAsyncLocals`
+  gates async locals reached through both iterator execution and those helpers.
+  It consumes primary metadata identity, generated-code
+  judgments, and async execution mapping rather than duplicating them. Scoped
+  closure failures are retained as analysis diagnostics rather than becoming
+  success-shaped partial evidence, and identical expansion/per-method failures
+  use one metadata-derived method label and are published once.
   `OptimizationOpportunities_DuplicateMemberRefsResolveStructuralIdentityOnce`,
   `OptimizationOpportunities_SharedMemberRefDecodesOnceAcrossOwnerBodies`, and
   `LiftedOwnerMemberIdentity_RetainsExactAssemblyReferenceScope` gate cache
   sharing and scope-aware identity.
   `OptimizationOpportunities_LiftedOwnerBody_IsIndexedOnce`,
+  `ResolveDeclaredMethod_MapsSiblingReferencedLocalFunctionToOwner`,
+  `ResolveDeclaredMethod_MapsAsyncOwnerLocalFunctionToOwner`,
+  `ResolveDeclaredMethod_MapsAsyncLiftedFunctionSiblingToOwner`,
+  `DirectCalls_AsyncLiftedMoveNextComposesToDeclaredOwner`,
+  `AsyncMoveNextResolution_UsesExplicitInterfaceImplementation`,
+  `DirectCalls_DirectLiftedTypeScopeRetainsDeclaredCaller`,
+  `OptimizationOpportunities_MalformedMethodSpecCannotAuthenticateOwner`,
+  `ScopedLiftedResolution_NestedFailurePublishesOneDiagnostic`,
+  `TypeTargetedBuild_MatchesFullBuild_ForEveryMethodOfTheType`,
   `OptimizationOpportunities_ClassicAsyncTypeDefinitionsAreIndexedOnce`, and
-  the top-level local-function tests gate the lifted-owner caches and execution
-  mapping.
-  `LibraryBodyAsyncSourceResolver` owns acquisition-scoped runtime/classic
-  async source resolution, classic source-to-`MoveNext` mapping, state-machine
-  attribute authentication, and scoped evidence expansion. It reuses primary
-  metadata identity and generated-code judgments plus the builder's shared
-  local type-definition index.
+  the top-level local-function tests gate the lifted-owner caches, closure, and
+  execution mapping.
+  `LibraryBodyAsyncSourceResolver` owns acquisition-scoped runtime, classic,
+  and async-iterator source resolution; authenticated source-to-`MoveNext`
+  mapping; generated lifted-source execution mapping; and scoped evidence
+  expansion. Authenticated execution-source maps drive acquisition and
+  per-method attribution; the scope-independent fallback contains only
+  non-generated declared sources. A rejected classic state-machine mapping is
+  authoritative across attribution, acquisition, and fallback, including when
+  generated-code filtering leaves one otherwise actionable source. Generated
+  kickoff intermediates compose through lifted owners when their evidence
+  bodies are acquired, while non-IL or runtime-async kickoff bodies cannot
+  authenticate classic state machines.
+  `DirectCalls_AsyncLiftedMoveNextComposesToDeclaredOwner` gates full,
+  owner-method-scoped, and owner-type-scoped call parity plus declared-owner
+  resolution. `DirectCalls_AttributeAsyncIteratorBodiesToDeclaredSource`
+  preserves existing async-iterator attribution without broadening iterator
+  ownership.
+  `DirectCalls_SourceGeneratedAsyncCollisionCannotEscapeRejection` gates the
+  close ambiguity case across caller attribution, public resolution, and
+  method-scoped acquisition.
+  `DirectCalls_CrossKindStateMachineAttributesFailClosed` gates kind-agnostic
+  duplicate detection when classic async and async-iterator attributes occur
+  on the same source method.
+  `AsyncSource_MethodImplRequiresValidSourceMethodShape` gates the kickoff and
+  state-machine body requirements. The resolver reuses primary metadata
+  identity and generated-code judgments plus the builder's shared local
+  type-definition index.
   `OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate`,
   `AsyncStateMachineAttribute_RequiresFrameworkOrigin`,
   `ScopedStateMachineExpansion_RequiresTrustedClassicSource`, and
