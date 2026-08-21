@@ -146,6 +146,7 @@ MetadataBodyProjection
   ImportedFunction        pristine annotation/IL anchor snapshot
   Raised                  StageBodyProjection
   Lowered                 StageBodyProjection, materialized on request
+  ClassicAsyncDecision    captured from the canonical pass
   ClassicAsyncOutcome
 
 StageBodyProjection
@@ -156,6 +157,15 @@ PreparedStageBody.Render(PrinterOptions)
   RenderedFunction       private clone after print analysis
   DecompilerResult       includes ClassicAsyncOutcome
   PrintedRanges
+
+PassContext.ClassicAsyncDecision
+  None                   pass recognizes and records on the host function
+  Supplied(Decision)     pass validates host identity and applies only
+
+ClassicAsyncDecision
+  KickoffIdentity        module-scoped MethodDef identity
+  Outcome
+  Machine?               detached, clone-safe structured value
 
 ClassicAsyncOutcome
   NotClassic
@@ -172,15 +182,35 @@ from the existing SRM classification (`StateMachineAsync` plus
 `AsyncStateMachineAttribute`). `StateMachineAsync` alone is not this
 fact: it also includes `AsyncIteratorStateMachineAttribute`.
 
-Preparation imports once, uses the sibling-import seam once, fixes the
-`ClassicAsyncOutcome`, and produces the requested stage snapshots from
-that decision. It does not ask each snapshot to recognize the machine
-again. The snapshots are owned mutable IR; consumers print clones, not
-the stored instances. `PreparedStageBody.Render` is the sole
+Preparation imports once and runs the first requested stage through
+the canonical pass pipeline with the sibling-import seam. The
+`ClassicAsyncReconstructionPass` recognizes once, records its typed
+decision on the host function, and applies it. Preparation captures
+that decision and supplies it through `PassContext` when building any
+other stage snapshot; the pass validates the kickoff identity and
+applies without re-recognizing. The snapshots are owned mutable IR;
+consumers print clones, not the stored instances.
+`PreparedStageBody.Render` is the sole
 source-body emission seam: it clones the stored snapshot, performs
 the selected style lenses plus print analysis without rerunning the
 default/lowered structural pipeline, and returns the rendered clone,
 result, and printed ranges as one value.
+
+The pass remains in `IrPasses.Default` and `IrPasses.Lowered`. A
+standalone seam-enabled pipeline with no supplied decision recognizes
+through that same implementation, records the outcome on its function,
+and produces the same body as prepared output. This keeps stage dumps,
+corpus sensors, validity/fidelity harnesses, and render A/B on the
+shipped policy without requiring a MethodDef handle. A null-seam
+physical pipeline cannot recognize a companion machine and keeps no
+classic outcome.
+
+The cached decision borrows no `IrNode`, block, local, or edge from the
+first stage host. `ClassicAsyncMachine.UserRegions` records stable
+IL-origin/structured identities and owns any projected fragments it
+needs to clone. A decision therefore cannot mutate the first snapshot
+when applied to another, and cannot be applied when its module-scoped
+kickoff identity differs.
 
 The outer classification is metadata-only and exists even when body
 preparation fails. The unions separate failure from a decided body:
@@ -228,16 +258,21 @@ projection:
   `BodyShapeSearch.IncompleteBodyReason` replaces its current
   classic-or-async-iterator attribute union with the exact prepared
   outcome.
-- Physical-body evidence and raw-IR diagnostics are outside this
-  contract: they render one supplied physical tree, do not stamp a
-  declaration, and do not claim a `ClassicAsyncOutcome`. The named
-  product exceptions are `CSharpBodyDiff` and `PipelineStages`; tests
-  may intentionally exercise the raw APIs.
+- `CSharpBodyDiff` remains outside this contract: it renders one
+  supplied physical tree, does not stamp a declaration, and does not
+  claim a `ClassicAsyncOutcome`.
+- `PipelineStages` is an orchestration exception to the projector front
+  door, not an exception to classic policy. It runs the same
+  seam-enabled pass pipeline; its terminal C# must stay byte-identical
+  to prepared Raised output. Corpus and harness sweeps follow the same
+  rule. Tests may intentionally exercise passless/raw APIs.
 - A `DecompilerResult` rendered from a successful
-  `StageBodyProjection` carries the same outcome. Outer preparation
-  failure and raw-IR rendering have no classic outcome. Its
-  hand-written `Equals` and `GetHashCode` include outcome presence,
-  decline reason, and body disposition. `with` copies preserve them.
+  `StageBodyProjection` or seam-enabled canonical pipeline carries the
+  same outcome. Outer preparation failure, null-seam physical
+  rendering, and intentionally passless raw-IR rendering have no
+  classic outcome. Its hand-written `Equals` and `GetHashCode` include
+  outcome presence, decline reason, and body disposition. `with`
+  copies preserve them.
 
 `CSharpBodyDiff` is intentionally not another source-body projection.
 Its currency is C# lines anchored to IL origins in one physical
@@ -297,10 +332,12 @@ raise flag. No new CSharp→Decompiler edge.
 The machine is not a printer-local observation. Research renderers
 currently import and raise independently; asking each view to
 rediscover a sibling state machine makes the result depend on section
-selection and import-seam availability. Canonical preparation owns
-sibling import, recognition, reconstruction, decline marking, stage
-snapshots, and the outcome. Views own only annotation and spelling over
-the `PreparedStageBody.Render` result.
+selection and import-seam availability.
+`ClassicAsyncReconstructionPass` owns sibling recognition,
+reconstruction, decline marking, and the typed decision. Canonical
+preparation owns one decision session, stage snapshots, and outcome
+propagation. Views own only annotation and spelling over the
+`PreparedStageBody.Render` result.
 
 This applies to direct Research callers and structured source-body
 artifacts, not only the four familiar text overlays. Fact Row C#
@@ -309,13 +346,20 @@ artifact prints. It does not apply to physical-body evidence whose
 identity contract forbids companion-body import.
 
 Preparation does not obtain invariance by running `PrintRaised` and
-`PrintLowered` independently and comparing their answers. It recognizes
-one `ClassicAsyncMachine` / decline decision, then removes recognition
-from the stage pipelines and applies that cached decision to each host
-clone. `Reconstructed` projects the same consumed user regions;
-`Declined` applies the decided replacement/preservation policy. The
-stage pipelines may still differ in cosmetic sugar, but cannot differ
-on classic identity, outcome, or owned statements.
+`PrintLowered` independently and comparing their answers. Its first
+stage lets the pass recognize one `ClassicAsyncMachine` / decline
+decision; later stage pipelines reach the same pass position with that
+decision supplied and apply it without recognition. `Reconstructed`
+projects the same consumed user regions; `Declined` applies the decided
+replacement/preservation policy. The stage pipelines may still differ
+in cosmetic sugar, but cannot differ on classic identity, outcome, or
+owned statements.
+
+An independent top-level pipeline is a separate product/evidence
+projection, not a second view inside that prepared request. With the
+sibling seam it invokes the same pass recognition once. Compiler-
+produced parity fixtures gate that its final body/outcome equals the
+prepared Raised projection for both `Reconstructed` and `Declined`.
 
 ### Do not pretend an Analysis walk is a Metadata fact
 
@@ -360,7 +404,7 @@ ClassicAsyncMachine
                          Continuation (OnCompleted | UnsafeOnCompleted),
                          ResumeState }*
   Terminals            { SetResult?, SetException? }
-  UserRegions          consumed MoveNext blocks/edges the raise claims
+  UserRegions          stable IL-origin/structured identities the raise claims
   Outcome              Reconstructed | Declined(Reason)
 ```
 
@@ -488,7 +532,15 @@ the decompiler library and corpus.
    Annotated Source Document and Fact Row line mapping are part of the
    Research set. `CSharpBodyDiff` is the explicit seam-free
    physical-evidence exception; `PipelineStages` is the explicit
-   raw-stage diagnostic exception.
+   canonical-pipeline diagnostic exception.
+8. **Evidence runs the same classic policy.** A seam-enabled
+   `CSharpPrinter.PrintRaised`, `PipelineStages`, corpus profile, or
+   validity/fidelity harness executes
+   `ClassicAsyncReconstructionPass` with no supplied decision. The pass
+   recognizes once and records the same typed decision/outcome that
+   `MetadataBodyProjector` captures. `IrImporter.ImportAssembly` may
+   remain a handle-free function sweep because the pass uses its
+   function plus sibling-import context.
 
 A concrete observation that would falsify slice 0: any
 successfully prepared `IsClassicAsync` body is neither reconstructed nor
@@ -497,9 +549,10 @@ declined classic declaration still says `async`; a declined
 runtime-async method loses its metadata `async`; any declared
 source-body artifact disagrees on outcome; a Fact Row anchor refers to
 an independently raised body; a failed preparation becomes a plausible
-body; the physical C# diff imports a companion body; an in-domain
-library `MoveNext` still lacks distinctive user logic; or an
-async-iterator `MoveNext` is no longer hollow.
+body; the physical C# diff imports a companion body; a stage, corpus, or
+harness render differs from prepared Raised output for the same classic
+fixture; an in-domain library `MoveNext` still lacks distinctive user
+logic; or an async-iterator `MoveNext` is no longer hollow.
 
 `MemberBodyProducerAsyncTests.ClassicAsyncWithoutAwait_UsesResolvedMethodBodyModifier`
 currently asserts `async` on `NoAwait()`. Slice 0 flips that
@@ -529,7 +582,7 @@ another raise. Do not invent more `TryBuild*` methods.
 
 | Slice | Claim | Residual after it |
 | --- | --- | --- |
-| 0. Honesty | Add SRM `IsClassicAsync`, Decompiler-owned `MetadataBodyProjectionResult`, prepared stage snapshots, and typed body carriers. Every metadata-addressed declared source-body path uses that front door and clones one decision; seam-free physical evidence remains a separate contract. Every classic decline gets a marker: replace exact narrow handoff; prepend while preserving a non-narrow body. Correlate Debug class allocation and void `Return(null)`. Separate acknowledgment builder classification; leave legacy raise eligibility unchanged. Stop hollowing in-domain `MoveNext`; library + corpus A/B. | #4472 fixture still declined, but honest. Debug class SMs are honest but not raised. Async-iterator `MoveNext` still hollow. Custom builders visibly decline with preserved bodies. Physical C# diff remains MethodDef-scoped and seam-free. No trusted Metadata/Analysis lift. |
+| 0. Honesty | Add SRM `IsClassicAsync`, Decompiler-owned `MetadataBodyProjectionResult`, prepared stage snapshots, and typed body carriers. `ClassicAsyncReconstructionPass` remains the single decision implementation: the projector captures/replays one decision across stages, while seam-enabled stage/corpus/harness runs recognize through the same pass. Every metadata-addressed declared source-body path uses the front door; seam-free physical evidence remains separate. Every classic decline gets a marker: replace exact narrow handoff; prepend while preserving a non-narrow body. Correlate Debug class allocation and void `Return(null)`. Leave legacy raise eligibility unchanged. Stop hollowing in-domain `MoveNext`; library + corpus A/B. | #4472 fixture still declined, but honest. Debug class SMs are honest but not raised. Async-iterator `MoveNext` still hollow. Custom builders visibly decline with preserved bodies. Physical C# diff remains MethodDef-scoped and seam-free. No trusted Metadata/Analysis lift. |
 | 1. Void-await then statements then return | Accept `await Task.Yield(); return ReadValue(value);` as the first inverse raise from `AwaitPoints` + `UserRegions`, not as a new `TryBuild*` and not as a `HasUnexpectedStore` allow-list tweak. Must consume void `GetResult` as a statement, following statements, a non-await `SetResult` operand, the Yield operand temp, and an explicit `LoadLocalAddress` decline-then-remap. Hoisted parameter binding is already present. The smaller `await Task.Yield();` (no later statements) is the accepted boundary of the same slice. Blocked until the Correct measurement exists. | General multi-state dispatch, class SM, custom awaiters, structural Metadata descriptor, census-defined raises. |
 
 ## Proof obligations (every raise slice)
@@ -585,9 +638,10 @@ another raise. Do not invent more `TryBuild*` methods.
 | Attribute name classification (`StateMachineAsync`) | Metadata (already) |
 | Structural attribute type-arg decode | Metadata residual, not slice 0 |
 | Attribution filters | Analysis |
-| `ClassicAsyncMachine` and the raise | Decompiler |
+| `ClassicAsyncMachine`, decision, and application | Decompiler `ClassicAsyncReconstructionPass` |
 | Classic-async metadata fact | Metadata import → `MethodBody` / `IrFunction` |
 | Metadata-addressed preparation/failure union | Decompiler `MetadataBodyProjector` |
+| Cross-stage decision capture/supply | Decompiler `PassContext` scoped to one prepared projection |
 | Canonical classic projection | Decompiler stage snapshots + `NotClassic` / `Reconstructed` / `Declined` |
 | Public typed-body carrier | Decompiler `MemberBodyProductionResult` |
 | Whole-type body/outcome carrier | Decompiler internal `DecompiledBodyProjection` |
@@ -608,7 +662,10 @@ predicate. They must not assume current kickoffs are Full.
 | Gate | Surface | Fails if |
 | --- | --- | --- |
 | Exact async population matrix | Metadata + Decompiler tests | Async iterator is rejected as invalid `NotClassic`, or custom classic builder escapes visible `Declined` |
-| Canonical front-door architecture | Source-architecture test `MetadataAddressedBodyProjectionUsesCanonicalFrontDoor` | Product-consumer references outside `CSharpPrinter` / pass definitions to any body-emitting printer API or direct top-level `IrPasses.Run*` differ from the complete set: `MetadataBodyProjector` / `PreparedStageBody`, seam-free `CSharpBodyDiff`, and raw-stage `PipelineStages` |
+| Canonical front-door architecture | Source-architecture test `MetadataAddressedBodyProjectionUsesCanonicalFrontDoor` | Product-consumer references outside `CSharpPrinter` / pass definitions to any body-emitting printer API or direct top-level `IrPasses.Run*` differ from the complete set: `MetadataBodyProjector` / `PreparedStageBody`, seam-free `CSharpBodyDiff`, and canonical-stage `PipelineStages` |
+| Classic decision capture/replay | Decompiler pass/projector tests | A second prepared stage recognizes again, a supplied decision applies to a different kickoff, or outcome/owned regions differ |
+| Prepared/canonical pipeline parity | `PipelineStageTests.DumpMethod_FinalCSharp_IsTheShippedProductOutput` with compiler-produced reconstructed + declined fixtures | Terminal seam-enabled stage C# or outcome differs from prepared Raised output |
+| Corpus/harness classic policy | Decompiler harness contract tests + `CorpusSensor` classic profile | Handle-free sweep or fidelity/validity/render A/B bypasses the pass, misses a decline marker, or loses an accepted reconstruction |
 | Declined classic body, narrow and non-narrow | Five CLI code views + public typed body + whole-type | Render lacks the unsupported marker comment |
 | Same declined classic body | CLI Fidelity Causes | Lacks DEC0004 |
 | Non-narrow classic body with extra call/store | Five CLI code views + public typed body + whole-type | Any original statement disappears |
@@ -629,7 +686,7 @@ predicate. They must not assume current kickoffs are Full.
 | Async-iterator `MoveNext` | Decompiler library | No longer hollow |
 | Whole-type listing of `AsyncFixtures` | `MemberBodyProducer` | `NoAwait` still spelled `async` over the stub without the marker |
 | `ClassicAsyncWithoutAwait_UsesResolvedMethodBodyModifier` | Existing test | Still expects `async Task NoAwait()` |
-| Corpus A/B for un-hollowed in-domain `MoveNext` | `CorpusSensor` / `IrImporter.ImportAssembly` | Unrecorded fidelity or coverage delta |
+| Corpus A/B for honesty + un-hollowed in-domain `MoveNext` | `CorpusSensor` / `IrImporter.ImportAssembly` | Marker/reconstruction differs from product policy, or an unrecorded fidelity/coverage delta appears |
 
 Deleting marker insertion must fail the render gate; deleting fidelity
 cause enumeration must fail the DEC0004 gate. Deleting outcome-aware
@@ -647,3 +704,9 @@ it with any product C# emission hits the gate. Adding a declared
 source-body entry point without routing it through
 `MetadataBodyProjector` / `PreparedStageBody`, or adding a raw/physical
 exception without naming its separate contract, must fail.
+
+Removing decision capture must fail the second-stage replay gate.
+Removing no-decision pass recognition must fail prepared/canonical
+parity and the corpus/harness gate. The parity fixtures must include one
+current accepted reconstruction and one visible decline; extending the
+existing non-async-only stage test without those fixtures is vacuous.
