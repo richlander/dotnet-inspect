@@ -1,6 +1,10 @@
 import type { BrowserPackageDocument } from "./inspect-web-engine.d.ts";
 
 export type DocViewerDocument = Pick<BrowserPackageDocument, "name" | "path">;
+export type PackageDocumentSummary = Pick<
+  BrowserPackageDocument,
+  "kind" | "name" | "path" | "size"
+>;
 
 export interface DocViewerMeta {
   name: string;
@@ -19,6 +23,7 @@ export interface RenderDocViewerOptions {
 
 export interface DocViewerBindingActions {
   onClose: () => void;
+  onOpenDocument: (path: string) => void;
 }
 
 export function bindDocViewer(
@@ -33,6 +38,33 @@ export function bindDocViewer(
   root.querySelector("#doc-viewer-close")?.addEventListener(
     "click",
     actions.onClose);
+  root.querySelectorAll<HTMLElement>("[data-doc-path]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onOpenDocument(button.dataset.docPath ?? "")));
+}
+
+export function renderPackageDocuments(
+  documents: readonly PackageDocumentSummary[],
+  escapeHtml: (value: unknown) => string,
+): string {
+  if (!documents.length) return "";
+  const kindLabels: Record<string, string> =
+    { readme: "Readme", package: "Package", skill: "Skill" };
+  const kindGlyphs: Record<string, string> =
+    { readme: "▤", package: "▤", skill: "◆" };
+  const chips = documents
+    .map(document => `
+      <button class="doc-chip doc-${escapeHtml(document.kind)}" data-doc-path="${escapeHtml(document.path)}" title="${escapeHtml(document.path)} · ${document.size.toLocaleString()} bytes">
+        <span class="doc-glyph">${kindGlyphs[document.kind] || "▤"}</span>
+        <span class="doc-name">${escapeHtml(document.name)}</span>
+        <span class="doc-kind">${escapeHtml(kindLabels[document.kind] || document.kind)}</span>
+      </button>`)
+    .join("");
+  return `<section class="document-section">
+      <div class="section-title"><h2>Documentation</h2><span>${documents.length} file${documents.length === 1 ? "" : "s"} — click to read</span></div>
+      <div class="doc-chip-list">${chips}</div>
+    </section>`;
 }
 
 export function renderDocViewer(options: RenderDocViewerOptions): string {

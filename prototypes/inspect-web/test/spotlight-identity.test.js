@@ -568,7 +568,7 @@ test("modal viewers own their rendered close bindings", () => {
     /bindGraphSource\(document, \{\s*onClose: closeGraphSource,\s*\}\)/);
   assert.match(
     docBinding,
-    /bindDocViewer\(document, \{\s*onClose: closeDocViewer,\s*\}\)/);
+    /bindDocViewer\(document, \{\s*onClose: closeDocViewer,\s*onOpenDocument: openPackageDocument,\s*\}\)/);
   assert.equal(graphBinding.match(/\bdocument\b/g)?.length, 1);
   assert.equal(docBinding.match(/\bdocument\b/g)?.length, 1);
   assert.match(
@@ -576,7 +576,7 @@ test("modal viewers own their rendered close bindings", () => {
     /export function bindGraphSource\([\s\S]*#graph-source-backdrop[\s\S]*event\.target === backdrop[\s\S]*#graph-source-close/);
   assert.match(
     docViewerSource,
-    /export function bindDocViewer\([\s\S]*#doc-viewer-backdrop[\s\S]*event\.target === backdrop[\s\S]*#doc-viewer-close/);
+    /export function bindDocViewer\([\s\S]*#doc-viewer-backdrop[\s\S]*event\.target === backdrop[\s\S]*#doc-viewer-close[\s\S]*\[data-doc-path\]/);
   for (const [identifier, count] of [
     ["bindGraphSourceEvents", 2],
     ["bindDocViewerEvents", 2],
@@ -593,6 +593,7 @@ test("modal viewers own their rendered close bindings", () => {
     "#graph-source-close",
     "#doc-viewer-backdrop",
     "#doc-viewer-close",
+    "[data-doc-path]",
   ]) {
     assert.equal(appSource.split(selector).length - 1, 0, selector);
   }

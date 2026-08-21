@@ -3,9 +3,11 @@ import test from "node:test";
 import {
   bindDocViewer,
   renderDocViewer,
+  renderPackageDocuments,
 } from "../src/doc-viewer.ts";
 
 class FakeElement {
+  readonly dataset: Record<string, string | undefined> = {};
   private readonly listeners = new Map<string, EventListener[]>();
 
   addEventListener(type: string, listener: EventListener) {
@@ -22,35 +24,53 @@ class FakeElement {
 }
 
 class FakeRoot {
-  private readonly elements = new Map<string, FakeElement>();
+  private readonly single = new Map<string, FakeElement>();
+  private readonly multiple = new Map<string, FakeElement[]>();
 
   add(selector: string, element: FakeElement) {
-    this.elements.set(selector, element);
+    this.single.set(selector, element);
     return element;
   }
 
+  addAll(selector: string, ...elements: FakeElement[]) {
+    this.multiple.set(selector, elements);
+    return elements;
+  }
+
   querySelector(selector: string) {
-    return this.elements.get(selector) ?? null;
+    return this.single.get(selector) ?? null;
+  }
+
+  querySelectorAll(selector: string) {
+    return this.multiple.get(selector) ?? [];
   }
 }
 
-test("document viewer bindings close from the button or bare backdrop only", () => {
+test("document viewer bindings open documents and close from its modal controls", () => {
   const root = new FakeRoot();
   const backdrop = root.add("#doc-viewer-backdrop", new FakeElement());
   const close = root.add("#doc-viewer-close", new FakeElement());
+  const document = new FakeElement();
+  document.dataset.docPath = "docs/CHANGELOG.md";
+  root.addAll("[data-doc-path]", document);
   const inner = new FakeElement();
   const calls: string[] = [];
   bindDocViewer(
     root as unknown as ParentNode,
-    { onClose: () => calls.push("close") });
+    {
+      onClose: () => calls.push("close"),
+      onOpenDocument: path => calls.push(`open:${path}`),
+    });
 
   assert.deepEqual(calls, []);
+  document.dispatch("click");
+  assert.deepEqual(calls, ["open:docs/CHANGELOG.md"]);
   backdrop.dispatch("mousedown", inner as unknown as EventTarget);
-  assert.deepEqual(calls, []);
+  assert.deepEqual(calls, ["open:docs/CHANGELOG.md"]);
   backdrop.dispatch("mousedown");
-  assert.deepEqual(calls, ["close"]);
+  assert.deepEqual(calls, ["open:docs/CHANGELOG.md", "close"]);
   close.dispatch("click");
-  assert.deepEqual(calls, ["close", "close"]);
+  assert.deepEqual(calls, ["open:docs/CHANGELOG.md", "close", "close"]);
 });
 
 function escapeHtml(value: unknown) {
@@ -62,6 +82,37 @@ function escapeHtml(value: unknown) {
 }
 
 const doc = { name: "CHANGELOG.md", path: "docs/CHANGELOG.md" };
+
+test("package document list renders live escaped chips and file counts", () => {
+  const html = renderPackageDocuments([
+    {
+      kind: "readme",
+      name: "README.md",
+      path: "<docs>/README.md",
+      size: 1200,
+    },
+    {
+      kind: "<skill>",
+      name: "SKILL.md",
+      path: "skills/widget/SKILL.md",
+      size: 42,
+    },
+  ], escapeHtml);
+
+  assert.match(html, /Documentation<\/h2><span>2 files — click to read/);
+  assert.match(
+    html,
+    /class="doc-chip doc-readme" data-doc-path="&lt;docs&gt;\/README\.md"/);
+  assert.match(html, /title="&lt;docs&gt;\/README\.md · 1,200 bytes"/);
+  assert.match(html, /class="doc-chip doc-&lt;skill&gt;"/);
+  assert.match(html, /<span class="doc-kind">&lt;skill&gt;<\/span>/);
+  assert.doesNotMatch(html, /<docs>/);
+  assert.doesNotMatch(html, /<skill>/);
+});
+
+test("package document list stays absent when the package ships no documents", () => {
+  assert.equal(renderPackageDocuments([], escapeHtml), "");
+});
 
 test("closed viewer with no document falls back to a generic title and empty subtitle", () => {
   const html = renderDocViewer({

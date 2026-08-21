@@ -112,6 +112,7 @@ import {
 import {
   bindDocViewer,
   renderDocViewer as renderDocViewerPure,
+  renderPackageDocuments,
   type DocViewerMeta,
 } from "./doc-viewer.ts";
 import {
@@ -3179,25 +3180,8 @@ function renderPackageOverview() {
     .join("");
   const nsOverflow = nsCounts.size > 12 ? `<span class="ns-overflow">+${nsCounts.size - 12} more</span>` : "";
 
-  // Package-shipped Markdown: README/PACKAGE at the root and skill files under skills/.
-  // Presence comes from the surface manifest; the body is fetched on demand when opened.
-  const docKindLabel: Record<string, string> =
-    { readme: "Readme", package: "Package", skill: "Skill" };
-  const docKindGlyph: Record<string, string> =
-    { readme: "▤", package: "▤", skill: "◆" };
-  const documents = (pkg.documents || [])
-    .map(doc => `<button class="doc-chip doc-${escapeHtml(doc.kind)}" data-doc-path="${escapeHtml(doc.path)}" title="${escapeHtml(doc.path)} · ${doc.size.toLocaleString()} bytes">
-        <span class="doc-glyph">${docKindGlyph[doc.kind] || "▤"}</span>
-        <span class="doc-name">${escapeHtml(doc.name)}</span>
-        <span class="doc-kind">${docKindLabel[doc.kind] || doc.kind}</span>
-      </button>`)
-    .join("");
-  const documentsSection = (pkg.documents || []).length
-    ? `<section class="document-section">
-      <div class="section-title"><h2>Documentation</h2><span>${pkg.documents.length} file${pkg.documents.length === 1 ? "" : "s"} — click to read</span></div>
-      <div class="doc-chip-list">${documents}</div>
-    </section>`
-    : "";
+  const documentsSection =
+    renderPackageDocuments(pkg.documents || [], escapeHtml);
 
   return `
     <section class="document-section">
@@ -3782,6 +3766,7 @@ function bindGraphSourceEvents() {
 function bindDocViewerEvents() {
   bindDocViewer(document, {
     onClose: closeDocViewer,
+    onOpenDocument: openPackageDocument,
   });
 }
 
@@ -4156,10 +4141,6 @@ function bindEvents() {
   ensurePackageVersions(state.package);
   if (state.package?.isRuntimePack) ensureDotnetReleases();
   if (state.spotlightOpen) spotlight.bind(document, "modal");
-  document.querySelectorAll<HTMLElement>("[data-doc-path]").forEach(button =>
-    button.addEventListener(
-      "click",
-      () => openPackageDocument(button.dataset.docPath ?? "")));
   document.querySelector("#taste-btn")?.addEventListener("click", event => {
     event.stopPropagation();
     state.tasteOpen = !state.tasteOpen;
