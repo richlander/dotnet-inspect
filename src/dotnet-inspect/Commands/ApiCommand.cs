@@ -118,7 +118,8 @@ public class ApiCommand
     internal static bool RejectUniversallyInvalidMemberSelect(
         MemberOptions options)
     {
-        if (!options.RouterDeferredTypeOrMember
+        if (!(options.RouterDeferredTypeOrMember
+                || RequiresMemberPipelineLookup(options))
             || options.Discover is not null
             || options.IncludeSections is not null
             || options.Select is not { Length: > 0 })
@@ -167,6 +168,11 @@ public class ApiCommand
             }
         }
     }
+
+    private static bool RequiresMemberPipelineLookup(MemberOptions options) =>
+        options.MemberFilter.Count == 0
+        && options.TypeName is { } memberTypeName
+        && FqnParser.LastTopLevelDot(memberTypeName) > 0;
 
     internal static bool RejectRouteIndependentOptionShape(
         MemberOptions options)
