@@ -520,6 +520,9 @@ test("package opportunities owns its rendered control bindings", () => {
   assert.equal(
     appSource.match(/\bbindPackageOpportunities\b/g)?.length,
     2);
+  assert.doesNotMatch(
+    binding,
+    /\b(?:getElementById|querySelector|querySelectorAll)\s*\(|\.addEventListener\s*\(/);
   assert.match(
     packageOpportunitiesSource,
     /export function bindPackageOpportunities\([\s\S]*\[data-opp-type\][\s\S]*\[data-opp-package\][\s\S]*\[data-opp-lookfor\]/);
