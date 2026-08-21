@@ -96,7 +96,7 @@ public class MemberCallsSectionTests
         var type = SolePropertyType();
         var options = ImplicitCallerOptions();
 
-        Assert.False(ApiMemberSectionPipelines.ShouldAggregateImplicitCallers(type, options));
+        Assert.False(ApiMemberSectionPipelines.ShouldAggregateCallers(type, options));
     }
 
     static ApiType SolePropertyType()

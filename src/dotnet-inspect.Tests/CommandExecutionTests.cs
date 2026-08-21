@@ -14634,6 +14634,10 @@ public partial class CommandExecutionTests
         var all = await RunAppAsync([.. common, "-D", "--tips", "q"]);
         var named = await RunAppAsync(
             [.. common, "-D", SectionNames.Callers, "--tips", "q"]);
+        var selected = await RunAppAsync(
+            [.. common, "-S", SectionNames.Callers, "--tips", "q"]);
+        var allSelected = await RunAppAsync(
+            [.. common, "-S", SelectResolver.AllSelector, "--tips", "q"]);
 
         Assert.Equal(0, all.Exit);
         Assert.Contains(SectionNames.Callers, all.Output);
@@ -14641,6 +14645,12 @@ public partial class CommandExecutionTests
         Assert.Equal(0, named.Exit);
         Assert.NotEqual(string.Empty, named.Output.Trim());
         Assert.Empty(named.Error);
+        Assert.Equal(0, selected.Exit);
+        Assert.Contains($"## {SectionNames.Callers}", selected.Output);
+        Assert.Empty(selected.Error);
+        Assert.Equal(0, allSelected.Exit);
+        Assert.Contains($"## {SectionNames.Callers}", allSelected.Output);
+        Assert.Empty(allSelected.Error);
     }
 
     [Fact]

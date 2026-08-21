@@ -3565,7 +3565,7 @@ public class ApiCommand
             filteredType,
             options.IncludeSections,
             explicitInclude: options is MemberOptions { MemberSectionsPreResolved: true });
-        if (ApiMemberSectionPipelines.ShouldAggregateImplicitCallers(
+        if (ApiMemberSectionPipelines.ShouldAggregateCallers(
                 filteredType,
                 options)
             && !effective.Contains(

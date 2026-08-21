@@ -308,7 +308,13 @@ public static class MemberCommand
                     effectiveOptions,
                     discoveredCallerSections);
             }
-            var authoredSelection = effectiveOptions;
+            var aggregateCallers =
+                ApiMemberSectionPipelines.ShouldAggregateCallers(
+                    apiType,
+                    effectiveOptions);
+            var authoredSelection = aggregateCallers
+                ? ExcludeCallersSection(effectiveOptions)
+                : effectiveOptions;
 
             // Keep member-name lookups as overload inventories. Only auto-select the lone
             // overload when the user explicitly asks for a selected-overload detail section.
@@ -968,6 +974,15 @@ public static class MemberCommand
                     SectionNames.CallGraph,
                     StringComparison.OrdinalIgnoreCase))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static MemberOptions ExcludeCallersSection(MemberOptions options)
+    {
+        var includeSections = options.IncludeSections is { } existing
+            ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
+            : [];
+        includeSections.Remove(SectionNames.Callers);
+        return options with { IncludeSections = includeSections };
     }
 
     private static bool RequiresCallerScopeResolution(MemberOptions options)
