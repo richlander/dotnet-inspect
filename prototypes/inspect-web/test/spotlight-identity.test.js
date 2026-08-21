@@ -618,6 +618,9 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   const callGraphBinding =
     appSource.match(/function callGraphNodeBinding\([\s\S]*?\n}(?=\n\nfunction currentCallGraph)/)?.[0]
     ?? "";
+  const dependencyNodeBinding =
+    graphInteractionsSource.match(/export function bindDependencyGraphNodes\([\s\S]*?\n}(?=\n\nexport function bindGraphPanZoom)/)?.[0]
+    ?? "";
   assert.match(
     graphInteractionsSource,
     /export function bindGraphBack\([\s\S]*\[data-graph-back\]/);
@@ -631,8 +634,8 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     graphInteractionsSource,
     /export function bindTypeGraphNodes\([\s\S]*"t"[\s\S]*nav-node[\s\S]*non-nav[\s\S]*createElementNS/);
   assert.match(
-    graphInteractionsSource,
-    /export function bindDependencyGraphNodes\([\s\S]*"d"[\s\S]*nav-node/);
+    dependencyNodeBinding,
+    /mermaidNodeId\(node, "d"\)[\s\S]*classList\.add\("nav-node"\)[\s\S]*style\.cursor = "pointer"[\s\S]*addEventListener\("click", binding\.onSelect\)/);
   assert.match(
     appSource,
     /const graphBackActions: GraphBackBindingActions = \{\s*onBack: popPlatformDrill,\s*};/);
@@ -643,14 +646,20 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     typeGraph,
     /bindGraphPanZoom\(container, viewport\);[\s\S]*bindTypeGraphNodes\(viewport, nodeId => \{[\s\S]*graphNodeOf\.get\(nodeId\)[\s\S]*onSelect: \(\) => navigateToType\(target\)[\s\S]*unavailableLabel/);
   assert.match(
+    typeGraph,
+    /const target = graphNode\.role === "self"\s*\? selectedType\(\)\s*: uniqueTypeByQueryId\(pkg\.types, fullName\)/);
+  assert.match(
     dependencyGraph,
     /bindGraphPanZoom\(container, viewport\);[\s\S]*bindDependencyGraphNodes\(viewport, nodeId => \{[\s\S]*built\.nodeInfoById\.get\(nodeId\)[\s\S]*switchToPackageForDependencies\(info\.packageKey\)[\s\S]*openDependencyPackage\(info\.id, info\.versionRange\)/);
+  assert.match(
+    dependencyGraph,
+    /const info = nodeId \? built\.nodeInfoById\.get\(nodeId\) : null;\s*if \(!info \|\| info\.kind === "self"\) return null/);
   assert.match(
     callGraph,
     /bindGraphPanZoom\(container, viewport, \{[\s\S]*resolveCallGraphNode: nodeId =>[\s\S]*callGraphNodeBinding\(active, nodeId\)/);
   assert.match(
     callGraphBinding,
-    /callGraph\.targets\?\.find\(candidate => candidate\.id === nodeId\)[\s\S]*state\.platformStack\.length > 0[\s\S]*target\.id === "n0"[\s\S]*navigateOrDrillPlatform\(target\)[\s\S]*resolveLoadedGraphTargetCandidate[\s\S]*graphTargetNavigationDisposition[\s\S]*navigateToMember\([\s\S]*openGraphSource\([\s\S]*navigateOrDrillPlatform\(target\)/);
+    /callGraph\.targets\?\.find\(candidate => candidate\.id === nodeId\)[\s\S]*const drilled =\s*state\.platformStack\.length > 0 \|\| Boolean\(state\.package\?\.isRuntimePack\);\s*if \(drilled\) \{\s*if \(target\.id === "n0" \|\| !target\.assembly \|\| !typeId\) return null;[\s\S]*navigateOrDrillPlatform\(target\)[\s\S]*resolveLoadedGraphTargetCandidate[\s\S]*graphTargetNavigationDisposition[\s\S]*if \(disposition === "blocked" \|\| disposition === "none"\) return null;[\s\S]*navigateToMember\([\s\S]*openGraphSource\([\s\S]*navigateOrDrillPlatform\(target\)/);
   assert.equal(appSource.match(/\bbindGraphBack\(/g)?.length, 1);
   assert.equal(appSource.match(/\bbindGraphPanZoom\(/g)?.length, 3);
   assert.equal(appSource.match(/\bbindTypeGraphNodes\(/g)?.length, 1);

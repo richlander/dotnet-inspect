@@ -159,6 +159,18 @@ function rect(width: number, height: number) {
   };
 }
 
+function graphTransform(element: FakeElement) {
+  const match =
+    /^translate\(([^p]+)px, ([^p]+)px\) scale\(([^)]+)\)$/
+      .exec(element.style.transform ?? "");
+  assert.ok(match);
+  return {
+    scale: Number(match[3]),
+    x: Number(match[1]),
+    y: Number(match[2]),
+  };
+}
+
 test("graph back binding dispatches only from the rendered control", () => {
   const back = new FakeElement();
   let calls = 0;
@@ -213,6 +225,9 @@ test("type and dependency nodes decode stable Mermaid identities", () => {
       : null);
 
   assert.deepEqual(dependencyCalls, []);
+  assert.equal(dependency.classList.contains("nav-node"), true);
+  assert.equal(dependency.style.cursor, "pointer");
+  assert.equal(self.classList.contains("nav-node"), false);
   dependency.dispatch("click");
   self.dispatch("click");
   assert.deepEqual(dependencyCalls, ["d7"]);
@@ -258,27 +273,40 @@ test("graph pan, zoom, keyboard, controls, and call-node clicks stay coordinated
     clientY: 50,
     deltaY: -100,
   }), true);
-  const zoomed = svg.style.transform;
-  assert.notEqual(zoomed, "translate(50px, 25px) scale(1)");
+  const zoomed = graphTransform(svg);
+  assert.ok(zoomed.scale > 1);
+  assert.ok(zoomed.x < 50);
+  assert.ok(zoomed.y < 25);
   zoomOut.dispatch("click");
-  const zoomedOut = svg.style.transform;
-  assert.notEqual(zoomedOut, zoomed);
+  const zoomedOut = graphTransform(svg);
+  assert.ok(zoomedOut.scale < zoomed.scale);
   zoomIn.dispatch("click");
-  assert.notEqual(svg.style.transform, zoomedOut);
+  assert.ok(graphTransform(svg).scale > zoomedOut.scale);
   reset.dispatch("click");
   const fitted = "translate(50px, 25px) scale(1)";
   assert.equal(svg.style.transform, fitted);
-  for (const key of ["+", "=", "-", "_"]) {
+  for (const key of ["+", "="]) {
     assert.equal(viewport.dispatch("keydown", { key }), true);
-    assert.notEqual(svg.style.transform, fitted);
+    assert.ok(graphTransform(svg).scale > 1);
     assert.equal(viewport.dispatch("keydown", { key: "0" }), true);
     assert.equal(svg.style.transform, fitted);
   }
-  for (const key of ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]) {
+  for (const key of ["-", "_"]) {
     assert.equal(viewport.dispatch("keydown", { key }), true);
-    assert.notEqual(svg.style.transform, fitted);
+    assert.ok(graphTransform(svg).scale < 1);
     assert.equal(viewport.dispatch("keydown", { key: "0" }), true);
     assert.equal(svg.style.transform, fitted);
+  }
+  const arrowPositions = new Map([
+    ["ArrowLeft", { x: 95, y: 25 }],
+    ["ArrowRight", { x: 5, y: 25 }],
+    ["ArrowUp", { x: 50, y: 70 }],
+    ["ArrowDown", { x: 50, y: -20 }],
+  ]);
+  for (const [key, expected] of arrowPositions) {
+    assert.equal(viewport.dispatch("keydown", { key }), true);
+    assert.deepEqual(graphTransform(svg), { ...expected, scale: 1 });
+    assert.equal(viewport.dispatch("keydown", { key: "0" }), true);
   }
   assert.equal(viewport.dispatch("keydown", { key: "x" }), false);
 
@@ -302,12 +330,20 @@ test("graph pan, zoom, keyboard, controls, and call-node clicks stay coordinated
     pointerId: 7,
   });
   viewport.dispatch("pointermove", {
+    clientX: 30,
+    clientY: 10,
+    pointerId: 70,
+  });
+  assert.equal(viewport.capturedPointer, null);
+  assert.equal(svg.style.transform, fitted);
+  viewport.dispatch("pointermove", {
     clientX: 20,
     clientY: 10,
     pointerId: 7,
   });
   assert.equal(viewport.capturedPointer, 7);
   assert.equal(viewport.classList.contains("panning"), true);
+  assert.deepEqual(graphTransform(svg), { scale: 1, x: 60, y: 25 });
   viewport.dispatch("pointerup", { pointerId: 7 });
   assert.equal(viewport.capturedPointer, null);
   assert.equal(viewport.classList.contains("panning"), false);
@@ -320,7 +356,25 @@ test("graph pan, zoom, keyboard, controls, and call-node clicks stay coordinated
     clientY: 10,
     pointerId: 8,
   });
-  viewport.dispatch("pointerup", { pointerId: 8 });
+  viewport.dispatch("pointermove", {
+    clientX: 10,
+    clientY: 20,
+    pointerId: 8,
+  });
+  assert.equal(viewport.capturedPointer, 8);
+  viewport.dispatch("pointercancel", { pointerId: 8 });
+  assert.equal(viewport.capturedPointer, null);
+  assert.equal(viewport.classList.contains("panning"), false);
+  platform.dispatch("click");
+  assert.deepEqual(calls, ["n1"]);
+
+  viewport.dispatch("pointerdown", {
+    button: 0,
+    clientX: 10,
+    clientY: 10,
+    pointerId: 9,
+  });
+  viewport.dispatch("pointerup", { pointerId: 9 });
   platform.dispatch("click");
   assert.deepEqual(calls, ["n1", "n2"]);
 });
