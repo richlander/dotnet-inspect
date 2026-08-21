@@ -778,22 +778,57 @@ Research overlay bridge, and the application layer:
   metadata resolver and `LibraryBodyLiftedSourceOwnerResolver` consume that
   same resolution authority. The lifted-source-owner resolver owns
   acquisition-scoped local-function/lambda owner correlation, memoized owner
-  body-reference evidence, top-level entry-point authentication, and classic
-  async state-machine type-name resolution. It consumes primary metadata
-  identity and generated-code judgments rather than duplicating them.
+  execution-body evidence, bounded reference closure across sibling lifted
+  bodies, and top-level entry-point authentication. Authenticated async
+  `MoveNext` bodies from the async-source resolver seed the same closure as
+  ordinary owner bodies. It consumes primary metadata identity, generated-code
+  judgments, and async execution mapping rather than duplicating them. Scoped
+  closure failures are retained as analysis diagnostics rather than becoming
+  success-shaped partial evidence, and identical expansion/per-method failures
+  use one metadata-derived method label and are published once.
   `OptimizationOpportunities_DuplicateMemberRefsResolveStructuralIdentityOnce`,
   `OptimizationOpportunities_SharedMemberRefDecodesOnceAcrossOwnerBodies`, and
   `LiftedOwnerMemberIdentity_RetainsExactAssemblyReferenceScope` gate cache
   sharing and scope-aware identity.
   `OptimizationOpportunities_LiftedOwnerBody_IsIndexedOnce`,
+  `ResolveDeclaredMethod_MapsSiblingReferencedLocalFunctionToOwner`,
+  `ResolveDeclaredMethod_MapsAsyncOwnerLocalFunctionToOwner`,
+  `ResolveDeclaredMethod_MapsAsyncLiftedFunctionSiblingToOwner`,
+  `DirectCalls_AsyncLiftedMoveNextComposesToDeclaredOwner`,
+  `AsyncMoveNextResolution_UsesExplicitInterfaceImplementation`,
+  `DirectCalls_DirectLiftedTypeScopeRetainsDeclaredCaller`,
+  `OptimizationOpportunities_MalformedMethodSpecCannotAuthenticateOwner`,
+  `ScopedLiftedResolution_NestedFailurePublishesOneDiagnostic`,
+  `TypeTargetedBuild_MatchesFullBuild_ForEveryMethodOfTheType`,
   `OptimizationOpportunities_ClassicAsyncTypeDefinitionsAreIndexedOnce`, and
-  the top-level local-function tests gate the lifted-owner caches and execution
-  mapping.
-  `LibraryBodyAsyncSourceResolver` owns acquisition-scoped runtime/classic
-  async source resolution, classic source-to-`MoveNext` mapping, state-machine
-  attribute authentication, and scoped evidence expansion. It reuses primary
-  metadata identity and generated-code judgments plus the builder's shared
-  local type-definition index.
+  the top-level local-function tests gate the lifted-owner caches, closure, and
+  execution mapping.
+  `LibraryBodyAsyncSourceResolver` owns acquisition-scoped runtime, classic,
+  and async-iterator source resolution; authenticated source-to-`MoveNext`
+  mapping; generated lifted-source execution mapping; and scoped evidence
+  expansion. Authenticated execution-source maps drive acquisition and
+  per-method attribution; the scope-independent fallback contains only
+  non-generated declared sources. A rejected classic state-machine mapping is
+  authoritative across attribution, acquisition, and fallback, including when
+  generated-code filtering leaves one otherwise actionable source. Generated
+  kickoff intermediates compose through lifted owners when their evidence
+  bodies are acquired, while non-IL or runtime-async kickoff bodies cannot
+  authenticate classic state machines.
+  `DirectCalls_AsyncLiftedMoveNextComposesToDeclaredOwner` gates full,
+  owner-method-scoped, and owner-type-scoped call parity plus declared-owner
+  resolution. `DirectCalls_AttributeAsyncIteratorBodiesToDeclaredSource`
+  preserves existing async-iterator attribution without broadening iterator
+  ownership.
+  `DirectCalls_SourceGeneratedAsyncCollisionCannotEscapeRejection` gates the
+  close ambiguity case across caller attribution, public resolution, and
+  method-scoped acquisition.
+  `DirectCalls_CrossKindStateMachineAttributesFailClosed` gates kind-agnostic
+  duplicate detection when classic async and async-iterator attributes occur
+  on the same source method.
+  `AsyncSource_MethodImplRequiresValidSourceMethodShape` gates the kickoff and
+  state-machine body requirements. The resolver reuses primary metadata
+  identity and generated-code judgments plus the builder's shared local
+  type-definition index.
   `OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate`,
   `AsyncStateMachineAttribute_RequiresFrameworkOrigin`,
   `ScopedStateMachineExpansion_RequiresTrustedClassicSource`, and
@@ -828,16 +863,25 @@ Research overlay bridge, and the application layer:
   `CrossAssemblyMetadataResolver_FollowsForwardersToDefiningAssembly` and
   `ForwarderIntoFrameworkSignedAssemblyIsResolvedUnderPlatformScope` gate its
   forwarder and binding-scope behavior.
-  `LibraryBodyAnalysisBuilder.AsyncSibling` owns the
-  `sync-call-in-async` opportunity because sibling discovery and recursive-slot
-  suppression require reader-relative MethodDef, MethodImpl, type hierarchy,
-  exact assembly identity, and workspace-resolution evidence. It consumes the
-  canonical direct-call rows after ordinary opportunity collection and appends
-  only this metadata-bound shape; recoverable sibling-classification failures
-  remain diagnostic without discarding independent ordinary opportunities or
-  body signals. Source-independent synchronous-definition and sibling-candidate
-  discovery is cached by exact callee identity, while accessibility and
-  dispatch suppression remain source-dependent;
+  `LibraryBodyAsyncSiblingSignatureMatcher` owns stateless async-sibling
+  signature decoding, source-frame projection, exact type identity and
+  comparison, optional cancellation matching, async return compatibility, and
+  bounded finding display.
+  `AsyncSiblingMethodMatching_PreservesOpenGenericSignature`,
+  `AsyncSiblingCancellationTokenDefault_MustBeNull`,
+  and `AsyncSiblingTypeSupport_IsLinearForSharedDag` gate representative
+  decoding, compatibility, and linear-work behavior; the identity and display
+  gates below cover the remaining policy.
+  `LibraryBodyAnalysisBuilder.AsyncSibling` owns the `sync-call-in-async`
+  opportunity because sibling discovery and recursive-slot suppression require
+  reader-relative MethodDef, MethodImpl, type hierarchy, exact assembly
+  identity, and workspace-resolution evidence. It consumes the stateless
+  matcher and canonical direct-call rows after ordinary opportunity collection
+  and appends only this metadata-bound shape; recoverable sibling-classification
+  failures remain diagnostic without discarding independent ordinary
+  opportunities or body signals. Source-independent synchronous-definition and
+  sibling-candidate discovery is cached by exact callee identity, while
+  accessibility and dispatch suppression remain source-dependent;
   `OptimizationOpportunities_DistinctCalleesIndexCandidateTypeOnce` gates the
   per-type method index that bounds distinct-callee discovery;
   `AsyncSiblingMethodIndex_ConcurrentReadsBuildTypeOnce` gates synchronized
@@ -853,19 +897,17 @@ Research overlay bridge, and the application layer:
   Constructed generic type relationships preserve DAG sharing and bound
   structural identity, comparison, and finding-display work;
   `TypeRefSharedDag_EqualityHashAndAsyncIdentityAreLinear`,
-  `AsyncSiblingExactIdentity_DistinguishesOriginsWithinSharedDag`, and
+  `AsyncSiblingExactIdentity_DistinguishesOriginsWithinSharedDag`,
   `AsyncSiblingIdentityAndMatching_DistinguishArrayShape`, and
   `AsyncSiblingTypeMatching_DistinguishesStructuredNames` gate exact identity,
   while `AsyncSiblingFindingDisplay_RejectsExponentialDagExpansion`,
-  `AsyncSiblingFindingDisplay_AcceptsWideFlatSignature`, and
-  `AsyncSiblingFindingDisplay_BoundsAggregateMemberText`, and
+  `AsyncSiblingFindingDisplay_AcceptsWideFlatSignature`,
+  `AsyncSiblingFindingDisplay_BoundsAggregateMemberText`,
   `AsyncSiblingFindingDisplay_RejectsExcessiveArrayRank`, and
   `AsyncSiblingFindingDisplay_AccumulatesNestedArrayRanks` gate per-type
-  relationship and aggregate-output limits.
-  `AsyncSiblingTypeSupport_IsLinearForSharedDag` gates signature
-  classification work. Trusted framework-contract identities, exact
-  interface-slot correspondence, friend-aware protected access, and nested
-  private-access domains are gated by
+  relationship and aggregate-output limits. Trusted framework-contract
+  identities, exact interface-slot correspondence, friend-aware protected
+  access, and nested private-access domains are gated by
   `AsyncSiblingPrivateAccess_CyclicDeclaringTypeFailsClosed`,
   `OptimizationOpportunities_PrivateAccessIsDirectionalAcrossNestedTypes`,
   `OptimizationOpportunities_MethodImplSelfDispatchIsSuppressed`,
