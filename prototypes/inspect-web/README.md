@@ -570,6 +570,17 @@ selection, visible failure, hidden type completion, graph close/cancellation,
 and graph failure; `test/spotlight-identity.test.js` gates engine and
 composition-root wiring.
 
+`src/metadata-inspection.ts` owns the type-metadata request lifecycle and the
+Metadata Explorer's table-window and heap-listing requests, including cache
+identity, package/platform routing, stale-explorer suppression, visible
+loading/failure state, and focus-aware completion. `dotnet-inspect.ts` supplies
+typed state, engine, rendering, and scroll ports while retaining selection
+validation, explorer focus/history navigation, and DOM effects.
+`test/metadata-inspection.test.ts` gates cached and stale type completions,
+focus preservation, explorer routing, window identity, failure publication,
+and focused scrolling; `test/spotlight-identity.test.js` gates composition-root
+wiring.
+
 `src/spotlight.ts` owns the modal workbench search, embedded home search,
 scope/result rendering, selection, and keyboard interaction.
 `src/command-bar.ts` supplies its typed Commands-scope grammar and results;
@@ -643,9 +654,10 @@ headers) and the Metadata Explorer (the spatial table/heap drill-down laid over
 it) as pure, dependency-injected render functions; both describe the metadata
 image rather than the API surface within it, so they share one module the way
 `type-panel.ts` combines the type selector and the type viewer.
-`package-inspection.ts` coordinates the package-level image request;
-`dotnet-inspect.ts` still owns `state`, table-window and heap-listing engine
-calls, the explorer's focus/history stack, the DOM event binding, the
+`package-inspection.ts` coordinates the package-level image request, while
+`metadata-inspection.ts` coordinates type metadata and the explorer's
+table-window and heap-listing requests. `dotnet-inspect.ts` still owns `state`,
+the explorer's focus/history stack, the DOM event binding, the
 `IntersectionObserver` that hydrates cards lazily, the resize listener, and
 the global keydown handler, and passes each computed slice in explicitly; the
 shared helpers used well beyond these views (`escapeHtml`, `fmtBytes`,
