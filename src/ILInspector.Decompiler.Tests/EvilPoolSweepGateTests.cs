@@ -71,6 +71,14 @@ public class EvilPoolSweepGateTests
     const string LeadPackage = "sweep.lead";
     const string LeadAssembly = "Sweep.Lead.dll";
 
+    const string RunLockWorkerModeEnvironmentVariable =
+        "DOTNET_INSPECT_SWEEP_RUN_LOCK_WORKER";
+    const string RunLockWorkerResultEnvironmentVariable =
+        "DOTNET_INSPECT_SWEEP_RUN_LOCK_RESULT";
+    const string RunLockGateMethod =
+        "ILInspector.Decompiler.Tests.EvilPoolSweepGateTests."
+        + "SweepLauncherSerializesIndependentTestHosts";
+
     // A third package, committed by every world and pooled by none of them, which ships a
     // nuspec and no library at all. It is what the !IsSelected arm needs: the two packages
     // above both ship an assembly, so that whole arm -- library-unavailable, and the
@@ -165,6 +173,55 @@ public class EvilPoolSweepGateTests
                     "prepare-decompiler-package-sweep.cs"),
             ],
             startInfo.ArgumentList);
+    }
+
+    /// <summary>
+    /// The package-sweep file app has one launcher across independent test hosts, not
+    /// merely one launcher per xUnit process (#4471).
+    /// </summary>
+    [Fact]
+    public void SweepLauncherSerializesIndependentTestHosts()
+    {
+        string? workerMode = Environment.GetEnvironmentVariable(
+            RunLockWorkerModeEnvironmentVariable);
+        if (workerMode is not null)
+        {
+            RunLockWorker(workerMode);
+            return;
+        }
+
+        string blockedResult = Path.Combine(
+            Path.GetTempPath(),
+            $"evil-sweep-run-lock-blocked-{Guid.NewGuid():N}");
+        string acquiredResult = Path.Combine(
+            Path.GetTempPath(),
+            $"evil-sweep-run-lock-acquired-{Guid.NewGuid():N}");
+        try
+        {
+            SweepHostResult blocked;
+            using (EvilPoolSweepProcess.AcquireRunLock(TimeSpan.FromMinutes(6)))
+            {
+                blocked = RunLockWorkerHost("probe", blockedResult);
+            }
+
+            Assert.True(
+                blocked.ExitCode == 0,
+                $"Lock probe failed at exit {blocked.ExitCode}.\n"
+                + $"stdout:\n{blocked.Output}\nstderr:\n{blocked.Error}");
+            Assert.Equal("blocked", File.ReadAllText(blockedResult));
+
+            SweepHostResult acquired = RunLockWorkerHost("acquire", acquiredResult);
+            Assert.True(
+                acquired.ExitCode == 0,
+                $"Lock acquisition worker failed at exit {acquired.ExitCode}.\n"
+                + $"stdout:\n{acquired.Output}\nstderr:\n{acquired.Error}");
+            Assert.Equal("acquired", File.ReadAllText(acquiredResult));
+        }
+        finally
+        {
+            File.Delete(blockedResult);
+            File.Delete(acquiredResult);
+        }
     }
 
     /// <summary>
@@ -1258,6 +1315,98 @@ public class EvilPoolSweepGateTests
         }
     }
 
+    static void RunLockWorker(string mode)
+    {
+        string resultPath = Environment.GetEnvironmentVariable(
+            RunLockWorkerResultEnvironmentVariable)
+            ?? throw new InvalidOperationException(
+                $"Missing {RunLockWorkerResultEnvironmentVariable}.");
+
+        try
+        {
+            TimeSpan timeout = mode switch
+            {
+                "probe" => TimeSpan.Zero,
+                "acquire" => TimeSpan.FromMinutes(1),
+                _ => throw new InvalidOperationException(
+                    $"Unknown sweep run-lock worker mode '{mode}'."),
+            };
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")
+                    is { Length: > 0 } host
+                        ? host
+                        : "dotnet",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            startInfo.ArgumentList.Add("--info");
+            using EvilPoolSweepRun run =
+                EvilPoolSweepProcess.Start(startInfo, timeout);
+            Process process = run.Process;
+            Task<string> output = process.StandardOutput.ReadToEndAsync();
+            Task<string> error = process.StandardError.ReadToEndAsync();
+            if (!process.WaitForExit((int)TimeSpan.FromMinutes(1).TotalMilliseconds))
+            {
+                process.Kill(entireProcessTree: true);
+                throw new TimeoutException(
+                    "The sweep run-lock worker process did not exit within one minute.");
+            }
+
+            Assert.True(
+                process.ExitCode == 0,
+                $"The sweep run-lock worker exited {process.ExitCode}.\n"
+                + $"stdout:\n{output.GetAwaiter().GetResult()}\n"
+                + $"stderr:\n{error.GetAwaiter().GetResult()}");
+            File.WriteAllText(resultPath, "acquired");
+        }
+        catch (TimeoutException) when (mode == "probe")
+        {
+            File.WriteAllText(resultPath, "blocked");
+        }
+    }
+
+    static SweepHostResult RunLockWorkerHost(string mode, string resultPath)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")
+                is { Length: > 0 } host
+                    ? host
+                    : "dotnet",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        startInfo.ArgumentList.Add(typeof(Program).Assembly.Location);
+        startInfo.ArgumentList.Add("-method");
+        startInfo.ArgumentList.Add(RunLockGateMethod);
+        startInfo.ArgumentList.Add("-noColor");
+        startInfo.Environment[RunLockWorkerModeEnvironmentVariable] = mode;
+        startInfo.Environment[RunLockWorkerResultEnvironmentVariable] = resultPath;
+
+        using Process process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException(
+                "Could not start the sweep run-lock worker host.");
+        Task<string> output = process.StandardOutput.ReadToEndAsync();
+        Task<string> error = process.StandardError.ReadToEndAsync();
+        if (!process.WaitForExit((int)TimeSpan.FromMinutes(2).TotalMilliseconds))
+        {
+            process.Kill(entireProcessTree: true);
+            Assert.Fail(
+                "The sweep run-lock worker host did not exit within two minutes.");
+        }
+
+        return new SweepHostResult(
+            process.ExitCode,
+            output.GetAwaiter().GetResult(),
+            error.GetAwaiter().GetResult());
+    }
+
+    readonly record struct SweepHostResult(
+        int ExitCode,
+        string Output,
+        string Error);
+
     static IReadOnlyList<string> PooledAssemblies(string outputDirectory) =>
         Directory.Exists(Path.Combine(outputDirectory, "packages"))
             ? Directory.GetFiles(Path.Combine(outputDirectory, "packages"), "*.dll", SearchOption.AllDirectories)
@@ -1919,8 +2068,8 @@ public class EvilPoolSweepGateTests
             // Isolation from the shared NuGet cache is DOTNET_INSPECT_ISOLATED's job, which
             // the sweep applies to its own lookups and not to its restore.
 
-            using var process = Process.Start(startInfo)
-                ?? throw new InvalidOperationException("could not start the sweep");
+            using EvilPoolSweepRun run = EvilPoolSweepProcess.Start(startInfo);
+            Process process = run.Process;
 
             var output = process.StandardOutput.ReadToEndAsync();
             var failures = process.StandardError.ReadToEndAsync();

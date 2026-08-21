@@ -359,8 +359,8 @@ public class EvilPoolPinTests
         startInfo.ArgumentList.Add("--");
         startInfo.ArgumentList.Add("--list-pin-rules");
 
-        using var process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException("could not start the sweep");
+        using EvilPoolSweepRun run = EvilPoolSweepProcess.Start(startInfo);
+        Process process = run.Process;
         string output = ReadToExit(process, out string errors);
 
         Assert.True(
@@ -462,8 +462,8 @@ public class EvilPoolPinTests
         startInfo.ArgumentList.Add("1");
         startInfo.ArgumentList.Add("1");
 
-        using var process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException("could not start the sweep");
+        using EvilPoolSweepRun run = EvilPoolSweepProcess.Start(startInfo);
+        Process process = run.Process;
         string output = ReadToExit(process, out string errors);
         return (process.ExitCode, output, errors);
     }
@@ -505,8 +505,8 @@ public class EvilPoolPinTests
         foreach (string path in paths)
             startInfo.ArgumentList.Add(path);
 
-        using var process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException("could not start the sweep");
+        using EvilPoolSweepRun run = EvilPoolSweepProcess.Start(startInfo);
+        Process process = run.Process;
         string output = ReadToExit(process, out string errors);
 
         string[] lines = output
