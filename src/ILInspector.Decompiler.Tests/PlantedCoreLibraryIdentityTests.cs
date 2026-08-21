@@ -185,12 +185,21 @@ public class PlantedCoreLibraryIdentityTests
 
         // A project acquisition may carry no target framework at all, and
         // round 4 found that absence was a shape nothing exercised. Denial
-        // must not depend on the optional fields being populated.
+        // must not depend on the optional fields being populated. Round 5
+        // added the empty spelling: absent and blank are distinct states, and
+        // a rule keyed on either reads as the same intent.
         RunWithResolvedCoreLibrary(
             AssemblyResolutionProvenance.Project(
                 "Contoso.csproj",
                 tfm: null,
                 rid: null),
+            expectedCorelib: false);
+
+        RunWithResolvedCoreLibrary(
+            AssemblyResolutionProvenance.Project(
+                "Contoso.csproj",
+                tfm: string.Empty,
+                rid: string.Empty),
             expectedCorelib: false);
     }
 
@@ -286,7 +295,7 @@ public class PlantedCoreLibraryIdentityTests
     /// content-keyed rule could plausibly notice. <c>MayMint</c> must answer
     /// identically for all of them.
     /// <para>
-    /// Each spelling is used three times, and each shape answers a question the
+    /// Each spelling is used four times, and each shape answers a question the
     /// others cannot. The **uniform** shape sets every field to the same value,
     /// which catches a rule comparing a field against a constant, such as
     /// <c>PackageAsset { PackageId: "System.Runtime" }</c>. The **distinct**
@@ -295,33 +304,47 @@ public class PlantedCoreLibraryIdentityTests
     /// <c>ProjectAsset p when p.Project != p.Tfm</c>. The **absent** shape
     /// passes <see langword="null"/> for every optional field, which catches a
     /// rule keyed on a field simply not being there, such as
-    /// <c>ProjectAsset { Tfm: null }</c>.
+    /// <c>ProjectAsset { Tfm: null }</c>. The **blank** shape passes the empty
+    /// string for those same fields, because an optional field has three
+    /// states rather than two: a rule written as
+    /// <c>ProjectAsset { Tfm: "" }</c> reads as an absence test but is a
+    /// distinct one, and only an empty value distinguishes it.
     /// </para>
     /// <para>
     /// Each shape was added because a round found a rule the previous shapes
     /// could not distinguish — values alone in round 2, the relationship
-    /// between values in round 3, and their absence in round 4. Several
-    /// acquisitions carry optional fields (a project without a target
-    /// framework or runtime identifier, a package without either), so
-    /// <see langword="null"/> is an ordinary value here rather than an exotic
-    /// one, and a rule that reads it is a plausible confusion rather than a
-    /// contrived attack.
+    /// between values in round 3, their absence in round 4, and absence
+    /// spelled as empty rather than null in round 5. Several acquisitions
+    /// carry optional fields (a project without a target framework or runtime
+    /// identifier, a package without either), so both spellings of "no value"
+    /// are ordinary here rather than exotic, and a rule that reads either is a
+    /// plausible confusion rather than a contrived attack. Only optional
+    /// fields are left blank: the required ones reject blank input at
+    /// construction, so a blank there would fail the generator instead of the
+    /// gate.
     /// </para>
     /// </summary>
     static AssemblyResolutionProvenance[] Variants(Type provenanceType) =>
-        ProvenanceSpellings
-            .SelectMany(spelling => new[]
-            {
-                Construct(provenanceType, (_, _) => spelling),
-                Construct(
-                    provenanceType,
-                    (parameter, index) => $"{spelling}.{index}.{parameter.Name}"),
-                Construct(
-                    provenanceType,
-                    (parameter, index) => IsOptional(parameter)
-                        ? null
-                        : $"{spelling}.{index}.{parameter.Name}"),
-            })
+        provenanceType.GetConstructors()
+            .SelectMany(constructor => ProvenanceSpellings
+                .SelectMany(spelling => new[]
+                {
+                    Construct(constructor, (_, _) => spelling),
+                    Construct(
+                        constructor,
+                        (parameter, index) =>
+                            $"{spelling}.{index}.{parameter.Name}"),
+                    Construct(
+                        constructor,
+                        (parameter, index) => IsOptional(parameter)
+                            ? null
+                            : $"{spelling}.{index}.{parameter.Name}"),
+                    Construct(
+                        constructor,
+                        (parameter, index) => IsOptional(parameter)
+                            ? string.Empty
+                            : $"{spelling}.{index}.{parameter.Name}"),
+                }))
             .ToArray();
 
     /// <summary>
@@ -362,21 +385,22 @@ public class PlantedCoreLibraryIdentityTests
             .ToArray();
 
     /// <summary>
-    /// Builds a provenance of the given type, taking each argument from
-    /// <paramref name="value"/>. The widest public constructor is used, so an
-    /// acquisition that later gains a convenience overload is still exercised
-    /// across all of its fields. Each constructor in this hierarchy takes only
-    /// strings, and the required ones reject blank input, so any non-blank
-    /// value satisfies all of them without the test needing to know which
-    /// arguments a particular acquisition carries.
+    /// Builds a provenance through the given constructor, taking each argument
+    /// from <paramref name="value"/>. Callers pass every public constructor
+    /// rather than one chosen constructor: round 5 observed that a wider
+    /// overload delegating to a narrower one can pin a field to a value no
+    /// argument controls, so a rule keyed on that pinned value would answer
+    /// identically for every variant built through the wider overload alone.
+    /// Each constructor in this hierarchy takes only strings, and the required
+    /// ones reject blank input, so any non-blank value satisfies all of them
+    /// without the test needing to know which arguments a particular
+    /// acquisition carries.
     /// </summary>
     static AssemblyResolutionProvenance Construct(
-        Type provenanceType,
+        ConstructorInfo constructor,
         Func<ParameterInfo, int, string?> value)
     {
-        ConstructorInfo constructor = provenanceType.GetConstructors()
-            .OrderByDescending(c => c.GetParameters().Length)
-            .First();
+        Type provenanceType = constructor.DeclaringType!;
 
         // Without this the reflection call below throws from inside the BCL,
         // which still fails the gate but reports a MemberAccessException
