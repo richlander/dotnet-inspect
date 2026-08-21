@@ -13,7 +13,9 @@ public static class ApiMemberSectionPipelines
             ? ApiMemberDetailSectionDescriptors.CreatePipeline()
             : UsesOverloadInventoryPipeline(options)
                 ? ApiMemberOverloadSectionDescriptors.CreatePipeline()
-                : ApiMemberSectionDescriptors.CreatePipeline();
+                : options is MemberOptions
+                    ? ApiMemberInventorySectionDescriptors.CreatePipeline()
+                    : ApiMemberSectionDescriptors.CreatePipeline();
 
     public static bool UsesDetailPipeline(ApiOptions options)
         => options is MemberOptions { OverloadIndex: not null }

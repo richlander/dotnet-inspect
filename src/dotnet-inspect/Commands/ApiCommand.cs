@@ -53,6 +53,8 @@ public class ApiCommand
             Print = options.Print, PrintRow = options.PrintRow,
             Value = options.Value, Urls = options.Urls, Paths = options.Paths,
             Select = options.Select, SelectDefault = options.SelectDefault,
+            SelectsFullCatalog = options.SelectsFullCatalog,
+            VerbosityExplicitlySet = options.VerbosityExplicitlySet,
             Columns = options.Columns, Fields = options.Fields,
             Schema = options.Schema, Count = options.Count, SourceOptions = options.SourceOptions,
             TipLevel = options.TipLevel, RenderOptions = options.RenderOptions,
@@ -106,7 +108,12 @@ public class ApiCommand
             return null;
 
         var listingOptions = selectResult.Sections != null
-            ? options with { IncludeSections = selectResult.Sections, SelectDeferredToListing = false }
+            ? options with
+            {
+                IncludeSections = selectResult.Sections,
+                SelectsFullCatalog = selectResult.SelectsFullCatalog,
+                SelectDeferredToListing = false,
+            }
             : options with { SelectDeferredToListing = false };
 
         // The preamble skips the selection-arity checks for a deferred select because it cannot yet
@@ -311,7 +318,13 @@ public class ApiCommand
                 return (null!, 1);
             }
             if (selectResult.Sections != null)
-                options = options with { IncludeSections = selectResult.Sections };
+            {
+                options = options with
+                {
+                    IncludeSections = selectResult.Sections,
+                    SelectsFullCatalog = selectResult.SelectsFullCatalog,
+                };
+            }
         }
         if (options is
             {
@@ -412,6 +425,13 @@ public class ApiCommand
             var typeVerbosity = typePipeline.GetRequiredVerbosity(options.IncludeSections);
             var memberVerbosity = memberPipeline.GetRequiredVerbosity(options.IncludeSections);
             var requiredVerbosity = typeVerbosity > memberVerbosity ? typeVerbosity : memberVerbosity;
+            if (options is TypeOptions
+                && options.SelectsFullCatalog
+                && !options.VerbosityExplicitlySet
+                && requiredVerbosity < Verbosity.Normal)
+            {
+                requiredVerbosity = Verbosity.Normal;
+            }
             if (requiredVerbosity > options.Verbosity)
                 options = options with { Verbosity = requiredVerbosity };
         }

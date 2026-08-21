@@ -26,6 +26,12 @@ public record SelectResult(HashSet<string>? Sections, IReadOnlyList<SelectMiss> 
     /// Category and glob expansions are intentionally excluded.
     /// </summary>
     public HashSet<string> ExactSections { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The selection contains the universal <c>*</c> glob or the compatible
+    /// <c>@All</c> pole and resolved it against the complete active catalog.
+    /// </summary>
+    public bool SelectsFullCatalog { get; init; }
 }
 
 /// <summary>
@@ -233,6 +239,7 @@ public static class SelectResolver
         var matched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var exact = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var unresolved = new List<SelectMiss>();
+        bool selectsFullCatalog = false;
 
         if (selectDefault)
             foreach (var section in infoSections ?? [])
@@ -246,6 +253,8 @@ public static class SelectResolver
                 {
                     foreach (var section in categorySections)
                         matched.Add(section);
+                    if (value.Equals(AllSelector, StringComparison.OrdinalIgnoreCase))
+                        selectsFullCatalog = true;
                     continue;
                 }
 
@@ -254,6 +263,12 @@ public static class SelectResolver
             }
 
             var (matches, miss, isExactSection) = ResolveSingleWithProvenance(value, knownSections);
+            if (value == "*"
+                && miss is null
+                && matches.Count == knownSections.Length)
+            {
+                selectsFullCatalog = true;
+            }
             foreach (var m in matches)
             {
                 matched.Add(m);
@@ -296,7 +311,8 @@ public static class SelectResolver
 
         return new(matched.Count > 0 ? matched : null, unresolved)
         {
-            ExactSections = exact
+            ExactSections = exact,
+            SelectsFullCatalog = selectsFullCatalog,
         };
     }
 

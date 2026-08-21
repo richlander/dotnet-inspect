@@ -371,6 +371,7 @@ public static class MemberOptionsParser
             Schema = opts.ParseSchema(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
+            VerbosityExplicitlySet = opts.IsVerbosityExplicitlySet(parseResult),
             SourceOptions = sourceOptions
         };
 

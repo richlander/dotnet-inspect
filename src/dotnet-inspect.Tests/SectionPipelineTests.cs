@@ -7005,6 +7005,33 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void ApiMemberInventoryPipeline_ExcludesTypeOwnedSections()
+    {
+        var typePipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        var inventoryPipeline = ApiMemberInventorySectionDescriptors.CreatePipeline();
+        string[] excluded =
+        [
+            SectionNames.ExceptionRegions,
+            SectionNames.CalledTypes,
+            SectionNames.AllocationFacts,
+            SectionNames.SafetyFacts,
+            SectionNames.CostFacts,
+            SectionNames.TopLeverage,
+            SectionNames.PerformanceTriage,
+            SectionNames.BodyShapes,
+            SectionNames.SourceFiles,
+            SectionNames.DecompiledSource,
+        ];
+
+        Assert.Equal(
+            excluded.OrderBy(name => name, StringComparer.OrdinalIgnoreCase),
+            typePipeline.AllSectionNames
+                .Except(inventoryPipeline.AllSectionNames, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase));
+        Assert.Contains(SectionNames.UnsafeMembers, inventoryPipeline.AllSectionNames);
+    }
+
+    [Fact]
     public void ApiMemberPipeline_InfoPreset_UsesMethodGroups()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();

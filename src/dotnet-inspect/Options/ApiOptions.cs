@@ -180,6 +180,18 @@ public partial record ApiOptions : IProjectionOptions
     public bool SelectDefault { get; init; }
 
     /// <summary>
+    /// The resolved selection came from the universal <c>*</c> selector or the
+    /// compatible <c>@All</c> pole, rather than from a narrower glob or category.
+    /// </summary>
+    public bool SelectsFullCatalog { get; init; }
+
+    /// <summary>
+    /// Whether the user explicitly supplied <c>-v</c>. Explicit verbosity wins
+    /// over automatic section-selection promotion.
+    /// </summary>
+    public bool VerbosityExplicitlySet { get; init; }
+
+    /// <summary>
     /// Set when the preamble rejected <see cref="Select"/> against the single-type pipeline but the
     /// same values resolve against the type listing, so the decision has to wait until the command
     /// knows which of the two it renders.

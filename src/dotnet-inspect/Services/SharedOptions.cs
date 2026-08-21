@@ -557,6 +557,9 @@ public class SharedOptions
         => IsFormatFlagExplicitlySet(parseResult)
            || OutputFormatResolver.GetEnvironmentOverride() != null;
 
+    public bool IsVerbosityExplicitlySet(ParseResult parseResult)
+        => parseResult.GetResult(Verbosity) is { Implicit: false };
+
     /// <summary>
     /// Returns true when the user explicitly chose an output format via CLI flags.
     /// Environment defaults are excluded so command-specific shape flags can supersede them.

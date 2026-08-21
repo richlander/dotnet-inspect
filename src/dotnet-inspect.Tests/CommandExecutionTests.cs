@@ -6181,6 +6181,114 @@ public partial class CommandExecutionTests
         Assert.Contains("| Canonical Signature | column |", output);
     }
 
+    [Theory]
+    [InlineData("Called Types")]
+    [InlineData("Decompiled Source")]
+    public async Task Member_UnfilteredTypeOwnedSection_IsRejected(string section)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(SampleClassForTesting).FullName!,
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            section,
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains($"Select value '{section}' not found", error);
+    }
+
+    [Fact]
+    public void Type_FullCatalogSelection_PromotesUnlessVerbosityWasExplicit()
+    {
+        var (automatic, automaticError) = ApiCommand.RunPreamble(new TypeOptions
+        {
+            TypeName = typeof(SampleClassForTesting).FullName,
+            Select = ["*"],
+            Verbosity = Verbosity.Minimal,
+        });
+        var (explicitQuiet, explicitQuietError) = ApiCommand.RunPreamble(new TypeOptions
+        {
+            TypeName = typeof(SampleClassForTesting).FullName,
+            Select = ["*"],
+            Verbosity = Verbosity.Quiet,
+            VerbosityExplicitlySet = true,
+        });
+        var (compatibleAll, compatibleAllError) = ApiCommand.RunPreamble(new TypeOptions
+        {
+            TypeName = typeof(SampleClassForTesting).FullName,
+            Select = ["@All"],
+            Verbosity = Verbosity.Minimal,
+        });
+
+        Assert.Null(automaticError);
+        Assert.True(automatic.Options.SelectsFullCatalog);
+        Assert.Equal(Verbosity.Normal, automatic.Options.Verbosity);
+        Assert.Null(explicitQuietError);
+        Assert.True(explicitQuiet.Options.SelectsFullCatalog);
+        Assert.Equal(Verbosity.Quiet, explicitQuiet.Options.Verbosity);
+        Assert.Null(compatibleAllError);
+        Assert.True(compatibleAll.Options.SelectsFullCatalog);
+        Assert.Equal(Verbosity.Normal, compatibleAll.Options.Verbosity);
+    }
+
+    [Fact]
+    public async Task Type_FullCatalogSelection_RetainsLocalXmlDocumentation()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-full-catalog-docs-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        string assemblyPath = Path.Combine(tempDir, "DocsFixture.dll");
+        File.Copy(TestAssemblyPath, assemblyPath);
+        string pdbPath = Path.ChangeExtension(TestAssemblyPath, ".pdb");
+        if (File.Exists(pdbPath))
+            File.Copy(pdbPath, Path.ChangeExtension(assemblyPath, ".pdb"));
+        await File.WriteAllTextAsync(
+            Path.ChangeExtension(assemblyPath, ".xml"),
+            """
+            <?xml version="1.0"?>
+            <doc>
+              <assembly><name>dotnet-inspect.Tests</name></assembly>
+              <members>
+                <member name="T:DotnetInspector.Tests.SampleClassForTesting">
+                  <summary>Full catalog type documentation.</summary>
+                </member>
+                <member name="M:DotnetInspector.Tests.SampleClassForTesting.MethodWithParameters(System.Int32,System.String)">
+                  <summary>Full catalog member documentation.</summary>
+                </member>
+              </members>
+            </doc>
+            """,
+            TestContext.Current.CancellationToken);
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "type",
+                typeof(SampleClassForTesting).FullName!,
+                "--library",
+                assemblyPath,
+                "-S",
+                "*",
+                "--markdown",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("Error:", error);
+            Assert.Contains("Full catalog type documentation.", output);
+            Assert.Contains("Full catalog member documentation.", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Member_DiscoverEffective_HidesSelectColumn()
     {

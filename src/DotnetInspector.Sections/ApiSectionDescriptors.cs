@@ -110,6 +110,26 @@ public static class ApiMemberSectionDescriptors
     /// <summary>Builds the section pipeline for the type-detail view.</summary>
     public static SectionPipeline<ApiType> CreatePipeline()
     {
+        return CreateInventoryCore()
+            .Add<ExceptionRegions>(HasBodyBackedMembers, HasExecutableBodyMembers)
+            .Add<CalledTypes>(HasBodyBackedMembers, HasExecutableBodyMembers)
+            .Add<AllocationFacts>(HasBodyBackedMembers, HasExecutableBodyMembers)
+            .Add<SafetyFacts>(HasBodyBackedMembers, HasExecutableBodyMembers)
+            .Add<CostFacts>(HasBodyBackedMembers, HasExecutableBodyMembers)
+            .Add<TopLeverage>(HasBodyBackedMembers, HasExecutableBodyMembers)
+            .Add<OptimizationOpportunities>(HasBodyBackedMembers, HasExecutableBodyMembers)
+            .Add<ApiMemberDetailSectionDescriptors.BodyShapes>(
+                HasBodyBackedMembers,
+                HasExecutableBodyMembers)
+            .Add<SourceFiles>(HasSourceFiles, HasSourceFiles)
+            .Add<DecompiledSource>(
+                HasBodyBackedMembersOrEnum,
+                HasExecutableBodyMembersOrEnum)
+            .AddCategory(SectionCategoryNames.Audit, SectionNames.UnsafeMembers);
+    }
+
+    internal static SectionPipeline<ApiType> CreateInventoryCore()
+    {
         return new SectionPipeline<ApiType>()
             .Add<TypeInfo>()
             .Add<Values>()
@@ -128,22 +148,7 @@ public static class ApiMemberSectionDescriptors
             .Add<ExtensionMethods>(HasExtensionMethods)
             .Add<Events>()
             .Add<MethodAttributes>()
-            .Add<UnsafeMembers>()
-            .Add<ExceptionRegions>(HasBodyBackedMembers, HasExecutableBodyMembers)
-            .Add<CalledTypes>(HasBodyBackedMembers, HasExecutableBodyMembers)
-            .Add<AllocationFacts>(HasBodyBackedMembers, HasExecutableBodyMembers)
-            .Add<SafetyFacts>(HasBodyBackedMembers, HasExecutableBodyMembers)
-            .Add<CostFacts>(HasBodyBackedMembers, HasExecutableBodyMembers)
-            .Add<TopLeverage>(HasBodyBackedMembers, HasExecutableBodyMembers)
-            .Add<OptimizationOpportunities>(HasBodyBackedMembers, HasExecutableBodyMembers)
-            .Add<ApiMemberDetailSectionDescriptors.BodyShapes>(
-                HasBodyBackedMembers,
-                HasExecutableBodyMembers)
-            .Add<SourceFiles>(HasSourceFiles, HasSourceFiles)
-            .Add<DecompiledSource>(
-                HasBodyBackedMembersOrEnum,
-                HasExecutableBodyMembersOrEnum)
-            .AddCategory(SectionCategoryNames.Audit, SectionNames.UnsafeMembers);
+            .Add<UnsafeMembers>();
     }
 
     // ===== Declarative sections (rendered via Markout [MarkoutSection]) =====
@@ -745,6 +750,18 @@ public static class ApiMemberOverloadSectionDescriptors
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "method");
     }
+}
+
+/// <summary>
+/// Sections owned by the unfiltered <c>member &lt;type&gt;</c> inventory.
+/// Type-wide body analysis, source aggregation, and decompilation remain on
+/// <c>type</c>; selected overloads use their dedicated detail pipelines.
+/// </summary>
+public static class ApiMemberInventorySectionDescriptors
+{
+    public static SectionPipeline<ApiType> CreatePipeline()
+        => ApiMemberSectionDescriptors.CreateInventoryCore()
+            .AddCategory(SectionCategoryNames.Audit, SectionNames.UnsafeMembers);
 }
 
 /// <summary>

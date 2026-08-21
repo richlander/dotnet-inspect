@@ -97,6 +97,26 @@ public class SelectResolverTests
         Assert.NotNull(result.Sections);
         Assert.Empty(result.Unresolved);
         Assert.Equal(TestSections.OrderBy(s => s), result.Sections!.OrderBy(s => s));
+        Assert.True(result.SelectsFullCatalog);
+    }
+
+    [Fact]
+    public void ResolveSelect_UniversalGlob_RecordsFullCatalogProvenance()
+    {
+        var result = SelectResolver.ResolveSelectAsSections(["*"], TestSections);
+
+        Assert.NotNull(result.Sections);
+        Assert.Empty(result.Unresolved);
+        Assert.Equal(TestSections.OrderBy(s => s), result.Sections!.OrderBy(s => s));
+        Assert.True(result.SelectsFullCatalog);
+    }
+
+    [Fact]
+    public void ResolveSelect_TopicalGlob_DoesNotRecordFullCatalogProvenance()
+    {
+        var result = SelectResolver.ResolveSelectAsSections(["Package*"], TestSections);
+
+        Assert.False(result.SelectsFullCatalog);
     }
 
     /// <summary>
