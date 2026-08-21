@@ -15,12 +15,19 @@ internal sealed class NuGetGalleryRegistrationBudget
     internal const int MinimumLeafCount = 4_096;
     private const int LeafCountMultiplier = 4;
 
+    private readonly long _maximumBytes;
     private readonly int _maximumLeafCount;
+    private long _remainingBytes;
     private int _observedLeafCount;
 
-    internal NuGetGalleryRegistrationBudget(int candidateCount)
+    internal NuGetGalleryRegistrationBudget(
+        int candidateCount,
+        long maximumBytes)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(candidateCount);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumBytes);
+        _maximumBytes = maximumBytes;
+        _remainingBytes = maximumBytes;
         long scaledCount = (long)candidateCount * LeafCountMultiplier;
         _maximumLeafCount = (int)Math.Min(
             int.MaxValue,
@@ -36,6 +43,9 @@ internal sealed class NuGetGalleryRegistrationBudget
         }
     }
 
+    internal Stream LimitBytes(Stream stream) =>
+        new BudgetedReadStream(stream, this);
+
     internal void ObserveLeaf()
     {
         if (Interlocked.Increment(ref _observedLeafCount)
@@ -48,6 +58,158 @@ internal sealed class NuGetGalleryRegistrationBudget
 
     private static JsonException Invalid(string message) =>
         new(message);
+
+    private int ReserveBytes(int requested)
+    {
+        while (true)
+        {
+            long remaining = Volatile.Read(ref _remainingBytes);
+            if (remaining <= 0)
+                return 0;
+
+            int reserved = (int)Math.Min(requested, remaining);
+            if (Interlocked.CompareExchange(
+                    ref _remainingBytes,
+                    remaining - reserved,
+                    remaining) == remaining)
+            {
+                return reserved;
+            }
+        }
+    }
+
+    private void ReturnBytes(int count)
+    {
+        if (count > 0)
+            Interlocked.Add(ref _remainingBytes, count);
+    }
+
+    private void ThrowByteLimitExceeded() =>
+        throw new NuGetMetadataResponseTooLargeException(_maximumBytes);
+
+    private sealed class BudgetedReadStream(
+        Stream inner,
+        NuGetGalleryRegistrationBudget budget) : Stream
+    {
+        public override bool CanRead => inner.CanRead;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            Read(buffer.AsSpan(offset, count));
+
+        public override int Read(Span<byte> buffer)
+        {
+            if (buffer.IsEmpty)
+                return 0;
+
+            int reserved = budget.ReserveBytes(buffer.Length);
+            if (reserved == 0)
+            {
+                if (inner.Read(buffer[..1]) == 0)
+                    return 0;
+
+                budget.ThrowByteLimitExceeded();
+            }
+
+            try
+            {
+                int read = inner.Read(buffer[..reserved]);
+                budget.ReturnBytes(reserved - read);
+                return read;
+            }
+            catch
+            {
+                budget.ReturnBytes(reserved);
+                throw;
+            }
+        }
+
+        public override int ReadByte()
+        {
+            int reserved = budget.ReserveBytes(1);
+            if (reserved == 0)
+            {
+                if (inner.ReadByte() < 0)
+                    return -1;
+
+                budget.ThrowByteLimitExceeded();
+            }
+
+            try
+            {
+                int value = inner.ReadByte();
+                if (value < 0)
+                    budget.ReturnBytes(reserved);
+                return value;
+            }
+            catch
+            {
+                budget.ReturnBytes(reserved);
+                throw;
+            }
+        }
+
+        public override Task<int> ReadAsync(
+            byte[] buffer,
+            int offset,
+            int count,
+            CancellationToken cancellationToken) =>
+            ReadAsync(
+                buffer.AsMemory(offset, count),
+                cancellationToken).AsTask();
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (buffer.IsEmpty)
+                return 0;
+
+            int reserved = budget.ReserveBytes(buffer.Length);
+            if (reserved == 0)
+            {
+                int sentinel = await inner.ReadAsync(
+                    buffer[..1],
+                    cancellationToken).ConfigureAwait(false);
+                if (sentinel == 0)
+                    return 0;
+
+                budget.ThrowByteLimitExceeded();
+            }
+
+            try
+            {
+                int read = await inner.ReadAsync(
+                    buffer[..reserved],
+                    cancellationToken).ConfigureAwait(false);
+                budget.ReturnBytes(reserved - read);
+                return read;
+            }
+            catch
+            {
+                budget.ReturnBytes(reserved);
+                throw;
+            }
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+    }
 }
 
 internal static class NuGetGalleryRegistration

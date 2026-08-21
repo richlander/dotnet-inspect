@@ -627,18 +627,21 @@ SemVer2 registration index. Inline pages are consumed in place. External page
 IDs are accepted only as validated HTTPS package-page identities and are
 rebased to the Gallery CDN; their advertised host is never dereferenced.
 Registration pages are fetched in bounded concurrent batches under the same
-operation deadline. The index admits at most 128 pages, and leaf work is capped
-at the greater of 4,096 observations or four times the flat-container candidate
-count. Parsing validates every leaf inside that budget but retains listing state
-only for normalized flat-container candidates, so unrelated registration
-versions cannot grow retained registration state. A complete join reports
-authoritative `listed` and `unlisted` candidates. Missing, malformed,
-incomplete, unavailable, or over-budget registration data returns the
-flat-container candidates as a typed partial result with `unknown` state.
-Duplicate JSON properties are malformed rather than allowing one of several
-possible listing readings to become authoritative. Deadline expiry during
-coverage or final authority projection also returns the partial result, while
-caller cancellation outranks a concurrent page failure.
+operation deadline. The index and all pages share one aggregate byte-admission
+budget equal to the configured per-response metadata limit, so concurrent JSON
+materialization cannot multiply that limit by the page-batch size. The index
+admits at most 128 pages, and leaf work is capped at the greater of 4,096
+observations or four times the flat-container candidate count. Parsing validates
+every leaf inside those budgets but retains listing state only for normalized
+flat-container candidates, so unrelated registration versions cannot grow
+retained registration state. A complete join reports authoritative `listed`
+and `unlisted` candidates. Missing, malformed, incomplete, unavailable, or
+over-budget registration data returns the flat-container candidates as a typed
+partial result with `unknown` state. Duplicate JSON properties are malformed
+rather than allowing one of several possible listing readings to become
+authoritative. Deadline expiry during coverage or final authority projection
+also returns the partial result, while caller cancellation outranks a concurrent
+page failure.
 
 Canonical NuGet.org and custom v3 enumeration still report `unknown`, because
 a raw flat-container list can include unlisted versions without carrying their
@@ -674,6 +677,7 @@ The local-folder descriptor remains modeled without a runtime client.
 `GalleryExternalRegistrationPageIsValidatedAndRebased`,
 `GalleryExternalPagesUseBoundedConcurrency`,
 `GalleryRegistrationParserRetainsOnlyFlatCandidates`,
+`GalleryRegistrationAggregateByteLimitIsTypedPartialEnumeration`,
 `GalleryRegistrationLeafLimitIsTypedPartialEnumeration`,
 `GalleryRegistrationPageLimitIsTypedPartialEnumeration`,
 `GalleryRejectsIneligibleExternalRegistrationPage`,

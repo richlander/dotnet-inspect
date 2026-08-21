@@ -67,6 +67,7 @@ shortening the selected assembly set.
    `GalleryExternalRegistrationPageIsValidatedAndRebased`,
    `GalleryExternalPagesUseBoundedConcurrency`,
    `GalleryRegistrationParserRetainsOnlyFlatCandidates`,
+   `GalleryRegistrationAggregateByteLimitIsTypedPartialEnumeration`,
    `GalleryRegistrationLeafLimitIsTypedPartialEnumeration`,
    `GalleryRegistrationPageLimitIsTypedPartialEnumeration`,
    `GalleryMalformedRegistrationIsTypedPartialEnumeration`,

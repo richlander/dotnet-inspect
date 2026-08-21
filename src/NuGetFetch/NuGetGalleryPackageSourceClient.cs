@@ -181,13 +181,15 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
             }
 
             var budget =
-                new NuGetGalleryRegistrationBudget(candidateVersions.Count);
+                new NuGetGalleryRegistrationBudget(
+                    candidateVersions.Count,
+                    _options.MaxMetadataResponseBytes);
             NuGetGalleryRegistrationIndex? index =
                 await ReadRegistrationDocumentAsync(
                     indexUrl,
                     (json, cancellationToken) =>
                         NuGetGalleryRegistration.DeserializeIndexAsync(
-                            json,
+                            budget.LimitBytes(json),
                             candidateVersions,
                             budget,
                             cancellationToken),
@@ -222,36 +224,61 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                  offset < externalPages.Count;
                  offset += RegistrationPageBatchSize)
             {
-                Task<IReadOnlyDictionary<string, PackageListingState>?>[]
-                    requests =
+                Task<MemoryStream?>[] requests =
                 [
                     .. externalPages
                         .Skip(offset)
                         .Take(RegistrationPageBatchSize)
                         .Select(pageUrl =>
-                            ReadRegistrationDocumentAsync(
+                            ReadRegistrationPageAsync(
                                 pageUrl,
-                                (json, cancellationToken) =>
-                                    NuGetGalleryRegistration
-                                        .DeserializePageAsync(
-                                            json,
-                                            candidateVersions,
-                                            budget,
-                                            cancellationToken),
+                                budget,
                                 operation)),
                 ];
-                IReadOnlyDictionary<string, PackageListingState>?[] pages =
-                    await Task.WhenAll(requests).ConfigureAwait(false);
-                if (pages.Any(page => page is null))
-                    return null;
-                foreach (
-                    IReadOnlyDictionary<string, PackageListingState> page
-                    in pages!)
+                MemoryStream?[] pages;
+                try
                 {
-                    AddRegistrationListings(
-                        page,
-                        listings,
-                        operation);
+                    pages = await Task.WhenAll(requests)
+                        .ConfigureAwait(false);
+                }
+                catch
+                {
+                    foreach (Task<MemoryStream?> request in requests)
+                    {
+                        if (request.IsCompletedSuccessfully)
+                            request.Result?.Dispose();
+                    }
+
+                    throw;
+                }
+
+                try
+                {
+                    if (pages.Any(page => page is null))
+                        return null;
+
+                    foreach (MemoryStream page in pages!)
+                    {
+                        IReadOnlyDictionary<string, PackageListingState>
+                            pageListings = await operation.RunRequestAsync(
+                                cancellationToken =>
+                                    NuGetGalleryRegistration
+                                        .DeserializePageAsync(
+                                            page,
+                                            candidateVersions,
+                                            budget,
+                                            cancellationToken).AsTask())
+                                .ConfigureAwait(false);
+                        AddRegistrationListings(
+                            pageListings,
+                            listings,
+                            operation);
+                    }
+                }
+                finally
+                {
+                    foreach (MemoryStream? page in pages)
+                        page?.Dispose();
                 }
             }
 
@@ -370,6 +397,54 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                 return await NuGetMetadataReader.ReadResponseAsync(
                     response,
                     deserialize,
+                    _options,
+                    _client.Timeout,
+                    requestToken).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+    }
+
+    private async Task<MemoryStream?> ReadRegistrationPageAsync(
+        string url,
+        NuGetGalleryRegistrationBudget budget,
+        NuGetOperationDeadline operation)
+    {
+        return await NuGetHttpRetry.RunRequestAsync(
+            operation,
+            async requestToken =>
+            {
+                using HttpRequestMessage request =
+                    NuGetHttpRequest.CreateGet(url);
+                using HttpResponseMessage response =
+                    await _client.SendAsync(
+                        request,
+                        HttpCompletionOption.ResponseHeadersRead,
+                        requestToken).ConfigureAwait(false);
+                if (response.StatusCode
+                    == System.Net.HttpStatusCode.NotFound)
+                {
+                    return null;
+                }
+
+                response.EnsureSuccessStatusCode();
+                return await NuGetMetadataReader.ReadResponseAsync(
+                    response,
+                    async (json, cancellationToken) =>
+                    {
+                        var page = new MemoryStream();
+                        try
+                        {
+                            await budget.LimitBytes(json).CopyToAsync(
+                                page,
+                                cancellationToken).ConfigureAwait(false);
+                            page.Position = 0;
+                            return page;
+                        }
+                        catch
+                        {
+                            page.Dispose();
+                            throw;
+                        }
+                    },
                     _options,
                     _client.Timeout,
                     requestToken).ConfigureAwait(false);

@@ -1257,7 +1257,9 @@ public sealed class PackageSourceClientTests
             ["1.0.0"],
             StringComparer.OrdinalIgnoreCase);
         var budget =
-            new NuGetGalleryRegistrationBudget(candidates.Count);
+            new NuGetGalleryRegistrationBudget(
+                candidates.Count,
+                NuGetFetchOptions.DefaultMaxMetadataResponseBytes);
 
         IReadOnlyDictionary<string, PackageListingState> listings =
             await NuGetGalleryRegistration.DeserializePageAsync(
@@ -1323,6 +1325,85 @@ public sealed class PackageSourceClientTests
             Assert.Single(result.Candidates).ListingState);
         Assert.Equal(
             [GalleryVersions, GalleryRegistration],
+            handler.Requested);
+    }
+
+    [Fact]
+    public async Task GalleryRegistrationAggregateByteLimitIsTypedPartialEnumeration()
+    {
+        const int maximumBytes = 512;
+        const string firstPage =
+            "https://globalcdn.nuget.org/v3/registration5-gz-semver2/contoso/page/1.0.0/1.0.0.json";
+        const string secondPage =
+            "https://globalcdn.nuget.org/v3/registration5-gz-semver2/contoso/page/1.0.1/1.0.1.json";
+        string padding = new('a', 220);
+        string registration = $$"""
+            {
+              "items": [
+                {
+                  "@id": "{{firstPage}}"
+                },
+                {
+                  "@id": "{{secondPage}}"
+                }
+              ]
+            }
+            """;
+        string page = $$"""
+            {
+              "items": [
+                {
+                  "catalogEntry": {
+                    "version": "1.0.0",
+                    "padding": "{{padding}}"
+                  }
+                }
+              ]
+            }
+            """;
+        Assert.InRange(
+            Encoding.UTF8.GetByteCount(registration),
+            1,
+            maximumBytes);
+        Assert.InRange(
+            Encoding.UTF8.GetByteCount(page),
+            1,
+            maximumBytes);
+        Assert.True(
+            Encoding.UTF8.GetByteCount(registration)
+            + (2 * Encoding.UTF8.GetByteCount(page))
+            > maximumBytes);
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] = """{"versions":["1.0.0"]}""",
+            [GalleryRegistration] = registration,
+            [firstPage] = page,
+            [secondPage] = page,
+        };
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(
+                handler,
+                new NuGetFetchOptions
+                {
+                    MaxMetadataResponseBytes = maximumBytes,
+                });
+
+        PackageVersionResult result = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.False(result.HasAuthoritativeListingState);
+        Assert.Equal(
+            PackageListingState.Unknown,
+            Assert.Single(result.Candidates).ListingState);
+        Assert.Equal(
+            [
+                GalleryVersions,
+                GalleryRegistration,
+                firstPage,
+                secondPage,
+            ],
             handler.Requested);
     }
 
