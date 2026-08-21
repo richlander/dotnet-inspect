@@ -1056,6 +1056,23 @@ test("annotated source request identity includes the selected body", () => {
     memberRequestKey([...request, 0x06000002, "M:<Run>b__0_0"]));
 });
 
+test("member detail adapters preserve exact engine coordinates", () => {
+  const coordinator =
+    appSource.match(
+      /const memberDetailInspection = createMemberDetailInspectionCoordinator\(\{[\s\S]*?\n}\);/)?.[0]
+    ?? "";
+
+  assert.match(
+    coordinator,
+    /inspectMemberDocumentation\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*documentationId\)/);
+  assert.match(
+    coordinator,
+    /inspectMemberAnnotatedSource\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.typeIdentity,\s*request\.type,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken,\s*request\.taste\)/);
+  assert.match(
+    coordinator,
+    /inspectMemberFacts\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.type,\s*request\.member,\s*request\.memberSignature\)/);
+});
+
 test("type source identity includes decompiler taste", () => {
   const typeSignature =
     typePanelSource.match(/export function typeSourceSignature\([\s\S]*?\n}/)?.[0]

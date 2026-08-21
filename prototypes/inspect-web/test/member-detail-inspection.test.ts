@@ -844,6 +844,54 @@ test("cached member facts failure renders without querying again", async () => {
   assert.equal(state.memberFactsError, "facts unavailable");
 });
 
+test("cached member facts render without querying or invalidating annotated content", async () => {
+  const cached = factsResult();
+  const annotated = annotatedResult();
+  let queries = 0;
+  let renders = 0;
+  const state = inspectionState({
+    memberFacts: cached,
+    memberFactsKey: "facts",
+    memberAnnotated: annotated,
+  });
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryFacts: async () => {
+        queries++;
+        return factsResult();
+      },
+      render: () => renders++,
+    }));
+
+  await coordinator.loadFacts(factsRequest());
+
+  assert.equal(queries, 0);
+  assert.equal(renders, 1);
+  assert.equal(state.memberFacts, cached);
+  assert.equal(state.memberAnnotated, annotated);
+});
+
+test("cleared member facts reload for the same member", async () => {
+  const current = factsResult();
+  let queries = 0;
+  const state = inspectionState({
+    memberFactsKey: "facts",
+  });
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryFacts: async () => {
+        queries++;
+        return current;
+      },
+    }));
+
+  await coordinator.loadFacts(factsRequest());
+
+  assert.equal(queries, 1);
+  assert.equal(state.memberFacts, current);
+  assert.equal(state.memberFactsLoading, false);
+});
+
 test("another member does not reuse cached member facts", async () => {
   const cached = factsResult();
   const current = factsResult();
@@ -866,6 +914,29 @@ test("another member does not reuse cached member facts", async () => {
   assert.equal(state.memberFactsKey, "facts");
   assert.equal(state.memberFacts, current);
   assert.notEqual(state.memberFacts, cached);
+  assert.equal(state.memberFactsLoading, false);
+});
+
+test("another member starts while a facts request is in flight", async () => {
+  const current = factsResult();
+  let queries = 0;
+  const state = inspectionState({
+    memberFactsKey: "previous",
+    memberFactsLoading: true,
+  });
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryFacts: async () => {
+        queries++;
+        return current;
+      },
+    }));
+
+  await coordinator.loadFacts(factsRequest());
+
+  assert.equal(queries, 1);
+  assert.equal(state.memberFactsKey, "facts");
+  assert.equal(state.memberFacts, current);
   assert.equal(state.memberFactsLoading, false);
 });
 
