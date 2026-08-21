@@ -694,13 +694,17 @@ and coverage notes, and the row inspector.
 
 `src/doc-viewer.ts` owns the package document modal (the Markdown reader
 opened from a package's documents list) as a pure, dependency-injected render
-function. `dotnet-inspect.ts` still owns `state`, fetching and rendering the document's
-Markdown and frontmatter, and the sequence-guarded async load/close
-lifecycle, and passes each computed slice in explicitly. `test/doc-viewer.test.ts`
-gates the closed/no-document fallback, loading and error states, the
+function. `src/document-inspection.ts` owns its sequence-guarded async
+load/close lifecycle, visible failure, and frontmatter projection.
+`dotnet-inspect.ts` validates the selected package document and supplies the
+engine, sanitized Markdown-rendering, state, and render ports.
+`test/doc-viewer.test.ts` gates the closed/no-document fallback, loading and
+error presentation, the
 frontmatter card's presence and fields, and title/subtitle/frontmatter-name
-escaping (the rendered document body is trusted, pre-sanitized Markdown HTML
-and is not escaped).
+escaping; `test/document-inspection.test.ts` gates exact request coordinates,
+frontmatter projection, stale-stage suppression, visible failures, and close
+invalidation (the rendered document body is trusted, pre-sanitized Markdown
+HTML and is not escaped).
 
 `src/graph-source.ts` owns the member source modal (the code viewer opened
 from a call graph node) as a pure, dependency-injected render function.
