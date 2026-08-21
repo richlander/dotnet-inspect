@@ -65,8 +65,10 @@ A DTO whose serializer contexts declare conflicting property-naming policies
 is emitted as `unknown`, without guessing a policy, and the diagnostic keeps
 generation red until the wire contract is corrected. A control character in
 `[JsonPropertyName]` is a harder boundary: generation stops without emitting
-declarations, and reports the owning record and property without echoing the
-unsafe wire name.
+declarations, and reports only the safe CLR type/member without echoing the
+unsafe wire name. This validation covers properties, fields, enum members, and
+field-targeted attributes on auto-properties, including members otherwise
+excluded from serialization.
 
 ## Testing
 

@@ -318,6 +318,169 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
+    public void Emit_RefusesControlCharacterJsonPropertyNamesOnAutoPropertyBackingFields()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(BackingFieldControlPropertyNameFixture).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType record = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(BackingFieldControlPropertyNameFixture));
+        ApiMember property = Assert.Single(
+            record.Members,
+            member => member.Name == "Value");
+        Assert.Null(property.JsonPropertyName);
+        Assert.Equal(
+            "backing\nbreak\r\t\u0001",
+            property.BackingFieldJsonPropertyName);
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records = [record],
+        };
+
+        UnsupportedWireContractException exception =
+            Assert.Throws<UnsupportedWireContractException>(
+                () => DtsEmitter.Emit(surface));
+
+        Assert.Equal(
+            "BackingFieldControlPropertyNameFixture.Value "
+                + "[field: JsonPropertyName]: "
+                + "control-character JSON property names are not supported.",
+            exception.Message);
+    }
+
+    [Fact]
+    public void Emit_RefusesControlCharacterJsonPropertyNamesOnEnumFields()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(ControlPropertyNameEnumFixture).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType enumType = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(ControlPropertyNameEnumFixture));
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Enums = [enumType],
+        };
+
+        UnsupportedWireContractException exception =
+            Assert.Throws<UnsupportedWireContractException>(
+                () => DtsEmitter.Emit(surface));
+
+        Assert.Equal(
+            "ControlPropertyNameEnumFixture.Value [JsonPropertyName]: "
+                + "control-character JSON property names are not supported.",
+            exception.Message);
+    }
+
+    [Fact]
+    public void Emit_DoesNotApplySafeBackingFieldNameToProperty()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(SafeBackingFieldPropertyNameFixture).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType record = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(SafeBackingFieldPropertyNameFixture));
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records = [record],
+        };
+
+        string dts = DtsEmitter.Emit(surface);
+
+        Assert.Contains("  Value: string;", dts, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "not_the_property_name",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_RefusesControlCharacterNameReachedOnlyThroughJsonIncludedField()
+    {
+        var apiSurface = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType
+                {
+                    Name = "SurfaceJsonContext",
+                    BaseType =
+                        "System.Text.Json.Serialization.JsonSerializerContext",
+                    JsonPropertyNamingPolicy = JsonWireNamingPolicy.CamelCase,
+                    Members =
+                    [
+                        new ApiMember
+                        {
+                            Name = "RootDto",
+                            Kind = "property",
+                            ReturnType =
+                                "System.Text.Json.Serialization.Metadata."
+                                + "JsonTypeInfo<RootDto>",
+                        },
+                    ],
+                },
+                new ApiType
+                {
+                    Name = "RootDto",
+                    Members =
+                    [
+                        new ApiMember
+                        {
+                            Name = "Child",
+                            Kind = "field",
+                            ReturnType = "NestedDto",
+                            HasJsonInclude = true,
+                        },
+                    ],
+                },
+                new ApiType
+                {
+                    Name = "NestedDto",
+                    Members =
+                    [
+                        new ApiMember
+                        {
+                            Name = "Value",
+                            Kind = "field",
+                            ReturnType = "string",
+                            HasJsonInclude = true,
+                            JsonPropertyName = "nested\nbreak",
+                        },
+                    ],
+                },
+            ],
+        };
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            JsExportSurfaceBuilder.Build(apiSurface);
+        Assert.Equal(2, surface.Records.Count);
+        Assert.All(
+            surface.Records,
+            record => Assert.Equal(
+                JsonWireNamingPolicy.CamelCase,
+                record.JsonPropertyNamingPolicy));
+
+        UnsupportedWireContractException exception =
+            Assert.Throws<UnsupportedWireContractException>(
+                () => DtsEmitter.Emit(surface));
+
+        Assert.Equal(
+            "NestedDto.Value [JsonPropertyName]: "
+                + "control-character JSON property names are not supported.",
+            exception.Message);
+    }
+
+    [Fact]
     public void Emit_BlocksRecordWithConflictingContextNamingPolicies()
     {
         var diagnostics = new TsBindGenDiagnostics();

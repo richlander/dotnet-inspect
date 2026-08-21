@@ -932,6 +932,14 @@ public class ApiMember
     public string? JsonPropertyName { get; set; }
 
     /// <summary>
+    /// The <c>[field: JsonPropertyName]</c> value carried by this auto-property's
+    /// compiler-generated backing field. This is distinct from <see cref="JsonPropertyName"/>:
+    /// System.Text.Json does not apply a field-targeted attribute to the property.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? BackingFieldJsonPropertyName { get; set; }
+
+    /// <summary>
     /// True if the member carries an [Obsolete] attribute.
     /// </summary>
     public bool IsObsolete { get; set; }

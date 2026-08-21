@@ -13,11 +13,11 @@
 - **Records** — the transitive closure of record shapes reachable from the
   assembly's `JsonSerializerContext`-derived type's `[JsonSerializable(typeof(T))]`
   roots, since `[JSExport]` method signatures alone don't reveal the DTO shapes
-  serialized inside their bodies. Each record carries the context's JSON naming
-  policy; a record reached through contexts with conflicting policies is marked
+  serialized inside their bodies. Traversal follows serialized properties and
+  `[JsonInclude]` fields. Each record carries the context's JSON naming policy;
+  a record reached through contexts with conflicting policies is marked
   unsupported rather than inheriting whichever context metadata happens to
-  appear first. See the `<remarks>` on `JsExportSurfaceBuilder` for the full
-  rationale.
+  appear first.
 
 This library intentionally stays free of any target-language opinion (naming
 policy, `Promise` unwrapping, `.d.ts` syntax); that "personality" belongs to a

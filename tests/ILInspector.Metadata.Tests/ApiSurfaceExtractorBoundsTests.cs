@@ -329,6 +329,24 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void JsonPropertyNameFactsContributeTheirRetainedText()
+    {
+        const string propertyName = "wire_name";
+        const string backingFieldPropertyName = "backing_wire_name";
+        var withoutNames = new ApiMember();
+        var withNames = new ApiMember
+        {
+            JsonPropertyName = propertyName,
+            BackingFieldJsonPropertyName = backingFieldPropertyName,
+        };
+
+        Assert.Equal(
+            propertyName.Length + backingFieldPropertyName.Length,
+            ApiSurfaceExtractor.CountRetainedText(withNames)
+                - ApiSurfaceExtractor.CountRetainedText(withoutNames));
+    }
+
+    [Fact]
     public void RepeatedLongMemberName_StopsBeforeLargeAllocationAmplification()
     {
         byte[] image = BuildRepeatedLongMethodNameImage(

@@ -112,10 +112,14 @@ public static class JsExportSurfaceBuilder
 
             foreach (ApiMember member in type.Members)
             {
-                if (member.Kind != "property"
+                bool isSerializedProperty = member.Kind == "property"
+                    && (member.Accessibility is null || member.HasJsonInclude);
+                bool isSerializedField = member.Kind == "field"
+                    && member.HasJsonInclude
+                    && !member.IsStatic;
+                if ((!isSerializedProperty && !isSerializedField)
                     || member.IsCompilerGenerated
-                    || member.HasJsonIgnore
-                    || (member.Accessibility is not null && !member.HasJsonInclude))
+                    || member.HasJsonIgnore)
                 {
                     continue;
                 }

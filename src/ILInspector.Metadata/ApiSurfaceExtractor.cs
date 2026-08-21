@@ -1047,8 +1047,6 @@ public static class ApiSurfaceExtractor
                     reader,
                     field.Name,
                     observeDecodeWork);
-                if (!IsSurfaceableFieldName(fieldName, includeCompilerGenerated))
-                    continue; // Skip compiler-generated (<...>) fields unless opted in
 
                 if (IsAutoPropertyBackingField(
                     reader,
@@ -1058,7 +1056,31 @@ public static class ApiSurfaceExtractor
                     typeContext,
                     observeText,
                     observeDecodeWork))
-                    continue; // Skip a synthesized auto-property backing field (re-synthesized on reconstruction)
+                {
+                    if (AttributeReader.TryGetJsonPropertyName(
+                            reader,
+                            field.GetCustomAttributes(),
+                            out string? backingFieldJsonPropertyName,
+                            observeDecodeWork)
+                        && autoPropertyBackingFields is not null
+                        && autoPropertyBackingFields.TryGetValue(
+                            fieldName,
+                            out AutoPropertyBackingField backingField)
+                        && apiType.Members.FirstOrDefault(
+                            member => member.Kind == "property"
+                                && member.Name == backingField.PropertyName)
+                            is { } propertyMember)
+                    {
+                        budget?.RetainAdditionalMemberText(
+                            backingFieldJsonPropertyName);
+                        propertyMember.BackingFieldJsonPropertyName =
+                            backingFieldJsonPropertyName;
+                    }
+                    continue;
+                }
+
+                if (!IsSurfaceableFieldName(fieldName, includeCompilerGenerated))
+                    continue; // Skip compiler-generated (<...>) fields unless opted in
 
                 if (IsFieldLikeEventBackingField(
                         reader,
@@ -1128,6 +1150,19 @@ public static class ApiSurfaceExtractor
                     Accessibility = GetFieldAccessibility(fieldAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
+                    IsCompilerGenerated = AttributeReader.HasAttribute(
+                        reader,
+                        field.GetCustomAttributes(),
+                        KnownAttributeNames.CompilerGeneratedAttribute,
+                        observeDecodeWork),
+                    HasJsonInclude = AttributeReader.HasJsonIncludeAttribute(
+                        reader,
+                        field.GetCustomAttributes(),
+                        observeDecodeWork),
+                    HasJsonIgnore = AttributeReader.HasJsonIgnoreAttribute(
+                        reader,
+                        field.GetCustomAttributes(),
+                        observeDecodeWork),
                     JsonPropertyName = AttributeReader.TryGetJsonPropertyName(
                         reader,
                         field.GetCustomAttributes(),
@@ -2508,11 +2543,15 @@ public static class ApiSurfaceExtractor
                beforeDecodeWork);
 
     /// <summary>
-    /// A declared auto-property's backing-field descriptor: the property's decoded return type and
-    /// whether its accessors are static. A genuine backing field must agree with both, so a merely
-    /// same-named compiler-generated field of a different type or staticness is not folded.
+    /// A declared auto-property's backing-field descriptor: the property name, decoded return type,
+    /// and whether its accessors are static. A genuine backing field must agree with the latter two,
+    /// so a merely same-named compiler-generated field of a different type or staticness is not
+    /// folded.
     /// </summary>
-    readonly record struct AutoPropertyBackingField(string PropertyType, bool IsStatic);
+    readonly record struct AutoPropertyBackingField(
+        string PropertyName,
+        string PropertyType,
+        bool IsStatic);
 
     /// <summary>
     /// Maps each of a type's auto-property backing-field names (<c>&lt;Prop&gt;k__BackingField</c>)
@@ -2580,7 +2619,10 @@ public static class ApiSurfaceExtractor
 
             (descriptors ??= new Dictionary<string, AutoPropertyBackingField>(StringComparer.Ordinal))
                 [$"<{propertyName}>k__BackingField"]
-                    = new AutoPropertyBackingField(propertyType, isStatic);
+                    = new AutoPropertyBackingField(
+                        propertyName,
+                        propertyType,
+                        isStatic);
         }
 
         return descriptors;
@@ -4457,6 +4499,8 @@ public static class ApiSurfaceExtractor
         AddText(ref count, member.DeclaringType);
         AddText(ref count, member.DeclaringTypeCanonicalName);
         AddText(ref count, member.EnumValueLiteral);
+        AddText(ref count, member.JsonPropertyName);
+        AddText(ref count, member.BackingFieldJsonPropertyName);
         return count;
     }
 
@@ -4762,6 +4806,16 @@ public static class ApiSurfaceExtractor
                 throw new ExtractionBoundExceededException(ApiSurfaceExtractionBound.Members);
             RetainPendingText(CountRetainedText(member));
             _pendingMembers++;
+        }
+
+        /// <summary>
+        /// Counts text attached to a member after its initial retention, while its
+        /// containing type is still pending.
+        /// </summary>
+        public void RetainAdditionalMemberText(string? text)
+        {
+            if (text is not null)
+                RetainPendingText(text.Length);
         }
 
         /// <summary>Commits the type currently being built and its members.</summary>

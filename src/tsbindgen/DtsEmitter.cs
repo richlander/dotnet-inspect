@@ -14,7 +14,7 @@ static partial class DtsEmitter
         ILInspector.JsExportSurface.JsExportSurface surface,
         TsBindGenDiagnostics? diagnostics = null)
     {
-        ValidatePropertyNames(surface.Records);
+        ValidatePropertyNames(surface.Records.Concat(surface.Enums));
 
         var knownTypeNames = new HashSet<string>(
             surface.Records.Select(r => r.Name).Concat(surface.Enums.Select(e => e.Name)),
@@ -92,17 +92,25 @@ static partial class DtsEmitter
         sb.Append("}\n\n");
     }
 
-    static void ValidatePropertyNames(IEnumerable<ApiType> records)
+    static void ValidatePropertyNames(IEnumerable<ApiType> types)
     {
-        foreach (ApiType record in records)
+        foreach (ApiType type in types)
         {
-            foreach (ApiMember member in record.Members)
+            foreach (ApiMember member in type.Members)
             {
                 if (member.JsonPropertyName is { } propertyName
                     && propertyName.Any(char.IsControl))
                 {
                     throw new UnsupportedWireContractException(
-                        $"{record.Name}.{member.Name} [JsonPropertyName]",
+                        $"{type.Name}.{member.Name} [JsonPropertyName]",
+                        "control-character JSON property names are not supported");
+                }
+
+                if (member.BackingFieldJsonPropertyName is { } backingFieldPropertyName
+                    && backingFieldPropertyName.Any(char.IsControl))
+                {
+                    throw new UnsupportedWireContractException(
+                        $"{type.Name}.{member.Name} [field: JsonPropertyName]",
                         "control-character JSON property names are not supported");
                 }
             }

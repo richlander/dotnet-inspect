@@ -214,6 +214,26 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     [Fact]
+    public void Extract_CapturesJsonIncludeOnFields()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(ControlFieldPropertyNameFixture).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+
+        ApiType record = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(ControlFieldPropertyNameFixture));
+        ApiMember field = Assert.Single(
+            record.Members,
+            member => member.Name == "Value");
+        Assert.Equal("field\nbreak\r\t\u0001", field.JsonPropertyName);
+        Assert.True(field.HasJsonInclude);
+    }
+
+    [Fact]
     public void Build_CapturesJsonPropertyNameAndJsonIgnoreFacts()
     {
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface(includeAll: true);
