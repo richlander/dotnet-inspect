@@ -566,6 +566,15 @@ internal sealed class LibraryBodyAsyncSourceResolver
             StateMachineAttributeInfo attribute =
                 StateMachineExecutionAttribute(
                     definition.GetCustomAttributes());
+            if (attribute.Rejected)
+            {
+                return attribute.ClaimedSerializedTypes.Any(
+                    claimed =>
+                        StateMachineTypeDefinitionName(claimed)
+                            is { } claimedStateMachine
+                        && rejected.Contains(
+                            claimedStateMachine));
+            }
             return attribute.SerializedType is { } serialized
                 && StateMachineTypeDefinitionName(serialized)
                     is { } stateMachineType
@@ -624,6 +633,13 @@ internal sealed class LibraryBodyAsyncSourceResolver
         {
             return false;
         }
+        if (MethodClassificationScanner.ClassifyAsyncMethod(
+                _reader,
+                sourceMethod)
+            == MethodClassification.RuntimeAsync)
+        {
+            return false;
+        }
         if (attribute.Rejected)
         {
             throw new BadImageFormatException(
@@ -631,14 +647,6 @@ internal sealed class LibraryBodyAsyncSourceResolver
         }
         if (attribute.Ignored)
             return false;
-        if (attribute.Kind == StateMachineKind.ClassicAsync
-            && MethodClassificationScanner.ClassifyAsyncMethod(
-                _reader,
-                sourceMethod)
-                == MethodClassification.RuntimeAsync)
-        {
-            return false;
-        }
 
         StateMachineExecutionMethods executionMethods =
             _stateMachineExecutionMethods.Value;
@@ -675,28 +683,32 @@ internal sealed class LibraryBodyAsyncSourceResolver
                 StateMachineAttributeInfo attribute =
                     StateMachineExecutionAttribute(
                         sourceMethod.GetCustomAttributes());
-                foreach (string claimedType
-                    in attribute.ClaimedSerializedTypes)
+                bool runtimeAsync =
+                    MethodClassificationScanner
+                        .ClassifyAsyncMethod(
+                            _reader,
+                            sourceMethod)
+                    == MethodClassification.RuntimeAsync;
+                if (!runtimeAsync)
                 {
-                    if (attribute.Rejected
-                        && StateMachineTypeDefinitionName(claimedType)
-                            is { } claimedStateMachine)
+                    foreach (string claimedType
+                        in attribute.ClaimedSerializedTypes)
                     {
-                        rejected.Add(claimedStateMachine);
+                        if (attribute.Rejected
+                            && StateMachineTypeDefinitionName(
+                                claimedType)
+                                is { } claimedStateMachine)
+                        {
+                            rejected.Add(claimedStateMachine);
+                        }
                     }
                 }
-                if (attribute.Rejected
+                if (runtimeAsync
+                    || attribute.Rejected
                     || attribute.SerializedType is not
                         { } serializedType
                     || StateMachineTypeDefinitionName(serializedType)
                         is not { } stateMachineType
-                    || (attribute.Kind
-                            == StateMachineKind.ClassicAsync
-                        && MethodClassificationScanner
-                            .ClassifyAsyncMethod(
-                                _reader,
-                                sourceMethod)
-                            == MethodClassification.RuntimeAsync)
                     || !HasAnalyzableIlBody(sourceMethod))
                 {
                     continue;

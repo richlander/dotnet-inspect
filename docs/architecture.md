@@ -827,12 +827,14 @@ Research overlay bridge, and the application layer:
   interfaces, and resolves explicit iterator `MoveNext` implementations before
   considering a named method. Authenticated execution-source maps drive acquisition and
   per-method attribution; the scope-independent fallback contains only
-  non-generated declared sources. A rejected classic state-machine mapping is
+  non-generated declared sources. A rejected state-machine mapping is
   authoritative across attribution, acquisition, and fallback, including when
-  generated-code filtering leaves one otherwise actionable source. Generated
-  kickoff intermediates compose through lifted owners when their evidence
-  bodies are acquired, while non-IL or runtime-async kickoff bodies cannot
-  authenticate classic state machines.
+  generated-code filtering leaves one otherwise actionable source and when a
+  source carries classic and synchronous-iterator claims. Runtime-async
+  methods ignore state-machine claims of every kind. Generated kickoff
+  intermediates compose through authenticated lifted owners when their
+  evidence bodies are acquired; an unresolved intermediate retains its
+  physical caller rather than becoming logical attribution.
   `DirectCalls_AsyncLiftedMoveNextComposesToDeclaredOwner` gates full,
   owner-method-scoped, and owner-type-scoped call parity plus declared-owner
   resolution. `DirectCalls_AttributeAsyncIteratorBodiesToDeclaredSource`
@@ -843,7 +845,11 @@ Research overlay bridge, and the application layer:
   method-scoped acquisition.
   `DirectCalls_CrossKindStateMachineAttributesFailClosed` gates kind-agnostic
   duplicate detection when classic async and async-iterator attributes occur
-  on the same source method.
+  on the same source method;
+  `DirectCalls_ClassicAndSynchronousIteratorAttributesFailClosed` gates the
+  corresponding legacy-fallback case.
+  `DirectCalls_RuntimeAsyncIgnoresAsyncIteratorAttribute` gates the
+  runtime-async cross-kind non-action boundary.
   `LiftedOwners_RejectUnauthenticatedIteratorExecution` gates explicit
   synchronous-iterator implementations with named decoys, duplicate iterator
   source claims, and async-iterator claims over classic-only state machines,

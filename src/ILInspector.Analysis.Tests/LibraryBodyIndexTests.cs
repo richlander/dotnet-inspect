@@ -4479,6 +4479,40 @@ public class LibraryBodyIndexTests
 
     [Fact]
     public void
+        DirectCalls_ClassicAndSynchronousIteratorAttributesFailClosed()
+    {
+        byte[] image =
+            BuildMalformedAsyncSourceAssembly(
+                crossKindDuplicate: true,
+                crossKindSynchronousIterator: true);
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "CrossKindSynchronousIteratorAttributes.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity moveNext = Assert.Single(
+            index.DeclaredMethods,
+            method => method.Name == "MoveNext"
+                && method.ParameterTypes.IsEmpty);
+        DirectCall call = Assert.Single(
+            index.DirectCalls,
+            candidate =>
+                candidate.EvidenceMethod == moveNext
+                && candidate.Callee.Name == "Read");
+
+        Assert.Equal(moveNext, call.Caller);
+        Assert.Null(index.ResolveDeclaredMethod(moveNext));
+        Assert.Contains(
+            index.Diagnostics,
+            diagnostic =>
+                diagnostic.MethodToken == moveNext.MetadataToken
+                && diagnostic.Message.Contains(
+                    "source is invalid or ambiguous",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void
         OptimizationOpportunities_ScopedUnresolvedLiftedSourceFailsClosed()
     {
         byte[] image =
@@ -4525,6 +4559,11 @@ public class LibraryBodyIndexTests
                         == moveNext.MetadataToken);
             Assert.Null(
                 full.ResolveDeclaredMethod(moveNext));
+            Assert.Contains(
+                full.DirectCalls,
+                call => call.EvidenceMethod == moveNext
+                    && call.Callee.Name == "Read"
+                    && call.Caller == moveNext);
             Assert.Contains(
                 scoped.GetAllocationOccurrences(),
                 pair => pair.Key == moveNext.MetadataToken);
@@ -5032,7 +5071,8 @@ public class LibraryBodyIndexTests
         bool forgedTopLevelOwnerEvidence = false,
         bool malformedTopLevelEntryPoint = false,
         bool crossKindDuplicate = false,
-        bool crossKindIteratorFirst = false)
+        bool crossKindIteratorFirst = false,
+        bool crossKindSynchronousIterator = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -5082,7 +5122,9 @@ public class LibraryBodyIndexTests
                     metadata.GetOrAddString(
                         "System.Runtime.CompilerServices"),
                     metadata.GetOrAddString(
-                        "AsyncIteratorStateMachineAttribute"))
+                        crossKindSynchronousIterator
+                            ? "IteratorStateMachineAttribute"
+                            : "AsyncIteratorStateMachineAttribute"))
                 : default;
         TypeReferenceHandle asyncStateMachine =
             metadata.AddTypeReference(
@@ -10985,6 +11027,87 @@ public class LibraryBodyIndexTests
             source,
             scoped.ResolveDeclaredMethod(
                 expected.EvidenceMethod));
+    }
+
+    [Fact]
+    public void
+        DirectCalls_RuntimeAsyncIgnoresAsyncIteratorAttribute()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(OptimizationOpportunityFixtures)
+                .Assembly.Location);
+        using (var peReader = new PEReader(
+            new MemoryStream(image, writable: false)))
+        {
+            MetadataReader reader =
+                peReader.GetMetadataReader();
+            MethodDefinitionHandle sourceHandle =
+                Assert.Single(
+                    reader.MethodDefinitions,
+                    handle => reader.StringComparer.Equals(
+                        reader.GetMethodDefinition(handle).Name,
+                        nameof(OptimizationOpportunityFixtures
+                            .YieldsPlainObjectAsync)));
+            int implFlagsOffset =
+                peReader.PEHeaders.MetadataStartOffset
+                + reader.GetTableMetadataOffset(
+                    TableIndex.MethodDef)
+                + (MetadataTokens.GetRowNumber(sourceHandle) - 1)
+                    * reader.GetTableRowSize(
+                        TableIndex.MethodDef)
+                + sizeof(int);
+            ushort implFlags =
+                BinaryPrimitives.ReadUInt16LittleEndian(
+                    image.AsSpan(
+                        implFlagsOffset,
+                        sizeof(ushort)));
+            BinaryPrimitives.WriteUInt16LittleEndian(
+                image.AsSpan(
+                    implFlagsOffset,
+                    sizeof(ushort)),
+                (ushort)(implFlags
+                    | (ushort)MethodImplAttributes.Async));
+        }
+
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "RuntimeAsyncIteratorClaim.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity source = Assert.Single(
+            index.DeclaredMethods,
+            method => method.Name
+                == nameof(OptimizationOpportunityFixtures
+                    .YieldsPlainObjectAsync));
+        MethodIdentity moveNext = Assert.Single(
+            index.Methods,
+            method => method.Name == "MoveNext"
+                && method.DeclaringType.Name.Contains(
+                    source.Name,
+                    StringComparison.Ordinal));
+
+        Assert.Contains(
+            index.DirectCalls,
+            call => call.Kind == CallKind.NewObject
+                && call.Caller == moveNext
+                && call.EvidenceMethod == moveNext);
+        Assert.Null(index.ResolveDeclaredMethod(moveNext));
+
+        LibraryBodyIndex scoped =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "RuntimeAsyncIteratorClaim.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyScope: new HashSet<int>
+                {
+                    source.MetadataToken,
+                });
+        Assert.DoesNotContain(
+            scoped.DirectCalls,
+            call => call.EvidenceMethod.MetadataToken
+                == moveNext.MetadataToken);
+        Assert.Null(
+            scoped.ResolveDeclaredMethod(moveNext));
     }
 
     [Fact]

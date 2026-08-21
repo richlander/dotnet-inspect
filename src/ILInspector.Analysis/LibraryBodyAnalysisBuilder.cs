@@ -318,6 +318,12 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             || asyncSource == method)
             return asyncSource;
 
+        if (!CompilerGeneratedNames
+            .IsLocalFunctionOrLambda(asyncSource.Name))
+        {
+            return asyncSource;
+        }
+
         EntityHandle asyncSourceHandle =
             MetadataTokens.EntityHandle(
                 asyncSource.MetadataToken);
@@ -340,7 +346,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             return sourceOwner;
         }
 
-        return asyncSource;
+        return TryResolveUltimateLiftedOwner(
+            asyncSource,
+            out sourceOwner)
+            ? sourceOwner
+            : null;
     }
 
     DeclaredOwnerResolution ILibraryMethodAnalysisInfrastructure
