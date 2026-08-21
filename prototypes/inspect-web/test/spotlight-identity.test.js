@@ -671,7 +671,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /const platform = disposition === "platform";\s*return \{\s*platform,\s*onSelect:/);
   assert.match(
     callGraphBinding,
-    /if \(loaded\?\.group\) \{\s*navigateToMember\(/);
+    /if \(loaded\?\.group\) \{\s*navigateToMember\([\s\S]*\} else if \(loaded\) \{\s*openGraphSource\(loaded\.request, loaded\.title\);\s*\} else if \(platform\) \{\s*void navigateOrDrillPlatform\(target\);\s*\}/);
   assert.equal(appSource.match(/\bbindGraphBack\(/g)?.length, 1);
   assert.equal(appSource.match(/\bbindGraphPanZoom\(/g)?.length, 3);
   assert.equal(appSource.match(/\bbindTypeGraphNodes\(/g)?.length, 1);

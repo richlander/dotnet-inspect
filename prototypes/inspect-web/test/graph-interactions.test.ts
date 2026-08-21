@@ -212,6 +212,7 @@ test("type and dependency nodes decode stable Mermaid identities", () => {
   type.dispatch("click");
   assert.deepEqual(typeCalls, ["t1"]);
   assert.equal(unavailable.classList.contains("non-nav"), true);
+  assert.equal(unavailable.classList.contains("nav-node"), false);
   assert.equal(unavailable.inserted[0]?.textContent, "Hidden.Type — unavailable");
   assert.equal(unknown.classList.contains("nav-node"), false);
 
@@ -264,6 +265,7 @@ test("graph pan, zoom, keyboard, controls, and call-node clicks stay coordinated
   assert.equal(svg.attributes.get("height"), "50");
   assert.equal(svg.style.transform, "translate(50px, 25px) scale(1)");
   assert.equal(regular.classList.contains("nav-node"), true);
+  assert.equal(regular.classList.contains("platform-node"), false);
   assert.equal(platform.classList.contains("platform-node"), true);
   regular.dispatch("click");
   assert.deepEqual(calls, ["n1"]);
