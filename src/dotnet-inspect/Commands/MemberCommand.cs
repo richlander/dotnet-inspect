@@ -369,6 +369,11 @@ public static class MemberCommand
                         OverloadIndex = autoCandidate.SelectorIndex,
                         AutoSelectedSingleOverload = true
                     };
+                    if (aggregateCallers
+                        && !effectiveOptions.CallerScopeSectionImplicitlySelected)
+                    {
+                        inventorySections = IncludeCallersSection(inventorySections);
+                    }
                     var detailPipeline = ApiMemberSectionPipelines.Create(inventorySections);
                     if (ApiCommand.FinalizeResolvedMemberSelection(
                             inventorySections,
@@ -1079,6 +1084,15 @@ public static class MemberCommand
             ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
             : [];
         includeSections.Remove(SectionNames.Callers);
+        return options with { IncludeSections = includeSections };
+    }
+
+    private static MemberOptions IncludeCallersSection(MemberOptions options)
+    {
+        var includeSections = options.IncludeSections is { } existing
+            ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
+            : [];
+        includeSections.Add(SectionNames.Callers);
         return options with { IncludeSections = includeSections };
     }
 

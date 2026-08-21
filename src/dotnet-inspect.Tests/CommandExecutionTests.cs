@@ -14552,6 +14552,49 @@ public partial class CommandExecutionTests
             row => row.GetProperty("name").GetString() == SectionNames.Callers);
     }
 
+    [Theory]
+    [InlineData("--count")]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    [InlineData("--value")]
+    [InlineData("--print")]
+    public async Task Member_BareNameCallersWithCallerScope_SingleSectionOutputPreservesSelection(
+        string outputOption)
+    {
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallGraphFixture.Inner), "-S", SectionNames.Callers,
+            "--bin", testDirectory, outputOption, "--tips", "q");
+
+        if (outputOption == "--value")
+        {
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                $"section '{SectionNames.Callers}' does not expose value values.",
+                error);
+            return;
+        }
+        if (outputOption == "--print")
+        {
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                $"section '{SectionNames.Callers}' is not printable.",
+                error);
+            return;
+        }
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        if (outputOption == "--count")
+            Assert.True(int.Parse(output.Trim()) > 0);
+        else
+            Assert.Contains(nameof(MemberCallGraphFixture.Mid), output);
+    }
+
     [Fact]
     public async Task Member_NamedCallerDiscoveryRetainsCallerSection()
     {
