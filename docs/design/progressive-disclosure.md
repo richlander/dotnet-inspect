@@ -120,6 +120,21 @@ work should follow the reference model rather than copy a legacy command.
 
 Package acquisition and symbol/source acquisition are separate.
 
+Capability-bearing gestures carry **request provenance**, not authority.
+Argument parsing retains the user's original verbosity, explicit
+section/category/glob selection, discovery mode, and explicit policy flags.
+After selection binds stable sections to typed queries, the disclosure policy
+maps that provenance to requests for capabilities declared by those queries.
+The host preflight grants or denies the requests before execution.
+
+Exact selection of a source-content section may request its PDB and
+source-content capabilities. Detailed verbosity may request bounded PDB or
+source-audit work where the section contract permits it, but it does not
+request source-content fetch. An internal verbosity promotion never widens the
+request. Section descriptors and query definitions declare requirements; they
+do not grant authority. Artifact admission/query leases revalidate the
+authorized plan at content access.
+
 - A package may be downloaded to resolve the requested target.
 - Default gestures must not automatically fetch symbols or source content.
 - Embedded, adjacent, or cached symbols may be used by network-free gestures
