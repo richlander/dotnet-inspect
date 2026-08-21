@@ -403,6 +403,10 @@ test("typed package view owns package navigation bindings", () => {
   const dependencyPatch =
     appSource.match(/function patchDependenciesGroup\(\) \{[\s\S]*?\n}/)?.[0]
     ?? "";
+  const actionSource = name =>
+    binding.match(
+      new RegExp(`  ${name}: [\\s\\S]*?(?=\\n  on[A-Z])`))?.[0]
+      ?? "";
   assert.match(
     packageViewSource,
     /export function bindPackageView\([\s\S]*\[data-dep-group\][\s\S]*\[data-kind-jump\][\s\S]*\[data-namespace-jump\][\s\S]*\[data-lib-scope\][\s\S]*\[data-graph-type\][\s\S]*\[data-perf-token\]/);
@@ -433,15 +437,24 @@ test("typed package view owns package navigation bindings", () => {
   assert.match(
     binding,
     /onDependencyLoad: openDependencyPackage,\s*onDependencyOpen: switchToPackageForDependencies,\s*onGraphTypeSelect: navigateToTypeByName/);
+  const kindJump = actionSource("onKindJump");
+  const libraryJump = actionSource("onLibraryScopeSelect");
+  const namespaceJump = actionSource("onNamespaceJump");
   assert.match(
-    binding,
-    /onKindJump: kind => \{[\s\S]*state\.atPackageRoot = false;[\s\S]*state\.kindFilter = kind;[\s\S]*resetMemberFilters\(\);[\s\S]*render\(\)/);
+    kindJump,
+    /state\.atPackageRoot = false;[\s\S]*state\.kindFilter = kind;[\s\S]*state\.namespaceFilter = ""/);
   assert.match(
-    binding,
-    /onLibraryScopeSelect: \(library, kind\) => \{[\s\S]*state\.atPackageRoot = false;[\s\S]*if \(!library\) return;[\s\S]*state\.libraryScope = new Set\(\[library\]\);[\s\S]*state\.kindFilter = kind;[\s\S]*render\(\)/);
+    libraryJump,
+    /state\.atPackageRoot = false;[\s\S]*if \(!library\) return;[\s\S]*state\.libraryScope = new Set\(\[library\]\);[\s\S]*state\.package\?\.isRuntimePack[\s\S]*recordPlatformRecent\(library, platformPackForAssembly\(library\)\);[\s\S]*state\.kindFilter = kind;[\s\S]*state\.namespaceFilter = ""/);
   assert.match(
-    binding,
-    /onNamespaceJump: namespace => \{[\s\S]*state\.atPackageRoot = false;[\s\S]*state\.namespaceFilter = namespace;[\s\S]*resetMemberFilters\(\);[\s\S]*render\(\)/);
+    namespaceJump,
+    /state\.atPackageRoot = false;[\s\S]*state\.namespaceFilter = namespace;[\s\S]*state\.kindFilter = ""/);
+  for (const source of [kindJump, libraryJump, namespaceJump]) {
+    assert.match(
+      source,
+      /state\.typeFilter = "";[\s\S]*state\.selectedMemberKey = "";[\s\S]*state\.memberBrowseTypeId = "";[\s\S]*resetMemberFilters\(\);[\s\S]*state\.typeCursor = 0;[\s\S]*const first = filteredTypes\(\)\[0\];[\s\S]*if \(first\) state\.selectedTypeId = first\.id;[\s\S]*render\(\)/);
+    assert.equal(source.match(/\brender\(\)/g)?.length, 1);
+  }
   assert.match(
     binding,
     /onPerformanceMemberSelect: target => \{[\s\S]*drillToPerfMember\(\s*target\.metadataToken,\s*target\.assembly,\s*target\.typeId\)/);
