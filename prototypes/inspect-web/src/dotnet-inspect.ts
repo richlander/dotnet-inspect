@@ -110,10 +110,14 @@ import {
   renderScopeBar as renderScopeBarPure,
 } from "./scope-bar.ts";
 import {
+  bindDocViewer,
   renderDocViewer as renderDocViewerPure,
   type DocViewerMeta,
 } from "./doc-viewer.ts";
-import { renderGraphSource as renderGraphSourcePure } from "./graph-source.ts";
+import {
+  bindGraphSource,
+  renderGraphSource as renderGraphSourcePure,
+} from "./graph-source.ts";
 import {
   renderAnnotatedSource as renderAnnotatedSourcePure,
   type AnnotatedSourceResult,
@@ -3768,6 +3772,18 @@ function bindPackageOpportunitiesEvents() {
   });
 }
 
+function bindGraphSourceEvents() {
+  bindGraphSource(document, {
+    onClose: closeGraphSource,
+  });
+}
+
+function bindDocViewerEvents() {
+  bindDocViewer(document, {
+    onClose: closeDocViewer,
+  });
+}
+
 function bindEvents() {
   bindStatusBarToggle();
   packageBar.bind(document);
@@ -3776,6 +3792,8 @@ function bindEvents() {
   bindSettingsPanelEvents();
   bindMetadataViewerEvents();
   bindPackageOpportunitiesEvents();
+  bindGraphSourceEvents();
+  bindDocViewerEvents();
   document.querySelectorAll<HTMLElement>("[data-framework-chip]").forEach(button => button.addEventListener("click", () => {
     switchPackageFramework(button.dataset.frameworkChip ?? "");
   }));
@@ -4127,20 +4145,10 @@ function bindEvents() {
   ensurePackageVersions(state.package);
   if (state.package?.isRuntimePack) ensureDotnetReleases();
   if (state.spotlightOpen) spotlight.bind(document, "modal");
-  document.querySelector("#graph-source-backdrop")?.addEventListener("mousedown", event => {
-    if (event.target instanceof HTMLElement
-        && event.target.id === "graph-source-backdrop") closeGraphSource();
-  });
-  document.querySelector("#graph-source-close")?.addEventListener("click", closeGraphSource);
   document.querySelectorAll<HTMLElement>("[data-doc-path]").forEach(button =>
     button.addEventListener(
       "click",
       () => openPackageDocument(button.dataset.docPath ?? "")));
-  document.querySelector("#doc-viewer-backdrop")?.addEventListener("mousedown", event => {
-    if (event.target instanceof HTMLElement
-        && event.target.id === "doc-viewer-backdrop") closeDocViewer();
-  });
-  document.querySelector("#doc-viewer-close")?.addEventListener("click", closeDocViewer);
   document.querySelector("#taste-btn")?.addEventListener("click", event => {
     event.stopPropagation();
     state.tasteOpen = !state.tasteOpen;

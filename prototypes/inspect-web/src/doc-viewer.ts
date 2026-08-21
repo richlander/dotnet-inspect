@@ -17,6 +17,24 @@ export interface RenderDocViewerOptions {
   escapeHtml: (value: unknown) => string;
 }
 
+export interface DocViewerBindingActions {
+  onClose: () => void;
+}
+
+export function bindDocViewer(
+  root: ParentNode,
+  actions: DocViewerBindingActions,
+) {
+  const backdrop =
+    root.querySelector<HTMLElement>("#doc-viewer-backdrop");
+  backdrop?.addEventListener("mousedown", event => {
+    if (event.target === backdrop) actions.onClose();
+  });
+  root.querySelector("#doc-viewer-close")?.addEventListener(
+    "click",
+    actions.onClose);
+}
+
 export function renderDocViewer(options: RenderDocViewerOptions): string {
   const { doc, meta, loading, error, html, escapeHtml } = options;
   const title = doc ? `${doc.name}` : "Document";
