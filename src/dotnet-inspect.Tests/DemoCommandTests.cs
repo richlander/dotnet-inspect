@@ -344,6 +344,44 @@ public class DemoCommandTests
     }
 
     [Fact]
+    public async Task Cli_DemoList_EmbeddedMermaid_FailsClosed()
+    {
+        var (exitCode, output, error) = await RunCliAsync("demo", "--markdown", "--mermaid");
+
+        Assert.Equal(1, exitCode);
+        Assert.DoesNotContain("stj-serializer", output, StringComparison.Ordinal);
+        Assert.Contains("--mermaid is not supported for demo list", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Cli_DemoMethods_JsonMermaid_FailsClosed()
+    {
+        var (exitCode, output, error) = await RunCliAsync(
+            "demo",
+            ProductInspectionDemos.StjSerializerScenarioId,
+            "--json",
+            "--mermaid");
+
+        Assert.Equal(1, exitCode);
+        Assert.DoesNotContain("\"members\"", output, StringComparison.Ordinal);
+        Assert.Contains("--mermaid cannot be combined with --json", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Cli_DemoCallGraph_PlaintextMermaid_FailsClosed()
+    {
+        var (exitCode, output, error) = await RunCliAsync(
+            "demo",
+            ProductInspectionDemos.ExtensionsCallGraphScenarioId,
+            "--plaintext",
+            "--mermaid");
+
+        Assert.Equal(1, exitCode);
+        Assert.DoesNotContain("graph TD", output, StringComparison.Ordinal);
+        Assert.Contains("--mermaid cannot be combined with", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Cli_DemoCallGraph_Table_EmitsCallersRows()
     {
         var (exitCode, output, error) = await RunCliAsync(

@@ -123,12 +123,26 @@ public static class UtilityCommandDefinitions
 
         demoCommand.SetAction(async (parseResult, _) =>
         {
+            var mermaid = parseResult.GetValue(opts.Mermaid);
+            var markdown = parseResult.GetValue(opts.Markdown);
+            var json = parseResult.GetValue(opts.Json);
+            var plainText = parseResult.GetValue(opts.PlainText);
+            var tabular = parseResult.GetValue(opts.Table)
+                || parseResult.GetValue(opts.Tsv)
+                || parseResult.GetValue(opts.Jsonl);
+            if (!DemoCommand.TryValidateMermaidCombinations(
+                    mermaid, markdown, json, plainText, tabular, out var comboError))
+            {
+                CommandError.Write(comboError!);
+                return 1;
+            }
+
             var format = opts.ResolveFormat(parseResult);
             var noHeader = parseResult.GetValue(opts.NoHeaders);
             var embeddedMermaid = opts.IsEmbeddedMermaid(parseResult);
             var scenario = parseResult.GetValue(scenarioArg);
             if (string.IsNullOrWhiteSpace(scenario))
-                return DemoCommand.ExecuteList(format, noHeader);
+                return DemoCommand.ExecuteList(format, noHeader, mermaidRequested: mermaid);
 
             return await DemoCommand.ExecuteScenarioAsync(scenario, format, noHeader, embeddedMermaid);
         });

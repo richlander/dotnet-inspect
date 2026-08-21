@@ -18,9 +18,42 @@ public static class DemoCommand
 {
     public const string Name = "demo";
 
-    public static int ExecuteList(OutputFormat format = OutputFormat.Markdown, bool noHeader = false)
+    /// <summary>
+    /// Rejects mermaid combinations that would otherwise resolve to another format
+    /// and silently drop the diagram request (e.g. <c>--json --mermaid</c>).
+    /// Allowed: <c>--mermaid</c> alone, or <c>--markdown --mermaid</c>.
+    /// </summary>
+    public static bool TryValidateMermaidCombinations(
+        bool mermaid,
+        bool markdown,
+        bool json,
+        bool plainText,
+        bool tabular,
+        out string? error)
     {
-        if (format is OutputFormat.Mermaid)
+        error = null;
+        if (!mermaid)
+            return true;
+
+        if (json || plainText || tabular)
+        {
+            error =
+                "--mermaid cannot be combined with --json, --plaintext, --table, --tsv, or --jsonl. "
+                + "Use --mermaid alone or --markdown --mermaid on a Call Graph home demo.";
+            return false;
+        }
+
+        // markdown + mermaid is embedded mode; mermaid alone is standalone.
+        _ = markdown;
+        return true;
+    }
+
+    public static int ExecuteList(
+        OutputFormat format = OutputFormat.Markdown,
+        bool noHeader = false,
+        bool mermaidRequested = false)
+    {
+        if (format is OutputFormat.Mermaid || mermaidRequested)
         {
             CommandError.Write(
                 "--mermaid is not supported for demo list. "
@@ -62,7 +95,7 @@ public static class DemoCommand
         ArgumentException.ThrowIfNullOrWhiteSpace(scenarioId);
 
         if (string.Equals(scenarioId, "list", StringComparison.OrdinalIgnoreCase))
-            return Task.FromResult(ExecuteList(format, noHeader));
+            return Task.FromResult(ExecuteList(format, noHeader, mermaidRequested: embeddedMermaid));
 
         if (!ProductInspectionDemos.TryResolveHomeScenario(scenarioId, out var resolved))
         {
