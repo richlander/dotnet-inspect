@@ -1781,6 +1781,19 @@ public class StructuralCloneAnalysisTests
     [InlineData(38)]
     [InlineData(39)]
     [InlineData(40)]
+    // These four seeds were found (out of a 1-20,000 sweep) to be the
+    // only ones, at blockCount: 6, that actually reach SearchBlocks with
+    // a left block holding 2+ live candidates where the first-found
+    // candidate is not part of the eventual witness -- i.e., they are
+    // the only seeds in that sweep that fail when the removed unsound
+    // inner break is reintroduced. Seeds 1-40 above pass regardless of
+    // that break and so do not, by themselves, guard against it; these
+    // pinned seeds are required for the test to be a meaningful
+    // regression guard rather than a vacuous one.
+    [InlineData(1280)]
+    [InlineData(12271)]
+    [InlineData(17310)]
+    [InlineData(18979)]
     public void Compare_RandomPermutedIsomorphicGraph_AlwaysFindsWitness(
         int seed)
     {
