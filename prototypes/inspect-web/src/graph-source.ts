@@ -1,4 +1,4 @@
-import { pdbSourceLimitationHtml } from "./data.js";
+import { pdbSourceLimitationHtml } from "./data.ts";
 import type { BrowserSource } from "./inspect-web-engine.d.ts";
 
 export type GraphSourceResult = BrowserSource;

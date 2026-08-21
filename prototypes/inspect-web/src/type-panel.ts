@@ -1,4 +1,4 @@
-import { pdbSourceLimitationHtml } from "./data.js";
+import { pdbSourceLimitationHtml } from "./data.ts";
 
 // The type selector (the "PUBLIC TYPES" / "MEMBERS" nav pane) and the type viewer (the
 // type heading, metadata, and source sections shown for the "type" scope) as pure,
