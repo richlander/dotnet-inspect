@@ -177,6 +177,9 @@ const metadataInspectionSource = readFileSync(
 const memberDetailInspectionSource = readFileSync(
   new URL("../src/member-detail-inspection.ts", import.meta.url),
   "utf8");
+const callGraphInspectionSource = readFileSync(
+  new URL("../src/call-graph-inspection.ts", import.meta.url),
+  "utf8");
 const memberFocusSource = readFileSync(
   new URL("../src/member-focus.ts", import.meta.url),
   "utf8");
@@ -525,8 +528,15 @@ test("member filters retain accessible controls and focus across rerenders", () 
   const platformDrill =
     appSource.match(/async function drillPlatformNode\([\s\S]*?\n}\n\nfunction popPlatformDrill/)?.[0]
     ?? "";
+  assert.match(
+    platformDrill,
+    /return callGraphInspection\.drill\(\{[\s\S]*type: callGraphTargetTypeId\(node\)[\s\S]*metadataToken: node\.metadataToken \?\? 0/);
+  const coordinatedDrill =
+    callGraphInspectionSource.match(/async drill\(request\)[\s\S]*?\n    },/)?.[0]
+    ?? "";
   assert.equal(
-    [...platformDrill.matchAll(/renderPreservingMemberFocus\(preservedFocus\)/g)].length,
+    [...coordinatedDrill.matchAll(
+      /dependencies\.renderPreservingMemberFocus\(preservedFocus\)/g)].length,
     2);
   const platformNavigation =
     appSource.match(/async function navigateOrDrillPlatform\([\s\S]*?\n}\n\n\/\/ Enter the resident runtime pack/)?.[0]
@@ -744,6 +754,24 @@ test("metadata explorer request coordination stays outside the composition root"
   assert.match(
     metadataInspectionSource,
     /dependencies\.queryPlatformHeap[\s\S]*dependencies\.queryPackageHeap[\s\S]*state\.explorer !== explorer[\s\S]*explorer\.focusHeap === heapName/);
+});
+
+test("call graph request coordination stays outside the composition root", () => {
+  const loader =
+    appSource.match(/async function loadSelectedMemberCallGraph\([\s\S]*?\n}\n\n\/\/ Update just/)?.[0]
+    ?? "";
+  assert.match(
+    loader,
+    /return callGraphInspection\.load\(\{[\s\S]*type: type\.queryId \?\? type\.id,[\s\S]*typeIdentity: type\.definitionId \?\? type\.id,[\s\S]*platformType: type\.metadataId \?\? type\.queryId \?\? type\.id,[\s\S]*isCurrent: \(\) => memberRequestIsCurrent\(signature, true\)/);
+  assert.doesNotMatch(
+    loader,
+    /memberCallGraphSeq|inspectMemberCallGraph|inspectExpandPlatformCallGraph/);
+  assert.match(
+    callGraphInspectionSource,
+    /dependencies\.queryWorkspace\(request, \[\]\)[\s\S]*dependencies\.nextPaint\(\)[\s\S]*request\.workspacePackages[\s\S]*dependencies\.patchCallGraphSection\(previousMermaid\)/);
+  assert.match(
+    callGraphInspectionSource,
+    /request\.isRuntimePack[\s\S]*loadPlatformGraph\(request\)/);
 });
 
 test("typeless member lookup and request guards stay empty", () => {
