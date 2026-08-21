@@ -39,6 +39,9 @@ public enum PackageSourceCapabilities
 
     /// <summary>Exact symbol-package payload acquisition.</summary>
     SymbolPayload = 1 << 3,
+
+    /// <summary>Exact bounded package-manifest acquisition.</summary>
+    Manifest = 1 << 4,
 }
 
 /// <summary>
@@ -277,9 +280,22 @@ public interface IPackageSourceClient : IDisposable
         bool prerelease = false,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Searches for packages whose IDs start with a prefix.</summary>
+    Task<PackageSourceOperationResult<PackageSearchResult>> SearchByPrefixAsync(
+        string prefix,
+        int take = 100,
+        bool prerelease = false,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Gets the versions reported for a package ID.</summary>
     Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(
         string packageId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Gets an exact bounded package manifest without acquiring the package archive.</summary>
+    Task<PackageSourceOperationResult<PackageSourceManifest>> GetManifestAsync(
+        string packageId,
+        string version,
         CancellationToken cancellationToken = default);
 
     /// <summary>Gets an exact package payload owned by the returned stream.</summary>
@@ -535,11 +551,23 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
     internal TimeSpan TransportTimeout => _client.Timeout;
     public PackageSourceCapabilities Capabilities =>
         PackageSourceCapabilities.VersionEnumeration
+        | PackageSourceCapabilities.Manifest
         | PackageSourceCapabilities.PackagePayload;
 
     public Task<PackageSourceOperationResult<PackageSearchResult>> SearchAsync(
         string query,
         int take = 20,
+        bool prerelease = false,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(
+            PackageSourceOperation.Unsupported<PackageSearchResult>(
+                Identity,
+                Kind,
+                PackageSourceCapabilities.Search));
+
+    public Task<PackageSourceOperationResult<PackageSearchResult>> SearchByPrefixAsync(
+        string prefix,
+        int take = 100,
         bool prerelease = false,
         CancellationToken cancellationToken = default) =>
         Task.FromResult(
@@ -600,6 +628,31 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                 Kind,
                 PackageSourcePayloadKind.Package,
                 await _nuget.DownloadAsync(
+                    coordinate.PackageId,
+                    coordinate.Version,
+                    _endpoint.AbsoluteUri,
+                    _credential,
+                    cancellationToken).ConfigureAwait(false)),
+            cancellationToken,
+            coordinate).ConfigureAwait(false);
+    }
+
+    public async Task<PackageSourceOperationResult<PackageSourceManifest>> GetManifestAsync(
+        string packageId,
+        string version,
+        CancellationToken cancellationToken = default)
+    {
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create(packageId, version);
+        return await PackageSourceOperation.CaptureAsync(
+            Identity,
+            Kind,
+            PackageSourceCapabilities.Manifest,
+            async () => new PackageSourceManifest(
+                coordinate,
+                Identity,
+                Kind,
+                await _nuget.GetManifestAsync(
                     coordinate.PackageId,
                     coordinate.Version,
                     _endpoint.AbsoluteUri,

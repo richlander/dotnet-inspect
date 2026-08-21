@@ -1,3 +1,5 @@
+using System.Text.Json;
+using DotnetInspector.Queries;
 using DotnetInspector.Commands;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
@@ -7,6 +9,7 @@ using DotnetInspector.Services;
 using DotnetInspector.Views;
 using InertText;
 using Markout;
+using NuGetFetch;
 
 namespace DotnetInspector.Tests;
 
@@ -253,6 +256,124 @@ public class FindCommandTests
         Assert.Equal("type\tsimilarity\nIsLong\t0.50\n", output.ReplaceLineEndings("\n"));
     }
 
+    [Fact]
+    public void PackageProfileFormatter_ProjectsDependencyAsSecondColumnAcrossFormats()
+    {
+        PackageProfileFindView view = PackageProfileFindOutputFormatter.BuildView(
+            "Contoso.",
+            [
+                new PackageProfileEvent.Match(
+                    new PackageProfileMatch(
+                        "Contoso.Package",
+                        "1.2.3",
+                        "Contoso",
+                        ["Contoso"],
+                        42,
+                        true,
+                        PackageSourceIdentity.NuGetOrg,
+                        new PackageDependencyGroups(
+                            [
+                                new DeclaredPackageDependencyGroup(
+                                    "net8.0",
+                                    [
+                                        new DeclaredPackageDependency(
+                                            "Third.Party",
+                                            "[2.0.0, 3.0.0)"),
+                                    ]),
+                            ],
+                            RequestedTargetFramework: null,
+                            SelectedTargetFramework: null,
+                            SelectedGroupIndex: null,
+                            PackageDependencyGroupSelectionStatus
+                                .NoMatchingTargetFramework))),
+                new PackageProfileEvent.Completed(
+                    new PackageProfileSummary(
+                        "Contoso.",
+                        PackageSourceIdentity.NuGetOrg,
+                        Candidates: 1,
+                        Matches: 1,
+                        Failures: 0,
+                        Truncated: false)),
+            ]);
+
+        string tsv = RenderPackageProfileTable(
+            view,
+            tsv: true,
+            showHeader: true);
+        string[] tsvLines = tsv.ReplaceLineEndings("\n")
+            .TrimEnd()
+            .Split('\n');
+        Assert.StartsWith("package\tdependency\t", tsvLines[0]);
+        Assert.StartsWith(
+            "Contoso.Package\tThird.Party\t",
+            tsvLines[1]);
+
+        string jsonl = RenderPackageProfileTable(
+            view,
+            tsv: false,
+            showHeader: false,
+            jsonl: true);
+        using JsonDocument jsonlDocument = JsonDocument.Parse(jsonl);
+        Assert.Equal(
+            "Third.Party",
+            jsonlDocument.RootElement.GetProperty("dependency").GetString());
+
+        string json = OutputFormatter.RenderProjectedJson(
+            columns: null,
+            fields: null,
+            (writer, formatter, writerOptions) =>
+                MarkoutSerializer.Serialize(
+                    view,
+                    writer,
+                    formatter,
+                    SearchViewContext.Default,
+                    writerOptions));
+        using JsonDocument jsonDocument = JsonDocument.Parse(json);
+        Assert.Equal(
+            "Third.Party",
+            jsonDocument.RootElement
+                .GetProperty("packages")[0]
+                .GetProperty("dependency")
+                .GetString());
+
+        string markdown = MarkoutSerializer.Serialize(
+            view,
+            SearchViewContext.Default);
+        Assert.Contains("| Contoso.Package | Third.Party |", markdown);
+    }
+
+    [Fact]
+    public void PackageProfileFormatter_KeepsFailuresAndTruncationVisible()
+    {
+        PackageProfileFindView view = PackageProfileFindOutputFormatter.BuildView(
+            "Contoso.",
+            [
+                new PackageProfileEvent.Failure(
+                    new PackageProfileFailure(
+                        "Contoso.Broken",
+                        "1.0.0",
+                        PackageSourceIdentity.NuGetOrg,
+                        PackageProfileFailureKind.InvalidManifest,
+                        "The manifest was invalid.")),
+                new PackageProfileEvent.Completed(
+                    new PackageProfileSummary(
+                        "Contoso.",
+                        PackageSourceIdentity.NuGetOrg,
+                        Candidates: 1,
+                        Matches: 0,
+                        Failures: 1,
+                        Truncated: true)),
+            ]);
+
+        Assert.Equal(2, view.Results!.Count);
+        Assert.Equal("InvalidManifest", view.Results[0].Status);
+        Assert.Equal("The manifest was invalid.", view.Results[0].Error);
+        Assert.Equal("truncated", view.Results[1].Status);
+        Assert.Equal(
+            PackageSourceIdentity.NuGetOrg.Value,
+            view.Results[1].Source);
+    }
+
     private static string RenderFindTable(
         FindResultView view,
         bool tsv,
@@ -270,6 +391,23 @@ public class FindCommandTests
                     {
                         Projection = OutputFormatter.BuildProjection(columns)
                     },
+                    tsv,
+                    jsonl)));
+
+    private static string RenderPackageProfileTable(
+        PackageProfileFindView view,
+        bool tsv,
+        bool showHeader,
+        bool jsonl = false) =>
+        OutputFormatter.RenderTable(
+            showHeader,
+            (writer, formatter) => MarkoutSerializer.Serialize(
+                view,
+                writer,
+                formatter,
+                SearchViewContext.Default,
+                OutputFormatter.ConfigureTableWriterOptions(
+                    new MarkoutWriterOptions(),
                     tsv,
                     jsonl)));
 }

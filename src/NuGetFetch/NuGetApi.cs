@@ -133,6 +133,16 @@ public static class NuGetApi
             {
                 throw InvalidMetadata("search response", "data[].versions");
             }
+
+            if (result.Authors is not null
+                && result.Authors.Any(static author => author is null)
+                || result.Owners is not null
+                && result.Owners.Any(static owner => owner is null))
+            {
+                throw InvalidMetadata(
+                    "search response",
+                    "data[].authors or data[].owners");
+            }
         }
 
         return response;

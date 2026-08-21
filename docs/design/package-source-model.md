@@ -410,6 +410,7 @@ calculation. It may differ only in how answers from that set are combined.
 | Pinned payload acquisition | The caller supplies the coordinate. Use a payload cache or source only when its producer is eligible for the package id. |
 | Nuspec and dependency traversal | Apply mapping to each dependency id, including cache reads and nuspec-only requests. |
 | Search | Search active sources with a search capability, then retain a result only when the reporting source is eligible for that result's package id. Carry source failures rather than presenting partial results as complete. |
+| Prefix manifest profile | Search by package-ID prefix, retain candidate metadata and producer provenance, then request only each selected coordinate's bounded exact manifest. Package archives and assemblies are not profile inputs. |
 | Routing and qualified-name probes | Use the caller's source options and mapping for package-existence and fallback probes. A probe cannot see a source the eventual command cannot use. |
 | RID, platform-pack, and wrapper follow-up | Recalculate eligibility for every newly named package id. |
 | Project restored-assets context | Bind to the assets and local package content selected by the existing restore; do not reinterpret its graph through current source options. |

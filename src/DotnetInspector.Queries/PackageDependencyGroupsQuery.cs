@@ -190,88 +190,15 @@ public static class PackageDependencyGroupsQuery
                     .ConfigureAwait(false);
             }
 
-            NuspecData nuspec;
-            using (var buffer = new MemoryStream(manifestBytes, writable: false))
-            {
-                nuspec = NuspecParser.Parse(
-                    buffer,
-                    MaxManifestCharacters);
-            }
-
-            if (string.IsNullOrWhiteSpace(nuspec.PackageName)
-                || !nuspec.PackageName.Equals(
-                    packageId,
-                    StringComparison.OrdinalIgnoreCase)
-                || !VersionsEqual(nuspec.Version, packageVersion))
-            {
-                throw new InvalidDataException(
-                    "The package manifest identity does not match the requested package.");
-            }
-
             string? requested = string.IsNullOrWhiteSpace(requestedTargetFramework)
                 ? null
                 : requestedTargetFramework;
-            List<DependencyGroup>? mutableGroups = nuspec.DependencyGroups;
-            foreach (DependencyGroup group in mutableGroups ?? [])
-            {
-                foreach (PackageDependency dependency in group.Dependencies)
-                {
-                    if (!PackageCoordinateResolver.IsCanonicalPackageId(dependency.Id))
-                    {
-                        throw new InvalidDataException(
-                            "The package manifest contains an invalid dependency id.");
-                    }
-
-                    PackageDependencyVersionRange.Validate(dependency.Version);
-                }
-            }
-
-            DependencyResolutionService.DependencyGroupSelection selection =
-                DependencyResolutionService.SelectDependencyGroup(
-                    mutableGroups,
-                    requested,
-                    allowCompatibleFallbackForRequestedTfm: false);
-            int? selectedGroupIndex = selection.Group is null
-                ? null
-                : mutableGroups?.IndexOf(selection.Group);
-            if (selection.Group is not null && selectedGroupIndex is not >= 0)
-            {
-                throw new InvalidOperationException(
-                    "The selected dependency group does not belong to the manifest.");
-            }
-
             return new PackageDependencyGroupsResult.Available(
-                new PackageDependencyGroups(
-                    mutableGroups is null
-                        ? []
-                        :
-                        [
-                            .. mutableGroups.Select(group =>
-                                new DeclaredPackageDependencyGroup(
-                                    group.TargetFramework,
-                                    [
-                                        .. group.Dependencies.Select(dependency =>
-                                            new DeclaredPackageDependency(
-                                                dependency.Id,
-                                                dependency.Version)),
-                                    ])),
-                        ],
-                    requested,
-                    selection.Group?.TargetFramework,
-                    selectedGroupIndex,
-                    selection.Status switch
-                    {
-                        DependencyResolutionService.DependencyGroupSelectionStatus.Selected =>
-                            PackageDependencyGroupSelectionStatus.Selected,
-                        DependencyResolutionService.DependencyGroupSelectionStatus
-                            .NoDependencyGroups =>
-                            PackageDependencyGroupSelectionStatus.NoDependencyGroups,
-                        DependencyResolutionService.DependencyGroupSelectionStatus
-                            .NoMatchingTargetFramework =>
-                            PackageDependencyGroupSelectionStatus.NoMatchingTargetFramework,
-                        _ => throw new InvalidOperationException(
-                            "Unknown dependency-group selection status."),
-                    }));
+                PackageManifestProjection.ParseDependencyGroups(
+                    manifestBytes,
+                    packageId,
+                    packageVersion,
+                    requested));
         }
         catch (Exception ex) when (
             ex is IOException
@@ -325,7 +252,7 @@ public static class PackageDependencyGroupsQuery
         };
     }
 
-    static bool VersionsEqual(
+    internal static bool VersionsEqual(
         string? declaredVersion,
         string requestedVersion)
         => NuGetVersion.TryParse(declaredVersion, out NuGetVersion? declared)
@@ -335,4 +262,113 @@ public static class PackageDependencyGroupsQuery
             && declared.ToNormalizedString().Equals(
                 requested.ToNormalizedString(),
                 StringComparison.OrdinalIgnoreCase);
+}
+
+internal static class PackageManifestProjection
+{
+    public static PackageDependencyGroups ParseDependencyGroups(
+        ReadOnlyMemory<byte> manifestBytes,
+        string packageId,
+        string packageVersion,
+        string? requestedTargetFramework)
+    {
+        NuspecData nuspec = ParseAndValidate(
+            manifestBytes,
+            packageId,
+            packageVersion);
+        return ProjectDependencyGroups(nuspec, requestedTargetFramework);
+    }
+
+    public static NuspecData ParseAndValidate(
+        ReadOnlyMemory<byte> manifestBytes,
+        string packageId,
+        string packageVersion)
+    {
+        using var buffer = new MemoryStream(
+            manifestBytes.ToArray(),
+            writable: false);
+        NuspecData nuspec = NuspecParser.Parse(
+            buffer,
+            PackageDependencyGroupsQuery.MaxManifestCharacters);
+
+        if (string.IsNullOrWhiteSpace(nuspec.PackageName)
+            || !nuspec.PackageName.Equals(
+                packageId,
+                StringComparison.OrdinalIgnoreCase)
+            || !PackageDependencyGroupsQuery.VersionsEqual(
+                nuspec.Version,
+                packageVersion))
+        {
+            throw new InvalidDataException(
+                "The package manifest identity does not match the requested package.");
+        }
+
+        foreach (DependencyGroup group in nuspec.DependencyGroups ?? [])
+        {
+            foreach (PackageDependency dependency in group.Dependencies)
+            {
+                if (!PackageCoordinateResolver.IsCanonicalPackageId(dependency.Id))
+                {
+                    throw new InvalidDataException(
+                        "The package manifest contains an invalid dependency id.");
+                }
+
+                PackageDependencyVersionRange.Validate(dependency.Version);
+            }
+        }
+
+        return nuspec;
+    }
+
+    public static PackageDependencyGroups ProjectDependencyGroups(
+        NuspecData nuspec,
+        string? requestedTargetFramework)
+    {
+        List<DependencyGroup>? mutableGroups = nuspec.DependencyGroups;
+        DependencyResolutionService.DependencyGroupSelection selection =
+            DependencyResolutionService.SelectDependencyGroup(
+                mutableGroups,
+                requestedTargetFramework,
+                allowCompatibleFallbackForRequestedTfm: false);
+        int? selectedGroupIndex = selection.Group is null
+            ? null
+            : mutableGroups?.IndexOf(selection.Group);
+        if (selection.Group is not null && selectedGroupIndex is not >= 0)
+        {
+            throw new InvalidOperationException(
+                "The selected dependency group does not belong to the manifest.");
+        }
+
+        return new PackageDependencyGroups(
+            mutableGroups is null
+                ? []
+                :
+                [
+                    .. mutableGroups.Select(group =>
+                        new DeclaredPackageDependencyGroup(
+                            group.TargetFramework,
+                            [
+                                .. group.Dependencies.Select(dependency =>
+                                    new DeclaredPackageDependency(
+                                        dependency.Id,
+                                        dependency.Version)),
+                            ])),
+                ],
+            requestedTargetFramework,
+            selection.Group?.TargetFramework,
+            selectedGroupIndex,
+            selection.Status switch
+            {
+                DependencyResolutionService.DependencyGroupSelectionStatus.Selected =>
+                    PackageDependencyGroupSelectionStatus.Selected,
+                DependencyResolutionService.DependencyGroupSelectionStatus
+                    .NoDependencyGroups =>
+                    PackageDependencyGroupSelectionStatus.NoDependencyGroups,
+                DependencyResolutionService.DependencyGroupSelectionStatus
+                    .NoMatchingTargetFramework =>
+                    PackageDependencyGroupSelectionStatus.NoMatchingTargetFramework,
+                _ => throw new InvalidOperationException(
+                    "Unknown dependency-group selection status."),
+            });
+    }
 }

@@ -127,6 +127,7 @@ browser it can use known web endpoints without requesting
 | --- | --- |
 | Keyword search and latest listed version | NuGet Gallery search service |
 | Complete version enumeration | `globalcdn.nuget.org/v3-flatcontainer/{id}/index.json` |
+| Exact package manifest | `globalcdn.nuget.org/v3-flatcontainer/{id}/{version}/{id}.nuspec` |
 | Per-version listing status | `globalcdn.nuget.org/v3/registration5-gz-semver2/{id}/index.json` |
 | Package payload | `globalcdn.nuget.org/packages/{id}.{version}.nupkg` |
 | Symbol package | `globalcdn.nuget.org/symbol-packages/{id}.{version}.snupkg` |
@@ -137,6 +138,12 @@ policy. Version enumeration joins the flat-container list with the registration
 listing status, preserving the listing-aware behavior defined by
 [version resolution](version-resolution.md). Search results are not written
 into the complete version-list cache.
+
+Prefix profiles combine listed-only search metadata with bounded exact
+manifest requests. Search metadata owns package owners, verification, and
+download counts; the `.nuspec` owns authors and declared dependency groups.
+The profile path does not request `.nupkg` payloads or open assemblies.
+Individual package selection may separately authorize those operations.
 
 Registration indexes have two page shapes:
 

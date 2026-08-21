@@ -13,6 +13,7 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
 
     private readonly HttpClient _client;
     private readonly NuGetFetchOptions _options;
+    private readonly NuGetClient _nuget;
     private readonly SearchService _search;
 
     public NuGetGalleryPackageSourceClient(
@@ -21,6 +22,7 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
     {
         _client = client;
         _options = NuGetFetchOptions.Validate(options);
+        _nuget = new NuGetClient(client, _options);
         _search = new SearchService(
             client,
             SearchEndpoint,
@@ -34,6 +36,7 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
     public PackageSourceCapabilities Capabilities =>
         PackageSourceCapabilities.Search
         | PackageSourceCapabilities.VersionEnumeration
+        | PackageSourceCapabilities.Manifest
         | PackageSourceCapabilities.PackagePayload
         | PackageSourceCapabilities.SymbolPayload;
 
@@ -71,7 +74,48 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                 return PackageSourceProjection.ProjectSearch(
                     results,
                     Identity,
-                    operation);
+                    operation,
+                    truncated: results.Count == take);
+            },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<PackageSourceOperationResult<PackageSearchResult>> SearchByPrefixAsync(
+        string prefix,
+        int take = 100,
+        bool prerelease = false,
+        CancellationToken cancellationToken = default)
+    {
+        return await PackageSourceOperation.CaptureAsync(
+            Identity,
+            Kind,
+            PackageSourceCapabilities.Search,
+            async () =>
+            {
+                using var operation = CreateOperation(cancellationToken);
+                IReadOnlyList<SearchResult> results;
+                try
+                {
+                    results = await _search.SearchByPrefixAsync(
+                            prefix,
+                            take,
+                            prerelease,
+                            auth: null,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (InvalidOperationException exception)
+                {
+                    throw new NuGetSourceResponseException(
+                        "The NuGet Gallery prefix-search response did not satisfy the search contract.",
+                        exception);
+                }
+
+                return PackageSourceProjection.ProjectSearch(
+                    results,
+                    Identity,
+                    operation,
+                    truncated: results.Count == take);
             },
             cancellationToken).ConfigureAwait(false);
     }
@@ -169,6 +213,30 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                     content,
                     advertisedLength);
             },
+            cancellationToken,
+            coordinate).ConfigureAwait(false);
+    }
+
+    public async Task<PackageSourceOperationResult<PackageSourceManifest>> GetManifestAsync(
+        string packageId,
+        string version,
+        CancellationToken cancellationToken = default)
+    {
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create(packageId, version);
+        return await PackageSourceOperation.CaptureAsync(
+            Identity,
+            Kind,
+            PackageSourceCapabilities.Manifest,
+            async () => new PackageSourceManifest(
+                coordinate,
+                Identity,
+                Kind,
+                await _nuget.GetManifestFromBaseAddressAsync(
+                    coordinate.PackageId,
+                    coordinate.Version,
+                    FlatContainer,
+                    cancellationToken).ConfigureAwait(false)),
             cancellationToken,
             coordinate).ConfigureAwait(false);
     }

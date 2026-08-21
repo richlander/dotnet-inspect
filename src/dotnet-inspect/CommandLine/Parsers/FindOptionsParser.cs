@@ -60,17 +60,20 @@ public static class FindOptionsParser
         FindCommandArgs args)
     {
         var pattern = parseResult.GetValue(args.PatternArg);
+        var packagePrefix = parseResult.GetValue(args.PackagePrefixOption);
 
-        if (string.IsNullOrEmpty(pattern))
+        if (string.IsNullOrEmpty(pattern)
+            && string.IsNullOrEmpty(packagePrefix))
             return new ShowHelpWithTips();
 
         var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
-        var packagePrefix = parseResult.GetValue(args.PackagePrefixOption);
-        var packages = await CommandLineHelpers.MergeWithPrefixPackagesAsync(
-            parseResult.GetValue(args.PackageOption) ?? [],
-            packagePrefix,
-            parseResult.GetValue(opts.Verbose),
-            sourceOptions);
+        var packages = string.IsNullOrEmpty(pattern)
+            ? parseResult.GetValue(args.PackageOption) ?? []
+            : await CommandLineHelpers.MergeWithPrefixPackagesAsync(
+                parseResult.GetValue(args.PackageOption) ?? [],
+                packagePrefix,
+                parseResult.GetValue(opts.Verbose),
+                sourceOptions);
         var assemblies = parseResult.GetValue(args.AssemblyOption) ?? [];
         var projects = parseResult.GetValue(args.ProjectOption) ?? [];
         var binPaths = parseResult.GetValue(args.BinOption) ?? [];
@@ -90,7 +93,7 @@ public static class FindOptionsParser
 
         var options = new FindOptions
         {
-            Pattern = pattern!,
+            Pattern = pattern ?? "",
             Packages = scope.Packages,
             Assemblies = assemblies,
             PlatformAssemblies = platformAssemblies,
@@ -101,7 +104,8 @@ public static class FindOptionsParser
             IncludeAll = parseResult.GetValue(args.AllOption),
             // Member lens: explicit --members, or auto-enabled by a leading '.' sentinel (e.g. .Serialize).
             // No valid type/namespace starts with '.', so the shortcut is unambiguous.
-            Members = parseResult.GetValue(args.MembersOption) || pattern!.StartsWith('.'),
+            Members = parseResult.GetValue(args.MembersOption)
+                || (pattern?.StartsWith('.') ?? false),
             Limit = CommandLineHelpers.ParseTypeLimit(parseResult.GetValue(args.TypeFilterOption)),
             Rows = opts.ParseRows(parseResult),
             Count = parseResult.GetValue(opts.Count),
@@ -122,7 +126,7 @@ public static class FindOptionsParser
         };
 
         var verbosity = opts.ParseVerbosity(parseResult);
-        var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || options.Count || verbosity == Verbosity.Quiet || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || options.Limit != null
+        var tipLevel = options.IsPackageProfile || options.FormatExplicitlySet || options.IsRawOutput || options.Count || verbosity == Verbosity.Quiet || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || options.Limit != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
 
         return new Success(options, verbosity, tipLevel);

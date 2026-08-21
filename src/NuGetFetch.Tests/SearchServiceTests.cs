@@ -290,8 +290,8 @@ public class SearchServiceTests
                 take: 1,
                 cancellationToken: TestContext.Current.CancellationToken));
 
-        Assert.Contains("exceeded 32 pages", error.Message);
-        Assert.Equal(32, handler.RequestCount);
+        Assert.Contains("exceeded 100 pages", error.Message);
+        Assert.Equal(100, handler.RequestCount);
     }
 
     private sealed class CapturingHandler(string body, HttpStatusCode status = HttpStatusCode.OK)

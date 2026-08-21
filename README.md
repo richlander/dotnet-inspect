@@ -121,6 +121,21 @@ same check and prints this repair when a stale checkout reaches the test suite.
 
 Bare names are routed automatically: platform-looking names (`System.*`, `Microsoft.AspNetCore.*`) resolve to installed platform libraries; other names resolve as NuGet packages. In API commands, common CoreLib aliases and simple type names such as `string`, `int`, `DateTime`, and `Guid` resolve to `System.Private.CoreLib`. Use explicit commands and `--package`, `--platform`, or `--library` when you need a specific source.
 
+Discover NuGet.org packages by ID prefix without downloading package archives:
+
+```bash
+dotnet-inspect find --package-prefix Azure.AI -t 100 --tsv
+```
+
+Patternless `--package-prefix` streams the latest listed package metadata and
+exact `.nuspec` manifests, including owners and declared dependency groups.
+`-t` limits packages rather than flattened dependency rows. Supplying a pattern
+keeps the existing API-search behavior and may acquire package archives:
+
+```bash
+dotnet-inspect find JsonSerializer --package-prefix Microsoft.
+```
+
 For API and relationship commands, `--project` means an existing
 `project.assets.json` restored-assets context. Passing a `.csproj` or project
 directory only locates that file; dotnet-inspect does not restore or build, so
@@ -209,7 +224,7 @@ permits a selected non-public member.
 | Project skills | `project` | Direct dependency `Skills` rows from package `skills/**/SKILL.md` files with valid required Agent Skills metadata and directory-matching names, plus version-resolved package README/PROJECT docs from restored projects. Invalid metadata and missing restored skill files fail visibly. |
 | Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries, exposed as ordinary discoverable sections. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, OpenTelemetry support, symbols/PDBs, SourceLink and determinism audit, flat or depth-bounded tree references, resources, async method classification. |
-| API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. Add `--project` to resolve type/member queries in the project's restored dependency context. |
+| API and package discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. Patternless `find --package-prefix PREFIX` discovers latest NuGet.org package manifests without downloading archives. Add `--project` to resolve type/member queries in the project's restored dependency context. |
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type and member filters, plus opt-in decompiled C#/IL/checksum-verified authored Source evidence. |
 | Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. Add `--project` to search project-referenced packages. |
 | Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"Original Source"` | SourceLink URLs, member file/line locations, checksum-verified source fetching with final-origin redirect validation, token+IL-offset to source-line resolution. |
@@ -227,7 +242,7 @@ permits a selected non-public member.
 | `library X` | Inspect assembly metadata, symbols, SourceLink, references (`-S References`, optionally `--tree --depth N`), resources, async methods, and rendered body shapes (`--where "Kind=<ID>"`). |
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, rendered body shapes (`--where "Kind=<ID>"`), SourceLink-backed original source, and IL. |
-| `find X` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, e.g. `.Serialize`) to search member names instead. |
+| `find [X]` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, e.g. `.Serialize`) to search member names instead. Omit `X` with `--package-prefix PREFIX` to discover latest NuGet.org package manifests. |
 | `vocabulary` | Discover product-owned query vocabularies; select sections such as `Accessibility`, `C# Style Choices`, or `C# Body Kinds` to enumerate their legal values. |
 | `diff X` | Compare API surfaces by default; opt into analysis or peer decompiled C#, IL, and checksum-verified authored Source implementation evidence. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |

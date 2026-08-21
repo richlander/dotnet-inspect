@@ -48,6 +48,14 @@ catalog generations, `CoreCache`, typed provenance and resolution currencies,
 and `InertString`; the remaining workspace model describes how those pieces
 will be composed.
 
+Patternless `find --package-prefix` is a package-space query rather than an
+assembly workspace query. It streams bounded typed match, failure, and
+completion events from source-owned search metadata and exact manifests.
+Search supplies owners and candidate provenance; the manifest supplies authors
+and declared dependency groups. The query does not acquire package archives or
+assemblies, and hosts may present each match incrementally before any later
+package drill-in.
+
 The Integration graph now accepts finite explicit-subject induced-set requests
 over one realized context group. Workspace scope still decides which
 participants may contribute. The request independently selects typed subjects,

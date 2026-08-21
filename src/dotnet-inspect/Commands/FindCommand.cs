@@ -3,8 +3,10 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Queries;
 using DotnetInspector.Views;
 using Markout;
+using NuGetFetch;
 
 namespace DotnetInspector.Commands;
 
@@ -14,7 +16,9 @@ namespace DotnetInspector.Commands;
 public class FindCommand
 {
     public const string Name = "find";
-    public static async Task<int> ExecuteAsync(FindOptions options)
+    public static async Task<int> ExecuteAsync(
+        FindOptions options,
+        CancellationToken cancellationToken = default)
     {
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
@@ -24,7 +28,24 @@ public class FindCommand
             // Discovery mode: -D/--discover lists schema
             if (options.Discover != null)
             {
-                var schema = options.Members
+                var schema = options.IsPackageProfile
+                    ? new DocumentSchema()
+                        .Add(
+                            "Packages",
+                            "column",
+                            "Package",
+                            "Dependency",
+                            "Version",
+                            "Owners",
+                            "TFM",
+                            "Dependency Version",
+                            "Authors",
+                            "Verified",
+                            "Downloads",
+                            "Source",
+                            "Status",
+                            "Error")
+                    : options.Members
                     ? new DocumentSchema()
                         .Add("Members", "column", "Pattern", "Member", "Kind", "Type", "Signature", "Library", "Source")
                     : new DocumentSchema()
@@ -32,6 +53,13 @@ public class FindCommand
                 return DiscoverOutput.Execute(options.Discover, schema,
                     tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl,
                     projection: options);
+            }
+
+            if (options.IsPackageProfile)
+            {
+                return await ExecutePackageProfileAsync(
+                    options,
+                    cancellationToken);
             }
 
             var patterns = options.Pattern.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -96,6 +124,108 @@ public class FindCommand
             CommandError.Write(ex);
             return 1;
         }
+    }
+
+    private static async Task<int> ExecutePackageProfileAsync(
+        FindOptions options,
+        CancellationToken cancellationToken)
+    {
+        if (options.Packages.Length > 0
+            || options.Assemblies.Length > 0
+            || options.PlatformAssemblies.Length > 0
+            || options.PlatformFrameworks.Length > 0
+            || options.Projects.Length > 0
+            || options.BinPaths.Length > 0
+            || options.Members
+            || options.Tfm is not null)
+        {
+            CommandError.Write(
+                "Patternless --package-prefix cannot be combined with API search scopes or --tfm.");
+            return 1;
+        }
+
+        if (options.SourceOptions is { } sourceOptions
+            && (sourceOptions.Sources.Length > 0
+                || sourceOptions.AdditionalSources.Length > 0
+                || sourceOptions.ConfigFile is not null))
+        {
+            CommandError.Write(
+                "Package-prefix manifest profiles currently use the NuGet Gallery source and cannot be combined with source overrides.");
+            return 1;
+        }
+
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery();
+        var request = new PackagePrefixProfileRequest(
+            options.PackagePrefix!,
+            options.Limit ?? 100);
+        var events = new List<PackageProfileEvent>();
+        await foreach (PackageProfileEvent profileEvent
+            in PackageProfileQuery.ExecuteAsync(
+                source,
+                request,
+                cancellationToken))
+        {
+            events.Add(profileEvent);
+        }
+
+        PackageProfileSummary summary = events
+            .OfType<PackageProfileEvent.Completed>()
+            .Single()
+            .Value;
+        var view = PackageProfileFindOutputFormatter.BuildView(
+            request.Prefix,
+            events);
+        if (options.Count)
+        {
+            CountOutput.WriteCount(summary.Matches);
+        }
+        else if (options.JsonOutput)
+        {
+            OutputFormatter.WriteProjectedJson(
+                Console.Out,
+                options.Columns,
+                options.Fields,
+                (writer, formatter, writerOptions) =>
+                    MarkoutSerializer.Serialize(
+                        view,
+                        writer,
+                        formatter,
+                        SearchViewContext.Default,
+                        writerOptions),
+                !options.CompactJson,
+                options.Rows);
+        }
+        else if (options.Tabular)
+        {
+            OutputFormatter.WriteProjectedTable(
+                Console.Out,
+                !options.NoHeader,
+                options.Tsv,
+                options.Jsonl,
+                options.Columns,
+                options.Fields,
+                (writer, formatter, writerOptions) =>
+                    MarkoutSerializer.Serialize(
+                        view,
+                        writer,
+                        formatter,
+                        SearchViewContext.Default,
+                        writerOptions),
+                options.Rows);
+        }
+        else
+        {
+            OutputFormatter.WriteWindowedMarkdown(
+                Console.Out,
+                options.Rows,
+                writerOptions => MarkoutSerializer.Serialize(
+                    view,
+                    SearchViewContext.Default,
+                    writerOptions));
+        }
+
+        return summary.Failures == 0 ? 0 : 1;
     }
 
     private static async Task<int> ExecuteMemberSearchAsync(

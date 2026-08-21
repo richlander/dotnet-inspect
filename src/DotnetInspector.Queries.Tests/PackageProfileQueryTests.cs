@@ -1,0 +1,402 @@
+using System.Text;
+using NuGetFetch;
+
+namespace DotnetInspector.Queries.Tests;
+
+public sealed class PackageProfileQueryTests
+{
+    [Fact]
+    public async Task ExecuteAsync_StreamsManifestMatchesWithoutPackagePayloads()
+    {
+        var source = new FakePackageSource(
+            [
+                Match(
+                    "Contoso.First",
+                    "1.0.0",
+                    owners: ["Contoso", "Partner"]),
+                Match("Contoso.Second", "2.0.0"),
+            ],
+            new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["contoso.first@1.0.0"] = Manifest(
+                    "Contoso.First",
+                    "1.0.0",
+                    """
+                    <group targetFramework="net8.0">
+                      <dependency id="Third.Party" version="[3.0.0]" />
+                    </group>
+                    """),
+                ["contoso.second@2.0.0"] = Manifest(
+                    "Contoso.Second",
+                    "2.0.0"),
+            });
+
+        await using IAsyncEnumerator<PackageProfileEvent> events =
+            PackageProfileQuery.ExecuteAsync(
+                    source,
+                    new PackagePrefixProfileRequest("Contoso.", 10),
+                    TestContext.Current.CancellationToken)
+                .GetAsyncEnumerator(TestContext.Current.CancellationToken);
+
+        Assert.True(await events.MoveNextAsync());
+        PackageProfileMatch first = Assert.IsType<PackageProfileEvent.Match>(
+            events.Current).Value;
+        Assert.Equal("Contoso.First", first.PackageId);
+        Assert.Equal(["Contoso", "Partner"], first.Owners);
+        DeclaredPackageDependency dependency = Assert.Single(
+            Assert.Single(first.DependencyGroups.Groups).Dependencies);
+        Assert.Equal("Third.Party", dependency.Id);
+        Assert.Equal("[3.0.0]", dependency.VersionRange);
+        Assert.Equal(["contoso.first@1.0.0"], source.ManifestRequests);
+        Assert.Equal(0, source.PackageRequests);
+
+        Assert.True(await events.MoveNextAsync());
+        PackageProfileMatch second = Assert.IsType<PackageProfileEvent.Match>(
+            events.Current).Value;
+        Assert.Equal("Contoso.Second", second.PackageId);
+        Assert.Equal(
+            PackageDependencyGroupSelectionStatus.NoDependencyGroups,
+            second.DependencyGroups.SelectionStatus);
+        Assert.Equal(
+            ["contoso.first@1.0.0", "contoso.second@2.0.0"],
+            source.ManifestRequests);
+        Assert.Equal(0, source.PackageRequests);
+
+        Assert.True(await events.MoveNextAsync());
+        PackageProfileSummary summary =
+            Assert.IsType<PackageProfileEvent.Completed>(events.Current).Value;
+        Assert.Equal(2, summary.Candidates);
+        Assert.Equal(2, summary.Matches);
+        Assert.Equal(0, summary.Failures);
+        Assert.False(summary.Truncated);
+        Assert.False(await events.MoveNextAsync());
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ReportsInvalidManifestAndContinues()
+    {
+        var source = new FakePackageSource(
+            [
+                Match("Contoso.Broken", "1.0.0"),
+                Match("Contoso.Valid", "1.0.0"),
+            ],
+            new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["contoso.broken@1.0.0"] = Manifest(
+                    "Other.Package",
+                    "1.0.0"),
+                ["contoso.valid@1.0.0"] = Manifest(
+                    "Contoso.Valid",
+                    "1.0.0"),
+            });
+
+        List<PackageProfileEvent> events = await CollectAsync(
+            PackageProfileQuery.ExecuteAsync(
+                source,
+                new PackagePrefixProfileRequest("Contoso."),
+                TestContext.Current.CancellationToken));
+
+        PackageProfileFailure failure =
+            Assert.IsType<PackageProfileEvent.Failure>(events[0]).Value;
+        Assert.Equal(
+            PackageProfileFailureKind.InvalidManifest,
+            failure.Kind);
+        Assert.Equal("Contoso.Broken", failure.PackageId);
+        Assert.IsType<PackageProfileEvent.Match>(events[1]);
+        PackageProfileSummary summary =
+            Assert.IsType<PackageProfileEvent.Completed>(events[2]).Value;
+        Assert.Equal(1, summary.Matches);
+        Assert.Equal(1, summary.Failures);
+        Assert.Equal(0, source.PackageRequests);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ReportsSearchFailureAsIncompleteStream()
+    {
+        var source = new FakePackageSource(
+            [],
+            new Dictionary<string, byte[]>())
+        {
+            SearchFailure = new PackageSourceFailure(
+                PackageSourceIdentity.NuGetOrg,
+                PackageSourceKind.NuGetGallery,
+                PackageSourceCapabilities.Search,
+                Coordinate: null,
+                PackageSourceFailureKind.Timeout,
+                "The package source operation exceeded its configured deadline."),
+        };
+
+        List<PackageProfileEvent> events = await CollectAsync(
+            PackageProfileQuery.ExecuteAsync(
+                source,
+                new PackagePrefixProfileRequest("Contoso."),
+                TestContext.Current.CancellationToken));
+
+        PackageProfileFailure failure =
+            Assert.IsType<PackageProfileEvent.Failure>(events[0]).Value;
+        Assert.Equal(PackageProfileFailureKind.Search, failure.Kind);
+        PackageProfileSummary summary =
+            Assert.IsType<PackageProfileEvent.Completed>(events[1]).Value;
+        Assert.Equal(0, summary.Candidates);
+        Assert.Equal(1, summary.Failures);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ReportsTruncation()
+    {
+        var source = new FakePackageSource(
+            [Match("Contoso.One", "1.0.0")],
+            new Dictionary<string, byte[]>
+            {
+                ["contoso.one@1.0.0"] = Manifest(
+                    "Contoso.One",
+                    "1.0.0"),
+            })
+        {
+            SearchTruncated = true,
+        };
+
+        List<PackageProfileEvent> events = await CollectAsync(
+            PackageProfileQuery.ExecuteAsync(
+                source,
+                new PackagePrefixProfileRequest("Contoso.", 1),
+                TestContext.Current.CancellationToken));
+
+        Assert.True(
+            Assert.IsType<PackageProfileEvent.Completed>(events[^1])
+                .Value.Truncated);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_RejectsOutOfPrefixSourceItemBeforeManifestFetch()
+    {
+        var source = new FakePackageSource(
+            [Match("Other.Package", "1.0.0")],
+            new Dictionary<string, byte[]>());
+
+        List<PackageProfileEvent> events = await CollectAsync(
+            PackageProfileQuery.ExecuteAsync(
+                source,
+                new PackagePrefixProfileRequest("Contoso."),
+                TestContext.Current.CancellationToken));
+
+        PackageProfileFailure failure =
+            Assert.IsType<PackageProfileEvent.Failure>(events[0]).Value;
+        Assert.Equal(
+            PackageProfileFailureKind.SearchContract,
+            failure.Kind);
+        Assert.Empty(source.ManifestRequests);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_RejectsInconsistentSearchCoordinateBeforeManifestFetch()
+    {
+        var source = new FakePackageSource(
+            [
+                new PackageSearchMatch(
+                    new SearchResult("Contoso.Package", "1.0.0"),
+                    new PackageCandidateObservation(
+                        PackageSourceCoordinate.Create(
+                            "Contoso.Other",
+                            "1.0.0"),
+                        PackageSourceIdentity.NuGetOrg,
+                        PackageDiscoveryContract.KeywordSearch,
+                        PackageListingState.Listed)),
+            ],
+            new Dictionary<string, byte[]>());
+
+        List<PackageProfileEvent> events = await CollectAsync(
+            PackageProfileQuery.ExecuteAsync(
+                source,
+                new PackagePrefixProfileRequest("Contoso."),
+                TestContext.Current.CancellationToken));
+
+        PackageProfileFailure failure =
+            Assert.IsType<PackageProfileEvent.Failure>(events[0]).Value;
+        Assert.Equal(
+            PackageProfileFailureKind.SearchContract,
+            failure.Kind);
+        Assert.Empty(source.ManifestRequests);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_RejectsManifestWithMismatchedProvenance()
+    {
+        var source = new FakePackageSource(
+            [Match("Contoso.Package", "1.0.0")],
+            new Dictionary<string, byte[]>
+            {
+                ["contoso.package@1.0.0"] = Manifest(
+                    "Contoso.Package",
+                    "1.0.0"),
+            })
+        {
+            ManifestProducer = PackageSourceIdentity.ForHttpEndpoint(
+                new Uri("https://packages.example/v3/index.json")),
+        };
+
+        List<PackageProfileEvent> events = await CollectAsync(
+            PackageProfileQuery.ExecuteAsync(
+                source,
+                new PackagePrefixProfileRequest("Contoso."),
+                TestContext.Current.CancellationToken));
+
+        PackageProfileFailure failure =
+            Assert.IsType<PackageProfileEvent.Failure>(events[0]).Value;
+        Assert.Equal(
+            PackageProfileFailureKind.ManifestContract,
+            failure.Kind);
+    }
+
+    private static PackageSearchMatch Match(
+        string packageId,
+        string version,
+        IReadOnlyList<string>? owners = null)
+    {
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create(packageId, version);
+        return new PackageSearchMatch(
+            new SearchResult(
+                packageId,
+                version,
+                Authors: ["Manifest Author"],
+                Owners: owners),
+            new PackageCandidateObservation(
+                coordinate,
+                PackageSourceIdentity.NuGetOrg,
+                PackageDiscoveryContract.KeywordSearch,
+                PackageListingState.Listed));
+    }
+
+    private static byte[] Manifest(
+        string packageId,
+        string version,
+        string dependencies = "") =>
+        Encoding.UTF8.GetBytes(
+            $$"""
+            <?xml version="1.0" encoding="utf-8"?>
+            <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+              <metadata>
+                <id>{{packageId}}</id>
+                <version>{{version}}</version>
+                <authors>Manifest Author</authors>
+                <description>Package profile test.</description>
+                <dependencies>{{dependencies}}</dependencies>
+              </metadata>
+            </package>
+            """);
+
+    private static async Task<List<PackageProfileEvent>> CollectAsync(
+        IAsyncEnumerable<PackageProfileEvent> source)
+    {
+        List<PackageProfileEvent> events = [];
+        await foreach (PackageProfileEvent item in source)
+            events.Add(item);
+        return events;
+    }
+
+    private sealed class FakePackageSource(
+        IReadOnlyList<PackageSearchMatch> matches,
+        IReadOnlyDictionary<string, byte[]> manifests)
+        : IPackageSourceClient
+    {
+        public PackageSourceFailure? SearchFailure { get; init; }
+        public bool SearchTruncated { get; init; }
+        public PackageSourceIdentity ManifestProducer { get; init; } =
+            PackageSourceIdentity.NuGetOrg;
+        public List<string> ManifestRequests { get; } = [];
+        public int PackageRequests { get; private set; }
+        public PackageSourceIdentity Identity => PackageSourceIdentity.NuGetOrg;
+        public PackageSourceKind Kind => PackageSourceKind.NuGetGallery;
+        public PackageSourceCapabilities Capabilities =>
+            PackageSourceCapabilities.Search
+            | PackageSourceCapabilities.Manifest;
+
+        public Task<PackageSourceOperationResult<PackageSearchResult>>
+            SearchByPrefixAsync(
+                string prefix,
+                int take = 100,
+                bool prerelease = false,
+                CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            PackageSourceOperationResult<PackageSearchResult> result =
+                SearchFailure is null
+                    ? new PackageSourceOperationResult<PackageSearchResult>
+                        .Succeeded(
+                            new PackageSearchResult(
+                                matches,
+                                SearchTruncated))
+                    : new PackageSourceOperationResult<PackageSearchResult>
+                        .Failed(SearchFailure);
+            return Task.FromResult(result);
+        }
+
+        public Task<PackageSourceOperationResult<PackageSourceManifest>>
+            GetManifestAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            PackageSourceCoordinate coordinate =
+                PackageSourceCoordinate.Create(packageId, version);
+            string key = $"{coordinate.PackageId}@{coordinate.Version}";
+            ManifestRequests.Add(key);
+            PackageSourceOperationResult<PackageSourceManifest> result =
+                manifests.TryGetValue(key, out byte[]? content)
+                    ? new PackageSourceOperationResult<PackageSourceManifest>
+                        .Succeeded(
+                            new PackageSourceManifest(
+                                coordinate,
+                                ManifestProducer,
+                                Kind,
+                                content))
+                    : new PackageSourceOperationResult<PackageSourceManifest>
+                        .Failed(
+                            new PackageSourceFailure(
+                                Identity,
+                                Kind,
+                                PackageSourceCapabilities.Manifest,
+                                coordinate,
+                                PackageSourceFailureKind.NotFound,
+                                "The requested payload was not found at the package source."));
+            return Task.FromResult(result);
+        }
+
+        public Task<PackageSourceOperationResult<PackageSearchResult>>
+            SearchAsync(
+                string query,
+                int take = 20,
+                bool prerelease = false,
+                CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageVersionResult>>
+            GetVersionsAsync(
+                string packageId,
+                CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourcePayload>>
+            GetPackageAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default)
+        {
+            PackageRequests++;
+            throw new NotSupportedException();
+        }
+
+        public Task<PackageSourceOperationResult<PackageSourcePayload>>
+            TryGetSymbolsAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public void Dispose()
+        {
+        }
+    }
+}

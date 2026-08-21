@@ -36,7 +36,9 @@ public record SearchResult(
     string? Description = null,
     long TotalDownloads = 0,
     bool Verified = false,
-    IReadOnlyList<SearchVersion>? Versions = null);
+    IReadOnlyList<SearchVersion>? Versions = null,
+    IReadOnlyList<string>? Authors = null,
+    IReadOnlyList<string>? Owners = null);
 
 public record SearchVersion(
     string Version,

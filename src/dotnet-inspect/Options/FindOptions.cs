@@ -146,6 +146,14 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
     public string? PackagePrefix { get; init; }
 
     /// <summary>
+    /// True when a patternless package-prefix search projects package manifests
+    /// rather than acquiring package archives for API search.
+    /// </summary>
+    public bool IsPackageProfile =>
+        Pattern.Length == 0
+        && PackagePrefix is not null;
+
+    /// <summary>
     /// Returns true if any search scope is specified.
     /// </summary>
     public bool HasAnyScope =>

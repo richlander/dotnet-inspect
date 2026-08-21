@@ -9,7 +9,7 @@ namespace NuGetFetch;
 public partial class SearchService
 {
     private const int PrefixSearchPageSize = 100;
-    private const int MaxPrefixSearchPages = 32;
+    private const int MaxPrefixSearchPages = 100;
     private readonly HttpClient _client;
     private readonly NuGetFetchOptions _options;
     private readonly bool _retryTransientRequests;

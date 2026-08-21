@@ -220,6 +220,94 @@ public class NuGetClient(HttpClient client)
         }
     }
 
+    internal async Task<ReadOnlyMemory<byte>> GetManifestAsync(
+        string packageId,
+        string version,
+        string? sourceUrl = null,
+        PackageSourceCredential? credential = null,
+        CancellationToken cancellationToken = default)
+    {
+        using var operation = CreateOperation(cancellationToken);
+        string baseAddress = await ResolveBaseAddressAsync(
+            sourceUrl,
+            credential,
+            operation).ConfigureAwait(false);
+        return await GetManifestFromBaseAddressAsync(
+            packageId,
+            version,
+            baseAddress,
+            sourceUrl,
+            credential,
+            operation).ConfigureAwait(false);
+    }
+
+    internal async Task<ReadOnlyMemory<byte>> GetManifestFromBaseAddressAsync(
+        string packageId,
+        string version,
+        string baseAddress,
+        CancellationToken cancellationToken = default)
+    {
+        using var operation = CreateOperation(cancellationToken);
+        return await GetManifestFromBaseAddressAsync(
+            packageId,
+            version,
+            NormalizeBaseAddress(baseAddress),
+            sourceUrl: null,
+            credential: null,
+            operation).ConfigureAwait(false);
+    }
+
+    private async Task<ReadOnlyMemory<byte>> GetManifestFromBaseAddressAsync(
+        string packageId,
+        string version,
+        string baseAddress,
+        string? sourceUrl,
+        PackageSourceCredential? credential,
+        NuGetOperationDeadline operation)
+    {
+        string id = packageId.ToLowerInvariant();
+        string ver = NormalizeVersion(version);
+        string url = AppendBaseAddressPath(
+            baseAddress,
+            $"{Uri.EscapeDataString(id)}/{Uri.EscapeDataString(ver)}/"
+            + $"{Uri.EscapeDataString($"{id}.nuspec")}");
+        PackageSourceCredential? endpointCredential =
+            CredentialForEndpoint(sourceUrl, url, credential);
+
+        return await operation.RunRequestAsync(
+            async requestToken =>
+            {
+                using HttpRequestMessage request =
+                    NuGetHttpRequest.CreateGetPreservingPathAndQuery(url);
+                ApplyCredential(request, endpointCredential);
+                using HttpResponseMessage response = await client.SendAsync(
+                    request,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    requestToken).ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
+                return await NuGetMetadataReader.ReadResponseAsync(
+                    response,
+                    ReadManifestBytesAsync,
+                    _options with
+                    {
+                        MaxMetadataResponseBytes =
+                            _options.MaxManifestResponseBytes,
+                    },
+                    client.Timeout,
+                    requestToken).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+    }
+
+    private static async ValueTask<ReadOnlyMemory<byte>> ReadManifestBytesAsync(
+        Stream manifest,
+        CancellationToken cancellationToken)
+    {
+        using var buffer = new MemoryStream();
+        await manifest.CopyToAsync(buffer, cancellationToken)
+            .ConfigureAwait(false);
+        return buffer.ToArray();
+    }
+
     /// <summary>
     /// Downloads a package to a file.
     /// </summary>
