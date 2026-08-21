@@ -1,9 +1,13 @@
-export interface BuildIdentity {
-  version?: string;
-  commit?: string;
-  commitUrl?: string;
-  builtAtUtc?: string;
-}
+import type {
+  BrowserBuildIdentity,
+  BrowserPackageCacheStats,
+} from "./inspect-web-engine.d.ts";
+
+// BuildIdentity/PackageCacheStats used to be hand-written duplicates of the C# DTOs. They're now
+// aliases of the generated, tsbindgen-derived types so this module can't independently drift from
+// InspectWeb.Engine's actual [JSExport] wire shape.
+export type BuildIdentity = BrowserBuildIdentity;
+export type PackageCacheStats = BrowserPackageCacheStats;
 
 export interface BrowserDiagnostics {
   assets: number;
@@ -13,13 +17,6 @@ export interface BrowserDiagnostics {
   startupMs: number;
   precomputeMs: number;
   totalMs: number;
-}
-
-export interface PackageCacheStats {
-  packages: number;
-  resident: number;
-  residentBytes: number;
-  workspaces: number;
 }
 
 export type PackageSource =
