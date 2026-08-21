@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { renderPackageOpportunities } from "../src/package-opportunities.ts";
+import {
+  renderPackageOpportunities,
+  type OpportunityItem,
+} from "../src/package-opportunities.ts";
 
 function escapeHtml(value: unknown) {
   return String(value)
@@ -21,6 +24,20 @@ const baseOptions = {
   data: null,
   escapeHtml,
 };
+
+function opportunity(
+  item: Pick<OpportunityItem, "api" | "integrationType" | "lookFor">
+    & Partial<OpportunityItem>,
+): OpportunityItem {
+  return {
+    sourceDefinitionId: item.api,
+    sourceAssembly: "Test.Assembly",
+    sourceAssemblyVersion: "1.0.0.0",
+    sourceAssemblyCulture: null,
+    sourceAssemblyPublicKeyToken: null,
+    ...item,
+  };
+}
 
 test("a platform package with no scoped library prompts to pick one, before any scan runs", () => {
   const html = renderPackageOpportunities({
@@ -101,7 +118,7 @@ test("categories render a summary with area\/suggestion counts and a chip per ca
     ...baseOptions,
     data: {
       categories: [
-        { integration: "Auth", items: [{ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "" }] },
+        { integration: "Auth", items: [opportunity({ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "" })] },
         { integration: "Database", items: [] },
       ],
       totalOpportunities: 1,
@@ -151,7 +168,7 @@ test("an integration kind with a leading dotted namespace renders a load-on-dema
     data: {
       categories: [{
         integration: "AI",
-        items: [{ api: "Widget", integrationType: "Microsoft.Extensions.AI IChatClient extension", lookFor: "" }],
+        items: [opportunity({ api: "Widget", integrationType: "Microsoft.Extensions.AI IChatClient extension", lookFor: "" })],
       }],
       totalOpportunities: 1,
       inspectionError: null,
@@ -168,7 +185,7 @@ test("an integration kind with no dotted namespace renders as plain muted text",
     data: {
       categories: [{
         integration: "Config",
-        items: [{ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "" }],
+        items: [opportunity({ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "" })],
       }],
       totalOpportunities: 1,
       inspectionError: null,
@@ -185,7 +202,7 @@ test("look-for tokens render as spotlight-seeded chips, one per comma-separated 
     data: {
       categories: [{
         integration: "AI",
-        items: [{ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "AddChatClient, AddEmbeddingGenerator" }],
+        items: [opportunity({ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "AddChatClient, AddEmbeddingGenerator" })],
       }],
       totalOpportunities: 1,
       inspectionError: null,
@@ -202,7 +219,7 @@ test("a wildcard look-for pattern renders as a muted, non-interactive hint", () 
     data: {
       categories: [{
         integration: "Config",
-        items: [{ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "Add*" }],
+        items: [opportunity({ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "Add*" })],
       }],
       totalOpportunities: 1,
       inspectionError: null,
@@ -219,7 +236,7 @@ test("an empty look-for hint renders a generic any-registration-surface hint", (
     data: {
       categories: [{
         integration: "Config",
-        items: [{ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "" }],
+        items: [opportunity({ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "" })],
       }],
       totalOpportunities: 1,
       inspectionError: null,
@@ -235,7 +252,7 @@ test("API and integration-type text is escaped", () => {
     data: {
       categories: [{
         integration: "<Cat>",
-        items: [{ api: "<Widget>", integrationType: "<bad> kind", lookFor: "<bad>" }],
+        items: [opportunity({ api: "<Widget>", integrationType: "<bad> kind", lookFor: "<bad>" })],
       }],
       totalOpportunities: 1,
       inspectionError: null,
