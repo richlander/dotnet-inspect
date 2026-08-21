@@ -97,15 +97,25 @@ test("package document list renders live escaped chips and file counts", () => {
       path: "skills/widget/SKILL.md",
       size: 42,
     },
+    {
+      kind: "skill",
+      name: "SKILL.md",
+      path: "skills/known/SKILL.md",
+      size: 64,
+    },
   ], escapeHtml);
 
-  assert.match(html, /Documentation<\/h2><span>2 files — click to read/);
+  assert.match(html, /Documentation<\/h2><span>3 files — click to read/);
   assert.match(
     html,
     /class="doc-chip doc-readme" data-doc-path="&lt;docs&gt;\/README\.md"/);
-  assert.match(html, /title="&lt;docs&gt;\/README\.md · 1,200 bytes"/);
+  assert.ok(html.includes(
+    `title="&lt;docs&gt;/README.md · ${(1200).toLocaleString()} bytes"`));
+  assert.match(html, /<span class="doc-kind">Readme<\/span>/);
   assert.match(html, /class="doc-chip doc-&lt;skill&gt;"/);
   assert.match(html, /<span class="doc-kind">&lt;skill&gt;<\/span>/);
+  assert.match(html, /<span class="doc-glyph">◆<\/span>/);
+  assert.match(html, /<span class="doc-kind">Skill<\/span>/);
   assert.doesNotMatch(html, /<docs>/);
   assert.doesNotMatch(html, /<skill>/);
 });
