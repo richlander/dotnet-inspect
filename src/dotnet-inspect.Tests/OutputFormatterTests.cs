@@ -394,7 +394,7 @@ public class OutputFormatterTests
                 }
             ]
         };
-        var options = new MemberOptions
+        var options = new TypeOptions
         {
             DllPath = typeof(OutputFormatterTests).Assembly.Location,
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.PerformanceTriage }
@@ -671,7 +671,7 @@ public class OutputFormatterTests
                 new ApiMember { Kind = "method", Name = nameof(HasGeneratedLocalFunctionOpportunity) }
             ]
         };
-        var options = new MemberOptions
+        var options = new TypeOptions
         {
             DllPath = typeof(OutputFormatterTests).Assembly.Location,
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.PerformanceTriage }
