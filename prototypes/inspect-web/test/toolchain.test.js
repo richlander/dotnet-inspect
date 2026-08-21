@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { verifyAnalysisHost } from "../scripts/verify-analysis-host.js";
 import { verifySiteArtifact } from "../scripts/verify-site-artifact.js";
 
 const packageLock = JSON.parse(
@@ -45,6 +46,27 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
   assert.equal(
     packageJson.scripts.typecheck,
     "tsc --noEmit && tsc --noEmit -p test/tsconfig.json",
+  );
+});
+
+test("the analysis host check matches the native analyzer packages", () => {
+  for (const platform of ["darwin", "linux", "win32"]) {
+    for (const architecture of ["arm64", "x64"]) {
+      assert.doesNotThrow(() => verifyAnalysisHost(platform, architecture));
+    }
+  }
+
+  assert.throws(
+    () => verifyAnalysisHost("linux", "ppc64"),
+    /current host is linux-ppc64/,
+  );
+  assert.throws(
+    () => verifyAnalysisHost("linux", "s390x"),
+    /current host is linux-s390x/,
+  );
+  assert.throws(
+    () => verifyAnalysisHost("freebsd", "x64"),
+    /current host is freebsd-x64/,
   );
 });
 

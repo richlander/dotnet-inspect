@@ -507,6 +507,15 @@ build/verification scripts for unused files, exports, and dependencies.
 publish artifact imports `./_framework/dotnet.js`, which exists only after Wasm
 publish.
 
+The Oxlint and tsgolint npm packages publish native analysis binaries for x64
+and arm64 hosts running macOS, Linux, or Windows. Those are the supported
+development-analysis hosts; `npm run lint` fails before launching the analyzer
+on other operating-system or architecture combinations, including Linux
+ppc64le and s390x. This approved development-tool exception does not affect the
+browser/Wasm product runtime or artifact. The host-matrix unit test and
+`npm run analyze` on macOS arm64 and the Linux x64 CI host gate the supported
+paths.
+
 `noUncheckedIndexedAccess` is not enabled yet. A TypeScript 7.0.2 migration
 probe reports 77 findings across 15 files: 65 in nine product files and 12 in
 six test files. [Issue #4549](https://github.com/richlander/dotnet-inspect/issues/4549)
