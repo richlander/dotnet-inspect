@@ -589,10 +589,14 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /onOpenPackage: openPackageFromError,\s*onRetry: \(\) => \(state\.retryAction \?\? bootstrap\)\(\)/);
   assert.doesNotMatch(
     appSource,
-    /document\.querySelector(?:<[^>]+>)?\("#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|go-home|theme-toggle|help|home-theme|retry-load|error-package-query|error-package-input|toggle-error-detail)"\)/);
+    /\bquerySelector(?:All)?(?:<[^>]+>)?\("(?:#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|go-home|theme-toggle|help|home-theme|retry-load|error-package-query|error-package-input|toggle-error-detail)|\[data-home-demo\]|\.load-error-detail)"\)/);
   assert.doesNotMatch(
-    appSource,
-    /document\.querySelectorAll<HTMLElement>\("\[data-home-demo\]"\)/);
+    workspaceBinding,
+    /#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|go-home|theme-toggle|help)/);
+  assert.doesNotMatch(homeBinding, /#(?:home-theme|dismiss-notice)|\[data-home-demo\]/);
+  assert.doesNotMatch(
+    loadingBinding,
+    /#(?:retry-load|error-package-query|error-package-input|toggle-error-detail)|"\.load-error-detail"/);
 });
 
 test("typed document inspection owns package document request coordination", () => {
