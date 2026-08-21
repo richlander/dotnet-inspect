@@ -39,9 +39,13 @@ import {
   selectedDependencyGroup,
   spotlightCandidateKey,
   spotlightCandidateSignature,
+  type DependencyGroupData,
+  type PackageIdentity,
+  type WorkspaceTab,
   uniqueTypeByQueryId,
   workspaceCoordinatesMatch
-} from "./data.js";
+} from "./data.ts";
+import type { CommandPaletteResult } from "./command-bar.ts";
 import {
   bodyTargetMatchesOverload,
   captureLibraryScope,
@@ -54,31 +58,46 @@ import {
   memberScopeIsActive,
   restoreLibraryScope,
   restoreMemberHistoryState,
-} from "./member-filtering.js";
+  type BodyTarget,
+  type FilterableMemberGroup,
+} from "./member-filtering.ts";
 import {
   captureMemberFocus,
-  createMemberFocusRestorer
-} from "/src/member-focus.ts";
+  createMemberFocusRestorer,
+  type MemberFocusSnapshot,
+} from "./member-focus.ts";
 import {
   buildDependencyGraphMermaid,
   buildTypeGraphMermaid
-} from "./graph-mermaid.js";
-import { factsForNode, MEDIA, nodeAtOffset } from "/src/annotated-source-view.ts";
-import { renderScopeBar as renderScopeBarPure } from "/src/scope-bar.ts";
-import { renderDocViewer as renderDocViewerPure } from "/src/doc-viewer.ts";
-import { renderGraphSource as renderGraphSourcePure } from "/src/graph-source.ts";
-import { renderAnnotatedSource as renderAnnotatedSourcePure } from "/src/annotated-source.ts";
-import { renderPackageOpportunities as renderPackageOpportunitiesPure } from "/src/package-opportunities.ts";
+} from "./graph-mermaid.ts";
+import {
+  factsForNode,
+  MEDIA,
+  nodeAtOffset,
+  validateAnnotatedSourceDocument,
+} from "./annotated-source-view.ts";
+import { renderScopeBar as renderScopeBarPure } from "./scope-bar.ts";
+import {
+  renderDocViewer as renderDocViewerPure,
+  type DocViewerMeta,
+} from "./doc-viewer.ts";
+import { renderGraphSource as renderGraphSourcePure } from "./graph-source.ts";
+import {
+  renderAnnotatedSource as renderAnnotatedSourcePure,
+  type AnnotatedSourceResult,
+} from "./annotated-source.ts";
+import { renderPackageOpportunities as renderPackageOpportunitiesPure } from "./package-opportunities.ts";
 import {
   renderMemberNav,
   renderTypeMetadata,
   renderTypeNav,
   renderTypeSource,
+  type MemberNavEntry,
   typeHeading,
   typeMetadataSignature,
   typeSourceSignature,
-} from "/src/type-panel.ts";
-import { createPackageBar } from "/src/package-bar.ts";
+} from "./type-panel.ts";
+import { createPackageBar, type PackageBarPackage } from "./package-bar.ts";
 import {
   cssEscape,
   estimateExplorerPageSize,
@@ -88,92 +107,135 @@ import {
   renderMetadataExplorer as renderMetadataExplorerHtml,
   renderPackageMetadata as renderPackageMetadataHtml,
   sameFocus,
-} from "/src/metadata-viewer.ts";
+  type ExplorerFocus,
+  type ExplorerTableData,
+  type ExplorerState,
+  type HeapListingData,
+  type PackageMetadata,
+} from "./metadata-viewer.ts";
 import {
   renderSettingsView,
   renderTastePopover,
-} from "/src/settings-panel.ts";
-import { loadPlatformIndex } from "/src/platform-index.js";
+  type StyleOption,
+  type StyleTier,
+} from "./settings-panel.ts";
+import { loadPlatformIndex, type PlatformIndex } from "./platform-index.ts";
 import {
   createSpotlight,
+  type SpotlightPackageHit,
+  type SpotlightResult,
   visibleSpotlightPackageHits,
-} from "/src/spotlight.ts";
-import { fmtBytes, statusBarHtml } from "/src/status-bar.ts";
+} from "./spotlight.ts";
+import { fmtBytes, statusBarHtml } from "./status-bar.ts";
+import type {
+  BrowserAccessibilityDescriptor,
+  BrowserAnnotatedSource,
+  BrowserAssemblySurface,
+  BrowserAssemblyReference,
+  BrowserBuildIdentity,
+  BrowserCallGraph,
+  BrowserCallGraphTarget,
+  BrowserMemberDocumentation,
+  BrowserMemberSurface,
+  BrowserPackageCacheStats,
+  BrowserPackageDependencies,
+  BrowserPackageDependencyGroup,
+  BrowserPackageDocument,
+  BrowserPackageDocumentContent,
+  BrowserPackageIntegrations,
+  BrowserPackageOpportunities,
+  BrowserPackageSurface,
+  BrowserSource,
+  BrowserTypeMetadata,
+  BrowserTypeSurface,
+} from "./inspect-web-engine.d.ts";
 
-let initializeEngine;
-let cancelSourceInspection;
-let inspectBuildIdentity;
-let inspectExpandPlatformCallGraph;
-let inspectVocabulary;
-let inspectLoadRuntimePack;
-let inspectLoadRuntimePackAssembly;
-let inspectMemberAnnotatedSource;
-let inspectMemberCallGraph;
-let inspectMemberDocumentation;
-let inspectMemberFacts;
-let inspectMemberSource;
-let inspectPackage;
-let inspectPackageCacheStats;
-let inspectPackageDependencies;
-let inspectPackageDocument;
-let inspectPackageHeapEntries;
-let inspectPackageIntegrations;
-let inspectPackageMetadata;
-let inspectPackageMetadataTable;
-let inspectPackageOpportunities;
-let inspectPackagePerformance;
-let inspectPackageVersions;
-let inspectPlatformHeapEntries;
-let inspectPlatformIntegrations;
-let inspectPlatformMetadata;
-let inspectPlatformMetadataTable;
-let inspectPlatformOpportunities;
-let inspectPlatformPerformance;
-let inspectSearchTypes;
-let inspectTypeMemberSource;
-let inspectTypeProjection;
-let inspectTypeSource;
-let matchPackageDependencyCoordinate;
-let resolveDependencyVersion;
+type EngineModule = typeof import("./inspect-web-engine.d.ts");
+
+let initializeEngine: EngineModule["initializeEngine"];
+let cancelSourceInspection: EngineModule["cancelSourceQuery"];
+let inspectExpandPlatformCallGraph: EngineModule["expandPlatformCallGraph"];
+let inspectVocabulary: EngineModule["listVocabulary"];
+let inspectLoadRuntimePack: EngineModule["loadRuntimePack"];
+let inspectLoadRuntimePackAssembly: EngineModule["loadRuntimePackAssembly"];
+let inspectMemberAnnotatedSource: EngineModule["queryMemberAnnotatedSource"];
+let inspectMemberCallGraph: EngineModule["queryMemberCallGraph"];
+let inspectMemberDocumentation: EngineModule["queryMemberDocumentation"];
+let inspectMemberFacts: EngineModule["queryMemberFacts"];
+let inspectMemberSource: EngineModule["queryMemberSource"];
+let inspectPackage: EngineModule["queryPackage"];
+let inspectPackageDependencies: EngineModule["queryPackageDependencies"];
+let inspectPackageDocument: EngineModule["getPackageDocument"];
+let inspectPackageHeapEntries: EngineModule["queryPackageHeapEntries"];
+let inspectPackageIntegrations: EngineModule["queryPackageIntegrations"];
+let inspectPackageMetadata: EngineModule["queryPackageMetadata"];
+let inspectPackageMetadataTable: EngineModule["queryPackageMetadataTable"];
+let inspectPackageOpportunities: EngineModule["queryPackageOpportunities"];
+let inspectPackagePerformance: EngineModule["queryPackagePerformance"];
+let inspectPackageVersions: EngineModule["queryPackageVersions"];
+let inspectPlatformHeapEntries: EngineModule["queryPlatformHeapEntries"];
+let inspectPlatformIntegrations: EngineModule["queryPlatformIntegrations"];
+let inspectPlatformMetadata: EngineModule["queryPlatformMetadata"];
+let inspectPlatformMetadataTable: EngineModule["queryPlatformMetadataTable"];
+let inspectPlatformOpportunities: EngineModule["queryPlatformOpportunities"];
+let inspectPlatformPerformance: EngineModule["queryPlatformPerformance"];
+let inspectSearchTypes: EngineModule["searchTypes"];
+let inspectTypeMemberSource: EngineModule["queryTypeMemberSource"];
+let inspectTypeProjection: EngineModule["queryTypeProjection"];
+let inspectTypeSource: EngineModule["queryTypeSource"];
+let inspectBuildIdentity: EngineModule["buildIdentity"];
+let inspectPackageCacheStats: EngineModule["packageCacheStats"];
+let matchPackageDependencyCoordinate: EngineModule["matchPackageDependencyCoordinate"];
+let resolveDependencyVersion: EngineModule["resolvePackageDependencyVersion"];
 
 async function loadEngineModule() {
   ({
-    cancelSourceInspection,
+    buildIdentity: inspectBuildIdentity,
+    cancelSourceQuery: cancelSourceInspection,
+    expandPlatformCallGraph: inspectExpandPlatformCallGraph,
+    getPackageDocument: inspectPackageDocument,
     initializeEngine,
-    inspectBuildIdentity,
-    inspectExpandPlatformCallGraph,
-    inspectVocabulary,
-    inspectLoadRuntimePack,
-    inspectLoadRuntimePackAssembly,
-    inspectMemberAnnotatedSource,
-    inspectMemberCallGraph,
-    inspectMemberDocumentation,
-    inspectMemberFacts,
-    inspectMemberSource,
-    inspectPackage,
-    inspectPackageCacheStats,
-    inspectPackageDependencies,
-    inspectPackageDocument,
-    inspectPackageHeapEntries,
-    inspectPackageIntegrations,
-    inspectPackageMetadata,
-    inspectPackageMetadataTable,
-    inspectPackageOpportunities,
-    inspectPackagePerformance,
-    inspectPackageVersions,
-    inspectPlatformHeapEntries,
-    inspectPlatformIntegrations,
-    inspectPlatformMetadata,
-    inspectPlatformMetadataTable,
-    inspectPlatformOpportunities,
-    inspectPlatformPerformance,
-    inspectSearchTypes,
-    inspectTypeMemberSource,
-    inspectTypeProjection,
-    inspectTypeSource,
+    listVocabulary: inspectVocabulary,
+    loadRuntimePack: inspectLoadRuntimePack,
+    loadRuntimePackAssembly: inspectLoadRuntimePackAssembly,
     matchPackageDependencyCoordinate,
-    resolveDependencyVersion
-  } = await import("/engine.js"));
+    packageCacheStats: inspectPackageCacheStats,
+    queryMemberAnnotatedSource: inspectMemberAnnotatedSource,
+    queryMemberCallGraph: inspectMemberCallGraph,
+    queryMemberDocumentation: inspectMemberDocumentation,
+    queryMemberFacts: inspectMemberFacts,
+    queryMemberSource: inspectMemberSource,
+    queryPackage: inspectPackage,
+    queryPackageDependencies: inspectPackageDependencies,
+    queryPackageHeapEntries: inspectPackageHeapEntries,
+    queryPackageIntegrations: inspectPackageIntegrations,
+    queryPackageMetadata: inspectPackageMetadata,
+    queryPackageMetadataTable: inspectPackageMetadataTable,
+    queryPackageOpportunities: inspectPackageOpportunities,
+    queryPackagePerformance: inspectPackagePerformance,
+    queryPackageVersions: inspectPackageVersions,
+    queryPlatformHeapEntries: inspectPlatformHeapEntries,
+    queryPlatformIntegrations: inspectPlatformIntegrations,
+    queryPlatformMetadata: inspectPlatformMetadata,
+    queryPlatformMetadataTable: inspectPlatformMetadataTable,
+    queryPlatformOpportunities: inspectPlatformOpportunities,
+    queryPlatformPerformance: inspectPlatformPerformance,
+    queryTypeMemberSource: inspectTypeMemberSource,
+    queryTypeProjection: inspectTypeProjection,
+    queryTypeSource: inspectTypeSource,
+    resolvePackageDependencyVersion: resolveDependencyVersion,
+    searchTypes: inspectSearchTypes,
+  } = await import("/inspect-web-engine.js"));
+}
+
+declare global {
+  interface Window {
+    Prism?: {
+      languages: { csharp?: unknown };
+      highlight: (value: string, grammar: unknown, language: string) => string;
+    };
+    __platformIndex?: Promise<PlatformIndex | null>;
+  }
 }
 
 function waitForHomePaint() {
@@ -182,7 +244,7 @@ function waitForHomePaint() {
     if (performance.getEntriesByName("first-contentful-paint", "paint").length) {
       return Promise.resolve();
     }
-    return new Promise(resolve => {
+    return new Promise<void>(resolve => {
       const observer = new PerformanceObserver(list => {
         if (!list.getEntries().some(entry => entry.name === "first-contentful-paint")) return;
         observer.disconnect();
@@ -191,8 +253,28 @@ function waitForHomePaint() {
       observer.observe({ type: "paint", buffered: true });
     });
   }
-  return new Promise(resolve =>
+  return new Promise<void>(resolve =>
     requestAnimationFrame(() => setTimeout(resolve, 0)));
+}
+
+interface AppMemberGroup {
+  key: string;
+  name: string;
+  kind: string;
+  overloads: AppMemberSurface[];
+}
+
+interface AppMemberSurface extends BrowserMemberSurface {
+  documentationLoaded?: boolean;
+}
+
+interface AppExplorerState extends ExplorerState {
+  isPlatform: boolean;
+  pack: string | null;
+  packageId: string;
+  version: string;
+  framework: string;
+  pendingScroll: boolean;
 }
 
 function loadStoredTaste() {
@@ -250,8 +332,155 @@ function loadPlatformRecent() {
   }
 }
 
-let spotlightCache = null;
-const state = {
+type RetryAction = (() => unknown) | null;
+
+interface AppPackage {
+  id: string;
+  version: string;
+  frameworks: string[];
+  activeFramework: string;
+  assembly: string;
+  assemblyId: string;
+  assemblyAsset: string;
+  source:
+    | { kind: "file" }
+    | { kind: "nuget.org" }
+    | { kind: "feed"; host: string }
+    | { kind: "platform" }
+    | { kind: "unknown" };
+  assemblies: BrowserAssemblySurface[];
+  types: BrowserTypeSurface[];
+  accessibility: BrowserAccessibilityDescriptor[];
+  totalTypes: number;
+  totalMembers: number;
+  documents: BrowserPackageDocument[];
+  inspectionError?: string;
+  isRuntimePack: boolean;
+}
+
+interface SpotlightCache {
+  signature: string;
+  pool: Array<{ pkg: AppPackage; type: BrowserTypeSurface }>;
+  keyMap: Map<string, { pkg: AppPackage; type: BrowserTypeSurface }>;
+  candidatesJson: string;
+}
+
+type HighlightRange = readonly [start: number, end: number];
+
+interface SpotlightMemberCandidate {
+  pkg: AppPackage;
+  type: BrowserTypeSurface;
+  memberKey: string;
+  name: string;
+  kind: string;
+}
+
+interface SpotlightMemberCache {
+  signature: string;
+  pool: SpotlightMemberCandidate[];
+}
+
+interface DotnetRelease {
+  major: number;
+  tfm: string;
+  version: string;
+}
+
+interface PlatformStackEntry {
+  graph: BrowserCallGraph;
+  title: string;
+}
+
+interface PlatformRecent {
+  assembly: string;
+  pack: string;
+}
+
+interface RecentPackage {
+  id: string;
+  version: string;
+  framework: string;
+}
+
+interface PackagePerformanceMember {
+  assembly: string;
+  typeId: string;
+  memberName: string;
+  metadataToken: number;
+  opportunityCount: number;
+  inLoopCount: number;
+  shapes: string[];
+  confidence: string;
+}
+
+interface PackagePerformance {
+  members: PackagePerformanceMember[];
+  inspectionError?: string;
+  nonPublicOpportunities: number;
+  totalOpportunities: number;
+}
+
+interface MemberFactRow {
+  offset: string;
+  [key: string]: unknown;
+}
+
+interface MemberFacts {
+  signals: {
+    allocations: number;
+    copies: number;
+    reflection: number;
+    throws: number;
+    catches: number;
+    finallys: number;
+    unsafe: boolean;
+    allocatesInLoop: boolean;
+  };
+  allocations: Array<MemberFactRow & { inLoop?: boolean }>;
+  calls: MemberFactRow[];
+  safety: MemberFactRow[];
+  exceptionRegions: MemberFactRow[];
+  performanceOpportunities: Array<{
+    shape: string;
+    confidence: string;
+    offset?: string;
+    evidence: string;
+    fix: string;
+    caveat?: string;
+    provenance?: string;
+    finding?: string;
+  }>;
+}
+
+interface GraphSourceRequest {
+  packageId: string;
+  version: string;
+  framework: string;
+  assembly: string;
+  type: string;
+  member: string;
+  selectorKey: string;
+  metadataToken: number;
+}
+
+interface Diagnostics {
+  downloadMs: number;
+  startupMs: number;
+  precomputeMs: number;
+  totalMs: number;
+  transfer: number;
+  decoded: number;
+  assets: number;
+}
+
+type MemberSection = "overview" | "source" | "annotated" | "call-graph" | "facts";
+
+function isMemberSection(value: string): value is MemberSection {
+  return memberSections.includes(value as MemberSection);
+}
+
+let spotlightCache: SpotlightCache | null = null;
+const initialState = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   statusBarExpanded: false,
   packages: [],
@@ -300,7 +529,7 @@ const state = {
   dependenciesGroupIndex: null,
   workspaceDependencies: {},
   workspaceDependencyErrors: {},
-  workspaceDependencyLoads: new Set(),
+  workspaceDependencyLoads: new Set<string>(),
   packageIntegrations: null,
   packageIntegrationsLoading: false,
   packageIntegrationsError: "",
@@ -345,7 +574,7 @@ const state = {
   libraryScope: null,
   platformRecent: loadPlatformRecent(),
   recentPackages: loadRecentPackages(),
-  accessibilityFilter: new Set(),
+  accessibilityFilter: new Set<string>(),
   spotlightOpen: false,
   spotlightQuery: "",
   spotlightIndex: 0,
@@ -394,10 +623,69 @@ const state = {
   errorDetail: "",
   retryAction: null,
   diag: null,
-  buildIdentity: null
+  buildIdentity: null,
+  packageCacheStats: null,
 };
 
-const nav = { stack: [], index: -1 };
+interface StateOverrides {
+  packages: AppPackage[];
+  package: AppPackage | null;
+  platformIndex: PlatformIndex | null;
+  queryNoticeRetryAction: RetryAction;
+  selectedOverloadIndex: number | null;
+  memberSource: BrowserSource | null;
+  memberAnnotated: AnnotatedSourceResult | null;
+  memberAnnotatedFactId: number | null;
+  memberAnnotatedNodeIds: number[];
+  typeSource: BrowserSource | null;
+  typeMetadata: BrowserTypeMetadata | null;
+  packageDependencies: BrowserPackageDependencies | null;
+  dependenciesGroupIndex: number | null;
+  workspaceDependencies: Record<string, DependencyGroupData>;
+  workspaceDependencyErrors: Record<string, string>;
+  workspaceDependencyLoads: Set<string>;
+  packageIntegrations: BrowserPackageIntegrations | null;
+  packageOpportunities: BrowserPackageOpportunities | null;
+  packagePerformance: PackagePerformance | null;
+  packageMetadata: PackageMetadata | null;
+  explorer: AppExplorerState | null;
+  memberCallGraph: BrowserCallGraph | null;
+  platformStack: PlatformStackEntry[];
+  dotnetReleases: DotnetRelease[] | null;
+  memberFacts: MemberFacts | null;
+  libraryScope: Set<string> | null;
+  accessibilityFilter: Set<string>;
+  spotlightPkgHits: SpotlightPackageHit[];
+  spotlightFocus: "input" | "chips";
+  memberSection: MemberSection;
+  packageVersions: Record<string, string[]>;
+  packageVersionsLoading: Record<string, boolean>;
+  platformRecent: PlatformRecent[];
+  recentPackages: RecentPackage[];
+  selectedBodyTarget: BodyTarget | null;
+  graphSource: BrowserSource | null;
+  docViewer: BrowserPackageDocument | null;
+  docViewerMeta: DocViewerMeta | null;
+  graphSourceRequest: { request: GraphSourceRequest; title: string } | null;
+  styleTiers: StyleTier[] | null;
+  styleOptions: StyleOption[] | null;
+  history: string[];
+  retryAction: RetryAction;
+  diag: Diagnostics | null;
+  buildIdentity: BrowserBuildIdentity | null;
+  packageCacheStats: BrowserPackageCacheStats | null;
+}
+
+type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides;
+
+const state = initialState as AppState;
+
+interface NavigationEntry {
+  sig: string;
+  view: ReturnType<typeof captureView>;
+}
+
+const nav: { stack: NavigationEntry[]; index: number } = { stack: [], index: -1 };
 
 function viewSignature() {
   return JSON.stringify({
@@ -455,7 +743,7 @@ function normalizeCurrentNavEntry() {
   replaceCurrentNavigationEntry(nav, viewSignature(), captureView());
 }
 
-function applyView(view) {
+function applyView(view: NavigationEntry["view"]) {
   const pkg = packageForView(state.packages, view);
   if (!pkg) return false;
   invalidateMemberCallGraphWork(state);
@@ -481,7 +769,9 @@ function applyView(view) {
   state.memberTraitFilter = memberHistory.memberTraitFilter;
   state.memberTextFilter = memberHistory.memberTextFilter;
   state.selectedOverloadIndex = memberHistory.selectedOverloadIndex;
-  state.memberSection = memberHistory.memberSection;
+  state.memberSection = isMemberSection(memberHistory.memberSection)
+    ? memberHistory.memberSection
+    : "overview";
   state.atPackageRoot = view.atPackageRoot ?? false;
   state.packageLens = view.packageLens ?? "overview";
   state.memberSource = null;
@@ -528,7 +818,8 @@ function navForward() {
   render();
 }
 
-const memberSections = ["overview", "source", "annotated", "call-graph", "facts"];
+const memberSections: readonly MemberSection[] =
+  ["overview", "source", "annotated", "call-graph", "facts"];
 
 // Member-mode strip: the sections shown for an open member, in display order. Lives at
 // module scope because both the scope/lens strip (in render) and the member detail view
@@ -539,23 +830,64 @@ const memberSectionDefs = [
   ["facts", "Facts"],
   ["source", "Source"],
   ["annotated", "Annotated source"]
-];
+] as const;
 
-function memberSectionsFor(member) {
+interface SharePacket {
+  t: string[][];
+  a: number;
+  l?: string;
+  v?: string;
+  y?: string;
+  m?: string;
+  o?: number;
+  c?: string;
+  d?: ReturnType<typeof encodeBodyTarget>;
+  b?: 1;
+  q?: string;
+  k?: string;
+  e?: string;
+  r?: string;
+}
+
+interface DecodedShareState {
+  tabs: WorkspaceTab[];
+  active: number;
+  view: string;
+  rich: boolean;
+  type: string | null;
+  member: string | null;
+  overload: string | null;
+  section: string | null;
+  bodyTarget: BodyTarget | null;
+  library: string | null;
+  memberBrowse: boolean;
+  memberTextFilter: string;
+  memberKindFilter: string;
+  memberAccessibilityFilter: string;
+  memberTraitFilter: string;
+}
+
+type ShareStateResult = DecodedShareState | { error: string } | null;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function memberSectionsFor(member: BrowserMemberSurface | AppMemberGroup) {
   const allowed = new Set(memberSectionIdsFor(member));
   return memberSectionDefs.filter(([id]) => allowed.has(id));
 }
 
 // URL-safe base64 over UTF-8 bytes. Used for the opaque share packet so a shared or
 // duplicated link can carry the full session state without bloating the visible query.
-function base64UrlEncode(text) {
+function base64UrlEncode(text: string) {
   const bytes = new TextEncoder().encode(text);
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function base64UrlDecode(value) {
+function base64UrlDecode(value: string) {
   const padded = value.replace(/-/g, "+").replace(/_/g, "/");
   const binary = atob(padded);
   const bytes = new Uint8Array(binary.length);
@@ -572,7 +904,8 @@ function base64UrlDecode(value) {
 //   b/q/k/e/r = member browse scope / text / kind / accessibility / trait filters
 //   d = selected body [member name, selector key, metadata token]
 function encodeShareState() {
-  const packet = {
+  if (!state.package) return "";
+  const packet: SharePacket = {
     t: state.packages.map(item => [item.id, item.version, item.activeFramework || ""]),
     a: Math.max(0, state.packages.indexOf(state.package))
   };
@@ -601,24 +934,40 @@ function encodeShareState() {
   return base64UrlEncode(JSON.stringify(packet));
 }
 
-function decodeShareState(value) {
+function decodeShareState(value: string | null): ShareStateResult {
   if (!value) return null;
   const lengthError = shareStateLengthError(value);
   if (lengthError) return { error: lengthError };
   try {
-    const raw = JSON.parse(base64UrlDecode(value));
+    const raw: unknown = JSON.parse(base64UrlDecode(value));
     // Legacy form: a bare tuple array of tabs, carrying no view or selection.
     if (Array.isArray(raw)) {
       const normalized = normalizeShareTabs(raw);
       if (normalized.error) return { error: normalized.error };
-      return { tabs: normalized.tabs, active: 0, view: "", rich: false, type: null, member: null, overload: null, section: null, bodyTarget: null, library: null };
+      return {
+        tabs: normalized.tabs,
+        active: 0,
+        view: "",
+        rich: false,
+        type: null,
+        member: null,
+        overload: null,
+        section: null,
+        bodyTarget: null,
+        library: null,
+        memberBrowse: false,
+        memberTextFilter: "",
+        memberKindFilter: "all",
+        memberAccessibilityFilter: "all",
+        memberTraitFilter: "",
+      };
     }
-    if (raw && Array.isArray(raw.t)) {
+    if (isRecord(raw) && Array.isArray(raw.t)) {
       const normalized = normalizeShareTabs(raw.t);
       if (normalized.error) return { error: normalized.error };
       return {
         tabs: normalized.tabs,
-        active: Number.isInteger(raw.a)
+        active: typeof raw.a === "number" && Number.isInteger(raw.a)
           ? (normalized.sourceIndexes[raw.a] ?? 0)
           : 0,
         view: typeof raw.v === "string" ? raw.v : "",
@@ -643,7 +992,7 @@ function decodeShareState(value) {
 }
 
 // Maps a view token ("pkg", "pkg:dependencies", "source", "call-graph", …) to the lens fields.
-function resolveView(token) {
+function resolveView(token: string) {
   const atPackageRoot = token === "pkg" || token.startsWith("pkg:");
   return {
     lens: lenses.some(([id]) => id === token) ? token : null,
@@ -668,19 +1017,19 @@ function parseLocation() {
   let member = params.get("member");
   let overload = params.get("overload");
   let section = params.get("section");
-  let bodyTarget = null;
+  let bodyTarget: BodyTarget | null = null;
   let viewToken = location.hash.slice(1);
-  let tabs = [];
+  let tabs: WorkspaceTab[] = [];
   let active = 0;
-  let library = null;
+  let library: string | null = null;
   let memberBrowse = false;
   let memberTextFilter = "";
   let memberKindFilter = "all";
   let memberAccessibilityFilter = "all";
   let memberTraitFilter = "";
-  let workspaceNotice = share?.error || "";
+  let workspaceNotice = share && "error" in share ? share.error : "";
 
-  if (share && !share.error) {
+  if (share && !("error" in share)) {
     tabs = share.tabs;
     if (share.rich) {
       // Rich packet is fully authoritative: identity, view, and selection all come from it.
@@ -738,6 +1087,8 @@ function parseLocation() {
   };
 }
 
+type ParsedLocation = ReturnType<typeof parseLocation>;
+
 const initialLocation = parseLocation();
 // A bare visit (no package, no shared workspace packet) lands on the intro/home page
 // instead of auto-loading a package. Any deep link or shared link skips home and restores
@@ -770,7 +1121,13 @@ const initialDeepLink = {
   memberTraitFilter: initialLocation.memberTraitFilter
 };
 
-const app = document.querySelector("#app");
+function requireElement<T extends Element>(selector: string): T {
+  const element = document.querySelector<T>(selector);
+  if (!element) throw new Error(`Required element '${selector}' is missing.`);
+  return element;
+}
+
+const app = requireElement<HTMLElement>("#app");
 let mermaidModule;
 let markdownModule;
 const depGraphRenderSequence = createDependencyGraphRenderSequence();
@@ -778,12 +1135,25 @@ let callGraphRenderSeq = 0;
 let spotlightFocusGeneration = 0;
 document.documentElement.dataset.theme = state.theme;
 
-function escapeHtml(value) {
+function escapeHtml(value: unknown) {
   return String(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error ?? "");
+}
+
+function parseEngineJson<T>(json: string): T {
+  return JSON.parse(json) as T;
+}
+
+function currentPackage(): AppPackage {
+  if (!state.package) throw new Error("No package is active.");
+  return state.package;
 }
 
 const spotlight = createSpotlight({
@@ -811,18 +1181,18 @@ function beginSpotlightNavigation() {
   return ++spotlightFocusGeneration;
 }
 
-function isTextEntry(element = document.activeElement) {
-  return ["INPUT", "SELECT", "TEXTAREA"].includes(element?.tagName)
-    || element?.isContentEditable;
+function isTextEntry(element: Element | null = document.activeElement) {
+  return ["INPUT", "SELECT", "TEXTAREA"].includes(element?.tagName ?? "")
+    || (element instanceof HTMLElement && element.isContentEditable);
 }
 
-function isInteractiveElement(element) {
-  return Boolean(element?.matches?.(
+function isInteractiveElement(element: Element | null) {
+  return Boolean(element?.matches(
     "button, a[href], input, select, textarea, summary, "
     + "[role=button], [role=link], [role=checkbox]"));
 }
 
-function isContainedBrowserShortcut(event) {
+function isContainedBrowserShortcut(event: KeyboardEvent) {
   return (event.metaKey || event.ctrlKey)
     && ["f", "k", "p"].includes(event.key.toLowerCase());
 }
@@ -835,7 +1205,7 @@ function focusTypeList(generation = spotlightFocusGeneration) {
     if (generation !== spotlightFocusGeneration
         || state.spotlightOpen || state.graphSourceOpen || state.docViewerOpen
         || isTextEntry()) return;
-    document.querySelector("#type-list")?.focus();
+    document.querySelector<HTMLElement>("#type-list")?.focus();
   });
 }
 
@@ -891,7 +1261,7 @@ function filteredTypes() {
 // that a later reconciliation step then treats as evidence the scope should be cleared.
 // Callers must reset any stale type/namespace/kind/library filters (and the accessibility
 // filter, via activatePackage) before calling this so it reflects the incoming package.
-function defaultVisibleTypeId(pkg) {
+function defaultVisibleTypeId(pkg: AppPackage | null | undefined) {
   if (!pkg) return "";
   const visible = pkg.types.find(item =>
     state.accessibilityFilter.has(item.accessibilityId)
@@ -902,8 +1272,9 @@ function defaultVisibleTypeId(pkg) {
   // type. Prefer a type still within the requested scope over an unrelated package-wide type,
   // so the caller's accessibility-widening reconciliation (see reconcileAccessibilityFilter)
   // can admit it without losing the library scope that was the actual target of the restore.
-  if (state.libraryScope) {
-    const scoped = pkg.types.find(item => state.libraryScope.has(libraryKey(item)));
+  const libraryScope = state.libraryScope;
+  if (libraryScope) {
+    const scoped = pkg.types.find(item => libraryScope.has(libraryKey(item)));
     if (scoped) return scoped.id;
   }
   return pkg.types[0]?.id || "";
@@ -914,7 +1285,9 @@ function defaultVisibleTypeId(pkg) {
 // state.selectedTypeId so a package/library where every type falls outside the current
 // filter (e.g. one with zero public types) doesn't leave the type list empty while the pane
 // renders a type filteredTypes() would hide.
-function reconcileAccessibilityFilter(type) {
+function reconcileAccessibilityFilter(
+  type: BrowserTypeSurface | null | undefined,
+) {
   if (!type) return;
   if (!state.accessibilityFilter.has(type.accessibilityId)) {
     const next = new Set(state.accessibilityFilter);
@@ -929,7 +1302,7 @@ function reconcileAccessibilityFilter(type) {
 // remember surfaces its declaring type — any member name on the type. The member scan
 // runs only when the cheaper identity/library match misses, so keystroke filtering stays
 // responsive on large packs like the runtime pseudo-package.
-function typeMatchesFilterText(item, needle) {
+function typeMatchesFilterText(item: BrowserTypeSurface, needle: string) {
   if (!needle) return true;
   if (`${item.name} ${item.namespace} ${item.kind} ${libraryKey(item)}`.toLowerCase().includes(needle)) return true;
   const members = item.api;
@@ -943,7 +1316,7 @@ function typeMatchesFilterText(item, needle) {
 // Owning-library key for a type: the assembly file name without a .dll suffix,
 // falling back to the package's primary assembly. Used to scope the type list to
 // one or more libraries within a multi-assembly package.
-function libraryKey(item) {
+function libraryKey(item: BrowserTypeSurface | null | undefined) {
   const asm = (item && item.assembly) || (state.package && state.package.assembly) || "";
   return asm.replace(/\.dll$/i, "");
 }
@@ -952,7 +1325,7 @@ function libraryKey(item) {
 // size then name. The unit the Library selector and per-library overview use.
 function packageLibraries() {
   if (!state.package) return [];
-  const counts = new Map();
+  const counts = new Map<string, number>();
   for (const item of state.package.types) {
     if (!state.accessibilityFilter.has(item.accessibilityId)) continue;
     const key = libraryKey(item);
@@ -983,7 +1356,7 @@ function activeLibrarySet() {
 // Multi-select chip toggle. "" resets to all libraries (null scope). Toggling a
 // single chip flips it in the active set; a set that ends up full or empty
 // collapses back to the "all libraries" default.
-function toggleLibraryChip(name) {
+function toggleLibraryChip(name: string) {
   if (!name) { state.libraryScope = null; return; }
   const next = new Set(activeLibrarySet());
   if (next.has(name)) next.delete(name); else next.add(name);
@@ -1054,17 +1427,23 @@ function accessibilityBuckets() {
   return state.package?.accessibility ?? [];
 }
 
-function defaultAccessibilityFilter(pkg) {
+function defaultAccessibilityFilter(pkg: AppPackage | null | undefined): Set<string> {
   return new Set((pkg?.accessibility ?? [])
     .filter(descriptor => descriptor.isDefault)
     .map(descriptor => descriptor.id));
 }
 
-function packageIdentityEquals(left, right) {
+function packageIdentityEquals(
+  left: PackageIdentity | null | undefined,
+  right: PackageIdentity | null | undefined,
+) {
   return Boolean(left && right && packageIdentityKey(left) === packageIdentityKey(right));
 }
 
-function retainPackageModel(packageModel, replacedPackage = null) {
+function retainPackageModel(
+  packageModel: AppPackage,
+  replacedPackage: AppPackage | null = null,
+) {
   const activeWasReplaced = packageIdentityEquals(state.package, packageModel);
   const retained = retainWorkspacePackage(
     state.packages,
@@ -1079,7 +1458,7 @@ function retainPackageModel(packageModel, replacedPackage = null) {
     releasePackageModelCaches(evicted);
 }
 
-function releasePackageModelCaches(packageModel) {
+function releasePackageModelCaches(packageModel: AppPackage) {
   const dependencyKey = workspaceDependencyKey(packageModel);
   delete state.workspaceDependencies[dependencyKey];
   delete state.workspaceDependencyErrors[dependencyKey];
@@ -1109,16 +1488,20 @@ function resetLocationFilters() {
   resetMemberFilters();
 }
 
-function selectPackageTab(pkg) {
-  if (!pkg) return;
-  activatePackage(pkg, { resetAccessibility: true });
+function selectPackageTab(pkg: PackageBarPackage | null) {
+  const packageModel = pkg
+    ? state.packages.find(item => packageIdentityKey(item) === packageIdentityKey(pkg))
+    : null;
+  if (!packageModel) return;
+  activatePackage(packageModel, { resetAccessibility: true });
   state.home = false;
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
   state.libraryScope = null;
-  state.selectedTypeId = defaultVisibleTypeId(pkg);
-  reconcileAccessibilityFilter(pkg.types.find(item => item.id === state.selectedTypeId));
+  state.selectedTypeId = defaultVisibleTypeId(packageModel);
+  reconcileAccessibilityFilter(
+    packageModel.types.find(item => item.id === state.selectedTypeId));
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
@@ -1127,7 +1510,7 @@ function selectPackageTab(pkg) {
   render();
 }
 
-function closePackageTab(packageKey) {
+function closePackageTab(packageKey: string) {
   const removal = removeWorkspacePackage(state.packages, state.package, packageKey);
   if (!removal.closed) return;
 
@@ -1142,7 +1525,10 @@ function closePackageTab(packageKey) {
   goHome();
 }
 
-function activatePackage(pkg, { resetAccessibility = false } = {}) {
+function activatePackage(
+  pkg: AppPackage,
+  { resetAccessibility = false }: { resetAccessibility?: boolean } = {},
+) {
   const changed = !packageIdentityEquals(state.package, pkg);
   state.package = pkg;
   if (changed)
@@ -1156,7 +1542,7 @@ function activatePackage(pkg, { resetAccessibility = false } = {}) {
   return changed;
 }
 
-function isDefaultAccessibility(type) {
+function isDefaultAccessibility(type: BrowserTypeSurface) {
   return Boolean(state.package?.accessibility?.some(
     descriptor => descriptor.isDefault && descriptor.id === type.accessibilityId));
 }
@@ -1164,7 +1550,7 @@ function isDefaultAccessibility(type) {
 // Multi-select chip toggle for the accessibility filter. Flips a bucket in the
 // active set; an empty result falls back to the "public" default so the type
 // list is never blanked out.
-function toggleAccessibilityChip(bucket) {
+function toggleAccessibilityChip(bucket: string) {
   const next = new Set(state.accessibilityFilter);
   if (next.has(bucket)) next.delete(bucket); else next.add(bucket);
   if (next.size === 0) {
@@ -1190,7 +1576,7 @@ function accessibilityControl() {
 // count.
 function namespaceOptions() {
   if (!state.package) return "";
-  const counts = new Map();
+  const counts = new Map<string, number>();
   for (const item of state.package.types) {
     if (state.libraryScope && !state.libraryScope.has(libraryKey(item))) continue;
     if (!state.accessibilityFilter.has(item.accessibilityId)) continue;
@@ -1204,7 +1590,9 @@ function namespaceOptions() {
 
 // Collapse a raw kind string ("sealed class", "readonly struct", "enum", …) to a
 // primary bucket used by the kind filter chips.
-function typeKind(kind) {
+type TypeKind = "class" | "struct" | "interface" | "enum" | "delegate";
+
+function typeKind(kind: string): TypeKind {
   const value = (kind || "").toLowerCase();
   if (value.includes("interface")) return "interface";
   if (value.includes("delegate")) return "delegate";
@@ -1213,7 +1601,8 @@ function typeKind(kind) {
   return "class";
 }
 
-const KIND_ORDER = ["class", "struct", "interface", "enum", "delegate"];
+const KIND_ORDER: readonly TypeKind[] =
+  ["class", "struct", "interface", "enum", "delegate"];
 
 // Kind buckets present in the current package, honoring the active namespace filter
 // (but not the kind filter itself, so chips stay stable while one is selected).
@@ -1229,20 +1618,30 @@ function typeKinds() {
 
 
 function typeGroups() {
-  const groups = new Map();
+  const groups = new Map<string, BrowserTypeSurface[]>();
   for (const item of filteredTypes()) {
-    if (!groups.has(item.namespace)) groups.set(item.namespace, []);
-    groups.get(item.namespace).push(item);
+    let group = groups.get(item.namespace);
+    if (!group) {
+      group = [];
+      groups.set(item.namespace, group);
+    }
+    group.push(item);
   }
   return groups;
 }
 
-function memberGroups(type) {
-  const groups = new Map();
-  for (const member of type?.api ?? []) {
+function memberGroups(
+  type: BrowserTypeSurface | null | undefined,
+): AppMemberGroup[] {
+  const groups = new Map<string, AppMemberGroup>();
+  for (const member of (type?.api ?? []) as AppMemberSurface[]) {
     const key = `${member.kind}:${member.name}`;
-    if (!groups.has(key)) groups.set(key, { key, name: member.name, kind: member.kind, overloads: [] });
-    groups.get(key).overloads.push(member);
+    let group = groups.get(key);
+    if (!group) {
+      group = { key, name: member.name, kind: member.kind, overloads: [] };
+      groups.set(key, group);
+    }
+    group.overloads.push(member);
   }
   return [...groups.values()];
 }
@@ -1263,15 +1662,15 @@ function resetMemberFilters() {
   state.memberTextFilter = "";
 }
 
-function visibleMemberGroups(type) {
+function visibleMemberGroups(type: BrowserTypeSurface) {
   return filterMemberGroups(memberGroups(type), memberFilterState());
 }
 
-function memberKinds(type) {
+function memberKinds(type: BrowserTypeSurface) {
   return [...new Set(memberGroups(type).map(group => group.kind))];
 }
 
-function memberAccessibilities(type) {
+function memberAccessibilities(type: BrowserTypeSurface) {
   const values = new Set((type.api ?? []).map(member => member.accessibility));
   return ["public", "protected", "internal", "private", "protected internal", "private protected"]
     .filter(value => values.has(value))
@@ -1280,11 +1679,11 @@ function memberAccessibilities(type) {
     ].includes(value)).sort());
 }
 
-function availableMemberTraits(type) {
+function availableMemberTraits(type: BrowserTypeSurface) {
   return MEMBER_TRAITS.filter(([property]) => (type.api ?? []).some(member => member[property]));
 }
 
-function renderMemberFilterControls(type) {
+function renderMemberFilterControls(type: BrowserTypeSurface) {
   const groups = memberGroups(type);
   const visible = visibleMemberGroups(type);
   const kinds = memberKinds(type);
@@ -1313,11 +1712,17 @@ function renderMemberFilterControls(type) {
     <div class="member-filter-result">${visible.length} of ${groups.length} member groups</div>`;
 }
 
-function compositionFilterButton(count, label, attribute, value, className = "") {
+function compositionFilterButton(
+  count: number,
+  label: string,
+  attribute: string,
+  value: string,
+  className = "",
+) {
   return `<button class="composition-filter ${className}" ${attribute}="${escapeHtml(value)}"><strong>${count}</strong><span>${escapeHtml(label)}</span></button>`;
 }
 
-function renderMemberComposition(type) {
+function renderMemberComposition(type: BrowserTypeSurface) {
   const members = type.api ?? [];
   const kinds = memberKinds(type)
     .map(kind => compositionFilterButton(
@@ -1348,7 +1753,7 @@ function renderMemberComposition(type) {
     ${traits ? `<div class="composition-filters" aria-label="Browse members by trait">${traits}</div>` : ""}`;
 }
 
-function selectedMember(type) {
+function selectedMember(type: BrowserTypeSurface | null | undefined) {
   return memberGroups(type).find(group => group.key === state.selectedMemberKey);
 }
 
@@ -1364,7 +1769,7 @@ function scope() {
 // package lenses that fetch one would 404 — except Integrations, which scans a single
 // platform library the engine acquires directly from the runtime pack (see
 // QueryPlatformIntegrations). Dependencies/Opportunities/Analysis stay package-only.
-function packageLensesFor(pkg) {
+function packageLensesFor(pkg: AppPackage | null) {
   if (!pkg?.isRuntimePack) return packageLenses;
   return packageLenses.filter(([id]) =>
     id === "overview" || id === "integrations" || id === "opportunities" || id === "analysis" || id === "metadata");
@@ -1411,7 +1816,7 @@ function resetMemberSectionState() {
   state.selectedBodyTarget = null;
 }
 
-function openMemberGroup(key) {
+function openMemberGroup(key: string) {
   state.memberBrowseTypeId = selectedType()?.id ?? "";
   state.selectedMemberKey = key;
   state.selectedOverloadIndex = null;
@@ -1455,7 +1860,7 @@ function normalizeMemberSelection() {
   }
 }
 
-function openOverload(index) {
+function openOverload(index: number) {
   state.selectedOverloadIndex = index;
   resetMemberSectionState();
   loadSelectedMemberDocumentation();
@@ -1465,7 +1870,7 @@ function openOverload(index) {
 // kick off its lazy load. Shared by the scope-bar strip click and the 1—5 shortcut. If a
 // multi-overload member is still on its picker, resolve the first overload so the section
 // has content to show.
-function applyMemberSection(id) {
+function applyMemberSection(id: MemberSection) {
   const member = selectedMember(selectedType());
   if (member && member.overloads.length > 1 && state.selectedOverloadIndex == null) {
     state.selectedOverloadIndex = 0;
@@ -1484,8 +1889,8 @@ function applyMemberSection(id) {
 
 // Flattened, ordered nav rows for member mode: every member group, with the active
 // group's overloads nested immediately beneath it. This is the exact list ↑/↓ walks.
-function memberNavEntries(type) {
-  const entries = [];
+function memberNavEntries(type: BrowserTypeSurface): MemberNavEntry[] {
+  const entries: MemberNavEntry[] = [];
   for (const group of visibleMemberGroups(type)) {
     entries.push({ kind: "member", group });
     if (group.key === state.selectedMemberKey && group.overloads.length > 1) {
@@ -1495,7 +1900,7 @@ function memberNavEntries(type) {
   return entries;
 }
 
-function memberNavCursor(entries) {
+function memberNavCursor(entries: readonly MemberNavEntry[]) {
   return entries.findIndex(entry => {
     if (entry.kind === "overload") {
       return entry.group.key === state.selectedMemberKey && state.selectedOverloadIndex === entry.index;
@@ -1505,7 +1910,7 @@ function memberNavCursor(entries) {
   });
 }
 
-function selectMemberNavEntry(entry, focusList) {
+function selectMemberNavEntry(entry: MemberNavEntry, focusList: boolean) {
   const preservedFocus = captureMemberFocus(document);
   if (entry.kind === "member") {
     if (entry.group.key === state.selectedMemberKey && entry.group.overloads.length === 1) {
@@ -1522,13 +1927,14 @@ function selectMemberNavEntry(entry, focusList) {
     preservedFocus,
     requestAnimationFrame);
   requestAnimationFrame(() => {
-    if (focusList) document.querySelector("#type-list")?.focus();
+    if (focusList) document.querySelector<HTMLElement>("#type-list")?.focus();
     document.querySelector("#type-list .selected")?.scrollIntoView({ block: "nearest" });
   });
 }
 
-function stepMemberNav(delta, focusList) {
+function stepMemberNav(delta: number, focusList: boolean) {
   const type = selectedType();
+  if (!type) return;
   const entries = memberNavEntries(type);
   if (!entries.length) return;
   const cursor = memberNavTargetIndex(memberNavCursor(entries), entries.length, delta);
@@ -1536,14 +1942,14 @@ function stepMemberNav(delta, focusList) {
 }
 
 // ↑/↓ always act on the visible nav list, whatever depth you are at.
-function stepNav(delta) {
+function stepNav(delta: number) {
   if (navMode() === "member") stepMemberNav(delta, false);
   else stepTypeSelection(delta);
 }
 
 // ←/→ act on the horizontal tab strip at your depth: sections when a concrete
 // overload is open, otherwise the lens strip.
-function stepHorizontal(delta) {
+function stepHorizontal(delta: number) {
   if (state.atPackageRoot) {
     const strip = packageLensesFor(state.package);
     const index = strip.findIndex(([id]) => id === state.packageLens);
@@ -1583,7 +1989,7 @@ function drillIn() {
     if (member && member.overloads.length > 1 && state.selectedOverloadIndex == null) {
       openOverload(0);
     } else {
-      document.querySelector(".detail-scroll")?.focus?.();
+      document.querySelector<HTMLElement>(".detail-scroll")?.focus();
     }
   }
 }
@@ -1620,7 +2026,9 @@ function exitMemberScope() {
 
 // The C#-spelled type name for display (List<T>, Dictionary<TKey, TValue>). Identity —
 // item.id / item.name — stays the metadata form for selection, search, and deep-links.
-function typeDisplayName(item) {
+function typeDisplayName(
+  item: { displayName?: string; name?: string } | null | undefined,
+) {
   return item?.displayName || item?.name || "";
 }
 
@@ -1662,6 +2070,7 @@ function render() {
     renderLoading();
     return;
   }
+  const pkg = state.package;
   const current = selectedType();
   if (!current) {
     state.atPackageRoot = true;
@@ -1680,7 +2089,7 @@ function render() {
   const visible = filteredTypes();
   // Keep the package lens on something the active package actually supports, so a restored
   // URL or stale selection can neither render nor auto-load a lens that fetches a missing nupkg.
-  if (state.atPackageRoot && !packageLensesFor(state.package).some(([id]) => id === state.packageLens)) {
+  if (state.atPackageRoot && !packageLensesFor(pkg).some(([id]) => id === state.packageLens)) {
     state.packageLens = "overview";
   }
   state.typeCursor = Math.min(state.typeCursor, Math.max(visible.length - 1, 0));
@@ -1709,36 +2118,36 @@ function render() {
             <button id="dismiss-notice" type="button" aria-label="Dismiss">×</button>
           </div>`
         : ""}
-      ${state.package.inspectionError
+      ${pkg.inspectionError
         ? `<div class="query-notice" role="alert">
             <span class="query-notice-glyph">⚠</span>
-            <span class="query-notice-text">${escapeHtml(`${state.package.id}@${state.package.version}: ${state.package.inspectionError}`)}</span>
+            <span class="query-notice-text">${escapeHtml(`${pkg.id}@${pkg.version}: ${pkg.inspectionError}`)}</span>
             <button id="dismiss-package-notice" type="button" aria-label="Dismiss">×</button>
           </div>`
         : ""}
 
       <section class="scopebar">
         <div class="package-title">
-          <span class="scope-kicker">${state.package.isRuntimePack ? "platform" : "package"}</span>
-          <strong>${escapeHtml(packageDisplayName(state.package))}</strong>
-          <span>${escapeHtml(state.package.version)}</span>
+          <span class="scope-kicker">${pkg.isRuntimePack ? "platform" : "package"}</span>
+          <strong>${escapeHtml(packageDisplayName(pkg))}</strong>
+          <span>${escapeHtml(pkg.version)}</span>
         </div>
         <label class="version-select">
           <span>version</span>
           <select id="package-version">
-            ${versionOptionsHtml(state.package)}
+            ${versionOptionsHtml(pkg)}
           </select>
         </label>
         <label class="framework-select">
           <span>framework</span>
-          <select id="framework"${state.package.frameworks.length <= 1 ? " disabled" : ""}>
-            ${state.package.frameworks.map(item => `<option ${item === state.package.activeFramework ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
+          <select id="framework"${pkg.frameworks.length <= 1 ? " disabled" : ""}>
+            ${pkg.frameworks.map(item => `<option ${item === pkg.activeFramework ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
           </select>
         </label>
-        <div class="asset-path">${escapeHtml(state.package.assemblyAsset)}</div>
+        <div class="asset-path">${escapeHtml(pkg.assemblyAsset)}</div>
         <div class="scope-stats">
-          <span><strong>${state.package.totalTypes}</strong> types</span>
-          <span><strong>${state.package.totalMembers.toLocaleString()}</strong> members</span>
+          <span><strong>${pkg.totalTypes}</strong> types</span>
+          <span><strong>${pkg.totalMembers.toLocaleString()}</strong> members</span>
         </div>
       </section>
 
@@ -1755,8 +2164,8 @@ function render() {
             </div>
             <div class="breadcrumbs">
               ${state.atPackageRoot
-                ? `<strong>${escapeHtml(packageDisplayName(state.package))}</strong><b>/</b><span>${escapeHtml(packageLenses.find(([id]) => id === state.packageLens)?.[1] || "Overview")}</span>`
-                : `<span>${escapeHtml(packageDisplayName(state.package))}</span><b>/</b><span>${escapeHtml(current.namespace)}</span><b>/</b><strong>${escapeHtml(typeDisplayName(current))}</strong>
+                ? `<strong>${escapeHtml(packageDisplayName(pkg))}</strong><b>/</b><span>${escapeHtml(packageLenses.find(([id]) => id === state.packageLens)?.[1] || "Overview")}</span>`
+                : `<span>${escapeHtml(packageDisplayName(pkg))}</span><b>/</b><span>${escapeHtml(current?.namespace ?? "")}</span><b>/</b><strong>${escapeHtml(typeDisplayName(current))}</strong>
               ${state.selectedMemberKey ? `<b>/</b><strong>${escapeHtml(selectedMember(current)?.name ?? "")}</strong>` : ""}`}
             </div>
             <div class="detail-actions"><button id="copy-name" type="button">copy name</button><button id="taste-btn" class="${state.taste.length ? "active" : ""}" title="Decompiler style (taste)">taste${state.taste.length ? ` · ${state.taste.length}` : ""}</button></div>
@@ -1771,9 +2180,9 @@ function render() {
         buildIdentity: state.buildIdentity,
         diagnostics: state.diag,
         packageCache: state.packageCacheStats,
-        source: state.package.source,
-        assembly: current?.assembly ?? state.package.assembly,
-        framework: state.package.activeFramework,
+        source: pkg.source,
+        assembly: current?.assembly ?? pkg.assembly,
+        framework: pkg.activeFramework,
         expanded: state.statusBarExpanded,
       }, escapeHtml)}
       ${state.spotlightOpen ? spotlight.modalHtml() : ""}
@@ -1816,8 +2225,9 @@ function maybeAutoLoadVisibleSource() {
   }
   const type = selectedType();
   if (!type) return;
+  const pkg = currentPackage();
   if (kind === "type") {
-    const signature = typeSourceSignature(type, state.package, state.taste, memberRequestKey);
+    const signature = typeSourceSignature(type, pkg, state.taste, memberRequestKey);
     if (sourceRequestNeedsLoad(
         state.typeSourceKey === signature,
         state.typeSourceLoading,
@@ -1846,21 +2256,27 @@ function maybeAutoLoadTypeMetadata() {
   if (state.lens !== "metadata") return;
   const type = selectedType();
   if (!type) return;
-  const signature = typeMetadataSignature(type, state.package);
+  const signature = typeMetadataSignature(type, currentPackage());
   if (state.typeMetadataKey === signature) {
-    if (state.typeMetadata?.graphNodes?.length > 1) renderTypeGraph();
+    if (state.typeMetadata && state.typeMetadata.graphNodes.length > 1) renderTypeGraph();
     return;
   }
   loadSelectedTypeMetadata();
 }
 
-function renderNavPane(current, visible) {
-  return navMode() === "member"
+function renderNavPane(
+  current: BrowserTypeSurface | null | undefined,
+  visible: readonly BrowserTypeSurface[],
+) {
+  return navMode() === "member" && current
     ? renderMemberNavPane(current)
     : renderTypeNavPane(current, visible);
 }
 
-function renderTypeNavPane(current, visible) {
+function renderTypeNavPane(
+  current: BrowserTypeSurface | null | undefined,
+  visible: readonly BrowserTypeSurface[],
+) {
   return renderTypeNav({
     current,
     visible,
@@ -1880,7 +2296,7 @@ function renderTypeNavPane(current, visible) {
   });
 }
 
-function renderMemberNavPane(type) {
+function renderMemberNavPane(type: BrowserTypeSurface) {
   const visibleGroups = visibleMemberGroups(type);
   return renderMemberNav({
     type,
@@ -1942,7 +2358,7 @@ function renderScopeBar() {
 }
 
 function packageHeading() {
-  const pkg = state.package;
+  const pkg = currentPackage();
   return `<header class="type-heading">
     <div class="type-badge">${pkg.isRuntimePack ? "◎" : "⬡"}</div>
     <div>
@@ -1958,10 +2374,11 @@ function packageHeading() {
   </header>`;
 }
 
-function packageLensPlaceholder(lensId) {
-  const copy = {
+function packageLensPlaceholder(lensId: string) {
+  const copy = ({
     dependencies: ["⌘", "Dependencies", "Package NuGet dependencies and assembly references. Wiring the engine export in a follow-up pass."]
-  }[lensId] || ["△", "Not available", "This package lens is not wired yet."];
+  } as Record<string, string[]>)[lensId]
+    || ["△", "Not available", "This package lens is not wired yet."];
   return `<section class="document-section empty-document"><span class="large-glyph">${copy[0]}</span><h2>${escapeHtml(copy[1])}</h2><p>${escapeHtml(copy[2])}</p></section>`;
 }
 
@@ -1976,7 +2393,7 @@ function renderPackageView() {
 }
 
 function packageDependenciesSignature() {
-  const pkg = state.package;
+  const pkg = currentPackage();
   return `${pkg.id}@${pkg.version}/${pkg.activeFramework}#${pkg.assemblyId}`;
 }
 
@@ -2027,7 +2444,7 @@ function renderPackageDependencies() {
   return `${dependencyGroupNotice}${selector}${graphSection}${depList}${assemblyReferences}`;
 }
 
-function assemblyReferencesSectionHtml(data) {
+function assemblyReferencesSectionHtml(data: BrowserPackageDependencies) {
   const references = data.assemblyReferences || [];
   const assembly = data.assembly || "selected assembly";
   if (data.assemblyReferenceError) {
@@ -2048,11 +2465,15 @@ function assemblyReferencesSectionHtml(data) {
     </section>`;
 }
 
-function uniqueCompatiblePackage(packages, packageId, declaredRange) {
+function uniqueCompatiblePackage(
+  packages: readonly AppPackage[],
+  packageId: string,
+  declaredRange: string | null | undefined,
+) {
   const match = matchPackageDependencyCoordinate(
     packageId,
-    declaredRange,
-    dependencyCoordinateCandidates(packages));
+    declaredRange ?? null,
+    JSON.stringify(dependencyCoordinateCandidates(packages)));
   if (match.outcome !== "Unique") return null;
   return packages.find(candidate =>
     packageIdentityKey(candidate) === match.candidateKey) || null;
@@ -2061,7 +2482,10 @@ function uniqueCompatiblePackage(packages, packageId, declaredRange) {
 // The NuGet dependency list for the selected TFM. Extracted so a framework switch can
 // replace just this section in place instead of re-rendering the whole page (which would
 // reset the dependency graph container to its loader and flash the diagram).
-function dependencyListSectionHtml(groups, selectedGroupIndex) {
+function dependencyListSectionHtml(
+  groups: readonly BrowserPackageDependencyGroup[],
+  selectedGroupIndex: number | null,
+) {
   const group = groups.find(candidate => candidate.index === selectedGroupIndex) || groups[0];
   const deps = group.dependencies || [];
   return `
@@ -2087,10 +2511,10 @@ function dependencyListSectionHtml(groups, selectedGroupIndex) {
 // swap the diagram (it keeps the old SVG until the new one is ready, so no loader flash).
 function patchDependenciesGroup() {
   const groups = state.packageDependencies?.dependencyGroups || [];
-  const listSection = document.querySelector("#dep-list-section");
+  const listSection = document.querySelector<HTMLElement>("#dep-list-section");
   if (!groups.length || !listSection) { render(); return; }
   const selectedGroupIndex = resolveDependenciesGroupIndex(groups);
-  document.querySelectorAll("#dep-tfm-chips [data-dep-group]").forEach(button =>
+  document.querySelectorAll<HTMLElement>("#dep-tfm-chips [data-dep-group]").forEach(button =>
     button.classList.toggle(
       "active",
       Number(button.dataset.depGroup) === selectedGroupIndex));
@@ -2100,15 +2524,23 @@ function patchDependenciesGroup() {
 }
 
 function bindDependencyListHandlers() {
-  document.querySelectorAll("[data-dep-open]").forEach(button => {
-    button.onclick = () => switchToPackageForDependencies(button.dataset.depOpen);
+  document.querySelectorAll<HTMLElement>("[data-dep-open]").forEach(button => {
+    button.onclick = () => {
+      const key = button.dataset.depOpen;
+      if (key) switchToPackageForDependencies(key);
+    };
   });
-  document.querySelectorAll("[data-dep-load]").forEach(button => {
-    button.onclick = () => openDependencyPackage(button.dataset.depLoad, button.dataset.depVersion || "");
+  document.querySelectorAll<HTMLElement>("[data-dep-load]").forEach(button => {
+    button.onclick = () => {
+      const id = button.dataset.depLoad;
+      if (id) openDependencyPackage(id, button.dataset.depVersion || "");
+    };
   });
 }
 
-function resolveDependenciesGroupIndex(groups) {
+function resolveDependenciesGroupIndex(
+  groups: readonly BrowserPackageDependencyGroup[],
+) {
   if (groups.some(group => group.index === state.dependenciesGroupIndex)) {
     return state.dependenciesGroupIndex;
   }
@@ -2117,6 +2549,7 @@ function resolveDependenciesGroupIndex(groups) {
 }
 
 async function loadPackageDependencies() {
+  const pkg = currentPackage();
   const signature = packageDependenciesSignature();
   if (state.packageDependenciesKey === signature && (state.packageDependencies || state.packageDependenciesError)) {
     render();
@@ -2128,19 +2561,18 @@ async function loadPackageDependencies() {
   state.packageDependenciesLoading = true;
   render();
   const packageRequest = {
-    id: state.package.id,
-    version: state.package.version,
-    activeFramework: state.package.activeFramework,
-    assemblyId: state.package.assemblyId
+    id: pkg.id,
+    version: pkg.version,
+    activeFramework: pkg.activeFramework,
+    assemblyId: pkg.assemblyId
   };
   const workspaceKey = workspaceDependencyKey(packageRequest);
   try {
-    const result = await inspectPackageDependencies({
-      packageId: packageRequest.id,
-      version: packageRequest.version,
-      framework: packageRequest.activeFramework,
-      assemblyId: packageRequest.assemblyId
-    });
+    const result = await inspectPackageDependencies(
+      packageRequest.id,
+      packageRequest.version,
+      packageRequest.activeFramework,
+      packageRequest.assemblyId);
     if (state.packageDependenciesKey === signature) state.packageDependencies = result;
     if (result?.dependencyGroups
       && state.packages.some(pkg => packageIdentityEquals(pkg, packageRequest))) {
@@ -2155,7 +2587,8 @@ async function loadPackageDependencies() {
       }
     }
   } catch (error) {
-    if (state.packageDependenciesKey === signature) state.packageDependenciesError = String(error?.message || error);
+    if (state.packageDependenciesKey === signature)
+      state.packageDependenciesError = errorMessage(error);
   } finally {
     if (state.packageDependenciesKey === signature) state.packageDependenciesLoading = false;
     refreshPackageStats();
@@ -2164,7 +2597,7 @@ async function loadPackageDependencies() {
   }
 }
 
-function workspaceDependencyKey(pkg) {
+function workspaceDependencyKey(pkg: PackageIdentity) {
   return [
     pkg.id.toLowerCase(),
     pkg.version.toLowerCase(),
@@ -2202,12 +2635,11 @@ async function ensureWorkspaceDependencies() {
     if (!state.packages.some(pkg => packageIdentityEquals(pkg, item))) continue;
     state.workspaceDependencyLoads.add(key);
     try {
-      const result = await inspectPackageDependencies({
-        packageId: item.id,
-        version: item.version,
-        framework: item.activeFramework,
-        assemblyId: item.assemblyId
-      });
+      const result = await inspectPackageDependencies(
+        item.id,
+        item.version,
+        item.activeFramework,
+        item.assemblyId);
       if (!state.packages.some(pkg => packageIdentityEquals(pkg, item))) continue;
       state.workspaceDependencies[key] = {
         dependencyGroups: result?.dependencyGroups || [],
@@ -2224,7 +2656,7 @@ async function ensureWorkspaceDependencies() {
         dependencyGroups: [],
         dependencyGroupError: ""
       };
-      state.workspaceDependencyErrors[key] = String(error?.message || error);
+      state.workspaceDependencyErrors[key] = errorMessage(error);
     } finally {
       state.workspaceDependencyLoads.delete(key);
     }
@@ -2250,13 +2682,14 @@ function workspaceDependencyErrorHtml() {
 }
 
 function packageIntegrationsSignature() {
-  const pkg = state.package;
+  const pkg = currentPackage();
   const lib = scopedPlatformLibrary();
   return `${pkg.id}@${pkg.version}/${pkg.activeFramework}${lib ? `#${lib}` : ""}`;
 }
 
 function renderPackageIntegrations() {
-  const isPlatform = Boolean(state.package?.isRuntimePack);
+  const pkg = currentPackage();
+  const isPlatform = pkg.isRuntimePack;
   const scopedLib = scopedPlatformLibrary();
   // On the Platform the scan targets one library at a time (the whole shared framework is
   // ~160 assemblies). Offer a picker to switch libraries; when nothing is scoped yet, prompt
@@ -2267,7 +2700,9 @@ function renderPackageIntegrations() {
   if (isPlatform && !scopedLib) {
     return `${platformPicker}<section class="document-section empty-document"><span class="large-glyph">◈</span><h2>Pick a library to scan</h2><p>Choose a .NET platform library above to scan its public surface for DI, logging, OpenTelemetry, ASP.NET Core, AI, or hosting integration signals.</p></section>`;
   }
-  const scanScope = isPlatform ? `${scopedLib} · ${escapeHtml(state.package.activeFramework)}` : escapeHtml(state.package.activeFramework);
+  const scanScope = isPlatform
+    ? `${scopedLib} · ${escapeHtml(pkg.activeFramework)}`
+    : escapeHtml(pkg.activeFramework);
   const current = packageIntegrationsSignature();
   const fresh = state.packageIntegrationsKey === current;
   if (state.packageIntegrationsLoading && fresh) {
@@ -2287,7 +2722,7 @@ function renderPackageIntegrations() {
     : "";
 
   if (!categories.length) {
-    return `${platformPicker}${warning}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No ecosystem integrations detected</h2><p>The public surface of ${isPlatform ? `${escapeHtml(scopedLib)}` : escapeHtml(state.package.activeFramework)} shows no known DI, logging, OpenTelemetry, ASP.NET Core, AI, or hosting signals.</p></section>`;
+    return `${platformPicker}${warning}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No ecosystem integrations detected</h2><p>The public surface of ${isPlatform ? `${escapeHtml(scopedLib)}` : escapeHtml(pkg.activeFramework)} shows no known DI, logging, OpenTelemetry, ASP.NET Core, AI, or hosting signals.</p></section>`;
   }
 
   const summary = `
@@ -2298,9 +2733,11 @@ function renderPackageIntegrations() {
 
   const blocks = categories.map(category => {
     const signals = [...category.signals].sort((a, b) => {
-      const rank = shape => /type/i.test(shape) ? 0 : 1;
+      const rank = (shape: string) => /type/i.test(shape) ? 0 : 1;
       return rank(a.shape) - rank(b.shape) || a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name);
     });
+    const typeCount = signals.filter(signal => /type/i.test(signal.shape)).length;
+    const apiCount = signals.length - typeCount;
     const rows = signals.map(signal => {
       const isType = /type/i.test(signal.shape);
       const { short, qualifier } = splitSignalName(signal.name);
@@ -2313,7 +2750,7 @@ function renderPackageIntegrations() {
     }).join("");
     return `
     <section class="document-section">
-      <div class="section-title"><h2>${escapeHtml(category.integration)}</h2><span>${category.typeCount} type${category.typeCount === 1 ? "" : "s"} · ${category.apiCount} API${category.apiCount === 1 ? "" : "s"}</span></div>
+      <div class="section-title"><h2>${escapeHtml(category.integration)}</h2><span>${typeCount} type${typeCount === 1 ? "" : "s"} · ${apiCount} API${apiCount === 1 ? "" : "s"}</span></div>
       <div class="signal-list">${rows}</div>
     </section>`;
   }).join("");
@@ -2322,7 +2759,8 @@ function renderPackageIntegrations() {
 }
 
 async function loadPackageIntegrations() {
-  const isPlatform = Boolean(state.package?.isRuntimePack);
+  const pkg = currentPackage();
+  const isPlatform = pkg.isRuntimePack;
   const scopedLib = scopedPlatformLibrary();
   // The Platform lens needs a chosen library to scan; without one the render prompts for a
   // selection, so there is nothing to fetch yet.
@@ -2339,19 +2777,19 @@ async function loadPackageIntegrations() {
   render();
   try {
     const result = isPlatform
-      ? await inspectPlatformIntegrations({
-          targetFramework: state.package.activeFramework,
-          assemblyFileName: `${scopedLib}.dll`,
-          pack: platformPackForAssembly(scopedLib)
-        })
-      : await inspectPackageIntegrations({
-          packageId: state.package.id,
-          version: state.package.version,
-          framework: state.package.activeFramework
-        });
+      ? parseEngineJson<BrowserPackageIntegrations>(
+          await inspectPlatformIntegrations(
+            pkg.activeFramework,
+            `${scopedLib}.dll`,
+            platformPackForAssembly(scopedLib ?? "")))
+      : await inspectPackageIntegrations(
+          pkg.id,
+          pkg.version,
+          pkg.activeFramework);
     if (state.packageIntegrationsKey === signature) state.packageIntegrations = result;
   } catch (error) {
-    if (state.packageIntegrationsKey === signature) state.packageIntegrationsError = String(error?.message || error);
+    if (state.packageIntegrationsKey === signature)
+      state.packageIntegrationsError = errorMessage(error);
   } finally {
     if (state.packageIntegrationsKey === signature) state.packageIntegrationsLoading = false;
     render();
@@ -2365,7 +2803,7 @@ function maybeAutoLoadPackageIntegrations() {
 }
 
 function packageScopeSignature() {
-  const pkg = state.package;
+  const pkg = currentPackage();
   const lib = scopedPlatformLibrary();
   return `${pkg.id}@${pkg.version}/${pkg.activeFramework}${lib ? `#${lib}` : ""}`;
 }
@@ -2373,20 +2811,21 @@ function packageScopeSignature() {
 // The Opportunities and Analysis lenses run over one platform library at a time, so on the
 // Platform they render the same inline library picker as Integrations and prompt for a choice
 // when nothing is scoped. This mirrors renderPackageIntegrations' platform handling.
-function platformLensPicker(dataAttr) {
+function platformLensPicker(dataAttr: string) {
   const scopedLib = scopedPlatformLibrary();
   return `<section class="document-section"><div class="library-picker platform-library-picker overview-library-picker">${platformLibrarySelectHtml({ dataAttr, selected: scopedLib || "" })}</div></section>`;
 }
 
 function renderPackageOpportunities() {
-  const isPlatform = Boolean(state.package?.isRuntimePack);
+  const pkg = currentPackage();
+  const isPlatform = pkg.isRuntimePack;
   const scopedLib = scopedPlatformLibrary();
   const picker = isPlatform ? platformLensPicker("data-platform-opportunities-library") : "";
   const current = packageScopeSignature();
   return renderPackageOpportunitiesPure({
     isPlatform,
     scopedLibrary: scopedLib,
-    activeFramework: state.package.activeFramework,
+    activeFramework: pkg.activeFramework,
     picker,
     fresh: state.packageOpportunitiesKey === current,
     loading: state.packageOpportunitiesLoading,
@@ -2397,7 +2836,8 @@ function renderPackageOpportunities() {
 }
 
 async function loadPackageOpportunities() {
-  const isPlatform = Boolean(state.package?.isRuntimePack);
+  const pkg = currentPackage();
+  const isPlatform = pkg.isRuntimePack;
   const scopedLib = scopedPlatformLibrary();
   if (isPlatform && !scopedLib) return;
   const signature = packageScopeSignature();
@@ -2412,19 +2852,19 @@ async function loadPackageOpportunities() {
   render();
   try {
     const result = isPlatform
-      ? await inspectPlatformOpportunities({
-          targetFramework: state.package.activeFramework,
-          assemblyFileName: `${scopedLib}.dll`,
-          pack: platformPackForAssembly(scopedLib)
-        })
-      : await inspectPackageOpportunities({
-          packageId: state.package.id,
-          version: state.package.version,
-          framework: state.package.activeFramework
-        });
+      ? parseEngineJson<BrowserPackageOpportunities>(
+          await inspectPlatformOpportunities(
+            pkg.activeFramework,
+            `${scopedLib}.dll`,
+            platformPackForAssembly(scopedLib ?? "")))
+      : await inspectPackageOpportunities(
+          pkg.id,
+          pkg.version,
+          pkg.activeFramework);
     if (state.packageOpportunitiesKey === signature) state.packageOpportunities = result;
   } catch (error) {
-    if (state.packageOpportunitiesKey === signature) state.packageOpportunitiesError = String(error?.message || error);
+    if (state.packageOpportunitiesKey === signature)
+      state.packageOpportunitiesError = errorMessage(error);
   } finally {
     if (state.packageOpportunitiesKey === signature) state.packageOpportunitiesLoading = false;
     render();
@@ -2439,13 +2879,16 @@ function maybeAutoLoadPackageOpportunities() {
 }
 
 function renderPackagePerformance() {
-  const isPlatform = Boolean(state.package?.isRuntimePack);
+  const pkg = currentPackage();
+  const isPlatform = pkg.isRuntimePack;
   const scopedLib = scopedPlatformLibrary();
   const picker = isPlatform ? platformLensPicker("data-platform-analysis-library") : "";
   if (isPlatform && !scopedLib) {
     return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Pick a library to analyze</h2><p>Choose a .NET platform library above to classify allocation and performance opportunities across its method bodies.</p></section>`;
   }
-  const scanScope = isPlatform ? `${escapeHtml(scopedLib)} · ${escapeHtml(state.package.activeFramework)}` : escapeHtml(state.package.activeFramework);
+  const scanScope = isPlatform
+    ? `${escapeHtml(scopedLib)} · ${escapeHtml(pkg.activeFramework)}`
+    : escapeHtml(pkg.activeFramework);
   const current = packageScopeSignature();
   const fresh = state.packagePerformanceKey === current;
   if (state.packagePerformanceLoading && fresh) {
@@ -2493,7 +2936,8 @@ function renderPackagePerformance() {
 }
 
 async function loadPackagePerformance() {
-  const isPlatform = Boolean(state.package?.isRuntimePack);
+  const pkg = currentPackage();
+  const isPlatform = pkg.isRuntimePack;
   const scopedLib = scopedPlatformLibrary();
   if (isPlatform && !scopedLib) return;
   const signature = packageScopeSignature();
@@ -2507,20 +2951,20 @@ async function loadPackagePerformance() {
   state.packagePerformanceLoading = true;
   render();
   try {
-    const result = isPlatform
-      ? await inspectPlatformPerformance({
-          targetFramework: state.package.activeFramework,
-          assemblyFileName: `${scopedLib}.dll`,
-          pack: platformPackForAssembly(scopedLib)
-        })
-      : await inspectPackagePerformance({
-          packageId: state.package.id,
-          version: state.package.version,
-          framework: state.package.activeFramework
-        });
+    const result = parseEngineJson<PackagePerformance>(
+      isPlatform
+        ? await inspectPlatformPerformance(
+            pkg.activeFramework,
+            `${scopedLib}.dll`,
+            platformPackForAssembly(scopedLib ?? ""))
+        : await inspectPackagePerformance(
+            pkg.id,
+            pkg.version,
+            pkg.activeFramework));
     if (state.packagePerformanceKey === signature) state.packagePerformance = result;
   } catch (error) {
-    if (state.packagePerformanceKey === signature) state.packagePerformanceError = String(error?.message || error);
+    if (state.packagePerformanceKey === signature)
+      state.packagePerformanceError = errorMessage(error);
   } finally {
     if (state.packagePerformanceKey === signature) state.packagePerformanceLoading = false;
     render();
@@ -2557,7 +3001,8 @@ function renderPackageMetadata() {
 }
 
 async function loadPackageMetadata() {
-  const isPlatform = Boolean(state.package?.isRuntimePack);
+  const pkg = currentPackage();
+  const isPlatform = pkg.isRuntimePack;
   const scopedLib = scopedPlatformLibrary();
   if (isPlatform && !scopedLib) return;
   const signature = packageScopeSignature();
@@ -2571,20 +3016,20 @@ async function loadPackageMetadata() {
   state.packageMetadataLoading = true;
   render();
   try {
-    const result = isPlatform
-      ? await inspectPlatformMetadata({
-          targetFramework: state.package.activeFramework,
-          assemblyFileName: `${scopedLib}.dll`,
-          pack: platformPackForAssembly(scopedLib)
-        })
-      : await inspectPackageMetadata({
-          packageId: state.package.id,
-          version: state.package.version,
-          framework: state.package.activeFramework
-        });
+    const result = parseEngineJson<PackageMetadata>(
+      isPlatform
+        ? await inspectPlatformMetadata(
+            pkg.activeFramework,
+            `${scopedLib}.dll`,
+            platformPackForAssembly(scopedLib ?? ""))
+        : await inspectPackageMetadata(
+            pkg.id,
+            pkg.version,
+            pkg.activeFramework));
     if (state.packageMetadataKey === signature) state.packageMetadata = result;
   } catch (error) {
-    if (state.packageMetadataKey === signature) state.packageMetadataError = String(error?.message || error);
+    if (state.packageMetadataKey === signature)
+      state.packageMetadataError = errorMessage(error);
   } finally {
     if (state.packageMetadataKey === signature) state.packageMetadataLoading = false;
     render();
@@ -2613,7 +3058,7 @@ function explorerPageSize() {
 // Opens the explorer over one assembly, focused on a table (and optionally a row). The table
 // directory comes from the already-loaded overview so the canvas can render immediately; each
 // card fetches its own row window.
-function openExplorer(assemblyFileName, tableIndex, rowId = 0) {
+function openExplorer(assemblyFileName: string, tableIndex: number, rowId = 0) {
   const ex = buildBaseExplorer(assemblyFileName);
   if (!ex) return;
   ex.history = [{ index: Number(tableIndex), rowId: Number(rowId) || 0 }];
@@ -2623,7 +3068,7 @@ function openExplorer(assemblyFileName, tableIndex, rowId = 0) {
 }
 
 // Opens the explorer focused on a heap card (#Strings / #Blob / #GUID / #US) rather than a table.
-function openExplorerHeap(assemblyFileName, heapName) {
+function openExplorerHeap(assemblyFileName: string, heapName: string) {
   const ex = buildBaseExplorer(assemblyFileName);
   if (!ex) return;
   ex.history = [{ heap: heapName }];
@@ -2634,12 +3079,13 @@ function openExplorerHeap(assemblyFileName, heapName) {
 
 // The common explorer state: the table + heap directories drawn from the loaded overview, plus
 // empty window caches. Focus is set by the caller (openExplorer / openExplorerHeap).
-function buildBaseExplorer(assemblyFileName) {
+function buildBaseExplorer(assemblyFileName: string): AppExplorerState | null {
   const data = state.packageMetadata;
   const asm = (data?.assemblies || []).find(a => a.assembly === assemblyFileName)
     || (data?.assemblies || [])[0];
   if (!asm) return null;
-  const isPlatform = Boolean(state.package?.isRuntimePack);
+  const pkg = currentPackage();
+  const isPlatform = pkg.isRuntimePack;
   const directory = (asm.tables || [])
     .slice()
     .sort((a, b) => a.index - b.index)
@@ -2652,9 +3098,9 @@ function buildBaseExplorer(assemblyFileName) {
     isPlatform,
     assemblyFileName: asm.assembly,
     pack: isPlatform ? platformPackForAssembly(asm.assembly.replace(/\.dll$/i, "")) : null,
-    packageId: state.package.id,
-    version: state.package.version,
-    framework: state.package.activeFramework,
+    packageId: pkg.id,
+    version: pkg.version,
+    framework: pkg.activeFramework,
     directory,
     heaps,
     windows: {},
@@ -2667,6 +3113,7 @@ function buildBaseExplorer(assemblyFileName) {
     historyPos: -1,
     overview: false,
     pageSize: estimateExplorerPageSize(window.innerHeight || 0),
+    pendingScroll: false,
   };
 }
 
@@ -2675,7 +3122,11 @@ function closeExplorer() {
   render();
 }
 
-async function loadExplorerWindow(index, startRowId = 1, maxRows = explorerPageSize()) {
+async function loadExplorerWindow(
+  index: number,
+  startRowId = 1,
+  maxRows = explorerPageSize(),
+) {
   const ex = state.explorer;
   if (!ex) return;
   const existing = ex.windows[index];
@@ -2684,20 +3135,34 @@ async function loadExplorerWindow(index, startRowId = 1, maxRows = explorerPageS
   ex.windows[index] = { loading: true, error: "", data: existing?.data || null, startRowId, maxRows };
   render();
   try {
-    const request = {
-      assemblyFileName: ex.assemblyFileName,
-      tableIndex: index,
-      startRowId,
-      maxRows,
-    };
-    const result = ex.isPlatform
-      ? await inspectPlatformMetadataTable({ ...request, targetFramework: ex.framework, pack: ex.pack })
-      : await inspectPackageMetadataTable({ ...request, packageId: ex.packageId, version: ex.version, framework: ex.framework });
+    const result = parseEngineJson<ExplorerTableData>(
+      ex.isPlatform
+        ? await inspectPlatformMetadataTable(
+            ex.framework,
+            ex.assemblyFileName,
+            ex.pack || "",
+            index,
+            startRowId,
+            maxRows)
+        : await inspectPackageMetadataTable(
+            ex.packageId,
+            ex.version,
+            ex.framework,
+            ex.assemblyFileName,
+            index,
+            startRowId,
+            maxRows));
     if (state.explorer !== ex) return;
     ex.windows[index] = { loading: false, error: result.error || "", data: result, startRowId, maxRows };
   } catch (error) {
     if (state.explorer !== ex) return;
-    ex.windows[index] = { loading: false, error: String(error?.message || error), data: null, startRowId, maxRows };
+    ex.windows[index] = {
+      loading: false,
+      error: errorMessage(error),
+      data: null,
+      startRowId,
+      maxRows,
+    };
   } finally {
     if (state.explorer === ex) {
       render();
@@ -2708,7 +3173,7 @@ async function loadExplorerWindow(index, startRowId = 1, maxRows = explorerPageS
 
 // Lists one heap's entries via the engine (referenced-only for #Strings/#Blob, complete for
 // #GUID, nothing for #US). Cached per heap name; coverage/truncation travel with the result.
-async function loadExplorerHeap(heapName) {
+async function loadExplorerHeap(heapName: string) {
   const ex = state.explorer;
   if (!ex) return;
   const existing = ex.heapWindows[heapName];
@@ -2716,15 +3181,28 @@ async function loadExplorerHeap(heapName) {
   ex.heapWindows[heapName] = { loading: true, error: "", data: null };
   render();
   try {
-    const request = { assemblyFileName: ex.assemblyFileName, heap: heapName };
-    const result = ex.isPlatform
-      ? await inspectPlatformHeapEntries({ ...request, targetFramework: ex.framework, pack: ex.pack })
-      : await inspectPackageHeapEntries({ ...request, packageId: ex.packageId, version: ex.version, framework: ex.framework });
+    const result = parseEngineJson<HeapListingData>(
+      ex.isPlatform
+        ? await inspectPlatformHeapEntries(
+            ex.framework,
+            ex.assemblyFileName,
+            ex.pack || "",
+            heapName)
+        : await inspectPackageHeapEntries(
+            ex.packageId,
+            ex.version,
+            ex.framework,
+            ex.assemblyFileName,
+            heapName));
     if (state.explorer !== ex) return;
-    ex.heapWindows[heapName] = { loading: false, error: result.error || "", data: result };
+    ex.heapWindows[heapName] = { loading: false, error: "", data: result };
   } catch (error) {
     if (state.explorer !== ex) return;
-    ex.heapWindows[heapName] = { loading: false, error: String(error?.message || error), data: null };
+    ex.heapWindows[heapName] = {
+      loading: false,
+      error: errorMessage(error),
+      data: null,
+    };
   } finally {
     if (state.explorer === ex) {
       render();
@@ -2736,13 +3214,13 @@ async function loadExplorerHeap(heapName) {
 // history stack so Back/Forward can walk the journey — essential once the focus panel hides
 // the table you came from (including intra-table hops like TypeDef.Extends -> another TypeDef,
 // which otherwise look like "you didn't move").
-function explorerJump(index, rowId) {
+function explorerJump(index: number, rowId: number) {
   pushExplorerFocus({ index, rowId: rowId || 0 });
 }
 
 // Move focus to a new entry, truncating any forward history (a fresh branch). Re-selecting the
 // current table just updates its row in place rather than stacking a duplicate.
-function pushExplorerFocus(entry) {
+function pushExplorerFocus(entry: ExplorerFocus) {
   const ex = state.explorer;
   if (!ex) return;
   const cur = ex.history[ex.historyPos];
@@ -2800,6 +3278,7 @@ function applyExplorerFocus() {
     if (!ex.heapWindows[entry.heap]) loadExplorerHeap(entry.heap);
     else render();
   } else {
+    if (entry.index == null) return;
     ex.focusHeap = null;
     ex.focusIndex = entry.index;
     ex.highlight = entry.rowId ? { index: entry.index, rowId: entry.rowId } : null;
@@ -2858,7 +3337,8 @@ function syncExplorerPageSize() {
   if (fit === ex.pageSize) return;
   ex.pageSize = fit;
   const win = ex.windows[ex.focusIndex];
-  if (win?.data && win.data.rows.length < fit && win.data.rows.length < win.data.rowCount) {
+  const rows = win?.data?.rows ?? [];
+  if (win?.data && rows.length < fit && rows.length < win.data.rowCount) {
     loadExplorerWindow(ex.focusIndex, win.data.startRowId, fit);
   }
 }
@@ -2866,54 +3346,57 @@ function syncExplorerPageSize() {
 // Renders the explorer surface owned by metadata-viewer.ts, then binds its events. The state
 // snapshot is passed explicitly; the module owns markup only.
 function renderMetadataExplorer() {
+  const explorer = state.explorer;
+  if (!explorer) return;
   app.innerHTML = renderMetadataExplorerHtml({
-    explorer: state.explorer,
+    explorer,
     escapeHtml,
     fmtBytes,
   });
   bindMetadataExplorerEvents();
 }
 
-let explorerObserver = null;
+let explorerObserver: IntersectionObserver | null = null;
 function bindMetadataExplorerEvents() {
   const ex = state.explorer;
   document.querySelector("#mde-exit")?.addEventListener("click", closeExplorer);
   document.querySelector("#mde-hist-back")?.addEventListener("click", explorerHistoryBack);
   document.querySelector("#mde-hist-fwd")?.addEventListener("click", explorerHistoryForward);
-  document.querySelectorAll("[data-mde-chip]").forEach(chip =>
+  if (!ex) return;
+  document.querySelectorAll<HTMLElement>("[data-mde-chip]").forEach(chip =>
     chip.addEventListener("click", () => pushExplorerFocus({ index: Number(chip.dataset.mdeChip), rowId: 0 })));
-  document.querySelectorAll("[data-mde-jump]").forEach(btn =>
+  document.querySelectorAll<HTMLElement>("[data-mde-jump]").forEach(btn =>
     btn.addEventListener("click", event => {
       event.stopPropagation();
-      const [index, rowId] = btn.dataset.mdeJump.split(":").map(Number);
+      const [index, rowId] = (btn.dataset.mdeJump ?? "").split(":").map(Number);
       explorerJump(index, rowId);
     }));
   // The corner ✕ on the focus panel zooms back out to the all-tables wall.
-  document.querySelectorAll("[data-mde-overview]").forEach(btn =>
+  document.querySelectorAll<HTMLElement>("[data-mde-overview]").forEach(btn =>
     btn.addEventListener("click", event => { event.stopPropagation(); explorerShowOverview(); }));
-  document.querySelectorAll("[data-mde-page]").forEach(btn =>
+  document.querySelectorAll<HTMLElement>("[data-mde-page]").forEach(btn =>
     btn.addEventListener("click", () => {
-      const [index, start] = btn.dataset.mdePage.split(":").map(Number);
+      const [index, start] = (btn.dataset.mdePage ?? "").split(":").map(Number);
       loadExplorerWindow(index, start);
     }));
-  document.querySelectorAll("[data-mde-heap-chip]").forEach(chip =>
+  document.querySelectorAll<HTMLElement>("[data-mde-heap-chip]").forEach(chip =>
     chip.addEventListener("click", () => pushExplorerFocus({ heap: chip.dataset.mdeHeapChip })));
 
   if (ex?.overview) {
     // All-tables view: clicking a card head, a ref, or a row focuses that table.
-    document.querySelectorAll(".mde-wall .mde-card[data-mde-index] .mde-card-head").forEach(head =>
+    document.querySelectorAll<HTMLElement>(".mde-wall .mde-card[data-mde-index] .mde-card-head").forEach(head =>
       head.addEventListener("click", () => {
-        const card = head.closest(".mde-card");
+        const card = head.closest<HTMLElement>(".mde-card");
         if (card) pushExplorerFocus({ index: Number(card.dataset.mdeIndex), rowId: 0 });
       }));
-    document.querySelectorAll(".mde-wall .mde-heap-card[data-mde-heap] .mde-card-head").forEach(head =>
+    document.querySelectorAll<HTMLElement>(".mde-wall .mde-heap-card[data-mde-heap] .mde-card-head").forEach(head =>
       head.addEventListener("click", () => {
-        const card = head.closest(".mde-heap-card");
+        const card = head.closest<HTMLElement>(".mde-heap-card");
         if (card) pushExplorerFocus({ heap: card.dataset.mdeHeap });
       }));
-    document.querySelectorAll(".mde-wall .mde-row[data-mde-row]").forEach(tr =>
+    document.querySelectorAll<HTMLElement>(".mde-wall .mde-row[data-mde-row]").forEach(tr =>
       tr.addEventListener("click", () => {
-        const [index, rowId] = tr.dataset.mdeRow.split(":").map(Number);
+        const [index, rowId] = (tr.dataset.mdeRow ?? "").split(":").map(Number);
         pushExplorerFocus({ index, rowId });
       }));
   } else {
@@ -2921,9 +3404,9 @@ function bindMetadataExplorerEvents() {
     document.querySelector("#mde-canvas")?.addEventListener("click", explorerShowOverview);
     // Selecting a row in the focus panel updates the inspector in place — it refines the current
     // position (remembered for Back/Forward). Clicking the selected row again deselects it.
-    document.querySelectorAll(".mde-focus .mde-row[data-mde-row]").forEach(tr =>
+    document.querySelectorAll<HTMLElement>(".mde-focus .mde-row[data-mde-row]").forEach(tr =>
       tr.addEventListener("click", () => {
-        const [index, rowId] = tr.dataset.mdeRow.split(":").map(Number);
+        const [index, rowId] = (tr.dataset.mdeRow ?? "").split(":").map(Number);
         const already = ex.detail && ex.detail.index === index && ex.detail.rowId === rowId;
         ex.detail = already ? null : { index, rowId };
         ex.highlight = already ? null : { index, rowId };
@@ -2935,9 +3418,10 @@ function bindMetadataExplorerEvents() {
 
   // Hydrate cards as they scroll into view (the "wall of tables filling in as you pan" feel).
   explorerObserver?.disconnect();
-  explorerObserver = new IntersectionObserver(entries => {
+  const observer = new IntersectionObserver(entries => {
     for (const entry of entries) {
       if (entry.isIntersecting) {
+        if (!(entry.target instanceof HTMLElement)) continue;
         if (entry.target.dataset.mdeHeapNeedsLoad != null) {
           loadExplorerHeap(entry.target.dataset.mdeHeapNeedsLoad);
         } else {
@@ -2946,7 +3430,9 @@ function bindMetadataExplorerEvents() {
       }
     }
   }, { root: document.querySelector("#mde-canvas"), rootMargin: "200px" });
-  document.querySelectorAll("[data-mde-needs-load], [data-mde-heap-needs-load]").forEach(el => explorerObserver.observe(el));
+  explorerObserver = observer;
+  document.querySelectorAll<HTMLElement>("[data-mde-needs-load], [data-mde-heap-needs-load]")
+    .forEach(el => observer.observe(el));
 
   // Always ensure the focused table or heap is loaded (its window backs the focus panel).
   if (state.explorer) {
@@ -2968,7 +3454,7 @@ let explorerResizeBound = false;
 function ensureExplorerResizeListener() {
   if (explorerResizeBound) return;
   explorerResizeBound = true;
-  let resizeTimer = null;
+  let resizeTimer: ReturnType<typeof setTimeout> | null = null;
   window.addEventListener("resize", () => {
     if (resizeTimer) clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
@@ -2981,9 +3467,10 @@ function ensureExplorerResizeListener() {
 
 // is joined against the same public API surface the nav pane renders, so the member,
 // its overload, and its declaring type are all resolvable client-side.
-function drillToPerfMember(token, assembly, typeId) {
+function drillToPerfMember(token: string, assembly: string, typeId: string) {
+  const pkg = currentPackage();
   const numeric = Number(token);
-  const targetType = state.package.types.find(type =>
+  const targetType = pkg.types.find(type =>
     type.id === typeId
     && type.assembly === assembly
     && (type.api || []).some(member => member.metadataToken === numeric));
@@ -3011,20 +3498,33 @@ function drillToPerfMember(token, assembly, typeId) {
 }
 
 function renderPackageOverview() {
-  const pkg = state.package;
+  const pkg = currentPackage();
 
   const frameworks = pkg.frameworks
     .map(framework => `<button class="type-chip ${framework === pkg.activeFramework ? "active" : ""}" data-framework-chip="${escapeHtml(framework)}">${escapeHtml(framework)}</button>`)
     .join("");
 
-  const kindPlural = { class: "classes", struct: "structs", interface: "interfaces", enum: "enums", delegate: "delegates" };
+  const kindPlural: Record<TypeKind, string> = {
+    class: "classes",
+    struct: "structs",
+    interface: "interfaces",
+    enum: "enums",
+    delegate: "delegates",
+  };
+
+  interface LibraryStat {
+    assemblyId: string;
+    assembly: string;
+    types: number;
+    kinds: Map<TypeKind, number>;
+  }
 
   // Per-library breakdown: group the loaded types by their owning assembly, each
   // with its own types-by-kind. The library is the meaningful unit for
   // measurement — a merged "classes per package" number is noise. The overview
   // reports the public surface (matching the package's headline type count);
   // non-public types are reached via the type nav pane's accessibility filter.
-  const libStats = new Map();
+  const libStats = new Map<string, LibraryStat>();
   for (const type of pkg.types) {
     if (!isDefaultAccessibility(type)) continue;
     const asm = type.assembly || pkg.assembly || "(unknown)";
@@ -3039,7 +3539,7 @@ function renderPackageOverview() {
     const kind = typeKind(type.kind);
     stat.kinds.set(kind, (stat.kinds.get(kind) || 0) + 1);
   }
-  const memberFor = stat => {
+  const memberFor = (stat: LibraryStat) => {
     const hit = assemblyDescriptorForType(pkg.assemblies, stat);
     return hit ? hit.publicMembers : null;
   };
@@ -3053,8 +3553,8 @@ function renderPackageOverview() {
       const kinds = KIND_ORDER
         .filter(kind => stat.kinds.has(kind))
         .map(kind => multi
-          ? `<button class="lib-kind as-button" data-lib-scope="${escapeHtml(name)}" data-lib-kind="${kind}" title="Show ${kindPlural[kind] || kind} in ${escapeHtml(name)}"><strong>${stat.kinds.get(kind)}</strong> ${kindPlural[kind] || kind}</button>`
-          : `<span class="lib-kind"><strong>${stat.kinds.get(kind)}</strong> ${kindPlural[kind] || kind}</span>`)
+          ? `<button class="lib-kind as-button" data-lib-scope="${escapeHtml(name)}" data-lib-kind="${kind}" title="Show ${kindPlural[kind]} in ${escapeHtml(name)}"><strong>${stat.kinds.get(kind)}</strong> ${kindPlural[kind]}</button>`
+          : `<span class="lib-kind"><strong>${stat.kinds.get(kind)}</strong> ${kindPlural[kind]}</span>`)
         .join("");
       const nameCell = multi
         ? `<button class="library-name as-button" data-lib-scope="${escapeHtml(name)}" title="Show all ${escapeHtml(name)} types">${escapeHtml(name)}</button>`
@@ -3075,12 +3575,12 @@ function renderPackageOverview() {
   // and ASP.NET Core shared frameworks, and conflating them would overcount.
   let librariesSubtitle = `${libStats.size} loaded`;
   if (pkg.isRuntimePack && state.platformIndex) {
-    const indexPack = /aspnetcore/i.test(pkg.name || "") ? "aspnetcore.app" : "netcore.app";
+    const indexPack = /aspnetcore/i.test(pkg.id) ? "aspnetcore.app" : "netcore.app";
     const total = state.platformIndex.assembliesFor(pkg.activeFramework, indexPack).filter(a => a.kind === "impl").length;
     if (total > 0) librariesSubtitle = `${libStats.size} loaded · ${total} in ${escapeHtml(pkg.activeFramework)}`;
   }
 
-  const nsCounts = new Map();
+  const nsCounts = new Map<string, number>();
   for (const type of pkg.types) {
     if (!isDefaultAccessibility(type)) continue;
     const ns = type.namespace || "global";
@@ -3095,8 +3595,10 @@ function renderPackageOverview() {
 
   // Package-shipped Markdown: README/PACKAGE at the root and skill files under skills/.
   // Presence comes from the surface manifest; the body is fetched on demand when opened.
-  const docKindLabel = { readme: "Readme", package: "Package", skill: "Skill" };
-  const docKindGlyph = { readme: "▤", package: "▤", skill: "◆" };
+  const docKindLabel: Record<string, string> =
+    { readme: "Readme", package: "Package", skill: "Skill" };
+  const docKindGlyph: Record<string, string> =
+    { readme: "▤", package: "▤", skill: "◆" };
   const documents = (pkg.documents || [])
     .map(doc => `<button class="doc-chip doc-${escapeHtml(doc.kind)}" data-doc-path="${escapeHtml(doc.path)}" title="${escapeHtml(doc.path)} · ${doc.size.toLocaleString()} bytes">
         <span class="doc-glyph">${docKindGlyph[doc.kind] || "▤"}</span>
@@ -3127,14 +3629,21 @@ function renderPackageOverview() {
     </section>${documentsSection}`;
 }
 
-function typeHeadingHtml(item) {
-  return typeHeading({ item, packageContext: state.package, escapeHtml, typeDisplayName, kindIcon, highlight });
+function typeHeadingHtml(item: BrowserTypeSurface) {
+  return typeHeading({
+    item,
+    packageContext: currentPackage(),
+    escapeHtml,
+    typeDisplayName,
+    kindIcon,
+    highlight,
+  });
 }
 
-function renderTypeMetadataHtml(item) {
+function renderTypeMetadataHtml(item: BrowserTypeSurface) {
   return renderTypeMetadata({
     item,
-    packageContext: state.package,
+    packageContext: currentPackage(),
     metadataState: state,
     memberCompositionHtml: renderMemberComposition(item),
     escapeHtml,
@@ -3143,13 +3652,18 @@ function renderTypeMetadataHtml(item) {
   });
 }
 
-function renderTypeSourceHtml(item) {
-  const currentSignature = typeSourceSignature(item, state.package, state.taste, memberRequestKey);
+function renderTypeSourceHtml(item: BrowserTypeSurface) {
+  const currentSignature = typeSourceSignature(
+    item,
+    currentPackage(),
+    state.taste,
+    memberRequestKey);
   return renderTypeSource({ item, currentSignature, sourceState: state, escapeHtml, highlightCSharp });
 }
 
-function renderLens(item) {
+function renderLens(item: BrowserTypeSurface | null | undefined) {
   if (state.atPackageRoot) return renderPackageView();
+  if (!item) return "";
   const member = selectedMember(item);
   if (state.lens === "api" && member) return renderMember(item, member);
   if (state.lens === "api" && state.memberBrowseTypeId === item.id) {
@@ -3185,7 +3699,7 @@ function renderLens(item) {
     </section>`;
 }
 
-function renderMember(type, member) {
+function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
   if (member.overloads.length > 1 && state.selectedOverloadIndex == null) {
     return `
       <button class="member-back" id="member-back">← ${escapeHtml(typeDisplayName(type))}</button>
@@ -3205,6 +3719,8 @@ function renderMember(type, member) {
   }
   const overloadIndex = state.selectedOverloadIndex ?? 0;
   const overload = member.overloads[overloadIndex];
+  if (!overload) return "";
+  const pkg = currentPackage();
   const documentationKey = memberRequestSignature(type, overload);
   const documentationState = scopedRequestState(
     state.memberDocumentationKey,
@@ -3222,13 +3738,13 @@ function renderMember(type, member) {
         <header class="learn-title">
           <p>${escapeHtml(type.namespace)}</p>
           <h1>${escapeHtml(typeDisplayName(type))}.${escapeHtml(member.name)}${parameterTitleHtml(parameters)} ${escapeHtml(pageKind)}</h1>
-          <span>${escapeHtml(state.package.id)} · ${escapeHtml(state.package.activeFramework)}</span>
+          <span>${escapeHtml(pkg.id)} · ${escapeHtml(pkg.activeFramework)}</span>
         </header>
         <section class="learn-section definition-section">
           <dl class="definition-list">
             <div><dt>Namespace:</dt><dd>${escapeHtml(type.namespace || "global")}</dd></div>
             <div><dt>Assembly:</dt><dd>${escapeHtml(type.assembly)}</dd></div>
-            <div><dt>Package:</dt><dd>${escapeHtml(state.package.id)} v${escapeHtml(state.package.version)}</dd></div>
+            <div><dt>Package:</dt><dd>${escapeHtml(pkg.id)} v${escapeHtml(pkg.version)}</dd></div>
           </dl>
           ${documentationLoading
             ? '<p class="docs-loading">Loading package documentation…</p>'
@@ -3270,7 +3786,7 @@ function renderMember(type, member) {
         </section>
         <section class="learn-section applies-to">
           <h2>Applies to</h2>
-          <span>${escapeHtml(state.package.activeFramework)}</span>
+          <span>${escapeHtml(pkg.activeFramework)}</span>
         </section>
       </article>
     `;
@@ -3361,7 +3877,7 @@ function renderMember(type, member) {
 // The annotated section renders the product's portable AnnotatedSourceDocument directly: canonical
 // lines from its text buffer, structural segments from its nodes, and the fact -> target -> node ->
 // span walk it defines. Coordinates, validation, and segmentation belong to document-model.js.
-function renderAnnotatedSource(result) {
+function renderAnnotatedSource(result: AnnotatedSourceResult) {
   return renderAnnotatedSourcePure({
     result,
     media: state.memberAnnotatedMedia,
@@ -3371,7 +3887,12 @@ function renderAnnotatedSource(result) {
   });
 }
 
-function renderMemberFacts(type, member, overload, overloadIndex) {
+function renderMemberFacts(
+  type: BrowserTypeSurface,
+  member: AppMemberGroup,
+  overload: BrowserMemberSurface,
+  overloadIndex: number,
+) {
   if (state.memberFactsLoading) {
     return `<section class="document-section source-progress"><span class="loader"></span><h2>Analyzing method…</h2><p>Decoding the selected overload and deriving method evidence and performance opportunities.</p></section>`;
   }
@@ -3433,7 +3954,15 @@ function renderMemberFacts(type, member, overload, overloadIndex) {
     </section>`;
 }
 
-function renderFactTable(title, rows, columns, emptyText) {
+type FactTableColumn<T> =
+  readonly [label: string, field: keyof T | ((row: T) => unknown)];
+
+function renderFactTable<T extends object>(
+  title: string,
+  rows: readonly T[],
+  columns: readonly FactTableColumn<T>[],
+  emptyText: string,
+) {
   return `<section class="document-section fact-group">
     <div class="section-title"><h2>${escapeHtml(title)}</h2><span>${rows.length}</span></div>
     ${rows.length
@@ -3445,7 +3974,10 @@ function renderFactTable(title, rows, columns, emptyText) {
   </section>`;
 }
 
-function factRows(rows) {
+type FactSummaryRow =
+  readonly [key: string, value: string, evidence?: readonly string[]];
+
+function factRows(rows: readonly FactSummaryRow[]) {
   return `<dl class="fact-rows">${rows.map(([key, value, evidence]) => `<div><dt>${escapeHtml(key)}</dt><dd><code>${escapeHtml(value)}</code>${factEvidence(evidence)}</dd></div>`).join("")}</dl>`;
 }
 
@@ -3453,7 +3985,7 @@ function factRows(rows) {
 // Deduplicated and capped so a hot method never restores the long-line problem; the
 // overflow count carries the full list in a tooltip and the detail table below holds
 // every occurrence. Sourced from the detail collections so the summary and the tables agree.
-function factEvidence(offsets) {
+function factEvidence(offsets?: readonly string[]) {
   const unique = [...new Set((offsets ?? []).filter(Boolean))];
   if (!unique.length) return "";
   const CAP = 2;
@@ -3463,7 +3995,7 @@ function factEvidence(offsets) {
   return `<span class="fact-evidence" title="${escapeHtml(unique.join(", "))}">${escapeHtml(label)}</span>`;
 }
 
-function shortTypeName(fullName) {
+function shortTypeName(fullName: string) {
   const generic = fullName.indexOf("<");
   const head = generic < 0 ? fullName : fullName.slice(0, generic);
   const tail = generic < 0 ? "" : fullName.slice(generic);
@@ -3474,7 +4006,7 @@ function shortTypeName(fullName) {
 // Split an integration signal's fully-qualified name into its short member/type name and a
 // declaring qualifier. Cuts off a method parameter list or generic argument list before the
 // last-dot split so a dot inside "(...)" or "<...>" never gets mistaken for the name boundary.
-function splitSignalName(fullName) {
+function splitSignalName(fullName: string) {
   const paren = fullName.indexOf("(");
   const angle = fullName.indexOf("<");
   const bounds = [paren, angle].filter(i => i >= 0);
@@ -3488,32 +4020,36 @@ function splitSignalName(fullName) {
   };
 }
 
-function kindIcon(kind) {
+function kindIcon(kind: string) {
   if (kind.includes("struct")) return "S";
   if (kind === "enum") return "E";
   if (kind.includes("interface")) return "I";
   return "C";
 }
 
-function shortKind(kind) {
+function shortKind(kind: string) {
   return kind.replace("sealed ", "").replace("abstract ", "").replace("static ", "").replace("readonly ", "");
 }
 
-function highlight(value) {
+function highlight(value: string) {
   return escapeHtml(value)
     .replace(/\b(public|static|class|abstract|sealed|readonly|struct|return|if|is|new|default)\b/g, '<span class="kw">$1</span>')
     .replace(/\b(string|object|void|Type|Stream|Task|ValueTask|CancellationToken|TValue)\b/g, '<span class="primitive">$1</span>');
 }
 
-function highlightCSharp(value) {
-  if (globalThis.Prism?.languages?.csharp) {
-    return globalThis.Prism.highlight(String(value), globalThis.Prism.languages.csharp, "csharp");
+function highlightCSharp(value: unknown) {
+  const source = String(value ?? "");
+  if (window.Prism?.languages?.csharp) {
+    return window.Prism.highlight(
+      source,
+      window.Prism.languages.csharp,
+      "csharp");
   }
-  return escapeHtml(value);
+  return escapeHtml(source);
 }
 
 function bindStatusBarToggle() {
-  document.querySelectorAll("[data-status-bar-toggle-button]").forEach(button => button.addEventListener("click", () => {
+  document.querySelectorAll<HTMLElement>("[data-status-bar-toggle-button]").forEach(button => button.addEventListener("click", () => {
     state.statusBarExpanded = !state.statusBarExpanded;
     render();
   }));
@@ -3522,7 +4058,7 @@ function bindStatusBarToggle() {
 function bindEvents() {
   bindStatusBarToggle();
   packageBar.bind(document);
-  document.querySelectorAll("[data-scope]").forEach(button => button.addEventListener("click", () => {
+  document.querySelectorAll<HTMLElement>("[data-scope]").forEach(button => button.addEventListener("click", () => {
     const target = button.dataset.scope;
     if (target === "package") {
       state.atPackageRoot = true;
@@ -3542,23 +4078,23 @@ function bindEvents() {
     }
     render();
   }));
-  document.querySelectorAll("[data-package-lens]").forEach(button => button.addEventListener("click", () => {
-    state.packageLens = button.dataset.packageLens;
+  document.querySelectorAll<HTMLElement>("[data-package-lens]").forEach(button => button.addEventListener("click", () => {
+    state.packageLens = button.dataset.packageLens ?? "overview";
     render();
   }));
-  document.querySelectorAll("[data-framework-chip]").forEach(button => button.addEventListener("click", () => {
-    switchPackageFramework(button.dataset.frameworkChip);
+  document.querySelectorAll<HTMLElement>("[data-framework-chip]").forEach(button => button.addEventListener("click", () => {
+    switchPackageFramework(button.dataset.frameworkChip ?? "");
   }));
-  document.querySelectorAll("[data-dep-group]").forEach(button => button.addEventListener("click", () => {
+  document.querySelectorAll<HTMLElement>("[data-dep-group]").forEach(button => button.addEventListener("click", () => {
     const index = Number(button.dataset.depGroup);
     if (state.dependenciesGroupIndex === index) return;
     state.dependenciesGroupIndex = index;
     patchDependenciesGroup();
   }));
   bindDependencyListHandlers();
-  document.querySelectorAll("[data-kind-jump]").forEach(button => button.addEventListener("click", () => {
+  document.querySelectorAll<HTMLElement>("[data-kind-jump]").forEach(button => button.addEventListener("click", () => {
     state.atPackageRoot = false;
-    state.kindFilter = button.dataset.kindJump;
+    state.kindFilter = button.dataset.kindJump ?? "";
     state.namespaceFilter = "";
     state.typeFilter = "";
     state.selectedMemberKey = "";
@@ -3569,9 +4105,9 @@ function bindEvents() {
     if (first) state.selectedTypeId = first.id;
     render();
   }));
-  document.querySelectorAll("[data-namespace-jump]").forEach(button => button.addEventListener("click", () => {
+  document.querySelectorAll<HTMLElement>("[data-namespace-jump]").forEach(button => button.addEventListener("click", () => {
     state.atPackageRoot = false;
-    state.namespaceFilter = button.dataset.namespaceJump;
+    state.namespaceFilter = button.dataset.namespaceJump ?? "";
     state.kindFilter = "";
     state.typeFilter = "";
     state.selectedMemberKey = "";
@@ -3582,10 +4118,13 @@ function bindEvents() {
     if (first) state.selectedTypeId = first.id;
     render();
   }));
-  document.querySelectorAll("[data-lib-scope]").forEach(button => button.addEventListener("click", () => {
+  document.querySelectorAll<HTMLElement>("[data-lib-scope]").forEach(button => button.addEventListener("click", () => {
     state.atPackageRoot = false;
-    state.libraryScope = new Set([button.dataset.libScope]);
-    if (state.package?.isRuntimePack) recordPlatformRecent(button.dataset.libScope);
+    const library = button.dataset.libScope;
+    if (!library) return;
+    state.libraryScope = new Set([library]);
+    if (state.package?.isRuntimePack)
+      recordPlatformRecent(library, platformPackForAssembly(library));
     state.kindFilter = button.dataset.libKind || "";
     state.namespaceFilter = "";
     state.typeFilter = "";
@@ -3597,44 +4136,44 @@ function bindEvents() {
     if (first) state.selectedTypeId = first.id;
     render();
   }));
-  document.querySelectorAll("[data-lens]").forEach(button => button.addEventListener("click", () => {
-    state.lens = button.dataset.lens;
+  document.querySelectorAll<HTMLElement>("[data-lens]").forEach(button => button.addEventListener("click", () => {
+    state.lens = button.dataset.lens ?? "api";
     state.selectedMemberKey = "";
     state.memberBrowseTypeId = "";
     render();
   }));
-  document.querySelectorAll("[data-type]").forEach(button => button.addEventListener("click", () => {
+  document.querySelectorAll<HTMLElement>("[data-type]").forEach(button => button.addEventListener("click", () => {
     state.atPackageRoot = false;
-    state.selectedTypeId = button.dataset.type;
+    state.selectedTypeId = button.dataset.type ?? "";
     state.selectedMemberKey = "";
     state.memberBrowseTypeId = "";
     resetMemberFilters();
     state.typeCursor = filteredTypes().findIndex(item => item.id === state.selectedTypeId);
     render();
   }));
-  document.querySelectorAll("[data-graph-type]").forEach(button => button.addEventListener("click", () => {
-    navigateToTypeByName(button.dataset.graphType);
+  document.querySelectorAll<HTMLElement>("[data-graph-type]").forEach(button => button.addEventListener("click", () => {
+    navigateToTypeByName(button.dataset.graphType ?? "");
   }));
-  document.querySelectorAll("[data-perf-token]").forEach(button => button.addEventListener("click", () => {
+  document.querySelectorAll<HTMLElement>("[data-perf-token]").forEach(button => button.addEventListener("click", () => {
     drillToPerfMember(
-      button.dataset.perfToken,
-      button.dataset.perfAssembly,
-      button.dataset.perfType);
+      button.dataset.perfToken ?? "",
+      button.dataset.perfAssembly ?? "",
+      button.dataset.perfType ?? "");
   }));
-  document.querySelectorAll("[data-opp-type]").forEach(button => button.addEventListener("click", () => {
-    const id = button.dataset.oppType;
-    const target = state.package.types.find(item => item.id === id);
+  document.querySelectorAll<HTMLElement>("[data-opp-type]").forEach(button => button.addEventListener("click", () => {
+    const id = button.dataset.oppType ?? "";
+    const target = currentPackage().types.find(item => item.id === id);
     if (!target) { openSpotlight(shortTypeName(id)); return; }
     state.atPackageRoot = false;
     navigateToTypeByName(id);
   }));
-  document.querySelectorAll("[data-opp-package]").forEach(button => button.addEventListener("click", () => {
-    openDependencyPackage(button.dataset.oppPackage, "");
+  document.querySelectorAll<HTMLElement>("[data-opp-package]").forEach(button => button.addEventListener("click", () => {
+    openDependencyPackage(button.dataset.oppPackage ?? "", "");
   }));
-  document.querySelectorAll("[data-opp-lookfor]").forEach(button => button.addEventListener("click", () => {
-    openSpotlight(button.dataset.oppLookfor);
+  document.querySelectorAll<HTMLElement>("[data-opp-lookfor]").forEach(button => button.addEventListener("click", () => {
+    openSpotlight(button.dataset.oppLookfor ?? "");
   }));
-  const renderMemberFilterAndRestoreFocus = selector => {
+  const renderMemberFilterAndRestoreFocus = (selector = "") => {
     const preserved = captureMemberFocus(document);
     if (selector) {
       preserved.selector = selector;
@@ -3642,27 +4181,27 @@ function bindEvents() {
     }
     renderWithMemberFocus(preserved);
   };
-  document.querySelectorAll("[data-member-kind-filter]").forEach(button => button.addEventListener("click", () => {
+  document.querySelectorAll<HTMLElement>("[data-member-kind-filter]").forEach(button => button.addEventListener("click", () => {
     const value = button.dataset.memberKindFilter;
-    state.memberKindFilter = value;
+    state.memberKindFilter = value ?? "all";
     normalizeMemberSelection();
     renderMemberFilterAndRestoreFocus();
   }));
-  document.querySelectorAll("[data-member-access-filter]").forEach(button => button.addEventListener("click", () => {
+  document.querySelectorAll<HTMLElement>("[data-member-access-filter]").forEach(button => button.addEventListener("click", () => {
     const value = button.dataset.memberAccessFilter;
-    state.memberAccessibilityFilter = value;
+    state.memberAccessibilityFilter = value ?? "all";
     normalizeMemberSelection();
     renderMemberFilterAndRestoreFocus();
   }));
-  document.querySelectorAll("[data-member-trait-filter]").forEach(button => button.addEventListener("click", () => {
+  document.querySelectorAll<HTMLElement>("[data-member-trait-filter]").forEach(button => button.addEventListener("click", () => {
     const value = button.dataset.memberTraitFilter;
-    state.memberTraitFilter = value;
+    state.memberTraitFilter = value ?? "";
     normalizeMemberSelection();
     renderMemberFilterAndRestoreFocus();
   }));
-  const memberFilter = document.querySelector("#member-filter");
+  const memberFilter = document.querySelector<HTMLInputElement>("#member-filter");
   memberFilter?.addEventListener("input", event => {
-    state.memberTextFilter = event.target.value;
+    state.memberTextFilter = memberFilter.value;
     normalizeMemberSelection();
     renderPreservingMemberFocus();
   });
@@ -3687,54 +4226,55 @@ function bindEvents() {
     normalizeMemberSelection();
     renderMemberFilterAndRestoreFocus("#clear-member-filter");
   });
-  const enterMemberNavigation = action => {
+  const enterMemberNavigation = (action: () => void) => {
     const focusGeneration = beginSpotlightNavigation();
     action();
     focusTypeList(focusGeneration);
   };
-  document.querySelectorAll("[data-member-jump-kind]").forEach(button => button.addEventListener("click", () => {
+  document.querySelectorAll<HTMLElement>("[data-member-jump-kind]").forEach(button => button.addEventListener("click", () => {
     enterMemberNavigation(() => {
       resetMemberFilters();
-      state.memberKindFilter = button.dataset.memberJumpKind;
+      state.memberKindFilter = button.dataset.memberJumpKind ?? "all";
       enterMemberScope();
       render();
     });
   }));
-  document.querySelectorAll("[data-member-jump-access]").forEach(button => button.addEventListener("click", () => {
+  document.querySelectorAll<HTMLElement>("[data-member-jump-access]").forEach(button => button.addEventListener("click", () => {
     enterMemberNavigation(() => {
       resetMemberFilters();
-      state.memberAccessibilityFilter = button.dataset.memberJumpAccess;
+      state.memberAccessibilityFilter = button.dataset.memberJumpAccess ?? "all";
       enterMemberScope();
       render();
     });
   }));
-  document.querySelectorAll("[data-member-jump-trait]").forEach(button => button.addEventListener("click", () => {
+  document.querySelectorAll<HTMLElement>("[data-member-jump-trait]").forEach(button => button.addEventListener("click", () => {
     enterMemberNavigation(() => {
       resetMemberFilters();
-      state.memberTraitFilter = button.dataset.memberJumpTrait;
+      state.memberTraitFilter = button.dataset.memberJumpTrait ?? "";
       enterMemberScope();
       render();
     });
   }));
-  document.querySelectorAll("[data-member]").forEach(button => button.addEventListener("click", () => {
-    enterMemberNavigation(() => openMemberGroup(button.dataset.member));
+  document.querySelectorAll<HTMLElement>("[data-member]").forEach(button => button.addEventListener("click", () => {
+    enterMemberNavigation(() => openMemberGroup(button.dataset.member ?? ""));
   }));
-  document.querySelectorAll("[data-overload]").forEach(button => button.addEventListener("click", () => {
+  document.querySelectorAll<HTMLElement>("[data-overload]").forEach(button => button.addEventListener("click", () => {
     openOverload(Number(button.dataset.overload));
   }));
-  document.querySelectorAll("[data-nav-member]").forEach(button => button.addEventListener("click", () => {
+  document.querySelectorAll<HTMLElement>("[data-nav-member]").forEach(button => button.addEventListener("click", () => {
     const group = memberGroups(selectedType()).find(item => item.key === button.dataset.navMember);
     if (group) selectMemberNavEntry({ kind: "member", group }, false);
   }));
-  document.querySelectorAll("[data-nav-overload]").forEach(button => button.addEventListener("click", () => {
+  document.querySelectorAll<HTMLElement>("[data-nav-overload]").forEach(button => button.addEventListener("click", () => {
     const group = selectedMember(selectedType());
     if (group) selectMemberNavEntry({ kind: "overload", group, index: Number(button.dataset.navOverload) }, false);
   }));
   document.querySelector("#nav-to-types")?.addEventListener("click", () => {
     exitMemberScope();
   });
-  document.querySelectorAll("[data-member-section]").forEach(button => button.addEventListener("click", () => {
-    applyMemberSection(button.dataset.memberSection);
+  document.querySelectorAll<HTMLElement>("[data-member-section]").forEach(button => button.addEventListener("click", () => {
+    const section = button.dataset.memberSection;
+    if (section && isMemberSection(section)) applyMemberSection(section);
   }));
   document.querySelector("#member-back")?.addEventListener("click", () => {
     drillOut();
@@ -3753,7 +4293,7 @@ function bindEvents() {
     const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
     if (overload) await copyText(overload.signature, "signature copied");
   });
-  document.querySelectorAll("[data-copy-anchor]").forEach(button => button.addEventListener("click", async () => {
+  document.querySelectorAll<HTMLElement>("[data-copy-anchor]").forEach(button => button.addEventListener("click", async () => {
     const type = selectedType();
     const member = selectedMember(type);
     const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
@@ -3762,8 +4302,9 @@ function bindEvents() {
       digest: overload?.anchorDigest,
       canonical: overload?.canonicalSignature
     };
-    const value = values[button.dataset.copyAnchor];
-    if (value) await copyText(value, `${button.dataset.copyAnchor} copied`);
+    const anchor = button.dataset.copyAnchor as keyof typeof values | undefined;
+    const value = anchor ? values[anchor] : undefined;
+    if (value) await copyText(value, `${anchor} copied`);
   }));
   document.querySelector("#copy-source")?.addEventListener("click", async () => {
     if (state.memberSource) await copyText(state.memberSource.text, "source copied");
@@ -3771,21 +4312,26 @@ function bindEvents() {
   document.querySelector("#copy-annotated")?.addEventListener("click", async () => {
     if (state.memberAnnotated) await copyText(state.memberAnnotated.document.text, "annotated source copied");
   });
-  document.querySelectorAll("[data-annotated-medium]").forEach(button => button.addEventListener("click", () => {
+  document.querySelectorAll<HTMLElement>("[data-annotated-medium]").forEach(button => button.addEventListener("click", () => {
     const medium = button.dataset.annotatedMedium;
-    const next = { ...state.memberAnnotatedMedia, [medium]: !state.memberAnnotatedMedia[medium] };
+    if (!medium || !MEDIA.includes(medium as (typeof MEDIA)[number])) return;
+    const typedMedium = medium as (typeof MEDIA)[number];
+    const next = {
+      ...state.memberAnnotatedMedia,
+      [typedMedium]: !state.memberAnnotatedMedia[typedMedium],
+    };
     // Both media off would render an empty document that looks like an empty result.
     if (!MEDIA.some(candidate => next[candidate])) return;
     state.memberAnnotatedMedia = next;
     render();
   }));
-  document.querySelectorAll("[data-annotated-fact]").forEach(button => button.addEventListener("click", () => {
+  document.querySelectorAll<HTMLElement>("[data-annotated-fact]").forEach(button => button.addEventListener("click", () => {
     const factId = Number(button.dataset.annotatedFact);
     state.memberAnnotatedFactId = state.memberAnnotatedFactId === factId ? null : factId;
     state.memberAnnotatedNodeIds = [];
     render();
   }));
-  document.querySelectorAll("[data-annotated-offset]").forEach(span => span.addEventListener("click", () => {
+  document.querySelectorAll<HTMLElement>("[data-annotated-offset]").forEach(span => span.addEventListener("click", () => {
     if (!state.memberAnnotated) return;
     const node = nodeAtOffset(state.memberAnnotated.document, Number(span.dataset.annotatedOffset));
     state.memberAnnotatedFactId = null;
@@ -3803,8 +4349,8 @@ function bindEvents() {
   document.querySelector("#copy-type-source")?.addEventListener("click", async () => {
     if (state.typeSource) await copyText(state.typeSource.text, "source copied");
   });
-  document.querySelectorAll("[data-namespace]").forEach(button => button.addEventListener("click", () => {
-    state.namespaceFilter = button.dataset.namespace;
+  document.querySelectorAll<HTMLElement>("[data-namespace]").forEach(button => button.addEventListener("click", () => {
+    state.namespaceFilter = button.dataset.namespace ?? "";
     state.typeCursor = 0;
     const first = filteredTypes()[0];
     if (first) state.selectedTypeId = first.id;
@@ -3813,7 +4359,7 @@ function bindEvents() {
     resetMemberFilters();
     render();
   }));
-  const namespaceJump = document.getElementById("namespace-jump");
+  const namespaceJump = document.querySelector<HTMLSelectElement>("#namespace-jump");
   if (namespaceJump) namespaceJump.addEventListener("change", () => {
     state.namespaceFilter = namespaceJump.value;
     state.typeCursor = 0;
@@ -3824,8 +4370,8 @@ function bindEvents() {
     resetMemberFilters();
     render();
   });
-  document.querySelectorAll("[data-kind-filter]").forEach(button => button.addEventListener("click", () => {
-    state.kindFilter = button.dataset.kindFilter;
+  document.querySelectorAll<HTMLElement>("[data-kind-filter]").forEach(button => button.addEventListener("click", () => {
+    state.kindFilter = button.dataset.kindFilter ?? "";
     state.typeCursor = 0;
     const first = filteredTypes()[0];
     if (first) state.selectedTypeId = first.id;
@@ -3834,20 +4380,20 @@ function bindEvents() {
     resetMemberFilters();
     render();
   }));
-  document.querySelectorAll("[data-library-chip]").forEach(button => button.addEventListener("click", () => {
-    toggleLibraryChip(button.dataset.libraryChip);
+  document.querySelectorAll<HTMLElement>("[data-library-chip]").forEach(button => button.addEventListener("click", () => {
+    toggleLibraryChip(button.dataset.libraryChip ?? "");
     afterLibraryScopeChange();
   }));
-  document.querySelectorAll("[data-access-chip]").forEach(button => button.addEventListener("click", () => {
-    toggleAccessibilityChip(button.dataset.accessChip);
+  document.querySelectorAll<HTMLElement>("[data-access-chip]").forEach(button => button.addEventListener("click", () => {
+    toggleAccessibilityChip(button.dataset.accessChip ?? "");
     afterLibraryScopeChange();
   }));
-  const libraryJump = document.getElementById("library-jump");
+  const libraryJump = document.querySelector<HTMLSelectElement>("#library-jump");
   if (libraryJump) libraryJump.addEventListener("change", () => {
     state.libraryScope = libraryJump.value ? new Set([libraryJump.value]) : null;
     afterLibraryScopeChange();
   });
-  document.querySelectorAll("[data-platform-library-select]").forEach(select => select.addEventListener("change", () => {
+  document.querySelectorAll<HTMLSelectElement>("[data-platform-library-select]").forEach(select => select.addEventListener("change", () => {
     const name = select.value;
     if (!name) return;
     const pack = select.selectedOptions[0]?.dataset.pack || "netcore.app";
@@ -3857,12 +4403,21 @@ function bindEvents() {
   // without leaving the lens: unlike the main platform selector they keep package (platform)
   // root + the active lens, then rescan. Types are loaded too so switching to Types/Overview
   // afterward isn't empty.
-  const bindPlatformLensPicker = (dataAttr, lens, loader) => {
+  interface NoticeRetryState {
+    action: RetryAction;
+    previous: string;
+    appended: string;
+  }
+  const bindPlatformLensPicker = (
+    dataAttr: string,
+    lens: string,
+    loader: () => unknown,
+  ) => {
     const openLibrary = async (
-      name,
-      pack,
-      originPackage = state.package,
-      noticeRetryState = null) => {
+      name: string,
+      pack: string,
+      originPackage: AppPackage = currentPackage(),
+      noticeRetryState: NoticeRetryState | null = null) => {
       if (!state.packages.includes(originPackage)
         || !packageIdentityEquals(state.package, originPackage)
         || state.home
@@ -3895,7 +4450,7 @@ function bindEvents() {
           () => state.packages.includes(originPackage));
         if (!loaded) {
           if (isCurrent()) {
-            const noticeState = {
+                  const noticeState: NoticeRetryState = {
               action: null,
               previous: state.queryNotice,
               appended: "",
@@ -3923,7 +4478,7 @@ function bindEvents() {
       normalizeLibrarySelection();
       loader();
     };
-    document.querySelectorAll(`[${dataAttr}]`).forEach(select => select.addEventListener("change", () => {
+    document.querySelectorAll<HTMLSelectElement>(`[${dataAttr}]`).forEach(select => select.addEventListener("change", () => {
       const name = select.value;
       if (!name) return;
       const key = name.replace(/\.dll$/i, "");
@@ -3935,28 +4490,34 @@ function bindEvents() {
   bindPlatformLensPicker("data-platform-opportunities-library", "opportunities", loadPackageOpportunities);
   bindPlatformLensPicker("data-platform-analysis-library", "analysis", loadPackagePerformance);
   bindPlatformLensPicker("data-platform-metadata-library", "metadata", loadPackageMetadata);
-  document.querySelectorAll("[data-mde-open]").forEach(btn =>
+  document.querySelectorAll<HTMLElement>("[data-mde-open]").forEach(btn =>
     btn.addEventListener("click", () => {
-      const [assembly, tableIndex] = btn.dataset.mdeOpen.split("|");
+      const [assembly = "", tableIndex = "0"] =
+        (btn.dataset.mdeOpen ?? "").split("|");
       openExplorer(assembly, Number(tableIndex));
     }));
-  document.querySelectorAll("[data-mde-open-heap]").forEach(btn =>
+  document.querySelectorAll<HTMLElement>("[data-mde-open-heap]").forEach(btn =>
     btn.addEventListener("click", () => {
-      const [assembly, heapName] = btn.dataset.mdeOpenHeap.split("|");
+      const [assembly = "", heapName = ""] =
+        (btn.dataset.mdeOpenHeap ?? "").split("|");
       openExplorerHeap(assembly, heapName);
     }));
-  document.querySelector("#framework").addEventListener("change", event => {
-    switchPackageFramework(event.target.value);
+  const frameworkSelect = document.querySelector<HTMLSelectElement>("#framework");
+  frameworkSelect?.addEventListener("change", () => {
+    switchPackageFramework(frameworkSelect.value);
   });
-  document.querySelector("#package-version")?.addEventListener("change", event => {
-    if (state.package?.isRuntimePack) switchPlatformVersion(event.target.value);
-    else switchPackageVersion(event.target.value);
+  const packageVersionSelect =
+    document.querySelector<HTMLSelectElement>("#package-version");
+  packageVersionSelect?.addEventListener("change", () => {
+    if (state.package?.isRuntimePack)
+      switchPlatformVersion(packageVersionSelect.value);
+    else switchPackageVersion(packageVersionSelect.value);
   });
   ensurePackageVersions(state.package);
   if (state.package?.isRuntimePack) ensureDotnetReleases();
-  const filter = document.querySelector("#type-filter");
-  filter?.addEventListener("input", event => {
-    state.typeFilter = event.target.value;
+  const filter = document.querySelector<HTMLInputElement>("#type-filter");
+  filter?.addEventListener("input", () => {
+    state.typeFilter = filter.value;
     state.typeCursor = 0;
     const first = filteredTypes()[0];
     if (first) state.selectedTypeId = first.id;
@@ -3969,22 +4530,27 @@ function bindEvents() {
   filter?.addEventListener("keydown", event => {
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      document.querySelector("#type-list").focus();
+      document.querySelector<HTMLElement>("#type-list")?.focus();
     } else if (event.key === "Escape") {
       state.typeFilter = "";
       render();
     }
   });
-  document.querySelector("#type-list")?.addEventListener("keydown", handleTypeKeys);
+  document.querySelector<HTMLElement>("#type-list")
+    ?.addEventListener("keydown", handleTypeKeys);
   if (state.spotlightOpen) spotlight.bind(document, "modal");
   document.querySelector("#graph-source-backdrop")?.addEventListener("mousedown", event => {
-    if (event.target.id === "graph-source-backdrop") closeGraphSource();
+    if (event.target instanceof HTMLElement
+        && event.target.id === "graph-source-backdrop") closeGraphSource();
   });
   document.querySelector("#graph-source-close")?.addEventListener("click", closeGraphSource);
-  document.querySelectorAll("[data-doc-path]").forEach(button =>
-    button.addEventListener("click", () => openPackageDocument(button.dataset.docPath)));
+  document.querySelectorAll<HTMLElement>("[data-doc-path]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => openPackageDocument(button.dataset.docPath ?? "")));
   document.querySelector("#doc-viewer-backdrop")?.addEventListener("mousedown", event => {
-    if (event.target.id === "doc-viewer-backdrop") closeDocViewer();
+    if (event.target instanceof HTMLElement
+        && event.target.id === "doc-viewer-backdrop") closeDocViewer();
   });
   document.querySelector("#doc-viewer-close")?.addEventListener("click", closeDocViewer);
   document.querySelector("#taste-btn")?.addEventListener("click", event => {
@@ -3992,8 +4558,10 @@ function bindEvents() {
     state.tasteOpen = !state.tasteOpen;
     render();
   });
-  document.querySelectorAll("#taste-popover [data-taste]").forEach(checkbox =>
-    checkbox.addEventListener("change", () => toggleTaste(checkbox.dataset.taste)));
+  document.querySelectorAll<HTMLElement>("#taste-popover [data-taste]").forEach(checkbox =>
+    checkbox.addEventListener(
+      "change",
+      () => toggleTaste(checkbox.dataset.taste ?? "")));
   document.querySelector("#taste-clear")?.addEventListener("click", clearTaste);
   document.querySelector("#clear-filter")?.addEventListener("click", () => {
     state.typeFilter = "";
@@ -4005,7 +4573,7 @@ function bindEvents() {
     focusFilter();
   });
 
-  document.querySelector("#share").addEventListener("click", share);
+  document.querySelector("#share")?.addEventListener("click", share);
   document.querySelector("[data-graph-back]")?.addEventListener("click", popPlatformDrill);
   document.querySelector("#dismiss-notice")?.addEventListener("click", () => {
     state.queryNotice = "";
@@ -4015,15 +4583,15 @@ function bindEvents() {
   document.querySelector("#retry-notice")?.addEventListener("click", () =>
     state.queryNoticeRetryAction?.());
   document.querySelector("#dismiss-package-notice")?.addEventListener("click", () => {
-    state.package.inspectionError = "";
+    currentPackage().inspectionError = "";
     render();
   });
   document.querySelector("#nav-back")?.addEventListener("click", navBack);
   document.querySelector("#nav-forward")?.addEventListener("click", navForward);
-  document.querySelector("#go-home").addEventListener("click", goHome);
-  document.querySelector("#theme-toggle").addEventListener("click", toggleTheme);
+  document.querySelector("#go-home")?.addEventListener("click", goHome);
+  document.querySelector("#theme-toggle")?.addEventListener("click", toggleTheme);
   document.querySelector("#open-settings")?.addEventListener("click", () => openSettings("workbench"));
-  document.querySelector("#help").addEventListener("click", () => showToast("⌘K command · ⌘P / type to find a type · ⌘F filter · 1—5 lenses · ↑↓ types · Alt+←/→ back/forward · graph: wheel zoom, click node to open, +/− zoom, 0 fit, arrows pan"));
+  document.querySelector("#help")?.addEventListener("click", () => showToast("⌘K command · ⌘P / type to find a type · ⌘F filter · 1—5 lenses · ↑↓ types · Alt+←/→ back/forward · graph: wheel zoom, click node to open, +/− zoom, 0 fit, arrows pan"));
 }
 
 function toggleTheme() {
@@ -4031,17 +4599,17 @@ function toggleTheme() {
 }
 
 // Apply and persist a specific theme, refreshing any live graphs whose colors are theme-bound.
-function setTheme(theme) {
+function setTheme(theme: "light" | "dark") {
   state.theme = theme === "light" ? "light" : "dark";
   localStorage.setItem("inspect-theme", state.theme);
   document.documentElement.dataset.theme = state.theme;
   render();
   if (state.memberCallGraph) renderMermaidCallGraph();
-  const depGraph = document.querySelector("#dependency-graph-diagram");
+  const depGraph = document.querySelector<HTMLElement>("#dependency-graph-diagram");
   if (depGraph) { depGraph.dataset.graphDef = ""; renderDependencyGraph(); }
 }
 
-function handleTypeKeys(event) {
+function handleTypeKeys(event: KeyboardEvent) {
   if (navMode() === "member") {
     if (event.key === "ArrowDown" || event.key === "j") {
       event.preventDefault();
@@ -4082,7 +4650,11 @@ function handleTypeKeys(event) {
   selectTypeByCursor(cursor, items, true);
 }
 
-function selectTypeByCursor(cursor, items, focusList) {
+function selectTypeByCursor(
+  cursor: number,
+  items: readonly BrowserTypeSurface[],
+  focusList: boolean,
+) {
   state.typeCursor = cursor;
   state.selectedTypeId = items[cursor].id;
   state.selectedMemberKey = "";
@@ -4090,12 +4662,12 @@ function selectTypeByCursor(cursor, items, focusList) {
   resetMemberFilters();
   render();
   requestAnimationFrame(() => {
-    if (focusList) document.querySelector("#type-list")?.focus();
+    if (focusList) document.querySelector<HTMLElement>("#type-list")?.focus();
     document.querySelector(`[data-type="${CSS.escape(state.selectedTypeId)}"]`)?.scrollIntoView({ block: "nearest" });
   });
 }
 
-function stepTypeSelection(delta) {
+function stepTypeSelection(delta: number) {
   const items = filteredTypes();
   if (!items.length) return;
   let cursor = items.findIndex(item => item.id === state.selectedTypeId);
@@ -4105,8 +4677,8 @@ function stepTypeSelection(delta) {
 }
 
 function spotlightPool() {
-  const pool = [];
-  const seen = new Set();
+  const pool: SpotlightCache["pool"] = [];
+  const seen = new Set<string>();
   const pkgs = [state.package, ...state.packages.filter(item => item !== state.package)];
   for (const pkg of pkgs) {
     if (!pkg?.types) continue;
@@ -4121,11 +4693,14 @@ function spotlightPool() {
 }
 
 function spotlightCandidates() {
-  const signature = spotlightCandidateSignature(state.package, state.packages);
+  const active = state.package ?? state.packages[0];
+  const signature = active
+    ? spotlightCandidateSignature(active, state.packages)
+    : "";
   if (spotlightCache && spotlightCache.signature === signature) return spotlightCache;
 
   const pool = spotlightPool();
-  const keyMap = new Map();
+  const keyMap: SpotlightCache["keyMap"] = new Map();
   const candidates = pool.map(item => {
     const key = spotlightCandidateKey(item.pkg, item.type.id);
     keyMap.set(key, item);
@@ -4143,7 +4718,10 @@ function spotlightCandidates() {
 
 // Highlight is presentation only; ranking is owned by the engine's SearchTypes.
 // Recompute visible spans against the simple type name (exact → prefix → substring → subsequence).
-function computeHighlightRanges(name, lowerQuery) {
+function computeHighlightRanges(
+  name: string,
+  lowerQuery: string,
+): HighlightRange[] {
   if (!lowerQuery) return [];
   const lower = name.toLowerCase();
   if (lower === lowerQuery) return [[0, name.length]];
@@ -4154,17 +4732,21 @@ function computeHighlightRanges(name, lowerQuery) {
   return sub ? sub.ranges : [];
 }
 
-function subsequenceRanges(text, query) {
+function subsequenceRanges(
+  text: string,
+  query: string,
+): { ranges: HighlightRange[]; contig: number } | null {
   let ti = 0;
   let qi = 0;
   let contig = 0;
   let last = -2;
-  const ranges = [];
+  const ranges: HighlightRange[] = [];
   while (ti < text.length && qi < query.length) {
     if (text[ti] === query[qi]) {
       if (ti === last + 1) contig++;
       const tail = ranges[ranges.length - 1];
-      if (tail && tail[1] === ti) tail[1] = ti + 1;
+      if (tail && tail[1] === ti)
+        ranges[ranges.length - 1] = [tail[0], ti + 1];
       else ranges.push([ti, ti + 1]);
       last = ti;
       qi++;
@@ -4174,7 +4756,7 @@ function subsequenceRanges(text, query) {
   return qi === query.length ? { ranges, contig } : null;
 }
 
-function highlightRanges(name, ranges) {
+function highlightRanges(name: string, ranges: readonly HighlightRange[]) {
   if (!ranges || !ranges.length) return escapeHtml(name);
   let out = "";
   let pos = 0;
@@ -4186,9 +4768,15 @@ function highlightRanges(name, ranges) {
   return out + escapeHtml(name.slice(pos));
 }
 
-function spotlightFallbackMatches(query, pool) {
+function spotlightFallbackMatches(
+  query: string,
+  pool: readonly SpotlightCache["pool"][number][],
+) {
   const lowerQuery = query.toLowerCase();
-  const scored = [];
+  const scored: Array<{
+    item: SpotlightCache["pool"][number];
+    rank: number;
+  }> = [];
   for (const item of pool) {
     const lower = item.type.name.toLowerCase();
     let rank;
@@ -4209,7 +4797,7 @@ function spotlightFallbackMatches(query, pool) {
 
 // Ranked type matches across all loaded packages (engine-owned SearchTypes, with a
 // client-side fallback). This is one target among several the scoped Spotlight blends.
-function spotlightTypeMatches(query) {
+function spotlightTypeMatches(query: string) {
   const cache = spotlightCandidates();
   if (!query) {
     return cache.pool
@@ -4217,10 +4805,13 @@ function spotlightTypeMatches(query) {
       .sort((a, b) => a.type.name.localeCompare(b.type.name))
       .map(item => ({ ...item, ranges: [] }));
   }
+  if (!state.engineReady) return spotlightFallbackMatches(query, cache.pool);
   const hits = inspectSearchTypes(query, cache.candidatesJson);
   if (!hits) return spotlightFallbackMatches(query, cache.pool);
   const lowerQuery = query.toLowerCase();
-  const matches = [];
+  const matches: Array<SpotlightCache["pool"][number] & {
+    ranges: HighlightRange[];
+  }> = [];
   for (const hit of hits) {
     const item = cache.keyMap.get(hit.key);
     if (!item) continue;
@@ -4232,11 +4823,14 @@ function spotlightTypeMatches(query) {
 // Flat member index across every loaded type, deduped by (package, type, member group).
 // Cached against the same workspace signature as the type pool so it rebuilds only when
 // packages or their type counts change.
-let spotlightMemberCache = null;
+let spotlightMemberCache: SpotlightMemberCache | null = null;
 function spotlightMemberCandidates() {
-  const signature = spotlightCandidateSignature(state.package, state.packages);
+  const active = state.package ?? state.packages[0];
+  const signature = active
+    ? spotlightCandidateSignature(active, state.packages)
+    : "";
   if (spotlightMemberCache && spotlightMemberCache.signature === signature) return spotlightMemberCache.pool;
-  const pool = [];
+  const pool: SpotlightMemberCandidate[] = [];
   for (const pkg of [state.package, ...state.packages.filter(item => item !== state.package)]) {
     if (!pkg?.types) continue;
     for (const type of pkg.types) {
@@ -4249,11 +4843,11 @@ function spotlightMemberCandidates() {
   return pool;
 }
 
-function spotlightMemberMatches(query) {
+function spotlightMemberMatches(query: string) {
   const pool = spotlightMemberCandidates();
   if (!query) return [];
   const lowerQuery = query.toLowerCase();
-  const scored = [];
+  const scored: Array<{ item: SpotlightMemberCandidate; rank: number }> = [];
   for (const item of pool) {
     const lower = item.name.toLowerCase();
     let rank;
@@ -4275,7 +4869,7 @@ function spotlightMemberMatches(query) {
 }
 
 // Already-open packages whose id matches the query (or all of them when the query is empty).
-function spotlightLoadedPackageMatches(query) {
+function spotlightLoadedPackageMatches(query: string) {
   const lowerQuery = query.toLowerCase();
   return state.packages
     .filter(pkg => !lowerQuery || pkg.id.toLowerCase().includes(lowerQuery))
@@ -4287,14 +4881,15 @@ function spotlightLoadedPackageMatches(query) {
 // does not carry yet, whose roster is then honestly empty rather than silently another
 // major's libraries. With no resident pack (home Platform scope), prefer the focused
 // package's framework, then net10.0 — always clamped to a TFM the static index carries.
-function platformScopeTfm() {
+function platformScopeTfm(): string {
   const idx = state.platformIndex;
   const known = idx ? idx.tfms() : [];
   const resident = runtimePackPackage()?.activeFramework;
   if (resident) return resident;
-  const inIndex = tfm => tfm && (!idx || known.includes(tfm));
+  const inIndex = (tfm: string | undefined) =>
+    Boolean(tfm && (!idx || known.includes(tfm)));
   for (const candidate of [state.package?.activeFramework, "net10.0"]) {
-    if (inIndex(candidate)) return candidate;
+    if (candidate && inIndex(candidate)) return candidate;
   }
   return known.includes("net10.0") ? "net10.0" : (known[known.length - 1] || "net10.0");
 }
@@ -4306,15 +4901,21 @@ function platformScopeTfm() {
 // assembly from its shared-framework pack. Matched on assembly name; sorted
 // CoreCLR first, then by public-type count so the biggest libraries surface
 // first.
-function platformLibraryRoster(query) {
+function platformLibraryRoster(query: string) {
   const idx = state.platformIndex;
   if (!idx) return [];
   const tfm = platformScopeTfm();
   const lower = query.trim().toLowerCase();
   const rt = runtimePackPackage();
   const loadedKeys = new Set((rt?.assemblies || []).map(a => (a.name || "").replace(/\.dll$/i, "")));
-  const rows = [];
-  for (const pack of ["netcore.app", "aspnetcore.app"]) {
+  const rows: Array<{
+    assembly: string;
+    pack: string;
+    publicTypes: number;
+    loaded: boolean;
+    ranges: HighlightRange[];
+  }> = [];
+  for (const pack of ["netcore.app", "aspnetcore.app"] as const) {
     for (const row of idx.assembliesFor(tfm, pack)) {
       if (row.kind !== "impl") continue;
       if (lower && !row.assembly.toLowerCase().includes(lower)) continue;
@@ -4337,7 +4938,7 @@ function platformLibraryRoster(query) {
 // Which shared framework an assembly ships in, resolved from the static index
 // roster (defaulting to CoreCLR). Used when recording a recent library from a
 // context that does not already carry the pack token.
-function platformPackForAssembly(key) {
+function platformPackForAssembly(key: string) {
   const hit = platformLibraryRoster("").find(lib => lib.assembly === key);
   return hit ? hit.pack : "netcore.app";
 }
@@ -4345,7 +4946,7 @@ function platformPackForAssembly(key) {
 // Remember an opened platform library at the front of the recent list (most-recent
 // first, deduped, capped) and persist it. Recent duplicates the .NET / ASP.NET Core
 // catalog groups by design — no cross-group de-dupe.
-function recordPlatformRecent(assembly, pack) {
+function recordPlatformRecent(assembly: string, pack: string) {
   const key = (assembly || "").replace(/\.dll$/i, "");
   if (!key) return;
   const normPack = pack === "aspnetcore.app" ? "aspnetcore.app"
@@ -4364,7 +4965,7 @@ function recordPlatformRecent(assembly, pack) {
 // deduped by id, capped) and persist it, so the Home listing survives a refresh. Called
 // only from a successful open, never from search hits or prefetches. The resident runtime
 // pseudo-package has no nupkg and is excluded.
-function recordRecentPackage(id, version, framework) {
+function recordRecentPackage(id: string, version: string, framework: string) {
   if (!id || isRuntimePackId(id)) return;
   const rest = (state.recentPackages || []).filter(entry => entry.id.toLowerCase() !== id.toLowerCase());
   state.recentPackages = [
@@ -4396,11 +4997,11 @@ function mostRecentAvailableLibrary() {
 // In "all" each group is capped so every target stays visible; a focused scope shows a
 // deeper single-target list. Loaded packages rank ahead of NuGet discovery hits, which
 // exclude anything already open.
-function spotlightResults() {
+function spotlightResults(): SpotlightResult[] {
   const query = state.spotlightQuery.trim();
   const scope = state.spotlightScope;
   const all = scope === "all";
-  const results = [];
+  const results: SpotlightResult[] = [];
 
   if (scope === "runtime") {
     if (state.runtimePackLoading) {
@@ -4485,7 +5086,7 @@ function spotlightResults() {
 
 // Debounced client-side NuGet discovery. Guards against stale queries via spotlightPkgQuery
 // and refreshes results only when the resolved query still matches the input.
-let spotlightPkgTimer = null;
+let spotlightPkgTimer: ReturnType<typeof setTimeout> | null = null;
 let spotlightPkgGeneration = 0;
 
 function resetSpotlightPackageSearch() {
@@ -4528,12 +5129,22 @@ function scheduleSpotlightPackageFetch() {
   }, 220);
 }
 
-async function fetchSpotlightPackages(query, generation) {
+interface NugetSearchResult {
+  id: string;
+  version: string;
+  description?: string;
+}
+
+interface NugetSearchResponse {
+  data?: NugetSearchResult[];
+}
+
+async function fetchSpotlightPackages(query: string, generation: number) {
   const url = `https://azuresearch-usnc.nuget.org/query?q=${encodeURIComponent(query)}&take=8&prerelease=true&semVerLevel=2.0.0`;
   try {
     const response = await fetch(url);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const payload = await response.json();
+    const payload = await response.json() as NugetSearchResponse;
     if (generation !== spotlightPkgGeneration
       || state.spotlightQuery.trim() !== query) return;
     state.spotlightPkgHits = (payload.data || []).map(item => ({
@@ -4558,8 +5169,10 @@ async function fetchSpotlightPackages(query, generation) {
 
 // Compare two NuGet SemVer-ish versions descending (newest first). Falls back to string
 // comparison for non-numeric pre-release tails so the list stays deterministic.
-function compareVersionsDesc(a, b) {
-  const parse = v => String(v).split(/[.\-+]/).map(part => (/^\d+$/.test(part) ? Number(part) : part));
+function compareVersionsDesc(a: string, b: string) {
+  const parse = (value: string): Array<number | string> =>
+    value.split(/[.\-+]/).map(part =>
+      /^\d+$/.test(part) ? Number(part) : part);
   const pa = parse(a);
   const pb = parse(b);
   for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
@@ -4576,7 +5189,7 @@ function compareVersionsDesc(a, b) {
 
 // Build the <option> list for the version selector. Always includes the currently loaded
 // version (even before the flatcontainer index has been fetched) so the control is never empty.
-function versionOptionsHtml(pkg) {
+function versionOptionsHtml(pkg: AppPackage) {
   if (pkg.isRuntimePack) return platformVersionOptionsHtml(pkg);
   const idLower = pkg.id.toLowerCase();
   const fetched = state.packageVersions[idLower] ?? [];
@@ -4597,7 +5210,7 @@ function versionOptionsHtml(pkg) {
 // preview major whose TFM the bundled library index doesn't carry loads (CoreLib browsing)
 // but offers no library roster yet — honest, not hidden. The active TFM is always present so
 // the control is never empty before the index loads.
-function platformVersionOptionsHtml(pkg) {
+function platformVersionOptionsHtml(pkg: AppPackage) {
   const releases = state.dotnetReleases || [];
   const list = releases.map(r => ({ tfm: r.tfm, version: r.version }));
   if (!list.some(r => r.tfm === pkg.activeFramework)) {
@@ -4619,7 +5232,12 @@ async function ensureDotnetReleases() {
     const url = "https://raw.githubusercontent.com/dotnet/core/refs/heads/main/release-notes/releases-index.json";
     const response = await fetch(url);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const payload = await response.json();
+    const payload = await response.json() as {
+      "releases-index"?: Array<{
+        "channel-version": string;
+        "latest-release": string;
+      }>;
+    };
     const rows = (payload["releases-index"] || [])
       .map(entry => {
         const major = parseInt(entry["channel-version"], 10);
@@ -4644,7 +5262,10 @@ async function ensureDotnetReleases() {
 // pseudo-package and its accumulated drilled libraries, then loads a fresh Platform for the
 // chosen TFM and lands on its overview — mirroring the in-place version switch for ordinary
 // packages. The engine resolves the exact latest patch for that major.
-async function switchPlatformVersion(tfm, retryPackage = null) {
+async function switchPlatformVersion(
+  tfm: string,
+  retryPackage: AppPackage | null = null,
+) {
   const pkg = runtimePackPackage() ?? retryPackage;
   if (!pkg || !tfm || tfm === pkg.activeFramework) return;
   const navigationSeq = ++state.navigationSeq;
@@ -4694,7 +5315,7 @@ async function switchPlatformVersion(tfm, retryPackage = null) {
 
 // Lazily fetch the full published-version list through the engine's bounded acquisition owner,
 // cache it, and repaint the version selector in place.
-async function ensurePackageVersions(pkg) {
+async function ensurePackageVersions(pkg: AppPackage | null) {
   if (!pkg || pkg.isRuntimePack) return;
   const idLower = pkg.id.toLowerCase();
   if (state.packageVersions[idLower] || state.packageVersionsLoading[idLower]) return;
@@ -4720,7 +5341,7 @@ async function ensurePackageVersions(pkg) {
 
 // Repaint just the version <select> options without a full re-render, so an async index
 // fetch never disturbs focus, scroll, or the rest of the workbench.
-function updateVersionSelect(idLower) {
+function updateVersionSelect(idLower: string) {
   if (!state.package || state.package.id.toLowerCase() !== idLower) return;
   const select = document.querySelector("#package-version");
   if (select) select.innerHTML = versionOptionsHtml(state.package);
@@ -4729,7 +5350,7 @@ function updateVersionSelect(idLower) {
 // Switch the current package to a different published version. Replaces the current tab in
 // place (drops the previous version's entry) so the selector mutates this package rather than
 // spawning a second tab, mirroring a browser's version picker.
-async function switchPackageVersion(newVersion) {
+async function switchPackageVersion(newVersion: string) {
   const pkg = state.package;
   if (!pkg || pkg.isRuntimePack) return;
   const id = pkg.id;
@@ -4739,7 +5360,7 @@ async function switchPackageVersion(newVersion) {
   await loadPackage(id, newVersion, framework, { replacePackage: pkg });
 }
 
-async function switchPackageFramework(newFramework) {
+async function switchPackageFramework(newFramework: string) {
   const pkg = state.package;
   if (!pkg || pkg.isRuntimePack) return;
   if (!newFramework
@@ -4753,7 +5374,7 @@ async function switchPackageFramework(newFramework) {
 
 
 // Routes a blended result to the right navigation path per its kind.
-function pickSpotlightResult(result) {
+function pickSpotlightResult(result: SpotlightResult) {
   if (!result) { closeSpotlight(); return; }
   switch (result.kind) {
     case "pkg-loaded": pickSpotlightLoadedPackage(result.pkg); break;
@@ -4763,11 +5384,16 @@ function pickSpotlightResult(result) {
     case "rtpack-suggest": state.spotlightScope = "runtime"; state.spotlightIndex = 0; activateRuntimePack(); break;
     case "platform-lib": openPlatformLibrary(result.assembly, result.pack); break;
     case "rtpack-status": break;
-    default: pickSpotlight(result.pkg, result.type.id); break;
+    case "type": pickSpotlight(result.pkg, result.type.id); break;
+    default: executeCommand(result.value, result); break;
   }
 }
 
-async function loadPackageFromSpotlight(id, version, framework = "") {
+async function loadPackageFromSpotlight(
+  id: string,
+  version = "latest",
+  framework = "",
+) {
   const focusGeneration = beginSpotlightNavigation();
   spotlight.reset();
   await loadPackage(id, version, framework);
@@ -4799,7 +5425,17 @@ function activateRuntimePack() {
 // extending the resident runtime pseudo-package, then scope the workbench to it and land in
 // its type list. The download happens only here, on demand — selecting the Platform scope
 // itself never downloads.
-async function openPlatformLibrary(assembly, pack, options = {}) {
+interface OpenPlatformLibraryOptions {
+  scopeOnly?: boolean;
+  navigationSeq?: number;
+  retryAction?: RetryAction;
+}
+
+async function openPlatformLibrary(
+  assembly: string,
+  pack: string,
+  options: OpenPlatformLibraryOptions = {},
+) {
   const scopeOnly = options.scopeOnly === true;
   const focusGeneration = scopeOnly ? null : beginSpotlightNavigation();
   const navigationSeq = options.navigationSeq ?? ++state.navigationSeq;
@@ -4858,17 +5494,25 @@ async function openPlatformLibrary(assembly, pack, options = {}) {
   const selectionData = loadSelectionData();
   render();
   await selectionData;
-  focusTypeList(focusGeneration);
+  if (focusGeneration != null) focusTypeList(focusGeneration);
 }
 
-function pickSpotlightLoadedPackage(pkg) {
-  const target = state.packages.find(item => packageIdentityEquals(item, pkg));
+function pickSpotlightLoadedPackage(pkg: {
+  id: string;
+  version: string;
+  activeFramework?: string;
+}) {
+  const target = state.packages.find(item =>
+    item.id === pkg.id
+    && item.version === pkg.version
+    && (!pkg.activeFramework
+      || item.activeFramework === pkg.activeFramework));
   if (!target) { closeSpotlight(); return; }
   const focusGeneration = beginSpotlightNavigation();
   state.home = false;
   activatePackage(target, { resetAccessibility: true });
   state.atPackageRoot = true;
-  state.selectedTypeId = null;
+  state.selectedTypeId = "";
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
@@ -4879,10 +5523,16 @@ function pickSpotlightLoadedPackage(pkg) {
   focusTypeList(focusGeneration);
 }
 
-async function pickSpotlightMember(result) {
-  const pkg = state.packages.find(item => packageIdentityEquals(item, result.pkg));
+async function pickSpotlightMember(
+  result: Extract<SpotlightResult, { kind: "member" }>,
+) {
+  const pkg = state.packages.find(item =>
+    item.id === result.pkg.id
+    && item.version === result.pkg.version
+    && (!result.pkg.activeFramework
+      || item.activeFramework === result.pkg.activeFramework));
   const type = pkg?.types?.find(item => item.id === result.type.id);
-  if (!type) { closeSpotlight(); return; }
+  if (!pkg || !type) { closeSpotlight(); return; }
   const focusGeneration = beginSpotlightNavigation();
   state.home = false;
   activatePackage(pkg);
@@ -4904,10 +5554,17 @@ async function pickSpotlightMember(result) {
   focusTypeList(focusGeneration);
 }
 
-async function pickSpotlight(packageResult, typeId) {
-  const pkg = state.packages.find(item => packageIdentityEquals(item, packageResult));
+async function pickSpotlight(
+  packageResult: { id: string; version: string; activeFramework?: string },
+  typeId: string,
+) {
+  const pkg = state.packages.find(item =>
+    item.id === packageResult.id
+    && item.version === packageResult.version
+    && (!packageResult.activeFramework
+      || item.activeFramework === packageResult.activeFramework));
   const type = pkg?.types?.find(item => item.id === typeId);
-  if (!type) {
+  if (!pkg || !type) {
     closeSpotlight();
     return;
   }
@@ -4947,16 +5604,20 @@ async function pickSpotlight(packageResult, typeId) {
   focusTypeList(focusGeneration);
 }
 
-function executeCommand(value, result = null) {
+function executeCommand(
+  value: string,
+  result: CommandPaletteResult | null = null,
+) {
+  const pkg = currentPackage();
   beginSpotlightNavigation();
   const [verb, ...rest] = value.split(/\s+/);
   const argument = rest.join(" ");
   let operation;
   if (verb === "type") {
     const match = result?.targetTypeId
-      ? state.package.types.find(item => item.id === result.targetTypeId)
-      : state.package.types.find(item => item.name.toLowerCase() === argument.toLowerCase())
-        || state.package.types.find(item => item.name.toLowerCase().includes(argument.toLowerCase()));
+      ? pkg.types.find(item => item.id === result.targetTypeId)
+      : pkg.types.find(item => item.name.toLowerCase() === argument.toLowerCase())
+        || pkg.types.find(item => item.name.toLowerCase().includes(argument.toLowerCase()));
     if (match) {
       state.selectedTypeId = match.id;
       state.selectedMemberKey = "";
@@ -4970,7 +5631,7 @@ function executeCommand(value, result = null) {
       state.lens = match[0];
       operation = loadSelectionData();
     }
-  } else if (verb === "framework" && state.package.frameworks.includes(argument)) {
+  } else if (verb === "framework" && pkg.frameworks.includes(argument)) {
     operation = switchPackageFramework(argument);
   } else if (verb === "package") {
     const [id, version = "latest"] = argument.split("@");
@@ -4990,7 +5651,8 @@ function executeCommand(value, result = null) {
 
 function focusFilter() {
   requestAnimationFrame(() => {
-    const input = document.querySelector("#member-filter, #type-filter");
+    const input = document.querySelector<HTMLInputElement>(
+      "#member-filter, #type-filter");
     if (!input) return;
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
@@ -4999,7 +5661,7 @@ function focusFilter() {
 
 const memberFocusRestorer = createMemberFocusRestorer();
 
-function renderWithMemberFocus(preserved) {
+function renderWithMemberFocus(preserved: MemberFocusSnapshot) {
   render();
   memberFocusRestorer.schedule(
     document,
@@ -5008,7 +5670,9 @@ function renderWithMemberFocus(preserved) {
   return preserved;
 }
 
-function renderPreservingMemberFocus(fallback = null) {
+function renderPreservingMemberFocus(
+  fallback: MemberFocusSnapshot | null = null,
+) {
   const current = captureMemberFocus(document);
   const preserved = memberFocusRestorer.resolve(current, fallback);
   return renderWithMemberFocus(preserved);
@@ -5062,7 +5726,20 @@ function syncUrl() {
 
 // Apply a parsed URL selection onto the currently loaded package, validating that the
 // type/member/overload/section still exist.
-function applyDeepLink(deep) {
+interface DeepLink {
+  type?: string | null;
+  member?: string | null;
+  overload?: string | null;
+  section?: string | null;
+  bodyTarget?: BodyTarget | null;
+  memberBrowse?: boolean;
+  memberTextFilter?: string;
+  memberKindFilter?: string;
+  memberAccessibilityFilter?: string;
+  memberTraitFilter?: string;
+}
+
+function applyDeepLink(deep: DeepLink | null | undefined) {
   const pkg = state.package;
   if (!pkg) return;
   // Every caller reaches this from a URL/history-driven restore (initial load, workspace
@@ -5103,7 +5780,9 @@ function applyDeepLink(deep) {
   if (!isRuntimePackId(pkg.id)) {
     state.libraryScope = null;
   }
-  state.selectedTypeId = restoreType ? deep.type : defaultVisibleTypeId(pkg);
+  state.selectedTypeId = restoreType
+    ? deep?.type ?? ""
+    : defaultVisibleTypeId(pkg);
   // The restored/defaulted type may sit outside the current accessibility bucket or the
   // platform's library scope (e.g. an internal type reached via a shared link, or a history
   // entry for a type in a library the session had since scoped away from). Reconcile both
@@ -5132,16 +5811,20 @@ function applyDeepLink(deep) {
   state.selectedBodyTarget = null;
   if (restoreType && deep) {
     const type = pkg.types.find(item => item.id === deep.type);
+    if (!type) return;
     const groups = memberGroups(type);
-    const traits = new Set(MEMBER_TRAITS.map(([property]) => property));
     state.memberTextFilter = deep.memberTextFilter || "";
-    state.memberKindFilter = memberKinds(type).includes(deep.memberKindFilter)
+    state.memberKindFilter = deep.memberKindFilter
+      && memberKinds(type).includes(deep.memberKindFilter)
       ? deep.memberKindFilter
       : "all";
-    state.memberAccessibilityFilter = memberAccessibilities(type).includes(deep.memberAccessibilityFilter)
+    state.memberAccessibilityFilter = deep.memberAccessibilityFilter
+      && memberAccessibilities(type).includes(deep.memberAccessibilityFilter)
       ? deep.memberAccessibilityFilter
       : "all";
-    state.memberTraitFilter = traits.has(deep.memberTraitFilter)
+    state.memberTraitFilter = deep.memberTraitFilter
+      && MEMBER_TRAITS.some(([property]) =>
+        property === deep.memberTraitFilter)
       ? deep.memberTraitFilter
       : "";
     if (deep.memberBrowse && groups.length)
@@ -5149,7 +5832,7 @@ function applyDeepLink(deep) {
     const group = deep.member ? groups.find(item => item.key === deep.member) : null;
     if (group) {
       state.memberBrowseTypeId = type.id;
-      state.selectedMemberKey = deep.member;
+      state.selectedMemberKey = deep.member ?? "";
       const overloadIndex = Number(deep.overload);
       if (deep.overload != null && deep.overload !== ""
         && Number.isInteger(overloadIndex) && overloadIndex >= 0
@@ -5157,13 +5840,14 @@ function applyDeepLink(deep) {
         state.selectedOverloadIndex = overloadIndex;
       }
       if (deep.section
+        && isMemberSection(deep.section)
         && memberSectionIdsFor(group).includes(deep.section)) {
         state.memberSection = deep.section;
       }
       const restoredOverload = group.overloads[
         state.selectedOverloadIndex ?? (group.overloads.length === 1 ? 0 : -1)];
       if (bodyTargetMatchesOverload(deep.bodyTarget, group, restoredOverload)) {
-        state.selectedBodyTarget = deep.bodyTarget;
+        state.selectedBodyTarget = deep.bodyTarget ?? null;
       }
     }
   }
@@ -5196,13 +5880,13 @@ async function share() {
     await navigator.clipboard?.writeText(buildStateUrl().toString());
     showToast("selection link copied");
   } catch (error) {
-    state.queryNotice = String(error?.message || error);
+    state.queryNotice = errorMessage(error);
     state.queryNoticeRetryAction = null;
     render();
   }
 }
 
-function showToast(message, duration = 2200) {
+function showToast(message: string, duration = 2200) {
   document.querySelector(".toast")?.remove();
   const toast = document.createElement("div");
   toast.className = "toast";
@@ -5213,8 +5897,12 @@ function showToast(message, duration = 2200) {
 
 // Turns a raw inspection failure into a friendly, actionable message. A mistyped package
 // name surfaces as a NuGet 404; call that out plainly instead of showing a stack trace.
-function friendlyLoadError(error, packageId, version) {
-  const raw = String(error?.message || error || "");
+function friendlyLoadError(
+  error: unknown,
+  packageId: string,
+  version: string | null | undefined,
+) {
+  const raw = errorMessage(error);
   if (/\b404\b|not\s*found/i.test(raw)) {
     const suffix = version && version !== "latest" ? `@${version}` : "";
     return {
@@ -5230,7 +5918,7 @@ function friendlyLoadError(error, packageId, version) {
   };
 }
 
-function appendQueryNotice(message, retryAction = null) {
+function appendQueryNotice(message: string, retryAction: RetryAction = null) {
   if (!message) return;
   state.queryNotice = state.queryNotice
     ? `${state.queryNotice} ${message}`
@@ -5238,7 +5926,7 @@ function appendQueryNotice(message, retryAction = null) {
   state.queryNoticeRetryAction = retryAction;
 }
 
-async function copyText(value, confirmation) {
+async function copyText(value: string, confirmation: string) {
   try {
     await navigator.clipboard.writeText(value);
     showToast(confirmation);
@@ -5326,9 +6014,15 @@ function bindHomeEvents() {
     render();
   });
   spotlight.bind(document, "inline");
-  document.querySelectorAll("[data-home-demo]").forEach(button =>
-    button.addEventListener("click", () => runHomeDemo(button.dataset.homeDemo)));
-  requestAnimationFrame(() => document.querySelector("#spotlight-input")?.focus());
+  document.querySelectorAll<HTMLElement>("[data-home-demo]").forEach(button =>
+    button.addEventListener("click", () => {
+      const demo = button.dataset.homeDemo;
+      if (demo === "stj" || demo === "runtime" || demo === "callgraph") {
+        runHomeDemo(demo);
+      }
+    }));
+  requestAnimationFrame(() =>
+    document.querySelector<HTMLInputElement>("#spotlight-input")?.focus());
 }
 
 // The two package demos jump to a rich, curated deep link (open tabs + selected type +,
@@ -5340,7 +6034,7 @@ const HOME_DEMO_LINKS = {
   runtime: "?package=Microsoft.NETCore.App&w=eyJ0IjpbWyJTeXN0ZW0uVGV4dC5Kc29uIiwiMTAuMC4wIiwibmV0MTAuMCJdLFsiTWljcm9zb2Z0Lk5FVENvcmUuQXBwIiwiMTAuMC4xMCIsIm5ldDEwLjAiXV0sImEiOjEsImwiOiJTeXN0ZW0uUHJpdmF0ZS5Db3JlTGliIiwieSI6IlN5c3RlbS5Db2xsZWN0aW9ucy5HZW5lcmljLkxpc3RgMSJ9"
 };
 
-function runHomeDemo(kind) {
+function runHomeDemo(kind: keyof typeof HOME_DEMO_LINKS | "callgraph") {
   state.home = false;
   if (kind === "callgraph") { runCallGraphDemo(); return; }
   const link = HOME_DEMO_LINKS[kind];
@@ -5425,15 +6119,15 @@ const BOT_ART = [
 // appearance (the loading message ticks re-render, but the bot must not flicker). It is reset
 // to null whenever a non-loading view renders (see render()), so the NEXT loading screen picks
 // a fresh random bot.
-let loadingBotSrc = null;
-function interstitialBotSrc() {
+let loadingBotSrc: string | null = null;
+function interstitialBotSrc(): string {
   if (!loadingBotSrc) {
     loadingBotSrc = `/assets/bots/${BOT_ART[Math.floor(Math.random() * BOT_ART.length)]}.png`;
   }
   return loadingBotSrc;
 }
 
-function openPackageFromError(packageId, version) {
+function openPackageFromError(packageId: string, version: string) {
   if (!state.engineReady) {
     const url = new URL("/", window.location.href);
     url.searchParams.set("package", packageId);
@@ -5469,7 +6163,9 @@ function renderLoading() {
     () => (state.retryAction ?? bootstrap)());
   document.querySelector("#error-package-query")?.addEventListener("submit", event => {
     event.preventDefault();
-    const value = document.querySelector("#error-package-input").value.trim();
+    const input =
+      document.querySelector<HTMLInputElement>("#error-package-input");
+    const value = input?.value.trim() ?? "";
     const separator = value.lastIndexOf("@");
     if (!value || separator === value.length - 1) return;
     const packageId = separator > 0 ? value.slice(0, separator) : value;
@@ -5477,7 +6173,7 @@ function renderLoading() {
     openPackageFromError(packageId, version);
   });
   document.querySelector("#toggle-error-detail")?.addEventListener("click", () => {
-    const pre = document.querySelector(".load-error-detail");
+    const pre = document.querySelector<HTMLElement>(".load-error-detail");
     if (pre) pre.hidden = !pre.hidden;
   });
 }
@@ -5485,11 +6181,13 @@ function renderLoading() {
 async function loadSelectedMemberDocumentation() {
   const type = selectedType();
   const member = selectedMember(type);
-  if (!member || (member.overloads.length > 1 && state.selectedOverloadIndex == null)) {
+  if (!type || !member
+    || (member.overloads.length > 1 && state.selectedOverloadIndex == null)) {
     render();
     return;
   }
   const overload = member.overloads[state.selectedOverloadIndex ?? 0];
+  if (!overload) return;
   const signature = memberRequestSignature(type, overload);
   if (!overload?.documentationId || overload.documentationLoaded) {
     state.memberDocumentationKey = signature;
@@ -5513,19 +6211,18 @@ async function loadSelectedMemberDocumentation() {
 
   if (state.memberDocumentationKey === signature && state.memberDocumentationLoading)
     return;
-  const request = {
-    packageId: state.package.id,
-    version: state.package.version,
-    framework: state.package.activeFramework,
-    assembly: type.assembly,
-    documentationId: overload.documentationId
-  };
+  const pkg = currentPackage();
   state.memberDocumentationKey = signature;
   state.memberDocumentationLoading = true;
   state.memberDocumentationError = "";
   const preservedFocus = renderPreservingMemberFocus();
   try {
-    const documentation = await inspectMemberDocumentation(request);
+    const documentation = await inspectMemberDocumentation(
+      pkg.id,
+      pkg.version,
+      pkg.activeFramework,
+      type.assembly,
+      overload.documentationId);
     if (!memberRequestIsCurrent(signature))
       return;
     overload.summary = documentation.summary;
@@ -5538,7 +6235,7 @@ async function loadSelectedMemberDocumentation() {
     overload.documentationLoaded = true;
   } catch (error) {
     if (memberRequestIsCurrent(signature))
-      state.memberDocumentationError = String(error?.message || error);
+      state.memberDocumentationError = errorMessage(error);
   } finally {
     if (state.memberDocumentationKey === signature) {
       state.memberDocumentationLoading = false;
@@ -5577,19 +6274,18 @@ async function loadSelectedMemberSource() {
   state.memberSourceLoading = true;
   state.memberSourceError = "";
   const preservedFocus = renderPreservingMemberFocus();
+  const pkg = currentPackage();
   try {
-    const result = await inspectMemberSource({
-      packageId: state.package.id,
-      version: state.package.version,
-      framework: state.package.activeFramework,
-      assembly: type.assembly,
-      type: type.queryId ?? type.id,
-      typeIdentity: type.definitionId ?? type.id,
-      member: state.selectedBodyTarget?.memberName ?? overload.name,
-      selectorKey: state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
-      metadataToken: state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0,
-      styleOptionsJson: JSON.stringify(state.taste)
-    });
+    const result = await inspectMemberSource(
+      pkg.id,
+      pkg.version,
+      pkg.activeFramework,
+      type.assembly,
+      type.definitionId ?? type.id,
+      state.selectedBodyTarget?.memberName ?? overload.name,
+      state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
+      state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0,
+      JSON.stringify(state.taste));
     if (generation === state.sourceRequestGeneration
       && memberRequestIsCurrent(signature, false, true)
       && state.memberSourceKey === signature) {
@@ -5599,7 +6295,7 @@ async function loadSelectedMemberSource() {
     if (generation === state.sourceRequestGeneration
       && memberRequestIsCurrent(signature, false, true)
       && state.memberSourceKey === signature) {
-      state.memberSourceError = String(error?.message || error);
+      state.memberSourceError = errorMessage(error);
     }
   } finally {
     const current = generation === state.sourceRequestGeneration
@@ -5638,31 +6334,33 @@ async function loadSelectedMemberAnnotatedSource() {
   state.memberAnnotatedFactId = null;
   state.memberAnnotatedNodeIds = [];
   const preservedFocus = renderPreservingMemberFocus();
+  const pkg = currentPackage();
   try {
-    const result = await inspectMemberAnnotatedSource({
-      packageId: state.package.id,
-      version: state.package.version,
-      framework: state.package.activeFramework,
-      assembly: type.assembly,
-      type: type.queryId ?? type.id,
-      typeIdentity: type.definitionId ?? type.id,
-      member: overload.name,
-      signature: overload.signature,
-      selectorKey: state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
+    const result = await inspectMemberAnnotatedSource(
+      pkg.id,
+      pkg.version,
+      pkg.activeFramework,
+      type.assembly,
+      type.definitionId ?? type.id,
+      type.queryId ?? type.id,
+      overload.name,
+      overload.signature,
+      state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
       // The exact MethodDef the product surface gave this overload, so the projection
       // can validate a same-image match before falling back to product-owned structural
       // correspondence when ref/ and lib/ row numbers differ.
-      metadataToken: state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0,
-      styleOptionsJson: JSON.stringify(state.taste)
-    });
+      state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0,
+      JSON.stringify(state.taste));
+    const document = result.document;
+    validateAnnotatedSourceDocument(document);
     if (memberRequestIsCurrent(signature, true, true)
       && state.memberAnnotatedKey === signature) {
-      state.memberAnnotated = result;
+      state.memberAnnotated = { ...result, document };
     }
   } catch (error) {
     if (memberRequestIsCurrent(signature, true, true)
       && state.memberAnnotatedKey === signature) {
-      state.memberAnnotatedError = String(error?.message || error);
+      state.memberAnnotatedError = errorMessage(error);
     }
   } finally {
     if (state.memberAnnotatedKey === signature) {
@@ -5674,8 +6372,8 @@ async function loadSelectedMemberAnnotatedSource() {
 }
 
 function memberRequestSignature(
-  type,
-  overload,
+  type: BrowserTypeSurface,
+  overload: BrowserMemberSurface,
   includeBody = false,
   includeTaste = false) {
   const pkg = state.package;
@@ -5687,25 +6385,26 @@ function memberRequestSignature(
     type?.queryId ?? type?.id,
     type?.definitionId ?? type?.id,
     overload?.stableSelector ?? overload?.canonicalSignature ?? overload?.signature
-  ];
+  ].map(value => String(value ?? ""));
   if (includeBody) {
     parts.push(
-      state.selectedBodyTarget?.metadataToken ?? "",
+      String(state.selectedBodyTarget?.metadataToken ?? ""),
       state.selectedBodyTarget?.selectorKey ?? "");
   }
   return memberRequestKey(parts, includeTaste ? state.taste : []);
 }
 
 function memberRequestIsCurrent(
-  signature,
+  signature: string,
   includeBody = false,
   includeTaste = false) {
   const type = selectedType();
   if (!type) return false;
   const member = selectedMember(type);
   const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
-  return Boolean(type && overload)
-    && memberRequestSignature(type, overload, includeBody, includeTaste) === signature;
+  return overload != null
+    && memberRequestSignature(type, overload, includeBody, includeTaste)
+      === signature;
 }
 
 async function loadSelectedTypeSource() {
@@ -5718,7 +6417,9 @@ async function loadSelectedTypeSource() {
     renderPreservingMemberFocus();
     return;
   }
-  const signature = typeSourceSignature(type, state.package, state.taste, memberRequestKey);
+  const pkg = currentPackage();
+  const signature =
+    typeSourceSignature(type, pkg, state.taste, memberRequestKey);
   if (!sourceRequestNeedsLoad(
       state.typeSourceKey === signature,
       state.typeSourceLoading,
@@ -5741,21 +6442,19 @@ async function loadSelectedTypeSource() {
     && activeSourceOperationKind(state) === "type"
     && !workbenchModalOwnsFocus();
   try {
-    const result = await inspectTypeSource({
-      packageId: state.package.id,
-      version: state.package.version,
-      framework: state.package.activeFramework,
-      assembly: type.assembly,
-      type: type.queryId ?? type.id,
-      typeIdentity: type.definitionId ?? type.id,
-      styleOptionsJson: JSON.stringify(state.taste)
-    });
+    const result = await inspectTypeSource(
+      pkg.id,
+      pkg.version,
+      pkg.activeFramework,
+      type.assembly,
+      type.definitionId ?? type.id,
+      JSON.stringify(state.taste));
     if (ownsRequest()) {
       state.typeSource = result;
     }
   } catch (error) {
     if (ownsRequest()) {
-      state.typeSourceError = String(error?.message || error);
+      state.typeSourceError = errorMessage(error);
     }
   } finally {
     if (ownsRequest()) {
@@ -5772,7 +6471,8 @@ async function loadSelectedTypeMetadata() {
     renderPreservingMemberFocus();
     return;
   }
-  const signature = typeMetadataSignature(type, state.package);
+  const pkg = currentPackage();
+  const signature = typeMetadataSignature(type, pkg);
   if (state.typeMetadataKey === signature
     && (state.typeMetadataLoading || state.typeMetadata || state.typeMetadataError)) {
     renderPreservingMemberFocus();
@@ -5799,19 +6499,18 @@ async function loadSelectedTypeMetadata() {
       && state.lens === "metadata"
       && !state.atPackageRoot
       && currentType
-      && typeMetadataSignature(currentType, state.package) === signature;
+      && typeMetadataSignature(currentType, pkg) === signature;
   };
   try {
-    const result = await inspectTypeProjection({
-      packageId: state.package.id,
-      version: state.package.version,
-      framework: state.package.activeFramework,
-      assembly: type.assembly,
-      type: type.queryId ?? type.id
-    });
+    const result = await inspectTypeProjection(
+      pkg.id,
+      pkg.version,
+      pkg.activeFramework,
+      type.assembly,
+      type.queryId ?? type.id);
     if (ownsRequest()) state.typeMetadata = result;
   } catch (error) {
-    if (ownsRequest()) state.typeMetadataError = String(error?.message || error);
+    if (ownsRequest()) state.typeMetadataError = errorMessage(error);
   } finally {
     if (ownsRequest()) {
       state.typeMetadataLoading = false;
@@ -5825,11 +6524,12 @@ async function loadSelectedTypeMetadata() {
 // Projects the neutral type-relationship node/edge model into a Mermaid flowchart so it
 // renders with the same pan/zoom/click affordances as the call graph.
 async function renderTypeGraph() {
-  const container = document.querySelector("#type-graph-diagram");
+  const container =
+    document.querySelector<HTMLElement>("#type-graph-diagram");
   if (!container || container.querySelector(".graph-viewport")) return;
   const meta = state.typeMetadata;
   const definition = meta ? buildTypeGraphMermaid(meta) : null;
-  if (!definition) return;
+  if (!meta || !definition) return;
   const graphNodeOf = new Map(
     (meta.graphNodes || []).map((node, index) => [`t${index}`, node]));
   try {
@@ -5857,18 +6557,22 @@ async function renderTypeGraph() {
       + '<button type="button" data-zoom="out" title="Zoom out" aria-label="Zoom out">\u2212</button>'
       + '<button type="button" class="reset" data-zoom="reset" title="Reset view" aria-label="Reset view">fit</button>'
       + '</div>';
-    const viewport = container.querySelector(".graph-viewport");
+    const viewport =
+      container.querySelector<HTMLElement>(".graph-viewport");
+    if (!viewport) return;
     viewport.innerHTML = svg;
     attachGraphPanZoom(container, viewport);
-    viewport.querySelectorAll("g.node").forEach(node => {
+    viewport.querySelectorAll<SVGGElement>("g.node").forEach(node => {
       const dataId = node.getAttribute("data-id");
       const idMatch = node.id.match(/(?:^|flowchart-)(t\d+)(?:-|$)/);
-      const graphNode = graphNodeOf.get(dataId || idMatch?.[1]);
+      const nodeId = dataId || idMatch?.[1];
+      const graphNode = nodeId ? graphNodeOf.get(nodeId) : null;
       if (!graphNode) return;
       const fullName = graphNode.id;
+      const pkg = currentPackage();
       const target = graphNode.role === "self"
         ? selectedType()
-        : uniqueTypeByQueryId(state.package.types, fullName);
+        : uniqueTypeByQueryId(pkg.types, fullName);
       if (target) {
         node.classList.add("nav-node");
         node.style.cursor = "pointer";
@@ -5885,18 +6589,18 @@ async function renderTypeGraph() {
     });
   } catch (error) {
     if (document.querySelector("#type-graph-diagram") === container) {
-      container.innerHTML = `<div class="graph-render-error"><strong>Diagram rendering failed</strong><p>${escapeHtml(String(error?.message || error))}</p></div>`;
+      container.innerHTML = `<div class="graph-render-error"><strong>Diagram rendering failed</strong><p>${escapeHtml(errorMessage(error))}</p></div>`;
     }
   }
 }
 
-function navigateToTypeByName(fullName) {
-  const target = uniqueTypeByQueryId(state.package.types, fullName);
+function navigateToTypeByName(fullName: string) {
+  const target = uniqueTypeByQueryId(currentPackage().types, fullName);
   if (!target) return;
   navigateToType(target);
 }
 
-function navigateToType(target) {
+function navigateToType(target: BrowserTypeSurface) {
   // Clicking a non-public related type (e.g. an internal derived implementer)
   // enables its accessibility bucket so it appears in the nav list rather than
   // being filtered out by the public-by-default view.
@@ -5918,14 +6622,14 @@ function navigateToType(target) {
 // the loaded surface. Non-public implementers in the loaded assemblies are now
 // included (with an accessibility filter), so only types in OTHER assemblies
 // remain unbrowsable.
-function typeIsNavigable(fullName) {
+function typeIsNavigable(fullName: string) {
   return !!state.package && uniqueTypeByQueryId(state.package.types, fullName) !== null;
 }
 
 // Render a related-type chip: an active button when it resolves to a browsable
 // type in the loaded surface, otherwise a static chip that explains why it can't
 // be opened (it lives in another assembly).
-function relatedTypeChip(name) {
+function relatedTypeChip(name: string) {
   const short = escapeHtml(shortTypeName(name));
   if (typeIsNavigable(name)) {
     return `<button class="type-chip" data-graph-type="${escapeHtml(name)}" title="${escapeHtml(name)}">${short}</button>`;
@@ -5939,7 +6643,8 @@ function relatedTypeChip(name) {
 // depend on the centre). Because only opened packages have cached manifests, the graph
 // grows as the user clicks around and opens more of the neighbourhood.
 async function renderDependencyGraph() {
-  const container = document.querySelector("#dependency-graph-diagram");
+  const container =
+    document.querySelector<HTMLElement>("#dependency-graph-diagram");
   if (!container) return;
   const pending = createDependencyGraphPendingState(container.dataset);
   const groups = state.packageDependencies?.dependencyGroups || [];
@@ -5948,7 +6653,16 @@ async function renderDependencyGraph() {
     pending.invalidate();
     return;
   }
-  const built = buildDependencyGraphMermaid(state, uniqueCompatiblePackage);
+  const pkg = state.package;
+  if (!pkg) return;
+  const built = buildDependencyGraphMermaid(
+    {
+      ...state,
+      package: pkg,
+      packageDependencies: state.packageDependencies ?? undefined,
+    },
+    (_packages, packageId, versionRange) =>
+      uniqueCompatiblePackage(state.packages, packageId, versionRange));
   if (!built) {
     depGraphRenderSequence.invalidate();
     container.dataset.graphDef = "";
@@ -5997,20 +6711,25 @@ async function renderDependencyGraph() {
       + (built.truncated
         ? `<div class="graph-drill-error graph-diagnostics" role="status">Dependency graph truncated at ${built.nodeLimit} nodes.</div>`
         : "");
-    const viewport = container.querySelector(".graph-viewport");
+    const viewport =
+      container.querySelector<HTMLElement>(".graph-viewport");
+    if (!viewport) return;
     viewport.innerHTML = svg;
     container.dataset.graphDef = signature;
     attachGraphPanZoom(container, viewport);
-    viewport.querySelectorAll("g.node").forEach(node => {
+    viewport.querySelectorAll<SVGGElement>("g.node").forEach(node => {
       const dataId = node.getAttribute("data-id");
       const idMatch = node.id.match(/(?:^|flowchart-)(d\d+)(?:-|$)/);
-      const info = built.nodeInfoById.get(dataId || idMatch?.[1]);
+      const nodeId = dataId || idMatch?.[1];
+      const info = nodeId ? built.nodeInfoById.get(nodeId) : null;
       if (!info || info.kind === "self") return;
       node.classList.add("nav-node");
       node.style.cursor = "pointer";
       node.addEventListener("click", () => {
-        if (info.kind === "open") switchToPackageForDependencies(info.packageKey);
-        else openDependencyPackage(info.id, info.versionRange);
+        if (info.kind === "open" && info.packageKey)
+          switchToPackageForDependencies(info.packageKey);
+        else if (info.id)
+          openDependencyPackage(info.id, info.versionRange);
       });
     });
   } catch (error) {
@@ -6019,14 +6738,14 @@ async function renderDependencyGraph() {
       && document.querySelector("#dependency-graph-diagram") === container
       && !container.querySelector(".graph-viewport")) {
       container.dataset.graphDef = "";
-      container.innerHTML = `<div class="graph-render-error"><strong>Diagram rendering failed</strong><p>${escapeHtml(String(error?.message || error))}</p></div>`;
+      container.innerHTML = `<div class="graph-render-error"><strong>Diagram rendering failed</strong><p>${escapeHtml(errorMessage(error))}</p></div>`;
     }
   } finally {
     pending.complete(signature, seq);
   }
 }
 
-function switchToPackageForDependencies(packageKey) {
+function switchToPackageForDependencies(packageKey: string) {
   state.navigationSeq++;
   const target = state.packages.find(item =>
     packageIdentityKey(item) === packageKey);
@@ -6047,11 +6766,14 @@ function switchToPackageForDependencies(packageKey) {
   render();
 }
 
-async function openDependencyPackage(packageId, versionRange) {
+async function openDependencyPackage(
+  packageId: string,
+  versionRange: string | null | undefined,
+) {
   const existing = uniqueCompatiblePackage(
     state.packages,
     packageId,
-    versionRange);
+    versionRange ?? null);
   if (existing) {
     switchToPackageForDependencies(packageIdentityKey(existing));
     return;
@@ -6064,7 +6786,8 @@ async function openDependencyPackage(packageId, versionRange) {
   state.loadingSubtitle = versionRange || "latest stable";
   render();
   try {
-    const version = await resolveDependencyVersion(packageId, versionRange);
+    const version =
+      await resolveDependencyVersion(packageId, versionRange ?? null);
     if (navigationSeq !== state.navigationSeq) return;
     const model = await loadPackage(
       packageId,
@@ -6129,16 +6852,18 @@ async function loadSelectedMemberCallGraph() {
   state.platformDrillLoading = false;
   state.platformDrillError = "";
   const base = {
-    packageId: state.package.id,
-    version: state.package.version,
-    framework: state.package.activeFramework,
+    packageId: currentPackage().id,
+    version: currentPackage().version,
+    framework: currentPackage().activeFramework,
     assembly: type.assembly,
     type: type.queryId ?? type.id,
     typeIdentity: type.definitionId ?? type.id,
     member: state.selectedBodyTarget?.memberName ?? overload.name,
     signature: overload.signature,
     selectorKey: state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
-    metadataToken: state.selectedBodyTarget?.metadataToken ?? overload.metadataToken
+    metadataToken: state.selectedBodyTarget?.metadataToken
+      ?? overload.metadataToken
+      ?? 0,
   };
   const workspacePackages =
     state.packages.filter(packageItem => !packageItem.isRuntimePack);
@@ -6150,7 +6875,23 @@ async function loadSelectedMemberCallGraph() {
   state.memberCallGraphError = "";
   const preservedFocus = renderPreservingMemberFocus();
   try {
-    const local = await inspectMemberCallGraph({ ...base, workspace: [] });
+    const queryCallGraph = (workspace: Array<{
+      package: string;
+      version: string;
+      framework: string;
+    }>) => inspectMemberCallGraph(
+      base.packageId,
+      base.version,
+      base.framework,
+      base.assembly,
+      base.typeIdentity,
+      base.type,
+      base.member,
+      base.signature,
+      base.selectorKey,
+      base.metadataToken,
+      JSON.stringify(workspace));
+    const local = await queryCallGraph([]);
     if (seq !== state.memberCallGraphSeq
       || !memberRequestIsCurrent(signature, true)
       || state.memberCallGraphKey !== signature) return;
@@ -6167,14 +6908,12 @@ async function loadSelectedMemberCallGraph() {
       if (seq !== state.memberCallGraphSeq
         || !memberRequestIsCurrent(signature, true)
         || state.memberCallGraphKey !== signature) return;
-      const full = await inspectMemberCallGraph({
-        ...base,
-        workspace: workspacePackages.map(packageItem => ({
+      const full = await queryCallGraph(
+        workspacePackages.map(packageItem => ({
           package: packageItem.id,
           version: packageItem.version,
           framework: packageItem.activeFramework
-        }))
-      });
+        })));
       if (seq !== state.memberCallGraphSeq
         || !memberRequestIsCurrent(signature, true)
         || state.memberCallGraphKey !== signature) return;
@@ -6192,11 +6931,11 @@ async function loadSelectedMemberCallGraph() {
     state.memberCallGraphExpanding = false;
     if (state.memberCallGraph) {
       state.memberCallGraphError =
-        `Workspace expansion was incomplete: ${String(error?.message || error)}`;
+        `Workspace expansion was incomplete: ${errorMessage(error)}`;
       renderPreservingMemberFocus(preservedFocus);
       await renderMermaidCallGraph();
     } else {
-      state.memberCallGraphError = String(error?.message || error);
+      state.memberCallGraphError = errorMessage(error);
       renderPreservingMemberFocus(preservedFocus);
     }
   }
@@ -6206,7 +6945,10 @@ async function loadSelectedMemberCallGraph() {
 // range-fetches the owning platform assembly) rather than the workspace call-graph path.
 // The result is itself a platform graph, so its callees descend further (see the
 // isRuntimePack branch in the node-binding block).
-async function loadRuntimeMemberCallGraph(type, overload) {
+async function loadRuntimeMemberCallGraph(
+  type: BrowserTypeSurface,
+  overload: BrowserMemberSurface,
+) {
   const seq = ++state.memberCallGraphSeq;
   state.platformStack = [];
   state.platformDrillLoading = false;
@@ -6216,14 +6958,14 @@ async function loadRuntimeMemberCallGraph(type, overload) {
   state.memberCallGraphError = "";
   const preservedFocus = renderPreservingMemberFocus();
   try {
-    const graph = await inspectExpandPlatformCallGraph({
-      framework: state.package.activeFramework,
-      assembly: type.assembly,
-      type: type.metadataId ?? type.queryId ?? type.id,
-      member: state.selectedBodyTarget?.memberName ?? overload.name,
-      selectorKey: state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
-      metadataToken: state.selectedBodyTarget?.metadataToken ?? overload.metadataToken
-    });
+    const graph = parseEngineJson<BrowserCallGraph>(
+      await inspectExpandPlatformCallGraph(
+        currentPackage().activeFramework,
+        type.assembly,
+        type.metadataId ?? type.queryId ?? type.id,
+        state.selectedBodyTarget?.memberName ?? overload.name,
+        state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
+        state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0));
     if (seq !== state.memberCallGraphSeq) return;
     state.memberCallGraph = graph;
     state.memberCallGraphLoading = false;
@@ -6234,14 +6976,14 @@ async function loadRuntimeMemberCallGraph(type, overload) {
     if (seq !== state.memberCallGraphSeq) return;
     state.memberCallGraphLoading = false;
     state.memberCallGraphExpanding = false;
-    state.memberCallGraphError = String(error?.message || error);
+    state.memberCallGraphError = errorMessage(error);
     renderPreservingMemberFocus(preservedFocus);
   }
 }
 
 // Update just the call-graph section in place so the stage-2 result doesn't flash
 // the whole page. Leaves the stage-1 diagram untouched unless the graph changed.
-function patchCallGraphSection(previousMermaid) {
+function patchCallGraphSection(previousMermaid: string | undefined) {
   const section = document.querySelector(".call-graph-section");
   if (!section) return; // not on the call-graph view; state is cached for re-entry.
   const graph = state.memberCallGraph;
@@ -6273,7 +7015,8 @@ function patchCallGraphSection(previousMermaid) {
 }
 
 async function renderMermaidCallGraph() {
-  const container = document.querySelector("#call-graph-diagram");
+  const container =
+    document.querySelector<HTMLElement>("#call-graph-diagram");
   const active = currentCallGraph();
   if (!container || !active?.mermaid) return;
   if (container.dataset.graphDef === active.mermaid
@@ -6309,7 +7052,9 @@ async function renderMermaidCallGraph() {
         + '<button type="button" data-zoom="out" title="Zoom out" aria-label="Zoom out">\u2212</button>'
         + '<button type="button" class="reset" data-zoom="reset" title="Reset view" aria-label="Reset view">fit</button>'
         + '</div>';
-      const viewport = container.querySelector(".graph-viewport");
+      const viewport =
+        container.querySelector<HTMLElement>(".graph-viewport");
+      if (!viewport) return;
       viewport.innerHTML = svg;
       container.dataset.graphDef = active.mermaid;
       attachGraphPanZoom(container, viewport, true, active);
@@ -6319,7 +7064,7 @@ async function renderMermaidCallGraph() {
       && document.querySelector("#call-graph-diagram") === container
       && !container.querySelector(".graph-viewport")) {
       container.dataset.graphDef = "";
-      container.innerHTML = `<div class="graph-render-error"><strong>Diagram rendering failed</strong><p>${escapeHtml(String(error?.message || error))}</p></div>`;
+      container.innerHTML = `<div class="graph-render-error"><strong>Diagram rendering failed</strong><p>${escapeHtml(errorMessage(error))}</p></div>`;
     }
   } finally {
     if (container.dataset.graphPending === active.mermaid) {
@@ -6329,26 +7074,30 @@ async function renderMermaidCallGraph() {
 }
 
 function attachGraphPanZoom(
-  container,
-  viewport,
+  container: HTMLElement,
+  viewport: HTMLElement,
   bindCallGraphNodes = false,
-  callGraph = null) {
-  const svg = viewport.querySelector("svg");
+  callGraph: BrowserCallGraph | null = null,
+) {
+  const svg = viewport.querySelector<SVGSVGElement>("svg");
   if (!svg) return;
+  const renderedSvg = svg;
 
   const box = svg.viewBox?.baseVal;
   const naturalWidth = box && box.width ? box.width : svg.getBoundingClientRect().width;
   const naturalHeight = box && box.height ? box.height : svg.getBoundingClientRect().height;
-  svg.setAttribute("width", naturalWidth);
-  svg.setAttribute("height", naturalHeight);
+  svg.setAttribute("width", String(naturalWidth));
+  svg.setAttribute("height", String(naturalHeight));
 
   const minScale = 0.2;
   const maxScale = 8;
   const view = { scale: 1, x: 0, y: 0 };
-  const clampScale = value => Math.min(maxScale, Math.max(minScale, value));
+  const clampScale = (value: number) =>
+    Math.min(maxScale, Math.max(minScale, value));
 
   function apply() {
-    svg.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.scale})`;
+    renderedSvg.style.transform =
+      `translate(${view.x}px, ${view.y}px) scale(${view.scale})`;
   }
 
   function fit() {
@@ -6363,7 +7112,7 @@ function attachGraphPanZoom(
     apply();
   }
 
-  function zoomAt(px, py, factor) {
+  function zoomAt(px: number, py: number, factor: number) {
     const next = clampScale(view.scale * factor);
     const ratio = next / view.scale;
     view.x = px - (px - view.x) * ratio;
@@ -6378,7 +7127,7 @@ function attachGraphPanZoom(
     zoomAt(event.clientX - rect.left, event.clientY - rect.top, Math.exp(-event.deltaY * 0.0015));
   }, { passive: false });
 
-  let pointerId = null;
+  let pointerId: number | null = null;
   let moved = false;
   let capturing = false;
   const panThreshold = 5;
@@ -6408,7 +7157,7 @@ function attachGraphPanZoom(
     view.y = start.vy + dy;
     apply();
   });
-  function endPan(event) {
+  function endPan(event: PointerEvent) {
     if (pointerId !== event.pointerId) return;
     if (capturing) {
       viewport.releasePointerCapture(pointerId);
@@ -6420,7 +7169,8 @@ function attachGraphPanZoom(
   viewport.addEventListener("pointerup", endPan);
   viewport.addEventListener("pointercancel", endPan);
 
-  container.querySelectorAll(".graph-controls button").forEach(button => {
+  container.querySelectorAll<HTMLElement>(".graph-controls button")
+    .forEach(button => {
     button.addEventListener("click", () => {
       const rect = viewport.getBoundingClientRect();
       const mode = button.dataset.zoom;
@@ -6453,7 +7203,7 @@ function attachGraphPanZoom(
     // A resident runtime pack's base member graph is itself a platform graph, so its
     // callees descend the same way from the start.
     const drilled = state.platformStack.length > 0 || Boolean(state.package?.isRuntimePack);
-    svg.querySelectorAll("g.node").forEach(node => {
+    svg.querySelectorAll<SVGGElement>("g.node").forEach(node => {
       const target = graphTargetForSvgNode(callGraph, node);
       if (!target) return;
       const typeId = callGraphTargetTypeId(target);
@@ -6468,11 +7218,18 @@ function attachGraphPanZoom(
         });
         return;
       }
-      const packages = [state.package, ...state.packages.filter(item => item !== state.package)];
-      const candidate = resolveLoadedGraphTargetCandidate(packages, target);
+      const packages = [
+        state.package,
+        ...state.packages.filter(item => item !== state.package),
+      ].filter((pkg): pkg is AppPackage => pkg != null);
+      const candidate =
+        resolveLoadedGraphTargetCandidate<AppPackage, BrowserTypeSurface>(
+          packages,
+          target);
       const disposition = graphTargetNavigationDisposition(candidate, target);
       if (disposition === "blocked" || disposition === "none") return;
       const loaded = disposition === "loaded"
+        && candidate.status === "unique"
         ? resolveLoadedGraphTarget(target, candidate)
         : null;
       const platform = disposition === "platform";
@@ -6513,16 +7270,26 @@ function platformCrumbTrail() {
   return [root, ...state.platformStack.map(entry => entry.title)].join(" › ");
 }
 
-function graphTargetForSvgNode(graph, node) {
+function graphTargetForSvgNode(
+  graph: BrowserCallGraph | null,
+  node: Element,
+) {
   const dataId = node.getAttribute("data-id");
   const idMatch = node.id.match(/(?:^|flowchart-)(n\d+)(?:-|$)/);
   const nodeId = dataId || idMatch?.[1];
   return nodeId
-    ? graph.targets?.find(target => target.id === nodeId) ?? null
+    ? graph?.targets?.find(target => target.id === nodeId) ?? null
     : null;
 }
 
-function resolveLoadedGraphTarget(target, candidate) {
+function resolveLoadedGraphTarget(
+  target: BrowserCallGraphTarget,
+  candidate: {
+    status: "unique";
+    pkg: AppPackage;
+    type: BrowserTypeSurface;
+  },
+) {
   const { pkg, type } = candidate;
   const selection = findGraphMemberSelection(type, target);
   if (selection) return { pkg, type, ...selection };
@@ -6540,12 +7307,15 @@ function resolveLoadedGraphTarget(target, candidate) {
       type: callGraphTargetTypeId(target),
       member: target.memberName,
       selectorKey: target.selectorKey,
-      metadataToken: target.metadataToken
+      metadataToken: target.metadataToken ?? 0,
     }
   };
 }
 
-function findGraphMemberSelection(type, target) {
+function findGraphMemberSelection(
+  type: BrowserTypeSurface,
+  target: BrowserCallGraphTarget,
+) {
   const groups = memberGroups(type);
   const selection = graphMemberSelection(groups, target);
   return selection
@@ -6556,21 +7326,21 @@ function findGraphMemberSelection(type, target) {
     : null;
 }
 
-async function drillPlatformNode(node) {
+async function drillPlatformNode(node: BrowserCallGraphTarget) {
   if (state.platformDrillLoading) return;
   const seq = state.memberCallGraphSeq;
   state.platformDrillLoading = true;
   state.platformDrillError = "";
   const preservedFocus = renderPreservingMemberFocus();
   try {
-    const graph = await inspectExpandPlatformCallGraph({
-      framework: state.package.activeFramework,
-      assembly: node.assembly,
-      type: callGraphTargetTypeId(node),
-      member: node.memberName,
-      selectorKey: node.selectorKey,
-      metadataToken: node.metadataToken
-    });
+    const graph = parseEngineJson<BrowserCallGraph>(
+      await inspectExpandPlatformCallGraph(
+        currentPackage().activeFramework,
+        node.assembly,
+        callGraphTargetTypeId(node),
+        node.memberName,
+        node.selectorKey,
+        node.metadataToken ?? 0));
     if (seq !== state.memberCallGraphSeq) return;
     state.platformStack.push({
       graph,
@@ -6583,7 +7353,7 @@ async function drillPlatformNode(node) {
     if (seq !== state.memberCallGraphSeq) return;
     state.platformDrillLoading = false;
     state.platformDrillError =
-      `Could not descend into ${node.typeFullName}.${node.memberName}: ${String(error?.message || error)}`;
+      `Could not descend into ${node.typeFullName}.${node.memberName}: ${errorMessage(error)}`;
     renderPreservingMemberFocus(preservedFocus);
     await renderMermaidCallGraph();
   }
@@ -6603,7 +7373,7 @@ function popPlatformDrill() {
 // the workspace package. The runtime pack is loaded on demand (its System.Private.CoreLib
 // types are resident); if the clicked type lives in a not-yet-resident sibling assembly we
 // fall back to the lightweight in-place descent so the callees still appear.
-async function navigateOrDrillPlatform(node) {
+async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
   if (state.platformDrillLoading) return;
   const seq = state.memberCallGraphSeq;
   const type = selectedType();
@@ -6651,7 +7421,13 @@ async function navigateOrDrillPlatform(node) {
 // Enter the resident runtime pack focused on one member's call graph. Mirrors
 // navigateToMember but targets the call-graph section (the reason the user clicked a graph
 // node) and clears any active platform descent so the new member's graph loads fresh.
-function navigateToRuntimeMember(pack, type, group, overloadIndex, bodyTarget = null) {
+function navigateToRuntimeMember(
+  pack: AppPackage,
+  type: BrowserTypeSurface,
+  group: AppMemberGroup,
+  overloadIndex: number,
+  bodyTarget: BodyTarget | null = null,
+) {
   activatePackage(pack);
   state.atPackageRoot = false;
   state.lens = "api";
@@ -6686,7 +7462,10 @@ function navigateToRuntimeMember(pack, type, group, overloadIndex, bodyTarget = 
 
 // Resolve a platform call-graph node's structured identity to a concrete type, member
 // group, and overload in the resident runtime pack.
-function findRuntimeMemberSelection(pack, node) {
+function findRuntimeMemberSelection(
+  pack: AppPackage,
+  node: BrowserCallGraphTarget,
+) {
   const typeId = callGraphTargetTypeId(node);
   if (!pack || !typeId) return null;
   const type = pack.types.find(
@@ -6703,7 +7482,11 @@ function findRuntimeMemberSelection(pack, node) {
       if (overloadIndex >= 0) return { type, group, overloadIndex };
     }
   }
-  const matches = [];
+  const matches: Array<{
+    type: BrowserTypeSurface;
+    group: AppMemberGroup;
+    overloadIndex: number;
+  }> = [];
   for (const group of groups) {
     for (let i = 0; i < group.overloads.length; i++) {
       if (group.overloads[i].graphSelectorKey === node.selectorKey) {
@@ -6714,12 +7497,12 @@ function findRuntimeMemberSelection(pack, node) {
   return matches.length === 1 ? matches[0] : null;
 }
 
-function stripArity(name) {
+function stripArity(name: string) {
   const tick = name.indexOf("`");
   return tick < 0 ? name : name.slice(0, tick);
 }
 
-async function openGraphSource(request, title) {
+async function openGraphSource(request: GraphSourceRequest, title: string) {
   const generation = beginSourceRequestState(state);
   const seq = ++state.graphSourceSeq;
   state.graphSourceOpen = true;
@@ -6730,10 +7513,16 @@ async function openGraphSource(request, title) {
   state.graphSourceLoading = true;
   render();
   try {
-    const source = await inspectTypeMemberSource({
-      ...request,
-      styleOptionsJson: JSON.stringify(state.taste)
-    });
+    const source = await inspectTypeMemberSource(
+      request.packageId,
+      request.version,
+      request.framework,
+      request.assembly,
+      request.type,
+      request.member,
+      request.selectorKey,
+      request.metadataToken,
+      JSON.stringify(state.taste));
     if (generation !== state.sourceRequestGeneration
       || seq !== state.graphSourceSeq
       || !state.graphSourceOpen) return;
@@ -6742,7 +7531,7 @@ async function openGraphSource(request, title) {
     if (generation !== state.sourceRequestGeneration
       || seq !== state.graphSourceSeq
       || !state.graphSourceOpen) return;
-    state.graphSourceError = String(error?.message || error);
+    state.graphSourceError = errorMessage(error);
   } finally {
     if (generation !== state.sourceRequestGeneration
       || seq !== state.graphSourceSeq
@@ -6775,13 +7564,13 @@ async function markdownLibs() {
   return { marked, DOMPurify };
 }
 
-async function renderMarkdown(text) {
+async function renderMarkdown(text: unknown) {
   const { marked, DOMPurify } = await markdownLibs();
   const html = marked.parse(String(text ?? ""), { gfm: true, breaks: false });
   return DOMPurify.sanitize(html, MARKDOWN_SANITIZE_OPTIONS);
 }
 
-async function renderMarkdownInline(text) {
+async function renderMarkdownInline(text: unknown) {
   const { marked, DOMPurify } = await markdownLibs();
   const html = marked.parseInline(String(text ?? ""), { gfm: true });
   return DOMPurify.sanitize(html, MARKDOWN_SANITIZE_OPTIONS);
@@ -6790,11 +7579,18 @@ async function renderMarkdownInline(text) {
 // Skill files carry a leading YAML frontmatter block (---\n…\n---). Rendered as Markdown it turns
 // into a mangled setext heading, so split it out: parse name/version/description (handling folded
 // >-/> and literal |/|- block scalars) and hand back the remaining body for normal rendering.
-function splitFrontmatter(text) {
+interface DocumentFrontmatter {
+  name?: string;
+  version?: string;
+  description?: string;
+  [key: string]: string | undefined;
+}
+
+function splitFrontmatter(text: unknown) {
   const source = String(text ?? "");
   const match = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(source);
   if (!match) return { meta: null, body: source };
-  const meta = {};
+  const meta: DocumentFrontmatter = {};
   const lines = match[1].split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
     const kv = /^([A-Za-z0-9_-]+):\s?(.*)$/.exec(lines[i]);
@@ -6813,7 +7609,7 @@ function splitFrontmatter(text) {
   return { meta, body: source.slice(match[0].length) };
 }
 
-async function openPackageDocument(path) {
+async function openPackageDocument(path: string) {
   const pkg = state.package;
   const doc = (pkg?.documents || []).find(candidate => candidate.path === path);
   if (!pkg || !doc) return;
@@ -6826,7 +7622,7 @@ async function openPackageDocument(path) {
   state.docViewerLoading = true;
   render();
   try {
-    const content = await inspectPackageDocument({ packageId: pkg.id, version: pkg.version, path });
+    const content = await inspectPackageDocument(pkg.id, pkg.version, path);
     if (seq !== state.docViewerSeq) return;
     const { meta, body } = splitFrontmatter(content.text);
     const html = await renderMarkdown(body);
@@ -6846,7 +7642,7 @@ async function openPackageDocument(path) {
     state.docViewerMeta = projectedMeta;
   } catch (error) {
     if (seq !== state.docViewerSeq) return;
-    state.docViewerError = String(error?.message || error);
+    state.docViewerError = errorMessage(error);
   } finally {
     if (seq !== state.docViewerSeq) return;
     state.docViewerLoading = false;
@@ -6925,7 +7721,7 @@ function reloadVisibleSource() {
   }
 }
 
-function toggleTaste(id) {
+function toggleTaste(id: string) {
   const option = (state.styleOptions || []).find(item => item.id === id);
   if (state.taste.includes(id)) {
     state.taste = state.taste.filter(item => item !== id);
@@ -6954,7 +7750,7 @@ function clearTaste() {
 
 // Open the Settings page, remembering where to return (the home page vs. the workbench) so
 // closing restores that view without touching the URL.
-function openSettings(from) {
+function openSettings(from: "home" | "workbench") {
   state.settingsReturn = from === "workbench" ? "workbench" : "home";
   state.settings = true;
   state.tasteOpen = false;
@@ -6988,10 +7784,16 @@ function renderSettingsViewHtml() {
 
 function bindSettingsEvents() {
   document.querySelector("#settings-close")?.addEventListener("click", closeSettings);
-  document.querySelectorAll(".settings-seg[data-theme]").forEach(button =>
-    button.addEventListener("click", () => setTheme(button.dataset.theme)));
-  document.querySelectorAll(".settings-taste [data-taste]").forEach(checkbox =>
-    checkbox.addEventListener("change", () => toggleTaste(checkbox.dataset.taste)));
+  document.querySelectorAll<HTMLElement>(".settings-seg[data-theme]").forEach(button =>
+    button.addEventListener("click", () => {
+      const theme = button.dataset.theme;
+      if (theme === "dark" || theme === "light") setTheme(theme);
+    }));
+  document.querySelectorAll<HTMLElement>(".settings-taste [data-taste]").forEach(checkbox =>
+    checkbox.addEventListener("change", () => {
+      const taste = checkbox.dataset.taste;
+      if (taste) toggleTaste(taste);
+    }));
   document.querySelector("#settings-taste-clear")?.addEventListener("click", clearTaste);
 }
 
@@ -7006,7 +7808,13 @@ function renderGraphSource() {
   });
 }
 
-function navigateToMember(pkg, type, group, overloadIndex = null, bodyTarget = null) {
+function navigateToMember(
+  pkg: AppPackage,
+  type: BrowserTypeSurface,
+  group: AppMemberGroup,
+  overloadIndex: number | null = null,
+  bodyTarget: BodyTarget | null = null,
+) {
   activatePackage(pkg);
   state.lens = "api";
   state.selectedTypeId = type.id;
@@ -7051,16 +7859,17 @@ async function loadSelectedMemberFacts() {
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
   const preservedFocus = renderPreservingMemberFocus();
+  const pkg = currentPackage();
   try {
-    const result = await inspectMemberFacts({
-      packageId: state.package.id,
-      version: state.package.version,
-      framework: state.package.activeFramework,
-      assembly: type.assembly,
-      type: type.queryId ?? type.id,
-      member: overload.name,
-      signature: overload.signature
-    });
+    const result = parseEngineJson<MemberFacts>(
+      await inspectMemberFacts(
+        pkg.id,
+        pkg.version,
+        pkg.activeFramework,
+        type.assembly,
+        type.queryId ?? type.id,
+        overload.name,
+        overload.signature));
     if (memberRequestIsCurrent(signature)
       && state.memberFactsKey === signature) {
       state.memberFacts = result;
@@ -7068,7 +7877,7 @@ async function loadSelectedMemberFacts() {
   } catch (error) {
     if (memberRequestIsCurrent(signature)
       && state.memberFactsKey === signature) {
-      state.memberFactsError = String(error?.message || error);
+      state.memberFactsError = errorMessage(error);
     }
   } finally {
     if (state.memberFactsKey === signature) {
@@ -7079,7 +7888,21 @@ async function loadSelectedMemberFacts() {
   }
 }
 
-async function loadPackage(packageId, version, framework, options = {}) {
+interface LoadPackageOptions {
+  background?: boolean;
+  navigationSeq?: number;
+  queryNotice?: string;
+  replacePackage?: AppPackage | null;
+  deepLink?: DeepLink | null;
+  retryAction?: RetryAction;
+}
+
+async function loadPackage(
+  packageId: string,
+  version: string,
+  framework: string,
+  options: LoadPackageOptions = {},
+): Promise<AppPackage | null> {
   // Background restores load a tab's data into state.packages (for the tab bar and
   // cross-package edges) WITHOUT stealing the main view: no focus switch, no selection
   // reset, no loading toggle, no render. The caller (workspace restore) keeps the loading
@@ -7121,7 +7944,7 @@ async function loadPackage(packageId, version, framework, options = {}) {
     if (!defaultAssembly) {
       throw new Error("The package query did not return its selected assembly descriptor.");
     }
-    const packageModel = {
+    const packageModel: AppPackage = {
       id: result.package,
       version: result.version,
       frameworks: result.frameworks ?? [],
@@ -7137,7 +7960,8 @@ async function loadPackage(packageId, version, framework, options = {}) {
         .reduce((count, assembly) => count + (assembly.publicTypes ?? 0), 0),
       totalMembers: result.totalMembers,
       documents: result.documents ?? [],
-      inspectionError: result.inspectionError || ""
+      inspectionError: result.inspectionError || "",
+      isRuntimePack: false,
     };
     retainPackageModel(packageModel, options.replacePackage);
     recordRecentPackage(packageModel.id, packageModel.version, packageModel.activeFramework);
@@ -7201,7 +8025,9 @@ async function loadPackage(packageId, version, framework, options = {}) {
         ? `${state.queryNotice} ${friendly.message}`
         : friendly.message;
       state.errorTitle = friendly.title;
-      state.errorDetail = String(error?.stack || error);
+      state.errorDetail = error instanceof Error
+        ? error.stack || error.message
+        : String(error);
       state.retryAction = () => loadPackage(
         packageId,
         version,
@@ -7225,7 +8051,7 @@ function runtimePackPackage() {
 // ".NET Platform"; its stable identity stays "Microsoft.NETCore.App" for the wire
 // protocol, tab matching, and deep-link restore (see isRuntimePackId). Every other
 // package shows its own id. Presentation only — never feed this back as an identity.
-function packageDisplayName(pkg) {
+function packageDisplayName(pkg: AppPackage | null | undefined) {
   return pkg && pkg.isRuntimePack ? ".NET Platform" : (pkg ? pkg.id : "");
 }
 
@@ -7235,7 +8061,16 @@ function packageDisplayName(pkg) {
 // the workbench to it; picking one that is not yet loaded drills in (fetching just
 // that assembly). Rendered both in the nav pane (where the small-n chips live) and on
 // the overview page. Returns "" until the index is available.
-function platformLibrarySelectHtml(options = {}) {
+type PlatformLibrary = ReturnType<typeof platformLibraryRoster>[number];
+
+interface PlatformLibrarySelectOptions {
+  dataAttr?: string;
+  selected?: string | null;
+}
+
+function platformLibrarySelectHtml(
+  options: PlatformLibrarySelectOptions = {},
+) {
   const dataAttr = options.dataAttr || "data-platform-library-select";
   const selectedKey = options.selected;
   const roster = platformLibraryRoster("");
@@ -7249,9 +8084,9 @@ function platformLibrarySelectHtml(options = {}) {
   // System.Private.CoreLib, which is always resident but never explicitly "opened".
   // Resolved against the active framework's roster so counts stay honest. Duplicates
   // the .NET / ASP.NET Core catalog groups by design.
-  const recentKeys = [];
-  const recent = [];
-  const pushRecent = lib => {
+  const recentKeys: string[] = [];
+  const recent: PlatformLibrary[] = [];
+  const pushRecent = (lib: PlatformLibrary | undefined) => {
     if (!lib || recentKeys.includes(lib.assembly)) return;
     recentKeys.push(lib.assembly);
     recent.push(lib);
@@ -7262,7 +8097,7 @@ function platformLibrarySelectHtml(options = {}) {
   // else the most-recent, else the largest library — never a useless reset row.
   const current = scoped || recent[0]?.assembly || roster[0]?.assembly || "";
   let selectedMarked = false;
-  const option = lib => {
+  const option = (lib: PlatformLibrary) => {
     const isSel = !selectedMarked && lib.assembly === current;
     if (isSel) selectedMarked = true;
     return `<option value="${escapeHtml(lib.assembly)}" data-pack="${escapeHtml(lib.pack)}" ${isSel ? "selected" : ""}>${escapeHtml(lib.assembly)} · ${lib.publicTypes} types</option>`;
@@ -7270,7 +8105,7 @@ function platformLibrarySelectHtml(options = {}) {
   const recentGroup = recent.length
     ? `<optgroup label="Recent">${recent.map(option).join("")}</optgroup>`
     : "";
-  const group = (pack, label) => {
+  const group = (pack: string, label: string) => {
     const rows = roster.filter(lib => lib.pack === pack).map(option).join("");
     return rows ? `<optgroup label="${escapeHtml(label)}">${rows}</optgroup>` : "";
   };
@@ -7285,7 +8120,7 @@ function platformLibrarySelectHtml(options = {}) {
 // display id "Microsoft.NETCore.App", but it has no NuGet nupkg — restoring it means
 // re-running LoadRuntimePack (per TFM), not GetPackageBytesAsync. This id test lets the
 // restore path route it correctly instead of 404-ing on a nupkg fetch.
-function isRuntimePackId(id) {
+function isRuntimePackId(id: string | null | undefined) {
   return String(id || "").toLowerCase() === "microsoft.netcore.app";
 }
 
@@ -7293,7 +8128,7 @@ function isRuntimePackId(id) {
 // a resident pseudo-package flagged isRuntimePack, so its BCL types become searchable in
 // Spotlight and browsable/navigable like any package. SPC is fetched eagerly; sibling pack
 // assemblies load lazily as navigation reaches them. Does not switch the active package.
-let runtimePackLoadPromise = null;
+let runtimePackLoadPromise: Promise<AppPackage | null> | null = null;
 
 async function waitForRuntimePackLoad() {
   while (runtimePackLoadPromise) {
@@ -7302,7 +8137,10 @@ async function waitForRuntimePackLoad() {
   }
 }
 
-async function loadRuntimePack(framework, isCurrent = () => true) {
+async function loadRuntimePack(
+  framework: string,
+  isCurrent: () => boolean = () => true,
+): Promise<AppPackage | null> {
   if (runtimePackLoadPromise) await waitForRuntimePackLoad();
   if (!isCurrent()) return null;
   const requestedFramework = framework || "";
@@ -7316,7 +8154,8 @@ async function loadRuntimePack(framework, isCurrent = () => true) {
   state.runtimePackLoading = true;
   state.runtimePackError = "";
   const operation = (async () => {
-    const result = await inspectLoadRuntimePack(requestedFramework);
+    const result = parseEngineJson<BrowserPackageSurface>(
+      await inspectLoadRuntimePack(requestedFramework));
     if (!isCurrent()) return null;
     refreshPackageStats();
     const types = (result.types ?? []).map(type => ({ ...type, api: type.api ?? [] }));
@@ -7325,7 +8164,7 @@ async function loadRuntimePack(framework, isCurrent = () => true) {
     if (!defaultAssembly) {
       throw new Error("The platform query did not return its selected assembly descriptor.");
     }
-    const packageModel = {
+    const packageModel: AppPackage = {
       id: result.package,
       version: result.version,
       frameworks: result.frameworks ?? [],
@@ -7349,7 +8188,7 @@ async function loadRuntimePack(framework, isCurrent = () => true) {
   try {
     return await operation;
   } catch (error) {
-    state.runtimePackError = String(error?.message || error);
+    state.runtimePackError = errorMessage(error);
     return null;
   } finally {
     if (runtimePackLoadPromise === operation)
@@ -7367,10 +8206,11 @@ async function loadRuntimePack(framework, isCurrent = () => true) {
 // and picking a library fetches just that assembly here. Types/assemblies are merged (deduped
 // by id/name) so the runtime pack accumulates the libraries the user visits.
 async function loadRuntimePackAssembly(
-  framework,
-  assemblyFileName,
-  pack,
-  isCurrent = () => true) {
+  framework: string,
+  assemblyFileName: string,
+  pack: string,
+  isCurrent: () => boolean = () => true,
+): Promise<AppPackage | null> {
   if (runtimePackLoadPromise) await waitForRuntimePackLoad();
   if (!isCurrent()) return null;
   const requestedFramework = framework || "";
@@ -7386,10 +8226,11 @@ async function loadRuntimePackAssembly(
   state.runtimePackLoading = true;
   state.runtimePackError = "";
   const operation = (async () => {
-    const result = await inspectLoadRuntimePackAssembly(
-      requestedFramework,
-      assemblyFileName,
-      pack || "");
+    const result = parseEngineJson<BrowserPackageSurface>(
+      await inspectLoadRuntimePackAssembly(
+        requestedFramework,
+        assemblyFileName,
+        pack || ""));
     if (!isCurrent()) return null;
     refreshPackageStats();
     const newTypes = (result.types ?? []).map(type => ({ ...type, api: type.api ?? [] }));
@@ -7415,7 +8256,7 @@ async function loadRuntimePackAssembly(
       existing.totalMembers = (existing.totalMembers || 0) + (result.totalMembers || 0);
       return existing;
     }
-    const packageModel = {
+    const packageModel: AppPackage = {
       id: result.package,
       version: result.version,
       frameworks: result.frameworks ?? [],
@@ -7439,7 +8280,7 @@ async function loadRuntimePackAssembly(
   try {
     return await operation;
   } catch (error) {
-    state.runtimePackError = String(error?.message || error);
+    state.runtimePackError = errorMessage(error);
     return null;
   } finally {
     if (runtimePackLoadPromise === operation)
@@ -7487,7 +8328,7 @@ async function runCallGraphDemo() {
   }
 
   activatePackage(targetPackage);
-  const type = state.package.types.find(item =>
+  const type = targetPackage.types.find(item =>
     item.id === "Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions");
   const member = type && memberGroups(type).find(item =>
     item.name === "TryAddEnumerable" && item.kind === "method");
@@ -7520,10 +8361,12 @@ async function runCallGraphDemo() {
 // lone target), then restores the active tab's platform library scope and deep-link
 // selection. Shared by boot restore, refreshed/shared links, and the in-app demo buttons.
 async function restoreWorkspaceFromLocation(
-  loc,
-  deep,
-  navigationSeq = ++state.navigationSeq) {
+  loc: ParsedLocation,
+  deep: DeepLink,
+  navigationSeq = ++state.navigationSeq,
+) {
   if (navigationSeq !== state.navigationSeq) return;
+  if (!loc.package) return;
   state.queryNotice = loc.workspaceNotice || "";
   state.queryNoticeRetryAction = null;
   state.home = false;
@@ -7534,7 +8377,7 @@ async function restoreWorkspaceFromLocation(
   resetLocationFilters();
   clearWorkspacePackages();
   render();
-  const target = {
+  const target: WorkspaceTab = {
     id: loc.package,
     version: loc.version || "latest",
     framework: loc.framework || ""
@@ -7542,11 +8385,17 @@ async function restoreWorkspaceFromLocation(
   const tabs = (loc.tabs && loc.tabs.length)
     ? loc.tabs.slice(0, MAX_WORKSPACE_PACKAGES)
     : [target];
-  const matchesFramework = tab =>
+  type RestorableCoordinate = {
+    id: string;
+    version: string;
+    framework?: string;
+    activeFramework?: string;
+  };
+  const matchesFramework = (tab: RestorableCoordinate) =>
     !target.framework
     || String(tab.framework || tab.activeFramework || "").toLowerCase()
       === String(target.framework).toLowerCase();
-  const matchesTarget = tab =>
+  const matchesTarget = (tab: RestorableCoordinate) =>
     isRuntimePackId(tab.id)
       ? isRuntimePackId(target.id) && matchesFramework(tab)
       : (tab.id.toLowerCase() === target.id.toLowerCase()
@@ -7567,9 +8416,9 @@ async function restoreWorkspaceFromLocation(
   // focus steal) and loadRuntimePack already never steals focus. The real target is focused
   // once, below — so a non-target tab (e.g. an STJ tab on a platform-library link) never
   // flashes into view before the target resolves.
-  let loadedTargetModel = null;
+  let loadedTargetModel: AppPackage | null = null;
   for (const tab of tabs) {
-    let loaded;
+    let loaded: AppPackage | null;
     if (isRuntimePackId(tab.id)) {
       loaded = await loadRuntimePack(
         tab.framework,
@@ -7633,7 +8482,7 @@ async function restoreWorkspaceFromLocation(
   }
 }
 
-function applyLocationView(loc) {
+function applyLocationView(loc: ParsedLocation) {
   state.lens = loc.lens || "api";
   state.atPackageRoot = loc.atPackageRoot || false;
   state.packageLens = loc.packageLens || "overview";
@@ -7652,6 +8501,21 @@ async function restoreInitialWorkspace() {
   await restoreWorkspaceFromLocation(loc, initialDeepLink);
 }
 
+function isStyleTier(value: unknown): value is StyleTier {
+  return isRecord(value)
+    && typeof value.id === "string"
+    && typeof value.title === "string"
+    && typeof value.summary === "string";
+}
+
+function isStyleOption(value: unknown): value is StyleOption {
+  return isRecord(value)
+    && typeof value.id === "string"
+    && typeof value.tier === "string"
+    && typeof value.title === "string"
+    && typeof value.summary === "string";
+}
+
 async function bootstrap() {
   state.loading = !state.home;
   state.engineReady = false;
@@ -7663,22 +8527,29 @@ async function bootstrap() {
   try {
     if (state.home) await waitForHomePaint();
     await loadEngineModule();
-    await initializeEngine(message => {
+    const reportEngineStatus = (message: string) => {
       state.loadingMessage = message;
       state.engineStatus = message;
       render();
-    });
+    };
+    reportEngineStatus("Loading .NET 11 WebAssembly…");
+    await initializeEngine(reportEngineStatus);
+    reportEngineStatus("Reading package assemblies…");
     state.buildIdentity = inspectBuildIdentity();
     const tEngine = performance.now();
     try {
       const vocabulary = await inspectVocabulary();
       const sections = vocabulary?.sections || [];
-      state.styleTiers = sections.find(section => section.id === "csharp.style-tiers")?.values || [];
-      state.styleOptions = sections.find(section => section.id === "csharp.style-choices")?.values || [];
+      state.styleTiers = (
+        sections.find(section => section.id === "csharp.style-tiers")?.values
+        || []).filter(isStyleTier);
+      state.styleOptions = (
+        sections.find(section => section.id === "csharp.style-choices")?.values
+        || []).filter(isStyleOption);
     } catch (error) {
       state.styleTiers = [];
       state.styleOptions = [];
-      state.styleCatalogError = String(error?.message || error);
+      state.styleCatalogError = errorMessage(error);
     }
     state.engineReady = true;
     state.engineStatus = "";
@@ -7699,15 +8570,23 @@ async function bootstrap() {
     state.engineStatus = "";
     state.error = "Couldn’t start the inspection engine. Retry, or open a different package.";
     state.errorTitle = "Startup failed";
-    state.errorDetail = String(error?.stack || error);
+    state.errorDetail = error instanceof Error
+      ? error.stack || error.message
+      : String(error);
     state.retryAction = () => window.location.reload();
     render();
   }
 }
 
-function computeDiagnostics(tStart, tEngine, tReady) {
+function computeDiagnostics(
+  tStart: number,
+  tEngine: number,
+  tReady: number,
+): Diagnostics {
   const assets = performance.getEntriesByType("resource")
-    .filter(entry => entry.name.includes("/_framework/"));
+    .filter((entry): entry is PerformanceResourceTiming =>
+      entry instanceof PerformanceResourceTiming
+      && entry.name.includes("/_framework/"));
   let firstStart = Infinity;
   let lastEnd = 0;
   let transfer = 0;
@@ -7842,7 +8721,8 @@ document.addEventListener("keydown", event => {
     if (index < set.length) {
       const sc = scope();
       if (sc === "package") { state.packageLens = set[index][0]; render(); }
-      else if (sc === "member") applyMemberSection(set[index][0]);
+      else if (sc === "member" && isMemberSection(set[index][0]))
+        applyMemberSection(set[index][0]);
       else { state.lens = set[index][0]; render(); }
     }
   } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
@@ -7854,7 +8734,9 @@ document.addEventListener("keydown", event => {
     event.preventDefault();
     stepHorizontal(event.key === "ArrowRight" ? 1 : -1);
   } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
-      && !state.spotlightOpen && !isInteractiveElement(event.target)
+      && !state.spotlightOpen
+      && !isInteractiveElement(
+        event.target instanceof Element ? event.target : null)
       && event.key === "Enter") {
     event.preventDefault();
     drillIn();
@@ -7874,7 +8756,9 @@ document.addEventListener("keydown", event => {
 
 document.addEventListener("mousedown", event => {
   if (!state.tasteOpen) return;
-  if (event.target.closest("#taste-popover") || event.target.closest("#taste-btn")) return;
+  if (event.target instanceof Element
+    && (event.target.closest("#taste-popover")
+      || event.target.closest("#taste-btn"))) return;
   state.tasteOpen = false;
   render();
 });
@@ -7949,7 +8833,10 @@ window.addEventListener("popstate", () => {
 // Re-scope the active runtime pack to the platform library named in a share/history packet
 // (lazily loading that assembly if needed via the same drill-in path as clicking it), or
 // clear the scope for the aggregate platform, then restore the deep-linked selection.
-async function restorePlatformScopeThenDeepLink(loc, navigationSeq) {
+async function restorePlatformScopeThenDeepLink(
+  loc: ParsedLocation,
+  navigationSeq: number,
+) {
   const scoped = await applyPlatformLibraryScope(
     loc.library,
     navigationSeq,
@@ -7966,9 +8853,10 @@ async function restorePlatformScopeThenDeepLink(loc, navigationSeq) {
 // Load and scope to a single platform library key (or clear the scope when null). Reuses
 // openPlatformLibrary so a restored view matches clicking the library in the selector.
 async function applyPlatformLibraryScope(
-  libraryKey,
-  navigationSeq = null,
-  retryAction = null) {
+  libraryKey: string | null,
+  navigationSeq: number | null = null,
+  retryAction: RetryAction = null,
+) {
   if (navigationSeq != null && navigationSeq !== state.navigationSeq) return;
   const key = String(libraryKey || "").replace(/\.dll$/i, "");
   if (!key) { state.libraryScope = null; return true; }
@@ -7981,14 +8869,22 @@ async function applyPlatformLibraryScope(
   return Boolean(await openPlatformLibrary(
     key,
     platformPackForAssembly(key),
-    { navigationSeq, retryAction, scopeOnly: true }));
+    {
+      navigationSeq: navigationSeq ?? undefined,
+      retryAction,
+      scopeOnly: true,
+    }));
 }
 
 // History (back/forward) landed on a .NET Platform state. Its resident pseudo-package
 // has no nupkg, so restore it via loadRuntimePack (usually already resident, so instant),
 // re-scope to the captured library, and re-apply the deep link, mirroring
 // restoreInitialWorkspace's runtime-pack path.
-async function restoreRuntimePackFromHistory(loc, deep, navigationSeq) {
+async function restoreRuntimePackFromHistory(
+  loc: ParsedLocation,
+  deep: DeepLink,
+  navigationSeq: number,
+) {
   const pack = await loadRuntimePack(
     loc.framework || "",
     () => navigationSeq === state.navigationSeq);

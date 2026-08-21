@@ -13,7 +13,7 @@ using ILInspector.Research;
 using Analysis = ILInspector.Analysis;
 using Pipeline = ILInspector.Decompiler.Pipeline;
 
-// The bridge in wwwroot/engine.js binds exports.BrowserInspectionEngine.*, so this type stays
+// The bridge in wwwroot/engine.js binds exports.InspectionEngine.*, so this type stays
 // in the global namespace. Its helpers live in InspectWeb.Engine.
 using InspectWeb.Engine;
 
@@ -37,7 +37,7 @@ using InspectWeb.Engine;
 /// </para>
 /// </remarks>
 [SupportedOSPlatform("browser")]
-public static partial class BrowserInspectionEngine
+public static partial class InspectionEngine
 {
     /// <summary>
     /// The package type surface for one exact package/version/framework workspace, produced by
@@ -381,10 +381,7 @@ public static partial class BrowserInspectionEngine
 
         // The document's wire shape belongs to ILInspector.Decompiler; carry it verbatim so the
         // viewer's model validates the same artifact the CLI writes.
-        using var serialized = JsonDocument.Parse(
-            JsonSerializer.Serialize(
-                document,
-                AnnotatedSourceDocumentCompactJsonContext.Default.AnnotatedSourceDocument));
+        using JsonDocument serialized = SerializeAnnotatedSourceDocument(document);
         return JsonSerializer.Serialize(
             new BrowserAnnotatedSource(
                 serialized.RootElement,
@@ -395,6 +392,12 @@ public static partial class BrowserInspectionEngine
                     : null),
             BrowserJsonContext.Default.BrowserAnnotatedSource);
     }
+
+    static JsonDocument SerializeAnnotatedSourceDocument(AnnotatedSourceDocument document) =>
+        JsonDocument.Parse(
+            JsonSerializer.Serialize(
+                document,
+                AnnotatedSourceDocumentCompactJsonContext.Default.AnnotatedSourceDocument));
 
     /// <summary>
     /// Declared NuGet dependency groups plus the selected compile assembly's direct references.
@@ -912,7 +915,7 @@ public static partial class BrowserInspectionEngine
     /// <summary>Version, source revision, and build time embedded in this browser engine.</summary>
     [JSExport]
     public static string BuildIdentity() => JsonSerializer.Serialize(
-        BrowserBuildIdentityReader.Read(typeof(BrowserInspectionEngine).Assembly),
+        BrowserBuildIdentityReader.Read(typeof(InspectionEngine).Assembly),
         BrowserJsonContext.Default.BrowserBuildIdentity);
 
     /// <summary>
@@ -981,8 +984,11 @@ public static partial class BrowserInspectionEngine
     // document as the CLI and retains no separate labels, ordering, defaults, or query semantics.
     [JSExport]
     public static string ListVocabulary() =>
-        DotnetInspector.Vocabulary.VocabularyJson.Serialize(
-            DotnetInspector.Vocabulary.VocabularyCatalog.Document);
+        JsonSerializer.Serialize(
+            BrowserVocabulary.ToBrowserDocument(
+                DotnetInspector.Vocabulary.VocabularyJson.ToWireDocument(
+                    DotnetInspector.Vocabulary.VocabularyCatalog.Document)),
+            BrowserJsonContext.Default.BrowserVocabularyDocument);
 
     /// <summary>
     /// Resolves one exact package/version/framework coordinate, reuses its workspace, and returns
