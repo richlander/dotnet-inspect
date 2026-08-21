@@ -41,6 +41,31 @@ change moves it, apply the fixed-head rules to the new head. A user-directed
 adjustment does not turn failed validation into success or make an unmergeable
 change ready to merge.
 
+### Standing adjustments
+
+Two are common enough to name. Both still need the user's word for the specific
+PR; naming them means treating them as expected requests rather than exceptions
+to be argued about.
+
+**Review in parallel with CI.** The eligibility table makes an ordinary
+subsequent round wait for green current-head `ci-required`. When the user
+directs it, dispatch that round while CI runs. Sequencing changes, nothing else:
+a CI failure needing an author change still supersedes the attempt under
+[Recovery transitions](#recovery-transitions), and a superseded round's findings
+still carry forward.
+
+**Auto-merge on the final push.** Once every required review is review-clean and
+a push is intended to be the last, the user may direct that auto-merge be armed,
+letting GitHub merge when the required checks pass. **The agent may ask for
+this** — it is the one merge-related request to raise on its own initiative, and
+asking is not merging.
+
+Arming auto-merge authorizes the merge of the reviewed head; it is not a
+standing grant for the branch. GitHub keeps it armed across later pushes, so
+anything pushed afterward merges unreviewed once checks pass. If the head moves
+after arming — a review finding, a conflict resolution, a restack — disarm it,
+review the new head, and ask again.
+
 ## Before changing files
 
 - `main` is protected. Keep the primary repository checkout attached to
@@ -473,6 +498,8 @@ mechanics live in [`docs/adversarial-review.md`](docs/adversarial-review.md).
    head is review-clean.**
 6. **Six rounds, then stop** and ask for another block.
 7. **Never merge without explicit user authorization** for that specific PR.
+   Auto-merge armed at the user's direction is that authorization; see
+   [Standing adjustments](#standing-adjustments).
 
 ### Canonical round flow
 
@@ -491,6 +518,10 @@ Documentation-only ordinary candidates use Markdown linting as their focused
 gate. A documentation conflict-recovery attempt instead lints after the
 resolution push; it may start review immediately, but cannot reconcile or
 complete until lint succeeds.
+
+The user may direct that a round run in parallel with CI, waiving the green
+`ci-required` requirement in the rows above; see [Standing
+adjustments](#standing-adjustments).
 
 The head lock ends when both reviewers have returned, their feedback has been
 reconciled for action, current-head zero-conflict evidence is confirmed, and
@@ -790,7 +821,10 @@ correct move rather than opening another round by reflex.
 - Agents are not authorized to merge pull requests unless the user explicitly
   directs them to merge that specific PR. A clean review, green CI, mergeable
   state, `Ready to merge` comment, or general request to prepare or finish a PR
-  is not merge authorization.
+  is not merge authorization. Arming auto-merge at the user's direction is, for
+  the reviewed head only — see [Standing
+  adjustments](#standing-adjustments). Asking whether to arm it is always
+  permitted.
 - When all merge-blocking validation, CI, and required review are complete, post
   a PR comment that says `Ready to merge`. Label later work as non-blocking
   follow-up so readiness remains unambiguous.
