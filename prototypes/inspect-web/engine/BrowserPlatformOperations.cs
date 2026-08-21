@@ -9,7 +9,7 @@ using Analysis = ILInspector.Analysis;
 using InspectWeb.Engine;
 
 [SupportedOSPlatform("browser")]
-public static partial class BrowserInspectionEngine
+public static partial class InspectionEngine
 {
     const string PlatformPackageName = "Microsoft.NETCore.App";
 
@@ -52,11 +52,13 @@ public static partial class BrowserInspectionEngine
             resolution.Scope.UseParticipant(
                 resolution.Participant,
                 AssemblyContextIntegrationsQuery.ExecuteParticipant);
-        return SerializeIntegrations(
-            PlatformPackageName,
-            resolution.Coordinate.Version,
-            resolution.Scope.Framework,
-            [result]);
+        return JsonSerializer.Serialize(
+            CreateIntegrations(
+                PlatformPackageName,
+                resolution.Coordinate.Version,
+                resolution.Scope.Framework,
+                [result]),
+            BrowserJsonContext.Default.BrowserPackageIntegrations);
     }
 
     [JSExport]
@@ -75,11 +77,13 @@ public static partial class BrowserInspectionEngine
                 resolution.Participant,
                 AssemblyContextIntegrationOpportunitiesQuery
                     .ExecuteParticipant);
-        return SerializeOpportunities(
-            PlatformPackageName,
-            resolution.Coordinate.Version,
-            resolution.Scope.Framework,
-            [result]);
+        return JsonSerializer.Serialize(
+            CreateOpportunities(
+                PlatformPackageName,
+                resolution.Coordinate.Version,
+                resolution.Scope.Framework,
+                [result]),
+            BrowserJsonContext.Default.BrowserPackageOpportunities);
     }
 
     [JSExport]
