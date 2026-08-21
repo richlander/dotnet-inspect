@@ -489,7 +489,8 @@ driving the loop is
 
 1. **One frozen head per round.** The lock begins at the push and ends at
    public reconciliation. Do not edit a head while it is held; fixes belong to
-   the next cycle.
+   the next cycle. Reconciliation frees you to *fix*; it does not *complete* the
+   round — see invariant 6.
 2. **A candidate includes its effective base.** Integrate twice before pushing
    — once before fixing, once after — because the fix window is long enough for
    `main` to move.
@@ -499,8 +500,13 @@ driving the loop is
    can earn that.
 5. **Do not post `Ready to merge` until every required review at the current
    head is review-clean.**
-6. **Six rounds, then stop** and ask for another block.
-7. **Never merge without explicit user authorization** for that specific PR.
+6. **A round is not complete until its gates are green.** Reconciliation
+   releases the lock; the round itself ends only once every required
+   current-head check and post-push gate has succeeded. Until then the round
+   number does not advance — a check that goes red first makes the next push a
+   failed-gate restart at the *same* number, not the next round.
+7. **Six rounds, then stop** and ask for another block.
+8. **Never merge without explicit user authorization** for that specific PR.
    Auto-merge armed at the user's direction is that authorization; see
    [Standing adjustments](#standing-adjustments).
 
@@ -530,8 +536,13 @@ reconciliation.
    parallel with CI. A conflict or a failed check here does not mean waiting
    longer; take the matching [recovery transition](#recovery-transitions).
 8. **Review**: dispatch every required reviewer at that exact head.
-9. **Reconcile** the feedback publicly. The lock ends here. If the
-   reconciliation produced fixes, the next round begins at step 1.
+9. **Reconcile** the feedback publicly. The lock ends here — you may begin
+   fixing. The round does not end here; it ends when its gates go green
+   (invariant 6).
+10. **Report.** Emit the round report as your visible response before starting
+    the next round. It is required, and the format is in [the round
+    report](docs/round-orchestration.md#the-round-report). If the reconciliation
+    produced fixes, the next round begins at step 1.
 
 **Two integrations per round, both before the push.** The first makes the work
 current; the second closes the window the fix itself opened, which can be an
@@ -555,11 +566,10 @@ The user may direct that a round run in parallel with CI, waiving the green
 `ci-required` requirement in the rows above; see [Standing
 adjustments](#standing-adjustments).
 
-The head lock ends when both reviewers have returned, their feedback has been
-reconciled for action, current-head zero-conflict evidence is confirmed, and
-every required current-head check and local gate allowed to run concurrently has
-succeeded. The fixed replacement is a new candidate and its review is a new
-round.
+The head lock ends at public reconciliation, which frees you to fix. The round
+ends later, when current-head zero-conflict evidence is confirmed and every
+required current-head check and concurrent local gate has succeeded. The fixed
+replacement is a new candidate and its review is a new round.
 
 #### Review-clean, and what it gates
 
@@ -634,12 +644,17 @@ subsequent round:
   or a review finding ends a candidate, the replacement is formed by running the
   cycle again. A multi-round PR therefore picks up `main` on each round that
   produced a fix — not never, and not continuously while a head is frozen.
-- **Before merge, the PR is mergeable and green.** One status check answers
-  both; see [status discovery](docs/round-orchestration.md#status-discovery) for
-  the REST default, when GraphQL is worth a point, the traps each result
-  carries, and the polling cadence. The first attempt at round 1 and
-  conflict-recovery rounds do not wait for this result; a failed-gate restart,
-  an ordinary subsequent round, and merge readiness do.
+- **Before merge, the PR is mergeable and green.** That means four things at
+  once: the returned head is the pushed head, the PR is not a draft,
+  mergeability is positive, and the current head's `ci-required` completed with
+  a `SUCCESS` conclusion. A `BLOCKED` or `DRAFT` merge state is an independent
+  readiness blocker — clear it before posting `Ready to merge`. One status check
+  answers all of it; see [status
+  discovery](docs/round-orchestration.md#status-discovery) for the REST default,
+  when GraphQL is worth a point, the traps each result carries, and the polling
+  cadence. The first attempt at round 1 and conflict-recovery rounds do not wait
+  for this result; a failed-gate restart, an ordinary subsequent round, and merge
+  readiness do.
 - **Every PR in a stack meets the applicable conditions**, not only the slice
   under review. A known-conflicted or known-red parent blocks review of
   everything above it. A pending parent does not block a slice's first or
@@ -666,9 +681,16 @@ below.
 
 ### Clean reviews are not spent by main moving
 
-When a PR's required review is review-clean at the current head and `origin/main`
+For a PR that targets `main` — including the bottom open slice of a stack —
+when its required review is review-clean at the current head and `origin/main`
 has since moved, **stop and ask.** Do not integrate, and do not open another
 round on your own initiative.
+
+**This path does not apply to an upper stack slice.** Its effective base is its
+parent branch, so `origin/main` moving is not base movement for it, and the
+carry-forward procedure would compare against the parent instead. When a parent
+does move, that is a restack, and a restack requires a review-clean round at the
+resulting head.
 
 Absent an actual conflict, a round that produces no review-driven fix and then
 integrates newer `main` to create another round is a failed round: the review
@@ -686,7 +708,17 @@ interact and the user accepted that finding.
 Carrying forward is the sole default path that integrates the base when no
 conflict, review-driven fix, author change, current-head merge-path failure,
 required cascading restack, or explicit user workflow adjustment has ended the
-candidate. The procedure, and the analysis to bring to the user, are in
+candidate.
+
+**Repeat it whenever the base moves again**; a carried-forward head is
+review-clean, and each pass needs its own analysis and its own approval. **A
+failure in the post-integration validation or CI ends the candidate**: it is a
+current-head merge-path failure, so the reviews do not carry, the fix is an
+author change, and the replacement head owes a normal round. Carry-forward
+transfers a clean result across an integration; it does not survive that
+integration going wrong.
+
+The procedure, and the analysis to bring to the user, are in
 [carry-forward after clean reviews](docs/round-orchestration.md#carry-forward-after-clean-reviews).
 
 Evaluate eligibility from the *latest* review-clean result: an earlier finding

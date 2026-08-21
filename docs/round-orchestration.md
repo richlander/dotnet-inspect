@@ -7,8 +7,11 @@ to dispatch and reconcile it, and what to do when the base moves under a clean
 result.
 
 Read [Adversarial review](../AGENTS.md#adversarial-review) first. This document
-states no rules of its own: where it needs a condition, it cites the rule rather
-than restating it, so the two cannot drift apart.
+owns procedure, never round state: it decides no question of eligibility,
+recovery, completion, or carry-forward, and where it needs one of those
+conditions it cites the rule rather than restating it, so the two cannot drift
+apart. Its own imperatives — which API to spend, how to set up a reviewer, what
+the report looks like — are the mechanics it exists to hold.
 
 ## Status discovery
 
@@ -21,8 +24,10 @@ eligibility table in [Canonical round flow](../AGENTS.md#canonical-round-flow).
 Default to REST. Reach for GraphQL when its capability is worth a point.
 
 The two draw on separate hourly limits, so spending one does not touch the
-other. Checking is free: the `rate_limit` endpoint is not itself rate limited,
-verified by three consecutive calls leaving both counters unchanged.
+other. Checking is cheap: `rate_limit` does not consume the `core` or `graphql`
+quota it reports, verified by three consecutive calls leaving both counters
+unchanged. It is not unlimited — GitHub's secondary rate limits still apply — so
+read it when you need it, not in a loop.
 
 ```bash
 gh api rate_limit --jq '.resources|to_entries[]
@@ -94,11 +99,8 @@ concluding that it is missing.
 
 ### Reading either result
 
-Confirm that the returned head is the pushed head, the PR is not a draft,
-mergeability is positive, and the current head's `ci-required` completed with a
-`SUCCESS` conclusion. Treat `mergeStateStatus` `BLOCKED` and `DRAFT` — or
-`mergeable_state` `blocked` and `draft` — as independent readiness blockers:
-clear the blocker before posting `Ready to merge`.
+Confirm the readiness conditions in [before merge, the PR is mergeable and
+green](../AGENTS.md#forming-a-candidate) against this result.
 
 Every status check re-reads the head and compares it. A run or check identifier
 is pinned to one commit and cannot detect a later push, so retain the expected
@@ -143,8 +145,9 @@ detects conflicts early.
 
 | First check says | Do this |
 | --- | --- |
-| `ci-required` failed or was cancelled | Stop polling and apply the matching [recovery transition](../AGENTS.md#recovery-transitions): a failure needing an author change supersedes the attempt, while a cancelled or evidenced-transient one keeps the head and re-runs the check. A settled red result is an answer, not something to wait out. |
+| `ci-required` failed or was cancelled | Stop polling. Classify it and apply the applicable [recovery transition](../AGENTS.md#recovery-transitions). A settled red result is an answer, not something to wait out. |
 | `CONFLICTING` | Apply the conflict transition in [Canonical round flow](../AGENTS.md#canonical-round-flow), then schedule a new five-minute check. |
+| `MERGEABLE`, `ci-required` green at this head | **Done. Stop polling** and proceed to whatever waited on the answer. |
 | `UNKNOWN`, CI green | Ask REST, which triggers the computation; see [resolving `UNKNOWN`](#resolving-unknown). |
 | `UNKNOWN`, CI pending or missing | Follow up at 10 minutes plus jitter for documentation-only, or at the 35-minute mark otherwise. |
 | `MERGEABLE`, documentation-only | Treat it as the expected CI completion check. If CI is unexpectedly pending, wait 10 minutes plus jitter. |
@@ -152,7 +155,9 @@ detects conflicts early.
 
 Read the table top-down: the first matching row wins. A failed or cancelled
 check outranks every mergeability value, because `MERGEABLE` describes the merge
-path and never means green.
+path and never means green. The green row is the exit: every other row schedules
+another check, so polling stops only by reaching it or by leaving for a recovery
+transition.
 
 If both mergeability and CI remain unresolved, keep at least 10 minutes plus
 small random jitter between status checks. Switch to the five-minute cadence
@@ -190,8 +195,7 @@ so reproduce the finding and measure it before accepting its severity.
 
 Reconcile the reviews publicly on the PR: attribute findings, state what was
 verified or dismissed, and link resolution commits or explain explicit
-non-actions. Address actionable findings only after the locked-head reviews
-finish.
+non-actions.
 
 When a replacement candidate is required, say so on the PR and name the base tip
 and merge commit, so the next review reads as a confirmation rather than an
@@ -199,11 +203,12 @@ unexplained second full pass.
 
 ### The round report
 
-After every completed round and before starting the next one, emit this report as
-the assistant's visible user-facing response in the terminal, filling every field
-and choosing exactly one feedback classification. Do not emit it through a shell
-command such as `printf`, leave it only in tool output, collapse it behind a
-tool-call summary, or replace it with a shorter completion summary:
+After every [completed round](../AGENTS.md#canonical-round-flow) and before
+starting the next one, emit this report as the assistant's visible user-facing
+response in the terminal, filling every field and choosing exactly one feedback
+classification. Do not emit it through a shell command such as `printf`, leave
+it only in tool output, collapse it behind a tool-call summary, or replace it
+with a shorter completion summary:
 
 ```text
 Round <n> is complete for PR <number>.
@@ -253,11 +258,3 @@ path applies and when it does not. This is the procedure once it does.
 
 Record the reviewed head, the old and approved new tips, the non-interaction
 analysis, and the user's decision on the PR.
-
-Two things the numbered steps do not say. **Repeat this whenever the base moves
-again** — a carried-forward head is review-clean, so a later move re-enters at
-step 1, and each pass needs its own analysis and its own approval. And **a
-failure in step 4's validation or CI ends the candidate**: it is a current-head
-merge-path failure, so the reviews do not carry, the fix is an author change,
-and the replacement head owes a normal round. Carry-forward transfers a clean
-result across an integration; it does not survive that integration going wrong.
