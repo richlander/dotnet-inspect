@@ -98,6 +98,7 @@ public class SelectResolverTests
         Assert.Empty(result.Unresolved);
         Assert.Equal(TestSections.OrderBy(s => s), result.Sections!.OrderBy(s => s));
         Assert.True(result.SelectsFullCatalog);
+        Assert.True(SelectResolver.IsAllSelector(["@All"]));
     }
 
     [Fact]
@@ -109,6 +110,7 @@ public class SelectResolverTests
         Assert.Empty(result.Unresolved);
         Assert.Equal(TestSections.OrderBy(s => s), result.Sections!.OrderBy(s => s));
         Assert.True(result.SelectsFullCatalog);
+        Assert.True(SelectResolver.IsAllSelector(["*"]));
     }
 
     [Fact]

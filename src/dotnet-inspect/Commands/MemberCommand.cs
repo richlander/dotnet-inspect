@@ -246,8 +246,16 @@ public static class MemberCommand
             }
 
             if (effectiveOptions.OverloadIndex is null
-                && TryGetSelectedSingleOverloadSections(effectiveOptions, out var singleOverloadSections))
+                && TryGetSelectedSingleOverloadSections(
+                    effectiveOptions,
+                    out var singleOverloadSections))
             {
+                if (effectiveOptions.MemberFilter.Count != 1)
+                {
+                    CommandError.Write(
+                        "The selected detail sections require exactly one member name.");
+                    return 1;
+                }
                 var memberName = effectiveOptions.MemberFilter.First();
                 var overloads = GetCandidateMembers(apiType, effectiveOptions, memberName);
                 if (overloads.Count > 1)
@@ -303,7 +311,7 @@ public static class MemberCommand
                     SourceEnricher.EnrichFromLocalXmlDocs(apiType, dllPath, effectiveOptions, logger);
             }
 
-            if (RejectBodylessFactsRequest(apiType, ref effectiveOptions))
+            if (RejectBodylessSectionRequest(apiType, ref effectiveOptions))
                 return 1;
 
             if (RejectBodylessBodyShapesRequest(apiType, effectiveOptions))
@@ -593,8 +601,6 @@ public static class MemberCommand
     private static bool TryGetSelectedSingleOverloadSections(MemberOptions options, out List<string> sections)
     {
         sections = [];
-        if (options.MemberFilter.Count != 1)
-            return false;
         if (options.BodyKindQuery.HasFilter)
         {
             sections = [SectionNames.BodyShapes];
@@ -604,7 +610,7 @@ public static class MemberCommand
             return false;
         // Bare -S carries no selector value, so it cannot be recognized by inspecting Select.
         if ((options.SelectDefault && options.Select is null)
-            || IsPureSelector(options.Select, SelectResolver.AllSelector))
+            || options.SelectsFullCatalog)
             return false;
 
         sections = SingleOverloadSectionNames
@@ -649,9 +655,6 @@ public static class MemberCommand
         SectionNames.Facts,
         SectionNames.IL
     ];
-
-    private static bool IsPureSelector(string[]? select, string name) =>
-        select is { Length: 1 } && select[0].Equals(name, StringComparison.OrdinalIgnoreCase);
 
     private static List<ApiMember> GetCandidateMembers(ApiType apiType, MemberOptions options, string memberName)
         => GetTargetCandidates(apiType, options, memberName)
@@ -704,19 +707,18 @@ public static class MemberCommand
     }
 
     /// <summary>
-    /// Facts describes a decoded IL body, so a body target metadata positively reports as bodyless
-    /// can never render it. Fail visibly when nothing else in the request renders, and otherwise
-    /// drop only Facts, note the absent body, and keep every other requested section, so neither
-    /// shape produces success-shaped empty output. An unknown body fact is not evidence of absence
-    /// and stays eligible.
+    /// A body-backed section cannot render when metadata positively reports that the selected body
+    /// is absent. Fail visibly when no selected section can render; otherwise preserve the sections
+    /// that can still answer. Facts is removed from a mixed request after noting the absent body
+    /// because its producer treats absence as a fatal analysis failure. An unknown body fact is not
+    /// evidence of absence and stays eligible.
     /// </summary>
-    private static bool RejectBodylessFactsRequest(
+    private static bool RejectBodylessSectionRequest(
         ApiType apiType,
         ref MemberOptions options)
     {
         var requestedSections = ApiCommand.GetRequestedMemberSections(apiType, options);
-        if (!requestedSections.Contains(SectionNames.Facts)
-            || options.OverloadIndex is not { } ordinal
+        if (options.OverloadIndex is not { } ordinal
             || apiType.Members is not [{ } selected])
         {
             return false;
@@ -728,6 +730,13 @@ public static class MemberCommand
 
         IReadOnlySet<string> renderableSections =
             ResolveBodylessRenderableSections(apiType, requestedSections, ordinal);
+        bool hasUnrenderableSection =
+            requestedSections.Contains(SectionNames.Facts)
+            || requestedSections.Any(section =>
+                !renderableSections.Contains(section));
+        if (!hasUnrenderableSection)
+            return false;
+
         bool rendersAbstractAccessorAnnotatedSource =
             ApiOutputFormatter.IsSelectedAbstractAccessor(apiType, ordinal)
             && renderableSections.Contains(SectionNames.AnnotatedSource);
@@ -736,13 +745,16 @@ public static class MemberCommand
                 .GetInspectionViews(apiType, includeInapplicable: true)
                 .Any(view => renderableSections.Contains(view.Id)
                     && !view.Id.Equals(SectionNames.Facts, StringComparison.OrdinalIgnoreCase)
-                    && view.CanRender)
-            || HasBroadRawDocumentJsonSelection(options);
+                    && view.CanRender);
         string target = accessor is null ? "method" : "accessor";
         if (hasOtherRenderableSection)
         {
-            CommandError.WriteNote($"The selected {target} has no IL body.");
-            options = WithoutFactsSection(options);
+            if (requestedSections.Contains(SectionNames.Facts))
+            {
+                CommandError.WriteNote(
+                    $"The selected {target} has no IL body.");
+                options = WithoutFactsSection(options);
+            }
             return false;
         }
 
@@ -788,18 +800,6 @@ public static class MemberCommand
         return sections;
     }
 
-    private static bool HasBroadRawDocumentJsonSelection(MemberOptions options)
-        => options.JsonOutput
-           && !options.Count
-           && !options.Print
-           && !options.Value
-           && !options.Urls
-           && !options.Paths
-           && options.Select?.Any(selector =>
-               selector.StartsWith('@')
-               || selector.Contains('*')
-               || selector.Contains('?')) == true;
-
     /// <summary>
     /// The sections that render for a member metadata positively reports as bodyless without
     /// needing a body-projection target. Signature and Source Locations read the declaration only.
@@ -816,6 +816,7 @@ public static class MemberCommand
                 SectionNames.OriginalSource,
                 SectionNames.SourceDiff,
                 SectionNames.ExceptionRegions,
+                SectionNames.PerformanceTriage,
             ],
             StringComparer.OrdinalIgnoreCase);
 

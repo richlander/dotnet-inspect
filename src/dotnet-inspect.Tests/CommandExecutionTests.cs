@@ -6220,6 +6220,45 @@ public partial class CommandExecutionTests
         Assert.Contains("MethodWithNoParameters()", output);
     }
 
+    [Theory]
+    [InlineData("--count")]
+    [InlineData("--table")]
+    [InlineData("--print")]
+    [InlineData("--value")]
+    public async Task Member_ImpliedMember_ShapeValidationUsesResolvedPipeline(
+        string shapeOption)
+    {
+        string impliedType =
+            "System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault";
+        string explicitType =
+            "System.Text.Json.JsonSerializer";
+        string[] common =
+        [
+            "--platform",
+            "System.Text.Json",
+            "-S",
+            "Unsafe*",
+            shapeOption,
+            "--tips",
+            "q"
+        ];
+
+        var implied = await RunAppAsync(
+            ["member", impliedType, .. common]);
+        var explicitMember = await RunAppAsync(
+            [
+                "member",
+                explicitType,
+                "-m",
+                "IsReflectionEnabledByDefault",
+                .. common
+            ]);
+
+        Assert.Equal(explicitMember.Exit, implied.Exit);
+        Assert.Equal(explicitMember.Output, implied.Output);
+        Assert.Equal(explicitMember.Error, implied.Error);
+    }
+
     [Fact]
     public void Member_ImpliedMember_SourceCategory_FinalizesAgainstOverloadPipeline()
     {
@@ -6271,6 +6310,93 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains($"Select value '{selector}' not found", error);
+    }
+
+    [Fact]
+    public async Task Member_ImpliedAndExplicitMembers_RejectSingleOverloadSection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            $"{typeof(SampleClassForTesting).FullName}.{nameof(SampleClassForTesting.MethodWithNoParameters)}",
+            "--library",
+            TestAssemblyPath,
+            "-m",
+            nameof(SampleClassForTesting.MethodWithParameters),
+            "-S",
+            "Signature",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "detail sections require exactly one member name",
+            error);
+    }
+
+    [Fact]
+    public async Task Member_ImpliedMember_EffectiveDiscoveryUsesResolvedPipeline()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            $"{typeof(SampleClassForTesting).FullName}.{nameof(SampleClassForTesting.MethodWithNoParameters)}",
+            "--library",
+            TestAssemblyPath,
+            "-D",
+            "Signature",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Digest |", output);
+        Assert.Contains("| Canonical Signature |", output);
+        Assert.DoesNotContain("has no data", error);
+    }
+
+    [Fact]
+    public async Task Member_UniqueMember_EffectiveDiscoverySelectsOverload()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(SampleClassForTesting).FullName!,
+            "--library",
+            TestAssemblyPath,
+            "-m",
+            nameof(SampleClassForTesting.MethodWithNoParameters),
+            "-D",
+            "Signature",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Digest |", output);
+        Assert.Contains("| Canonical Signature |", output);
+    }
+
+    [Theory]
+    [InlineData("Type Info")]
+    [InlineData("Called Types")]
+    public async Task Member_EffectiveDiscoveryRejectsInactivePipelineSection(
+        string section)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(SampleClassForTesting).FullName!,
+            "--library",
+            TestAssemblyPath,
+            "-m",
+            $"{nameof(SampleClassForTesting.MethodWithNoParameters)}:1",
+            "-D",
+            section,
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains($"Select value '{section}' not found", error);
+        Assert.DoesNotContain("has no data", error);
     }
 
     [Theory]
@@ -6345,6 +6471,30 @@ public partial class CommandExecutionTests
         Assert.Null(compatibleAllError);
         Assert.True(compatibleAll.Options.SelectsFullCatalog);
         Assert.Equal(Verbosity.Normal, compatibleAll.Options.Verbosity);
+    }
+
+    [Fact]
+    public async Task Member_FullCatalogSelectors_AreEquivalentForOverloads()
+    {
+        string[] common =
+        [
+            "member",
+            "System.String",
+            "--platform",
+            "System.Runtime",
+            "-m",
+            "IndexOf",
+            "--tips",
+            "q"
+        ];
+
+        var wildcard = await RunAppAsync([.. common, "-S", "*"]);
+        var category = await RunAppAsync([.. common, "-S", "@All"]);
+
+        Assert.Equal(0, wildcard.Exit);
+        Assert.Equal(category.Exit, wildcard.Exit);
+        Assert.Equal(category.Output, wildcard.Output);
+        Assert.Equal(category.Error, wildcard.Error);
     }
 
     [Fact]
@@ -7168,7 +7318,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_FactsWildcardJson_BodylessAccessorKeepsRawTypeProjection()
+    public async Task Member_FactsWildcardJson_BodylessAccessorFailsVisibly()
     {
         var (exit, output, error) = await RunAppAsync(
             "member",
@@ -7183,18 +7333,15 @@ public partial class CommandExecutionTests
             "--tips",
             "q");
 
-        Assert.Equal(0, exit);
-        Assert.Contains("Note: The selected accessor has no IL body.", error);
-        using var document = JsonDocument.Parse(output);
-        Assert.Equal(
-            "ICollection`1",
-            document.RootElement.GetProperty("name").GetString());
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Error: The selected accessor has no IL body.", error);
     }
 
     [Theory]
     [InlineData("@Audit")]
     [InlineData("Unsafe*")]
-    public async Task Type_UnsafeMembersBroadJsonSelectorKeepsRawTypeProjection(string selector)
+    public async Task Type_UnsafeMembersBroadJsonSelectorFailsVisibly(string selector)
     {
         var (exit, output, error) = await RunAppAsync(
             "type",
@@ -7207,10 +7354,38 @@ public partial class CommandExecutionTests
             "--tips",
             "q");
 
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        using var document = JsonDocument.Parse(output);
-        Assert.Equal("String", document.RootElement.GetProperty("name").GetString());
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Document --json cannot represent the analysis rows in section "
+                + "'Unsafe Members'.",
+            error);
+    }
+
+    [Theory]
+    [InlineData("Decompiled Sourc*")]
+    [InlineData("I?")]
+    [InlineData("Fact*")]
+    [InlineData("@Source")]
+    public async Task Member_DocumentJson_BroadUnsupportedSelectorFailsVisibly(
+        string selector)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(SampleClassForTesting).FullName!,
+            "--library",
+            TestAssemblyPath,
+            "-m",
+            $"{nameof(SampleClassForTesting.MethodWithNoParameters)}:1",
+            "-S",
+            selector,
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Document --json cannot represent", error);
     }
 
     [Theory]
@@ -7662,6 +7837,39 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("Error: The selected accessor has no IL body.", error);
+    }
+
+    [Theory]
+    [InlineData("IL", false)]
+    [InlineData("Calls", true)]
+    [InlineData("Cost Overlay", false)]
+    public async Task Member_InapplicableBodySection_BodylessAccessor_FailsVisibly(
+        string section,
+        bool table)
+    {
+        var args = new List<string>
+        {
+            "member",
+            "System.Collections.Generic.ICollection<T>",
+            "--platform",
+            "System.Runtime",
+            "-m",
+            "Count:1",
+            "-S",
+            section,
+            "--tips",
+            "q"
+        };
+        if (table)
+            args.Add("--table");
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Error: The selected accessor has no IL body.",
+            error);
     }
 
     [Theory]
@@ -11096,7 +11304,6 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData("@all")]
-    [InlineData("Annotated*")]
     [InlineData("Annotated Source D*")]
     public async Task Member_ExpandedSectionsJson_DoesNotTreatMapAsExplicitComposition(string selection)
     {
@@ -11110,6 +11317,26 @@ public partial class CommandExecutionTests
         Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
         Assert.True(document.RootElement.TryGetProperty("namespace", out _));
         Assert.False(document.RootElement.TryGetProperty("text", out _));
+    }
+
+    [Fact]
+    public async Task Member_ExpandedUnsupportedCodeSectionsJsonFailsVisibly()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(CommandCaretGestureFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            "Pump:1",
+            "-S",
+            "Annotated*",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Document --json cannot represent", error);
     }
 
     [Fact]

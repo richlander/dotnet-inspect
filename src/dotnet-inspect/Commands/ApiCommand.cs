@@ -224,9 +224,9 @@ public class ApiCommand
                 ? memberPipeline.GetCategoryMap()
                 : typePipeline.GetCategoryMap();
         if (options is MemberOptions memberOptions
-            && memberOptions.MemberFilter.Count == 0
             && MightPeelDottedMemberSelector(memberOptions.TypeName)
-            && memberOptions.Discover is null)
+            && (memberOptions.Discover is null
+                || memberOptions.EffectiveDiscovery))
         {
             var overloadPipeline =
                 ApiMemberOverloadSectionDescriptors.CreatePipeline();
@@ -240,7 +240,16 @@ public class ApiCommand
             options = options with
             {
                 MemberSelectionNeedsFinalization =
-                    options.Select is { Length: > 0 },
+                    options.Select is not null
+                    || options.SelectDefault
+                    || options.EffectiveDiscovery,
+            };
+        }
+        else if (options is MemberOptions { EffectiveDiscovery: true })
+        {
+            options = options with
+            {
+                MemberSelectionNeedsFinalization = true,
             };
         }
 
@@ -362,7 +371,10 @@ public class ApiCommand
         // actionable, and judging the listing's sections preempts the single-type view's own, more
         // accurate rejection. ReresolveSectionsForListing re-runs them once the pipeline is known.
         var selectionSections = options.SelectDeferredToListing ? null : options.IncludeSections;
-        if (options.Discover == null && options.Count && !options.SelectDeferredToListing
+        if (options.Discover == null
+            && options.Count
+            && !options.SelectDeferredToListing
+            && !options.MemberSelectionNeedsFinalization
             && !CountOutput.ValidateSingleSection(selectionSections))
             return (null!, 1);
 
@@ -378,7 +390,9 @@ public class ApiCommand
             var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
             // Discovery renders its own payload and refuses the shape projections itself with
             // an accurate reason; demanding -S first reports a requirement that is not the problem.
-            if (options.Discover == null && !options.SelectDeferredToListing
+            if (options.Discover == null
+                && !options.SelectDeferredToListing
+                && !options.MemberSelectionNeedsFinalization
                 && !ShapeProjectionOutput.ValidateSingleSection(selectionSections, optionName))
                 return (null!, 1);
             if (options.Count || options.Print)
@@ -405,7 +419,10 @@ public class ApiCommand
             return (null!, 1);
         }
 
-        if (options.Print && options.Discover == null && !options.SelectDeferredToListing
+        if (options.Print
+            && options.Discover == null
+            && !options.SelectDeferredToListing
+            && !options.MemberSelectionNeedsFinalization
             && !ValidateApiPrintSelection(selectionSections))
             return (null!, 1);
 
@@ -422,6 +439,7 @@ public class ApiCommand
         }
 
         if (!options.SelectDeferredToListing
+            && !options.MemberSelectionNeedsFinalization
             && !OutputFormatResolver.ValidateSingleSectionForTabular(options.TabularExplicitlySet, selectionSections))
             return (null!, 1);
 
@@ -649,12 +667,16 @@ public class ApiCommand
             return (options, null);
 
         var pipeline = ApiMemberSectionPipelines.Create(options);
+        string[]? selectors =
+            options.EffectiveDiscovery ? options.Discover : options.Select;
         SelectResult selectResult = SelectResolver.ResolveSelectAsSections(
-            options.Select,
+            selectors,
             pipeline.SelectableSectionNames,
             pipeline.InfoSectionNames,
             pipeline.GetCategoryMap(),
-            selectDefault: options.SelectDefault);
+            selectDefault:
+                !options.EffectiveDiscovery
+                && options.SelectDefault);
         if (SelectOutput.WriteUnresolved(selectResult))
             return (null!, 1);
         if (ApplyBodyShapeSelectionRequirements(
@@ -1221,19 +1243,10 @@ public class ApiCommand
     private static bool IsExplicitUnsafeMembersSelection(
         ApiOptions options,
         IReadOnlySet<string> candidateSections)
-    {
-        if (!candidateSections.Contains(SectionNames.UnsafeMembers))
-            return false;
-
-        if (options.Select is { Length: > 0 } selectors)
-            return selectors.Any(selector =>
-                string.Equals(
-                    selector,
-                    SectionNames.UnsafeMembers,
-                    StringComparison.OrdinalIgnoreCase));
-
-        return options.IncludeSections?.Contains(SectionNames.UnsafeMembers) == true;
-    }
+        => !options.SelectsFullCatalog
+            && candidateSections.Contains(SectionNames.UnsafeMembers)
+            && options.IncludeSections?.Contains(
+                SectionNames.UnsafeMembers) == true;
 
     // ===== Full API Surface Rendering =====
 
@@ -2777,7 +2790,10 @@ public class ApiCommand
         ApiType apiType, SectionPipeline<ApiType> memberPipeline, ApiOptions options,
         TypeAcquisitionContext? acquisition = null)
     {
-        var fullSchema = GetTypeDocumentSchema(options);
+        var fullSchema = RestrictSchemaToSections(
+            GetTypeDocumentSchema(options),
+            memberPipeline.SelectableSectionNames);
+        fullSchema = ToQueryableSchema(fullSchema, options);
         var filteredType = BuildFilteredTypeForSections(apiType, options);
         var effective = memberPipeline.GetDiscoverableSections(filteredType, options.IncludeSections);
         if (!options.BodyKindQuery.HasFilter)
@@ -3330,9 +3346,10 @@ public class ApiCommand
     }
 
     private static string? ExplicitUnsupportedDocumentJsonSection(ApiOptions options)
-        => options.Select?
-            .FirstOrDefault(selector =>
-                UnsupportedDocumentJsonSections.Contains(selector));
+        => options.SelectsFullCatalog
+            ? null
+            : options.IncludeSections?
+                .FirstOrDefault(UnsupportedDocumentJsonSections.Contains);
 
     private static readonly HashSet<string> UnsupportedDocumentJsonSections =
         new(StringComparer.OrdinalIgnoreCase)

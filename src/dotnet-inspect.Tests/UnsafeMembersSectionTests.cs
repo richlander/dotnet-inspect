@@ -237,7 +237,7 @@ public class UnsafeMembersSectionTests
     [Theory]
     [InlineData(SectionCategoryNames.Audit)]
     [InlineData("Unsafe*")]
-    public async Task TypeUnsafeMembers_BroadSelectionJsonKeepsRawTypeProjection(string selector)
+    public async Task TypeUnsafeMembers_BroadSelectionJsonFailsClosed(string selector)
     {
         var result = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
         {
@@ -248,9 +248,9 @@ public class UnsafeMembersSectionTests
             JsonOutput = true,
         }));
 
-        Assert.Equal(0, result.ExitCode);
-        Assert.Empty(result.Error);
-        Assert.Contains("\"name\"", result.Output);
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("cannot represent the analysis rows", result.Error);
+        Assert.Empty(result.Output);
     }
 
     [Fact]
