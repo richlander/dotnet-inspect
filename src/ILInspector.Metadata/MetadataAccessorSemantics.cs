@@ -85,6 +85,52 @@ internal static class MetadataAccessorSemantics
         return AccessorAbstractionFault.None;
     }
 
+    /// <summary>
+    /// Checks that accessors agree on static shape and that virtual accessors agree on slot
+    /// ownership. A virtual accessor may have a non-virtual companion; CoreLib uses that metadata
+    /// shape, and accessor facts preserve it without treating the companion as another slot.
+    /// </summary>
+    /// <remarks>
+    /// Gated by
+    /// <c>MetadataDeclarationQueryTests.PropertySlots_RejectMixedNewSlotAndOverrideAccessors</c>.
+    /// </remarks>
+    public static bool HaveUniformMemberModifiers(
+        MetadataReader reader,
+        params MethodDefinitionHandle[] handles)
+    {
+        bool? expectedStatic = null;
+        bool? expectedVirtualNewSlot = null;
+        foreach (MethodDefinitionHandle handle in handles)
+        {
+            if (handle.IsNil)
+                continue;
+
+            MethodAttributes attributes =
+                reader.GetMethodDefinition(handle).Attributes;
+            bool isStatic =
+                (attributes & MethodAttributes.Static) != 0;
+            if (expectedStatic is { } previousStatic
+                && previousStatic != isStatic)
+            {
+                return false;
+            }
+            expectedStatic = isStatic;
+
+            if ((attributes & MethodAttributes.Virtual) == 0)
+                continue;
+            bool isNewSlot =
+                (attributes & MethodAttributes.NewSlot) != 0;
+            if (expectedVirtualNewSlot is { } previousNewSlot
+                && previousNewSlot != isNewSlot)
+            {
+                return false;
+            }
+            expectedVirtualNewSlot = isNewSlot;
+        }
+
+        return true;
+    }
+
     public static bool TryGetUniformSealedOverride(
         MetadataReader reader,
         out bool isSealed,

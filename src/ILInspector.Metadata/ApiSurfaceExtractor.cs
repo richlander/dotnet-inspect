@@ -1120,6 +1120,21 @@ public static class ApiSurfaceExtractor
                                 : "The property has inconsistent abstract accessor metadata."));
                     continue;
                 }
+                if (!MetadataAccessorSemantics.HaveUniformMemberModifiers(
+                        reader,
+                        accessors.Getter,
+                        accessors.Setter))
+                {
+                    AddInspectionFailure(
+                        surface,
+                        budget,
+                        "property modifiers",
+                        propHandle,
+                        MetadataTypeNameFailure.Malformed(
+                            propHandle,
+                            "The property has inconsistent slot or static accessor metadata."));
+                    continue;
+                }
                 if (!MetadataAccessorSemantics.TryGetUniformSealedOverride(
                         reader,
                         out isSealedProperty,
@@ -1558,6 +1573,21 @@ public static class ApiSurfaceExtractor
                             eventAbstractionFault == AccessorAbstractionFault.AbstractAccessorHasBody
                                 ? "The event has an abstract accessor that declares an IL body."
                                 : "The event has inconsistent abstract accessor metadata."));
+                    continue;
+                }
+                if (!MetadataAccessorSemantics.HaveUniformMemberModifiers(
+                        reader,
+                        accessors.Adder,
+                        accessors.Remover))
+                {
+                    AddInspectionFailure(
+                        surface,
+                        budget,
+                        "event modifiers",
+                        eventHandle,
+                        MetadataTypeNameFailure.Malformed(
+                            eventHandle,
+                            "The event has inconsistent slot or static accessor metadata."));
                     continue;
                 }
                 if (!MetadataAccessorSemantics.TryGetUniformSealedOverride(
@@ -2074,6 +2104,21 @@ public static class ApiSurfaceExtractor
                             : "The property has inconsistent abstract accessor metadata."));
                 continue;
             }
+            if (!MetadataAccessorSemantics.HaveUniformMemberModifiers(
+                    reader,
+                    accessors.Getter,
+                    accessors.Setter))
+            {
+                AddInspectionFailure(
+                    surface,
+                    budget: null,
+                    "property modifiers",
+                    propertyHandle,
+                    MetadataTypeNameFailure.Malformed(
+                        propertyHandle,
+                        "The property has inconsistent slot or static accessor metadata."));
+                continue;
+            }
             if (!MetadataAccessorSemantics.TryGetUniformSealedOverride(
                     reader,
                     out bool isSealedProperty,
@@ -2256,6 +2301,21 @@ public static class ApiSurfaceExtractor
                         eventAbstractionFault == AccessorAbstractionFault.AbstractAccessorHasBody
                             ? "The event has an abstract accessor that declares an IL body."
                             : "The event has inconsistent abstract accessor metadata."));
+                continue;
+            }
+            if (!MetadataAccessorSemantics.HaveUniformMemberModifiers(
+                    reader,
+                    accessors.Adder,
+                    accessors.Remover))
+            {
+                AddInspectionFailure(
+                    surface,
+                    budget: null,
+                    "event modifiers",
+                    eventHandle,
+                    MetadataTypeNameFailure.Malformed(
+                        eventHandle,
+                        "The event has inconsistent slot or static accessor metadata."));
                 continue;
             }
             if (!MetadataAccessorSemantics.TryGetUniformSealedOverride(

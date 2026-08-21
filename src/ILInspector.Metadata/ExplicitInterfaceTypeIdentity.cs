@@ -730,7 +730,9 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
         {
             segments[i] = BoundedString(reader, reader.GetTypeReference(chain[i]).Name);
             totalCharacters += segments[i].Length + 1;
-            genericArity += GenericArity(segments[i]);
+            genericArity = checked(
+                genericArity
+                + MetadataNameArity.OfSegment(segments[i]));
             if (totalCharacters > MetadataSafetyPolicy.MaxTypeNameCharacters)
             {
                 throw new BadImageFormatException(
@@ -748,15 +750,6 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
         string @namespace,
         IEnumerable<string> segments)
         => Node("type-name", [@namespace, .. segments]);
-
-    static int GenericArity(string name)
-    {
-        int separator = name.LastIndexOf('`');
-        return separator >= 0
-            && int.TryParse(name[(separator + 1)..], out int arity)
-                ? arity
-                : 0;
-    }
 
     bool IsWellKnownNullable(
         MetadataReader reader,

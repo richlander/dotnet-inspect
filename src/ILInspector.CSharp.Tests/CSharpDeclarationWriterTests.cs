@@ -1449,6 +1449,41 @@ public sealed class CSharpDeclarationWriterTests
             formatter.FormatMember(type, member));
     }
 
+    [Fact]
+    public void MetadataAccessorFallback_ContainsHostileMemberName()
+    {
+        const string hazardousName = "Changed\u001B[31mINJECTED";
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class"
+        };
+        var member = new ApiMember
+        {
+            Name = hazardousName,
+            Kind = "event",
+            Accessibility = "public",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.Action",
+                MemberName = hazardousName
+            },
+            AccessorFacts =
+            [
+                new ApiAccessor { Kind = "add" },
+                new ApiAccessor { Kind = "remove", Accessibility = "private" }
+            ]
+        };
+        var formatter = new CSharpFormatter(
+            new CSharpFormatOptions { AllowMetadataFallback = true });
+
+        string declaration = formatter.FormatMember(type, member);
+
+        Assert.DoesNotContain('\u001B', declaration);
+        Assert.Contains("INJECTED", declaration, StringComparison.Ordinal);
+    }
+
     [Theory]
     // A C# tuple type is parenthesized, so a parameter-list scan that takes the first
     // '(' mistakes a tuple-typed return for a parameter list and escapes each element's

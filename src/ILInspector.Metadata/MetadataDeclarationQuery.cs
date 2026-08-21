@@ -175,7 +175,7 @@ public static class MetadataDeclarationQuery
         {
             var property = reader.GetPropertyDefinition(propertyHandle);
             var declaration = GetProperty(reader, typeDef, property);
-            RejectMalformedAccessorAbstraction(
+            RejectMalformedAccessorModifiers(
                 reader,
                 isInterfaceTypeDefinition,
                 "property",
@@ -283,7 +283,7 @@ public static class MetadataDeclarationQuery
                 reader,
                 accessors.Adder,
                 accessors.Remover);
-            RejectMalformedAccessorAbstraction(
+            RejectMalformedAccessorModifiers(
                 reader,
                 isInterfaceTypeDefinition,
                 "event",
@@ -1385,7 +1385,7 @@ public static class MetadataDeclarationQuery
     /// aggregate as a concrete one. Gated by
     /// <c>MetadataDeclarationQueryTests.MixedAbstractionAggregates_FailVisibly</c>.
     /// </remarks>
-    static void RejectMalformedAccessorAbstraction(
+    static void RejectMalformedAccessorModifiers(
         MetadataReader reader,
         bool isInterfaceTypeDefinition,
         string aggregateKind,
@@ -1402,6 +1402,13 @@ public static class MetadataDeclarationQuery
             case AccessorAbstractionFault.InconsistentAbstraction:
                 throw new BadImageFormatException(
                     $"The {aggregateKind} has inconsistent abstract accessor metadata.");
+        }
+        if (!MetadataAccessorSemantics.HaveUniformMemberModifiers(
+                reader,
+                accessors))
+        {
+            throw new BadImageFormatException(
+                $"The {aggregateKind} has inconsistent slot or static accessor metadata.");
         }
     }
 

@@ -703,6 +703,62 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void ExplicitInterfaceTypeIdentity_RejectsNoncanonicalTypeRefArity()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Synthetic.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Synthetic"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        AssemblyReferenceHandle assemblyReference =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Contracts"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        metadata.AddTypeReference(
+            assemblyReference,
+            metadata.GetOrAddString("Contracts"),
+            metadata.GetOrAddString("I`01"));
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x15); // ELEMENT_TYPE_GENERICINST
+        signature.WriteByte(0x12); // ELEMENT_TYPE_CLASS
+        signature.WriteByte(0x05); // TypeRef row 1
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x08); // ELEMENT_TYPE_I4
+        TypeSpecificationHandle typeSpec = metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(signature));
+        using var peReader = new PEReader(
+            new MemoryStream(Serialize(metadata), writable: false));
+
+        Assert.Throws<BadImageFormatException>(
+            () => new ExplicitInterfaceTypeIdentityProvider()
+                .GetTypeFromSpecification(
+                    peReader.GetMetadataReader(),
+                    ExplicitInterfaceSignatureContext.Open(names: null),
+                    typeSpec,
+                    rawTypeKind: 0x12));
+    }
+
+    [Fact]
     public void ExplicitInterfaceTypeIdentity_RejectsOversizedAssemblyIdentityBlob()
     {
         var metadata = new MetadataBuilder();
@@ -1293,6 +1349,54 @@ public sealed class MetadataDeclarationQueryTests
                     reader,
                     typeHandle,
                     includeNonPublicMembers: true));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void PropertySlots_RejectMixedNewSlotAndOverrideAccessors()
+    {
+        string path = EmitIncoherentPropertySlots();
+        try
+        {
+            using var peReader = new PEReader(File.OpenRead(path));
+            MetadataReader reader = peReader.GetMetadataReader();
+            TypeDefinitionHandle typeHandle =
+                GetTypeDefinitionHandle(reader, "DerivedPropertySlots");
+            ApiSurface surface =
+                ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+            ApiType extracted = Assert.Single(
+                surface.Types,
+                type => type.Name == "DerivedPropertySlots");
+
+            Assert.DoesNotContain(
+                extracted.Members,
+                member => member.Kind == "property");
+            Assert.Contains(
+                surface.InspectionFailures,
+                failure => failure.Operation == "property modifiers");
+            Assert.Throws<BadImageFormatException>(() =>
+                MetadataDeclarationQuery.GetTypeSurface(
+                    reader,
+                    typeHandle,
+                    includeNonPublicMembers: true));
+
+            using var summaryReader =
+                new PEReader(File.OpenRead(path));
+            ApiSurface summary =
+                ApiSurfaceExtractor.ExtractSummary(summaryReader);
+            ApiType summarized = Assert.Single(
+                summary.Types,
+                type => type.Name == "DerivedPropertySlots");
+            Assert.DoesNotContain(
+                summarized.Members,
+                member => member.Kind == "property");
+            Assert.Contains(
+                summary.InspectionFailures,
+                failure => failure.Operation == "property modifiers");
         }
         finally
         {
@@ -2333,6 +2437,82 @@ public sealed class MetadataDeclarationQueryTests
         string path = Path.Combine(
             Path.GetTempPath(),
             $"IncoherentEventSealing-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
+    static string EmitIncoherentPropertySlots()
+    {
+        var assemblyName = new AssemblyName("IncoherentPropertySlots");
+        var assembly =
+            new PersistedAssemblyBuilder(
+                assemblyName,
+                typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        const MethodAttributes accessorAttributes =
+            MethodAttributes.Public
+            | MethodAttributes.Virtual
+            | MethodAttributes.SpecialName
+            | MethodAttributes.HideBySig;
+
+        var baseBuilder =
+            module.DefineType(
+                "BasePropertySlots",
+                TypeAttributes.Public);
+        var baseGetter = baseBuilder.DefineMethod(
+            "get_P",
+            accessorAttributes | MethodAttributes.NewSlot,
+            typeof(int),
+            Type.EmptyTypes);
+        baseGetter.GetILGenerator().Emit(OpCodes.Ldc_I4_0);
+        baseGetter.GetILGenerator().Emit(OpCodes.Ret);
+        var baseSetter = baseBuilder.DefineMethod(
+            "set_P",
+            accessorAttributes | MethodAttributes.NewSlot,
+            typeof(void),
+            [typeof(int)]);
+        baseSetter.GetILGenerator().Emit(OpCodes.Ret);
+        var baseProperty = baseBuilder.DefineProperty(
+            "P",
+            PropertyAttributes.None,
+            typeof(int),
+            Type.EmptyTypes);
+        baseProperty.SetGetMethod(baseGetter);
+        baseProperty.SetSetMethod(baseSetter);
+        Type baseType = baseBuilder.CreateType();
+
+        var derivedBuilder = module.DefineType(
+            "DerivedPropertySlots",
+            TypeAttributes.Public,
+            baseType);
+        var getter = derivedBuilder.DefineMethod(
+            "get_P",
+            accessorAttributes | MethodAttributes.NewSlot,
+            typeof(int),
+            Type.EmptyTypes);
+        getter.GetILGenerator().Emit(OpCodes.Ldc_I4_0);
+        getter.GetILGenerator().Emit(OpCodes.Ret);
+        var setter = derivedBuilder.DefineMethod(
+            "set_P",
+            accessorAttributes,
+            typeof(void),
+            [typeof(int)]);
+        setter.GetILGenerator().Emit(OpCodes.Ret);
+        var property = derivedBuilder.DefineProperty(
+            "P",
+            PropertyAttributes.None,
+            typeof(int),
+            Type.EmptyTypes);
+        property.SetGetMethod(getter);
+        property.SetSetMethod(setter);
+        derivedBuilder.DefineMethodOverride(
+            setter,
+            baseType.GetMethod("set_P")!);
+        derivedBuilder.CreateType();
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"IncoherentPropertySlots-{Guid.NewGuid():N}.dll");
         assembly.Save(path);
         return path;
     }

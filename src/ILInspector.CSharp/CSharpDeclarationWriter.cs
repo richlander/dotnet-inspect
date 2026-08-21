@@ -2013,25 +2013,30 @@ internal static class CSharpDeclarationWriter
 
     static string RenderMetadataAccessorFallback(ApiMember member)
     {
-        string accessibility = member.Accessibility ?? "public";
+        string accessibility = ContainMetadataFallback(
+            member.Accessibility ?? "public");
         string memberType =
-            member.SignatureModel?.ReturnType
-            ?? member.ReturnType
-            ?? "<unknown>";
+            ContainMetadataFallback(
+                member.SignatureModel?.ReturnType
+                ?? member.ReturnType
+                ?? "<unknown>");
         string accessors = string.Join(
             ", ",
             member.AccessorFacts.Select(accessor =>
-                $"{accessor.Kind}: {accessor.Accessibility ?? "public"}"));
+                $"{ContainMetadataFallback(accessor.Kind)}: "
+                + ContainMetadataFallback(
+                    accessor.Accessibility ?? "public")));
         return
-            $"metadata {member.Kind} {accessibility} {memberType} "
-            + $"{member.Name} ({accessors})";
+            $"metadata {ContainMetadataFallback(member.Kind)} "
+            + $"{accessibility} {memberType} "
+            + $"{ContainMetadataFallback(member.Name)} ({accessors})";
     }
 
     static string RenderMetadataMethodImplFallback(ApiMember member)
     {
         var modifiers = new List<string>
         {
-            member.Accessibility ?? "public"
+            ContainMetadataFallback(member.Accessibility ?? "public")
         };
         if (member.IsStatic)
             modifiers.Add("static");
@@ -2056,8 +2061,12 @@ internal static class CSharpDeclarationWriter
             ?? "unrepresentable";
         return
             $"metadata MethodImpl ({resolution}) "
-            + $"{string.Join(" ", modifiers)} {signature}";
+            + $"{string.Join(" ", modifiers)} "
+            + ContainMetadataFallback(signature);
     }
+
+    static string ContainMetadataFallback(string value)
+        => CSharpIdentifier.ContainRenderedText(value);
 
     static bool IsEvent(ApiMember member)
         => member.Kind == "event" || IsExplicitInterfaceEvent(member);
