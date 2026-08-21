@@ -3846,6 +3846,42 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("File not found", deferred.Error);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData(SectionNames.CallGraph)]
+    public async Task Router_DeferredTreeFormatConflictRejectsBeforeAcquisition(
+        string? section)
+    {
+        string missingAssembly = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+        List<string> tail =
+        [
+            "--library",
+            missingAssembly,
+            "--tree",
+            "--json",
+            "--tips",
+            "q"
+        ];
+        if (section is not null)
+            tail.InsertRange(2, ["-S", section]);
+
+        var direct = await RunAppAsync(
+            ["member", "Missing.Generic<T>", "-m", "Member", .. tail]);
+        var deferred = await RunAppAsync(
+            ["Missing.Generic<T>.Member", .. tail]);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(1, deferred.Exit);
+        Assert.Empty(deferred.Output);
+        Assert.Contains(
+            "--tree is a standalone output format and cannot combine with another output format.",
+            deferred.Error);
+        Assert.DoesNotContain("File not found", deferred.Error);
+        Assert.DoesNotContain("Document --json cannot represent", deferred.Error);
+    }
+
     [Fact]
     public async Task Router_DottedOverloadStaticDiscoveryUsesDetailPipeline()
     {

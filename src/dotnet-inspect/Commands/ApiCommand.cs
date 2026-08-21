@@ -626,15 +626,11 @@ public class ApiCommand
         MemberOptions options,
         IReadOnlyCollection<string>? sections)
     {
+        if (!ValidateMemberGraphFormatConflict(options))
+            return false;
+
         if (options.Tree)
         {
-            if (options.FormatFlagExplicitlySet)
-            {
-                CommandError.Write(
-                    "--tree is a standalone output format and cannot combine with another output format.");
-                return false;
-            }
-
             if (sections is not { Count: 1 }
                 || !sections.Contains(SectionNames.CallGraph, StringComparer.OrdinalIgnoreCase))
             {
@@ -666,6 +662,16 @@ public class ApiCommand
         }
 
         return true;
+    }
+
+    private static bool ValidateMemberGraphFormatConflict(MemberOptions options)
+    {
+        if (!options.Tree || !options.FormatFlagExplicitlySet)
+            return true;
+
+        CommandError.Write(
+            "--tree is a standalone output format and cannot combine with another output format.");
+        return false;
     }
 
     private static MemberOptions NormalizeMemberGraphFormat(
@@ -746,6 +752,12 @@ public class ApiCommand
         ApiOptions options,
         int? activeShapeCount = null)
     {
+        if (options is MemberOptions memberOptions
+            && !ValidateMemberGraphFormatConflict(memberOptions))
+        {
+            return false;
+        }
+
         var shapeCount = activeShapeCount
             ?? ShapeProjectionOutput.ActiveShapeCount(
                 options.Value,
