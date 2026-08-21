@@ -523,11 +523,10 @@ test("typed scope bar owns its rendered control bindings", () => {
 
 test("typed settings panel owns its rendered control bindings", () => {
   const binding =
-    appSource.match(/function bindSettingsPanelEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction bindPackageOpportunitiesEvents)/)?.[0]
+    appSource.match(
+      /function bindSettingsPanelEvents\(\) \{\s*bindSettingsPanel\(document, \{\s*onClose: closeSettings,\s*onOpen: openSettings,\s*onTasteClear: clearTaste,\s*onTasteOpenToggle: \(\) => \{\s*state\.tasteOpen = !state\.tasteOpen;\s*render\(\);\s*},\s*onTasteToggle: toggleTaste,\s*onThemeSelect: setTheme,\s*}\);\s*}(?=\s*function bindPackageOpportunitiesEvents\(\))/)?.[0]
     ?? "";
-  assert.match(
-    binding,
-    /bindSettingsPanel\(document, \{\s*onClose: closeSettings,\s*onOpen: openSettings,\s*onTasteClear: clearTaste,\s*onTasteOpenToggle: \(\) => \{[\s\S]*state\.tasteOpen = !state\.tasteOpen;[\s\S]*render\(\);[\s\S]*\},\s*onTasteToggle: toggleTaste,\s*onThemeSelect: setTheme,/);
+  assert.notEqual(binding, "");
   assert.doesNotMatch(
     binding,
     /\bquerySelector(?:All)?\b|\baddEventListener\b/);
@@ -558,18 +557,26 @@ test("typed settings panel owns its rendered control bindings", () => {
   assert.equal(nonSettingsPanelSource.match(entrySelectorAccess)?.length ?? 0, 0);
   assert.equal(settingsPanelSource.match(entrySelectorAccess)?.length, 3);
   for (const selector of ["#home-settings", "#open-settings"]) {
-    const literal = new RegExp(`(["'\`])${selector}\\1`, "g");
-    assert.equal(nonSettingsPanelSource.match(literal)?.length ?? 0, 0, selector);
-    assert.equal(settingsPanelSource.match(literal)?.length, 1, selector);
+    const selectorToken = new RegExp(`${selector}(?![-\\w])`, "g");
+    assert.equal(
+      nonSettingsPanelSource.match(selectorToken)?.length ?? 0,
+      0,
+      selector);
+    assert.equal(
+      settingsPanelSource.match(selectorToken)?.length,
+      1,
+      selector);
   }
   assert.equal(
-    nonSettingsPanelSource.match(/(["'`])#taste-btn\1/g)?.length,
+    nonSettingsPanelSource.match(/#taste-btn(?![-\w])/g)?.length,
     1);
   assert.equal(
     nonSettingsPanelSource.match(
       /\.closest\(\s*(["'`])#taste-btn\1\s*\)/g)?.length,
     1);
-  assert.equal(settingsPanelSource.match(/(["'`])#taste-btn\1/g)?.length, 1);
+  assert.equal(
+    settingsPanelSource.match(/#taste-btn(?![-\w])/g)?.length,
+    1);
   for (const selector of [
     "#settings-close",
     ".settings-seg[data-theme]",
