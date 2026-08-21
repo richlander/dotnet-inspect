@@ -564,11 +564,22 @@ call-graph source request lifecycle: shared cancellation, generation and
 per-surface identity checks, loading/error/result transitions, graph-modal
 open/close state, and focus-preserving completion. `dotnet-inspect.ts`
 validates the active selection, builds typed engine requests, supplies mutable
-state and rendering ports, and retains annotated-source coordination.
+state and rendering ports, and retains source presentation.
 `test/source-inspection.test.ts` gates hidden cancellation, stale member
 selection, visible failure, hidden type completion, graph close/cancellation,
 and graph failure; `test/spotlight-identity.test.js` gates engine and
 composition-root wiring.
+
+`src/member-detail-inspection.ts` owns member XML-documentation, annotated
+source, and Facts request lifecycles: cache and request identity, current-member
+publication, loading/error/result transitions, annotated selection reset,
+runtime documentation suppression, and focus-preserving completion.
+`dotnet-inspect.ts` validates the selected overload, constructs exact engine
+requests, and retains mutable state, rendering, and annotated-source
+interaction handlers. `test/member-detail-inspection.test.ts` gates current and
+stale completion, cached failures, runtime documentation, exact request
+coordinates, cross-surface invalidation, and focus restoration;
+`test/spotlight-identity.test.js` gates composition-root wiring.
 
 `src/metadata-inspection.ts` owns the type-metadata request lifecycle and the
 Metadata Explorer's table-window and heap-listing requests, including cache
@@ -693,9 +704,10 @@ escaping in both the header and loading status.
 `src/annotated-source.ts` owns the annotated source result (the
 fact-annotated C#/IL dual view shown for a member overload) as a pure,
 dependency-injected render function; it composes `annotated-source-view.ts`'s
-`buildAnnotatedView` projection into markup. `dotnet-inspect.ts` still owns `state`, the
-sequence-guarded async load lifecycle, and the medium-toggle/fact-selection
-event handlers, and passes each computed slice in explicitly.
+`buildAnnotatedView` projection into markup. `member-detail-inspection.ts` owns
+the sequence-guarded async load lifecycle; `dotnet-inspect.ts` still owns
+`state` and the medium-toggle/fact-selection event handlers, and passes each
+computed slice in explicitly.
 `test/annotated-source.test.ts` gates the rejected-document fallback, the
 medium toggles and hidden-line count, the context-limitation notice, anchored
 versus unanchored fact rendering, selection state, and source-text escaping.
