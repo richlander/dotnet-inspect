@@ -159,6 +159,9 @@ test("normalizing a history entry keeps its consumed position and later entries"
 });
 
 const appSource = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.url), "utf8");
+const workspaceNavigationSource = readFileSync(
+  new URL("../src/workspace-navigation.ts", import.meta.url),
+  "utf8");
 const memberFocusSource = readFileSync(
   new URL("../src/member-focus.ts", import.meta.url),
   "utf8");
@@ -467,10 +470,12 @@ test("member filters retain accessible controls and focus across rerenders", () 
 });
 
 test("shared member views retain scope and filter state", () => {
-  const encoder = appSource.match(
-    /function encodeShareState\(\)[\s\S]*?\n}\n\nfunction decodeShareState/)?.[0] ?? "";
-  const decoder = appSource.match(
-    /function decodeShareState\([\s\S]*?\n}\n\n\/\/ Maps a view token/)?.[0] ?? "";
+  const capture = appSource.match(
+    /function captureWorkspaceUrlState\(\)[\s\S]*?\n}\n\nfunction buildStateUrl/)?.[0] ?? "";
+  const encoder = workspaceNavigationSource.match(
+    /function encodeWorkspaceShareState\([\s\S]*?\n}\n\nfunction decodeWorkspaceShareState/)?.[0] ?? "";
+  const decoder = workspaceNavigationSource.match(
+    /function decodeWorkspaceShareState\([\s\S]*?\n}\n\nfunction resolveView/)?.[0] ?? "";
   const deepLink = appSource.match(
     /function applyDeepLink\([\s\S]*?\n}\n\n\/\/ Kick off/)?.[0] ?? "";
   assert.match(encoder, /packet\.b = 1/);
@@ -481,6 +486,12 @@ test("shared member views retain scope and filter state", () => {
   assert.match(encoder, /packet\.d = encodeBodyTarget\(state\.selectedBodyTarget\)/);
   assert.match(decoder, /memberBrowse: raw\.b === 1/);
   assert.match(decoder, /bodyTarget: decodeBodyTarget\(raw\.d\)/);
+  assert.match(capture, /selectedBodyTarget: state\.selectedBodyTarget/);
+  assert.match(capture, /memberBrowse: memberScopeIsActive\(state, selectedType\(\)\?\.id\)/);
+  assert.match(capture, /memberTextFilter: state\.memberTextFilter/);
+  assert.match(capture, /memberKindFilter: state\.memberKindFilter/);
+  assert.match(capture, /memberAccessibilityFilter: state\.memberAccessibilityFilter/);
+  assert.match(capture, /memberTraitFilter: state\.memberTraitFilter/);
   assert.match(appSource, /if \(deep\.memberBrowse && groups\.length\)\s*state\.memberBrowseTypeId = type\.id/);
   assert.match(
     deepLink,
@@ -642,7 +653,7 @@ test("typeless member lookup and request guards stay empty", () => {
 
 test("history validates saved type and member identity before restoring Member state", () => {
   const applyView =
-    appSource.match(/function applyView\(view: NavigationEntry\["view"\]\) \{[\s\S]*?\n}\n\nfunction navBack/)?.[0]
+    appSource.match(/function applyView\(view: WorkspaceView\) \{[\s\S]*?\n}\n\nconst navigationHistory/)?.[0]
     ?? "";
   assert.match(applyView, /const type = pkg\.types\.find\(item => item\.id === view\.selectedTypeId\)/);
   assert.match(
@@ -656,13 +667,16 @@ test("history validates saved type and member identity before restoring Member s
     /state\.selectedOverloadIndex = memberHistory\.selectedOverloadIndex;[\s\S]*state\.memberSection = isMemberSection\(memberHistory\.memberSection\)[\s\S]*\? memberHistory\.memberSection[\s\S]*state\.selectedBodyTarget = memberHistory\.selectedBodyTarget/);
   assert.match(
     applyView,
-    /normalizeCurrentNavEntry\(\);[\s\S]*loadSelectedMemberSource\(\)[\s\S]*else \{\s*render\(\)/);
+    /navigationHistory\.normalizeCurrent\(\);[\s\S]*loadSelectedMemberSource\(\)[\s\S]*else \{\s*render\(\)/);
   assert.match(
     appSource,
-    /function normalizeCurrentNavEntry\(\) \{\s*replaceCurrentNavigationEntry\(nav, viewSignature\(\), captureView\(\)\)/);
+    /const navigationHistory = createNavigationHistory\(\{\s*capture: captureView,\s*signature: workspaceViewSignature,\s*apply: applyView/);
+  assert.match(
+    workspaceNavigationSource,
+    /function workspaceViewSignature\([\s\S]*b: encodeBodyTarget\(view\.bodyTarget\)/);
   assert.match(
     appSource,
-    /function viewSignature\(\) \{[\s\S]*b: encodeBodyTarget\(state\.selectedBodyTarget\)/);
+    /function captureView\(\): WorkspaceView \| null \{[\s\S]*bodyTarget: state\.selectedBodyTarget/);
   assert.match(
     appSource,
     /else if \(state\.selectedTypeId !== current\.id\) \{\s*state\.selectedTypeId = current\.id;\s*state\.selectedMemberKey = "";\s*state\.memberBrowseTypeId = "";\s*state\.selectedOverloadIndex = null;\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\)/);
@@ -817,12 +831,13 @@ test("dependency graph binds navigation to generated node identities", () => {
 });
 
 test("dependency navigation reserves identity and surfaces resolution failures", () => {
+  assert.doesNotMatch(appSource, /state\.navigationSeq/);
   assert.match(
     appSource,
-    /const navigationSeq = \+\+state\.navigationSeq;\s+state\.loading = true;[\s\S]*?await resolveDependencyVersion/);
+    /const navigationSeq = navigationSequence\.begin\(\);\s+state\.loading = true;[\s\S]*?await resolveDependencyVersion/);
   assert.match(
     appSource,
-    /if \(navigationSeq !== state\.navigationSeq\) return;\s+state\.loading = false;\s+appendQueryNotice/);
+    /if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s+state\.loading = false;\s+appendQueryNotice/);
   assert.match(
     graphSource,
     /packageIdentityKey\(uniqueCompatiblePackage\(\s+model\.packages,\s+dependency\.id,\s+dependency\.versionRange\)\) === target\.packageKey/);
@@ -1564,7 +1579,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     appSource,
     /type: type\.queryId \?\? type\.id,\s+typeIdentity: type\.definitionId \?\? type\.id/);
   assert.match(
-    appSource,
+    workspaceNavigationSource,
     /if \(!pkg && tabs\.length\) \{\s+const target = tabs\[/);
   assert.match(
     appSource,

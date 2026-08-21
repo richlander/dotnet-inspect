@@ -527,10 +527,20 @@ Package tabs and the framework selector are workspace identity, not display
 state: changing either resolves a different workspace. Lenses this engine does
 not answer report the engine's failure rather than fixture results.
 
+`src/workspace-navigation.ts` owns the in-memory view history, monotonic
+navigation generation, share-packet encoding and decoding, URL parsing and
+building, and the browser-history port. `dotnet-inspect.ts` remains the sole
+mutable application-state owner: it supplies typed snapshots and explicit
+transition callbacks, and retains asynchronous workspace restoration and DOM
+event binding. `test/workspace-navigation.test.ts` gates history traversal,
+stale-entry removal, navigation cancellation, rich and legacy URL
+compatibility, visible invalid-state failures, and sandboxed history errors;
+`test/spotlight-identity.test.js` gates the composition-root wiring.
+
 `src/spotlight.ts` owns the modal workbench search, embedded home search,
 scope/result rendering, selection, and keyboard interaction.
 `src/command-bar.ts` supplies its typed Commands-scope grammar and results;
-`dotnet-inspect.ts` retains package queries, navigation, network acquisition, and command
+`dotnet-inspect.ts` retains package queries, network acquisition, and command
 effects so the components do not acquire engine or workspace authority.
 `test/spotlight.test.js` and `test/command-bar.test.ts` gate both presentation
 modes, scope ownership, completion and replacement behavior, bounded results,
