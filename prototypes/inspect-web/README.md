@@ -129,7 +129,7 @@ body selector even when the graph has no `MethodDef` token.
 | `engine/BrowserSurfaceProjection.cs` | adapting typed query models into transport records |
 | `engine/BrowserStyleOptions.cs` | resolving the client's style ids through `StyleOptionCatalog` |
 | `engine/BrowserXmlDocumentation.cs` | reading one member's package-shipped XML documentation |
-| `engine/BrowserInspectionEngine.cs` | the supported `[JSExport]` operations |
+| `engine/InspectionEngine.cs` | the supported `[JSExport]` operations |
 | `engine/BrowserSourceOperations.cs` | pathless authored-or-decompiled type/member source and Browser source capabilities |
 | `engine/BrowserUnsupportedOperations.cs` | the `[JSExport]` operations this engine refuses |
 
@@ -425,9 +425,10 @@ feeds it a real document.
 The viewer reuses the owner's module rather than copying it.
 `prototypes/annotated-source-viewer/src/document-model.js` owns validation,
 UTF-16 coordinates, line derivation, segmentation, and the fact → target → node →
-span walk. `src/document-model.js` here re-exports that owner for Vite and the
-Node tests; Vite bundles the shared implementation into the deployable browser
-artifact. On top of it the typed view module adds only selection state:
+span walk. `src/document-model.ts` provides typed aliases over that owner for
+Vite and the Node tests; Vite bundles the shared implementation into the
+deployable browser artifact without copying its logic. On top of it the typed
+view module adds only selection state:
 canonical lines, C#/IL medium toggles that hide lines without rebasing a
 coordinate, fact selection that highlights every targeted node across both
 media without selecting the text between one node's separated spans,
@@ -455,12 +456,12 @@ above. The TypeScript check is part of both `npm run build` and `npm test`.
 Remote addresses require HTTPS because the .NET loader uses secure-context
 browser APIs.
 
-On a bare visit, `app.js` waits for the home page's first contentful paint
-before dynamically importing `engine.js`. Search and demo controls remain
-inert behind a loading indicator until the Wasm engine is ready; package and
-shared-workspace deep links retain the full loading interstitial. The
-`bare home paints before wasm engine download` JavaScript test gates this
-startup boundary.
+On a bare visit, `dotnet-inspect.ts` waits for the home page's first contentful paint
+before dynamically importing `inspect-web-engine.js`. Search and demo controls
+remain inert behind a loading indicator until the Wasm engine is ready; package
+and shared-workspace deep links retain the full loading interstitial. The `bare
+home paints before wasm engine download` JavaScript test gates this startup
+boundary.
 
 The .NET 11 preview Emscripten wrapper currently mishandles an SDK packs path
 that contains whitespace. If that applies to the local SDK installation, pass
@@ -482,7 +483,7 @@ dotnet run --project prototypes/inspect-web/engine.Tests -c Release
 central-directory entry limit before archive enumeration, role preflight before identity decoding, malformed selected-participant
 visibility, reference-only retained-image budget, duplicate XML parameter
 handling, Mermaid label containment, and complete call-graph navigation targets.
-The JavaScript tests gate the annotated view helper against the shared sample
+The frontend tests gate the annotated view helper against the shared sample
 document and keep Spotlight candidate/cache identity coordinate-complete.
 `call graph diagnostics distinguish failures from expected bounds` gates that
 catalog and body-analysis failures remain visible while an expected finite
@@ -514,8 +515,8 @@ Pull requests that change the browser prototype, its shared annotated-source
 viewer, product dependencies, or repository build inputs run the `inspect-web`
 CI job. That job installs the locked Node dependencies, checks and bundles the
 TypeScript/JavaScript frontend, compiles the platform-index generator, publishes
-the Release Wasm bundle, runs the browser-engine tests, and runs both JavaScript
-suites.
+the Release Wasm bundle, runs the browser-engine tests, and runs both frontend
+test suites.
 The `eng/CiChangeDetection` gate, invoked through
 `eng/test-ci-change-detection.cs`, gates the path classification, and
 `ci-required` includes the job's result.
@@ -526,12 +527,22 @@ Package tabs and the framework selector are workspace identity, not display
 state: changing either resolves a different workspace. Lenses this engine does
 not answer report the engine's failure rather than fixture results.
 
+`src/workspace-navigation.ts` owns the in-memory view history, monotonic
+navigation generation, share-packet encoding and decoding, URL parsing and
+building, and the browser-history port. `dotnet-inspect.ts` remains the sole
+mutable application-state owner: it supplies typed snapshots and explicit
+transition callbacks, and retains asynchronous workspace restoration and DOM
+event binding. `test/workspace-navigation.test.ts` gates history traversal,
+stale-entry removal, navigation cancellation, rich and legacy URL
+compatibility, visible invalid-state failures, and sandboxed history errors;
+`test/spotlight-identity.test.js` gates the composition-root wiring.
+
 `src/spotlight.ts` owns the modal workbench search, embedded home search,
 scope/result rendering, selection, and keyboard interaction.
 `src/command-bar.ts` supplies its typed Commands-scope grammar and results;
-`app.js` retains package queries, navigation, network acquisition, and command
+`dotnet-inspect.ts` retains package queries, network acquisition, and command
 effects so the components do not acquire engine or workspace authority.
-`test/spotlight.test.js` and `test/command-bar.test.js` gate both presentation
+`test/spotlight.test.js` and `test/command-bar.test.ts` gate both presentation
 modes, scope ownership, completion and replacement behavior, bounded results,
 command metadata, and escaping.
 
@@ -557,28 +568,28 @@ reports it today — and is a tracked fast-follow.
 `src/type-panel.ts` owns the type selector (the "PUBLIC TYPES" / "MEMBERS" nav
 pane) and the type viewer (the type heading, metadata, and source sections
 shown for the "type" scope) as pure, dependency-injected render functions.
-`app.js` still owns the type index, filtering, member grouping, and
+`dotnet-inspect.ts` still owns the type index, filtering, member grouping, and
 click/keyboard navigation, and passes each computed slice in explicitly; the
 shared text helpers used well beyond the type panel (`kindIcon`, `shortKind`,
 `typeDisplayName`, `highlight`, `highlightCSharp`, `factRows`,
-`relatedTypeChip`) stay in `app.js` and are injected the same way.
-`test/type-panel.test.js` gates namespace grouping and selection in the type
+`relatedTypeChip`) stay in `dotnet-inspect.ts` and are injected the same way.
+`test/type-panel.test.ts` gates namespace grouping and selection in the type
 list, active-group and overload selection in the member list, the type
 heading's package/library fields, the metadata- and source-signature cache
 keys, and the metadata/source panels' loading, error, and loaded states.
 
 `src/package-bar.ts` owns the package tab strip (including the always-present
 Platform tab), the open-package query form, and their keyboard/mouse/wheel
-interaction. `app.js` supplies the workspace effects — selecting, closing, and
+interaction. `dotnet-inspect.ts` supplies the workspace effects — selecting, closing, and
 opening a package or the runtime pack — so the component acquires no engine or
-workspace authority. `test/package-bar.test.js` gates tab markup, active/close
+workspace authority. `test/package-bar.test.ts` gates tab markup, active/close
 state, escaping, and open-package query parsing.
 
 `src/settings-panel.ts` owns the Settings page and the decompiler "taste"
 popover it shares its style catalog with, as pure, dependency-injected render
-functions. `app.js` still owns `state`, localStorage persistence for theme and
+functions. `dotnet-inspect.ts` still owns `state`, localStorage persistence for theme and
 taste, and event wiring (`setTheme`, `toggleTaste`, `clearTaste`), and passes
-each computed slice in explicitly. `test/settings-panel.test.js` gates the
+each computed slice in explicitly. `test/settings-panel.test.ts` gates the
 style catalog's tier grouping, byte-divergent badges, and checked state; the
 taste popover's active/default states; and the Settings page's theme segment,
 close-button label, and active-style-count states.
@@ -586,9 +597,9 @@ close-button label, and active-style-count states.
 `src/scope-bar.ts` owns the scope switcher and lens strip (the segmented
 Package/Types/Member control and the buttons beside it for the active scope's
 lenses or member sections) as a pure, dependency-injected render function.
-`app.js` still owns the current scope, the package/type/member lens
+`dotnet-inspect.ts` still owns the current scope, the package/type/member lens
 definitions, and the active lens/section per scope, and passes each computed
-slice in explicitly. `test/scope-bar.test.js` gates the active scope segment,
+slice in explicitly. `test/scope-bar.test.ts` gates the active scope segment,
 the active lens/section marking per scope, keyboard-shortcut indices, and
 label escaping.
 
@@ -597,14 +608,14 @@ assembly — format stamp, heap sizes, ECMA-335 table row counts, and PE/CLI
 headers) and the Metadata Explorer (the spatial table/heap drill-down laid over
 it) as pure, dependency-injected render functions; both describe the metadata
 image rather than the API surface within it, so they share one module the way
-`type-panel.ts` combines the type selector and the type viewer. `app.js` still
+`type-panel.ts` combines the type selector and the type viewer. `dotnet-inspect.ts` still
 owns `state`, the engine calls that fetch an image, a table row window, or a
 heap listing, the explorer's focus/history stack, the DOM event binding, the
 `IntersectionObserver` that hydrates cards lazily, the resize listener, and the
 global keydown handler, and passes each computed slice in explicitly; the shared
 helpers used well beyond these views (`escapeHtml`, `fmtBytes`,
 `platformLensPicker`, `scopedPlatformLibrary`, `packageScopeSignature`) stay in
-`app.js` and are injected the same way. `test/metadata-viewer.test.js` gates the
+`dotnet-inspect.ts` and are injected the same way. `test/metadata-viewer.test.ts` gates the
 lens's picker, loading, failure, stale-scope, partial-read, and empty-image
 states and its heap/table ordering; the explorer's chips, history-button
 enablement, overview versus focus lightbox, lazy-load hooks, pager bounds, row
@@ -613,9 +624,9 @@ and coverage notes, and the row inspector.
 
 `src/doc-viewer.ts` owns the package document modal (the Markdown reader
 opened from a package's documents list) as a pure, dependency-injected render
-function. `app.js` still owns `state`, fetching and rendering the document's
+function. `dotnet-inspect.ts` still owns `state`, fetching and rendering the document's
 Markdown and frontmatter, and the sequence-guarded async load/close
-lifecycle, and passes each computed slice in explicitly. `test/doc-viewer.test.js`
+lifecycle, and passes each computed slice in explicitly. `test/doc-viewer.test.ts`
 gates the closed/no-document fallback, loading and error states, the
 frontmatter card's presence and fields, and title/subtitle/frontmatter-name
 escaping (the rendered document body is trusted, pre-sanitized Markdown HTML
@@ -623,9 +634,9 @@ and is not escaped).
 
 `src/graph-source.ts` owns the member source modal (the code viewer opened
 from a call graph node) as a pure, dependency-injected render function.
-`app.js` still owns `state`, the sequence-guarded async source-inspection
+`dotnet-inspect.ts` still owns `state`, the sequence-guarded async source-inspection
 lifecycle, and the `highlightCSharp` Prism wrapper, and passes each computed
-slice in explicitly. `test/graph-source.test.js` gates the loading state, the
+slice in explicitly. `test/graph-source.test.ts` gates the loading state, the
 original-versus-decompiled provenance labels, the open-source link's presence
 only when a `url` is provided, the error state's fallback message, and title
 escaping in both the header and loading status.
@@ -633,10 +644,10 @@ escaping in both the header and loading status.
 `src/annotated-source.ts` owns the annotated source result (the
 fact-annotated C#/IL dual view shown for a member overload) as a pure,
 dependency-injected render function; it composes `annotated-source-view.ts`'s
-`buildAnnotatedView` projection into markup. `app.js` still owns `state`, the
+`buildAnnotatedView` projection into markup. `dotnet-inspect.ts` still owns `state`, the
 sequence-guarded async load lifecycle, and the medium-toggle/fact-selection
 event handlers, and passes each computed slice in explicitly.
-`test/annotated-source.test.js` gates the rejected-document fallback, the
+`test/annotated-source.test.ts` gates the rejected-document fallback, the
 medium toggles and hidden-line count, the context-limitation notice, anchored
 versus unanchored fact rendering, selection state, and source-text escaping.
 
@@ -644,10 +655,10 @@ versus unanchored fact rendering, selection state, and source-text escaping.
 opportunities" lens (the ecosystem auth/cloud/config/database/AI-client
 integration suggestions for a package or platform library) as a pure,
 dependency-injected render function, including its opportunity-row API-name
-splitting, package-chip detection, and "look for" chip rendering. `app.js`
+splitting, package-chip detection, and "look for" chip rendering. `dotnet-inspect.ts`
 still owns `state`, the scan-scope-keyed async load lifecycle
 (`loadPackageOpportunities`), and the platform library picker, and passes
-each computed slice in explicitly. `test/package-opportunities.test.js` gates
+each computed slice in explicitly. `test/package-opportunities.test.ts` gates
 the platform pick-a-library prompt, the scanning/loading/error states (fresh
 versus stale scope), the no-opportunities and inspection-error banners, the
 category summary counts, API name splitting, package-chip versus plain-text

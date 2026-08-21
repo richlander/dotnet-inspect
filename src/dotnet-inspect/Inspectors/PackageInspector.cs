@@ -336,6 +336,7 @@ internal static class PackageInspector
         result.VersionCount = metadata.VersionCount;
         result.PackageSize = metadata.PackageSize;
         result.IsVerified = metadata.IsVerified;
+        result.Listed = metadata.Listed;
         result.Owners = metadata.Owners;
         result.Deprecation = metadata.Deprecation;
         result.Vulnerabilities = metadata.Vulnerabilities;

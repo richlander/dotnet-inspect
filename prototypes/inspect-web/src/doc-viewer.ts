@@ -1,7 +1,6 @@
-export interface DocViewerDocument {
-  name: string;
-  path: string;
-}
+import type { BrowserPackageDocument } from "./inspect-web-engine.d.ts";
+
+export type DocViewerDocument = Pick<BrowserPackageDocument, "name" | "path">;
 
 export interface DocViewerMeta {
   name: string;

@@ -12,7 +12,7 @@ import {
   memberScopeIsActive,
   restoreLibraryScope,
   restoreMemberHistoryState,
-} from "../src/member-filtering.js";
+} from "../src/member-filtering.ts";
 
 test("body targets must identify the selected overload or one of its accessor bodies", () => {
   const member = { name: "Value" };

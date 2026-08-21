@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+
 namespace ILInspector.Analysis.ClassicAsyncFixtures;
 
 public static class ClassicAsyncSiblingFixture
@@ -107,6 +109,72 @@ public static class ClassicAsyncSiblingFixture
     {
         int Core(int v) => ReadValue(v);
         return Core(value);
+    }
+
+    public static int CallsThroughSiblingLocalFunctions(int value)
+    {
+        return First(value);
+
+        static int First(int v) => Second(v);
+        static int Second(int v) =>
+            v > 0 ? First(v - 1) : ReadValue(v);
+    }
+
+    public static async Task<int> AsyncOwnerCallsThroughLocalFunction(
+        int value)
+    {
+        await Task.Yield();
+        int offset = value;
+        return Core();
+
+        int Core() => ReadValue(offset);
+    }
+
+    public static async Task<int> AsyncLiftedFunctionCallsSibling(
+        int value)
+    {
+        return await Outer(value);
+
+        static async Task<int> Outer(int v)
+        {
+            await Task.Yield();
+            return Inner(v);
+        }
+
+        static int Inner(int v) => ReadValue(v);
+    }
+
+    [AsyncStateMachine(typeof(ExplicitMoveNextStateMachine))]
+    public static void ExplicitMoveNextSource()
+    {
+    }
+
+    internal static async Task<int> ScopedAsyncLocalOwner(string marker)
+    {
+        await Task.Yield();
+        return Core(marker.Length);
+
+        static int Core(int value) => ReadValue(value);
+    }
+
+    public static async Task<int> ScopedAsyncLocalOwner(int marker)
+    {
+        await Task.Yield();
+        return Core(marker);
+
+        static int Core(int value) => ReadValue(value);
+    }
+
+    private struct ExplicitMoveNextStateMachine : IAsyncStateMachine
+    {
+        void IAsyncStateMachine.MoveNext() => ReadValue(1);
+
+        public void MoveNext(int value) => ReadValue(value);
+
+        void IAsyncStateMachine.SetStateMachine(
+            IAsyncStateMachine stateMachine)
+        {
+        }
     }
 
     public static void ReadByRef(ref int value)
