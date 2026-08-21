@@ -88,8 +88,12 @@ function runtimeSurface(
   assemblyName: string,
   typeId: string,
   totalMembers = 2,
+  platformPack = "netcore.app",
 ): BrowserPackageSurface {
   const primary = assembly(assemblyId, assemblyName);
+  primary.platformPack = platformPack;
+  const type = typeSurface(typeId, assemblyName);
+  type.platformPack = platformPack;
   return packageSurface({
     package: "Microsoft.NETCore.App",
     version: "10.0.0",
@@ -97,7 +101,7 @@ function runtimeSurface(
     activeFramework: "net10.0",
     defaultAssemblyId: primary.id,
     assemblies: [primary],
-    types: [typeSurface(typeId, assemblyName)],
+    types: [type],
     accessibility: [{
       id: "public",
       label: "Public",
@@ -400,6 +404,47 @@ test("resident runtime packs short-circuit without entering loading state", asyn
   });
   assert.equal(engineCalls, 0);
   assert.equal(loadingTransitions, 0);
+});
+
+test("runtime pack acquisition fills the core family after an ASP.NET-first load", async () => {
+  const calls: string[] = [];
+  let resident: AppPackage | null = null;
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    loadRuntimePackAssembly: async () => {
+      calls.push("aspnet");
+      return JSON.stringify(runtimeSurface(
+        "aspnet-http",
+        "Microsoft.AspNetCore.Http.Abstractions",
+        "Microsoft.AspNetCore.Http.IHeaderDictionary",
+        2,
+        "aspnetcore.app"));
+    },
+    loadRuntimePack: async () => {
+      calls.push("runtime");
+      return JSON.stringify(runtimeSurface(
+        "corelib",
+        "System.Private.CoreLib",
+        "System.Object"));
+    },
+    runtimePackage: () => resident,
+    retainPackage: packageModel => {
+      resident = packageModel;
+    },
+  }));
+
+  const aspNet = await acquisition.loadRuntimePackAssembly(
+    "net10.0",
+    "Microsoft.AspNetCore.Http.Abstractions.dll",
+    "aspnetcore.app");
+  const runtime = await acquisition.loadRuntimePack("net10.0");
+
+  assert.ok(aspNet.packageModel);
+  assert.equal(runtime.packageModel, aspNet.packageModel);
+  assert.deepEqual(calls, ["aspnet", "runtime"]);
+  assert.deepEqual(
+    runtime.packageModel?.assemblies.map(candidate => candidate.name),
+    ["Microsoft.AspNetCore.Http.Abstractions", "System.Private.CoreLib"]);
+  assert.equal(runtime.packageModel?.assembly, "System.Private.CoreLib");
 });
 
 test("resident runtime assemblies match the requested dll name", async () => {

@@ -31,6 +31,16 @@ export interface AppPackage {
   isRuntimePack: boolean;
 }
 
+const DEFAULT_RUNTIME_ASSEMBLY = "System.Private.CoreLib";
+
+export function runtimePackIsResident(
+  packageModel: Pick<AppPackage, "assemblies"> | null | undefined,
+): boolean {
+  return packageModel?.assemblies.some(assembly =>
+    assembly.name.toLowerCase()
+      === DEFAULT_RUNTIME_ASSEMBLY.toLowerCase()) ?? false;
+}
+
 function packageTypes(result: BrowserPackageSurface): BrowserTypeSurface[] {
   return (result.types ?? []).map(type => ({
     ...type,
@@ -270,6 +280,7 @@ export function createPackageAcquisition(
       const requestedFramework = framework || "";
       const existing = dependencies.runtimePackage();
       if (existing
+        && runtimePackIsResident(existing)
         && (!requestedFramework
           || existing.activeFramework.toLowerCase()
             === requestedFramework.toLowerCase())) {
@@ -282,6 +293,20 @@ export function createPackageAcquisition(
         if (!isCurrent()) return null;
         dependencies.refreshPackageStats();
         const packageModel = createRuntimePackageModel(result);
+        const current = dependencies.runtimePackage();
+        if (current
+          && (!requestedFramework
+            || current.activeFramework.toLowerCase()
+              === requestedFramework.toLowerCase())) {
+          mergeRuntimePackageSurface(current, result);
+          current.version = packageModel.version;
+          current.frameworks = packageModel.frameworks;
+          current.activeFramework = packageModel.activeFramework;
+          current.assembly = packageModel.assembly;
+          current.assemblyId = packageModel.assemblyId;
+          current.assemblyAsset = packageModel.assemblyAsset;
+          return current;
+        }
         dependencies.retainPackage(packageModel, existing);
         return packageModel;
       });

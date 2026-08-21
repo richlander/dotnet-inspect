@@ -70,6 +70,7 @@ import {
 } from "./workspace-navigation.ts";
 import {
   createPackageAcquisition,
+  runtimePackIsResident,
   type AppPackage,
 } from "./package-acquisition.ts";
 import {
@@ -7147,7 +7148,7 @@ async function loadPackage(
 }
 
 function runtimePackLoaded() {
-  return state.packages.some(item => item.isRuntimePack);
+  return runtimePackIsResident(runtimePackPackage());
 }
 
 function runtimePackPackage() {
