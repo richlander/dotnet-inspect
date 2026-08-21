@@ -388,6 +388,20 @@ gates the effective/physical target distinction; and
 `InspectionGraphPackageBoundaryTests.PackageGroupsLens_DoesNotCollapseMatchingAssemblyMetadata`
 gates the close acquisition-identity case.
 
+This describes the current implementation. Under the target
+[artifact acquisition design](artifact-acquisition-and-workspaces.md), the
+package adapter validates the coordinate, physical asset, producer, and content
+before minting its realization and correspondence proof. Package graph
+projection moves to an optional package-query companion and consumes that
+proof; core assembly Queries no longer parse package versions or pattern match
+Metadata-owned package provenance. The serialized `package` subject kind
+remains part of the full host's graph contract, while a package-free host does
+not reference the package projection implementation.
+
+The platform adapter performs the equivalent validation and mints the platform
+correspondence proof. Platform graph projection consumes that proof without
+depending on the package companion or Metadata-owned platform provenance.
+
 ## Relationships and occurrences
 
 ### Relationship descriptors
