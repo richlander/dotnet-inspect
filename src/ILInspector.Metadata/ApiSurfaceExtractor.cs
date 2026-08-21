@@ -1208,11 +1208,15 @@ public static class ApiSurfaceExtractor
                     typeContext,
                     observeText,
                     observeDecodeWork);
-                bool isExplicitInterfaceImplementation = IsExplicitInterfaceAggregate(
+                InterfaceImplementationResolution?
+                    interfaceImplementationResolution =
+                        GetExplicitInterfaceAggregateResolution(
                     propertyName,
                     methodImplementations,
                     (accessors.Getter, "get_"),
                     (accessors.Setter, "set_"));
+                bool isExplicitInterfaceImplementation =
+                    interfaceImplementationResolution is not null;
                 if (isExplicitInterfaceImplementation
                     && ValidateExplicitPropertyRowSignature(
                         reader,
@@ -1246,6 +1250,8 @@ public static class ApiSurfaceExtractor
                     IsOverride = isOverrideProperty,
                     IsSealed = isSealedProperty,
                     IsExplicitInterfaceImplementation = isExplicitInterfaceImplementation,
+                    InterfaceImplementationResolution =
+                        interfaceImplementationResolution,
                     IsUnsafe = HasUnsafeSignature(reader, prop, observeDecodeWork)
                         || AttributeReader.HasRequiresUnsafeAttribute(
                             reader,
@@ -1690,11 +1696,15 @@ public static class ApiSurfaceExtractor
                     observeAttributeMaterialize,
                     (accessors.Adder, "add"),
                     (accessors.Remover, "remove"));
-                bool isExplicitInterfaceImplementation = IsExplicitInterfaceAggregate(
+                InterfaceImplementationResolution?
+                    interfaceImplementationResolution =
+                        GetExplicitInterfaceAggregateResolution(
                     eventName,
                     methodImplementations,
                     (accessors.Adder, "add_"),
                     (accessors.Remover, "remove_"));
+                bool isExplicitInterfaceImplementation =
+                    interfaceImplementationResolution is not null;
                 if (isExplicitInterfaceImplementation
                     && ValidateExplicitEventRowSignature(
                         reader,
@@ -1761,6 +1771,8 @@ public static class ApiSurfaceExtractor
                     IsOverride = isOverrideEvent,
                     IsSealed = isSealedEvent,
                     IsExplicitInterfaceImplementation = isExplicitInterfaceImplementation,
+                    InterfaceImplementationResolution =
+                        interfaceImplementationResolution,
                     IsUnsafe = HasUnsafeSignature(reader, evt, observeDecodeWork)
                         || AttributeReader.HasRequiresUnsafeAttribute(
                             reader,
@@ -1964,6 +1976,10 @@ public static class ApiSurfaceExtractor
                 IsStatic = (method.Attributes & MethodAttributes.Static) != 0,
                 IsFinalizer = isFinalizer,
                 IsExplicitInterfaceImplementation = isExplicitImplementation,
+                InterfaceImplementationResolution =
+                    isExplicitImplementation
+                        ? methodImplementations.GetResolution(methodHandle)
+                        : null,
                 CanUseImplicitInterfaceSyntax =
                     canUseImplicitInterfaceSyntax,
                 Accessibility = methodAccessibility
@@ -2097,11 +2113,15 @@ public static class ApiSurfaceExtractor
                 continue;
             }
             string propertyName = reader.GetString(property.Name);
-            bool isExplicitInterfaceImplementation = IsExplicitInterfaceAggregate(
+            InterfaceImplementationResolution?
+                interfaceImplementationResolution =
+                    GetExplicitInterfaceAggregateResolution(
                 propertyName,
                 methodImplementations,
                 (accessors.Getter, "get_"),
                 (accessors.Setter, "set_"));
+            bool isExplicitInterfaceImplementation =
+                interfaceImplementationResolution is not null;
             if (isExplicitInterfaceImplementation
                 && ValidateExplicitPropertyRowSignature(
                     reader,
@@ -2127,6 +2147,8 @@ public static class ApiSurfaceExtractor
                 IsSealed = isSealedProperty,
                 IsExplicitInterfaceImplementation =
                     isExplicitInterfaceImplementation,
+                InterfaceImplementationResolution =
+                    interfaceImplementationResolution,
                 Accessibility = propertyAccessibility
             });
             surface.PublicPropertyCount++;
@@ -2262,11 +2284,15 @@ public static class ApiSurfaceExtractor
                 continue;
             }
             string eventName = reader.GetString(evt.Name);
-            bool isExplicitInterfaceImplementation = IsExplicitInterfaceAggregate(
+            InterfaceImplementationResolution?
+                interfaceImplementationResolution =
+                    GetExplicitInterfaceAggregateResolution(
                 eventName,
                 methodImplementations,
                 (accessors.Adder, "add_"),
                 (accessors.Remover, "remove_"));
+            bool isExplicitInterfaceImplementation =
+                interfaceImplementationResolution is not null;
             if (isExplicitInterfaceImplementation
                 && ValidateExplicitEventRowSignature(
                     reader,
@@ -2292,6 +2318,8 @@ public static class ApiSurfaceExtractor
                 IsSealed = isSealedEvent,
                 IsExplicitInterfaceImplementation =
                     isExplicitInterfaceImplementation,
+                InterfaceImplementationResolution =
+                    interfaceImplementationResolution,
                 Accessibility = eventAccessibility
             });
             surface.PublicEventCount++;
@@ -3040,7 +3068,7 @@ public static class ApiSurfaceExtractor
                 new HashSet<TypeDefinitionHandle>();
             var pending = new Queue<TypeDefinitionHandle>();
             var closureIdentityProvider =
-                new ExplicitInterfaceTypeIdentityProvider();
+                new ExplicitInterfaceTypeIdentityProvider(observeDecodeWork);
             bool hasUnresolvedExternalInheritance = false;
             EntityHandle baseTypeHandle = typeDefinition.BaseType;
             int baseTypeCount = 0;
@@ -3518,25 +3546,36 @@ public static class ApiSurfaceExtractor
         IReadOnlyDictionary<MethodDefinitionHandle, List<ExplicitInterfaceMethodTarget>>
             explicitInterfaceImplementationTargets,
         params (MethodDefinitionHandle Handle, string DeclarationPrefix)[] accessors)
-        => IsExplicitInterfaceAggregate(
+        => GetExplicitInterfaceAggregateResolution(
             name,
             handle => explicitInterfaceImplementationTargets.TryGetValue(
                 handle,
                 out var targets)
                     ? targets
                     : null,
-            accessors);
+            accessors) is not null;
 
     internal static bool IsExplicitInterfaceAggregate(
         string name,
         MethodImplementationProjection methodImplementations,
         params (MethodDefinitionHandle Handle, string DeclarationPrefix)[] accessors)
-        => IsExplicitInterfaceAggregate(
+        => GetExplicitInterfaceAggregateResolution(
+            name,
+            methodImplementations,
+            accessors) is not null;
+
+    internal static InterfaceImplementationResolution?
+        GetExplicitInterfaceAggregateResolution(
+            string name,
+            MethodImplementationProjection methodImplementations,
+            params (MethodDefinitionHandle Handle, string DeclarationPrefix)[] accessors)
+        => GetExplicitInterfaceAggregateResolution(
             name,
             handle => methodImplementations.GetExplicitInterfaceTargets(handle),
             accessors);
 
-    private static bool IsExplicitInterfaceAggregate(
+    private static InterfaceImplementationResolution?
+        GetExplicitInterfaceAggregateResolution(
         string name,
         Func<MethodDefinitionHandle, IReadOnlyList<ExplicitInterfaceMethodTarget>?>
             getTargets,
@@ -3544,7 +3583,7 @@ public static class ApiSurfaceExtractor
     {
         int separator = name.LastIndexOf('.');
         if (separator <= 0 || separator == name.Length - 1)
-            return false;
+            return null;
 
         string interfaceName = name[..separator];
         int aliasSeparator = interfaceName.IndexOf("::", StringComparison.Ordinal);
@@ -3554,6 +3593,7 @@ public static class ApiSurfaceExtractor
         string declarationMemberName = memberName == "this[]" ? "Item" : memberName;
         bool hasAccessor = false;
         HashSet<string>? commonInterfaceKeys = null;
+        List<ExplicitInterfaceMethodTarget>? matchingTargets = null;
         foreach (var accessor in accessors)
         {
             if (accessor.Handle.IsNil)
@@ -3562,27 +3602,41 @@ public static class ApiSurfaceExtractor
             IReadOnlyList<ExplicitInterfaceMethodTarget>? targets =
                 getTargets(accessor.Handle);
             if (targets is null || targets.Count == 0)
-                return false;
+                return null;
 
-            var matchingKeys = targets
+            var accessorTargets = targets
                 .Where(target =>
                     (target.InterfaceType.MetadataName == interfaceName
                         || target.InterfaceType.AggregateAliasName == interfaceName)
                     && target.MethodName
                         == accessor.DeclarationPrefix + declarationMemberName)
+                .ToList();
+            var matchingKeys = accessorTargets
                 .Select(target => target.InterfaceType.Key)
                 .ToHashSet(StringComparer.Ordinal);
             if (matchingKeys.Count == 0)
-                return false;
+                return null;
+            (matchingTargets ??= []).AddRange(accessorTargets);
             if (commonInterfaceKeys is null)
                 commonInterfaceKeys = matchingKeys;
             else
                 commonInterfaceKeys.IntersectWith(matchingKeys);
             if (commonInterfaceKeys.Count == 0)
-                return false;
+                return null;
         }
 
-        return hasAccessor && commonInterfaceKeys is { Count: > 0 };
+        if (!hasAccessor
+            || commonInterfaceKeys is not { Count: > 0 }
+            || matchingTargets is null)
+        {
+            return null;
+        }
+
+        return matchingTargets.Any(target =>
+            commonInterfaceKeys.Contains(target.InterfaceType.Key)
+            && !target.InterfaceMembershipProven)
+                ? InterfaceImplementationResolution.Undetermined
+                : InterfaceImplementationResolution.Proven;
     }
 
     /// <summary>
@@ -6894,12 +6948,14 @@ public static class ApiSurfaceExtractor
     /// Members and retained text are counted as they are built but committed only when their type
     /// is, so a rejected type spends no retention budget. Structural MethodImpl text projected
     /// for admitted members likewise earns cumulative decode-work credit only when its owning type
-    /// commits; it does not inflate the reported retained-output total, and pending projection
-    /// cannot finance its own decode. The exact retained total is gated by
+    /// commits; it does not inflate the reported retained-output total, pending projection cannot
+    /// finance its own decode, and committed projection credit cannot exceed one additional unit
+    /// per retained model character. The exact retained total is gated by
     /// <c>ApiSurfaceExtractorBoundsTests.RetainedTextBudget_IsExact</c>. A separate monotonic
     /// extraction-wide decode-work estimate may reject allocation-amplifying input before its
-    /// expanded model exists; the hostile-shape allocation tests in that class gate that safety
-    /// boundary.
+    /// expanded model exists;
+    /// <c>ApiSurfaceExtractorBoundsTests.CommittedMethodImplProjection_DoesNotFinanceLaterAmplification</c>
+    /// and the other hostile-shape allocation tests in that class gate that safety boundary.
     /// </remarks>
     private sealed class ExtractionBudget(ApiSurfaceExtractionBounds bounds)
     {
@@ -6975,7 +7031,10 @@ public static class ApiSurfaceExtractor
             _types++;
             _members += _pendingMembers;
             _retainedTextCharacters += _pendingTextCharacters;
-            _committedProjectionTextCharacters += _pendingProjectionTextCharacters;
+            _committedProjectionTextCharacters = Math.Min(
+                bounds.MaxRetainedTextCharacters,
+                _committedProjectionTextCharacters
+                    + _pendingProjectionTextCharacters);
             _pendingMembers = 0;
             _pendingTextCharacters = 0;
             _pendingObservedTextCharacters = 0;
@@ -7042,11 +7101,14 @@ public static class ApiSurfaceExtractor
             long retainedTextCharacters =
                 (long)_retainedTextCharacters
                 + _pendingTextCharacters;
+            long projectionCredit = Math.Min(
+                _committedProjectionTextCharacters
+                    * ProjectionTextDecodeWorkCreditWeight,
+                retainedTextCharacters * DecodeWorkWeight);
             long limit =
                 MinimumDecodeWorkLimit
                 + retainedTextCharacters * RetainedTextDecodeWorkCreditWeight
-                + _committedProjectionTextCharacters
-                    * ProjectionTextDecodeWorkCreditWeight;
+                + projectionCredit;
             if (next > limit || next < 0)
             {
                 throw new ExtractionBoundExceededException(

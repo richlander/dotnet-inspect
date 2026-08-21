@@ -192,12 +192,15 @@ public static class MetadataDeclarationQuery
             }
 
             string propertyName = declaration.MetadataName;
-            bool isExplicitInterfaceImplementation =
-                ApiSurfaceExtractor.IsExplicitInterfaceAggregate(
+            InterfaceImplementationResolution?
+                interfaceImplementationResolution =
+                    ApiSurfaceExtractor.GetExplicitInterfaceAggregateResolution(
                     propertyName,
                     methodImplementations,
                     (declaration.Getter, "get_"),
                     (declaration.Setter, "set_"));
+            bool isExplicitInterfaceImplementation =
+                interfaceImplementationResolution is not null;
             if (isExplicitInterfaceImplementation
                 && ApiSurfaceExtractor.ValidateExplicitPropertyRowSignature(
                     reader,
@@ -233,6 +236,8 @@ public static class MetadataDeclarationQuery
                 IsOverride = declaration.IsOverride,
                 IsSealed = declaration.IsSealed,
                 IsExplicitInterfaceImplementation = isExplicitInterfaceImplementation,
+                InterfaceImplementationResolution =
+                    interfaceImplementationResolution,
                 IsUnsafe = ApiSurfaceExtractor.HasUnsafeSignature(reader, property)
                     || AttributeReader.HasRequiresUnsafeAttribute(reader, property.GetCustomAttributes()),
                 Accessibility = NonPublicAccessibility(declaration.Accessibility),
@@ -315,12 +320,15 @@ public static class MetadataDeclarationQuery
             bool degraded = eventType is null;
             eventType ??= "<unsupported: event type>";
             string eventName = reader.GetString(evt.Name);
-            bool isExplicitInterfaceImplementation =
-                ApiSurfaceExtractor.IsExplicitInterfaceAggregate(
+            InterfaceImplementationResolution?
+                interfaceImplementationResolution =
+                    ApiSurfaceExtractor.GetExplicitInterfaceAggregateResolution(
                     eventName,
                     methodImplementations,
                     (accessors.Adder, "add_"),
                     (accessors.Remover, "remove_"));
+            bool isExplicitInterfaceImplementation =
+                interfaceImplementationResolution is not null;
             if (isExplicitInterfaceImplementation
                 && ApiSurfaceExtractor.ValidateExplicitEventRowSignature(
                     reader,
@@ -370,6 +378,8 @@ public static class MetadataDeclarationQuery
                 IsOverride = isOverride,
                 IsSealed = isSealed,
                 IsExplicitInterfaceImplementation = isExplicitInterfaceImplementation,
+                InterfaceImplementationResolution =
+                    interfaceImplementationResolution,
                 IsUnsafe = ApiSurfaceExtractor.HasUnsafeSignature(reader, evt)
                     || AttributeReader.HasRequiresUnsafeAttribute(reader, evt.GetCustomAttributes()),
                 Accessibility = NonPublicAccessibility(accessibility),

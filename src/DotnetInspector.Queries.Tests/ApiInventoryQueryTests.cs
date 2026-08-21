@@ -255,6 +255,11 @@ public class ApiInventoryQueryTests
             Assert.All(
                 explicitMembers,
                 member => Assert.False(member.CanUseImplicitInterfaceSyntax));
+            Assert.All(
+                explicitMembers,
+                member => Assert.Equal(
+                    InterfaceImplementationResolution.Proven,
+                    member.InterfaceImplementationResolution));
             Assert.Contains(
                 explicitMembers,
                 member => member.Kind == "explicit-interface-implementation"

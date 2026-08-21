@@ -663,6 +663,53 @@ public sealed class CSharpTypePrinterTests
             """);
     }
 
+    [Fact]
+    public void NestedGenericExplicitInterfaceAggregatesCompileBack()
+    {
+        using var peReader = new PEReader(
+            File.OpenRead(typeof(NestedGenericExplicitAggregateSurface<,>).Assembly.Location));
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = reader.TypeDefinitions.Single(handle =>
+        {
+            var definition = reader.GetTypeDefinition(handle);
+            return reader.GetString(definition.Namespace) == "ILInspector.CSharp.Tests"
+                && reader.GetString(definition.Name)
+                    == "NestedGenericExplicitAggregateSurface`2";
+        });
+        var type = MetadataDeclarationQuery.GetTypeSurface(
+            reader,
+            typeHandle,
+            includeNonPublicMembers: true);
+        type.Members =
+        [
+            Assert.Single(type.Members, member =>
+                member.Kind == "property"
+                && member.Name.EndsWith(".Value", StringComparison.Ordinal))
+        ];
+
+        Assert.True(type.Members[0].IsExplicitInterfaceImplementation);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.Contains(
+            "NestedGenericAggregateOuter<T>.I<U>.Value",
+            result.Source,
+            StringComparison.Ordinal);
+        AssertCompiles(
+            result.Source,
+            """
+            namespace ILInspector.CSharp.Tests;
+
+            public class NestedGenericAggregateOuter<T>
+            {
+                public interface I<U>
+                {
+                    U Value { get; }
+                }
+            }
+            """);
+    }
+
     [Theory]
     [InlineData(typeof(SetterOnlyExplicitSurface), "set")]
     [InlineData(typeof(InitOnlyExplicitSurface), "init")]
@@ -5485,6 +5532,20 @@ public sealed class GenericExplicitAggregateSurface<T> : IGenericAggregateSurfac
         add { }
         remove { }
     }
+}
+
+public class NestedGenericAggregateOuter<T>
+{
+    public interface I<U>
+    {
+        U Value { get; }
+    }
+}
+
+public sealed class NestedGenericExplicitAggregateSurface<T, U>
+    : NestedGenericAggregateOuter<T>.I<U>
+{
+    U NestedGenericAggregateOuter<T>.I<U>.Value => default!;
 }
 
 public interface ISetterOnlySurface

@@ -939,6 +939,40 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void InheritedInterfaceClosure_SpendsDecodeWorkBudget()
+    {
+        int baselineWork = MeasureDecodeWork(
+            BuildInheritedInterfaceClosureImage(depth: 0, nameLength: 1_024));
+        int inheritedWork = MeasureDecodeWork(
+            BuildInheritedInterfaceClosureImage(depth: 32, nameLength: 1_024));
+
+        Assert.True(
+            inheritedWork > baselineWork + 32 * 1_024,
+            $"inherited closure charged {inheritedWork - baselineWork:N0} additional characters");
+
+        static int MeasureDecodeWork(byte[] image)
+        {
+            using var stream = new MemoryStream(image, writable: false);
+            using var peReader = new PEReader(stream);
+            MetadataReader reader = peReader.GetMetadataReader();
+            TypeDefinitionHandle type = reader.TypeDefinitions.Single(handle =>
+                reader.GetString(reader.GetTypeDefinition(handle).Name)
+                    == "Implementer");
+            int decodeWork = 0;
+
+            Dictionary<MethodDefinitionHandle, List<ExplicitInterfaceMethodTarget>>
+                targets =
+                    ApiSurfaceExtractor.GetExplicitInterfaceImplementationTargets(
+                        reader,
+                        reader.GetTypeDefinition(type),
+                        observeDecodeWork: work => decodeWork += work);
+
+            Assert.Single(Assert.Single(targets).Value);
+            return decodeWork;
+        }
+    }
+
+    [Fact]
     public void UndeterminedInterfaceProjection_EarnsCommittedDecodeWorkCredit()
     {
         byte[] image = BuildMethodImplFloodImage(
@@ -966,6 +1000,17 @@ public sealed class ApiSurfaceExtractorBoundsTests
         Assert.True(
             retainedText > 0,
             "an undetermined retained MethodImpl target earned no decode-work credit");
+    }
+
+    [Fact]
+    public void CommittedMethodImplProjection_DoesNotFinanceLaterAmplification()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildMethodImplFloodImage(
+                methodImplCount: 1_900,
+                nameLength: 4_000,
+                includeMethodImpls: true,
+                trailingArrayRank: 20_000_000));
     }
 
     [Fact]
@@ -2555,7 +2600,8 @@ public sealed class ApiSurfaceExtractorBoundsTests
         int nameLength,
         bool includeMethodImpls,
         bool hideBodies = false,
-        bool declarationOnUnresolvedInheritedInterface = false)
+        bool declarationOnUnresolvedInheritedInterface = false,
+        int? trailingArrayRank = null)
     {
         var metadata = Metadata("MethodImplFlood");
         AssemblyReferenceHandle assembly = metadata.AddAssemblyReference(
@@ -2581,6 +2627,16 @@ public sealed class ApiSurfaceExtractorBoundsTests
             "Implementer",
             TypeAttributes.Public);
         metadata.AddInterfaceImplementation(type, interfaceType);
+        if (trailingArrayRank is not null)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("Samples"),
+                metadata.GetOrAddString("HugeArray"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(methodImplCount + 1));
+        }
 
         var accessorSignature = new BlobBuilder();
         new BlobEncoder(accessorSignature)
@@ -2616,6 +2672,112 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 metadata.AddMethodImplementation(type, bodies[index], declaration);
             }
         }
+
+        if (trailingArrayRank is { } rank)
+        {
+            var fieldSignature = new BlobBuilder();
+            fieldSignature.WriteByte(0x06);
+            fieldSignature.WriteByte(0x14);
+            fieldSignature.WriteByte(0x08);
+            fieldSignature.WriteCompressedInteger(rank);
+            fieldSignature.WriteCompressedInteger(0);
+            fieldSignature.WriteCompressedInteger(0);
+            metadata.AddFieldDefinition(
+                FieldAttributes.Public,
+                metadata.GetOrAddString("Value"),
+                metadata.GetOrAddBlob(fieldSignature));
+        }
+
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildInheritedInterfaceClosureImage(
+        int depth,
+        int nameLength)
+    {
+        var metadata = Metadata("InheritedInterfaceClosure");
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var inheritedInterfaces = new List<TypeDefinitionHandle>(depth);
+        for (int index = 0; index < depth; index++)
+        {
+            inheritedInterfaces.Add(metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
+                metadata.GetOrAddString("Samples"),
+                metadata.GetOrAddString(
+                    $"{new string('I', nameLength)}{index}"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1)));
+        }
+
+        TypeDefinitionHandle leaf = metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Interface
+                | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("ILeaf"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle implementer = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Implementer"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+
+        for (int index = 1; index < inheritedInterfaces.Count; index++)
+        {
+            metadata.AddInterfaceImplementation(
+                inheritedInterfaces[index],
+                inheritedInterfaces[index - 1]);
+        }
+        if (inheritedInterfaces.Count > 0)
+        {
+            metadata.AddInterfaceImplementation(
+                leaf,
+                inheritedInterfaces[^1]);
+        }
+        metadata.AddInterfaceImplementation(implementer, leaf);
+
+        var signatureBuilder = new BlobBuilder();
+        new BlobEncoder(signatureBuilder)
+            .MethodSignature(isInstanceMethod: true)
+            .Parameters(0, returnType => returnType.Void(), _ => { });
+        BlobHandle signature = metadata.GetOrAddBlob(signatureBuilder);
+        MethodDefinitionHandle declaration = metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot
+                | MethodAttributes.HideBySig,
+            MethodImplAttributes.Runtime,
+            metadata.GetOrAddString("M"),
+            signature,
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle body = metadata.AddMethodDefinition(
+            MethodAttributes.Private
+                | MethodAttributes.Virtual
+                | MethodAttributes.Final
+                | MethodAttributes.NewSlot
+                | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Body"),
+            signature,
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodImplementation(implementer, body, declaration);
 
         return Serialize(metadata);
     }

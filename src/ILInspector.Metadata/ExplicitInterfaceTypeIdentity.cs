@@ -88,6 +88,8 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
         namedIdentityCache = [];
     readonly Dictionary<TypeSpecificationIdentityCacheKey, ExplicitInterfaceTypeIdentity>
         typeSpecificationIdentityCache = [];
+    readonly Dictionary<string, StructuredDisplayName> structuredDisplayNames =
+        new(StringComparer.Ordinal);
     string? currentModuleKey;
     int? identityCacheEntryLimit;
     int remainingProjectionWork =
@@ -99,6 +101,10 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
         BlobHandle Signature,
         byte RawTypeKind,
         ExplicitInterfaceSignatureContext Context);
+
+    readonly record struct StructuredDisplayName(
+        string Namespace,
+        IReadOnlyList<string> Segments);
 
     /// <summary>Charges one decoded or composed identity against the extraction work budget.</summary>
     internal ExplicitInterfaceTypeIdentity Observe(ExplicitInterfaceTypeIdentity identity)
@@ -194,6 +200,8 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
             IsInterface: (reader.GetTypeDefinition(handle).Attributes
                 & TypeAttributes.Interface) != 0,
             IsWellKnownNullable: IsWellKnownNullable(reader, handle)));
+        structuredDisplayNames[identity.Key] =
+            new(result.Name.Namespace, result.Name.Segments);
         CacheIdentity(reader, cacheKey, identity);
         return identity;
     }
@@ -218,6 +226,8 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
             name,
             GenericArity: structuredName.GenericArity,
             IsWellKnownNullable: IsWellKnownNullable(reader, handle)));
+        structuredDisplayNames[identity.Key] =
+            new(structuredName.Namespace, structuredName.Segments);
         CacheIdentity(reader, cacheKey, identity);
         return identity;
     }
@@ -322,7 +332,7 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
                 ? $"{nullableArgument.AggregateAliasName ?? nullableArgument.MetadataName}?"
                 : typeArguments.Any(argument => argument.AggregateAliasName is not null)
                     ? ApplyGenericArguments(
-                        genericType.MetadataName,
+                        genericType,
                         typeArguments
                             .Select(argument => argument.AggregateAliasName ?? argument.MetadataName)
                             .ToArray())
@@ -332,7 +342,7 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
                 "generic",
                 [genericType.Key, .. typeArguments.Select(argument => argument.Key)]),
             ApplyGenericArguments(
-                genericType.MetadataName,
+                genericType,
                 typeArguments.Select(argument => argument.MetadataName).ToArray()),
             aggregateAlias,
             GenericArguments: typeArguments,
@@ -527,8 +537,11 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
             Math.Min(int.MaxValue, identityHandles * 3));
     }
 
-    static string ApplyGenericArguments(string typeName, IReadOnlyList<string> typeArguments)
+    string ApplyGenericArguments(
+        ExplicitInterfaceTypeIdentity genericType,
+        IReadOnlyList<string> typeArguments)
     {
+        string typeName = genericType.MetadataName;
         long displayLength = typeName.Length + 2L;
         foreach (string argument in typeArguments)
         {
@@ -540,7 +553,21 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
             }
         }
 
-        return TypeResolver.ApplyGenericArguments(typeName, typeArguments)
+        bool hasStructuredName = structuredDisplayNames.TryGetValue(
+            genericType.Key,
+            out StructuredDisplayName structured);
+        string rendered = hasStructuredName
+            ? TypeResolver.ApplyGenericArguments(
+                structured.Segments,
+                typeArguments)
+            : TypeResolver.ApplyGenericArguments(typeName, typeArguments);
+        if (hasStructuredName
+            && !string.IsNullOrEmpty(structured.Namespace))
+        {
+            rendered = $"{structured.Namespace}.{rendered}";
+        }
+
+        return rendered
             .Replace(", ", ",", StringComparison.Ordinal);
     }
 
@@ -667,7 +694,12 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
         return reader.GetString(handle);
     }
 
-    (string Key, int GenericArity) ReferenceName(
+    (
+        string Key,
+        int GenericArity,
+        string Namespace,
+        IReadOnlyList<string> Segments)
+        ReferenceName(
         MetadataReader reader,
         TypeReferenceHandle handle)
     {
@@ -707,7 +739,9 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
         }
         return (
             StructuredNameKey(@namespace, segments),
-            genericArity);
+            genericArity,
+            @namespace,
+            segments);
     }
 
     string StructuredNameKey(

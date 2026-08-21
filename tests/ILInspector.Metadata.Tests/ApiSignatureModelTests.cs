@@ -212,10 +212,21 @@ public sealed class ApiSignatureModelTests
     {
         var type = GetType(nameof(ExplicitInterfaceAggregateFixture));
 
-        Assert.True(Assert.Single(type.Members, member => member.Name.EndsWith(".Value", StringComparison.Ordinal))
-            .IsExplicitInterfaceImplementation);
-        Assert.True(Assert.Single(type.Members, member => member.Name.EndsWith(".Changed", StringComparison.Ordinal))
-            .IsExplicitInterfaceImplementation);
+        var property = Assert.Single(
+            type.Members,
+            member => member.Name.EndsWith(".Value", StringComparison.Ordinal));
+        var @event = Assert.Single(
+            type.Members,
+            member => member.Name.EndsWith(".Changed", StringComparison.Ordinal));
+
+        Assert.True(property.IsExplicitInterfaceImplementation);
+        Assert.Equal(
+            InterfaceImplementationResolution.Proven,
+            property.InterfaceImplementationResolution);
+        Assert.True(@event.IsExplicitInterfaceImplementation);
+        Assert.Equal(
+            InterfaceImplementationResolution.Proven,
+            @event.InterfaceImplementationResolution);
     }
 
     [Fact]
