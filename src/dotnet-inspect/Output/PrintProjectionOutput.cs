@@ -163,7 +163,7 @@ public static class PrintProjectionOutput
             if (output.ExactBytes is { } bytes)
                 File.WriteAllBytes(outputPath, bytes);
             else
-                File.WriteAllText(outputPath, output.Content);
+                OutputPathWriter.Write(outputPath, output.Content);
         }
         else
         {
