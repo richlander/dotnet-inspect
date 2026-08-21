@@ -532,7 +532,7 @@ public class LibraryBodyIndexTests
                 typeName));
 
         Assert.True(
-            LibraryBodyAnalysisBuilder
+            LibraryBodyAsyncSiblingSignatureMatcher
                 .AsyncSiblingTypesMatch(
                     current,
                     same));
@@ -548,12 +548,12 @@ public class LibraryBodyIndexTests
                     }),
                 typeName));
         Assert.True(
-            LibraryBodyAnalysisBuilder
+            LibraryBodyAsyncSiblingSignatureMatcher
                 .AsyncSiblingTypesMatch(
                     current,
                     differentCase));
         Assert.False(
-            LibraryBodyAnalysisBuilder
+            LibraryBodyAsyncSiblingSignatureMatcher
                 .AsyncSiblingTypesMatch(
                     current,
                     different));
@@ -629,7 +629,7 @@ public class LibraryBodyIndexTests
 
         Assert.Equal(versionOne, versionTwo);
         Assert.False(
-            LibraryBodyAnalysisBuilder
+            LibraryBodyAsyncSiblingSignatureMatcher
                 .AsyncSiblingTypesMatch(
                     versionOne,
                     versionTwo));
@@ -693,22 +693,22 @@ public class LibraryBodyIndexTests
 
         Assert.Equal(netstandard, systemRuntime);
         Assert.True(
-            LibraryBodyAnalysisBuilder
+            LibraryBodyAsyncSiblingSignatureMatcher
                 .AsyncSiblingTypesMatch(
                     netstandard,
                     systemRuntime));
         Assert.False(
-            LibraryBodyAnalysisBuilder
+            LibraryBodyAsyncSiblingSignatureMatcher
                 .AsyncSiblingTypesMatch(
                     netstandard,
                     untrustedSystemRuntime));
         Assert.True(
-            LibraryBodyAnalysisBuilder
+            LibraryBodyAsyncSiblingSignatureMatcher
                 .AsyncSiblingTypesMatch(
                     intrinsic,
                     systemRuntime));
         Assert.False(
-            LibraryBodyAnalysisBuilder
+            LibraryBodyAsyncSiblingSignatureMatcher
                 .AsyncSiblingTypesMatch(
                     intrinsic,
                     untrustedSystemRuntime));
@@ -765,12 +765,12 @@ public class LibraryBodyIndexTests
         };
 
         Assert.True(
-            LibraryBodyAnalysisBuilder
+            LibraryBodyAsyncSiblingSignatureMatcher
                 .AsyncSiblingMethodsMatch(
                     generic,
                     generic));
         Assert.False(
-            LibraryBodyAnalysisBuilder
+            LibraryBodyAsyncSiblingSignatureMatcher
                 .AsyncSiblingMethodsMatch(
                     generic,
                     concrete));
@@ -789,7 +789,7 @@ public class LibraryBodyIndexTests
             RequiredParameterCount = 1,
         };
         Assert.False(
-            LibraryBodyAnalysisBuilder
+            LibraryBodyAsyncSiblingSignatureMatcher
                 .AsyncSiblingMethodMatchesSource(
                     generic,
                     source));
@@ -910,7 +910,7 @@ public class LibraryBodyIndexTests
 
         Assert.Equal(
             validDefault && !duplicateParameter,
-            LibraryBodyAnalysisBuilder
+            LibraryBodyAsyncSiblingSignatureMatcher
                 .TrailingParameterCanBeOmitted(
                     reader,
                     reader.GetMethodDefinition(
