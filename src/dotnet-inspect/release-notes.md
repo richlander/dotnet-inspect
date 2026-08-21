@@ -1,5 +1,46 @@
 # Release Notes
 
+## v0.22.0
+
+### Inspection and matching
+
+- Adds the `match` command for identity-agnostic structural comparison of two
+  selected methods in one retained assembly. It preserves exact, near,
+  different, unsupported, failed, limit-reached, and
+  ambiguous-correspondence results instead of collapsing incomplete
+  comparisons into matches (#4540).
+- Fixes canonical metadata generic-arity handling across API identity,
+  relationship traversal, type forwarding, PDB/source mapping, decompilation,
+  and selector spelling. Nested and foreign generic types now retain their
+  declared arity without trusting unvalidated name suffixes (#4233, #4539).
+
+### Package audit
+
+- Adds the opt-in `Audit: Findings` package section for bounded scans of
+  text-bearing package files and decoded SourceLink maps. Findings identify
+  control or bidi text, package-source declarations, cleared restore sources,
+  concerning SourceLink text, and literal parent-path references while keeping
+  artifact text visually encoded in terminal output (#4408).
+
+### Performance analysis
+
+- Moves Performance Triage onto the typed inspection-query path while
+  preserving section selection, ranking, candidate identity, and structured
+  output behavior. Body-shape predicates continue to intersect with the exact
+  source MethodDefs selected by Performance Triage (#4409).
+- Aggregate repeated-scan rows can now retain a separate exact supporting call
+  coordinate in structured output. The support remains distinct from the
+  aggregate Finding and candidate identity, enabling external runtime
+  correlation without changing static priority or confidence (#4544).
+
+### Clone and diagnostic correctness
+
+- Materializes complete stack-slot copy components and raises the bounded
+  structural-clone comparison limit, improving coverage without emitting
+  partial clone results (#4407, #4506).
+- Hardens scoped analysis diagnostic aggregation and aligns structural-review
+  carets with their rendered evidence (#4499, #4374).
+
 ## v0.21.0
 
 ### Query and package workflows
