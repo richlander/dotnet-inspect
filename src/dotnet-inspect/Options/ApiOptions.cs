@@ -229,11 +229,16 @@ public partial record ApiOptions : IProjectionOptions
     public bool VerbosityEnabled => !Tabular && !JsonOutput;
 
     /// <summary>
-    /// True when the user is performing a section/projection query (-S/--columns/--fields).
+    /// True when the user is performing a section/projection query
+    /// (-S/--columns/--fields or --where Kind=...).
     /// Such queries produce a focused section view, not the default tree shape.
     /// </summary>
     public bool HasSectionQuery =>
-        Select is { Length: > 0 } || SelectDefault || Columns is { Length: > 0 } || Fields is { Length: > 0 };
+        Select is { Length: > 0 }
+        || SelectDefault
+        || Columns is { Length: > 0 }
+        || Fields is { Length: > 0 }
+        || BodyKindQuery.HasFilter;
 
     /// <summary>
     /// Returns the appropriate Markout formatter for the current output format.

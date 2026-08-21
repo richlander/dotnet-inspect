@@ -1,13 +1,98 @@
 # Release Notes
 
+## v0.21.0
+
+### Query and package workflows
+
+- Adds the `vocabulary` command for discovering product-owned query values and
+  typed `Body Shapes` queries for library, type, and member scopes. Body-kind
+  predicates use ordinary section projection and structured output, resolve
+  property and event accessors, and, at library scope, compose with Performance
+  Triage predicates without widening the selected source MethodDefs (#4312,
+  #4370, #4390, #4410, #4435, #4442).
+- **Breaking:** Removes the standalone `body-shape` command without a
+  compatibility alias. Use `--where "Kind=<C# Body Kinds ID>"` with `library`,
+  one exact `type`, or one exact `member` (#4460).
+- Adds package dependency-tree projection and avoids package archive downloads
+  when nuspec or dependency-only evidence is sufficient.
+  `package --all-libraries` bare selection preserves its fixed overview and
+  `--count` returns per-section maps; multi-library output paths and global row
+  windows stay aligned across output formats (#4313, #4318, #4329, #4340,
+  #4353, #4423).
+- Adds a version-matched `package-skills` guide for discovering, validating,
+  selecting, and persisting `SKILL.md` files supplied by restored NuGet
+  dependencies. `project -S Skills` now validates package skill identity and
+  descriptions and fails visibly for invalid metadata or missing restored
+  skill files instead of returning tolerant rows (#4404).
+- **Breaking:** `Unsafe Members` no longer expands from `@Audit`; select the
+  independently selectable library section by name. Its rows are backed by
+  typed unsafe evidence (#4319, #4415).
+- Carries diff titles, summaries, versions, grouped type names, row values, and
+  composed document fields through typed inert-text boundaries while
+  preserving Markdown and structured output shapes (#4308).
+
+### Performance analysis and runtime evidence
+
+- Adds opt-in `sync-call-in-async` Performance Triage findings for synchronous
+  calls made by async methods when a signature-compatible accessible Async
+  sibling can be established. Findings retain exact call-site provenance and
+  fail closed for ambiguous receivers, overloads, accessibility, or incomplete
+  metadata. This is static structural evidence, not proof of runtime heat or
+  behavioral interchangeability (#4091).
+- Performance Triage structured JSON now carries declaring assembly, source
+  MethodDef, physical evidence MethodDef, module version ID, and IL offset for
+  runtime joins. Compact Performance JSONL remains intentionally
+  non-correlatable (#4091, #4326, #4347).
+- Top Leverage ranking now uses the typed query path, and call-graph selectors
+  preserve physical file identity and full signature structure across scoped
+  projections (#4335, #4388, #4396).
+- Adds the opt-in Call Graph `AsyncAlternatives` field for per-method
+  `sync-call-in-async` opportunity counts while Performance Triage retains the
+  exact call-site evidence and replacement (#4380).
+- Attributes async state-machine and lifted-body calls to their declared source
+  methods in logical call output while retaining the physical `Evidence Method`
+  and IL offset for each call-site receipt (#4466, #4461).
+- Type-targeted body analysis retains the async/lifted physical evidence needed
+  by the selected type while filtering performance opportunities and allocation
+  fanout by the authenticated ultimate source owner. Ambiguous or unresolved
+  ownership fails closed (#4481).
+
+### Acquisition and safety
+
+- Adds standard nuget.org search discovery. Package deadlines, redirects,
+  response addresses, and SSRF classification fail visibly at their owning
+  source boundary (#4155, #4349).
+- Preserves primary assembly acquisition failures and refactors symbol-package
+  and method-reference resolution into shared bounded owners (#4310, #4330,
+  #4337).
+- Rejects hostile symbol-package entry lengths before expansion or allocation
+  (#4332).
+- Bounds custom-attribute decoding and metadata type-name construction before
+  allocation, rejecting amplified element counts, excessive nesting, and
+  oversized names (#4234, #4345).
+- Under the default policy, grants core-library identity from acquisition
+  provenance instead of self-declaration so resolver-discovered sibling
+  assemblies cannot mint trusted core definitions (#4428).
+
+### Decompiler and analysis correctness
+
+- Fixes explicit-interface accessor identity and API-surface retention,
+  nested-generic and byref selector keys, generated framework type identity,
+  async/lifted source ownership, and signature re-lexing that could produce
+  malformed parameter declarations (#4359, #4371, #4386, #4402, #4425, #4431,
+  #4445).
+- Preserves raw reference-equality binding instead of rebinding decompiled
+  comparisons to user-defined equality operators (#4250).
+- Improves control-flow and dataflow fidelity for sparse switch partitions,
+  legal multi-block `do`/`while` loops, retained-merge loop structuring, early
+  region exits, and proven cross-block stack-slot live ranges. Unsupported
+  lambda parameter types are declined rather than rendered with unspellable
+  explicit types (#3971, #4154, #4299, #4301, #4314, #4333, #4363).
+
 ## v0.20.0
 
 ### Inspection reliability
 
-- Diff presentation now carries titles, summaries, versions, grouped type
-  names, row values, and composed document fields through typed inert-text
-  boundaries while preserving Markdown, table, JSONL, and document JSON shapes
-  (#3463).
 - **Breaking:** `library` and `package --all-libraries` now return a non-zero
   exit status when an explicitly selected section is empty because its
   inspection failed. Resource Triage reports incomplete method analysis as a
@@ -48,23 +133,6 @@
 
 ### Experimental analysis and decompilation
 
-- **Breaking:** Removes the standalone `body-shape` command without a
-  compatibility alias. Use the existing `--where "Kind=<C# Body Kinds ID>"`
-  query with `library`, one exact `type`, or one exact `member`; these scoped
-  `Body Shapes` sections provide the command's search and output capabilities.
-- Rendered body-kind queries can now target one exact `type`, searching only
-  the MethodDef and accessor bodies owned by that type. Existing output
-  projections and `--all` behavior apply without widening to other types in
-  the assembly.
-- Rendered body-kind queries can now target one exact `member` overload. The
-  query resolves properties and events to their accessor MethodDef tokens,
-  emits round-tripping owner-plus-accessor selectors, supports non-public
-  selections with `--all`, and decompiles only the selected body instead of
-  scanning the assembly.
-- Library body-kind queries now compose with existing Performance Triage
-  predicates. Matching opportunities are joined through typed source
-  MethodDef identities before decompilation, so only candidate methods are
-  searched for the requested rendered syntax.
 - Adds bounded exact structural clone comparison and same-assembly discovery.
   Exact normalized IL/control-flow witnesses remain distinct from unsupported,
   failed, limited, ambiguous, and different outcomes; incomplete candidate
@@ -213,8 +281,7 @@
 - Gives `package` and `library` authored base and domain categories. Package
   exposes `@Package`, `@Files`, `@Dependencies`, `@Audit`, and `@SourceLink`;
   library exposes `@Library`, `@Surface`, `@Audit`, `@Performance`,
-  `@SourceLink`, `@Integrations`, `@Metadata`, and `@Context`
-  (#3838, #4061).
+  `@SourceLink`, `@Integrations`, `@Metadata`, and `@Context` (#3838, #4061).
 - Makes discovery distinguish structural membership from effective evidence.
   `-D --schema` reports the static graph, library `--effective` runs full
   probes, and bare `-S` returns high-value, fixed-length, network-free base
@@ -240,9 +307,6 @@
 - Adds `body-shape` for exact rendered-syntax searches in one assembly, with
   stable kinds, containing members, MethodDef tokens, exact ranges, and
   selected text (#4048).
-- Adds the library `Body Shapes` section. A validated
-  `--where "Kind=<C# Body Kinds ID>"` predicate auto-selects it and uses the
-  ordinary section projection, count, and structured output formats.
 - Makes `Call Graph` one bidirectional evidence section with Markdown edge
   rows, tree, Mermaid, TSV, and JSONL projections; adds bounded cycle findings
   and scoped cross-library traversal (#4001, #4013, #4069, #4065).
