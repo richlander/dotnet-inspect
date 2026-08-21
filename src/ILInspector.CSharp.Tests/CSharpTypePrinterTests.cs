@@ -4042,11 +4042,48 @@ public sealed class CSharpTypePrinterTests
         Assert.Contains("must use a metadata name", exception.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void GenericTypeWithoutMetadataArityUsesTrustedOwnership()
+    {
+        var type = CreateEmptyType("Samples", "Widget");
+        type.DefinitionName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Samples",
+                    ["Widget"]))
+            .Name;
+        type.IntroducedTypeParameterCounts = [1];
+        type.TypeParameters = [new TypeParameter { Name = "T" }];
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(type));
+
+        Assert.Contains(
+            "class Widget<T>",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
-    [InlineData("Converter", 1)]
-    [InlineData("Converter`2", 1)]
-    [InlineData("Converter`x", 1)]
-    public void InconsistentGenericMetadataArityFailsExplicitly(string name, int parameterCount)
+    // A canonical `N that disagrees with the parameter count is inconsistent.
+    [InlineData("Converter`2", 1, "inconsistent metadata arity")]
+    [InlineData("Converter`1", 2, "inconsistent metadata arity")]
+    // No canonical `N at all: the name does not carry arity, whatever text
+    // follows the backtick. int.TryParse used to accept a signed, padded, or
+    // culture-digit count here and let the type print as if it were generic
+    // (#4217).
+    [InlineData("Converter", 1, "requires metadata arity")]
+    [InlineData("Converter`x", 1, "requires metadata arity")]
+    [InlineData("Converter`+1", 1, "requires metadata arity")]
+    [InlineData("Converter`01", 1, "requires metadata arity")]
+    [InlineData("Converter` 1", 1, "requires metadata arity")]
+    [InlineData("Converter`\u0661", 1, "requires metadata arity")]
+    [InlineData("Converter`1Extra", 1, "requires metadata arity")]
+    [InlineData("Converter`65537", 1, "requires metadata arity")]
+    public void InconsistentGenericMetadataArityFailsExplicitly(
+        string name,
+        int parameterCount,
+        string expectedMessage)
     {
         var type = CreateEmptyType("Samples", name);
         type.TypeParameters = Enumerable.Range(0, parameterCount)
@@ -4056,12 +4093,25 @@ public sealed class CSharpTypePrinterTests
         var exception = Assert.Throws<ArgumentException>(
             () => _printer.Print(new CSharpTypePrintRequest(type)));
 
-        Assert.Contains(
-            name.Contains('`', StringComparison.Ordinal)
-                ? "inconsistent metadata arity"
-                : "requires metadata arity",
-            exception.Message,
-            StringComparison.Ordinal);
+        Assert.Contains(expectedMessage, exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The canonical bound is inclusive at 65536 — ECMA-335 gives
+    /// <c>GenericParam.Number</c> a zero-based ushort — so a name at the bound is
+    /// a legal arity spelling and prints.
+    /// </summary>
+    [Fact]
+    public void CanonicalArityAtTheMetadataBoundIsAccepted()
+    {
+        var type = CreateEmptyType("Samples", "Converter`65536");
+        type.TypeParameters = Enumerable.Range(0, 65536)
+            .Select(index => new TypeParameter { Name = $"T{index}" })
+            .ToList();
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.Contains("class Converter<", result.Source, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -4131,6 +4181,37 @@ public sealed class CSharpTypePrinterTests
         Assert.Equal(
             TypeParameterTypeKind.ReferenceType,
             snapshot.Members[0].SignatureModel!.TypeParameters[0].TypeKind);
+    }
+
+    [Fact]
+    public void SnapshotTypeForRendering_CarriesSegmentParameterOwnership()
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "Outer`1.Inner`1",
+            DefinitionName = Assert
+                .IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "N",
+                        ["Outer`1", "Inner`1"]))
+                .Name,
+            IntroducedTypeParameterCounts = [2, 0],
+            Kind = "class",
+            TypeParameters =
+            [
+                new TypeParameter { Name = "A" },
+                new TypeParameter { Name = "B" },
+            ],
+        };
+
+        ApiType snapshot =
+            CSharpTypePrinter.SnapshotTypeForRendering(type, []);
+
+        Assert.Equal([2, 0], snapshot.IntroducedTypeParameterCounts);
+        Assert.Equal(
+            "Outer`1.Inner`1",
+            CSharpFormatter.FormatTypeName(snapshot));
     }
 
     [Fact]

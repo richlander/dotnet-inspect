@@ -829,6 +829,8 @@ public sealed class CSharpTypePrinter
             Name = type.Name,
             MetadataName = type.MetadataName,
             DefinitionName = type.DefinitionName,
+            IntroducedTypeParameterCounts =
+                type.IntroducedTypeParameterCounts?.ToList(),
             Accessibility = type.Accessibility,
             Kind = type.Kind,
             Attributes = attributes?.ToList()!,
@@ -949,10 +951,21 @@ public sealed class CSharpTypePrinter
                 $"Type '{type.FullName}' must use a metadata name rather than C# type-argument spelling.");
         }
 
-        var tick = type.Name.LastIndexOf('`');
-        if (tick < 0)
+        // Only a canonical `N is arity (MetadataNameArity): int.TryParse would
+        // accept "Widget`+1", padded digits, and non-ASCII digits, letting a name
+        // that is not a generic spelling satisfy the arity contract.
+        if (!MetadataNameArity.TryReadSuffix(type.Name, out int arity, out _))
         {
-            if (type.TypeParameters.Count > 0 && !allowMissingMetadataArity)
+            bool trustedMissingArity =
+                type.DefinitionName is { } definitionName
+                && type.IntroducedTypeParameterCounts is { } introduced
+                && introduced.Count
+                    == definitionName.Segments.Length
+                && introduced[^1]
+                    == type.TypeParameters.Count;
+            if (type.TypeParameters.Count > 0
+                && !allowMissingMetadataArity
+                && !trustedMissingArity)
             {
                 throw new ArgumentException(
                     $"Generic type '{type.FullName}' requires metadata arity in its name.");
@@ -961,9 +974,7 @@ public sealed class CSharpTypePrinter
             return;
         }
 
-        if (!int.TryParse(type.Name.AsSpan(tick + 1), out var arity)
-            || arity <= 0
-            || arity != type.TypeParameters.Count)
+        if (arity != type.TypeParameters.Count)
         {
             throw new ArgumentException(
                 $"Type '{type.FullName}' has inconsistent metadata arity and type parameters.");
@@ -972,9 +983,12 @@ public sealed class CSharpTypePrinter
 
     static void ValidateTypeKindAndContainment(ApiType type, bool isNested)
     {
-        if ((!isNested && type.MetadataName?.Contains('+', StringComparison.Ordinal) == true)
-            || type.Name.Contains('.', StringComparison.Ordinal)
-            || type.Name.Contains('+', StringComparison.Ordinal))
+        bool hasDeclaringType = type.DefinitionName is { } exactName
+            ? exactName.Segments.Length > 1
+            : type.MetadataName?.Contains('+', StringComparison.Ordinal) == true
+                || type.Name.Contains('.', StringComparison.Ordinal)
+                || type.Name.Contains('+', StringComparison.Ordinal);
+        if (!isNested && hasDeclaringType)
         {
             throw new NotSupportedException(
                 $"C# skeleton printing for nested type '{type.FullName}' requires its declaring type.");

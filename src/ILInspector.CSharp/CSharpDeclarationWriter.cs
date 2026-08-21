@@ -327,7 +327,7 @@ internal static class CSharpDeclarationWriter
                 ? $"[return: {string.Join(", ", signature.ReturnAttributes)}]\n"
                 : "";
             string delegateDeclaration =
-                $"{attributes}{returnAttributes}{TypeAccessibility(type)}{unsafeText} delegate {signature.ReturnType ?? "void"} {FormatTypeDisplayName(type.Name, type.TypeParameters)}{parameterList}";
+                $"{attributes}{returnAttributes}{TypeAccessibility(type)}{unsafeText} delegate {signature.ReturnType ?? "void"} {FormatTypeDisplayName(type)}{parameterList}";
             delegateDeclaration = AppendTypeParameterConstraints(delegateDeclaration, type.TypeParameters);
             return delegatePlan.Apply(delegateDeclaration + ";");
         }
@@ -1012,7 +1012,7 @@ internal static class CSharpDeclarationWriter
         }
 
         parts.Add(type.Kind == "enum" ? "enum" : type.Kind);
-        parts.Add(FormatTypeDisplayName(type.Name, type.TypeParameters));
+        parts.Add(FormatTypeDisplayName(type));
         var declaration = string.Join(" ", parts);
 
         var bases = new List<string>();
@@ -1078,15 +1078,15 @@ internal static class CSharpDeclarationWriter
 
         if (member.Name == ".cctor")
         {
-            signature = $"{FormatConstructorTypeName(type.Name)}()";
+            signature = $"{FormatConstructorTypeName(type)}()";
         }
         else if (member.IsFinalizer && !options.SuppressFinalizerSpelling)
         {
-            signature = $"~{FormatConstructorTypeName(type.Name)}()";
+            signature = $"~{FormatConstructorTypeName(type)}()";
         }
         else if (member.Kind == "constructor")
         {
-            var typeName = FormatConstructorTypeName(type.Name);
+            var typeName = FormatConstructorTypeName(type);
             signature = $"{typeName}{FormatConstructorCall(signature)}";
         }
         else if (member.Name.StartsWith("op_", StringComparison.Ordinal))
@@ -1814,13 +1814,13 @@ internal static class CSharpDeclarationWriter
                 FormatParameter(parameter, options.IncludeSignatureAttributes)));
         if (member.Name == ".cctor")
         {
-            signature = $"{FormatConstructorTypeName(type.Name)}()";
+            signature = $"{FormatConstructorTypeName(type)}()";
             return true;
         }
 
         if (member.Kind == "constructor")
         {
-            signature = $"{FormatConstructorTypeName(type.Name)}({parameters})";
+            signature = $"{FormatConstructorTypeName(type)}({parameters})";
             return true;
         }
         if ((member.Kind == "method"
@@ -2380,16 +2380,14 @@ internal static class CSharpDeclarationWriter
         return true;
     }
 
-    static string FormatTypeDisplayName(string name, IReadOnlyList<TypeParameter> typeParameters)
-    {
-        var tick = name.IndexOf('`');
-        if (tick >= 0)
-            name = name[..tick];
-        name = ContainQualifiedName(name);
-        if (typeParameters.Count > 0)
-            name += $"<{string.Join(", ", typeParameters.Select(TypeParameterDisplayName))}>";
-        return name;
-    }
+    // ApiType.Name spells a nested chain with '.', so arity is stripped per
+    // component and a backtick that is not a canonical suffix stays in the name
+    // (MetadataNameArity). Truncating at the first backtick dropped every
+    // following component, spelling Outer`1.Inner as the unrelated type Outer.
+    static string FormatTypeDisplayName(ApiType type)
+        => CSharpFormatter.FormatTypeName(
+            type,
+            includeVariance: true);
 
     static string? EnumUnderlyingBase(ApiType type)
     {
@@ -2523,18 +2521,9 @@ internal static class CSharpDeclarationWriter
         return false;
     }
 
-    static string FormatConstructorTypeName(string name)
-    {
-        // Isolate the innermost nested-type segment before stripping generic arity,
-        // so a constructor/finalizer on a type nested inside a generic outer
-        // (name "Outer`1.Nested" or "Outer`1+Nested") spells "Nested", not "Outer".
-        int sep = name.LastIndexOfAny(['.', '+']);
-        if (sep >= 0)
-            name = name[(sep + 1)..];
-        var arityIndex = name.IndexOf('`');
-        var typeName = arityIndex < 0 ? name : name[..arityIndex];
-        return SanitizeIdentifier(typeName);
-    }
+    static string FormatConstructorTypeName(ApiType type)
+        => SanitizeIdentifier(
+            CSharpFormatter.FormatDeclarationLeafMetadataName(type));
 
     static string EscapeMemberNameInSignature(string signature, string memberName)
     {
@@ -3678,10 +3667,7 @@ internal static class CSharpDeclarationWriter
         }
 
         static string StripArity(string name)
-        {
-            var tick = name.IndexOf('`');
-            return tick < 0 ? name : name[..tick];
-        }
+            => MetadataNameArity.StripFromSegment(name);
     }
 
     static readonly string[] s_parameterModifiers = ["this", "params", "ref", "out", "in", "scoped"];

@@ -633,7 +633,11 @@ public static class ApiOutputFormatter
             foreach (var group in membersByKind)
             {
                 var membersInGroup = group.ToList();
-                var children = BuildShapeMemberNodes(group.Key, membersInGroup, expandOverloads, type.Name);
+                var children = BuildShapeMemberNodes(
+                    group.Key,
+                    membersInGroup,
+                    expandOverloads,
+                    type);
                 var logicalCount = IsOverloadGroupedKind(group.Key)
                     ? membersInGroup.Select(m => m.Name).Distinct(StringComparer.Ordinal).Count()
                     : membersInGroup.Count;
@@ -642,7 +646,11 @@ public static class ApiOutputFormatter
             }
         }
 
-        static List<TreeNode> BuildShapeMemberNodes(string kind, IEnumerable<ApiMember> members, bool expandOverloads, string declaringTypeName)
+        static List<TreeNode> BuildShapeMemberNodes(
+            string kind,
+            IEnumerable<ApiMember> members,
+            bool expandOverloads,
+            ApiType declaringType)
         {
             if (IsOverloadGroupedKind(kind))
             {
@@ -678,32 +686,17 @@ public static class ApiOutputFormatter
                 .OrderBy(m => m.Name, StringComparer.Ordinal)
                 .Select(m => new TreeNode(
                     m.IsFinalizer
-                        ? ShapeDestructorSpelling(declaringTypeName)
+                        ? ShapeDestructorSpelling(declaringType)
                         : CSharpIdentifier.ContainRenderedText(m.Signature ?? OperatorNames.FormatDisplayName(m.Name))))
                 .ToList();
         }
 
         // A finalizer renders as the C# destructor `~Type()` rather than its raw
         // metadata signature (`void Finalize()`).
-        static string ShapeDestructorSpelling(string typeName)
+        static string ShapeDestructorSpelling(ApiType type)
         {
-            var name = typeName;
-            // Isolate the innermost nested-type segment BEFORE stripping generic
-            // arity, so a finalizer on a type nested inside a generic outer
-            // (e.g. "Outer`1.Nested" or "Outer`1+Nested") spells "~Nested()"
-            // rather than "~Outer()".
-            int sep = name.LastIndexOfAny(['.', '+']);
-            if (sep >= 0)
-                name = name[(sep + 1)..];
-            int angle = name.IndexOf('<');
-            if (angle >= 0)
-                name = name[..angle];
-            int tick = name.IndexOf('`');
-            if (tick >= 0)
-                name = name[..tick];
-            // Contained on the composed spelling rather than at the call site:
-            // the sibling branch there contains its own text, and a finalizer
-            // node reached output raw because only that one branch was covered.
+            string name =
+                CSharpFormatter.FormatDeclarationLeafMetadataName(type);
             return CSharpIdentifier.ContainRenderedText($"~{name}()");
         }
 

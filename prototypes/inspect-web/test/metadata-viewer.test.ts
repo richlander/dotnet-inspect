@@ -19,7 +19,7 @@ import {
   sameFocus,
 } from "../src/metadata-viewer.ts";
 
-function escapeHtml(value) {
+function escapeHtml(value: unknown) {
   return String(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -27,7 +27,7 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
-function fmtBytes(value) {
+function fmtBytes(value: number) {
   return `${value} B`;
 }
 

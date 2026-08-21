@@ -136,7 +136,7 @@ function packageCacheHtml(
       <span class="diag" title="${title}">◇ ${cache.packages} package${packagePlural} · ${cache.resident} resident in cache · ${cache.workspaces} workspace${workspacePlural}</span>`;
 }
 
-export function packageSourceLabel(source: unknown): string {
+export function packageSourceLabel(source?: unknown): string {
   if (!source || typeof source !== "object" || !("kind" in source)) {
     return "Unknown";
   }

@@ -8,7 +8,7 @@ import {
   statusBarHtml,
 } from "../src/status-bar.ts";
 
-function escapeHtml(value) {
+function escapeHtml(value: unknown) {
   return String(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -57,7 +57,12 @@ test("build identity keeps provenance linked and inert, without the build date",
 
 test("the compact workspace data bar shows version/commit, provenance, and a one-line performance summary, in that order", () => {
   const html = statusBarHtml({
-    buildIdentity: { version: "1.2.3", builtAtUtc: "2026-08-19T14:00:00Z" },
+    buildIdentity: {
+      version: "1.2.3",
+      commit: null,
+      builtAtUtc: "2026-08-19T14:00:00Z",
+      commitUrl: null,
+    },
     diagnostics: {
       assets: 4,
       downloadMs: 20,
@@ -103,7 +108,12 @@ test("the compact workspace data bar shows version/commit, provenance, and a one
 test("the expanded workspace data bar shows every field, including full diagnostics and the package cache tail", () => {
   const html = statusBarHtml({
     expanded: true,
-    buildIdentity: { version: "1.2.3", builtAtUtc: "2026-08-19T14:00:00Z" },
+    buildIdentity: {
+      version: "1.2.3",
+      commit: null,
+      builtAtUtc: "2026-08-19T14:00:00Z",
+      commitUrl: null,
+    },
     diagnostics: {
       assets: 4,
       downloadMs: 20,
@@ -139,7 +149,12 @@ test("the same data bar component renders home readiness and a compact performan
   const html = statusBarHtml({
     variant: "home",
     ready: false,
-    buildIdentity: { version: "1.2.3" },
+    buildIdentity: {
+      version: "1.2.3",
+      commit: null,
+      builtAtUtc: null,
+      commitUrl: null,
+    },
     diagnostics: {
       assets: 4,
       downloadMs: 20,
