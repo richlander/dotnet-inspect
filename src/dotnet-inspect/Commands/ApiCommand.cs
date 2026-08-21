@@ -221,7 +221,7 @@ public class ApiCommand
         var knownSections = singleTypeMode ? memberPipeline.SelectableSectionNames : typePipeline.SelectableSectionNames;
         if (options is MemberOptions memberOptions
             && memberOptions.MemberFilter.Count == 0
-            && MightPeelDottedGenericMemberSelector(memberOptions.TypeName))
+            && MightPeelDottedMemberSelector(memberOptions.TypeName))
         {
             knownSections = knownSections
                 .Concat(ApiMemberDetailSectionDescriptors.CreatePipeline().SelectableSectionNames)
@@ -615,16 +615,13 @@ public class ApiCommand
         return options;
     }
 
-    static bool MightPeelDottedGenericMemberSelector(string? typeName)
+    static bool MightPeelDottedMemberSelector(string? typeName)
     {
         if (string.IsNullOrWhiteSpace(typeName))
             return false;
 
         var lastDot = FqnParser.LastTopLevelDot(typeName);
-        if (lastDot <= 0 || lastDot == typeName.Length - 1)
-            return false;
-
-        return MemberTargetSelector.Parse(typeName[(lastDot + 1)..]).GenericArity.HasValue;
+        return lastDot > 0 && lastDot < typeName.Length - 1;
     }
 
     private static bool ValidateApiPrintSelection(HashSet<string>? includeSections)

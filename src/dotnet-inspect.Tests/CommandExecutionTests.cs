@@ -6202,6 +6202,25 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_ImpliedMember_SelectedSignature_UsesDetailPipeline()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            $"{typeof(SampleClassForTesting).FullName}.{nameof(SampleClassForTesting.MethodWithNoParameters)}",
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            "Signature",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Signature", output);
+        Assert.Contains("MethodWithNoParameters()", output);
+    }
+
+    [Fact]
     public void Type_FullCatalogSelection_PromotesUnlessVerbosityWasExplicit()
     {
         var (automatic, automaticError) = ApiCommand.RunPreamble(new TypeOptions
