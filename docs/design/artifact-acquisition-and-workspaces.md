@@ -102,7 +102,7 @@ package dependency closure.
 | Artifact acquisition | One adapter's typed attempt to contribute artifacts | outcomes, diagnostics, provenance, content leases | workspace binding |
 | Artifact source adapter | Resolves one source-specific coordinate | source protocol, authorization, listing, archive rules | inspection queries |
 | `ArtifactSetSession` | One sealed artifact generation admitted to a workspace | child acquisition leases and artifact handles | source-specific resolution or assembly binding |
-| Workspace | Logical inspection composition | artifact sessions, contexts, roles, query plans | feed or archive mechanics |
+| Workspace | Logical inspection composition | artifact sessions, contexts, roles, query plans, aggregate admission budgets | feed or archive mechanics |
 | Assembly context group | One binding-consistent universe | participants, binding policy, retained assembly snapshots | package acquisition |
 | Resolved assembly reference | Neutral handle for one selected managed assembly | assembly identity and guarded repeatable content access | package coordinate parsing or storage implementation |
 | Assembly inspection session | One opened PE inspection lifetime | reader/image lifetime and session-scoped operations | artifact acquisition |
@@ -197,6 +197,30 @@ package feed participated in one transaction. Each acquisition records its own
 immutable coordinate, producer, content identity, and observation. The session
 guarantees that those recorded acquisitions do not silently drift after
 admission.
+
+Before the first adapter call, the workspace atomically reserves the authorized
+plan's declared maximum artifact count, peak acquisition/expansion bytes, and
+retained logical bytes from one aggregate admission budget. The reservation
+covers the whole multi-source plan, every other in-flight admission, and every
+sealed session the workspace still retains. An adapter that cannot declare
+finite bounds is not admissible. Failure to reserve produces a typed budget
+failure before acquisition begins; it does not silently omit a member or
+shorten the context.
+
+Adapters still enforce source-specific download, enumeration, archive, and
+expansion limits inside that reservation. Publication commits the actual
+artifact count and retained-byte charge, rejects an outcome that exceeds its
+reservation, and releases unused capacity. A rejected or cancelled admission
+releases its reservation after returned leases are cleaned up. A published
+charge remains until the artifact session's dependent groups quiesce, not
+merely until workspace disposal begins. Storage caches and assembly groups may
+apply additional physical-retention and image budgets; they do not replace the
+workspace admission budget.
+
+Reservation is a logical workspace state transition, not a requirement for
+threads or blocking locks. Concurrent hosts serialize the transition;
+single-threaded Browser/Wasm hosts preserve it across awaited reentrancy, so a
+second admission cannot spend capacity already reserved by the first.
 
 An implementation may ensure stable bytes by retaining a snapshot, by retaining
 content-addressed storage, or by validating the recorded digest whenever it
@@ -715,6 +739,9 @@ The target remains unverified until tests equivalent to these exist:
 - `ArtifactSetSession_ComposesArtifactsFromMultipleSources`
 - `ArtifactSetSession_SealedGenerationCannotMutate`
 - `ArtifactIdentity_IsScopedToOwningGeneration`
+- `WorkspaceAdmissionBudget_RejectsAggregateMultiSourcePlanBeforeAdapterCall`
+- `WorkspaceAdmissionBudget_CountsConcurrentAndRetainedGenerations`
+- `WorkspaceAdmissionBudget_ReleasesOnlyAfterAbortOrSessionQuiescence`
 - `DesignatedArtifactTrust_RequiresAuthorizedAdmissionRole`
 - `PlatformArtifactTrust_RequiresAuthorizedAdmissionRole`
 - `LeaseScopedPath_IsNotADesignationGrant`
