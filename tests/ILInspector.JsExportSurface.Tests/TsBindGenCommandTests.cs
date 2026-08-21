@@ -202,7 +202,7 @@ public sealed class TsBindGenCommandTests
     }
 
     [Fact]
-    public void Invoke_ControlCharacterJsonPropertyNameFailsWithoutDeclarationOutput()
+    public void Invoke_ControlCharacterJsonPropertyNameOnFieldFailsWithoutDeclarationOutput()
     {
         string emitJsPath = Path.Combine(
             AppContext.BaseDirectory,
@@ -226,11 +226,11 @@ public sealed class TsBindGenCommandTests
             Assert.Equal(string.Empty, output.ToString());
             Assert.False(File.Exists(emitJsPath));
             Assert.Contains(
-                "tsbindgen: ControlPropertyNameFixture.Value [JsonPropertyName]: "
+                "tsbindgen: ControlFieldPropertyNameFixture.Value [JsonPropertyName]: "
                     + "control-character JSON property names are not supported.",
                 error.ToString(),
                 StringComparison.Ordinal);
-            Assert.DoesNotContain("line\nbreak", error.ToString(), StringComparison.Ordinal);
+            Assert.DoesNotContain("field\nbreak", error.ToString(), StringComparison.Ordinal);
         }
         finally
         {

@@ -1128,6 +1128,13 @@ public static class ApiSurfaceExtractor
                     Accessibility = GetFieldAccessibility(fieldAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
+                    JsonPropertyName = AttributeReader.TryGetJsonPropertyName(
+                        reader,
+                        field.GetCustomAttributes(),
+                        out string? jsonPropertyName,
+                        observeDecodeWork)
+                        ? jsonPropertyName
+                        : null,
                     Attributes = RenderMemberAttributes(
                         reader,
                         field.GetCustomAttributes(),

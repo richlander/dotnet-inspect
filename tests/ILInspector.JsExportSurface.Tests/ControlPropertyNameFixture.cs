@@ -9,5 +9,12 @@ internal sealed record ControlPropertyNameFixture
     public string Value { get; init; } = "";
 }
 
-[JsonSerializable(typeof(ControlPropertyNameFixture))]
+internal sealed class ControlFieldPropertyNameFixture
+{
+    [JsonInclude]
+    [JsonPropertyName("field\nbreak\r\t\u0001")]
+    public string Value = "";
+}
+
+[JsonSerializable(typeof(ControlFieldPropertyNameFixture))]
 internal sealed partial class ControlPropertyNameFixtureJsonContext : JsonSerializerContext;
