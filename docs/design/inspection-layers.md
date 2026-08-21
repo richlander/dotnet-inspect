@@ -8,6 +8,8 @@ not a tour of every type.
 See [overview.md](../overview.md) for subsystem ownership,
 [section-model.md](section-model.md) for section selection semantics, and
 [output-shapes.md](output-shapes.md) for the shape ladder this note builds on.
+[Artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md)
+owns the source-neutral boundary below workspace-backed assembly queries.
 
 ## Purpose
 
@@ -73,12 +75,14 @@ choosing a renderer or output format.
 The library CLI executes metadata-image, direct assembly-reference,
 extension-method, custom-attribute, manifest-resource, type-forwarder,
 union-type, method-classification, audit-metadata, unsafe-evidence, and
-top-leverage queries, plus the Research-backed switch query through a typed,
+top-leverage and optimization-opportunity queries, plus the Research-backed
+switch query through a typed,
 content-shaped registry
 over a host-owned `AssemblyInspectionSession`. The `References`, `Extension
 Methods`, `Custom Attributes`, `Resources`, `Switches`, `Type Forwarders`,
 `Union Types`, `P/Invoke Methods`, `Async Methods`, `Unsafe Members`, `Signals`,
-`Top Leverage`, and `Library Info` sections bind to concrete query definitions
+`Top Leverage`, the Performance section family, and `Library Info` sections
+bind to concrete query definitions
 rather than relying solely on string scanner keys, and the CLI and package
 convenience route lower section selection into that same registry.
 Library and package SourceLink sections
@@ -387,7 +391,7 @@ canaries:
 - Metadata sections, `References`, `Library Info`, `Extension Methods`,
   `Custom Attributes`, `Resources`, `Switches`, `Type Forwarders`, `Union
   Types`, `P/Invoke Methods`, `Async Methods`, `Unsafe Members`, `Top Leverage`,
-  `Signals`, and
+  the Performance section family, `Signals`, and
   the diff `Changes`, `Analysis Diff`, and `Implementation Diff` sections bind
   to query definitions by object identity. A section may bind multiple
   definitions; diagnostic names are never lookup keys.
@@ -452,12 +456,19 @@ canaries, collection is still neither typed nor demand-driven:
   remaining scanner-backed sections. Metadata, `References`, `Library Info`,
   `Extension Methods`, `Custom Attributes`, `Resources`, `Type Forwarders`,
   `Union Types`, `Switches`, `P/Invoke Methods`, `Async Methods`, `Signals`,
-  SourceLink, and the diff `Changes`, `Analysis Diff`, and `Implementation
-  Diff` sections use checked
+  `Unsafe Members`, `Top Leverage`, the Performance section family, SourceLink,
+  and the diff `Changes`, `Analysis Diff`, and `Implementation Diff` sections
+  use checked
   query-definition bindings.
 - The collection context is **path-shaped**, so a consumer without a filesystem
   cannot call the residual `LibraryMetadataService` orchestration. The
   implemented queries themselves take a borrowed content owner, not a path.
+- Core assembly queries and workspace composition still reference package
+  implementations directly. The target split keeps storage, artifact
+  acquisition, packages, and assemblies as separate concepts; optional source adapters
+  contribute neutral artifacts to a multi-source workspace. The dependency and
+  lifetime rules are defined in
+  [artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md).
 
 Converting the remaining collection into typed, demand-driven, content-shaped
 queries is therefore the migration path for the split, not a follow-up to it.

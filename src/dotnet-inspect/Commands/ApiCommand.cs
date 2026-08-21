@@ -1075,6 +1075,12 @@ public class ApiCommand
             Name = type.Name,
             MetadataName = type.MetadataName,
             DefinitionName = type.DefinitionName,
+            IntroducedTypeParameterCounts =
+                type.IntroducedTypeParameterCounts,
+            // Every identity fact carries over: this copy exists to narrow Members, and anything
+            // else it drops silently changes what sections and discovery see. Omitting the two
+            // struct modifiers made `-D "Type Info"` hide the Modifiers row that `-S` rendered for
+            // every readonly/ref struct, because discovery builds its manifest from this copy.
             Accessibility = type.Accessibility,
             Kind = type.Kind,
             Attributes = type.Attributes,
@@ -1450,6 +1456,7 @@ public class ApiCommand
         else
         {
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
+            writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
             if (options.PlainText)
             {
                 // Buffered rather than written straight to the console so the empty-render gate
@@ -1464,7 +1471,6 @@ public class ApiCommand
             }
             else
             {
-                writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
                 var markdownWriter = new StringWriter { NewLine = "\n" };
                 MarkoutSerializer.Serialize(
                     view, markdownWriter, new MarkdownFormatter(), ApiViewContext.Default, writerOptions);
@@ -2440,6 +2446,7 @@ public class ApiCommand
         else
         {
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
+            writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
             if (options.PlainText)
             {
                 var writer = new Markout.MarkoutWriter(sink, options.CreateFormatter(), writerOptions);
@@ -2461,7 +2468,6 @@ public class ApiCommand
                     writerOptions.SectionOrder = pipeline.InfoSectionNames;
                 }
 
-                writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
                 var sw = new StringWriter { NewLine = "\n" };
                 var writer = new Markout.MarkoutWriter(sw, options.CreateFormatter(), writerOptions);
                 ApiOutputFormatter.SerializeTypeDocument(
@@ -3486,6 +3492,8 @@ public class ApiCommand
             Name = type.Name,
             MetadataName = type.MetadataName,
             DefinitionName = type.DefinitionName,
+            IntroducedTypeParameterCounts =
+                type.IntroducedTypeParameterCounts,
             Accessibility = type.Accessibility,
             Kind = type.Kind,
             Attributes = sections.Contains(SectionNames.CustomAttributes) ? type.Attributes : [],

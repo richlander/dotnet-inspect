@@ -118,6 +118,9 @@ public record FindMemberRow(
 [MarkoutContext(typeof(ExtensionsResultView))]
 [MarkoutContext(typeof(ExtensionCountRow))]
 [MarkoutContext(typeof(ExtensionRow))]
+[MarkoutContext(typeof(DotnetInspector.Views.MatchResultView))]
+[MarkoutContext(typeof(DotnetInspector.Views.MatchBlockerRow))]
+[MarkoutContext(typeof(DotnetInspector.Views.MatchBlockCorrespondenceRow))]
 public partial class SearchViewContext : MarkoutSerializerContext
 {
 }

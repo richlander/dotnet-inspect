@@ -1,19 +1,15 @@
-export interface OpportunityItem {
-  api: string;
-  integrationType: string;
-  lookFor: string;
-}
+import type {
+  BrowserOpportunityCategory,
+  BrowserOpportunityItem,
+  BrowserPackageOpportunities,
+} from "./inspect-web-engine.d.ts";
 
-export interface OpportunityCategory {
-  integration: string;
-  items: OpportunityItem[];
-}
-
-export interface PackageOpportunities {
-  categories: OpportunityCategory[];
-  totalOpportunities: number;
-  inspectionError?: string | null;
-}
+export type OpportunityItem = BrowserOpportunityItem;
+export type OpportunityCategory = BrowserOpportunityCategory;
+export type PackageOpportunities = Pick<
+  BrowserPackageOpportunities,
+  "categories" | "totalOpportunities" | "inspectionError"
+>;
 
 export interface RenderPackageOpportunitiesOptions {
   isPlatform: boolean;
