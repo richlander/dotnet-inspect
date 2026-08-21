@@ -6,14 +6,18 @@ import {
   commandPaletteResults,
   commandPaletteRowHtml,
 } from "../src/command-bar.ts";
+import type { CommandContext } from "../src/command-bar.ts";
 
 const lenses = [
   ["api", "API"],
   ["metadata", "Metadata"],
   ["source", "Source"],
-];
+] as const;
 
-function commandContext(command, types = []) {
+function commandContext(
+  command: string,
+  types: CommandContext["package"]["types"] = [],
+): CommandContext {
   return {
     command,
     package: {
@@ -25,7 +29,7 @@ function commandContext(command, types = []) {
   };
 }
 
-function escapeHtml(value) {
+function escapeHtml(value: unknown) {
   return String(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")

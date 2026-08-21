@@ -11,9 +11,10 @@
     "build": "npm run typecheck && vite build && node scripts/verify-site-artifact.js dist",
     "preview": "vite preview",
     "test": "npm run typecheck && node --test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p test/tsconfig.json"
   },
   "devDependencies": {
+    "@types/node": "^24.13.3",
     "typescript": "7.0.2",
     "vite": "^7.0.6"
   }
