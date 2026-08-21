@@ -532,7 +532,7 @@ scope/result rendering, selection, and keyboard interaction.
 `src/command-bar.ts` supplies its typed Commands-scope grammar and results;
 `dotnet-inspect.ts` retains package queries, navigation, network acquisition, and command
 effects so the components do not acquire engine or workspace authority.
-`test/spotlight.test.js` and `test/command-bar.test.ts` gate both presentation
+`test/spotlight.test.ts` and `test/command-bar.test.ts` gate both presentation
 modes, scope ownership, completion and replacement behavior, bounded results,
 command metadata, and escaping.
 
