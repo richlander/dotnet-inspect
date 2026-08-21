@@ -31,6 +31,7 @@ internal static class EvilPoolSweepProcess
             RedirectStandardError = true,
         };
         startInfo.ArgumentList.Add("run");
+        startInfo.ArgumentList.Add("--disable-build-servers");
         // Keep the machine's usable sources, including corporate proxies. The
         // sweep's own package acquisition is isolated separately at runtime.
         startInfo.ArgumentList.Add("-p:NoWarn=NU1507");

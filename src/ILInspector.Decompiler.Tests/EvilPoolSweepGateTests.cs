@@ -165,6 +165,7 @@ public class EvilPoolSweepGateTests
         Assert.Equal(
             [
                 "run",
+                "--disable-build-servers",
                 "-p:NoWarn=NU1507",
                 "-p:NuGetAudit=false",
                 Path.Combine(
