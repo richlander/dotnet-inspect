@@ -1,8 +1,8 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 
-// The bridge in wwwroot/engine.js binds exports.InspectionEngine.*, so this type stays
-// in the global namespace. Its helpers live in InspectWeb.Engine.
+// The generated wwwroot/inspect-web-engine.js module binds exports.InspectionEngine.*, so this
+// type stays in the global namespace. Its helpers live in InspectWeb.Engine.
 using InspectWeb.Engine;
 
 /// <summary>

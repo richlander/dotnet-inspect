@@ -1,7 +1,7 @@
 // Shared, pure data-shape and pure-function helpers used across the workspace UI: package
 // identity keys, dependency-graph traversal primitives, workspace tab persistence/sharing,
 // call-graph target resolution, member/source request-state machines, and small text
-// helpers (mermaid label escaping, parameter titles). `app.ts` owns all mutable state and
+// helpers (mermaid label escaping, parameter titles). `dotnet-inspect.ts` owns all mutable state and
 // wiring; these functions are pure transforms over explicit inputs/outputs so they can be
 // unit-tested and reused (e.g. by `graph-mermaid.ts`) without the render/event-wiring layer.
 
