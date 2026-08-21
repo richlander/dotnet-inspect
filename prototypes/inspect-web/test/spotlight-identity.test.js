@@ -171,6 +171,9 @@ const packageInspectionSource = readFileSync(
 const sourceInspectionSource = readFileSync(
   new URL("../src/source-inspection.ts", import.meta.url),
   "utf8");
+const metadataInspectionSource = readFileSync(
+  new URL("../src/metadata-inspection.ts", import.meta.url),
+  "utf8");
 const memberFocusSource = readFileSync(
   new URL("../src/member-focus.ts", import.meta.url),
   "utf8");
@@ -703,10 +706,41 @@ test("type projection completions render only while current and preserve navigat
     ?? "";
   assert.match(
     typeMetadata,
-    /const generation = \+\+state\.typeMetadataGeneration;[\s\S]*const preservedFocus = renderPreservingMemberFocus\(\);[\s\S]*generation === state\.typeMetadataGeneration[\s\S]*!state\.home[\s\S]*!state\.settings[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!workbenchOverlayOwnsFocus\(\)[\s\S]*typeMetadataSignature\(currentType, pkg\) === signature[\s\S]*if \(isCurrent\(\)\) \{[\s\S]*renderPreservingMemberFocus\(preservedFocus\)/);
+    /return metadataInspection\.loadTypeMetadata\(\{[\s\S]*packageId: pkg\.id,[\s\S]*assembly: type\.assembly,[\s\S]*type: type\.queryId \?\? type\.id,[\s\S]*isVisible: \(\) => \{[\s\S]*!state\.home[\s\S]*!state\.settings[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!workbenchOverlayOwnsFocus\(\)[\s\S]*typeMetadataSignature\(currentType, pkg\) === signature/);
+  assert.doesNotMatch(typeMetadata, /typeMetadataGeneration|inspectTypeProjection/);
+  const typeMetadataCoordinator =
+    metadataInspectionSource.match(/async loadTypeMetadata\(request\)[\s\S]*?\n    },/)?.[0]
+    ?? "";
+  assert.match(
+    typeMetadataCoordinator,
+    /const generation = \+\+state\.typeMetadataGeneration;[\s\S]*const preservedFocus = dependencies\.renderPreservingMemberFocus\(\);[\s\S]*generation === state\.typeMetadataGeneration[\s\S]*if \(ownsRequest\(\)\) state\.typeMetadata = result;[\s\S]*if \(request\.isVisible\(\)\) \{\s*dependencies\.renderPreservingMemberFocus\(preservedFocus\);/);
   assert.doesNotMatch(
-    typeMetadata,
+    typeMetadataCoordinator,
     /renderPreservingMemberFocus\(preservedFocus\);\s*if \(state\.typeMetadata\?\.graphNodes/);
+});
+
+test("metadata explorer request coordination stays outside the composition root", () => {
+  const windowLoader =
+    appSource.match(/async function loadExplorerWindow\([\s\S]*?\n}\n\n\/\/ Lists/)?.[0]
+    ?? "";
+  const heapLoader =
+    appSource.match(/async function loadExplorerHeap\([\s\S]*?\n}\n\/\/ ref->def/)?.[0]
+    ?? "";
+  assert.match(
+    windowLoader,
+    /return metadataInspection\.loadExplorerWindow\(index, startRowId, maxRows\)/);
+  assert.match(
+    heapLoader,
+    /return metadataInspection\.loadExplorerHeap\(heapName\)/);
+  assert.doesNotMatch(
+    `${windowLoader}\n${heapLoader}`,
+    /inspectPackageMetadataTable|inspectPlatformMetadataTable|inspectPackageHeapEntries|inspectPlatformHeapEntries/);
+  assert.match(
+    metadataInspectionSource,
+    /dependencies\.queryPlatformTable[\s\S]*dependencies\.queryPackageTable[\s\S]*state\.explorer !== explorer[\s\S]*index === explorer\.focusIndex && !explorer\.focusHeap/);
+  assert.match(
+    metadataInspectionSource,
+    /dependencies\.queryPlatformHeap[\s\S]*dependencies\.queryPackageHeap[\s\S]*state\.explorer !== explorer[\s\S]*explorer\.focusHeap === heapName/);
 });
 
 test("typeless member lookup and request guards stay empty", () => {

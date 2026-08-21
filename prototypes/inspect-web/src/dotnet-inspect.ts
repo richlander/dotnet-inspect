@@ -77,6 +77,10 @@ import {
   type GraphSourceRequest,
 } from "./source-inspection.ts";
 import {
+  createMetadataInspectionCoordinator,
+  type AppExplorerState,
+} from "./metadata-inspection.ts";
+import {
   captureMemberFocus,
   createMemberFocusRestorer,
   type MemberFocusSnapshot,
@@ -124,7 +128,6 @@ import {
   sameFocus,
   type ExplorerFocus,
   type ExplorerTableData,
-  type ExplorerState,
   type HeapListingData,
   type PackageMetadata,
 } from "./metadata-viewer.ts";
@@ -279,15 +282,6 @@ interface AppMemberGroup {
 
 interface AppMemberSurface extends BrowserMemberSurface {
   documentationLoaded?: boolean;
-}
-
-interface AppExplorerState extends ExplorerState {
-  isPlatform: boolean;
-  pack: string | null;
-  packageId: string;
-  version: string;
-  framework: string;
-  pendingScroll: boolean;
 }
 
 function loadStoredTaste() {
@@ -671,6 +665,53 @@ const sourceInspection = createSourceInspectionCoordinator({
   describeError: errorMessage,
   render,
   renderPreservingMemberFocus,
+});
+const metadataInspection = createMetadataInspectionCoordinator({
+  state,
+  queryTypeMetadata: request => inspectTypeProjection(
+    request.packageId,
+    request.version,
+    request.framework,
+    request.assembly,
+    request.type),
+  queryPackageTable: async (explorer, index, startRowId, maxRows) =>
+    parseEngineJson<ExplorerTableData>(
+      await inspectPackageMetadataTable(
+        explorer.packageId,
+        explorer.version,
+        explorer.framework,
+        explorer.assemblyFileName,
+        index,
+        startRowId,
+        maxRows)),
+  queryPlatformTable: async (explorer, index, startRowId, maxRows) =>
+    parseEngineJson<ExplorerTableData>(
+      await inspectPlatformMetadataTable(
+        explorer.framework,
+        explorer.assemblyFileName,
+        explorer.pack || "",
+        index,
+        startRowId,
+        maxRows)),
+  queryPackageHeap: async (explorer, heapName) =>
+    parseEngineJson<HeapListingData>(
+      await inspectPackageHeapEntries(
+        explorer.packageId,
+        explorer.version,
+        explorer.framework,
+        explorer.assemblyFileName,
+        heapName)),
+  queryPlatformHeap: async (explorer, heapName) =>
+    parseEngineJson<HeapListingData>(
+      await inspectPlatformHeapEntries(
+        explorer.framework,
+        explorer.assemblyFileName,
+        explorer.pack || "",
+        heapName)),
+  describeError: errorMessage,
+  render,
+  renderPreservingMemberFocus,
+  scrollExplorerToFocus: explorerScrollToFocus,
 });
 
 function captureView(): WorkspaceView | null {
@@ -2698,88 +2739,13 @@ async function loadExplorerWindow(
   startRowId = 1,
   maxRows = explorerPageSize(),
 ) {
-  const ex = state.explorer;
-  if (!ex) return;
-  const existing = ex.windows[index];
-  if (existing && (existing.loading
-      || (existing.data && existing.data.startRowId === startRowId && existing.maxRows === maxRows))) return;
-  ex.windows[index] = { loading: true, error: "", data: existing?.data || null, startRowId, maxRows };
-  render();
-  try {
-    const result = parseEngineJson<ExplorerTableData>(
-      ex.isPlatform
-        ? await inspectPlatformMetadataTable(
-            ex.framework,
-            ex.assemblyFileName,
-            ex.pack || "",
-            index,
-            startRowId,
-            maxRows)
-        : await inspectPackageMetadataTable(
-            ex.packageId,
-            ex.version,
-            ex.framework,
-            ex.assemblyFileName,
-            index,
-            startRowId,
-            maxRows));
-    if (state.explorer !== ex) return;
-    ex.windows[index] = { loading: false, error: result.error || "", data: result, startRowId, maxRows };
-  } catch (error) {
-    if (state.explorer !== ex) return;
-    ex.windows[index] = {
-      loading: false,
-      error: errorMessage(error),
-      data: null,
-      startRowId,
-      maxRows,
-    };
-  } finally {
-    if (state.explorer === ex) {
-      render();
-      if (index === ex.focusIndex && !ex.focusHeap) explorerScrollToFocus();
-    }
-  }
+  return metadataInspection.loadExplorerWindow(index, startRowId, maxRows);
 }
 
 // Lists one heap's entries via the engine (referenced-only for #Strings/#Blob, complete for
 // #GUID, nothing for #US). Cached per heap name; coverage/truncation travel with the result.
 async function loadExplorerHeap(heapName: string) {
-  const ex = state.explorer;
-  if (!ex) return;
-  const existing = ex.heapWindows[heapName];
-  if (existing && (existing.loading || existing.data)) return;
-  ex.heapWindows[heapName] = { loading: true, error: "", data: null };
-  render();
-  try {
-    const result = parseEngineJson<HeapListingData>(
-      ex.isPlatform
-        ? await inspectPlatformHeapEntries(
-            ex.framework,
-            ex.assemblyFileName,
-            ex.pack || "",
-            heapName)
-        : await inspectPackageHeapEntries(
-            ex.packageId,
-            ex.version,
-            ex.framework,
-            ex.assemblyFileName,
-            heapName));
-    if (state.explorer !== ex) return;
-    ex.heapWindows[heapName] = { loading: false, error: "", data: result };
-  } catch (error) {
-    if (state.explorer !== ex) return;
-    ex.heapWindows[heapName] = {
-      loading: false,
-      error: errorMessage(error),
-      data: null,
-    };
-  } finally {
-    if (state.explorer === ex) {
-      render();
-      if (ex.focusHeap === heapName) explorerScrollToFocus();
-    }
-  }
+  return metadataInspection.loadExplorerHeap(heapName);
 }
 // ref->def: transport to the target table+row. Every jump pushes a focus entry onto the
 // history stack so Back/Forward can walk the journey — essential once the focus panel hides
@@ -5993,24 +5959,16 @@ async function loadSelectedTypeMetadata() {
   }
   const pkg = currentPackage();
   const signature = typeMetadataSignature(type, pkg);
-  if (state.typeMetadataKey === signature
-    && (state.typeMetadataLoading || state.typeMetadata || state.typeMetadataError)) {
-    renderPreservingMemberFocus();
-    return;
-  }
-  const generation = ++state.typeMetadataGeneration;
-  state.typeMetadataKey = signature;
-  state.typeMetadata = null;
-  state.typeMetadataError = "";
-  state.typeMetadataLoading = true;
-  const preservedFocus = renderPreservingMemberFocus();
-  const ownsRequest = () =>
-    generation === state.typeMetadataGeneration
-    && state.typeMetadataKey === signature;
-  const isCurrent = () => {
-    const currentType = selectedType();
-    return ownsRequest()
-      && !state.home
+  return metadataInspection.loadTypeMetadata({
+    signature,
+    packageId: pkg.id,
+    version: pkg.version,
+    framework: pkg.activeFramework,
+    assembly: type.assembly,
+    type: type.queryId ?? type.id,
+    isVisible: () => {
+      const currentType = selectedType();
+      return !state.home
       && !state.settings
       && !state.explorer?.open
       && !state.loading
@@ -6018,27 +5976,10 @@ async function loadSelectedTypeMetadata() {
       && !workbenchOverlayOwnsFocus()
       && state.lens === "metadata"
       && !state.atPackageRoot
-      && currentType
+      && currentType != null
       && typeMetadataSignature(currentType, pkg) === signature;
-  };
-  try {
-    const result = await inspectTypeProjection(
-      pkg.id,
-      pkg.version,
-      pkg.activeFramework,
-      type.assembly,
-      type.queryId ?? type.id);
-    if (ownsRequest()) state.typeMetadata = result;
-  } catch (error) {
-    if (ownsRequest()) state.typeMetadataError = errorMessage(error);
-  } finally {
-    if (ownsRequest()) {
-      state.typeMetadataLoading = false;
-      if (isCurrent()) {
-        renderPreservingMemberFocus(preservedFocus);
-      }
-    }
-  }
+    },
+  });
 }
 
 // Projects the neutral type-relationship node/edge model into a Mermaid flowchart so it

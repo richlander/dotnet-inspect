@@ -5,10 +5,10 @@
 // the metadata image rather than the API surface within it — so they live in one module, the
 // way `type-panel.ts` combines the type selector and the type viewer.
 //
-// `package-inspection.ts` coordinates the package-level metadata request.
-// `dotnet-inspect.ts` keeps `state`, the table-window and heap-listing engine calls
-// (`loadExplorerWindow`, `loadExplorerHeap`), the explorer's focus/history stack
-// (`openExplorer`, `pushExplorerFocus`, `applyExplorerFocus`,
+// `package-inspection.ts` coordinates the package-level metadata request, while
+// `metadata-inspection.ts` coordinates type metadata and the explorer's table-window and
+// heap-listing requests. `dotnet-inspect.ts` keeps `state` and the explorer's focus/history
+// stack (`openExplorer`, `pushExplorerFocus`, `applyExplorerFocus`,
 // `explorerHistoryBack/Forward`, `explorerShowOverview`, `closeExplorer`), the DOM event
 // binding, the `IntersectionObserver` that hydrates cards lazily, the resize listener, and
 // the global keydown handler. This module owns only the markup shape given an explicit
