@@ -130,8 +130,9 @@ edge does not exist. `TypeShellProducer` is contractually SRM-only
 Annotated Source, Cost Overlay, and Semantics Overlay. Whole-type
 listings restamp from metadata in `MemberBodyProducer`.
 
-The outcome is **projection-invariant**. Decompiler owns one
-metadata-addressed preparation front door:
+The outcome is **projection-invariant within the declared source-body
+contract**. Decompiler owns one metadata-addressed preparation front
+door:
 
 ```text
 MetadataBodyProjector.Prepare(MetadataSource, MethodDefinitionHandle)
@@ -148,8 +149,13 @@ MetadataBodyProjection
   ClassicAsyncOutcome
 
 StageBodyProjection
-  Prepared(Function)
+  Prepared(FunctionSnapshot)
   Failed(Diagnostics)
+
+PreparedStageBody.Render(PrinterOptions)
+  RenderedFunction       private clone after print analysis
+  DecompilerResult       includes ClassicAsyncOutcome
+  PrintedRanges
 
 ClassicAsyncOutcome
   NotClassic
@@ -170,7 +176,11 @@ Preparation imports once, uses the sibling-import seam once, fixes the
 `ClassicAsyncOutcome`, and produces the requested stage snapshots from
 that decision. It does not ask each snapshot to recognize the machine
 again. The snapshots are owned mutable IR; consumers print clones, not
-the stored instances.
+the stored instances. `PreparedStageBody.Render` is the sole
+source-body emission seam: it clones the stored snapshot, performs
+the selected style lenses plus print analysis without rerunning the
+default/lowered structural pipeline, and returns the rendered clone,
+result, and printed ranges as one value.
 
 The outer classification is metadata-only and exists even when body
 preparation fails. The unions separate failure from a decided body:
@@ -188,17 +198,19 @@ preparation fails. The unions separate failure from a decided body:
 - an async iterator is `StateMachineAsync` but
   `IsClassicAsync = No`, so `NotClassic` is its required outcome
 
-The canonical function and outcome feed every view:
+The canonical function and outcome feed every declared source-body
+projection:
 
 - `MemberCodeProvider` calls `MetadataBodyProjector` once whenever any
-  member C# artifact is requested. Decompiled Source prints a clone;
-  Research receives the same prepared value.
+  member C# artifact is requested. Decompiled Source calls the prepared
+  stage's render seam; Research receives the same prepared value.
 - `ResearchViews.ProjectMember` accepts that value. Direct Research and
   Research-query callers that do not come through `MemberCodeProvider`
   call the same Decompiler front door once. Annotated Source, Annotated
   Source Document, Cost Overlay, Semantics Overlay, and Fact Row C#
-  line mapping all use clones from it. No Research renderer invokes
-  classic reconstruction.
+  line mapping all render clones through `PreparedStageBody`. No
+  Research renderer invokes `CSharpPrinter`, pass execution, or classic
+  reconstruction directly.
 - `AnnotationStage.Raised` consumes `Raised`.
   `AnnotationStage.Lowered` consumes `Lowered`, prepared from the same
   classic decision. If a stage-compatible classic snapshot
@@ -210,21 +222,37 @@ The canonical function and outcome feed every view:
   `MemberBodyProductionResult` and internal whole-type
   `DecompiledBodyProjection` carry classification, body text/shape
   facts, and `ClassicAsyncOutcome`.
-- Metadata-addressed `BodyShapeSearch` and `CSharpBodyDiff` use the
-  front door too. Their fidelity/search policies remain separate, but
-  they do not create a second classic-async decision.
+- Metadata-addressed `BodyShapeSearch` uses the front door too. Its
+  fidelity/search policy remains separate, but it does not create a
+  second classic-async decision.
   `BodyShapeSearch.IncompleteBodyReason` replaces its current
   classic-or-async-iterator attribute union with the exact prepared
   outcome.
-- Raw-IR diagnostics such as pass stage dumps and tests that
-  intentionally call `CSharpPrinter` without a metadata method identity
-  are outside this contract: they render the supplied tree and do not
-  stamp a declaration.
+- Physical-body evidence and raw-IR diagnostics are outside this
+  contract: they render one supplied physical tree, do not stamp a
+  declaration, and do not claim a `ClassicAsyncOutcome`. The named
+  product exceptions are `CSharpBodyDiff` and `PipelineStages`; tests
+  may intentionally exercise the raw APIs.
 - A `DecompilerResult` rendered from a successful
   `StageBodyProjection` carries the same outcome. Outer preparation
   failure and raw-IR rendering have no classic outcome. Its
   hand-written `Equals` and `GetHashCode` include outcome presence,
   decline reason, and body disposition. `with` copies preserve them.
+
+`CSharpBodyDiff` is intentionally not another source-body projection.
+Its currency is C# lines anchored to IL origins in one physical
+MethodDef. Its null `importMethodBody` seam keeps lambda,
+local-function, iterator, and classic companion bodies out of that
+coordinate plane; `StatementStartOffset` relies on that property.
+Routing it through `MetadataBodyProjector` would admit foreign offsets,
+change implementation-diff lines/LCS, and require a separate
+correspondence design. Slice 0 does none of those things.
+
+The diff therefore remains a named seam-free physical-evidence
+projection. It can display the physical kickoff because it neither
+prints a declaration nor claims reconstructed source. It carries no
+classic outcome or marker. Its own gate pins the null seam, MethodDef
+provenance, and unchanged non-classic line/offset output.
 
 The declaration rule uses the exact facts:
 
@@ -272,11 +300,13 @@ rediscover a sibling state machine makes the result depend on section
 selection and import-seam availability. Canonical preparation owns
 sibling import, recognition, reconstruction, decline marking, stage
 snapshots, and the outcome. Views own only annotation and spelling over
-clones of prepared IR.
+the `PreparedStageBody.Render` result.
 
-This applies to direct Research callers and structured artifacts, not
-only the four familiar text overlays. Fact Row C# anchors must refer to
-the same function whose lines the sibling code artifact prints.
+This applies to direct Research callers and structured source-body
+artifacts, not only the four familiar text overlays. Fact Row C#
+anchors must refer to the same function whose lines the sibling code
+artifact prints. It does not apply to physical-body evidence whose
+identity contract forbids companion-body import.
 
 Preparation does not obtain invariance by running `PrintRaised` and
 `PrintLowered` independently and comparing their answers. It recognizes
@@ -450,24 +480,26 @@ the decompiler library and corpus.
    slice for a non-problem.
 6. **One hop.** An async local-function `MoveNext` maps to that
    local function's stub, not the owning method.
-7. **Every metadata-addressed product path uses one front door.**
+7. **Every metadata-addressed declared source-body path uses one front
+   door.**
    MemberCodeProvider, direct Research, Research queries,
    `MemberBodyProducer.ProduceBody`, whole-member/whole-type
-   composition, Body Shape search, and C# body diff call
-   `MetadataBodyProjector`. Annotated Source Document and Fact Row
-   line mapping are part of the Research set. Direct `CSharpPrinter`
-   calls are reserved for raw-IR diagnostics whose contract explicitly
-   begins with an already supplied function.
+   composition, and Body Shape search call `MetadataBodyProjector`.
+   Annotated Source Document and Fact Row line mapping are part of the
+   Research set. `CSharpBodyDiff` is the explicit seam-free
+   physical-evidence exception; `PipelineStages` is the explicit
+   raw-stage diagnostic exception.
 
 A concrete observation that would falsify slice 0: any
 successfully prepared `IsClassicAsync` body is neither reconstructed nor
 visibly marked; a non-narrow body's original statement disappears; a
 declined classic declaration still says `async`; a declined
-runtime-async method loses its metadata `async`; any code-bearing
-member artifact disagrees on outcome; a Fact Row anchor refers to an
-independently raised body; a failed preparation becomes a plausible
-body; an in-domain library `MoveNext` still lacks distinctive user
-logic; or an async-iterator `MoveNext` is no longer hollow.
+runtime-async method loses its metadata `async`; any declared
+source-body artifact disagrees on outcome; a Fact Row anchor refers to
+an independently raised body; a failed preparation becomes a plausible
+body; the physical C# diff imports a companion body; an in-domain
+library `MoveNext` still lacks distinctive user logic; or an
+async-iterator `MoveNext` is no longer hollow.
 
 `MemberBodyProducerAsyncTests.ClassicAsyncWithoutAwait_UsesResolvedMethodBodyModifier`
 currently asserts `async` on `NoAwait()`. Slice 0 flips that
@@ -497,7 +529,7 @@ another raise. Do not invent more `TryBuild*` methods.
 
 | Slice | Claim | Residual after it |
 | --- | --- | --- |
-| 0. Honesty | Add SRM `IsClassicAsync`, Decompiler-owned `MetadataBodyProjectionResult`, prepared stage snapshots, and typed body carriers. Every metadata-addressed product path uses that front door and clones one decision. Every classic decline gets a marker: replace exact narrow handoff; prepend while preserving a non-narrow body. Correlate Debug class allocation and void `Return(null)`. Separate acknowledgment builder classification; leave legacy raise eligibility unchanged. Stop hollowing in-domain `MoveNext`; library + corpus A/B. | #4472 fixture still declined, but honest. Debug class SMs are honest but not raised. Async-iterator `MoveNext` still hollow. Custom builders visibly decline with preserved bodies. No trusted Metadata/Analysis lift. |
+| 0. Honesty | Add SRM `IsClassicAsync`, Decompiler-owned `MetadataBodyProjectionResult`, prepared stage snapshots, and typed body carriers. Every metadata-addressed declared source-body path uses that front door and clones one decision; seam-free physical evidence remains a separate contract. Every classic decline gets a marker: replace exact narrow handoff; prepend while preserving a non-narrow body. Correlate Debug class allocation and void `Return(null)`. Separate acknowledgment builder classification; leave legacy raise eligibility unchanged. Stop hollowing in-domain `MoveNext`; library + corpus A/B. | #4472 fixture still declined, but honest. Debug class SMs are honest but not raised. Async-iterator `MoveNext` still hollow. Custom builders visibly decline with preserved bodies. Physical C# diff remains MethodDef-scoped and seam-free. No trusted Metadata/Analysis lift. |
 | 1. Void-await then statements then return | Accept `await Task.Yield(); return ReadValue(value);` as the first inverse raise from `AwaitPoints` + `UserRegions`, not as a new `TryBuild*` and not as a `HasUnexpectedStore` allow-list tweak. Must consume void `GetResult` as a statement, following statements, a non-await `SetResult` operand, the Yield operand temp, and an explicit `LoadLocalAddress` decline-then-remap. Hoisted parameter binding is already present. The smaller `await Task.Yield();` (no later statements) is the accepted boundary of the same slice. Blocked until the Correct measurement exists. | General multi-state dispatch, class SM, custom awaiters, structural Metadata descriptor, census-defined raises. |
 
 ## Proof obligations (every raise slice)
@@ -541,6 +573,8 @@ another raise. Do not invent more `TryBuild*` methods.
   / attribution filters into Metadata.
 - A product-surface listing filter for nested SM types.
 - Teaching `TypeShellProducer` about reconstruction outcomes.
+- Changing `CSharpBodyDiff` from physical MethodDef evidence into a
+  reconstructed source-body comparison.
 - Designing a state-dispatch raise before a corpus census.
 - Another `TryBuild*` matcher.
 
@@ -562,6 +596,7 @@ another raise. Do not invent more `TryBuild*` methods.
 | `MoveNext` → declared source | Analysis (`ResolveDeclaredMethod`) |
 | Research annotation, document, overlay, and Fact Row presentation | Research over Decompiler-prepared clones |
 | CLI member presentation | CLI |
+| Seam-free physical C# body evidence | Decompiler `CSharpBodyDiff` (no classic outcome) |
 | Corpus / library `MoveNext` rendering | Decompiler |
 
 ## Gates
@@ -573,7 +608,7 @@ predicate. They must not assume current kickoffs are Full.
 | Gate | Surface | Fails if |
 | --- | --- | --- |
 | Exact async population matrix | Metadata + Decompiler tests | Async iterator is rejected as invalid `NotClassic`, or custom classic builder escapes visible `Declined` |
-| Canonical front-door architecture | Source-architecture test `MetadataAddressedBodyProjectionUsesCanonicalFrontDoor` | A metadata-addressed product path calls `CSharpPrinter.PrintRaised` / `PrintLowered` directly outside the explicit raw-IR allow list |
+| Canonical front-door architecture | Source-architecture test `MetadataAddressedBodyProjectionUsesCanonicalFrontDoor` | Product-consumer references outside `CSharpPrinter` / pass definitions to any body-emitting printer API or direct top-level `IrPasses.Run*` differ from the complete set: `MetadataBodyProjector` / `PreparedStageBody`, seam-free `CSharpBodyDiff`, and raw-stage `PipelineStages` |
 | Declined classic body, narrow and non-narrow | Five CLI code views + public typed body + whole-type | Render lacks the unsupported marker comment |
 | Same declined classic body | CLI Fidelity Causes | Lacks DEC0004 |
 | Non-narrow classic body with extra call/store | Five CLI code views + public typed body + whole-type | Any original statement disappears |
@@ -587,7 +622,8 @@ predicate. They must not assume current kickoffs are Full.
 | Async-void narrow handoff | Decompiler library | Terminal `Return(null)` prevents recognition |
 | Non-generic ValueTask / async-void legacy raise negative | Decompiler library | Slice 0 newly reconstructs it |
 | Typed body carriers | `MemberBodyProducer` tests | Outcome/classification is lost in `ProduceBody` or between `DecompileBody` and declaration formatting |
-| Body Shape and C# body diff | Decompiler product tests | Either metadata-addressed path creates a second classic decision |
+| Body Shape source projection | Decompiler product tests | Search creates a second classic decision or retains the broad classic-or-async-iterator heuristic |
+| Physical C# body diff boundary | `CSharpBodyDiff` product tests | Diff wires `importMethodBody`, admits foreign MethodDef origins, carries a classic outcome/marker, or changes non-classic lines/offsets |
 | `DecompilerResult` value semantics | Decompiler tests | Results differing only by outcome/reason/disposition compare equal, hash inconsistently, or lose outcome through `with` |
 | In-domain `MoveNext` of a declined classic-async SM | Decompiler library (CLI type surface omits `d__` types) | Distinctive user logic absent |
 | Async-iterator `MoveNext` | Decompiler library | No longer hollow |
@@ -600,5 +636,14 @@ cause enumeration must fail the DEC0004 gate. Deleting outcome-aware
 modifier formatting must fail its independent gate. Widening
 `IsAsyncMethodBuilder` must fail the legacy-raise negative. A green
 `TypeShellProducer` test is not this gate. A green "fidelity is not
-Full" check is not this gate. Adding a new metadata-addressed render
-entry point without registering it must fail the architecture gate.
+Full" check is not this gate.
+
+The architecture test discovers every product-project reference to
+`CSharpPrinter` body emission and direct top-level pass execution; it
+does not enumerate only today's method names. Set equality makes both a
+new bypass and a stale exception fail. `IrImporter.Import` alone is
+acquisition, not rendering, and is intentionally not denied; combining
+it with any product C# emission hits the gate. Adding a declared
+source-body entry point without routing it through
+`MetadataBodyProjector` / `PreparedStageBody`, or adding a raw/physical
+exception without naming its separate contract, must fail.
