@@ -171,6 +171,31 @@ test("cached call graphs render without querying again", async () => {
   assert.deepEqual(events, ["render", "graph"]);
 });
 
+test("same-key requests in flight are not mistaken for cached results", async () => {
+  const first = deferred<BrowserCallGraph>();
+  const second = deferred<BrowserCallGraph>();
+  let queries = 0;
+  const state = inspectionState();
+  const coordinator = createCallGraphInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryWorkspace: async () => {
+        queries++;
+        return queries === 1 ? first.promise : second.promise;
+      },
+    }));
+
+  const firstLoad = coordinator.load(memberRequest());
+  const secondLoad = coordinator.load(memberRequest());
+
+  assert.equal(queries, 2);
+
+  first.resolve(graph("stale"));
+  second.resolve(graph("current"));
+  await Promise.all([firstLoad, secondLoad]);
+
+  assert.equal(state.memberCallGraph?.mermaid, "current");
+});
+
 test("workspace call graphs publish the fast local stage with focus intact", async () => {
   const local = graph("local");
   const preservedFocus = focusSnapshot();
