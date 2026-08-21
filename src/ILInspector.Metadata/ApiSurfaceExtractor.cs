@@ -786,6 +786,11 @@ public static class ApiSurfaceExtractor
 
                 var isExplicitInterfaceImplementation =
                     methodImplementations.HasExplicitInterfaceTargets(methodHandle);
+                bool canUseImplicitInterfaceSyntax =
+                    methodImplementations.CanUseImplicitInterfaceSyntax(
+                        methodHandle,
+                        methodName,
+                        methodAccess);
                 var isFinalizer = apiType.Kind == "class"
                     && method.GetGenericParameters().Count == 0
                     && string.Equals(methodName, "Finalize", StringComparison.Ordinal)
@@ -901,6 +906,8 @@ public static class ApiSurfaceExtractor
                     IsFinalizer = isFinalizer,
                     IsExplicitInterfaceImplementation =
                         isExplicitInterfaceImplementation,
+                    CanUseImplicitInterfaceSyntax =
+                        canUseImplicitInterfaceSyntax,
                     Signature = signature.Text,
                     SignatureModel = signature.Model,
                     SignatureDecodeStatus = signature.IsDegraded
@@ -1827,6 +1834,11 @@ public static class ApiSurfaceExtractor
 
             bool isExplicitImplementation =
                 methodImplementations.HasExplicitInterfaceTargets(methodHandle);
+            bool canUseImplicitInterfaceSyntax =
+                methodImplementations.CanUseImplicitInterfaceSyntax(
+                    methodHandle,
+                    methodName,
+                    methodAccess);
             bool isFinalizer = method.GetGenericParameters().Count == 0
                 && string.Equals(methodName, "Finalize", StringComparison.Ordinal)
                 && apiType.Kind == "class"
@@ -1876,6 +1888,8 @@ public static class ApiSurfaceExtractor
                 IsStatic = (method.Attributes & MethodAttributes.Static) != 0,
                 IsFinalizer = isFinalizer,
                 IsExplicitInterfaceImplementation = isExplicitImplementation,
+                CanUseImplicitInterfaceSyntax =
+                    canUseImplicitInterfaceSyntax,
                 Accessibility = methodAccessibility
             };
             if (isExtensionClass
@@ -2644,6 +2658,23 @@ public static class ApiSurfaceExtractor
 
         public bool HasExplicitInterfaceTargets(MethodDefinitionHandle body) =>
             GetExplicitInterfaceTargets(body).Count > 0;
+
+        public bool CanUseImplicitInterfaceSyntax(
+            MethodDefinitionHandle body,
+            string bodyName,
+            MethodAttributes bodyAccess)
+        {
+            List<ExplicitInterfaceMethodTarget> targets =
+                GetExplicitInterfaceTargets(body);
+            return targets.Count > 0
+                && bodyAccess == MethodAttributes.Public
+                && !bodyName.Contains('.', StringComparison.Ordinal)
+                && targets.All(target =>
+                    string.Equals(
+                        target.MethodName,
+                        bodyName,
+                        StringComparison.Ordinal));
+        }
 
         public List<ExplicitInterfaceMethodTarget> GetExplicitInterfaceTargets(
             MethodDefinitionHandle body)

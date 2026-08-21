@@ -410,6 +410,12 @@ public static class MetadataDeclarationQuery
             bool isExplicitInterfaceImplementation =
                 canBeExplicitInterfaceImplementation
                 && methodImplementations.HasExplicitInterfaceTargets(methodHandle);
+            bool canUseImplicitInterfaceSyntax =
+                isExplicitInterfaceImplementation
+                && methodImplementations.CanUseImplicitInterfaceSyntax(
+                    methodHandle,
+                    methodName,
+                    methodAccess);
             var isRetainedImplementationAccessor = isExplicitInterfaceImplementation
                 && (methodName.Contains('.', StringComparison.Ordinal)
                     || (!canonicalAccessorMethods.Contains(methodHandle)
@@ -473,6 +479,8 @@ public static class MetadataDeclarationQuery
                     || AttributeReader.HasRequiresUnsafeAttribute(reader, method.GetCustomAttributes()),
                 Accessibility = NonPublicAccessibility(declaration.Accessibility),
                 IsExplicitInterfaceImplementation = isExplicitInterfaceImplementation,
+                CanUseImplicitInterfaceSyntax =
+                    canUseImplicitInterfaceSyntax,
                 Attributes = declaration.Attributes.ToList(),
             });
         }

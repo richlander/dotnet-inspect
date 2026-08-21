@@ -1247,6 +1247,55 @@ public class ApiSurfaceExtractorTests
     }
 
     [Fact]
+    public void UnqualifiedMatchingMethodImplUsesImplicitInterfaceSyntax()
+    {
+        string assemblyPath = typeof(int).Assembly.Location;
+        using var fullStream = File.OpenRead(assemblyPath);
+        using var fullReader = new PEReader(fullStream);
+        using var summaryStream = File.OpenRead(assemblyPath);
+        using var summaryReader = new PEReader(summaryStream);
+        using var focusedStream = File.OpenRead(assemblyPath);
+        using var focusedReader = new PEReader(focusedStream);
+
+        ApiType full = Assert.Single(
+            ApiSurfaceExtractor.Extract(fullReader, includeAll: true).Types,
+            type => type.FullName == typeof(int).FullName);
+        ApiType summary = Assert.Single(
+            ApiSurfaceExtractor.ExtractSummary(summaryReader).Types,
+            type => type.FullName == typeof(int).FullName);
+        MetadataReader metadata = focusedReader.GetMetadataReader();
+        TypeDefinitionHandle typeHandle = metadata.TypeDefinitions.Single(handle =>
+        {
+            TypeDefinition definition = metadata.GetTypeDefinition(handle);
+            return metadata.GetString(definition.Namespace) == "System"
+                && metadata.GetString(definition.Name) == nameof(Int32);
+        });
+        ApiType focused = MetadataDeclarationQuery.GetTypeSurface(
+            metadata,
+            typeHandle,
+            includeNonPublicMembers: false);
+
+        foreach (ApiType type in new[] { full, summary, focused })
+        {
+            ApiMember[] parseMethods = type.Members
+                .Where(member =>
+                    member.Name == nameof(int.Parse)
+                    && member.IsExplicitInterfaceImplementation)
+                .ToArray();
+            Assert.NotEmpty(parseMethods);
+            Assert.All(
+                parseMethods,
+                member => Assert.True(member.CanUseImplicitInterfaceSyntax));
+            Assert.All(
+                type.Members.Where(member =>
+                    member.Name.StartsWith(
+                        "System.IConvertible.",
+                        StringComparison.Ordinal)),
+                member => Assert.False(member.CanUseImplicitInterfaceSyntax));
+        }
+    }
+
+    [Fact]
     public void Extract_FoldsFieldLikeEventBackingFieldIntoEvent()
     {
         var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;

@@ -951,6 +951,8 @@ public sealed class CSharpTypePrinter
             IsSealed = member.IsSealed,
             IsFinalizer = member.IsFinalizer,
             IsExplicitInterfaceImplementation = member.IsExplicitInterfaceImplementation,
+            CanUseImplicitInterfaceSyntax =
+                member.CanUseImplicitInterfaceSyntax,
             IsReadOnly = member.IsReadOnly,
             IsConst = member.IsConst,
             IsUnsafe = member.IsUnsafe,

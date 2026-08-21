@@ -252,6 +252,9 @@ public class ApiInventoryQueryTests
             Assert.All(
                 explicitMembers,
                 member => Assert.Equal("private", member.Accessibility));
+            Assert.All(
+                explicitMembers,
+                member => Assert.False(member.CanUseImplicitInterfaceSyntax));
             Assert.Contains(
                 explicitMembers,
                 member => member.Kind == "explicit-interface-implementation"

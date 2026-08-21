@@ -1175,7 +1175,8 @@ internal static class CSharpDeclarationWriter
             if (member.IsUnsafe || options.ForceUnsafe)
                 modifiers.Add("unsafe");
         }
-        else if (!IsExplicitInterfaceImplementation(member))
+        else if (!IsExplicitInterfaceImplementation(member)
+            || member.CanUseImplicitInterfaceSyntax)
         {
             var omitInterfaceModifiers = options.OmitInterfaceMemberModifiers
                 && type.Kind == "interface"
@@ -1649,7 +1650,9 @@ internal static class CSharpDeclarationWriter
         string declaration,
         ApiMember member,
         IReadOnlyList<TypeParameter> typeParameters)
-        => member.IsOverride || member.Kind == "explicit-interface-implementation"
+        => member.IsOverride
+            || IsExplicitInterfaceImplementation(member)
+                && !member.CanUseImplicitInterfaceSyntax
             ? AppendInheritedConstraintRestatement(declaration, typeParameters)
             : AppendTypeParameterConstraints(declaration, typeParameters);
 
@@ -1928,6 +1931,9 @@ internal static class CSharpDeclarationWriter
 
         if (!member.Name.Contains('.', StringComparison.Ordinal))
         {
+            if (member.CanUseImplicitInterfaceSyntax)
+                return;
+
             throw new NotSupportedException(
                 "An explicit interface member has no qualified metadata name, "
                 + "so C# cannot represent its MethodImpl target.");

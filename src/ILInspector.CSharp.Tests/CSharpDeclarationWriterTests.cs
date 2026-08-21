@@ -1307,6 +1307,29 @@ public sealed class CSharpDeclarationWriterTests
         Assert.DoesNotContain(member.Name, exception.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void ExplicitInterfaceImplementation_ImplicitSyntaxRendersOrdinaryDeclaration()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class"
+        };
+        var member = new ApiMember
+        {
+            Name = "Read",
+            Kind = "explicit-interface-implementation",
+            Signature = "int Read()",
+            CanUseImplicitInterfaceSyntax = true
+        };
+
+        string declaration =
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal("public int Read()", declaration);
+    }
+
     [Theory]
     // A C# tuple type is parenthesized, so a parameter-list scan that takes the first
     // '(' mistakes a tuple-typed return for a parameter list and escapes each element's

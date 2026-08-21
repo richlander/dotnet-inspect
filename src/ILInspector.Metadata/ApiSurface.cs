@@ -957,6 +957,18 @@ public class ApiMember
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool IsExplicitInterfaceImplementation { get; set; }
 
+    /// <summary>
+    /// True when an unqualified public MethodImpl maps only to interface
+    /// declarations with the same method name, so ordinary C# member syntax
+    /// preserves the implementation contract.
+    /// </summary>
+    /// <remarks>
+    /// <c>ApiSurfaceExtractorTests.UnqualifiedMatchingMethodImplUsesImplicitInterfaceSyntax</c>
+    /// gates compiler-produced extraction and focused-query parity.
+    /// </remarks>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool CanUseImplicitInterfaceSyntax { get; set; }
+
     public bool IsReadOnly { get; set; }
     public bool IsConst { get; set; }
     public bool IsUnsafe { get; set; }
