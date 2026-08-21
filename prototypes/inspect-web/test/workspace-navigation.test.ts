@@ -157,6 +157,11 @@ test("navigation history removes stale entries and reports exhausted directions"
   assert.deepEqual(applied, [{ id: "latest", revision: 1 }]);
   assert.equal(history.canForward(), false);
   assert.equal(exhausted, 2);
+  applied.length = 0;
+  assert.equal(history.canBack(), false);
+  assert.equal(history.back(), false);
+  assert.deepEqual(applied, []);
+  assert.equal(exhausted, 3);
 });
 
 test("navigation history normalizes the current captured view", () => {
@@ -296,7 +301,7 @@ test("invalid and oversized workspace packets stay visible", () => {
   assert.match(oversized.workspaceNotice, /65536-character limit/);
 });
 
-test("location persistence contains history failures but leaves build failures visible", () => {
+test("location persistence contains sync failures but leaves direct build failures visible", () => {
   const current = locationSnapshot("https://inspect.example/");
   const replaced: string[] = [];
   const pushed: string[] = [];
@@ -310,6 +315,11 @@ test("location persistence contains history failures but leaves build failures v
   persistence.push("/");
   assert.equal(new URL(replaced[0]).searchParams.get("package"), "Example.Second");
   assert.deepEqual(pushed, ["/"]);
+  const replacedCount = replaced.length;
+  assert.doesNotThrow(() => persistence.sync(workspaceState({
+    memberTextFilter: "x".repeat(65537),
+  })));
+  assert.equal(replaced.length, replacedCount);
 
   const blocked = createWorkspaceLocationPersistence({
     current: () => current,
