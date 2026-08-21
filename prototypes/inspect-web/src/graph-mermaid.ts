@@ -5,10 +5,15 @@ import {
   ensureBoundedGraphNode,
   mermaidLabel,
   packageIdentityKey,
-  selectedDependencyGroup
-} from "./data.js";
+  selectedDependencyGroup,
+  type DependencyGroup,
+  type DependencyGroupData,
+  type DependencyGraphNodeInfo,
+  type DependencyGraphResult,
+  type PackageIdentity,
+} from "./data.ts";
 
-function shortTypeName(fullName) {
+function shortTypeName(fullName: string): string {
   const generic = fullName.indexOf("<");
   const head = generic < 0 ? fullName : fullName.slice(0, generic);
   const tail = generic < 0 ? "" : fullName.slice(generic);
@@ -16,11 +21,27 @@ function shortTypeName(fullName) {
   return (dot < 0 ? head : head.slice(dot + 1)) + tail;
 }
 
-export function buildTypeGraphMermaid(meta) {
+export interface TypeGraphNode {
+  id: string;
+  displayName: string;
+  role: string;
+}
+
+export interface TypeGraphEdge {
+  fromId: string;
+  toId: string;
+}
+
+export interface TypeGraphMeta {
+  graphNodes?: readonly TypeGraphNode[];
+  graphEdges?: readonly TypeGraphEdge[];
+}
+
+export function buildTypeGraphMermaid(meta: TypeGraphMeta): string | null {
   const nodes = meta.graphNodes || [];
   const edges = meta.graphEdges || [];
   if (nodes.length < 2) return null;
-  const idOf = new Map();
+  const idOf = new Map<string, string>();
   nodes.forEach((node, index) => idOf.set(node.id, `t${index}`));
   const lines = ["flowchart TD"];
   for (const node of nodes) {
@@ -39,12 +60,43 @@ export function buildTypeGraphMermaid(meta) {
   return lines.join("\n");
 }
 
-export function buildDependencyGraphMermaid(model, uniqueCompatiblePackage) {
+export interface DependencyGraphPackage extends PackageIdentity {
+  isRuntimePack?: boolean;
+}
+
+export interface DependencyGraphWorkspaceDependency {
+  id: string;
+  versionRange?: string;
+}
+
+export interface DependencyGraphModel {
+  package: DependencyGraphPackage;
+  packages: readonly DependencyGraphPackage[];
+  packageDependencies?: DependencyGroupData;
+  dependenciesGroupIndex: number | null;
+  workspaceDependencies: Record<string, DependencyGroupData | undefined>;
+}
+
+type UniqueCompatiblePackage = (
+  packages: readonly DependencyGraphPackage[],
+  packageId: string,
+  versionRange: string | undefined,
+) => DependencyGraphPackage | null;
+
+interface MermaidGraphNodeInfo extends DependencyGraphNodeInfo {
+  key: string;
+  label: string;
+}
+
+export function buildDependencyGraphMermaid(
+  model: DependencyGraphModel,
+  uniqueCompatiblePackage: UniqueCompatiblePackage,
+): DependencyGraphResult | null {
   const MAX_DEPTH = 3;
   const MAX_NODES = 80;
-  const nodeInfo = new Map();
+  const nodeInfo = new Map<string, MermaidGraphNodeInfo>();
   let truncated = false;
-  const ensureNode = (key, create) => {
+  const ensureNode = (key: string, create: () => MermaidGraphNodeInfo): MermaidGraphNodeInfo | null => {
     const result = ensureBoundedGraphNode(
       nodeInfo,
       key,
@@ -53,7 +105,7 @@ export function buildDependencyGraphMermaid(model, uniqueCompatiblePackage) {
     truncated ||= result.truncated;
     return result.node;
   };
-  const openPackageNode = (pkg, kind = "open") => {
+  const openPackageNode = (pkg: DependencyGraphPackage, kind = "open"): MermaidGraphNodeInfo | null => {
     const packageKey = packageIdentityKey(pkg);
     const key = dependencyGraphPackageKey(pkg);
     return ensureNode(key, () => {
@@ -71,7 +123,7 @@ export function buildDependencyGraphMermaid(model, uniqueCompatiblePackage) {
       };
     });
   };
-  const dependencyNode = dependency => {
+  const dependencyNode = (dependency: DependencyGraphWorkspaceDependency): MermaidGraphNodeInfo | null => {
     const open = uniqueCompatiblePackage(
       model.packages,
       dependency.id,
@@ -95,21 +147,21 @@ export function buildDependencyGraphMermaid(model, uniqueCompatiblePackage) {
   };
   openPackageNode(model.package, "self");
 
-  const edgeSet = new Set();
-  const edges = [];
-  const addEdge = (from, to) => {
+  const edgeSet = new Set<string>();
+  const edges: { from: string; to: string }[] = [];
+  const addEdge = (from: MermaidGraphNodeInfo, to: MermaidGraphNodeInfo) => {
     const key = `${from.key}\u0001${to.key}`;
     if (edgeSet.has(key)) return;
     edgeSet.add(key);
     edges.push({ from: from.key, to: to.key });
   };
 
-  const workspaceDependencyKey = pkg => [
+  const workspaceDependencyKey = (pkg: DependencyGraphPackage) => [
     pkg.id.toLowerCase(),
     pkg.version.toLowerCase(),
     pkg.activeFramework.toLowerCase()
   ].join("@");
-  const groupFor = pkg => {
+  const groupFor = (pkg: DependencyGraphPackage): DependencyGroup | null => {
     if (packageIdentityKey(pkg) === packageIdentityKey(model.package)) {
       const groups = model.packageDependencies?.dependencyGroups || [];
       const fallbackGroupIndex = groups.some(
@@ -132,7 +184,7 @@ export function buildDependencyGraphMermaid(model, uniqueCompatiblePackage) {
   let downFrontier = [model.package];
   const downVisited = new Set([packageIdentityKey(model.package)]);
   for (let depth = 0; depth < MAX_DEPTH && downFrontier.length && !truncated; depth++) {
-    const next = [];
+    const next: DependencyGraphPackage[] = [];
     for (const pkg of downFrontier) {
       const group = groupFor(pkg);
       if (!group) continue;
@@ -141,6 +193,7 @@ export function buildDependencyGraphMermaid(model, uniqueCompatiblePackage) {
         packageIdentityKey(pkg) === packageIdentityKey(model.package)
           ? "self"
           : "open");
+      if (!source) continue;
       for (const dependency of group.dependencies || []) {
         const target = dependencyNode(dependency);
         if (!target) break;
@@ -160,7 +213,7 @@ export function buildDependencyGraphMermaid(model, uniqueCompatiblePackage) {
   let upFrontier = [model.package];
   const upVisited = new Set([packageIdentityKey(model.package)]);
   for (let depth = 0; depth < MAX_DEPTH && upFrontier.length && !truncated; depth++) {
-    const next = [];
+    const next: DependencyGraphPackage[] = [];
     for (const targetPackage of upFrontier) {
       const target = openPackageNode(
         targetPackage,
@@ -195,11 +248,11 @@ export function buildDependencyGraphMermaid(model, uniqueCompatiblePackage) {
   if (!edges.length) return null;
 
   const keys = [...nodeInfo.keys()];
-  const idOf = new Map();
+  const idOf = new Map<string, string>();
   keys.forEach((key, index) => idOf.set(key, `d${index}`));
   const lines = ["flowchart TD"];
   for (const key of keys) {
-    const info = nodeInfo.get(key);
+    const info = nodeInfo.get(key)!;
     const label = mermaidLabel(info.label);
     lines.push(`  ${idOf.get(key)}["${label}"]:::${info.kind}`);
   }
@@ -210,7 +263,7 @@ export function buildDependencyGraphMermaid(model, uniqueCompatiblePackage) {
   lines.push("classDef open fill:var(--panel-active),stroke:var(--blue),color:var(--text);");
   lines.push("classDef external fill:transparent,stroke:var(--line-strong),color:var(--dim);");
   const nodeInfoById = new Map(
-    keys.map(key => [idOf.get(key), nodeInfo.get(key)]));
+    keys.map(key => [idOf.get(key), nodeInfo.get(key)])) as Map<string, DependencyGraphNodeInfo>;
   return {
     definition: lines.join("\n"),
     nodeInfoById,
