@@ -35,6 +35,14 @@ public class MetadataOperatorFactTests
             Assert.Equal(
                 MetadataOperatorFact.No,
                 Assert.Single(index.Methods, m => m.Name == "Scale").IsOperator);
+            var ordinary =
+                Assert.Single(
+                    index.Methods,
+                    method => method.Name == "op_Multiply");
+            Assert.Equal(
+                MetadataOperatorFact.No,
+                index.BuildCallTree(ordinary.MetadataToken)
+                    .Member.IsOperator);
         }
         finally
         {

@@ -93,7 +93,7 @@ public static class MemberCommand
                 var impliedSelector = MemberTargetSelector.Parse(impliedMember);
                 var mergedFilter = new HashSet<string>(options.MemberFilter, StringComparer.OrdinalIgnoreCase)
                 {
-                    impliedSelector.Name
+                    impliedSelector.FilterName
                 };
                 options = options with
                 {
@@ -208,12 +208,10 @@ public static class MemberCommand
                 }
 
                 var memberName = effectiveOptions.MemberFilter.First();
-                var selector = new MemberTargetSelector(
-                    memberName,
-                    memberName,
-                    effectiveOptions.OverloadIndex,
-                    effectiveOptions.MemberDigest,
-                    GenericArity: effectiveOptions.MemberGenericArity);
+                var selector =
+                    CreateTargetSelector(
+                        memberName,
+                        effectiveOptions);
                 var memberResolution = MemberTargetResolver.Resolve(apiType, selector, effectiveOptions.KindFilter);
                 if (memberResolution.Diagnostic is { } diagnostic)
                 {
@@ -649,13 +647,34 @@ public static class MemberCommand
             .Select(candidate => candidate.Member)
             .ToList();
 
-    private static IReadOnlyList<MemberTargetCandidate> GetTargetCandidates(ApiType apiType, MemberOptions options, string memberName)
+    private static IReadOnlyList<MemberTargetCandidate> GetTargetCandidates(
+        ApiType apiType,
+        MemberOptions options,
+        string memberName)
         => MemberTargetResolver.GetCandidates(
-                apiType,
-                options.MemberGenericArity is { } arity
-                    ? new MemberTargetSelector(memberName, memberName, GenericArity: arity)
-                    : new MemberTargetSelector(memberName, memberName),
-                options.KindFilter);
+            apiType,
+            CreateTargetSelector(memberName, options),
+            options.KindFilter);
+
+    private static MemberTargetSelector CreateTargetSelector(
+        string memberName,
+        MemberOptions options)
+    {
+        MemberTargetSelector selector =
+            MemberTargetSelector.Parse(memberName);
+        return selector with
+        {
+            OverloadIndex =
+                options.OverloadIndex
+                    ?? selector.OverloadIndex,
+            DigestPrefix =
+                options.MemberDigest
+                    ?? selector.DigestPrefix,
+            GenericArity =
+                options.MemberGenericArity
+                    ?? selector.GenericArity,
+        };
+    }
 
     private static string GetMemberSectionName(string kind) => kind switch
     {

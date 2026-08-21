@@ -37,6 +37,11 @@ public sealed record MemberTargetSelector(
     int? GenericArity = null)
 {
     public IReadOnlyList<string>? ExactNameFamily { get; init; }
+    public string FilterName =>
+        ExactNameFamily is null
+            ? Name
+            : ExactNameFamilyToken ?? RequestedText;
+    public string? ExactNameFamilyToken { get; init; }
 
     public string NormalizedSelector
     {
@@ -95,6 +100,10 @@ public sealed record MemberTargetSelector(
             genericArity)
         {
             ExactNameFamily = exactNameFamily,
+            ExactNameFamilyToken =
+                exactNameFamily is null
+                    ? null
+                    : overloadHead,
         };
     }
 

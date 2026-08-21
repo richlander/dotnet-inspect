@@ -157,4 +157,40 @@ public class TypeMatcherTests
         Assert.NotNull(result.Match);
         Assert.Equal("System.Action`2", result.Match);
     }
+
+    [Fact]
+    public void IncrementSourceFilter_MatchesOnlyExactNameFamily()
+    {
+        var filter =
+            new HashSet<string>(
+                ["++"],
+                StringComparer.OrdinalIgnoreCase);
+
+        Assert.True(
+            TypeMatcher.MatchesMemberFilter(
+                "op_Increment",
+                filter));
+        Assert.True(
+            TypeMatcher.MatchesMemberFilter(
+                "op_IncrementAssignment",
+                filter));
+        Assert.False(
+            TypeMatcher.MatchesMemberFilter(
+                "op_IncrementBogus",
+                filter));
+    }
+
+    [Fact]
+    public void ExplicitIncrementGlob_RemainsAGlob()
+    {
+        var filter =
+            new HashSet<string>(
+                ["op_Increment*"],
+                StringComparer.OrdinalIgnoreCase);
+
+        Assert.True(
+            TypeMatcher.MatchesMemberFilter(
+                "op_IncrementBogus",
+                filter));
+    }
 }

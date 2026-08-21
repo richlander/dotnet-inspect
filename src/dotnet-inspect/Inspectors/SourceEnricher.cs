@@ -665,7 +665,10 @@ internal static class SourceEnricher
             }
 
             var membersToDocument = options.MemberFilter.Count > 0
-                ? apiType.Members.Where(m => options.MemberFilter.Contains(m.Name))
+                ? apiType.Members.Where(
+                    member => TypeMatcher.MatchesMemberFilter(
+                        member.Name,
+                        options.MemberFilter))
                 : apiType.Members;
 
             foreach (var member in membersToDocument)

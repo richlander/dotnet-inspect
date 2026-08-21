@@ -647,11 +647,12 @@ public static class OperatorMetadata
         }
         if (type.Identity.Kind != HandleKind.TypeDefinition)
         {
-            TypeRelationship resolved =
-                relationshipResolver?.ValueTypeRelationship(reader, type)
-                    ?? TypeRelationship.Unknown;
-            if (resolved != TypeRelationship.Unknown)
-                return resolved;
+            if (relationshipResolver is not null)
+            {
+                return relationshipResolver.ValueTypeRelationship(
+                    reader,
+                    type);
+            }
             return type.HasValueTypeEncoding
                 ? TypeRelationship.Yes
                 : TypeRelationship.Unknown;

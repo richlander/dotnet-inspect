@@ -101,7 +101,9 @@ The projection owns everything a host must not re-invent in JavaScript:
   For those inputs the projection uses Analysis's typed structural fallback for
   the *entire* projection. It never mixes catalog and structural identities in
   one result. Shared callees, cycles, and the target as both caller and callee
-  collapse to one node in either domain.
+  collapse to one node in either domain. Definition-backed tree members retain
+  the MethodDef's exact metadata-operator fact rather than reopening the
+  name-based fallback; `MetadataOperatorFactTests` gates that projection.
 - **Physical evidence.** Every projected node retains the distinct
   `GraphNodeEvidence` carried by the tree occurrences that collapsed into it.
   Every product-built tree child also retains all `DirectCall` receipts for its

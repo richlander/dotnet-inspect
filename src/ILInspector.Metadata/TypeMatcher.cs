@@ -281,18 +281,26 @@ public static class TypeMatcher
     {
         foreach (var pattern in filter)
         {
-            if (pattern.Contains('*') || pattern.Contains('?'))
-            {
-                if (MatchesGlob(name, pattern))
-                    return true;
-            }
-            else
-            {
-                if (MatchesMemberName(name, pattern))
-                    return true;
-            }
+            if (MatchesMemberFilter(name, pattern))
+                return true;
         }
         return false;
+    }
+
+    public static bool MatchesMemberFilter(string name, string pattern)
+    {
+        MemberTargetSelector selector =
+            MemberTargetSelector.Parse(pattern);
+        if (selector.ExactNameFamily is { } exactNames)
+        {
+            return exactNames.Any(
+                exactName => MatchesMemberName(name, exactName));
+        }
+
+        return pattern.Contains('*')
+            || pattern.Contains('?')
+                ? MatchesGlob(name, pattern)
+                : MatchesMemberName(name, pattern);
     }
 
     public static bool MatchesMemberName(string name, string pattern)

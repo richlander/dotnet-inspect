@@ -16,6 +16,8 @@ public partial class CommandExecutionTests
 
         public static IncrementSelection operator ++(
             IncrementSelection value) => value;
+
+        public void op_IncrementBogus() { }
     }
 
     public readonly struct OperatorSelectionMoney
@@ -84,6 +86,35 @@ public partial class CommandExecutionTests
             StringComparison.Ordinal);
         Assert.Contains(
             "public static ",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            nameof(IncrementSelection.op_IncrementBogus),
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_IncrementToken_DoesNotBecomeAPrefixGlob()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeof(IncrementSelection).FullName!,
+            "--library",
+            TestAssemblyPath,
+            "-m",
+            "++",
+            "--markdown",
+            "-v:d");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(
+            2,
+            output.Split("operator ++(", StringSplitOptions.None)
+                .Length - 1);
+        Assert.DoesNotContain(
+            nameof(IncrementSelection.op_IncrementBogus),
             output,
             StringComparison.Ordinal);
     }

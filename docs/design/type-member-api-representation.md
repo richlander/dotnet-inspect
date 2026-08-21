@@ -88,7 +88,9 @@ Operator representability remains `Unknown` when a resolved definition's kind
 could not be authenticated, and required custom modifiers are not erased into
 an affirmative source proof. The compiler-produced hierarchy cases in
 `ReferenceEqualityMetadataFactsTests` and the adversarial signature cases in
-`OperatorApiSurfaceTests` gate those boundaries.
+`OperatorApiSurfaceTests`, including
+`CSharpOperatorDeclaration_PreservesUnknownResolvedKind`, gate those
+boundaries.
 `ApiOutputFormatterTests.ApiTypeJson_PersistsStructuredSignatureModel` and the
 operator proof and pair JSON tests in `ApiOutputFormatterTests` and
 `CSharpDeclarationWriterTests` gate this contract.
@@ -484,8 +486,11 @@ which is precisely the work a cheap pre-filter exists to avoid.
 A source `++` or `--` selector denotes the exact static/instance metadata-name
 pair, not a prefix glob. `MemberTargetSelector.ExactNameFamily` carries that
 question through resolution while an explicitly entered `*` or `?` remains a
-glob. `MemberTargetResolverTests.GetCandidates_IncrementTokenIncludesStaticAndInstanceShapes`
-gates both sides of the distinction.
+glob.
+`MemberTargetResolverTests.GetCandidates_IncrementTokenIncludesStaticAndInstanceShapes`,
+`TypeMatcherTests.IncrementSourceFilter_MatchesOnlyExactNameFamily`, and the
+CLI `Member_IncrementToken_SelectsStaticAndInstanceShapes` gate the typed
+resolver, filter, and command paths.
 
 ### `MemberCanonicalSignature` — the DocId-shaped grammar
 

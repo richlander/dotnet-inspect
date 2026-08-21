@@ -119,10 +119,11 @@ internal static class ApiTypeLookupService
 
         foreach (var filter in filters)
         {
-            bool isGlob = filter.Contains('*') || filter.Contains('?');
-            bool anyMatch = isGlob
-                ? memberNames.Any(n => TypeMatcher.MatchesGlob(n, filter))
-                : memberNames.Any(n => TypeMatcher.MatchesMemberName(n, filter));
+            bool anyMatch =
+                memberNames.Any(
+                    name => TypeMatcher.MatchesMemberFilter(
+                        name,
+                        filter));
 
             if (!anyMatch)
                 missedFilters.Add(filter);
@@ -147,10 +148,11 @@ internal static class ApiTypeLookupService
         List<string> matches = [];
         foreach (var filter in missedFilters)
         {
-            bool isGlob = filter.Contains('*') || filter.Contains('?');
-            bool anyMatch = isGlob
-                ? allMemberNames.Any(n => TypeMatcher.MatchesGlob(n, filter))
-                : allMemberNames.Any(n => TypeMatcher.MatchesMemberName(n, filter));
+            bool anyMatch =
+                allMemberNames.Any(
+                    name => TypeMatcher.MatchesMemberFilter(
+                        name,
+                        filter));
 
             if (anyMatch)
                 matches.Add(filter);

@@ -196,7 +196,19 @@ public static class SharedParsers
         if (values.Length == 1 && int.TryParse(values[0], out var limit))
             return ([], limit);
 
-        return (new HashSet<string>(values.Select(FqnParser.NormalizeMemberName), StringComparer.OrdinalIgnoreCase), null);
+        return (
+            new HashSet<string>(
+                values.Select(
+                    value =>
+                    {
+                        MemberTargetSelector selector =
+                            MemberTargetSelector.Parse(value);
+                        return selector.ExactNameFamily is null
+                            ? FqnParser.NormalizeMemberName(value)
+                            : selector.FilterName;
+                    }),
+                StringComparer.OrdinalIgnoreCase),
+            null);
     }
 
     /// <summary>
@@ -295,7 +307,7 @@ public static class SharedParsers
                 genericArity = arity;
             if (selector.OverloadIndex is { } index)
                 overloadIndex = index;
-            members[i] = selector.Name;
+            members[i] = selector.FilterName;
         }
 
         return (dottedTypeFilter, overloadIndex, memberDigest, genericArity, kindFilter);

@@ -120,6 +120,7 @@ static class CallTreeMember
             HasThis = !method.IsStatic,
             SignatureHeader = method.SignatureHeader,
             RequiredParameterCount = method.RequiredParameterCount,
+            IsOperator = method.IsOperator,
             OpenParameterTypes = method.ParameterTypes,
             OpenReturnType = method.ReturnType,
         };

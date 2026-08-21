@@ -257,6 +257,21 @@ public sealed class OperatorApiSurfaceTests
     }
 
     [Fact]
+    public void CSharpOperatorDeclaration_PreservesUnknownResolvedKind()
+    {
+        using var image =
+            OperatorImage.BuildObjectParameterEncoding(
+                (byte)SignatureTypeKind.ValueType,
+                externalParameter: true);
+
+        Assert.Equal(
+            OperatorMetadata.DeclarationClassification.Unknown,
+            image.ClassifyCSharpOperatorDeclaration(
+                "op_Addition",
+                new UnknownOperatorRelationshipResolver()));
+    }
+
+    [Fact]
     public void CSharpOperatorDeclaration_TreatsCoreLibraryEnumAsAClass()
     {
         using var stream = File.OpenRead(typeof(object).Assembly.Location);
@@ -1238,7 +1253,8 @@ public sealed class OperatorApiSurfaceTests
         }
 
         public static OperatorImage BuildObjectParameterEncoding(
-            byte objectKind)
+            byte objectKind,
+            bool externalParameter = false)
         {
             string path = System.IO.Path.Combine(
                 System.IO.Path.GetTempPath(),
@@ -1273,6 +1289,21 @@ public sealed class OperatorApiSurfaceTests
                 runtime,
                 metadata.GetOrAddString("System"),
                 metadata.GetOrAddString("Object"));
+            TypeReferenceHandle parameterType = objectType;
+            if (externalParameter)
+            {
+                var external = metadata.AddAssemblyReference(
+                    metadata.GetOrAddString("External"),
+                    new Version(1, 0, 0, 0),
+                    default,
+                    default,
+                    default,
+                    default);
+                parameterType = metadata.AddTypeReference(
+                    external,
+                    metadata.GetOrAddString("External"),
+                    metadata.GetOrAddString("Token"));
+            }
             metadata.AddTypeDefinition(
                 default,
                 default,
@@ -1310,7 +1341,9 @@ public sealed class OperatorApiSurfaceTests
                 (byte)SignatureTypeKind.Class,
                 0x08,
                 objectKind,
-                0x05,
+                checked((byte)(
+                    (MetadataTokens.GetRowNumber(parameterType) << 2)
+                    | 0x01)),
             ];
             metadata.AddMethodDefinition(
                 MethodAttributes.Public
@@ -1334,6 +1367,26 @@ public sealed class OperatorApiSurfaceTests
             builder.Serialize(image);
             File.WriteAllBytes(path, image.ToArray());
             return new OperatorImage(path, TypeName);
+        }
+
+        public OperatorMetadata.DeclarationClassification
+            ClassifyCSharpOperatorDeclaration(
+                string methodName,
+                IOperatorTypeRelationshipResolver
+                    relationshipResolver)
+        {
+            MethodDefinition method =
+                _reader.MethodDefinitions
+                    .Select(_reader.GetMethodDefinition)
+                    .Single(
+                        candidate =>
+                            _reader.GetString(candidate.Name)
+                                == methodName);
+            return OperatorMetadata
+                .ClassifyCSharpOperatorDeclaration(
+                    _reader,
+                    method,
+                    relationshipResolver);
         }
 
         public static OperatorImage BuildRawUnrepresentableOperator(
@@ -1513,5 +1566,28 @@ public sealed class OperatorApiSurfaceTests
             _stream.Dispose();
             File.Delete(_path);
         }
+    }
+
+    sealed class UnknownOperatorRelationshipResolver
+        : IOperatorTypeRelationshipResolver
+    {
+        public OperatorMetadata.TypeRelationship
+            ValueTypeRelationship(
+                MetadataReader reader,
+                OperatorMetadata.OperatorSignatureType type)
+            => OperatorMetadata.TypeRelationship.Unknown;
+
+        public OperatorMetadata.TypeRelationship
+            InterfaceRelationship(
+                MetadataReader reader,
+                OperatorMetadata.OperatorSignatureType type)
+            => OperatorMetadata.TypeRelationship.Unknown;
+
+        public OperatorMetadata.TypeRelationship
+            SameOrDerivedRelationship(
+                MetadataReader reader,
+                OperatorMetadata.OperatorSignatureType candidate,
+                OperatorMetadata.OperatorSignatureType requiredBase)
+            => OperatorMetadata.TypeRelationship.Unknown;
     }
 }

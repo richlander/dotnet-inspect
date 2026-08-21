@@ -56,6 +56,26 @@ public class SharedParsersTests
         Assert.Contains("GETVALUE", filter);
     }
 
+    [Fact]
+    public void ParseMemberFilter_IncrementPreservesSourceSelector()
+    {
+        var (filter, limit) =
+            SharedParsers.ParseMemberFilter(["++"]);
+
+        Assert.Equal("++", Assert.Single(filter));
+        Assert.Null(limit);
+    }
+
+    [Fact]
+    public void ParseMemberFilter_ExplicitIncrementGlobRemainsGlob()
+    {
+        var (filter, limit) =
+            SharedParsers.ParseMemberFilter(["op_Increment*"]);
+
+        Assert.Equal("op_Increment*", Assert.Single(filter));
+        Assert.Null(limit);
+    }
+
     // ── ParseOverloadShorthand ───────────────────────────────────────────
 
     [Fact]
@@ -288,6 +308,16 @@ public class SharedParsersTests
     }
 
     // ── ProcessMemberArguments ───────────────────────────────────────────
+
+    [Fact]
+    public void ProcessMemberArguments_IncrementPreservesSourceSelector()
+    {
+        string[] members = ["++"];
+
+        SharedParsers.ProcessMemberArguments(members);
+
+        Assert.Equal("++", Assert.Single(members));
+    }
 
     [Fact]
     public void ProcessMemberArguments_ExtractsDottedSyntax()
