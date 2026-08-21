@@ -465,12 +465,51 @@ test("typed type panel owns its rendered control bindings", () => {
   assert.match(
     typePanelSource,
     /\[data-member-kind-filter\][\s\S]*\[data-member-access-filter\][\s\S]*\[data-member-trait-filter\][\s\S]*#clear-member-filter[\s\S]*#member-filter/);
+  assert.match(
+    typePanelSource,
+    /\[data-member-jump-kind\][\s\S]*\[data-member-jump-access\][\s\S]*\[data-member-jump-trait\][\s\S]*\[data-member\][\s\S]*\[data-overload\][\s\S]*#member-back[\s\S]*#copy-name[\s\S]*#copy-signature[\s\S]*\[data-copy-anchor\][\s\S]*#copy-source[\s\S]*#copy-type-source/);
   assert.doesNotMatch(
     appSource,
     /document\.querySelectorAll<HTMLElement>\("\[data-member-(?:kind|access|trait)-filter\]"\)/);
   assert.doesNotMatch(
     appSource,
     /document\.querySelector(?:<HTMLInputElement>)?\("#(?:member-filter|clear-member-filter)"\)/);
+  assert.doesNotMatch(
+    appSource,
+    /document\.querySelectorAll<HTMLElement>\("\[data-(?:member-jump-(?:kind|access|trait)|member|overload|copy-anchor)\]"\)/);
+  assert.doesNotMatch(
+    appSource,
+    /document\.querySelector\("#(?:member-back|copy-name|copy-signature|copy-source|copy-type-source)"\)/);
+  assert.match(
+    binding,
+    /const enterMemberNavigation = \(action: \(\) => void\) => \{[\s\S]*beginSpotlightNavigation\(\);[\s\S]*action\(\);[\s\S]*focusTypeList\(focusGeneration\)/);
+  assert.match(
+    binding,
+    /onMemberCompositionKindSelect: value => \{[\s\S]*resetMemberFilters\(\);[\s\S]*state\.memberKindFilter = value;[\s\S]*enterMemberScope\(\);[\s\S]*render\(\)/);
+  assert.match(
+    binding,
+    /onMemberCompositionAccessibilitySelect: value => \{[\s\S]*resetMemberFilters\(\);[\s\S]*state\.memberAccessibilityFilter = value;[\s\S]*enterMemberScope\(\);[\s\S]*render\(\)/);
+  assert.match(
+    binding,
+    /onMemberCompositionTraitSelect: value => \{[\s\S]*resetMemberFilters\(\);[\s\S]*state\.memberTraitFilter = value;[\s\S]*enterMemberScope\(\);[\s\S]*render\(\)/);
+  assert.match(
+    binding,
+    /onMemberGroupOpen: memberKey => \{\s*enterMemberNavigation\(\(\) => openMemberGroup\(memberKey\)\)/);
+  assert.match(
+    binding,
+    /onMemberBack: drillOut[\s\S]*onMemberOverloadOpen: openOverload/);
+  assert.match(
+    binding,
+    /onCopyName: async \(\) => \{[\s\S]*const fullName = member \? `\$\{typeName\}\.\$\{member\.name\}` : typeName;[\s\S]*copyText\(fullName, "name copied"\)/);
+  assert.match(
+    binding,
+    /onCopySignature: async \(\) => \{[\s\S]*copyText\(overload\.signature, "signature copied"\)/);
+  assert.match(
+    binding,
+    /onCopyAnchor: async anchor => \{[\s\S]*selector: overload\?\.stableSelector,[\s\S]*digest: overload\?\.anchorDigest,[\s\S]*canonical: overload\?\.canonicalSignature[\s\S]*copyText\(value, `\$\{anchor\} copied`\)/);
+  assert.match(
+    binding,
+    /onCopyMemberSource: async \(\) => \{[\s\S]*copyText\(state\.memberSource\.text, "source copied"\)[\s\S]*onCopyTypeSource: async \(\) => \{[\s\S]*copyText\(state\.typeSource\.text, "source copied"\)/);
   assert.match(
     binding,
     /onMemberFilterClear: \(\) => \{[\s\S]*resetMemberFilters\(\);[\s\S]*renderMemberFilterAndRestoreFocus\("#clear-member-filter"\)/);
@@ -1057,14 +1096,14 @@ test("shared member views retain scope and filter state", () => {
 
 test("member entry controls move focus into the resulting member navigation", () => {
   const bindings =
-    appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
+    appSource.match(/function bindTypePanelEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
     ?? "";
   assert.match(
     bindings,
     /const enterMemberNavigation = \(action: \(\) => void\) => \{\s*const focusGeneration = beginSpotlightNavigation\(\);\s*action\(\);\s*focusTypeList\(focusGeneration\);/);
   assert.match(
     bindings,
-    /data-member-jump-kind[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*enterMemberScope\(\);[\s\S]*data-member-jump-access[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*data-member-jump-trait[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*data-member\]"\)\.forEach[\s\S]*enterMemberNavigation\(\(\) => openMemberGroup/);
+    /onMemberCompositionAccessibilitySelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*enterMemberScope\(\);[\s\S]*onMemberCompositionKindSelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*onMemberCompositionTraitSelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*onMemberGroupOpen: memberKey => \{[\s\S]*enterMemberNavigation\(\(\) => openMemberGroup/);
 });
 
 test("package tab selection resets type-specific member filters", () => {
