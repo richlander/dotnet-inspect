@@ -253,6 +253,28 @@ test("members without documentation ids settle without querying", async () => {
   assert.equal(state.memberDocumentationLoading, false);
 });
 
+test("already-loaded member documentation renders without querying again", async () => {
+  const overload = memberSurface({ documentationLoaded: true });
+  let queries = 0;
+  let renders = 0;
+  const state = inspectionState();
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDocumentation: async () => {
+        queries++;
+        throw new Error("unexpected query");
+      },
+      render: () => renders++,
+    }));
+
+  await coordinator.loadDocumentation(documentationRequest(overload));
+
+  assert.equal(queries, 0);
+  assert.equal(renders, 1);
+  assert.equal(state.memberDocumentationKey, "documentation");
+  assert.equal(state.memberDocumentationLoading, false);
+});
+
 test("duplicate in-flight documentation requests do not query or render", async () => {
   const overload = memberSurface();
   let queries = 0;
@@ -342,6 +364,23 @@ test("current documentation failure remains visible", async () => {
     state.memberDocumentationError,
     "documentation unavailable");
   assert.equal(focusRenders, 2);
+});
+
+test("stale documentation success cannot mutate the selected overload", async () => {
+  const overload = memberSurface();
+  const state = inspectionState();
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state));
+
+  await coordinator.loadDocumentation(documentationRequest(overload, {
+    isCurrent: () => false,
+  }));
+
+  assert.equal(overload.summary, null);
+  assert.equal(overload.returns, null);
+  assert.equal(overload.parameters[0]?.description, null);
+  assert.equal(overload.documentationLoaded, undefined);
+  assert.equal(state.memberDocumentationLoading, false);
 });
 
 test("stale documentation failure cannot overwrite newer request state", async () => {
@@ -453,6 +492,38 @@ test("current annotated rejection remains visible", async () => {
   assert.equal(focusRenders, 2);
 });
 
+test("annotated success requires the current member even when its key is unchanged", async () => {
+  const state = inspectionState();
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state));
+
+  await coordinator.loadAnnotated(annotatedRequest({
+    isCurrent: () => false,
+  }));
+
+  assert.equal(state.memberAnnotated, null);
+  assert.equal(state.memberAnnotatedKey, "annotated");
+  assert.equal(state.memberAnnotatedLoading, false);
+});
+
+test("annotated success requires its request key even when the member is current", async () => {
+  const query = deferred<AnnotatedSourceResult>();
+  const state = inspectionState();
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryAnnotated: async () => query.promise,
+    }));
+
+  const load = coordinator.loadAnnotated(annotatedRequest());
+  state.memberAnnotatedKey = "newer";
+  query.resolve(annotatedResult());
+  await load;
+
+  assert.equal(state.memberAnnotated, null);
+  assert.equal(state.memberAnnotatedKey, "newer");
+  assert.equal(state.memberAnnotatedLoading, true);
+});
+
 test("stale annotated rejection cannot replace a newer request", async () => {
   const query = deferred<AnnotatedSourceResult>();
   const state = inspectionState();
@@ -562,6 +633,38 @@ test("current member facts failure remains visible", async () => {
   assert.equal(state.memberFactsLoading, false);
   assert.equal(state.memberFactsError, "facts unavailable");
   assert.equal(focusRenders, 2);
+});
+
+test("member facts success requires the current member even when its key is unchanged", async () => {
+  const state = inspectionState();
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state));
+
+  await coordinator.loadFacts(factsRequest({
+    isCurrent: () => false,
+  }));
+
+  assert.equal(state.memberFacts, null);
+  assert.equal(state.memberFactsKey, "facts");
+  assert.equal(state.memberFactsLoading, false);
+});
+
+test("member facts success requires its request key even when the member is current", async () => {
+  const query = deferred<MemberFacts>();
+  const state = inspectionState();
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryFacts: async () => query.promise,
+    }));
+
+  const load = coordinator.loadFacts(factsRequest());
+  state.memberFactsKey = "newer";
+  query.resolve(factsResult());
+  await load;
+
+  assert.equal(state.memberFacts, null);
+  assert.equal(state.memberFactsKey, "newer");
+  assert.equal(state.memberFactsLoading, true);
 });
 
 test("stale member facts completion cannot publish over a newer key", async () => {
