@@ -975,7 +975,7 @@ const spotlightPackageSearch = createSpotlightPackageSearch({
   state,
   queryPackages: querySpotlightPackages,
   schedule: (callback, delay) => setTimeout(() => void callback(), delay),
-  cancelScheduled: clearTimeout,
+  cancelScheduled: handle => clearTimeout(handle),
   updateResults: () => spotlight.updateResults(),
 });
 const spotlight = createSpotlight({

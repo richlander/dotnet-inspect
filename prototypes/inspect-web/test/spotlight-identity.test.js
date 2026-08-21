@@ -346,6 +346,9 @@ test("Spotlight async work is generation-gated and refreshes either mounted surf
     appSource,
     /createSpotlightPackageSearch\(\{[\s\S]*queryPackages: querySpotlightPackages,[\s\S]*updateResults: \(\) => spotlight\.updateResults\(\)/);
   assert.match(
+    appSource,
+    /schedule: \(callback, delay\) => setTimeout\(\(\) => void callback\(\), delay\),\s*cancelScheduled: handle => clearTimeout\(handle\),/);
+  assert.match(
     spotlightPackageSearchSource,
     /requestGeneration !== generation[\s\S]*state\.spotlightQuery\.trim\(\) !== query/);
   assert.doesNotMatch(appSource, /spotlightPkgGeneration|spotlightPkgTimer/);

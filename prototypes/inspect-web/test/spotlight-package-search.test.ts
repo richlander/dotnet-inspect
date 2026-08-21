@@ -120,6 +120,47 @@ test("rescheduling cancels the prior debounce before replacing it", () => {
   assert.equal(state.spotlightPkgLoading, true);
 });
 
+test("early-return transitions cancel a pending debounce", () => {
+  const cases: readonly {
+    name: string;
+    transition: (state: SpotlightPackageSearchState) => void;
+  }[] = [
+    {
+      name: "ineligible scope",
+      transition: state => {
+        state.spotlightScope = "types";
+      },
+    },
+    {
+      name: "short query",
+      transition: state => {
+        state.spotlightQuery = "x";
+      },
+    },
+    {
+      name: "resolved query",
+      transition: state => {
+        state.spotlightPkgQuery = "Example";
+        state.spotlightPkgHits = [{ id: "Example", version: "1.0.0" }];
+      },
+    },
+  ];
+
+  for (const scenario of cases) {
+    const state = searchState({ spotlightQuery: "Example" });
+    const harness = searchDependencies(state);
+    const search = createSpotlightPackageSearch(harness.dependencies);
+
+    search.schedule();
+    scenario.transition(state);
+    search.schedule();
+
+    assert.deepEqual(harness.cancelled, [1], scenario.name);
+    assert.equal(harness.scheduled.length, 1, scenario.name);
+    assert.equal(state.spotlightPkgLoading, false, scenario.name);
+  }
+});
+
 test("ineligible scopes stop loading without clearing resolved results", () => {
   const hits = [{ id: "Existing", version: "1.0.0" }];
   const state = searchState({
