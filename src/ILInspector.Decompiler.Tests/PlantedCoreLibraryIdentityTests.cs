@@ -180,20 +180,22 @@ public class PlantedCoreLibraryIdentityTests
     /// <para>
     /// The second half gates the property that makes the first half meaningful.
     /// Entitlement must follow the <em>kind</em> of acquisition and never the
-    /// content of its fields, so each provenance is built several times with
-    /// different spellings — including ones a confused rule might key on, such
-    /// as a package literally named <c>System.Runtime</c> — and <c>MayMint</c>
-    /// must answer identically every time. Without this, a rule of the shape
-    /// <c>PackageAsset { PackageId: "System.Runtime" }</c> passed a set-equality
-    /// check unnoticed, because the single placeholder value never matched it.
+    /// content of its fields, so each provenance is built under several field
+    /// shapes — see <see cref="Variants"/> — and <c>MayMint</c> must answer
+    /// identically for every one. Two rounds each found a rule shape the
+    /// previous version could not see: a field compared against a constant,
+    /// such as <c>PackageAsset { PackageId: "System.Runtime" }</c>, which a
+    /// single placeholder value never matched; and a field compared against
+    /// another field, such as <c>ProjectAsset p when p.Project != p.Tfm</c>,
+    /// which stayed invisible while every field held the same value.
     /// </para>
     /// <para>
-    /// The residual is stated rather than hidden: a property-dependent rule
-    /// keyed on a spelling outside <see cref="ProvenanceSpellings"/> would
-    /// still satisfy this gate. Closing that completely would require proving
-    /// a negative over all strings, which no test can do; the defence is that
-    /// <c>MayMint</c> is a single type-pattern expression, kept small enough to
-    /// audit by reading.
+    /// The residual is stated rather than hidden: a rule keyed on a spelling
+    /// outside <see cref="ProvenanceSpellings"/> that is also insensitive to
+    /// whether the fields are uniform or distinct would still satisfy this
+    /// gate. Closing that completely would require proving a negative over all
+    /// strings, which no test can do; the defence is that <c>MayMint</c> is a
+    /// single type-pattern expression, kept small enough to audit by reading.
     /// </para>
     /// </summary>
     [Fact]
@@ -207,10 +209,8 @@ public class PlantedCoreLibraryIdentityTests
 
         foreach (Type provenanceType in concrete)
         {
-            bool[] answers = ProvenanceSpellings
-                .Select(spelling =>
-                    CoreLibraryIdentityTrust.MayMint(
-                        Construct(provenanceType, spelling)))
+            bool[] answers = Variants(provenanceType)
+                .Select(CoreLibraryIdentityTrust.MayMint)
                 .Distinct()
                 .ToArray();
 
@@ -222,8 +222,7 @@ public class PlantedCoreLibraryIdentityTests
         }
 
         Type[] entitled = concrete
-            .Where(t => CoreLibraryIdentityTrust.MayMint(
-                Construct(t, ProvenanceSpellings[0])))
+            .Where(t => CoreLibraryIdentityTrust.MayMint(Variants(t)[0]))
             .OrderBy(t => t.Name, StringComparer.Ordinal)
             .ToArray();
 
@@ -235,6 +234,32 @@ public class PlantedCoreLibraryIdentityTests
             },
             entitled);
     }
+
+    /// <summary>
+    /// Builds one acquisition of the given type per field-value shape that a
+    /// content-keyed rule could plausibly notice. <c>MayMint</c> must answer
+    /// identically for all of them.
+    /// <para>
+    /// Each spelling is used twice: once with every field set to it, and once
+    /// with every field distinct. Both halves are load-bearing. The uniform
+    /// shape catches a rule comparing a field against a constant, such as
+    /// <c>PackageAsset { PackageId: "System.Runtime" }</c>. The distinct shape
+    /// catches a rule comparing two fields to each other, such as
+    /// <c>ProjectAsset p when p.Project != p.Tfm</c> — round 3 found that one
+    /// slipping through, because a single value per acquisition makes every
+    /// field equal and silently answers only half the question.
+    /// </para>
+    /// </summary>
+    static AssemblyResolutionProvenance[] Variants(Type provenanceType) =>
+        ProvenanceSpellings
+            .SelectMany(spelling => new[]
+            {
+                Construct(provenanceType, (_, _) => spelling),
+                Construct(
+                    provenanceType,
+                    (parameter, index) => $"{spelling}.{index}.{parameter.Name}"),
+            })
+            .ToArray();
 
     /// <summary>
     /// Field values used to build each acquisition. The first is neutral; the
@@ -264,15 +289,15 @@ public class PlantedCoreLibraryIdentityTests
             .ToArray();
 
     /// <summary>
-    /// Builds a provenance of the given type with <paramref name="spelling"/>
-    /// for every field. Each constructor in this hierarchy takes only strings,
-    /// and the required ones reject blank input, so one non-blank value
-    /// satisfies all of them without the test needing to know which arguments
-    /// a particular acquisition carries.
+    /// Builds a provenance of the given type, taking each argument from
+    /// <paramref name="value"/>. Each constructor in this hierarchy takes only
+    /// strings, and the required ones reject blank input, so any non-blank
+    /// value satisfies all of them without the test needing to know which
+    /// arguments a particular acquisition carries.
     /// </summary>
     static AssemblyResolutionProvenance Construct(
         Type provenanceType,
-        string spelling)
+        Func<ParameterInfo, int, string> value)
     {
         ConstructorInfo[] constructors = provenanceType.GetConstructors();
         Assert.True(
@@ -289,7 +314,7 @@ public class PlantedCoreLibraryIdentityTests
                 + $"'{parameter.Name}'; this helper needs updating."));
 
         object?[] arguments = parameters
-            .Select(object? (_) => spelling)
+            .Select(object? (parameter, index) => value(parameter, index))
             .ToArray();
 
         return (AssemblyResolutionProvenance)constructors[0]
