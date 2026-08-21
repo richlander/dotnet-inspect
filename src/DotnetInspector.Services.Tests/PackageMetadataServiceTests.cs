@@ -131,6 +131,7 @@ public class PackageMetadataServiceTests : IDisposable
         Assert.Null(metadata.VersionCount);
         Assert.Null(metadata.PackageSize);
         Assert.Null(metadata.IsVerified);
+        Assert.Null(metadata.Listed);
         Assert.Null(metadata.Owners);
         Assert.Null(metadata.Deprecation);
         Assert.Null(metadata.Vulnerabilities);
@@ -237,6 +238,7 @@ public class PackageMetadataServiceTests : IDisposable
             "/registration/private.package/1.0.0.json" => Json("""
                 {
                   "published": "2024-01-02T03:04:05Z",
+                  "listed": false,
                   "catalogEntry": "/catalog/private.package.1.0.0.json"
                 }
                 """),
@@ -299,6 +301,7 @@ public class PackageMetadataServiceTests : IDisposable
         Assert.Equal(2, result.VersionCount);
         Assert.Equal(1234, result.PackageSize);
         Assert.True(result.IsVerified);
+        Assert.False(result.Listed);
         Assert.Equal(["private-owner", "second-owner"], result.Owners);
         Assert.Equal("Legacy - Use Private.Package.Next", result.Deprecation!.Summary);
         Assert.Equal("High", Assert.Single(result.Vulnerabilities!).Severity);
@@ -1896,6 +1899,7 @@ public class PackageMetadataServiceTests : IDisposable
         var metadata = new PackageMetadata
         {
             DeprecationMetadataAvailable = true,
+            Listed = false,
             Owners = ["owner\nvulnerabilities:"],
             Deprecation = new PackageDeprecation
             {
@@ -1923,6 +1927,7 @@ public class PackageMetadataServiceTests : IDisposable
 
         Assert.False(cached.IsAbsent);
         Assert.True(cached.Metadata.DeprecationMetadataAvailable);
+        Assert.False(cached.Metadata.Listed);
         Assert.Equal(metadata.Owners, cached.Metadata.Owners);
         Assert.Equal(
             metadata.Deprecation.Message,
