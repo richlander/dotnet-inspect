@@ -186,7 +186,7 @@ public sealed record StructuralCloneComparisonLimits(
     int MaximumBlocks = 1_024,
     int MaximumEdges = 100_000,
     int MaximumLocals = 256,
-    int MaximumVerificationSteps = 100_000,
+    int MaximumVerificationSteps = 2_000_000,
     int MaximumBodyBytes = 1_000_000,
     int MaximumNearAlignmentIndexSteps = 1_000_000,
     int MaximumNearAlignmentCandidates = 10_000,
@@ -2101,12 +2101,6 @@ public static partial class StructuralCloneAnalysis
 
         bool SearchBlocks()
         {
-            if (++steps > maximumSteps)
-            {
-                limitReached = true;
-                return false;
-            }
-
             int nextLeft = -1;
             List<int>? candidates = null;
             for (int leftIndex = 0;
@@ -2120,6 +2114,17 @@ public static partial class StructuralCloneAnalysis
                     rightIndex < right.Graph.Blocks.Length;
                     rightIndex++)
                 {
+                    // Charge one step per candidate block pair actually
+                    // examined here, not once per SearchBlocks call: this
+                    // loop is the O(blocks^2) scan that dominates witness
+                    // search cost, and metering only the recursive-call
+                    // count would leave MaximumVerificationSteps unable to
+                    // bound that quadratic work as MaximumBlocks grows.
+                    if (++steps > maximumSteps)
+                    {
+                        limitReached = true;
+                        return false;
+                    }
                     if (reverseBlocks[rightIndex] < 0
                         && colors.LeftBlocks[leftIndex]
                             == colors.RightBlocks[rightIndex]
@@ -2184,17 +2189,19 @@ public static partial class StructuralCloneAnalysis
 
         bool CompleteLocals()
         {
-            if (++steps > maximumSteps)
-            {
-                limitReached = true;
-                return false;
-            }
-
             int nextLeft = Array.FindIndex(localMap, static value => value < 0);
             if (nextLeft < 0)
                 return true;
             for (int rightIndex = 0; rightIndex < reverseLocals.Length; rightIndex++)
             {
+                // Mirror SearchBlocks: charge per candidate examined, not
+                // once per recursive call, so this loop's cost is metered
+                // the same way regardless of how many locals remain.
+                if (++steps > maximumSteps)
+                {
+                    limitReached = true;
+                    return false;
+                }
                 if (reverseLocals[rightIndex] >= 0
                     || colors.LeftLocals[nextLeft]
                         != colors.RightLocals[rightIndex]
