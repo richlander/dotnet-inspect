@@ -483,15 +483,24 @@ test("typed type panel owns its rendered control bindings", () => {
   assert.match(
     binding,
     /const enterMemberNavigation = \(action: \(\) => void\) => \{[\s\S]*beginSpotlightNavigation\(\);[\s\S]*action\(\);[\s\S]*focusTypeList\(focusGeneration\)/);
-  assert.match(
-    binding,
-    /onMemberCompositionKindSelect: value => \{[\s\S]*resetMemberFilters\(\);[\s\S]*state\.memberKindFilter = value;[\s\S]*enterMemberScope\(\);[\s\S]*render\(\)/);
-  assert.match(
-    binding,
-    /onMemberCompositionAccessibilitySelect: value => \{[\s\S]*resetMemberFilters\(\);[\s\S]*state\.memberAccessibilityFilter = value;[\s\S]*enterMemberScope\(\);[\s\S]*render\(\)/);
-  assert.match(
-    binding,
-    /onMemberCompositionTraitSelect: value => \{[\s\S]*resetMemberFilters\(\);[\s\S]*state\.memberTraitFilter = value;[\s\S]*enterMemberScope\(\);[\s\S]*render\(\)/);
+  const callbackSource = name =>
+    binding.match(
+      new RegExp(`    ${name}: [\\s\\S]*?(?=\\n    on[A-Z])`))?.[0]
+      ?? "";
+  for (const [name, stateField] of [
+    ["onMemberCompositionAccessibilitySelect", "memberAccessibilityFilter"],
+    ["onMemberCompositionKindSelect", "memberKindFilter"],
+    ["onMemberCompositionTraitSelect", "memberTraitFilter"],
+  ]) {
+    const source = callbackSource(name);
+    assert.match(
+      source,
+      new RegExp(
+        `enterMemberNavigation\\(\\(\\) => \\{[\\s\\S]*resetMemberFilters\\(\\);`
+        + `[\\s\\S]*state\\.${stateField} = value;`
+        + "[\\s\\S]*enterMemberScope\\(\\);[\\s\\S]*render\\(\\)"));
+    assert.equal(source.match(/\brender\(\)/g)?.length, 1);
+  }
   assert.match(
     binding,
     /onMemberGroupOpen: memberKey => \{\s*enterMemberNavigation\(\(\) => openMemberGroup\(memberKey\)\)/);
