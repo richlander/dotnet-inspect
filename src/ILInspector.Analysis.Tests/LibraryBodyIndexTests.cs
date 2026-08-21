@@ -11483,22 +11483,114 @@ public class LibraryBodyIndexTests
             BuildNestedLiftedInvalidAsyncSourceAssembly(
                 out int liftedToken);
 
-        LibraryBodyIndex scoped =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
-                "NestedLiftedInvalidAsyncSource.dll",
-                [.. image],
+        foreach (LibraryBodyAnalysisFeatures features
+            in new[]
+            {
                 LibraryBodyAnalysisFeatures.MethodEvidence,
-                bodyScope:
-                    new HashSet<int> { liftedToken });
+                LibraryBodyAnalysisFeatures.MethodEvidence
+                    | LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities,
+            })
+        {
+            LibraryBodyIndex scoped =
+                LibraryBodyIndex.OpenFromPrefetchedImage(
+                    "NestedLiftedInvalidAsyncSource.dll",
+                    [.. image],
+                    features,
+                    bodyScope:
+                        new HashSet<int> { liftedToken });
 
-        AnalysisDiagnostic diagnostic = Assert.Single(
-            scoped.Diagnostics.Where(
-                candidate =>
-                    candidate.MethodToken == liftedToken));
-        Assert.Contains(
-            "<>c::<BadSourceLambda>b__0_0",
-            diagnostic.Method,
-            StringComparison.Ordinal);
+            AnalysisDiagnostic diagnostic = Assert.Single(
+                scoped.Diagnostics.Where(
+                    candidate =>
+                        candidate.MethodToken == liftedToken));
+            Assert.Contains(
+                "<>c::<BadSourceLambda>b__0_0",
+                diagnostic.Method,
+                StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void
+        ScopeDiagnosticAggregation_EnrichesFailuresInMetadataOrder()
+    {
+        TypeRef evidenceType =
+            TypeRef.Definition(
+                "Fixture",
+                "Sample",
+                "<Source>d__1");
+        TypeRef sourceType =
+            TypeRef.Definition(
+                "Fixture",
+                "Sample",
+                "Source");
+        var sparse = new AnalysisDiagnostic(
+            0x06000002,
+            "Sample.<Source>d__1::MoveNext()",
+            "BadImageFormatException: Invalid attribute",
+            DeclaringType: evidenceType);
+        var enriched = sparse with
+        {
+            SourceMethodToken = 0x06000001,
+            SourceDeclaringType = sourceType,
+        };
+        var later = new AnalysisDiagnostic(
+            0x06000003,
+            "Sample.Source::Later()",
+            "BadImageFormatException: Invalid signature");
+        var earlier = new AnalysisDiagnostic(
+            0x06000001,
+            "Sample.Source::Source()",
+            "BadImageFormatException: Invalid body");
+
+        ImmutableArray<AnalysisDiagnostic> diagnostics =
+            AnalysisDiagnosticAggregation
+                .MergeInMetadataOrder(
+                    [sparse, later],
+                    [enriched, earlier]);
+
+        Assert.Equal(
+            new[]
+            {
+                0x06000001,
+                0x06000002,
+                0x06000003,
+            },
+            diagnostics.Select(
+                diagnostic => diagnostic.MethodToken));
+        Assert.Equal(enriched, diagnostics[1]);
+    }
+
+    [Fact]
+    public void
+        ScopeDiagnosticAggregation_PreservesConflictingProvenance()
+    {
+        var first = new AnalysisDiagnostic(
+            0x06000003,
+            "Sample.<Source>d__1::MoveNext()",
+            "BadImageFormatException: Invalid attribute",
+            SourceMethodToken: 0x06000001);
+        var second = first with
+        {
+            SourceMethodToken = 0x06000002,
+        };
+
+        ImmutableArray<AnalysisDiagnostic> diagnostics =
+            AnalysisDiagnosticAggregation
+                .MergeInMetadataOrder(
+                    [first],
+                    [second]);
+
+        Assert.Equal(
+            new int?[]
+            {
+                0x06000001,
+                0x06000002,
+            },
+            diagnostics.Select(
+                diagnostic =>
+                    diagnostic.SourceMethodToken));
     }
 
     static byte[]

@@ -784,8 +784,11 @@ Research overlay bridge, and the application layer:
   ordinary owner bodies. It consumes primary metadata identity, generated-code
   judgments, and async execution mapping rather than duplicating them. Scoped
   closure failures are retained as analysis diagnostics rather than becoming
-  success-shaped partial evidence, and identical expansion/per-method failures
-  use one metadata-derived method label and are published once.
+  success-shaped partial evidence. `AnalysisDiagnosticAggregation` combines
+  expansion and per-method failures by physical method, canonical label, and
+  message; null-compatible declaring/source provenance is enriched into one
+  row, conflicting non-null provenance remains distinct, and final rows retain
+  stable MethodDef order.
   `OptimizationOpportunities_DuplicateMemberRefsResolveStructuralIdentityOnce`,
   `OptimizationOpportunities_SharedMemberRefDecodesOnceAcrossOwnerBodies`, and
   `LiftedOwnerMemberIdentity_RetainsExactAssemblyReferenceScope` gate cache
@@ -799,6 +802,8 @@ Research overlay bridge, and the application layer:
   `DirectCalls_DirectLiftedTypeScopeRetainsDeclaredCaller`,
   `OptimizationOpportunities_MalformedMethodSpecCannotAuthenticateOwner`,
   `ScopedLiftedResolution_NestedFailurePublishesOneDiagnostic`,
+  `ScopeDiagnosticAggregation_EnrichesFailuresInMetadataOrder`,
+  `ScopeDiagnosticAggregation_PreservesConflictingProvenance`,
   `TypeTargetedBuild_MatchesFullBuild_ForEveryMethodOfTheType`,
   `OptimizationOpportunities_ClassicAsyncTypeDefinitionsAreIndexedOnce`, and
   the top-level local-function tests gate the lifted-owner caches, closure, and
