@@ -118,7 +118,10 @@ import {
   renderAnnotatedSource as renderAnnotatedSourcePure,
   type AnnotatedSourceResult,
 } from "./annotated-source.ts";
-import { renderPackageOpportunities as renderPackageOpportunitiesPure } from "./package-opportunities.ts";
+import {
+  bindPackageOpportunities,
+  renderPackageOpportunities as renderPackageOpportunitiesPure,
+} from "./package-opportunities.ts";
 import {
   bindTypePanel,
   renderMemberNav,
@@ -3749,6 +3752,22 @@ function bindSettingsPanelEvents() {
   });
 }
 
+function bindPackageOpportunitiesEvents() {
+  bindPackageOpportunities(document, {
+    onLookForSelect: openSpotlight,
+    onPackageSelect: packageId => openDependencyPackage(packageId, ""),
+    onTypeSelect: typeId => {
+      const target = currentPackage().types.find(item => item.id === typeId);
+      if (!target) {
+        openSpotlight(shortTypeName(typeId));
+        return;
+      }
+      state.atPackageRoot = false;
+      navigateToTypeByName(typeId);
+    },
+  });
+}
+
 function bindEvents() {
   bindStatusBarToggle();
   packageBar.bind(document);
@@ -3756,6 +3775,7 @@ function bindEvents() {
   bindScopeBarEvents();
   bindSettingsPanelEvents();
   bindMetadataViewerEvents();
+  bindPackageOpportunitiesEvents();
   document.querySelectorAll<HTMLElement>("[data-framework-chip]").forEach(button => button.addEventListener("click", () => {
     switchPackageFramework(button.dataset.frameworkChip ?? "");
   }));
@@ -3818,19 +3838,6 @@ function bindEvents() {
       button.dataset.perfToken ?? "",
       button.dataset.perfAssembly ?? "",
       button.dataset.perfType ?? "");
-  }));
-  document.querySelectorAll<HTMLElement>("[data-opp-type]").forEach(button => button.addEventListener("click", () => {
-    const id = button.dataset.oppType ?? "";
-    const target = currentPackage().types.find(item => item.id === id);
-    if (!target) { openSpotlight(shortTypeName(id)); return; }
-    state.atPackageRoot = false;
-    navigateToTypeByName(id);
-  }));
-  document.querySelectorAll<HTMLElement>("[data-opp-package]").forEach(button => button.addEventListener("click", () => {
-    openDependencyPackage(button.dataset.oppPackage ?? "", "");
-  }));
-  document.querySelectorAll<HTMLElement>("[data-opp-lookfor]").forEach(button => button.addEventListener("click", () => {
-    openSpotlight(button.dataset.oppLookfor ?? "");
   }));
   const renderMemberFilterAndRestoreFocus = (selector = "") => {
     const preserved = captureMemberFocus(document);

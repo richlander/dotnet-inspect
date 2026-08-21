@@ -210,6 +210,9 @@ const packageBarSource = readFileSync(
 const metadataViewerSource = readFileSync(
   new URL("../src/metadata-viewer.ts", import.meta.url),
   "utf8");
+const packageOpportunitiesSource = readFileSync(
+  new URL("../src/package-opportunities.ts", import.meta.url),
+  "utf8");
 const applicationSources =
   `${appSource}\n${graphSource}\n${packageBarSource}\n${metadataViewerSource}`;
 const stylesSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
@@ -502,6 +505,31 @@ test("metadata viewer owns its rendered explorer control bindings", () => {
     assert.equal(appSource.split(selector).length - 1, 0, selector);
   }
   assert.equal(appSource.split("#mde-canvas").length - 1, 1);
+});
+
+test("package opportunities owns its rendered control bindings", () => {
+  const binding =
+    appSource.match(/function bindPackageOpportunitiesEvents\(\) \{[\s\S]*?\n}\n\nfunction bindEvents/)?.[0]
+    ?? "";
+  assert.match(
+    binding,
+    /bindPackageOpportunities\(document, \{\s*onLookForSelect: openSpotlight,\s*onPackageSelect: packageId => openDependencyPackage\(packageId, ""\),\s*onTypeSelect: typeId => \{[\s\S]*currentPackage\(\)\.types\.find\(item => item\.id === typeId\)[\s\S]*openSpotlight\(shortTypeName\(typeId\)\)[\s\S]*state\.atPackageRoot = false;[\s\S]*navigateToTypeByName\(typeId\)/);
+  assert.equal(
+    appSource.match(/\bbindPackageOpportunitiesEvents\b/g)?.length,
+    2);
+  assert.equal(
+    appSource.match(/\bbindPackageOpportunities\b/g)?.length,
+    2);
+  assert.match(
+    packageOpportunitiesSource,
+    /export function bindPackageOpportunities\([\s\S]*\[data-opp-type\][\s\S]*\[data-opp-package\][\s\S]*\[data-opp-lookfor\]/);
+  for (const selector of [
+    "[data-opp-type]",
+    "[data-opp-package]",
+    "[data-opp-lookfor]",
+  ]) {
+    assert.equal(appSource.split(selector).length - 1, 0, selector);
+  }
 });
 
 test("leaving package search clears its pending loading state", () => {
