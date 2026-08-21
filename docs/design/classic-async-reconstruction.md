@@ -135,11 +135,25 @@ contract**. Decompiler owns one metadata-addressed preparation front
 door:
 
 ```text
-MetadataBodyProjector.Prepare(MetadataSource, MetadataBodyAddress)
+MetadataBodyProjector.Prepare(MetadataSource, MetadataBodyRequest)
 
-MetadataBodyAddress
+MetadataBodyRequest
   Exact(MetadataMethodAddress)
-  Selector(TypeFullName, MethodName, OverloadIndex, PublicOnly)
+  Anchored(MemberBodyAnchor, PreferredAddress?)
+  Selector(TypeFullName, MemberTargetSelector, Visibility)
+
+MemberBodyAnchor
+  Member                 canonical MemberAnchor
+  Role                   Method | Getter | Setter | Adder | Remover
+
+PreferredAddress         MetadataMethodAddress minted with the API member
+
+MemberBodyTargetResolution
+  Resolved(MetadataMethodAddress)
+  Missing(Diagnostics)
+  Ambiguous(Diagnostics)
+  Unavailable(Diagnostics)
+  Malformed(Diagnostics)
 
 MetadataBodyProjectionResult
   AddressFailed(Diagnostics)
@@ -169,8 +183,10 @@ ImportObservation
   HasInternalError        DEC0001 was present when import returned
 
 StageBodyProjection
-  Prepared(IrFunctionSnapshot, ClassicAsyncStageState)
+  Prepared(Stage, IrFunctionSnapshot, ClassicAsyncStageState)
   Failed(Diagnostics, ClassicAsyncStageState)
+
+PreparationStage         Raised | Lowered
 
 ClassicAsyncStageState
   Unavailable(ImportInternalError)
@@ -179,6 +195,8 @@ ClassicAsyncStageState
   Decided(Decision, Outcome)
 
 PreparedStageBody.Render(PrinterOptions)
+  Stage                  retained from preparation; caller cannot override
+  StylePolicy            RaisedLenses | LoweredBytePreserving
   RenderedFunction       private clone after print analysis
   DecompilerResult       includes ClassicAsyncOutcome when Decided
   PrintedRanges
@@ -234,15 +252,57 @@ from the existing SRM classification (`StateMachineAsync` plus
 `AsyncStateMachineAttribute`). `StateMachineAsync` alone is not this
 fact: it also includes `AsyncIteratorStateMachineAttribute`.
 
-`Exact` validates the existing `MetadataMethodAddress` against the
-live source. `Selector` uses the existing name/ordinal resolver, then
-immediately becomes an `Exact` address; all later import,
-classification, preparation, and rendering use that resolved
-MethodDef. This preserves the intentional fallback for an absent or
-stale carried token in MemberCodeProvider, Research, public/whole-type
-body production, accessors, and Body Shape. Failure to resolve the
-selector is a typed outer `AddressFailed(Diagnostics)`,
-never a direct-printer bypass or a plausible unmarked body.
+`Exact` accepts only a complete `MetadataMethodAddress`: MVID plus
+validated MethodDef handle. It revalidates MVID, token table, row
+bounds, and MethodDef ownership against the live source. A raw
+`ApiMember.MetadataToken`, getter/setter token, or adder/remover token
+never becomes `Exact` by pairing it with the module that happens to be
+open.
+
+Carried API members use `Anchored`. `MemberBodyAnchor` combines the
+existing canonical `MemberAnchor` with an exact method/accessor role;
+getter, setter, adder, and remover are identities, not accessor
+ordinals. API extraction adds body-facing `MetadataMethodAddress` hints
+minted from the originating reader and retained beside the member/role;
+existing raw tokens may remain for their non-body contracts but never
+act as body identity. The address hints are ephemeral and may be absent
+after JSON round trip; they are not a new persisted API-surface field or
+schema contract. The Metadata-owned
+`MemberBodyTargetResolver` validates a same-MVID preferred address
+against the anchor and role. A missing, foreign-MVID, stale, or
+mismatched hint is ignored as authority and the resolver projects the
+anchor and role against the live source. It returns one exact address
+or typed missing, ambiguous, unavailable, or malformed evidence; it
+never selects the first same-named MethodDef.
+
+The resolver uses metadata names, relationship rows, and the existing
+canonical member/signature projections. It does not parse declaration
+text, inspect method bodies, or read custom attributes, so a malformed
+async attribute remains a resolved classification failure rather than
+an address failure. Property/event roles follow their MethodSemantics
+relationships. Conversion return type, generic arity, parameter shapes,
+explicit-interface identity, custom modifiers, and indexer parameters
+remain part of the existing anchor correspondence. Duplicate or
+unavailable candidate identity is `AddressFailed`, not permission to
+use order. `MemberBodyTargetResolution.Malformed` means the member's
+name/signature/relationship identity itself could not be decoded and
+therefore maps to `AddressFailed`; malformed async custom-attribute
+metadata is deliberately not read here and remains the distinct
+resolved `ClassificationFailed` state.
+
+`Selector` is only a fresh user question against the current source.
+`MemberBodyTargetResolver` applies the existing
+`MemberTargetSelector` semantics directly to bounded metadata candidate
+identity, sharing canonical anchor projection and ordering rules with
+`MemberTargetResolver` without requiring full API-surface extraction.
+It produces a current `MemberAnchor`, role, and exact address without
+reading custom attributes. Name/ordinal selection may therefore express
+a user's current-source request, but it is never a fallback for a
+carried member, stale token, or accessor. All later classification,
+body-status, import, preparation, and rendering use the resolved exact
+MethodDef. Any failed exact, anchored, or selector resolution is a typed
+outer `AddressFailed(Diagnostics)`, never a direct-printer bypass or a
+plausible unmarked body.
 
 After resolution, the projector performs metadata async classification
 once, before inspecting or importing the body. The expected
@@ -254,9 +314,9 @@ stable `DEC0015` (`MetadataClassificationFailed`) diagnostic with the
 resolved address and decode detail. This terminal state retains the
 resolved address but has no `AsyncClassification`, body projection,
 import, stage, decision, modifier, or render. Its diagnostics are
-detached immutable values. Exact and selector addresses that resolve to
-the same MethodDef produce the same classification result and
-diagnostic.
+detached immutable values. Exact, anchored, and selector requests that
+resolve to the same MethodDef produce the same classification result
+and diagnostic.
 
 After successful classification, the projector reads the MethodDef body
 status once.
@@ -271,6 +331,37 @@ consumer does not use RVA, `HasBody`, a classification exception, or a
 null import to choose among classification failure, bodyless, and
 body-bearing projection or to map that choice to its carrier before
 calling the projector.
+
+`ApiMember.IsAbstract` remains a declaration fact, not body-status
+authority. Any selected method or accessor is resolved and classified
+through the projector before a composer or section filter chooses
+declaration-only presentation. This includes abstract methods and
+explicit-interface methods, property/indexer getters and setters, and
+event adders and removers. `ApiOutputFormatter.ResolveBodyMethods` does
+not filter abstract candidates before projection. `ComposeMembers`,
+`ComposeProperty`, and `ComposeEvent` do not use `IsAbstract`, RVA, or a
+null import to skip projection.
+
+For CLI member sections, this intentionally replaces the current
+abstract-method prefilter: a requested body-backed section receives the
+section's typed `Bodyless` mapping instead of becoming N/A before the
+projector runs. Non-body metadata sections may still use `IsAbstract`
+as a declaration/filter fact because they make no source-body claim.
+
+Whole-type composition collects one typed projection for each existing
+method/accessor role before choosing syntax. A classified `Bodyless`
+method becomes a semicolon declaration. A property or event maps each
+role independently: `Bodyless` becomes that accessor's semicolon,
+`Imported` supplies its body, and any address, classification, import,
+or stage failure remains visible and blocks a plausible aggregate
+declaration. A mixed bodyless/body-bearing accessor set must pass the
+existing C# aggregate-validity rules; otherwise composition fails rather
+than guessing syntax. Field-like event and trivial-accessor
+presentation tests run only after these typed states exist; they may
+choose compact syntax but cannot hide a failed accessor.
+`ClassificationFailed` on an abstract method, property/indexer accessor,
+or event accessor therefore follows the same terminal failure mapping as
+a concrete method.
 
 Preparation imports once. Only a null import for a resolved body-bearing
 MethodDef is `ImportFailed`; no `MetadataBodyProjection` exists. Every
@@ -315,11 +406,15 @@ that a stage over a frozen DEC0001 import is `Unavailable`. Every
 never has a captured decision. Neither consumers nor `DecompilerResult`
 infer an earlier failed stage's outcome from a decision captured by a
 different stage.
-`PreparedStageBody.Render` is the sole
-source-body emission seam: it clones the stored snapshot, performs
-the selected style lenses plus print analysis without rerunning the
-default/lowered structural pipeline, and returns the rendered clone,
-result, and printed ranges as one value.
+`PreparedStageBody.Render` is the sole source-body emission seam. It
+clones the stored snapshot and retains its preparation stage as render
+policy; a caller cannot relabel a Lowered snapshot as Raised. Both
+stages apply byte-preserving `PrinterOptions` spelling/layout and print
+analysis without rerunning a structural pipeline. Raised alone runs
+selected byte-divergent style lenses. Lowered runs none: it represents
+the shape below raised sugar, records no `StyleLens` decision, and
+retains statement-to-opcode correspondence and interleaved IL. The seam
+returns the rendered clone, result, and printed ranges as one value.
 
 The pass remains in `IrPasses.Default` and `IrPasses.Lowered`. A
 standalone seam-enabled pipeline with no supplied decision recognizes
@@ -446,8 +541,9 @@ the method is bodyless or body preparation fails. The unions separate
 address failure, resolved classification failure, body absence, import
 failure, post-import stage failure, and a decided body:
 
-- selector-resolution failure is `AddressFailed`, not a handle-less
-  rendering mode and not a classified body
+- exact validation or anchored/selector resolution failure is
+  `AddressFailed`, not a handle-less rendering mode and not a classified
+  body
 - `Resolved(..., ClassificationFailed)` retains a resolved MethodDef but
   is a terminal visible failure. It has no classification, body state,
   import, stage, decision, modifier, or plausible source output
@@ -492,9 +588,11 @@ projection:
 - `MemberCodeProvider` calls `MetadataBodyProjector` once whenever any
   member C# artifact is requested. Decompiled Source calls the prepared
   stage's render seam; Research receives the same prepared value. Its
-  exact-token and name/ordinal paths differ only in
-  `MetadataBodyAddress`; both canonicalize before classification and
-  import. `ClassificationFailed` produces the standard visible failed
+  exact, carried-member, and fresh-selector paths differ only in
+  `MetadataBodyRequest`; all canonicalize to an exact address before
+  classification and import. A carried member uses its anchor even when
+  a same-named stale token looks valid in the current reader.
+  `ClassificationFailed` produces the standard visible failed
   source result with its metadata diagnostic, null output, and
   `StyledProjectionProduced = false`; Fidelity Causes is `Failed`.
   `Bodyless` produces no C# body output, marker, or body modifier. It
@@ -529,17 +627,21 @@ projection:
   classic decision. If a stage-compatible classic snapshot
   cannot be produced, Source Document / Annotated Source returns a
   typed visible failure; it never falls back to an independently raised
-  or raw unmarked kickoff.
+  or raw unmarked kickoff. Both stages honor byte-preserving
+  `PrinterOptions`; only Raised applies byte-divergent style lenses.
+  Lowered records no style-lens decision and keeps interleaved IL.
 - `MemberBodyProducer.ProduceBody`, whole-member composition, and
   whole-type composition use the same front door. The public
   `MemberBodyProductionResult` and internal whole-type
   `DecompiledBodyProjection` carry classification, body text/shape
-  facts, and `ClassicAsyncOutcome`. Stale-token and accessor fallbacks
-  use `Selector`, not direct import/print. `ClassificationFailed` maps
-  to `MemberBodyProductionStatus.Failed`; whole-member fails visibly,
-  and whole-type composition fails visibly rather than emitting that
-  member, continuing with an unclassified declaration, or restamping a
-  modifier. `Bodyless` maps to
+  facts, and `ClassicAsyncOutcome`. API members and accessors use
+  `Anchored(MemberBodyAnchor, PreferredAddress?)`; stale-token and
+  cross-reader paths never fall back to name/ordinal. Every existing
+  accessor is projected before compact property/event syntax is chosen.
+  `ClassificationFailed` maps to `MemberBodyProductionStatus.Failed`;
+  whole-member fails visibly, and whole-type composition fails visibly
+  rather than emitting that member, continuing with an unclassified
+  declaration, or restamping a modifier. `Bodyless` maps to
   `MemberBodyProductionStatus.Absent` and preserves that API's current
   typed absence diagnostic. Whole-member production remains `Complete`
   with declaration-only text, and whole-type composition includes the
@@ -655,8 +757,8 @@ selection and import-seam availability.
 reconstruction, decline marking, and the typed decision. Canonical
 preparation owns one decision session, shared replay authority, and
 stage snapshots with stage-local outcome state. Views own only
-annotation and spelling over the
-`PreparedStageBody.Render` result.
+annotation and spelling over the `PreparedStageBody.Render` result;
+the prepared stage owns whether byte-divergent lenses are legal.
 
 This applies to direct Research callers and structured source-body
 artifacts, not only the four familiar text overlays. Fact Row C#
@@ -879,13 +981,15 @@ the decompiler library and corpus.
    MemberCodeProvider, direct Research, Research queries,
    `MemberBodyProducer.ProduceBody`, whole-member/whole-type
    composition, and Body Shape search call `MetadataBodyProjector`.
-   The front door accepts either an existing `MetadataMethodAddress` or
-   a structured type/name/ordinal/visibility selector that resolves
-   once to that exact address. Missing/stale-token and accessor
-   fallbacks remain successful when their selector resolves; resolution
-   failure is typed and visible. A resolved bodyless method is typed
-   `Bodyless`, not `ImportFailed` or a failed stage: typed body
-   production returns `Absent`,
+   The front door accepts an exact `MetadataMethodAddress`, an API
+   `MemberAnchor` plus typed method/accessor role and optional
+   same-origin address hint, or a fresh current-source
+   `MemberTargetSelector`; every path resolves once to an exact address.
+   A stale or cross-reader hint resolves by anchor correspondence, never
+   name/ordinal, and missing/ambiguous resolution is typed and visible.
+   Abstract methods and accessors are not filtered before projection. A
+   resolved bodyless method is typed `Bodyless`, not `ImportFailed` or a
+   failed stage: typed body production returns `Absent`,
    whole-member/type output remains declaration-only, C# body output is
    absent while existing CLI/Research absence diagnostics remain visible,
    and Body Shape silently skips it.
@@ -909,12 +1013,15 @@ declined classic declaration still says `async`; a declined
 runtime-async method loses its metadata `async`; any declared
 source-body artifact disagrees on outcome; a Fact Row anchor refers to
 an independently raised body; a failed preparation becomes a plausible
-body; a resolvable name-addressed member bypasses preparation; replay
-loses companion type facts or aliases mutable snapshot state; an outer
-decision reaches a nested function; a bodyless member loses its existing
-visible absence signal, gains C# body output, a marker or modifier, or
-becomes an inspected Body Shape; a null import counts as inspected; an
-imported DEC0001 crash function is erased from a render surface,
+body; a carried member/accessor resolves through stale name/ordinal
+identity, or a fresh selector bypasses preparation; an abstract member
+or accessor is filtered before classification; replay loses companion
+type facts or aliases mutable snapshot state; an outer decision reaches
+a nested function; a Lowered render applies a byte-divergent style lens
+or loses interleaved IL; a bodyless member loses its existing visible
+absence signal, gains C# body output, a marker or modifier, or becomes
+an inspected Body Shape; a null import counts as inspected; an imported
+DEC0001 crash function is erased from a render surface,
 counted as inspected by Body Shape, assigned a classic outcome/marker,
 or loses metadata `async`; a nonfatal import diagnostic falls outside
 the union; a stage inherits an outcome captured only by another stage;
@@ -935,8 +1042,10 @@ hollow.
 
 `MemberBodyProducerAsyncTests.ClassicAsyncWithoutAwait_UsesResolvedMethodBodyModifier`
 currently asserts `async` on `NoAwait()` for both its valid-token and
-intentionally stale-token rows. Slice 0 flips both assertions; the
-stale-token row also gates selector canonicalization.
+intentionally stale-token rows. Slice 0 flips both assertions. The
+second row becomes a stale-MVID anchored-resolution gate; separate
+same-name overload and overloaded-indexer rows prove a carried member
+cannot alias another valid token or ordinal-zero accessor.
 
 ## Fidelity subject
 
@@ -962,7 +1071,7 @@ another raise. Do not invent more `TryBuild*` methods.
 
 | Slice | Claim | Residual after it |
 | --- | --- | --- |
-| 0. Honesty | Add SRM `IsClassicAsync`, structured exact-or-selector addressing with resolved `ClassificationFailed` and `Bodyless`, Decompiler-owned `MetadataBodyProjectionResult`, detached function snapshots, complete exact-host application values, and typed body carriers. `ClassicAsyncReconstructionPass` remains the single decision implementation: the projector captures/replays one decision across top-level stages, support-method acknowledgment is an application-owned `NotClassic` disposition, import-internal-error crash functions remain outcome-unavailable, and one foreign-function pipeline entry always resets the parent directive. A shared nested-function embedding policy retains any async-classified body, body requiring an async declaration modifier, or unsupported body as lowered compiler structure; this also corrects the current Full-invalid await-bearing local and await-free local/lambda runtime-async embeddings at that shared seam. Seam-enabled stage/corpus/harness runs use the same pass. Every declared source-body path canonicalizes through the front door; seam-free physical evidence remains separate. Every healthy classic decline gets a marker: replace exact narrow handoff; prepend while preserving a non-narrow body. Correlate Debug class allocation and void `Return(null)`. Leave legacy raise eligibility unchanged. Stop hollowing in-domain `MoveNext`; library + corpus A/B. | #4472 fixture still declined, but honest. Debug class SMs are honest but not raised. Async-iterator `MoveNext` still hollow through replayable support application. Custom builders visibly decline with preserved bodies. Bodyless members remain absent/declaration-only. Resolved classification failures remain typed and visibly failed. Importer crash markers and metadata modifiers remain unchanged. Async local/lambda declarations are not reconstructed until they have a typed async carrier. Runtime-async recovery is unchanged; only unsafe nested embedding is retained lowered. Physical C# diff remains MethodDef-scoped and seam-free. No trusted Metadata/Analysis lift. |
+| 0. Honesty | Add SRM `IsClassicAsync`, structured exact/anchored/fresh-selector addressing with resolved `ClassificationFailed` and `Bodyless`, Decompiler-owned `MetadataBodyProjectionResult`, detached function snapshots, stage-owned render altitude, complete exact-host application values, and typed body carriers. Carried API methods/accessors resolve by `MemberAnchor` plus role and MVID-scoped hints, never stale name/ordinal fallback; abstract members project before presentation filtering. `ClassicAsyncReconstructionPass` remains the single decision implementation: the projector captures/replays one decision across top-level stages, support-method acknowledgment is an application-owned `NotClassic` disposition, import-internal-error crash functions remain outcome-unavailable, and one foreign-function pipeline entry always resets the parent directive. A shared nested-function embedding policy retains any async-classified body, body requiring an async declaration modifier, or unsupported body as lowered compiler structure; this also corrects the current Full-invalid await-bearing local and await-free local/lambda runtime-async embeddings at that shared seam. Seam-enabled stage/corpus/harness runs use the same pass. Every declared source-body path canonicalizes through the front door; seam-free physical evidence remains separate. Every healthy classic decline gets a marker: replace exact narrow handoff; prepend while preserving a non-narrow body. Correlate Debug class allocation and void `Return(null)`. Leave legacy raise eligibility unchanged. Stop hollowing in-domain `MoveNext`; library + corpus A/B. | #4472 fixture still declined, but honest. Debug class SMs are honest but not raised. Async-iterator `MoveNext` still hollow through replayable support application. Custom builders visibly decline with preserved bodies. Bodyless members remain absent/declaration-only. Resolved classification failures remain typed and visibly failed. Lowered Research retains pre-lens shape and interleaved IL. Importer crash markers and metadata modifiers remain unchanged. Async local/lambda declarations are not reconstructed until they have a typed async carrier. Runtime-async recovery is unchanged; only unsafe nested embedding is retained lowered. Physical C# diff remains MethodDef-scoped and seam-free. No trusted Metadata/Analysis lift. |
 | 1. Void-await then statements then return | Accept `await Task.Yield(); return ReadValue(value);` as the first inverse raise from `AwaitPoints` + `UserRegions`, not as a new `TryBuild*` and not as a `HasUnexpectedStore` allow-list tweak. Must consume void `GetResult` as a statement, following statements, a non-await `SetResult` operand, the Yield operand temp, and an explicit `LoadLocalAddress` decline-then-remap. Hoisted parameter binding is already present. The smaller `await Task.Yield();` (no later statements) is the accepted boundary of the same slice. Blocked until the Correct measurement exists. | General multi-state dispatch, class SM, custom awaiters, structural Metadata descriptor, census-defined raises. |
 
 ### Nested embedding fixture family (slice 0)
@@ -1055,12 +1164,14 @@ another raise. Do not invent more `TryBuild*` methods.
 | `ClassicAsyncMachine`, decision, and application | Decompiler `ClassicAsyncReconstructionPass` |
 | Slice-0 accepted-raise boundary | Decompiler `LegacyRaiseEligibility`, separate from broader recognition |
 | Classic-async metadata fact | Metadata import → `MethodBody` / `IrFunction` |
-| Exact-or-selector address canonicalization and classification/body/import union | Decompiler `MetadataBodyProjector` over existing `MetadataMethodAddress` / resolver |
+| Exact address and carried member/accessor correspondence | Metadata `MemberBodyTargetResolver` over `MetadataMethodAddress`, `MemberAnchor`, and typed accessor role |
+| Exact/anchored/fresh-selector canonicalization and classification/body/import union | Decompiler `MetadataBodyProjector` over the Metadata resolver |
 | Resolved metadata classification failure | Decompiler `MetadataBodyProjector`; catches only expected metadata decode failure |
 | Frozen import diagnostics / DEC0001 observation | Decompiler `MetadataBodyProjector` at importer return |
 | Complete root snapshot clone | Decompiler `IrFunctionSnapshot` |
 | Shared cross-stage replay authority | Decompiler `MetadataBodyProjection` + `PassContext`, scoped to one exact top-level host |
 | Stage-local decision/outcome/unavailable state | Decompiler `StageBodyProjection` |
+| Raised/Lowered render altitude | Decompiler `PreparedStageBody`; Research cannot override it |
 | Kickoff and support-method host mutation | Decompiler `ClassicAsyncApplication` |
 | Foreign-function execution and classic-directive reset | Decompiler `PassContext.RunForeignFunctionPipeline` |
 | Nested lambda/local-function embedding disposition | Decompiler `NestedFunctionEmbeddingPolicy`, consumed by both raising passes |
@@ -1086,10 +1197,11 @@ predicate. They must not assume current kickoffs are Full.
 | Exact async population matrix | Metadata + Decompiler tests | Async iterator is rejected as invalid `NotClassic`; custom classic builder escapes visible `Declined`; or a DEC0001 crash function is forced into `NotClassic`, `Reconstructed`, or `Declined` instead of `Unavailable` |
 | Canonical front-door architecture | Source-architecture test `MetadataAddressedBodyProjectionUsesCanonicalFrontDoor` | Product-consumer references outside `CSharpPrinter` / pass definitions to any body-emitting printer API or direct top-level `IrPasses.Run*` differ from the complete set: `MetadataBodyProjector` / `PreparedStageBody`, seam-free `CSharpBodyDiff`, and canonical-stage `PipelineStages` |
 | Classification policy ownership | Source-architecture test `DeclaredSourceAsyncClassificationUsesProjector` | A declared-source consumer classifies the resolved MethodDef, catches its decode failure, or derives a body modifier outside `MetadataBodyProjector` and the typed projection; exact non-source metadata inventories remain named exceptions |
-| Body-status policy ownership | Source-architecture test `DeclaredSourceBodyStatusUsesProjector` | A declared-source consumer uses RVA/`HasBody`/null import to choose `Bodyless` versus import/preparation/render or to map that state to a carrier; the exact retained body-reference manifest differs, or any named migration site remains |
-| Exact/selector address parity | Decompiler projector + existing `ClassicAsyncWithoutAwait_UsesResolvedMethodBodyModifier` valid/stale-token rows + bodyless overload ordinal + malformed-attribute row | A resolvable selector bypasses the projector, resolves a different MethodDef, drops a bodyless method from ordinal counting, or differs from exact-address classification/state/outcome/render/diagnostic; unresolved selection becomes plausible output |
-| Resolved bodyless lifecycle | Decompiler + `RenderStyleConfigTests.NoBodyMethod_ProducesResultWithoutOutput_SoNoStyledSource` + `FidelityCauseSectionTests.BuildInspection_DistinguishesNoBodyFromImporterFailure` + `AnnotatedSourceDocumentProjectionTests.BodylessMemberDocumentFailureKeepsSiblingProjection` + whole-member/type + Body Shape | Exact/selector bodyless results differ; typed body is not `Absent` with its existing absence diagnostic; CLI/Research loses its existing visible absence failure, emits C# body output, marks style consumed, or changes Fidelity Causes from `Absent`; a marker or modifier appears; whole-member is not `Complete` declaration-only text; whole-type is not diagnostic-free declaration-only; Body Shape counts it as inspected/incomplete/failure |
-| Resolved classification-failure lifecycle | Decompiler projector plus CLI, Research, public typed body, whole-member/type, and Body Shape over a MethodDef with a malformed async-attribute constructor/type reference | The resolved address or stable `DEC0015` diagnostic is lost; the expected metadata decode failure escapes or is called `AddressFailed`; exact/selector differ; import or a pass runs; a classification, modifier, outcome, declaration, or plausible body appears; diagnostics are mutable/shared; CLI/Research is success-shaped or marks style consumed; Fidelity Causes is not `Failed`; typed/whole-member production does not fail visibly; whole-type presents a decompiled member; or Body Shape increments `MethodsInspected` |
+| Body-status policy ownership | Source-architecture test `DeclaredSourceBodyStatusUsesProjector` | A declared-source consumer uses RVA/`HasBody`/null import or semantic `ApiMember.IsAbstract` filtering to choose `Bodyless`, suppress a method/accessor, skip classification, or map state to a carrier; the exact retained body-reference/semantic-policy manifest differs, or any named migration site remains |
+| Body-target identity architecture | Metadata + Decompiler source-architecture tests | A body-facing raw token is treated as exact without its originating MVID; a carried API member/accessor falls back to name/ordinal; an accessor is identified by ordinal rather than role; target resolution parses declaration/display text or reads bodies/custom attributes; or duplicate/unavailable anchor correspondence selects a candidate |
+| Exact/anchored/selector address parity | Metadata resolver + Decompiler projector with same-module exact, no-hint round-trip, stale-MVID, valid-wrong-row token, hidden same-name overload drift, overloaded indexer/event accessors, bodyless selector, and malformed-attribute rows | A same-source preferred address fails anchor/role validation; a carried target selects by order; stale or cross-reader identity resolves another MethodDef; getter/setter or adder/remover roles swap; round-tripped anchors cannot resolve uniquely; a fresh selector bypasses anchored canonicalization; bodyless candidates disappear from current-source ordinal counting; exact/anchored/selector classification/state/outcome/render/diagnostic differ after resolving the same MethodDef; or missing/ambiguous correspondence becomes plausible output |
+| Resolved bodyless lifecycle | Decompiler + `RenderStyleConfigTests.NoBodyMethod_ProducesResultWithoutOutput_SoNoStyledSource` + `FidelityCauseSectionTests.BuildInspection_DistinguishesNoBodyFromImporterFailure` + `AnnotatedSourceDocumentProjectionTests.BodylessMemberDocumentFailureKeepsSiblingProjection` + whole-member/type + Body Shape, including abstract methods and property/indexer/event accessors | Exact/anchored/selector bodyless results differ; an abstract body-backed request is filtered to N/A before projection; typed body is not `Absent` with its existing absence diagnostic; CLI/Research loses its standard visible absence failure, emits C# body output, marks style consumed, or changes Fidelity Causes from `Absent`; a marker or modifier appears; whole-member is not `Complete` declaration-only text; whole-type is not diagnostic-free declaration-only; a compact property/event form hides a typed accessor state; or Body Shape counts it as inspected/incomplete/failure |
+| Resolved classification-failure lifecycle | Decompiler projector plus CLI, Research, public typed body, whole-member/type, and Body Shape over concrete and abstract methods and property/indexer/event accessors with a malformed async-attribute constructor/type reference | The resolved address or stable `DEC0015` diagnostic is lost; the expected metadata decode failure escapes or is called `AddressFailed`; exact/anchored/selector differ; an abstract or compact-syntax path filters before classification; import or a pass runs; a classification, modifier, outcome, declaration, or plausible body appears; diagnostics are mutable/shared; CLI/Research is success-shaped or marks style consumed; Fidelity Causes is not `Failed`; typed/whole-member production does not fail visibly; whole-type presents a decompiled member; or Body Shape increments `MethodsInspected` |
 | Import observation totality | Decompiler projector tests with clean, nonfatal DEC0004/DEC0005, DEC0001 crash-function, and null-import seams | A non-null function is not `Imported`; import-time diagnostics change after a pass; `HasInternalError` is inferred from later diagnostics; or a null import has a stage |
 | Importer-crash cross-surface preservation | Existing `CommandExecutionTests.Member_SelectedOverload_SelectFidelityCauses_ImporterCrashIsFailed` plus CLI Decompiled Source/style latch, public typed body, whole-member/type, and Body Shape rows over one malformed classic-classified fixture | The crash marker/DEC0001 disappears; CLI output ceases to be a successful body render or style consumption changes; Fidelity Causes ceases to be `Failed`; `ProduceBody` ceases to be `Complete`; whole-member ceases to fail; whole-type loses the marker body; Body Shape increments `MethodsInspected`; the stage is not `Unavailable`; a classic outcome/marker is added; or metadata `async` is omitted |
 | Complete classic application replay | Decompiler pass/projector tests with accepted interface-fact + declined diagnostic fixtures | A second prepared stage recognizes again; supplied replay differs in body, local state, type facts, diagnostics, provenance/fidelity, modifier state, or outcome; an application is absent; or a supplied decision applies to a different host |
@@ -1110,7 +1222,7 @@ predicate. They must not assume current kickoffs are Full.
 | Non-narrow classic body with extra call/store | Five CLI code views + public typed body + whole-type | Any original statement disappears |
 | Declaration modifier by stage-local classic state | CLI declarations + public typed body + whole-member/whole-type with prepared and post-classic-failed `Reconstructed`/`Declined`, pre-classic failure, and unavailable importer-crash rows | `Decided(Declined)` still says `async`; `Decided(Reconstructed)` omits it; post-classic carrier failure changes either decision's modifier; `Unavailable` or pre-classic failure loses metadata `async`; `IsClassicAsync` yields `NotClassic`; or an async iterator is treated as classic |
 | Canonical outcome across member artifacts | CLI + direct `ResearchViews.ProjectMember` + Research queries | Views disagree, Source Document reimports, or an overlay without an import seam recomputes the machine |
-| Raised/Lowered Research contract | Annotated Source + Annotated Source Document | Stage snapshots recompute the outcome or unsupported stage preparation falls back to raw unmarked kickoff |
+| Raised/Lowered Research contract | Annotated Source + Annotated Source Document with both byte-divergent lens flags over a fixture each lens rewrites at Raised altitude | Stage snapshots recompute the outcome; unsupported stage preparation falls back to raw unmarked kickoff; caller options relabel the prepared altitude; Lowered applies a byte-divergent lens, records a `StyleLens` decision, changes the pre-lens statement shape, or loses interleaved IL; or Raised fails to apply and report a requested matching lens |
 | Fact Row source-line identity | Direct Research + CLI Facts | C# lines are mapped against a separately raised function |
 | Address/classification/body/import/stage/render union | Decompiler + CLI + Research + whole-type + Body Shape accounting | `AddressFailed`, `ClassificationFailed`, `Bodyless`, null `ImportFailed`, imported diagnostics, `Unavailable`, and stage-local failure states collapse; classification or null-import failure counts as inspected; DEC0001 import counts as inspected; nonfatal import does not; an unavailable or pre-decision failure has a success-shaped outcome; or post-decision stage/render failure drops its own captured outcome |
 | Declined runtime-async fixture | CLI declarations + public typed body + whole-member/whole-type | Loses metadata `async` |
@@ -1125,7 +1237,7 @@ predicate. They must not assume current kickoffs are Full.
 | In-domain `MoveNext` of a declined classic-async SM | Decompiler library (CLI type surface omits `d__` types) | Distinctive user logic absent |
 | Async-iterator `MoveNext` | Decompiler library | No longer hollow or lacks a replayable support-method application |
 | Whole-type listing of `AsyncFixtures` | `MemberBodyProducer` | `NoAwait` still spelled `async` over the stub without the marker |
-| `ClassicAsyncWithoutAwait_UsesResolvedMethodBodyModifier` | Existing valid-token + stale-token selector rows | Either row still expects `async Task NoAwait()`, or selector and exact-address rows disagree |
+| `ClassicAsyncWithoutAwait_UsesResolvedMethodBodyModifier` | Existing valid-token row plus stale-MVID anchored row and close same-name overload/accessor negatives | Either positive still expects `async Task NoAwait()`; exact and anchored rows disagree after resolving the same MethodDef; or a stale target borrows another member's modifier/outcome |
 | Corpus A/B for honesty + un-hollowed in-domain `MoveNext` | `CorpusSensor` / `IrImporter.ImportAssembly` | Marker/reconstruction differs from product policy, or an unrecorded fidelity/coverage delta appears |
 
 Deleting marker insertion must fail the render gate; deleting fidelity
@@ -1169,9 +1281,15 @@ local/lambda and iterator fixtures at both stages. Bypassing
 `RunForeignFunctionPipeline` must independently fail the architecture
 inventory. Bypassing `NestedFunctionEmbeddingPolicy` or splitting its
 async/unsupported checks between lambda and local-function raising must
-fail the separate embedding architecture inventory. Removing selector
-canonicalization must fail the stale-token row, not silently retain a
-direct printer branch.
+fail the separate embedding architecture inventory. Treating a raw
+token as an exact address, removing MVID or anchor/role validation,
+restoring name/ordinal as carried-member fallback, or selecting one of
+duplicate anchor candidates must fail the body-target identity gates.
+Removing fresh-selector canonicalization must fail its current-source
+row, not silently retain a direct printer branch. Applying a
+byte-divergent lens to a Lowered prepared snapshot must fail the
+altitude gate by statement shape, decision absence, and retained
+interleaved IL.
 Moving support-method body or local mutation out of
 `ClassicAsyncApplication` must fail Generated-versus-Supplied snapshot
 equality for both stages. Replacing exact host identity with a kickoff-
@@ -1181,19 +1299,22 @@ after expected classification failure, or adding a consumer-side
 classification catch must fail the malformed-metadata and ownership
 gates.
 Collapsing `Bodyless` into `ImportFailed`, a failed stage, `NotClassic`,
-or a consumer-side RVA precheck must fail exact/selector bodyless parity
-and all three surface dispositions. Adding a consumer-side body-status
-branch must also fail `DeclaredSourceBodyStatusUsesProjector`, even when
+or a consumer-side RVA/`IsAbstract` precheck must fail
+exact/anchored/selector bodyless parity and all three surface
+dispositions. Adding a consumer-side body-status or semantic abstract
+filter must also fail `DeclaredSourceBodyStatusUsesProjector`, even when
 its current render happens to match.
 
 `DeclaredSourceBodyStatusUsesProjector` is an exact reviewed source
 manifest over `ILInspector.Decompiler`, `ILInspector.Research`, and
 `dotnet-inspect`, following the existing
 `DynamicCompilationSiteInventoryTests` file/count/reason pattern. It
-counts every access to MethodDef RVA, modeled `HasBody`, and the named
-body-status helpers; it excludes data-member declarations and field RVA.
-The implementation pins each occurrence by file and containing member,
-not only a project-wide total.
+counts every access to MethodDef RVA, modeled `HasBody`, the named
+body-status helpers, and every `ApiMember.IsAbstract` branch that can
+suppress or choose presentation for a declared source method/accessor.
+It excludes declaration-modifier rendering, aggregate counts,
+data-member declarations, and field RVA. The implementation pins each
+occurrence by file and containing member, not only a project-wide total.
 
 These current policy sites must disappear:
 
@@ -1201,8 +1322,11 @@ These current policy sites must disappear:
 | --- | ---: | --- |
 | `MemberCodeProvider.Collect` | 1 | Projector state and import observation |
 | `MemberBodyProducer.ProduceBody` | 1 | Projector state |
-| `MemberBodyProducer.ComposeEvent` | 2 | Per-accessor projector state |
+| `MemberBodyProducer.ComposeMembers` method branch | 1 | Projector state before declaration syntax |
+| `MemberBodyProducer.ComposeProperty` | 1 | Per-accessor projector state |
+| `MemberBodyProducer.ComposeEvent` | 3 | Per-accessor projector state before compact syntax |
 | `BodyShapeSearch.SearchCore` | 1 | Projector state and import observation |
+| `ApiOutputFormatter.ResolveBodyMethods` | 2 | Project candidates before section-specific bodyless mapping |
 
 `ResearchViews` null-import handling also moves to the projector, but it
 has no direct body-status token for this manifest; the canonical
@@ -1225,9 +1349,13 @@ The post-migration retained manifest is exhaustive:
 | `ResearchViews.BuildAnnotatedSourceDocument` | 2 | Post-projection provenance offsets |
 | `ApiCommand.ResolveMethodSourceAsync` | 1 | Original Source no-body explanation |
 
-The expected post-migration total is 30 pinned occurrences. Any new,
-missing, or moved occurrence fails set equality and requires an explicit
-ownership decision and reason. The gate therefore catches a new
-consumer-side `Bodyless` branch anywhere in those product projects
-without rejecting retained physical IL, analysis, provenance, or
+The expanded current manifest has 39 occurrences: the prior 34 plus
+five semantic abstract-policy branches. Ten policy occurrences migrate
+to the projector and one projector body-status read is added, so the
+expected post-migration total remains 30 pinned occurrences
+(`39 - 10 + 1`). Any new, missing, or moved occurrence fails set
+equality and requires an explicit ownership decision and reason. The
+gate therefore catches a new consumer-side `Bodyless` or semantic
+abstract filter anywhere in those product projects without rejecting
+retained declaration facts, physical IL, analysis, provenance, or
 Original Source evidence.
