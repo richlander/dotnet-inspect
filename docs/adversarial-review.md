@@ -16,28 +16,44 @@ Two questions — is the PR mergeable, and is it green. What varies is which API
 you spend answering them. Which attempts must wait for the answer is the
 eligibility table in [Canonical round flow](../AGENTS.md#canonical-round-flow).
 
-### Two budgets, not one
+### Which API to spend
 
-REST and GraphQL have separate hourly limits, so spending one does not touch the
-other. Check before choosing:
+Default to REST. Reach for GraphQL when its capability is worth a point.
+
+The two draw on separate hourly limits, so spending one does not touch the
+other:
 
 ```bash
 gh api rate_limit --jq '.resources|{graphql,core}'
 ```
 
-They are not interchangeable in practice. Measured while writing this document:
-GraphQL sat at 4,077 of 5,000 consumed and fell a further 55 points across 45
-seconds in which this session issued no query at all, while REST core held
-steady at 6 of 5,000. Concurrent agents share these buckets, and GraphQL is
-routinely the contended one.
+Measured an hour apart, in two different rate windows: GraphQL sat at 4,077 and
+then 4,287 of 5,000 consumed, once falling 55 points across 45 seconds in which
+this session issued no query at all. REST core held at 6 of 5,000 throughout.
+Concurrent agents share these buckets, and GraphQL is persistently the contended
+one.
 
-Spend the bucket that has budget. Neither transport is the default, and a
-per-call cost comparison is the wrong measure — what matters is which bucket is
-near exhaustion when you need an answer.
+The cost models differ in the way that decides the rule. A REST call costs one
+request whatever it returns, so a wide question costs a call per object. A
+GraphQL query is priced by node count, but the floor dominates in practice: the
+routine status query at 101 nodes and a deliberately wide one at 701 nodes — PR
+fields, live base tip, 50 review threads with their comments, 50 reviews, 100
+check contexts — both cost **1 point**.
+
+GraphQL's value per point therefore rises with breadth, while REST's cost rises
+with it. Spend a point when you are buying breadth:
+
+- **Quick checks — REST.** Is this head mergeable, did `ci-required` pass. Two
+  calls, from a bucket with thousands to spare.
+- **Wide or graph-shaped reads — GraphQL.** The whole PR at one instant, review
+  threads with their comments, anything needing the live base tip beside other
+  fields. One point buys what would be five or ten REST calls.
+- **Either bucket near exhaustion — use the other**, whatever the question.
 
 ### The REST pair
 
-Two calls, the second pinned to the sha the first returned:
+The default for a routine status check. Two calls, the second pinned to the sha
+the first returned:
 
 ```bash
 gh api repos/{owner}/{repo}/pulls/{n} \
@@ -53,9 +69,9 @@ endpoint also triggers mergeability computation, which is why it resolves
 
 ### The GraphQL query
 
-One request, one point, and the only cheap way to read the live base tip that
-the carry-forward decision needs. Prefer it when REST is the contended bucket,
-when a single atomic answer matters, or when you need that base tip.
+One request, one point, and one consistent snapshot. Prefer it when you need
+breadth — the live base tip that carry-forward reads, review threads, or the
+whole PR at a single instant — or when REST is the contended bucket.
 
 Return `headRefOid`, `baseRefOid`, `baseRef { target { oid } }`, `isDraft`,
 `mergeable`, `mergeStateStatus`, `statusCheckRollup` state and contexts with

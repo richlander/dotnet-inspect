@@ -633,10 +633,10 @@ subsequent round:
   produced a fix — not never, and not continuously while a head is frozen.
 - **Before merge, the PR is mergeable and green.** One status check answers
   both; see [status discovery](docs/adversarial-review.md#status-discovery) for
-  the REST and GraphQL forms, how to choose between their separate budgets, the
-  traps each result carries, and the polling cadence. The first attempt at round
-  1 and conflict-recovery rounds do not wait for this result; a failed-gate
-  restart, an ordinary subsequent round, and merge readiness do.
+  the REST default, when GraphQL is worth a point, the traps each result
+  carries, and the polling cadence. The first attempt at round 1 and
+  conflict-recovery rounds do not wait for this result; a failed-gate restart,
+  an ordinary subsequent round, and merge readiness do.
 - **Every PR in a stack meets the applicable conditions**, not only the slice
   under review. A known-conflicted or known-red parent blocks review of
   everything above it. A pending parent does not block a slice's first or
