@@ -200,4 +200,25 @@ public sealed class TsBindGenCommandTests
         Assert.Contains("NeedsUnmappedTypeFixture.Unmapped: System.Guid has no TypeScript mapping.", error.ToString(), StringComparison.Ordinal);
         Assert.Contains("unknown", output.ToString(), StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Invoke_ControlCharacterJsonPropertyNameFailsWithoutDeclarationOutput()
+    {
+        var output = new StringWriter();
+        var error = new StringWriter();
+
+        int exitCode = TsBindGenCommand.Invoke(
+            [typeof(ControlPropertyNameFixture).Assembly.Location],
+            output,
+            error);
+
+        Assert.Equal(1, exitCode);
+        Assert.Equal(string.Empty, output.ToString());
+        Assert.Contains(
+            "tsbindgen: ControlPropertyNameFixture.Value [JsonPropertyName]: "
+                + "control-character JSON property names are not supported.",
+            error.ToString(),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("line\nbreak", error.ToString(), StringComparison.Ordinal);
+    }
 }

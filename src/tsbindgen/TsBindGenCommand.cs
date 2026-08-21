@@ -102,7 +102,17 @@ public static class TsBindGenCommand
             }
 
             var diagnostics = new TsBindGenDiagnostics();
-            string generated = DtsEmitter.Emit(jsExportSurface, diagnostics);
+            string generated;
+            try
+            {
+                generated = DtsEmitter.Emit(jsExportSurface, diagnostics);
+            }
+            catch (UnsupportedWireContractException ex)
+            {
+                stderr.WriteLine($"tsbindgen: {ex.Message}");
+                return 1;
+            }
+
             int exitCode = diagnostics.HasUnmappedTypes ? 1 : 0;
 
             foreach (TsBindGenDiagnostic diagnostic in diagnostics.UnmappedTypes)

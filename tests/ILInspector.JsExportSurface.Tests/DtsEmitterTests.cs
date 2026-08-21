@@ -295,22 +295,26 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
-    public void Emit_BlocksControlCharacterJsonPropertyNames()
+    public void Emit_RefusesControlCharacterJsonPropertyNamesWithoutDeclarationOutput()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        using FileStream stream = File.OpenRead(typeof(ControlPropertyNameFixture).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        ApiType record = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(ControlPropertyNameFixture));
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records = [record],
+        };
 
-        string dts = EmitFixtureDts(diagnostics: diagnostics);
+        UnsupportedWireContractException exception = Assert.Throws<UnsupportedWireContractException>(
+            () => DtsEmitter.Emit(surface));
 
-        Assert.Contains(
-            "export type ControlPropertyNameWidget = unknown;",
-            dts,
-            StringComparison.Ordinal);
-        Assert.DoesNotContain("line\nbreak", dts, StringComparison.Ordinal);
-        Assert.Contains(
-            diagnostics.UnmappedTypes,
-            diagnostic =>
-                diagnostic.Location == "ControlPropertyNameWidget.Value [JsonPropertyName]"
-                && diagnostic.CSharpType == "control-character JSON property name");
+        Assert.Equal(
+            "ControlPropertyNameFixture.Value [JsonPropertyName]: "
+                + "control-character JSON property names are not supported.",
+            exception.Message);
     }
 
     [Fact]

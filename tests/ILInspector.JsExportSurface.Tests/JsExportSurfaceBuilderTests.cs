@@ -60,7 +60,7 @@ public sealed class JsExportSurfaceBuilderTests
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
         var recordNames = surface.Records.Select(r => r.Name).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(11, surface.Records.Count);
+        Assert.Equal(10, surface.Records.Count);
         Assert.Contains("WidgetDto", recordNames);
         Assert.Contains("WidgetOwner", recordNames);
         Assert.Contains("WidgetCatalog", recordNames);
@@ -69,7 +69,6 @@ public sealed class JsExportSurfaceBuilderTests
         Assert.Contains("WidgetPermissionSummary", recordNames);
         Assert.Contains("WidgetPrioritySummary", recordNames);
         Assert.Contains("WidgetAudit", recordNames);
-        Assert.Contains("ControlPropertyNameWidget", recordNames);
         Assert.Contains("ConflictingPolicyWidget", recordNames);
         Assert.Contains("NeedsUnmappedTypeFixture", recordNames);
     }

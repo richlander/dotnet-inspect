@@ -14,6 +14,8 @@ static partial class DtsEmitter
         ILInspector.JsExportSurface.JsExportSurface surface,
         TsBindGenDiagnostics? diagnostics = null)
     {
+        ValidatePropertyNames(surface.Records);
+
         var knownTypeNames = new HashSet<string>(
             surface.Records.Select(r => r.Name).Concat(surface.Enums.Select(e => e.Name)),
             StringComparer.Ordinal);
@@ -77,22 +79,6 @@ static partial class DtsEmitter
                 ResolvedName: member.JsonPropertyName ?? ApplyNamingPolicy(member.Name, namingPolicy)))
             .ToArray();
 
-        var blockedProperties = properties
-            .Where(property => property.ResolvedName.Any(char.IsControl))
-            .ToArray();
-        if (blockedProperties.Length > 0)
-        {
-            foreach (var property in blockedProperties)
-            {
-                diagnostics?.ReportUnmappedType(
-                    $"{record.Name}.{property.Member.Name} [JsonPropertyName]",
-                    "control-character JSON property name");
-            }
-
-            EmitBlockedRecord(sb, record);
-            return;
-        }
-
         sb.Append("export interface ").Append(record.Name).Append(" {\n");
 
         foreach ((ApiMember member, string resolvedName) in properties)
@@ -104,6 +90,23 @@ static partial class DtsEmitter
         }
 
         sb.Append("}\n\n");
+    }
+
+    static void ValidatePropertyNames(IEnumerable<ApiType> records)
+    {
+        foreach (ApiType record in records)
+        {
+            foreach (ApiMember member in record.Members.Where(IsSerializedProperty))
+            {
+                if (member.JsonPropertyName is { } propertyName
+                    && propertyName.Any(char.IsControl))
+                {
+                    throw new UnsupportedWireContractException(
+                        $"{record.Name}.{member.Name} [JsonPropertyName]",
+                        "control-character JSON property names are not supported");
+                }
+            }
+        }
     }
 
     static bool IsSerializedProperty(ApiMember member) =>

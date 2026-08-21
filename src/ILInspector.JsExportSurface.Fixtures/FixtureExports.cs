@@ -151,12 +151,6 @@ public sealed record WidgetAudit(string Name)
     }
 }
 
-public sealed record ControlPropertyNameWidget
-{
-    [JsonPropertyName("line\nbreak\r\t\u0001")]
-    public string Value { get; init; } = "";
-}
-
 public sealed record InternalContextPascalWidget(string Name, int Count);
 public sealed record InternalContextCamelWidget(string Name, int Count);
 public sealed record ConflictingPolicyWidget(string DisplayName);
@@ -184,7 +178,6 @@ public static partial class InternalContextFixtureExports
 [JsonSerializable(typeof(WidgetPermissionSummary))]
 [JsonSerializable(typeof(WidgetPrioritySummary))]
 [JsonSerializable(typeof(WidgetAudit))]
-[JsonSerializable(typeof(ControlPropertyNameWidget))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 public sealed partial class FixtureJsonContext : JsonSerializerContext;
 
