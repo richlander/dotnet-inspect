@@ -155,6 +155,66 @@ public class PlantedCoreLibraryIdentityTests
     }
 
     /// <summary>
+    /// Every concrete acquisition is classified, and exactly two are entitled.
+    /// <para>
+    /// The cases above name their provenances one at a time, which leaves a
+    /// gap an adversarial review found: adding <c>ProjectAsset</c> to
+    /// <c>MayMint</c> widened the rule past its own documented allow list and
+    /// left all of them green, because no test mentioned that provenance. This
+    /// gate closes the gap by deriving its coverage from the type hierarchy
+    /// rather than restating it, so a provenance nobody remembered fails here
+    /// until it is classified deliberately — in either direction. Adding a new
+    /// <see cref="AssemblyResolutionProvenance"/> subtype fails until it is
+    /// listed, and entitling one that should not be fails immediately.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void EveryAcquisitionIsClassified_AndExactlyTwoAreEntitled()
+    {
+        var concrete = typeof(AssemblyResolutionProvenance)
+            .GetNestedTypes(BindingFlags.Public)
+            .Where(t => t.IsSubclassOf(typeof(AssemblyResolutionProvenance)))
+            .ToArray();
+
+        // The hierarchy is closed — the base constructor is private protected —
+        // so this really is every acquisition the product can express.
+        Assert.NotEmpty(concrete);
+
+        var entitled = concrete
+            .Where(t => CoreLibraryIdentityTrust.MayMint(Construct(t)))
+            .Select(t => t.Name)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(
+            new[] { "DesignatedAsset", "PlatformAsset" },
+            entitled);
+    }
+
+    /// <summary>
+    /// Builds a provenance of the given type. Every constructor parameter in
+    /// this hierarchy is a string, and the required ones reject blank input,
+    /// so one non-empty placeholder satisfies all of them without the test
+    /// needing to know which arguments a particular acquisition carries.
+    /// </summary>
+    static AssemblyResolutionProvenance Construct(Type provenanceType)
+    {
+        ConstructorInfo constructor = provenanceType
+            .GetConstructors()
+            .Single();
+        object?[] arguments = constructor
+            .GetParameters()
+            .Select(parameter => parameter.ParameterType == typeof(string)
+                ? "probe"
+                : throw new InvalidOperationException(
+                    $"{provenanceType.Name} takes a non-string parameter "
+                    + $"'{parameter.Name}'; this helper needs updating."))
+            .ToArray();
+
+        return (AssemblyResolutionProvenance)constructor.Invoke(arguments);
+    }
+
+    /// <summary>
     /// Opens the planted assembly through reference resolution with a given
     /// acquisition provenance, and reports whether its own definitions decoded
     /// as core-library types.
