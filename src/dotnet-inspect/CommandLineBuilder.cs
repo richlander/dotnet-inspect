@@ -193,6 +193,9 @@ public static class CommandLineBuilder
         // Implements command
         rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateImplementsCommand(opts));
 
+        // Match command (pairwise structural-clone correspondence)
+        rootCommand.Subcommands.Add(MatchCommandDefinitions.CreateMatchCommand(opts));
+
         // Package command
         rootCommand.Subcommands.Add(PackageCommandDefinitions.CreatePackageCommand(opts));
 
