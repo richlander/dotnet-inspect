@@ -101,25 +101,13 @@ public static class MemberCommand
                     MemberGenericArity = options.MemberGenericArity ?? impliedSelector.GenericArity
                 };
             }
-            else if (options.MemberFilter.Count == 0 && options.Select is { Length: > 0 })
+            if (options.MemberSelectionNeedsFinalization)
             {
-                var actualPipeline = ApiMemberSectionPipelines.Create(options);
-                var actualSelect = SelectResolver.ResolveSelectAsSections(
-                    options.Select,
-                    actualPipeline.SelectableSectionNames,
-                    actualPipeline.InfoSectionNames,
-                    actualPipeline.GetCategoryMap(),
-                    selectDefault: options.SelectDefault);
-                if (SelectOutput.WriteUnresolved(actualSelect))
-                    return 1;
-                if (actualSelect.Sections != null)
-                {
-                    options = options with
-                    {
-                        IncludeSections = actualSelect.Sections,
-                        SelectsFullCatalog = actualSelect.SelectsFullCatalog,
-                    };
-                }
+                var (finalizedOptions, finalizationError) =
+                    ApiCommand.FinalizeMemberSelection(options);
+                if (finalizationError.HasValue)
+                    return finalizationError.Value;
+                options = finalizedOptions;
             }
 
             if (options.BodyKindQuery.HasFilter
@@ -656,6 +644,8 @@ public static class MemberCommand
         SectionNames.BodyShapes,
         SectionNames.TopLeverage,
         SectionNames.PerformanceTriage,
+        SectionNames.CostOverlay,
+        SectionNames.SemanticsOverlay,
         SectionNames.Facts,
         SectionNames.IL
     ];

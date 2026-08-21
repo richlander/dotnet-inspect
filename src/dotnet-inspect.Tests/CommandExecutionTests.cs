@@ -6221,6 +6221,99 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public void Member_ImpliedMember_SourceCategory_FinalizesAgainstOverloadPipeline()
+    {
+        var (preamble, preambleError) = ApiCommand.RunPreamble(
+            new MemberOptions
+            {
+                TypeName =
+                    $"{typeof(SampleClassForTesting).FullName}.{nameof(SampleClassForTesting.MethodWithNoParameters)}",
+                Select = [SectionCategoryNames.Source],
+            });
+
+        Assert.Null(preambleError);
+        var provisional = Assert.IsType<MemberOptions>(preamble.Options);
+        Assert.True(provisional.MemberSelectionNeedsFinalization);
+
+        var (finalized, finalizationError) =
+            ApiCommand.FinalizeMemberSelection(
+                provisional with
+                {
+                    MemberFilter =
+                    [
+                        nameof(SampleClassForTesting.MethodWithNoParameters)
+                    ],
+                });
+
+        Assert.Null(finalizationError);
+        Assert.False(finalized.MemberSelectionNeedsFinalization);
+        Assert.Contains(SectionNames.DecompiledSource, finalized.IncludeSections!);
+        Assert.Contains(SectionNames.IL, finalized.IncludeSections!);
+    }
+
+    [Theory]
+    [InlineData("Type Info")]
+    [InlineData("@Audit")]
+    public async Task Member_ImpliedMember_InventorySelector_IsRejected(
+        string selector)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            $"{typeof(SampleClassForTesting).FullName}.{nameof(SampleClassForTesting.MethodWithNoParameters)}",
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            selector,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains($"Select value '{selector}' not found", error);
+    }
+
+    [Theory]
+    [InlineData("Cost Overlay")]
+    [InlineData("Semantics Overlay")]
+    public async Task Member_ImpliedSingleMember_SelectedOverlay_Renders(
+        string section)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            $"{typeof(SampleClassForTesting).FullName}.{nameof(SampleClassForTesting.MethodWithNoParameters)}",
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            section,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains($"## {section}", output);
+    }
+
+    [Fact]
+    public async Task Member_DottedExactType_StaticSchema_UsesInventoryPipeline()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(SampleClassForTesting).FullName!,
+            "--library",
+            TestAssemblyPath,
+            "-D",
+            "--schema",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("| Signature | section", output);
+        Assert.DoesNotContain("| Cost Overlay | section", output);
+    }
+
+    [Fact]
     public void Type_FullCatalogSelection_PromotesUnlessVerbosityWasExplicit()
     {
         var (automatic, automaticError) = ApiCommand.RunPreamble(new TypeOptions

@@ -206,6 +206,7 @@ public partial record ApiOptions : IProjectionOptions
     /// silently ignore the selector. See #3547.
     /// </remarks>
     public bool SelectDeferredToListing { get; init; }
+    public bool MemberSelectionNeedsFinalization { get; init; }
     public string[]? Columns { get; init; }
     public string[]? Fields { get; init; }
     public bool Schema { get; init; }

@@ -219,14 +219,29 @@ public class ApiCommand
         bool typeNameIsGlob = hasTypeName && (options.TypeName!.Contains('*') || options.TypeName!.Contains('?'));
         bool singleTypeMode = options is MemberOptions || (hasTypeName && !typeNameIsGlob);
         var knownSections = singleTypeMode ? memberPipeline.SelectableSectionNames : typePipeline.SelectableSectionNames;
+        IReadOnlyDictionary<string, string[]> knownCategories =
+            singleTypeMode
+                ? memberPipeline.GetCategoryMap()
+                : typePipeline.GetCategoryMap();
         if (options is MemberOptions memberOptions
             && memberOptions.MemberFilter.Count == 0
-            && MightPeelDottedMemberSelector(memberOptions.TypeName))
+            && MightPeelDottedMemberSelector(memberOptions.TypeName)
+            && memberOptions.Discover is null)
         {
+            var overloadPipeline =
+                ApiMemberOverloadSectionDescriptors.CreatePipeline();
             knownSections = knownSections
-                .Concat(ApiMemberDetailSectionDescriptors.CreatePipeline().SelectableSectionNames)
+                .Concat(overloadPipeline.SelectableSectionNames)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
+            knownCategories = MergeCategoryMaps(
+                knownCategories,
+                overloadPipeline.GetCategoryMap());
+            options = options with
+            {
+                MemberSelectionNeedsFinalization =
+                    options.Select is { Length: > 0 },
+            };
         }
 
         // Discovery mode: -D/--discover lists effective sections (resolves source) by
@@ -296,7 +311,7 @@ public class ApiCommand
             options.Select,
             knownSections,
             bareSelectSections,
-            singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap(),
+            knownCategories,
             selectDefault: options.SelectDefault);
         if (ShouldDeferSelectToListing(options, singleTypeMode, selectResult, typePipeline))
         {
@@ -411,6 +426,7 @@ public class ApiCommand
             return (null!, 1);
 
         if (options is MemberOptions memberFormat
+            && !options.MemberSelectionNeedsFinalization
             && options.Discover is null)
         {
             memberFormat = NormalizeMemberGraphFormat(memberFormat, selectionSections);
@@ -420,7 +436,8 @@ public class ApiCommand
         }
 
         // Auto-promote verbosity when -S targets specific sections
-        if (options.IncludeSections is { Count: > 0 })
+        if (!options.MemberSelectionNeedsFinalization
+            && options.IncludeSections is { Count: > 0 })
         {
             var typeVerbosity = typePipeline.GetRequiredVerbosity(options.IncludeSections);
             var memberVerbosity = memberPipeline.GetRequiredVerbosity(options.IncludeSections);
@@ -437,7 +454,8 @@ public class ApiCommand
         }
 
         // Warn if tabular output is combined with detailed verbosity without section selector
-        if (!options.Count)
+        if (!options.Count
+            && !options.MemberSelectionNeedsFinalization)
             OutputFormatResolver.WarnIfTabularDetailMismatch(options.Tabular, options.Verbosity, options.IncludeSections);
 
         // Resolve the tool-owned .dotnet-inspectconfig once per invocation at the
@@ -622,6 +640,120 @@ public class ApiCommand
 
         var lastDot = FqnParser.LastTopLevelDot(typeName);
         return lastDot > 0 && lastDot < typeName.Length - 1;
+    }
+
+    internal static (MemberOptions Options, int? Error)
+        FinalizeMemberSelection(MemberOptions options)
+    {
+        if (!options.MemberSelectionNeedsFinalization)
+            return (options, null);
+
+        var pipeline = ApiMemberSectionPipelines.Create(options);
+        SelectResult selectResult = SelectResolver.ResolveSelectAsSections(
+            options.Select,
+            pipeline.SelectableSectionNames,
+            pipeline.InfoSectionNames,
+            pipeline.GetCategoryMap(),
+            selectDefault: options.SelectDefault);
+        if (SelectOutput.WriteUnresolved(selectResult))
+            return (null!, 1);
+        if (ApplyBodyShapeSelectionRequirements(
+                options,
+                selectResult) is { } bodyShapeError)
+        {
+            CommandError.Write(bodyShapeError);
+            return (null!, 1);
+        }
+
+        options = options with
+        {
+            IncludeSections = selectResult.Sections,
+            SelectsFullCatalog = selectResult.SelectsFullCatalog,
+            MemberSelectionNeedsFinalization = false,
+        };
+        if (options.Count
+            && !CountOutput.ValidateSingleSection(options.IncludeSections))
+        {
+            return (null!, 1);
+        }
+
+        int shapeCount = ShapeProjectionOutput.ActiveShapeCount(
+            options.Value,
+            options.Urls,
+            options.Paths);
+        if (shapeCount == 1)
+        {
+            string optionName = options.Value
+                ? "--value"
+                : options.Urls
+                    ? "--urls"
+                    : "--paths";
+            if (!ShapeProjectionOutput.ValidateSingleSection(
+                    options.IncludeSections,
+                    optionName))
+            {
+                return (null!, 1);
+            }
+        }
+        if (options.Print
+            && !ValidateApiPrintSelection(options.IncludeSections))
+        {
+            return (null!, 1);
+        }
+        if (!OutputFormatResolver.ValidateSingleSectionForTabular(
+                options.TabularExplicitlySet,
+                options.IncludeSections))
+        {
+            return (null!, 1);
+        }
+
+        options = NormalizeMemberGraphFormat(
+            options,
+            options.IncludeSections);
+        if (!ValidateMemberGraphFormat(options, options.IncludeSections))
+            return (null!, 1);
+
+        if (options.IncludeSections is { Count: > 0 })
+        {
+            Verbosity required =
+                pipeline.GetRequiredVerbosity(options.IncludeSections);
+            if (required > options.Verbosity)
+                options = options with { Verbosity = required };
+        }
+        if (!options.Count)
+        {
+            OutputFormatResolver.WarnIfTabularDetailMismatch(
+                options.Tabular,
+                options.Verbosity,
+                options.IncludeSections);
+        }
+
+        return (options, null);
+    }
+
+    static IReadOnlyDictionary<string, string[]> MergeCategoryMaps(
+        params IReadOnlyDictionary<string, string[]>[] maps)
+    {
+        var merged = new Dictionary<string, HashSet<string>>(
+            StringComparer.OrdinalIgnoreCase);
+        foreach (IReadOnlyDictionary<string, string[]> map in maps)
+        {
+            foreach ((string category, string[] sections) in map)
+            {
+                if (!merged.TryGetValue(category, out HashSet<string>? values))
+                {
+                    values = new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase);
+                    merged.Add(category, values);
+                }
+                values.UnionWith(sections);
+            }
+        }
+
+        return merged.ToDictionary(
+            pair => pair.Key,
+            pair => pair.Value.ToArray(),
+            StringComparer.OrdinalIgnoreCase);
     }
 
     private static bool ValidateApiPrintSelection(HashSet<string>? includeSections)
