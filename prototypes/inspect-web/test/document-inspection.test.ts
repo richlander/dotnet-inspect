@@ -301,11 +301,15 @@ test("reopening the same document during acquisition rejects stale identity", as
   const first = deferred<BrowserPackageDocumentContent>();
   const second = deferred<BrowserPackageDocumentContent>();
   let queries = 0;
+  let staleBodyRenders = 0;
   const state = inspectionState();
   const coordinator = createDocumentInspectionCoordinator(
     inspectionDependencies(state, {
       queryDocument: () => ++queries === 1 ? first.promise : second.promise,
-      renderMarkdown: async text => `<p>${String(text)}</p>`,
+      renderMarkdown: async text => {
+        if (text === "stale") staleBodyRenders++;
+        return `<p>${String(text)}</p>`;
+      },
     }));
 
   const firstOpen = coordinator.open({
@@ -322,6 +326,7 @@ test("reopening the same document during acquisition rejects stale identity", as
   first.resolve(content("stale"));
   await firstOpen;
 
+  assert.equal(staleBodyRenders, 0);
   assert.equal(state.docViewer, document);
   assert.equal(state.docViewerLoading, true);
   assert.equal(state.docViewerError, "");
