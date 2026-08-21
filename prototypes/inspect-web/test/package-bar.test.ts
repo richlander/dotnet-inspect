@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  bindPackageSelections,
   packageBarHtml,
   packageIdentityEquals,
   packageTabHtml,
@@ -30,6 +31,90 @@ function pkg(
 ): PackageBarPackage {
   return { id, version, activeFramework, isRuntimePack };
 }
+
+class FakeElement {
+  readonly dataset: Record<string, string | undefined> = {};
+  value = "";
+  private readonly listeners = new Map<string, EventListener[]>();
+
+  addEventListener(type: string, listener: EventListener) {
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  dispatch(type: string) {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener({ target: this } as unknown as Event);
+    }
+  }
+}
+
+class FakeRoot {
+  private readonly single = new Map<string, FakeElement>();
+  private readonly multiple = new Map<string, FakeElement[]>();
+
+  add(selector: string, element: FakeElement) {
+    this.single.set(selector, element);
+    return element;
+  }
+
+  addAll(selector: string, ...elements: FakeElement[]) {
+    this.multiple.set(selector, elements);
+    return elements;
+  }
+
+  querySelector(selector: string) {
+    return this.single.get(selector) ?? null;
+  }
+
+  querySelectorAll(selector: string) {
+    return this.multiple.get(selector) ?? [];
+  }
+}
+
+test("package selection bindings map overview and header controls without eager dispatch", () => {
+  const root = new FakeRoot();
+  const chip = new FakeElement();
+  chip.dataset.frameworkChip = "net9.0";
+  root.addAll("[data-framework-chip]", chip);
+  const framework = root.add("#framework", new FakeElement());
+  framework.value = "net10.0";
+  const version = root.add("#package-version", new FakeElement());
+  version.value = "10.0.1";
+  const calls: string[] = [];
+
+  bindPackageSelections(
+    root as unknown as ParentNode,
+    {
+      onFrameworkSelect: value => calls.push(`framework:${value}`),
+      onVersionSelect: value => calls.push(`version:${value}`),
+    });
+
+  assert.deepEqual(calls, []);
+  chip.dispatch("click");
+  assert.deepEqual(calls, ["framework:net9.0"]);
+  framework.dispatch("change");
+  assert.deepEqual(calls, ["framework:net9.0", "framework:net10.0"]);
+  version.dispatch("change");
+  assert.deepEqual(calls, [
+    "framework:net9.0",
+    "framework:net10.0",
+    "version:10.0.1",
+  ]);
+});
+
+test("package selection binding tolerates an inactive surface with no controls", () => {
+  const calls: string[] = [];
+  bindPackageSelections(
+    new FakeRoot() as unknown as ParentNode,
+    {
+      onFrameworkSelect: value => calls.push(`framework:${value}`),
+      onVersionSelect: value => calls.push(`version:${value}`),
+    });
+
+  assert.deepEqual(calls, []);
+});
 
 test("package identity equality compares the full coordinate", () => {
   const a = pkg("System.Text.Json");

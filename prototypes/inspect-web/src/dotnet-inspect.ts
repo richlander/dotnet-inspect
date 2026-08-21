@@ -1072,6 +1072,11 @@ const packageBar = createPackageBar({
   closePackageTab,
   openRuntimePack: openRuntimePackFromHome,
   openPackage: (packageId, version) => loadPackage(packageId, version, ""),
+  selectFramework: switchPackageFramework,
+  selectVersion: version => {
+    if (state.package?.isRuntimePack) switchPlatformVersion(version);
+    else switchPackageVersion(version);
+  },
   showToast,
 });
 
@@ -3829,9 +3834,6 @@ function bindEvents() {
   bindGraphSourceEvents();
   bindDocViewerEvents();
   bindAnnotatedSourceEvents();
-  document.querySelectorAll<HTMLElement>("[data-framework-chip]").forEach(button => button.addEventListener("click", () => {
-    switchPackageFramework(button.dataset.frameworkChip ?? "");
-  }));
   document.querySelectorAll<HTMLElement>("[data-dep-group]").forEach(button => button.addEventListener("click", () => {
     const index = Number(button.dataset.depGroup);
     if (state.dependenciesGroupIndex === index) return;
@@ -4129,17 +4131,6 @@ function bindEvents() {
   bindPlatformLensPicker("data-platform-opportunities-library", "opportunities", loadPackageOpportunities);
   bindPlatformLensPicker("data-platform-analysis-library", "analysis", loadPackagePerformance);
   bindPlatformLensPicker("data-platform-metadata-library", "metadata", loadPackageMetadata);
-  const frameworkSelect = document.querySelector<HTMLSelectElement>("#framework");
-  frameworkSelect?.addEventListener("change", () => {
-    switchPackageFramework(frameworkSelect.value);
-  });
-  const packageVersionSelect =
-    document.querySelector<HTMLSelectElement>("#package-version");
-  packageVersionSelect?.addEventListener("change", () => {
-    if (state.package?.isRuntimePack)
-      switchPlatformVersion(packageVersionSelect.value);
-    else switchPackageVersion(packageVersionSelect.value);
-  });
   ensurePackageVersions(state.package);
   if (state.package?.isRuntimePack) ensureDotnetReleases();
   if (state.spotlightOpen) spotlight.bind(document, "modal");
