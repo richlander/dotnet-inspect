@@ -311,6 +311,9 @@ const graphSourceViewerSource = readFileSync(
 const docViewerSource = readFileSync(
   new URL("../src/doc-viewer.ts", import.meta.url),
   "utf8");
+const annotatedSourceModule = readFileSync(
+  new URL("../src/annotated-source.ts", import.meta.url),
+  "utf8");
 const typePanelSource = readFileSync(
   new URL("../src/type-panel.ts", import.meta.url),
   "utf8");
@@ -945,10 +948,10 @@ test("package opportunities owns its rendered control bindings", () => {
 
 test("modal viewers own their rendered close bindings", () => {
   const graphBinding =
-    appSource.match(/function bindGraphSourceEvents\(\) \{[\s\S]*?\n}\n\nfunction bindDocViewerEvents/)?.[0]
+    appSource.match(/function bindGraphSourceEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
     ?? "";
   const docBinding =
-    appSource.match(/function bindDocViewerEvents\(\) \{[\s\S]*?\n}\n\nfunction bindEvents/)?.[0]
+    appSource.match(/function bindDocViewerEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
     ?? "";
   assert.match(
     graphBinding,
@@ -980,6 +983,43 @@ test("modal viewers own their rendered close bindings", () => {
     "#graph-source-close",
     "#doc-viewer-backdrop",
     "#doc-viewer-close",
+  ]) {
+    assert.equal(appSource.split(selector).length - 1, 0, selector);
+  }
+});
+
+test("annotated source owns its rendered control bindings", () => {
+  const binding =
+    appSource.match(/function bindAnnotatedSourceEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
+    ?? "";
+  assert.match(
+    binding,
+    /bindAnnotatedSource\(document, \{[\s\S]*onClearSelection: \(\) => \{[\s\S]*memberAnnotatedFactId = null;[\s\S]*memberAnnotatedNodeIds = \[\];[\s\S]*onCopy: async \(\) => \{[\s\S]*memberAnnotated\.document\.text[\s\S]*onFactSelect: factId => \{[\s\S]*memberAnnotatedFactId === factId \? null : factId[\s\S]*onMediumToggle: medium => \{[\s\S]*MEDIA\.includes[\s\S]*MEDIA\.some\(candidate => next\[candidate\]\)[\s\S]*onOffsetSelect: offset => \{[\s\S]*nodeAtOffset\(state\.memberAnnotated\.document, offset\)[\s\S]*factsForNode/);
+  assert.match(
+    binding,
+    /\[typedMedium\]: !state\.memberAnnotatedMedia\[typedMedium\],[\s\S]*if \(!MEDIA\.some\(candidate => next\[candidate\]\)\) return;/);
+  assert.doesNotMatch(
+    binding,
+    /\b(?:getElementById|querySelector|querySelectorAll)\s*\(|\.addEventListener\s*\(/);
+  assert.equal(binding.match(/(?<!\.)\bdocument\b/g)?.length, 1);
+  assert.match(
+    annotatedSourceModule,
+    /export function bindAnnotatedSource\([\s\S]*#copy-annotated[\s\S]*\[data-annotated-medium\][\s\S]*\[data-annotated-fact\][\s\S]*\[data-annotated-offset\][\s\S]*#annotated-clear/);
+  for (const [identifier, count] of [
+    ["bindAnnotatedSourceEvents", 2],
+    ["bindAnnotatedSource", 2],
+  ]) {
+    assert.equal(
+      appSource.match(new RegExp(`\\b${identifier}\\b`, "g"))?.length,
+      count,
+      identifier);
+  }
+  for (const selector of [
+    "#copy-annotated",
+    "[data-annotated-medium]",
+    "[data-annotated-fact]",
+    "[data-annotated-offset]",
+    "#annotated-clear",
   ]) {
     assert.equal(appSource.split(selector).length - 1, 0, selector);
   }

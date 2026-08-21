@@ -1,13 +1,129 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { renderAnnotatedSource } from "../src/annotated-source.ts";
-import type { AnnotatedSourceRenderResult } from "../src/annotated-source.ts";
+import {
+  bindAnnotatedSource,
+  renderAnnotatedSource,
+  type AnnotatedSourceBindingActions,
+  type AnnotatedSourceRenderResult,
+} from "../src/annotated-source.ts";
 import { validateAnnotatedSourceDocument } from "../src/annotated-source-view.ts";
 import type { AnnotatedSourceDocument } from "../src/annotated-source-view.ts";
 import { sampleDocument as sampleDocumentFixture } from "../../annotated-source-viewer/src/sample-document.js";
 
 validateAnnotatedSourceDocument(sampleDocumentFixture);
 const sampleDocument: AnnotatedSourceDocument = sampleDocumentFixture;
+
+class FakeElement {
+  readonly dataset: Record<string, string | undefined>;
+  private readonly listeners = new Map<string, EventListener[]>();
+
+  constructor(dataset: Record<string, string | undefined> = {}) {
+    this.dataset = dataset;
+  }
+
+  addEventListener(type: string, listener: EventListener) {
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  dispatch(type: string) {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener({} as Event);
+    }
+  }
+}
+
+class FakeRoot {
+  private readonly single = new Map<string, FakeElement>();
+  private readonly multiple = new Map<string, FakeElement[]>();
+
+  add(selector: string, element: FakeElement) {
+    this.single.set(selector, element);
+    return element;
+  }
+
+  addAll(selector: string, ...elements: FakeElement[]) {
+    this.multiple.set(selector, elements);
+    return elements;
+  }
+
+  querySelector(selector: string) {
+    return this.single.get(selector) ?? null;
+  }
+
+  querySelectorAll(selector: string) {
+    return this.multiple.get(selector) ?? [];
+  }
+}
+
+function recordingActions(calls: string[]): AnnotatedSourceBindingActions {
+  return {
+    onClearSelection: () => calls.push("clear"),
+    onCopy: () => {
+      calls.push("copy");
+    },
+    onFactSelect: factId => calls.push(`fact:${factId}`),
+    onMediumToggle: medium => calls.push(`medium:${medium}`),
+    onOffsetSelect: offset => calls.push(`offset:${offset}`),
+  };
+}
+
+test("annotated source bindings dispatch every rendered control", () => {
+  const root = new FakeRoot();
+  const copy = root.add("#copy-annotated", new FakeElement());
+  const medium = new FakeElement({ annotatedMedium: "Il" });
+  root.addAll("[data-annotated-medium]", medium);
+  const fact = new FakeElement({ annotatedFact: "4" });
+  root.addAll("[data-annotated-fact]", fact);
+  const offset = new FakeElement({ annotatedOffset: "17" });
+  root.addAll("[data-annotated-offset]", offset);
+  const clear = root.add("#annotated-clear", new FakeElement());
+  const calls: string[] = [];
+  bindAnnotatedSource(
+    root as unknown as ParentNode,
+    recordingActions(calls));
+
+  assert.deepEqual(calls, []);
+  copy.dispatch("click");
+  assert.deepEqual(calls, ["copy"]);
+  medium.dispatch("click");
+  assert.deepEqual(calls, ["copy", "medium:Il"]);
+  fact.dispatch("click");
+  assert.deepEqual(calls, ["copy", "medium:Il", "fact:4"]);
+  offset.dispatch("click");
+  assert.deepEqual(calls, ["copy", "medium:Il", "fact:4", "offset:17"]);
+  clear.dispatch("click");
+  assert.deepEqual(calls, [
+    "copy",
+    "medium:Il",
+    "fact:4",
+    "offset:17",
+    "clear",
+  ]);
+});
+
+test("annotated source bindings preserve malformed dataset values", () => {
+  const root = new FakeRoot();
+  const medium = new FakeElement();
+  root.addAll("[data-annotated-medium]", medium);
+  const fact = new FakeElement();
+  root.addAll("[data-annotated-fact]", fact);
+  const offset = new FakeElement();
+  root.addAll("[data-annotated-offset]", offset);
+  const calls: string[] = [];
+  bindAnnotatedSource(
+    root as unknown as ParentNode,
+    recordingActions(calls));
+
+  assert.deepEqual(calls, []);
+  medium.dispatch("click");
+  assert.deepEqual(calls, ["medium:"]);
+  fact.dispatch("click");
+  assert.deepEqual(calls, ["medium:", "fact:NaN"]);
+  offset.dispatch("click");
+  assert.deepEqual(calls, ["medium:", "fact:NaN", "offset:NaN"]);
+});
 
 function escapeHtml(value: unknown) {
   return String(value)
