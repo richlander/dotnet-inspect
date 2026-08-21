@@ -123,9 +123,10 @@ Package acquisition and symbol/source acquisition are separate.
 Capability-bearing gestures carry **request provenance**, not authority.
 Argument parsing retains the user's original verbosity, explicit
 section/category/glob selection, discovery mode, and explicit policy flags.
-After selection binds stable sections to typed queries, the disclosure policy
-maps that provenance to requests for capabilities declared by those queries.
-The host preflight grants or denies the requests before execution.
+After selection binds stable sections to typed queries, the planner closes
+their transitive prerequisites and the disclosure policy maps that provenance
+to requests for capabilities declared anywhere in the closed query plan. The
+host preflight grants or denies the complete request before execution.
 
 Exact render selection of a source-content section may request its PDB and
 source-content capabilities. Discovery selection retains the same provenance,
@@ -139,8 +140,10 @@ revalidate the authorized plan at content access.
 
 - A package may be downloaded to resolve the requested target.
 - Default gestures must not automatically fetch symbols or source content.
-- Embedded, adjacent, or cached symbols may be used by network-free gestures
-  when their latency budget permits.
+- Embedded, adjacent, or cached symbols avoid network cost, but may be used
+  only when the host-preflight-authorized plan includes PDB access for that
+  producer and coordinate. Named/category discovery without that grant cannot
+  use them.
 - Selecting a network-bound render section or running an explicitly
   capability-bearing effective-discovery gesture may request the capability
   declared by that section.
