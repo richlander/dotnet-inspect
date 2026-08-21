@@ -685,6 +685,9 @@ public static class MemberCommand
 
     internal static bool NeedsMemberSourceResolution(ApiType apiType, MemberOptions options)
     {
+        if (options.EffectiveDiscovery)
+            return false;
+
         var requestedSections = ApiCommand.GetRequestedMemberSections(apiType, options);
         var sections = ApiOutputFormatter.ResolveExecutionSections(
             apiType,
@@ -885,7 +888,8 @@ public static class MemberCommand
     }
 
     private static bool NeedsMemberSourceLocationResolution(MemberOptions options)
-        => options.IncludeSections?.Contains(SectionNames.SourceLocations) == true;
+        => !options.EffectiveDiscovery
+            && options.IncludeSections?.Contains(SectionNames.SourceLocations) == true;
 
     /// <summary>
     /// The accessor method that carries a selected property's or event's authored source, or

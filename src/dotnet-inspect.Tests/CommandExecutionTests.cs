@@ -11373,6 +11373,28 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public void Member_DiscoveryDoesNotAuthorizeSourceResolution()
+    {
+        var type = new ApiType
+        {
+            Name = "Fixture",
+            Kind = "class",
+            Members = [new ApiMember { Name = "M", Kind = "method" }],
+        };
+        var options = new MemberOptions
+        {
+            OverloadIndex = 1,
+            Discover = [SectionNames.OriginalSource],
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.OriginalSource,
+            },
+        };
+
+        Assert.False(MemberCommand.NeedsMemberSourceResolution(type, options));
+    }
+
+    [Fact]
     public void Member_BodylessAccessorDoesNotAuthorizeSourceResolution()
     {
         var type = new ApiType
