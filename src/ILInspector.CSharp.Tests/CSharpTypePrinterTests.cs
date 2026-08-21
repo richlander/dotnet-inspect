@@ -790,8 +790,25 @@ public sealed class CSharpTypePrinterTests
         Assert.All(type.Members, member => Assert.True(member.IsAbstract));
 
         Assert.All(type.Members, member => Assert.True(member.IsOverride));
-        Assert.Throws<NotSupportedException>(
-            () => _printer.Print(new CSharpTypePrintRequest(type)));
+        CSharpTypePrintResult result =
+            _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.DoesNotContain(
+            "metadata MethodImpl",
+            result.Source,
+            StringComparison.Ordinal);
+        AssertCompiles(
+            result.Source,
+            """
+            namespace ILInspector.CSharp.Tests;
+
+            public interface IReabstractedSurface
+            {
+                void Reset();
+                int Value { get; }
+                event System.Action Changed;
+            }
+            """);
     }
 
     [Fact]
@@ -867,8 +884,25 @@ public sealed class CSharpTypePrinterTests
         Assert.True(method.IsFinal);
         Assert.False(method.IsNewSlot);
 
-        Assert.Throws<NotSupportedException>(
-            () => _printer.Print(new CSharpTypePrintRequest(type)));
+        CSharpTypePrintResult result =
+            _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.DoesNotContain(
+            "metadata MethodImpl",
+            result.Source,
+            StringComparison.Ordinal);
+        AssertCompiles(
+            result.Source,
+            """
+            namespace ILInspector.CSharp.Tests;
+
+            public interface IReabstractedSurface
+            {
+                void Reset();
+                int Value { get; }
+                event System.Action Changed;
+            }
+            """);
     }
 
     [Fact]
@@ -903,8 +937,25 @@ public sealed class CSharpTypePrinterTests
         Assert.True(method.IsFinal);
         Assert.False(method.IsNewSlot);
 
-        Assert.Throws<NotSupportedException>(
-            () => _printer.Print(new CSharpTypePrintRequest(type)));
+        CSharpTypePrintResult result =
+            _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.DoesNotContain(
+            "metadata MethodImpl",
+            result.Source,
+            StringComparison.Ordinal);
+        AssertCompiles(
+            result.Source,
+            """
+            namespace ILInspector.CSharp.Tests;
+
+            public interface IReabstractedSurface
+            {
+                void Reset();
+                int Value { get; }
+                event System.Action Changed;
+            }
+            """);
     }
 
     [Fact]

@@ -236,6 +236,22 @@ public static class ApiSurfaceExtractor
         return true;
     }
 
+    internal static void ValidateTypeVisibility(
+        MetadataReader reader,
+        TypeDefinitionHandle handle)
+    {
+        try
+        {
+            _ = IsEffectivelyPublicType(reader, handle);
+        }
+        catch (MetadataRowRejectedException exception)
+        {
+            throw new BadImageFormatException(
+                exception.Failure.Detail,
+                exception);
+        }
+    }
+
     /// <summary>
     /// Extracts the public type identities and member-kind counts needed by the compact platform
     /// API view without materializing rich member models. Ordinary member signatures stay
@@ -1115,9 +1131,9 @@ public static class ApiSurfaceExtractor
                         propHandle,
                         MetadataTypeNameFailure.Malformed(
                             propHandle,
-                            abstractionFault == AccessorAbstractionFault.AbstractAccessorHasBody
-                                ? "The property has an abstract accessor that declares an IL body."
-                                : "The property has inconsistent abstract accessor metadata."));
+                            MetadataAccessorSemantics.AbstractionFailureDetail(
+                                "property",
+                                abstractionFault)));
                     continue;
                 }
                 if (!MetadataAccessorSemantics.HaveUniformMemberModifiers(
@@ -1570,9 +1586,9 @@ public static class ApiSurfaceExtractor
                         eventHandle,
                         MetadataTypeNameFailure.Malformed(
                             eventHandle,
-                            eventAbstractionFault == AccessorAbstractionFault.AbstractAccessorHasBody
-                                ? "The event has an abstract accessor that declares an IL body."
-                                : "The event has inconsistent abstract accessor metadata."));
+                            MetadataAccessorSemantics.AbstractionFailureDetail(
+                                "event",
+                                eventAbstractionFault)));
                     continue;
                 }
                 if (!MetadataAccessorSemantics.HaveUniformMemberModifiers(
@@ -2099,9 +2115,9 @@ public static class ApiSurfaceExtractor
                     propertyHandle,
                     MetadataTypeNameFailure.Malformed(
                         propertyHandle,
-                        abstractionFault == AccessorAbstractionFault.AbstractAccessorHasBody
-                            ? "The property has an abstract accessor that declares an IL body."
-                            : "The property has inconsistent abstract accessor metadata."));
+                        MetadataAccessorSemantics.AbstractionFailureDetail(
+                            "property",
+                            abstractionFault)));
                 continue;
             }
             if (!MetadataAccessorSemantics.HaveUniformMemberModifiers(
@@ -2298,9 +2314,9 @@ public static class ApiSurfaceExtractor
                     eventHandle,
                     MetadataTypeNameFailure.Malformed(
                         eventHandle,
-                        eventAbstractionFault == AccessorAbstractionFault.AbstractAccessorHasBody
-                            ? "The event has an abstract accessor that declares an IL body."
-                            : "The event has inconsistent abstract accessor metadata."));
+                        MetadataAccessorSemantics.AbstractionFailureDetail(
+                            "event",
+                            eventAbstractionFault)));
                 continue;
             }
             if (!MetadataAccessorSemantics.HaveUniformMemberModifiers(
@@ -6095,7 +6111,11 @@ public static class ApiSurfaceExtractor
         bool hasGetter = !accessors.Getter.IsNil;
         bool hasSetter = !accessors.Setter.IsNil;
         string setterKind = hasSetter
-            ? MetadataAccessorSemantics.Kind(reader, accessors.Setter, "set")
+            ? MetadataAccessorSemantics.Kind(
+                reader,
+                accessors.Setter,
+                "set",
+                beforeDecodeWork)
             : "set";
 
         if (hasGetter)
@@ -6325,7 +6345,11 @@ public static class ApiSurfaceExtractor
         var method = reader.GetMethodDefinition(handle);
         return new ApiAccessor
         {
-            Kind = MetadataAccessorSemantics.Kind(reader, handle, kind),
+            Kind = MetadataAccessorSemantics.Kind(
+                reader,
+                handle,
+                kind,
+                beforeDecodeWork),
             MethodName = DecodeString(reader, method.Name, beforeDecodeWork),
             Accessibility = GetAccessorAccessibility(method.Attributes),
             ReturnAttributes = ReturnParameterAttributes(

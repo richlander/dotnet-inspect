@@ -1044,7 +1044,7 @@ internal static class CSharpDeclarationWriter
         IReadOnlyList<string>? methodParameters = null)
     {
         string? explicitInterfaceFailure =
-            ExplicitInterfaceRepresentabilityFailure(member);
+            ExplicitInterfaceRepresentabilityFailure(type, member);
         if (explicitInterfaceFailure is not null
             && !options.AllowMetadataFallback)
         {
@@ -1938,7 +1938,9 @@ internal static class CSharpDeclarationWriter
         => member.Kind == "explicit-interface-implementation"
             || member.IsExplicitInterfaceImplementation;
 
-    static string? ExplicitInterfaceRepresentabilityFailure(ApiMember member)
+    static string? ExplicitInterfaceRepresentabilityFailure(
+        ApiType type,
+        ApiMember member)
     {
         if (member.IsFinalizer
             || !IsExplicitInterfaceImplementation(member))
@@ -1946,7 +1948,11 @@ internal static class CSharpDeclarationWriter
             return null;
         }
 
-        if (member.IsOverride
+        if (!string.Equals(
+                type.Kind,
+                "interface",
+                StringComparison.Ordinal)
+            && member.IsOverride
             && !member.CanUseImplicitInterfaceSyntax)
         {
             return
@@ -1993,7 +1999,7 @@ internal static class CSharpDeclarationWriter
         if (IsEvent(member))
         {
             return
-                $"Event '{member.Name}' has unequal metadata accessor accessibilities, "
+                "The event has unequal metadata accessor accessibilities, "
                 + "which C# cannot represent.";
         }
 
@@ -2007,19 +2013,28 @@ internal static class CSharpDeclarationWriter
             return null;
 
         return
-            $"Property '{member.Name}' has incomparable metadata accessor accessibilities, "
+            "The property has incomparable metadata accessor accessibilities, "
             + "which C# cannot represent.";
     }
 
     static string RenderMetadataAccessorFallback(ApiMember member)
     {
-        string accessibility = ContainMetadataFallback(
-            member.Accessibility ?? "public");
-        string memberType =
-            ContainMetadataFallback(
-                member.SignatureModel?.ReturnType
-                ?? member.ReturnType
-                ?? "<unknown>");
+        var modifiers = new List<string>
+        {
+            ContainMetadataFallback(member.Accessibility ?? "public")
+        };
+        if (member.IsStatic)
+            modifiers.Add("static");
+        if (member.IsFinal)
+            modifiers.Add("final");
+        if (member.IsNewSlot)
+            modifiers.Add("newslot");
+        if (member.IsOverride)
+            modifiers.Add("override");
+        else if (member.IsVirtual)
+            modifiers.Add("virtual");
+        if (member.IsAbstract)
+            modifiers.Add("abstract");
         string accessors = string.Join(
             ", ",
             member.AccessorFacts.Select(accessor =>
@@ -2028,8 +2043,31 @@ internal static class CSharpDeclarationWriter
                     accessor.Accessibility ?? "public")));
         return
             $"metadata {ContainMetadataFallback(member.Kind)} "
-            + $"{accessibility} {memberType} "
-            + $"{ContainMetadataFallback(member.Name)} ({accessors})";
+            + $"{string.Join(" ", modifiers)} "
+            + $"{ContainMetadataFallback(MetadataAccessorSignature(member))} "
+            + $"(accessors: {accessors})";
+    }
+
+    static string MetadataAccessorSignature(ApiMember member)
+    {
+        if (!string.IsNullOrWhiteSpace(member.Signature))
+            return member.Signature;
+
+        ApiSignature? model = member.SignatureModel;
+        string memberType =
+            model?.ReturnType
+            ?? member.ReturnType
+            ?? "<unknown>";
+        string memberName =
+            model?.MemberName
+            ?? member.Name;
+        if (memberName == "this[]"
+            && model is { Parameters.Count: > 0 })
+        {
+            memberName =
+                $"this[{string.Join(", ", model.Parameters.Select(parameter => FormatParameter(parameter)))}]";
+        }
+        return $"{memberType} {memberName}";
     }
 
     static string RenderMetadataMethodImplFallback(ApiMember member)

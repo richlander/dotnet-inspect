@@ -83,6 +83,9 @@ public static class MetadataDeclarationQuery
         bool includeNonPublicMembers = false)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
+        ApiSurfaceExtractor.ValidateTypeVisibility(
+            reader,
+            typeHandle);
         var attributes = typeDef.Attributes;
         var (ns, name) = GetApiTypeNameParts(reader, typeHandle);
         MetadataTypeDefinitionName definitionName =
@@ -1399,6 +1402,9 @@ public static class MetadataDeclarationQuery
             case AccessorAbstractionFault.AbstractAccessorHasBody:
                 throw new BadImageFormatException(
                     $"The {aggregateKind} has an abstract accessor that declares an IL body.");
+            case AccessorAbstractionFault.AbstractAccessorIsNotVirtual:
+                throw new BadImageFormatException(
+                    $"The {aggregateKind} has an abstract accessor that is not virtual.");
             case AccessorAbstractionFault.InconsistentAbstraction:
                 throw new BadImageFormatException(
                     $"The {aggregateKind} has inconsistent abstract accessor metadata.");

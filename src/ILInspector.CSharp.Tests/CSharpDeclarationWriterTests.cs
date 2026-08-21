@@ -1404,7 +1404,8 @@ public sealed class CSharpDeclarationWriterTests
         var formatter = new CSharpFormatter(
             new CSharpFormatOptions { AllowMetadataFallback = true });
         Assert.Equal(
-            "metadata property protected internal int Value (get: protected, set: internal)",
+            "metadata property protected internal int Value "
+                + "(accessors: get: protected, set: internal)",
             formatter.FormatMember(type, member));
     }
 
@@ -1445,7 +1446,8 @@ public sealed class CSharpDeclarationWriterTests
         var formatter = new CSharpFormatter(
             new CSharpFormatOptions { AllowMetadataFallback = true });
         Assert.Equal(
-            "metadata event public System.Action Changed (add: public, remove: private)",
+            "metadata event public System.Action Changed "
+                + "(accessors: add: public, remove: private)",
             formatter.FormatMember(type, member));
     }
 
@@ -1482,6 +1484,117 @@ public sealed class CSharpDeclarationWriterTests
 
         Assert.DoesNotContain('\u001B', declaration);
         Assert.Contains("INJECTED", declaration, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void StrictAccessorFailure_DoesNotReflectHostileMemberName()
+    {
+        const string hazardousName = "Changed\u001B[31mINJECTED";
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class"
+        };
+        var member = new ApiMember
+        {
+            Name = hazardousName,
+            Kind = "event",
+            Accessibility = "public",
+            AccessorFacts =
+            [
+                new ApiAccessor { Kind = "add" },
+                new ApiAccessor { Kind = "remove", Accessibility = "private" }
+            ]
+        };
+
+        NotSupportedException exception =
+            Assert.Throws<NotSupportedException>(() =>
+                CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+
+        Assert.DoesNotContain('\u001B', exception.Message);
+        Assert.DoesNotContain("INJECTED", exception.Message);
+    }
+
+    [Fact]
+    public void MetadataAccessorFallback_DistinguishesIndexerSignatures()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class"
+        };
+        var formatter = new CSharpFormatter(
+            new CSharpFormatOptions { AllowMetadataFallback = true });
+
+        string Render(string parameterType)
+        {
+            var member = new ApiMember
+            {
+                Name = "Item",
+                Kind = "property",
+                Accessibility = "protected internal",
+                Signature =
+                    $"int this[{parameterType} index] "
+                    + "{ get; protected set; }",
+                AccessorFacts =
+                [
+                    new ApiAccessor
+                    {
+                        Kind = "get",
+                        Accessibility = "protected"
+                    },
+                    new ApiAccessor
+                    {
+                        Kind = "set",
+                        Accessibility = "internal"
+                    }
+                ]
+            };
+            return formatter.FormatMember(type, member);
+        }
+
+        string intIndexer = Render("int");
+        string stringIndexer = Render("string");
+
+        Assert.NotEqual(intIndexer, stringIndexer);
+        Assert.Contains("int index", intIndexer);
+        Assert.Contains("string index", stringIndexer);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void InterfaceMethodImplReusingInterfaceSlot_IsRepresentable(
+        bool isAbstract)
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "IDerived",
+            Kind = "interface"
+        };
+        var member = new ApiMember
+        {
+            Name = "Samples.IBase.M",
+            Kind = "explicit-interface-implementation",
+            Signature = "void Samples.IBase.M()",
+            Accessibility = "private",
+            IsVirtual = true,
+            IsFinal = !isAbstract,
+            IsAbstract = isAbstract,
+            IsOverride = true,
+            IsExplicitInterfaceImplementation = true,
+            InterfaceImplementationResolution =
+                InterfaceImplementationResolution.Proven
+        };
+
+        string declaration =
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Contains("void Samples.IBase.M()", declaration);
+        Assert.DoesNotContain("metadata MethodImpl", declaration);
     }
 
     [Theory]

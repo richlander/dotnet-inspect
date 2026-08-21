@@ -12,6 +12,9 @@ internal enum AccessorAbstractionFault
     /// <summary>An accessor is marked abstract yet declares an IL body.</summary>
     AbstractAccessorHasBody,
 
+    /// <summary>An accessor is marked abstract without also being virtual.</summary>
+    AbstractAccessorIsNotVirtual,
+
     /// <summary>The accessors of a class or struct aggregate disagree about abstractness.</summary>
     InconsistentAbstraction,
 }
@@ -21,8 +24,13 @@ internal static class MetadataAccessorSemantics
     public static string Kind(
         MetadataReader reader,
         MethodDefinitionHandle handle,
-        string defaultKind)
-        => defaultKind == "set" && IsInitOnlySetter(reader, handle)
+        string defaultKind,
+        Action<int>? beforeDecodeWork = null)
+        => defaultKind == "set"
+            && IsInitOnlySetter(
+                reader,
+                handle,
+                beforeDecodeWork)
             ? "init"
             : defaultKind;
 
@@ -45,8 +53,8 @@ internal static class MetadataAccessorSemantics
     }
 
     /// <summary>
-    /// Checks that an aggregate's accessors agree about abstractness and that no abstract
-    /// accessor claims an IL body.
+    /// Checks that an aggregate's accessors agree about abstractness and that every abstract
+    /// accessor is virtual and declares no IL body.
     /// </summary>
     /// <param name="requireUniformAbstraction">
     /// <see langword="true"/> for a class or struct aggregate, where C# owns abstractness at
@@ -56,11 +64,12 @@ internal static class MetadataAccessorSemantics
     /// <see langword="false"/> and keeps that shape.
     /// </param>
     /// <remarks>
-    /// ECMA-335 II.15.4.2.4 forbids an abstract method body, so the body-state half applies to
-    /// every declaring type. Gated by
+    /// ECMA-335 II.15.4.2.4 requires an abstract method to be virtual and forbids it from declaring
+    /// a body, so both method-shape checks apply to every declaring type. Gated by
     /// <c>MetadataDeclarationQueryTests.MixedAbstractionAggregates_FailVisibly</c>,
     /// <c>MetadataDeclarationQueryTests.MixedAbstractionInterfaceAggregates_AreRetained</c>, and
-    /// <c>MetadataDeclarationQueryTests.AbstractAccessorWithBody_FailsVisibly</c>.
+    /// <c>MetadataDeclarationQueryTests.AbstractAccessorWithBody_FailsVisibly</c>, and
+    /// <c>MetadataDeclarationQueryTests.AbstractNonVirtualAccessors_FailVisibly</c>.
     /// </remarks>
     public static AccessorAbstractionFault ValidateAbstraction(
         MetadataReader reader,
@@ -75,6 +84,11 @@ internal static class MetadataAccessorSemantics
 
             var method = reader.GetMethodDefinition(handle);
             bool isAbstract = (method.Attributes & MethodAttributes.Abstract) != 0;
+            if (isAbstract
+                && (method.Attributes & MethodAttributes.Virtual) == 0)
+            {
+                return AccessorAbstractionFault.AbstractAccessorIsNotVirtual;
+            }
             if (isAbstract && method.RelativeVirtualAddress != 0)
                 return AccessorAbstractionFault.AbstractAccessorHasBody;
             if (requireUniformAbstraction && expected is { } previous && previous != isAbstract)
@@ -84,6 +98,20 @@ internal static class MetadataAccessorSemantics
 
         return AccessorAbstractionFault.None;
     }
+
+    public static string AbstractionFailureDetail(
+        string aggregateKind,
+        AccessorAbstractionFault fault)
+        => fault switch
+        {
+            AccessorAbstractionFault.AbstractAccessorHasBody =>
+                $"The {aggregateKind} has an abstract accessor that declares an IL body.",
+            AccessorAbstractionFault.AbstractAccessorIsNotVirtual =>
+                $"The {aggregateKind} has an abstract accessor that is not virtual.",
+            AccessorAbstractionFault.InconsistentAbstraction =>
+                $"The {aggregateKind} has inconsistent abstract accessor metadata.",
+            _ => throw new ArgumentOutOfRangeException(nameof(fault)),
+        };
 
     /// <summary>
     /// Checks that accessors agree on static shape and that virtual accessors agree on slot
@@ -173,13 +201,14 @@ internal static class MetadataAccessorSemantics
 
     static bool IsInitOnlySetter(
         MetadataReader reader,
-        MethodDefinitionHandle handle)
+        MethodDefinitionHandle handle,
+        Action<int>? beforeDecodeWork)
     {
         var method = reader.GetMethodDefinition(handle);
         var result = GuardedProviderDecode.MethodResult(
             reader,
             method,
-            InitOnlyModifierDetector.Instance,
+            new InitOnlyModifierDetector(beforeDecodeWork),
             (object?)null,
             default(InitOnlyModifierState));
         if (result.IsDegraded)
@@ -197,7 +226,12 @@ internal static class MetadataAccessorSemantics
     sealed class InitOnlyModifierDetector
         : ISignatureTypeProvider<InitOnlyModifierState, object?>
     {
-        public static InitOnlyModifierDetector Instance { get; } = new();
+        readonly Action<int>? _beforeDecodeWork;
+
+        public InitOnlyModifierDetector(Action<int>? beforeDecodeWork)
+        {
+            _beforeDecodeWork = beforeDecodeWork;
+        }
 
         public InitOnlyModifierState GetPrimitiveType(PrimitiveTypeCode typeCode)
             => default;
@@ -211,8 +245,8 @@ internal static class MetadataAccessorSemantics
             return new(
                 type.GetDeclaringType().IsNil
                     && IsExternalInit(
-                        reader.GetString(type.Name),
-                        reader.GetString(type.Namespace)),
+                        DecodeName(reader, type.Name),
+                        DecodeName(reader, type.Namespace)),
                 false,
                 false);
         }
@@ -241,9 +275,25 @@ internal static class MetadataAccessorSemantics
                 return default;
             }
             return new(
-                IsExternalInit(reader.GetString(type.Name), reader.GetString(type.Namespace)),
+                IsExternalInit(
+                    DecodeName(reader, type.Name),
+                    DecodeName(reader, type.Namespace)),
                 false,
                 false);
+        }
+
+        string DecodeName(
+            MetadataReader reader,
+            StringHandle handle)
+        {
+            int length = reader.GetBlobReader(handle).Length;
+            if (length > MetadataSafetyPolicy.MaxTypeNameCharacters)
+            {
+                throw new BadImageFormatException(
+                    "The init-only modifier type name exceeds the inspection limit.");
+            }
+            _beforeDecodeWork?.Invoke(length);
+            return reader.GetString(handle);
         }
 
         public InitOnlyModifierState GetTypeFromSpecification(

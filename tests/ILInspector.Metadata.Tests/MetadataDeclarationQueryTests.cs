@@ -945,6 +945,72 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void MetadataAccessorSemantics_BoundsAndChargesInitModifierNames()
+    {
+        using (var chargedReader = new PEReader(new MemoryStream(
+                   BuildHostileInitModifierImage(
+                       cyclicScope: false,
+                       nestedModifier: false,
+                       modifierNamespace:
+                           "System.Runtime.CompilerServices",
+                       modifierName: "IsExternalInit"))))
+        {
+            int decodeWork = 0;
+            string kind = MetadataAccessorSemantics.Kind(
+                chargedReader.GetMetadataReader(),
+                MetadataTokens.MethodDefinitionHandle(1),
+                "set",
+                amount => decodeWork += amount);
+
+            Assert.Equal("init", kind);
+            Assert.True(decodeWork > 0);
+        }
+
+        using var oversizedReader = new PEReader(new MemoryStream(
+            BuildHostileInitModifierImage(
+                cyclicScope: false,
+                nestedModifier: false,
+                modifierNamespace: "Contracts",
+                modifierName: new string(
+                    'M',
+                    MetadataSafetyPolicy.MaxTypeNameCharacters + 1))));
+        Assert.Throws<BadImageFormatException>(() =>
+            MetadataAccessorSemantics.Kind(
+                oversizedReader.GetMetadataReader(),
+                MetadataTokens.MethodDefinitionHandle(1),
+                "set",
+                _ => throw new Xunit.Sdk.XunitException(
+                    "Oversized names must fail before decode work is credited.")));
+    }
+
+    [Fact]
+    public void TypeSurface_RejectsContextInvalidTypeVisibility()
+    {
+        using var peReader = new PEReader(new MemoryStream(
+            BuildContextInvalidVisibilityImage()));
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle invalid =
+            MetadataTokens.TypeDefinitionHandle(2);
+
+        Assert.Throws<BadImageFormatException>(() =>
+            MetadataDeclarationQuery.GetTypeSurface(
+                reader,
+                invalid,
+                includeNonPublicMembers: true));
+
+        ApiSurface full =
+            ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        Assert.DoesNotContain(
+            full.Types,
+            type => type.Name == "InvalidTopLevel");
+        Assert.Contains(
+            full.InspectionFailures,
+            failure => failure.Detail.Contains(
+                "top-level type has nested visibility metadata",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ExplicitAggregateIdentity_RejectsBaseClassMethodImplTargets()
     {
         string path = EmitBaseClassMethodImplEvent();
@@ -1157,6 +1223,53 @@ public sealed class MetadataDeclarationQueryTests
                 reader,
                 GetTypeDefinitionHandle(reader, "Fixtures.AbstractBody"),
                 includeNonPublicMembers: true));
+    }
+
+    [Fact]
+    public void AbstractNonVirtualAccessors_FailVisibly()
+    {
+        string path = EmitAbstractNonVirtualProperty();
+        try
+        {
+            using var peReader = new PEReader(File.OpenRead(path));
+            MetadataReader reader = peReader.GetMetadataReader();
+            ApiSurface full =
+                ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+            ApiType extracted = Assert.Single(
+                full.Types,
+                type => type.Name == "AbstractNonVirtual");
+
+            Assert.DoesNotContain(
+                extracted.Members,
+                member => member.Kind == "property");
+            Assert.Contains(
+                full.InspectionFailures,
+                failure => failure.Operation == "property modifiers"
+                    && failure.Detail.Contains(
+                        "abstract accessor that is not virtual",
+                        StringComparison.Ordinal));
+
+            ApiSurface summary =
+                ApiSurfaceExtractor.ExtractSummary(peReader);
+            Assert.Contains(
+                summary.InspectionFailures,
+                failure => failure.Operation == "property modifiers"
+                    && failure.Detail.Contains(
+                        "abstract accessor that is not virtual",
+                        StringComparison.Ordinal));
+
+            Assert.Throws<BadImageFormatException>(() =>
+                MetadataDeclarationQuery.GetTypeSurface(
+                    reader,
+                    GetTypeDefinitionHandle(
+                        reader,
+                        "AbstractNonVirtual"),
+                    includeNonPublicMembers: true));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     /// <summary>
@@ -2517,9 +2630,57 @@ public sealed class MetadataDeclarationQueryTests
         return path;
     }
 
+    static string EmitAbstractNonVirtualProperty()
+    {
+        var assemblyName =
+            new AssemblyName("AbstractNonVirtualProperty");
+        var assembly =
+            new PersistedAssemblyBuilder(
+                assemblyName,
+                typeof(object).Assembly);
+        ModuleBuilder module =
+            assembly.DefineDynamicModule(assemblyName.Name!);
+        TypeBuilder type = module.DefineType(
+            "AbstractNonVirtual",
+            TypeAttributes.Public | TypeAttributes.Abstract);
+        const MethodAttributes attributes =
+            MethodAttributes.Public
+            | MethodAttributes.Abstract
+            | MethodAttributes.SpecialName
+            | MethodAttributes.HideBySig;
+        MethodBuilder getter = type.DefineMethod(
+            "get_Value",
+            attributes,
+            typeof(int),
+            Type.EmptyTypes);
+        MethodBuilder setter = type.DefineMethod(
+            "set_Value",
+            attributes,
+            typeof(void),
+            [typeof(int)]);
+        PropertyBuilder property = type.DefineProperty(
+            "Value",
+            PropertyAttributes.None,
+            typeof(int),
+            Type.EmptyTypes);
+        property.SetGetMethod(getter);
+        property.SetSetMethod(setter);
+        type.CreateType();
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"AbstractNonVirtualProperty-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
     static byte[] BuildHostileInitModifierImage(
         bool cyclicScope,
-        bool typeSpecModifier = false)
+        bool typeSpecModifier = false,
+        bool nestedModifier = true,
+        string modifierNamespace =
+            "System.Runtime.CompilerServices",
+        string modifierName = "IsExternalInit")
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -2570,9 +2731,11 @@ public sealed class MetadataDeclarationQueryTests
             default,
             metadata.GetOrAddString("MarkerHost"));
         TypeReferenceHandle modifier = metadata.AddTypeReference(
-            cyclicScope ? outer : (EntityHandle)outer,
-            metadata.GetOrAddString("System.Runtime.CompilerServices"),
-            metadata.GetOrAddString("IsExternalInit"));
+            cyclicScope || nestedModifier
+                ? outer
+                : outerScope,
+            metadata.GetOrAddString(modifierNamespace),
+            metadata.GetOrAddString(modifierName));
         EntityHandle modifierHandle = modifier;
         if (typeSpecModifier)
         {
@@ -2607,6 +2770,46 @@ public sealed class MetadataDeclarationQueryTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    static byte[] BuildContextInvalidVisibilityImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName:
+                metadata.GetOrAddString(
+                    "ContextInvalidVisibility.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(
+                "ContextInvalidVisibility"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList:
+                MetadataTokens.FieldDefinitionHandle(1),
+            methodList:
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.NestedPrivate,
+            metadata.GetOrAddString("Fixtures"),
+            metadata.GetOrAddString("InvalidTopLevel"),
+            baseType: default,
+            fieldList:
+                MetadataTokens.FieldDefinitionHandle(1),
+            methodList:
+                MetadataTokens.MethodDefinitionHandle(1));
+        return Serialize(metadata);
     }
 
     static byte[] BuildModifiedVoidExplicitAggregateImage(
