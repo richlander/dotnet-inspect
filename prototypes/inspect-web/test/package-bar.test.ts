@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   bindPackageSelections,
+  createPackageBar,
   packageBarHtml,
   packageIdentityEquals,
   packageTabHtml,
@@ -114,6 +115,44 @@ test("package selection binding tolerates an inactive surface with no controls",
     });
 
   assert.deepEqual(calls, []);
+});
+
+test("package bar connects package selection controls to its typed options", () => {
+  const root = new FakeRoot();
+  const chip = new FakeElement();
+  chip.dataset.frameworkChip = "net9.0";
+  root.addAll("[data-framework-chip]", chip);
+  const framework = root.add("#framework", new FakeElement());
+  framework.value = "net10.0";
+  const version = root.add("#package-version", new FakeElement());
+  version.value = "10.0.1";
+  root.add("#package-query", new FakeElement());
+  const calls: string[] = [];
+  const packageBar = createPackageBar({
+    state: { packages: [], package: null },
+    escapeHtml,
+    packageIdentityKey,
+    runtimePackPackage: () => null,
+    selectPackageTab: () => {},
+    closePackageTab: () => {},
+    openRuntimePack: () => {},
+    openPackage: () => {},
+    selectFramework: value => calls.push(`framework:${value}`),
+    selectVersion: value => calls.push(`version:${value}`),
+    showToast: () => {},
+  });
+
+  packageBar.bind(root as unknown as ParentNode);
+
+  assert.deepEqual(calls, []);
+  chip.dispatch("click");
+  framework.dispatch("change");
+  version.dispatch("change");
+  assert.deepEqual(calls, [
+    "framework:net9.0",
+    "framework:net10.0",
+    "version:10.0.1",
+  ]);
 });
 
 test("package identity equality compares the full coordinate", () => {
