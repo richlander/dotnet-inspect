@@ -660,6 +660,18 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   assert.match(
     callGraphBinding,
     /callGraph\.targets\?\.find\(candidate => candidate\.id === nodeId\)[\s\S]*const drilled =\s*state\.platformStack\.length > 0 \|\| Boolean\(state\.package\?\.isRuntimePack\);\s*if \(drilled\) \{\s*if \(target\.id === "n0" \|\| !target\.assembly \|\| !typeId\) return null;[\s\S]*navigateOrDrillPlatform\(target\)[\s\S]*resolveLoadedGraphTargetCandidate[\s\S]*graphTargetNavigationDisposition[\s\S]*if \(disposition === "blocked" \|\| disposition === "none"\) return null;[\s\S]*navigateToMember\([\s\S]*openGraphSource\([\s\S]*navigateOrDrillPlatform\(target\)/);
+  assert.match(
+    callGraphBinding,
+    /if \(drilled\) \{[\s\S]*return \{\s*platform: true,\s*onSelect: \(\) => \{[\s\S]*navigateOrDrillPlatform\(target\)/);
+  assert.match(
+    callGraphBinding,
+    /const loaded = disposition === "loaded" && candidate\.status === "unique"\s*\? resolveLoadedGraphTarget\(target, candidate\)\s*: null/);
+  assert.match(
+    callGraphBinding,
+    /const platform = disposition === "platform";\s*return \{\s*platform,\s*onSelect:/);
+  assert.match(
+    callGraphBinding,
+    /if \(loaded\?\.group\) \{\s*navigateToMember\(/);
   assert.equal(appSource.match(/\bbindGraphBack\(/g)?.length, 1);
   assert.equal(appSource.match(/\bbindGraphPanZoom\(/g)?.length, 3);
   assert.equal(appSource.match(/\bbindTypeGraphNodes\(/g)?.length, 1);
