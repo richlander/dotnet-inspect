@@ -64,14 +64,6 @@ public sealed class MetadataContext : IDisposable
     readonly IAssemblyBindingPolicy _bindingPolicy;
     readonly IAssemblyReferenceResolver? _resolver;
 
-    /// <summary>
-    /// How much this context trusts DISCOVERED assemblies to claim
-    /// core-library identity. Defaults to the safe setting; a host whose
-    /// surrounding directory is as trusted as the target may relax it.
-    /// </summary>
-    internal CoreLibraryTrustPolicy CoreLibraryTrust { get; init; }
-        = CoreLibraryTrustPolicy.DesignatedAndPlatform;
-
     public MetadataContext(IAssemblyReferenceResolver resolver)
     {
         ArgumentNullException.ThrowIfNull(resolver);
@@ -140,8 +132,7 @@ public sealed class MetadataContext : IDisposable
         {
             CoreLibraryIdentityTrust.GrantIfEntitled(
                 opened.Reader,
-                assembly.Provenance,
-                CoreLibraryTrust);
+                assembly.Provenance);
         }
         return opened;
     }

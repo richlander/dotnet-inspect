@@ -287,12 +287,21 @@ real one and authorizes raising decisions such as
 
 That identity must never be derived from what an assembly says about itself.
 The platform public keys are published data and nothing in this product
-verifies a strong-name signature, so an attacker can name a planted file
-`System.Runtime`, copy the ECMA public key blob into its `AssemblyDef` verbatim,
-and satisfy any check made purely on self-declared name and key. Left
-unguarded, a planted sibling picked up by reference resolution could mint
-core-library identity for its own definitions and make a fake interface
-authorize raising for a type that implements nothing of the sort.
+verifies a strong-name signature. Nor could it: shipped platform assemblies are
+**public-signed**, so the `AssemblyDef` advertises `StrongNameSigned` while the
+signature slot is zero-filled and there is nothing to verify. Any file can
+therefore name itself `System.Runtime`, copy the ECMA public key blob in
+verbatim, and satisfy any check made purely on self-declared name and key.
+
+The concern this guards is **unintentional type confusion**, not an attacker. A
+directory of loose binaries is rarely a coherent closure. A stale copy left over
+from an older build, a reference-only assembly with no bodies, or a core library
+from a different runtime version confuses types exactly as effectively as a
+planted one, and arrives with no malice at all. Cryptography would not help
+here even if it were available: a genuine, Microsoft-signed .NET 6
+`System.Runtime.dll` sitting beside a .NET 10 library is authentic *and* wrong.
+The question is not "is this file real?" but "may this file speak for the core
+library of the assembly under inspection?" — and only acquisition can answer it.
 
 `CoreLibraryIdentityTrust` owns the rule. Trust follows **acquisition**, and
 which acquisition applies follows how the caller named the file. A raw path is
@@ -313,13 +322,25 @@ closed bounds the obligation to the few sites that deliberately *grant* trust:
 a new open path that forgets to classify loses core-library identity, which is
 visible and safe, rather than gaining it, which is neither.
 
-Designation is what separates the two workflows that share a shape. A developer
+Acquisition separates the two workflows that share a shape. A developer
 inspecting a dotnet/runtime build layout has a real core library beside the
-assembly under inspection; an attacker shipping a malicious package has a
-planted `System.Runtime.dll` beside its own library. **No metadata distinguishes
-them** — only the caller's intent does. An assembly the caller enumerated
-explicitly carries `DesignatedAsset` and keeps core-library identity; one the
-resolver discovered beside the target does not.
+assembly under inspection; a package or upload may have an arbitrary
+`System.Runtime.dll` beside its own library. **No metadata distinguishes
+them** — only how the file was acquired does.
+
+The rule is deliberately strict: **`PlatformAsset` means the file came from a
+coherent closure** — a dotnet hive, a runtime pack, or a reference pack — and
+nothing else earns it. Loose binaries remain fully inspectable; they are simply
+never promoted to platform. `CorpusAssembly` is the one adjacent case, and it is
+not an exception to the principle: a corpus is enumerated explicitly by the
+caller, which is designation rather than discovery, so it satisfies platform
+*scope* on the strength of `DesignatedAsset`.
+
+There is deliberately **no host opt-in** to relax this. An opt-in would be a
+blanket switch over provenance, and the provenances it would enable —
+`PackageAsset`, `EmbeddedAsset`, discovered siblings — are precisely the ones
+whose closure cannot be established. Better loose-layout support is a scenario
+to design later, and it needs a coherence test, not a policy flag.
 
 Today the only product caller that designates is corpus enumeration
 (`CorpusAssemblyPaths`). No command turns a user-named directory into a
@@ -337,19 +358,16 @@ names that core library directly it is opened rather than resolved, and the
 deny list is scoped to resolution, so it keeps its identity. Both halves of
 the developer workflow work without designating the directory.
 
-The residual case is a host policy, `CoreLibraryTrustPolicy`. The default,
-`DesignatedAndPlatform`, is correct for any host that inspects untrusted
-uploads. A host whose surrounding directory is as trusted as the target — a
-local tool pointed at a build layout the user controls — may select
-`IncludeDiscovered`, which restores the pre-fix behaviour and, with it, the
-planted-sibling exposure. That trade is the host's to make explicitly; it is
-never inferred.
-
-Because trust is read off provenance, provenance must not understate a genuine
-platform acquisition. Resolvers that hand back files taken from the host's
-trusted-platform-assembly list, and the intrinsic core-library binding that
-returns the designated target when that target is itself the core library,
-report `PlatformAsset` for that reason.
+Because trust is read off provenance, provenance must not overstate acquisition
+either. `PlatformAsset` is load-bearing beyond trust: it drives the
+user-visible `ResolvedFrom` value, symbol-server PDB acquisition, and
+inspection-graph boundary classification. The intrinsic core-library binding —
+which returns the designated target when that target is itself the core
+library — therefore reports `DesignatedAsset`, not `PlatformAsset`: the caller
+named the file, but a loose file is not a hive. It keeps core-library identity
+through designation, while `ResolvedFrom` stops claiming a platform origin it
+cannot support. Local PDB probing is unaffected, since only symbol-*server*
+acquisition is gated on platform status.
 
 `PlantedCoreLibraryIdentityTests.PlantedPlatformKey_DoesNotMintCoreLibraryIdentity`
 gates the boundary with a real planted assembly carrying the verbatim ECMA
@@ -365,9 +383,12 @@ gates the resolver half, since a core-library `TypeRef` forces
 `AssemblyResolutionScope.Platform` and a designated corpus assembly must be
 able to satisfy it;
 `PlantedCoreLibraryIdentityTests.DesignatedAcquisition_KeepsCoreLibraryIdentity`
-gates the build-layout and corpus workflow; and
-`PlantedCoreLibraryIdentityTests.DiscoveredSibling_FollowsTheHostPolicy`
-gates both settings of the host policy.
+gates the build-layout and corpus workflow;
+`PlantedCoreLibraryIdentityTests.DiscoveredSibling_IsDenied` gates the loose
+sibling; and
+`PlantedCoreLibraryIdentityTests.PackagesAndUploads_AreDenied` gates the
+package and embedded provenances, so no future opt-in can reach them by
+accident.
 
 The gate that has been hardest to get right is the one asserting that *no*
 reader-creation site was overlooked, because the obvious formulation — reflect

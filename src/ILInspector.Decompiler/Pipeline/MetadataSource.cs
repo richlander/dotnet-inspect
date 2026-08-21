@@ -359,8 +359,7 @@ public sealed class MetadataSource : IDisposable
             string path = assembly.Path ?? assembly.Identity.Name;
             CoreLibraryIdentityTrust.GrantIfEntitled(
                 reader,
-                assembly.Provenance,
-                context?.CoreLibraryTrust ?? CoreLibraryTrustPolicy.DesignatedAndPlatform);
+                assembly.Provenance);
             return new MetadataSource(
                 path,
                 assembly.Path,

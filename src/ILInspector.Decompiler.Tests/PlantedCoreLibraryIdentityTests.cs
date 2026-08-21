@@ -12,12 +12,20 @@ namespace ILInspector.Decompiler.Tests;
 /// <summary>
 /// Core-library identity comes from acquisition, not from what an assembly says
 /// about itself. The platform public keys are published data and nothing here
-/// verifies a strong-name signature, so a planted file can carry the ECMA key
-/// verbatim. Before <c>CoreLibraryIdentityTrust</c>, that was enough to mint
-/// <c>corelib</c> for the planted file's own definitions, and a fake
-/// <c>System.Collections.IEnumerable</c> then compared equal to the real one —
-/// authorizing collection-initializer raising for a type that implements
-/// nothing of the sort.
+/// verifies a strong-name signature — shipped platform assemblies are public-
+/// signed, so the signature slot is zero-filled and there is nothing to verify
+/// — which means any file can carry the ECMA key verbatim. Before
+/// <c>CoreLibraryIdentityTrust</c>, that was enough to mint <c>corelib</c> for
+/// such a file's own definitions, and its <c>System.Collections.IEnumerable</c>
+/// then compared equal to the real one — authorizing collection-initializer
+/// raising for a type that implements nothing of the sort.
+/// <para>
+/// These tests plant a file because that is the cheapest way to construct the
+/// condition, not because the concern is an attacker. The same confusion
+/// arises unintentionally whenever a loose directory holds a stale, mismatched,
+/// or reference-only copy of the core library: a pile of binaries is not a
+/// coherent closure, and only acquisition can tell the difference.
+/// </para>
 /// </summary>
 public class PlantedCoreLibraryIdentityTests
 {
@@ -100,75 +108,59 @@ public class PlantedCoreLibraryIdentityTests
     {
         RunWithResolvedCoreLibrary(
             AssemblyResolutionProvenance.Designated("corpus"),
-            CoreLibraryTrustPolicy.DesignatedAndPlatform,
             expectedCorelib: true);
     }
 
     /// <summary>
-    /// A discovered sibling is denied under the default policy but honoured
-    /// when the host opts in. Fails if the policy knob stops being consulted,
-    /// which would leave a host unable to inspect a build layout it trusts.
+    /// A discovered sibling is denied core-library identity. There is no host
+    /// opt-in to consult: promoting a loose file to platform status is exactly
+    /// the type confusion the strict model rules out, because the directory it
+    /// sits in carries no evidence that its contents form a coherent closure.
+    /// Fails if <c>MayMint</c> starts entitling <c>LocalAsset</c>, which would
+    /// let a stale or mismatched copy of the core library define types that
+    /// compare equal to the real ones.
     /// </summary>
     [Fact]
-    public void DiscoveredSibling_FollowsTheHostPolicy()
+    public void DiscoveredSibling_IsDenied()
     {
         RunWithResolvedCoreLibrary(
             AssemblyResolutionProvenance.Local("sibling"),
-            CoreLibraryTrustPolicy.DesignatedAndPlatform,
+            expectedCorelib: false);
+    }
+
+    /// <summary>
+    /// Package payloads and embedded uploads are denied too. These are the
+    /// close negative cases for the rule above: each is a plausible way for a
+    /// file claiming to be the core library to arrive, and neither is a
+    /// coherent platform closure. Fails if entitlement is ever widened from
+    /// the two acquisitions that carry it.
+    /// </summary>
+    [Fact]
+    public void PackagesAndUploads_AreDenied()
+    {
+        RunWithResolvedCoreLibrary(
+            AssemblyResolutionProvenance.Package(
+                "Contoso.Package",
+                "1.0.0",
+                tfm: null,
+                rid: null),
             expectedCorelib: false);
 
         RunWithResolvedCoreLibrary(
-            AssemblyResolutionProvenance.Local("sibling"),
-            CoreLibraryTrustPolicy.IncludeDiscovered,
-            expectedCorelib: true);
-    }
-
-    /// <summary>
-    /// The host opt-in reaches siblings only. A package payload and an embedded
-    /// upload are denied core-library identity under <em>both</em> policies,
-    /// because trusting the directory a build layout occupies says nothing
-    /// about content that was downloaded or handed to the tool. Fails if
-    /// <c>MayMint</c> goes back to treating <c>IncludeDiscovered</c> as a
-    /// blanket switch over every provenance, which would silently entitle a
-    /// planted core library inside a package — the exact #4411 exposure — for
-    /// any host that opted in for build layouts.
-    /// </summary>
-    [Fact]
-    public void TheHostOptIn_DoesNotReachPackagesOrUploads()
-    {
-        foreach (var policy in new[]
-        {
-            CoreLibraryTrustPolicy.DesignatedAndPlatform,
-            CoreLibraryTrustPolicy.IncludeDiscovered,
-        })
-        {
-            RunWithResolvedCoreLibrary(
-                AssemblyResolutionProvenance.Package(
-                    "Contoso.Evil",
-                    "1.0.0",
-                    tfm: null,
-                    rid: null),
-                policy,
-                expectedCorelib: false);
-
-            RunWithResolvedCoreLibrary(
-                AssemblyResolutionProvenance.Embedded(
-                    "upload",
-                    digest: "sha256:0",
-                    declaredName: "System.Runtime"),
-                policy,
-                expectedCorelib: false);
-        }
+            AssemblyResolutionProvenance.Embedded(
+                "upload",
+                digest: "sha256:0",
+                declaredName: "System.Runtime"),
+            expectedCorelib: false);
     }
 
     /// <summary>
     /// Opens the planted assembly through reference resolution with a given
-    /// acquisition provenance and host policy, and reports whether its own
-    /// definitions decoded as core-library types.
+    /// acquisition provenance, and reports whether its own definitions decoded
+    /// as core-library types.
     /// </summary>
     static void RunWithResolvedCoreLibrary(
         AssemblyResolutionProvenance provenance,
-        CoreLibraryTrustPolicy policy,
         bool expectedCorelib)
     {
         string directory = Directory.CreateTempSubdirectory(
@@ -179,10 +171,7 @@ public class PlantedCoreLibraryIdentityTests
             File.WriteAllBytes(path, BuildPlantedCoreLibrary());
 
             var resolver = new ProvenanceResolver(path, provenance);
-            using var context = new MetadataContext(resolver)
-            {
-                CoreLibraryTrust = policy,
-            };
+            using var context = new MetadataContext(resolver);
 
             OpenedAssembly opened = Assert.IsType<OpenedAssembly>(
                 context.Open(
@@ -424,7 +413,7 @@ public class PlantedCoreLibraryIdentityTests
     /// trusted acquisition, so a future discovery-style overload could satisfy
     /// this test with an unconditional grant — which would be the #4411 bug.
     /// <c>PlantedSibling_OpenedThroughMetadataSource_LosesCoreLibraryIdentity</c>
-    /// and <c>DiscoveredSibling_FollowsTheHostPolicy</c> are what hold the
+    /// and <c>DiscoveredSibling_IsDenied</c> are what hold the
     /// conditional half, by driving an untrusted provenance into
     /// <see cref="CoreLibraryIdentityTrust.GrantIfEntitled"/> and asserting
     /// denial — the first through <c>MetadataSource.OpenCore</c>, the second

@@ -95,7 +95,7 @@ namespace ILInspector.Decompiler.Tests;
 /// would launder discovery into designation while neither obtaining a reader nor
 /// granting identity itself, so it would not appear here. That property belongs
 /// to provenance, and <c>PlantedCoreLibraryIdentityTests</c> gates it — see
-/// <c>DiscoveredSibling_FollowsTheHostPolicy</c> and
+/// <c>DiscoveredSibling_IsDenied</c> and
 /// <c>PlantedSibling_OpenedThroughMetadataSource_LosesCoreLibraryIdentity</c>.
 /// The bound is stated deliberately: review of PR #4469 found an earlier,
 /// unbounded phrasing of this claim to be false.
@@ -156,7 +156,7 @@ public sealed class ReaderConstructionSiteTests
     static readonly ImmutableHashSet<string> s_nonGrantingTrustMembers =
         ImmutableHashSet.Create(
             StringComparer.Ordinal,
-            "MayMint(AssemblyResolutionProvenance, CoreLibraryTrustPolicy)",
+            "MayMint(AssemblyResolutionProvenance)",
             "MayMintCoreLibraryIdentity(MetadataReader)");
 
     /// <summary>
@@ -170,7 +170,7 @@ public sealed class ReaderConstructionSiteTests
         ImmutableHashSet.Create(
             StringComparer.Ordinal,
             "GrantCoreLibraryIdentity(MetadataReader)",
-            "GrantIfEntitled(MetadataReader, AssemblyResolutionProvenance, CoreLibraryTrustPolicy)");
+            "GrantIfEntitled(MetadataReader, AssemblyResolutionProvenance)");
 
     /// <summary>
     /// Whether a trust-relevant site obtains a reader, grants core-library
@@ -312,7 +312,7 @@ public sealed class ReaderConstructionSiteTests
     /// Keyed by full signature, not by bare name. Round 4 of PR #4469 escaped a
     /// name-keyed version by adding a granting <c>MayMint(MetadataReader)</c>
     /// overload, which silently inherited the exemption belonging to the
-    /// unrelated <c>MayMint(AssemblyResolutionProvenance, CoreLibraryTrustPolicy)</c>.
+    /// unrelated <c>MayMint(AssemblyResolutionProvenance)</c>.
     /// The trust type is also required to declare no nested types, because a
     /// nested helper can reach the private table while its call sites never name
     /// the trust type — the other round-4 escape. <c>.cctor</c> is skipped here
