@@ -808,17 +808,18 @@ versus unanchored fact rendering, selection state, and source-text escaping.
 
 `src/package-opportunities.ts` owns the package/platform "Integration
 opportunities" lens (the ecosystem auth/cloud/config/database/AI-client
-integration suggestions for a package or platform library) as a pure,
-dependency-injected render function, including its opportunity-row API-name
-splitting, package-chip detection, and "look for" chip rendering. `dotnet-inspect.ts`
-still owns `state` and the platform library picker, `package-inspection.ts`
-owns the scan-scope-keyed async load lifecycle, and the root passes each
-computed slice into the renderer explicitly.
+integration suggestions for a package or platform library), including its
+rendered DOM bindings, opportunity-row API-name splitting, package-chip
+detection, and "look for" chip rendering. `dotnet-inspect.ts` still owns
+`state`, target resolution, navigation effects, and the platform library
+picker, `package-inspection.ts` owns the scan-scope-keyed async load lifecycle,
+and the root supplies behavior through typed callbacks.
 `test/package-opportunities.test.ts` gates the platform pick-a-library prompt,
 the scanning/loading/error states (fresh versus stale scope), the
 no-opportunities and inspection-error banners, the category summary counts,
 API name splitting, package-chip versus plain-text kind rendering, look-for
-chip/wildcard/empty rendering, and text escaping.
+chip/wildcard/empty rendering, binding dispatch and empty-value behavior, and
+text escaping.
 
 - `Cmd/Ctrl+K` opens Spotlight in the Commands scope.
 - `Cmd/Ctrl+P` opens Spotlight in the All scope.

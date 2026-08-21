@@ -1,6 +1,96 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { renderPackageOpportunities } from "../src/package-opportunities.ts";
+import {
+  bindPackageOpportunities,
+  renderPackageOpportunities,
+  type PackageOpportunitiesBindingActions,
+} from "../src/package-opportunities.ts";
+
+class FakeElement {
+  readonly dataset: Record<string, string | undefined>;
+  private readonly listeners = new Map<string, EventListener[]>();
+
+  constructor(dataset: Record<string, string | undefined> = {}) {
+    this.dataset = dataset;
+  }
+
+  addEventListener(type: string, listener: EventListener) {
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  dispatch(type: string) {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener({} as Event);
+    }
+  }
+}
+
+class FakeRoot {
+  private readonly elements = new Map<string, FakeElement[]>();
+
+  add(selector: string, ...elements: FakeElement[]) {
+    this.elements.set(selector, elements);
+    return elements;
+  }
+
+  querySelectorAll(selector: string) {
+    return this.elements.get(selector) ?? [];
+  }
+}
+
+function recordingActions(calls: string[]): PackageOpportunitiesBindingActions {
+  return {
+    onLookForSelect: query => calls.push(`look:${query}`),
+    onPackageSelect: packageId => calls.push(`package:${packageId}`),
+    onTypeSelect: typeId => calls.push(`type:${typeId}`),
+  };
+}
+
+test("opportunity bindings dispatch type, package, and search actions", () => {
+  const root = new FakeRoot();
+  const type = new FakeElement({ oppType: "Contoso.Widget" });
+  const packageChip = new FakeElement({ oppPackage: "Contoso.Extensions" });
+  const lookFor = new FakeElement({ oppLookfor: "AddWidgets" });
+  root.add("[data-opp-type]", type);
+  root.add("[data-opp-package]", packageChip);
+  root.add("[data-opp-lookfor]", lookFor);
+  const calls: string[] = [];
+  bindPackageOpportunities(
+    root as unknown as ParentNode,
+    recordingActions(calls));
+
+  type.dispatch("click");
+  packageChip.dispatch("click");
+  lookFor.dispatch("click");
+
+  assert.deepEqual(calls, [
+    "type:Contoso.Widget",
+    "package:Contoso.Extensions",
+    "look:AddWidgets",
+  ]);
+});
+
+test("opportunity bindings preserve empty values for malformed controls", () => {
+  const root = new FakeRoot();
+  const type = new FakeElement();
+  const packageChip = new FakeElement();
+  const lookFor = new FakeElement();
+  root.add("[data-opp-type]", type);
+  root.add("[data-opp-package]", packageChip);
+  root.add("[data-opp-lookfor]", lookFor);
+  const calls: string[] = [];
+  bindPackageOpportunities(
+    root as unknown as ParentNode,
+    recordingActions(calls));
+
+  type.dispatch("click");
+  packageChip.dispatch("click");
+  lookFor.dispatch("click");
+
+  assert.deepEqual(calls, ["type:", "package:", "look:"]);
+});
 
 function escapeHtml(value: unknown) {
   return String(value)
