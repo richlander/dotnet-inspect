@@ -575,7 +575,9 @@ Three consequences follow, and they are the ones most often missed:
   always implies at least one more round.
 - Merge readiness requires a review-clean review **at the current head**. An
   author who wants to stop while the last round pushed a fix is asking for a
-  waiver, not making a judgment call. Ask for it explicitly.
+  waiver, not making a judgment call. Ask for it explicitly. An approved
+  carry-forward integration is the one move that *transfers* review-clean status
+  to a head no reviewer saw; nothing else does.
 - A review-clean round ends adversarial review. Do not move the head merely to
   buy another pass.
 
@@ -674,11 +676,17 @@ produced no change and the integration discarded the value of the locked-head
 result.
 
 The user may then approve carrying the clean reviews forward across a
-non-interacting base integration, without another round. That is the sole
-default path that integrates the base when no conflict, review-driven fix,
-author change, current-head merge-path failure, required cascading restack, or
-explicit user workflow adjustment has ended the candidate. The procedure, and
-the analysis to bring to the user, are in
+non-interacting base integration, without another round. **The integrated head
+inherits the review-clean status**, and is merge-ready on that basis — that
+transfer is the whole point, and without it the integration would strand the PR
+at a head no review covers. It rests on the approved analysis, not on the merge
+being mechanical: the reviews carry because the landed range was shown not to
+interact and the user accepted that finding.
+
+Carrying forward is the sole default path that integrates the base when no
+conflict, review-driven fix, author change, current-head merge-path failure,
+required cascading restack, or explicit user workflow adjustment has ended the
+candidate. The procedure, and the analysis to bring to the user, are in
 [carry-forward after clean reviews](docs/round-orchestration.md#carry-forward-after-clean-reviews).
 
 Evaluate eligibility from the *latest* review-clean result: an earlier finding

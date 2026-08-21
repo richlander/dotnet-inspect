@@ -253,3 +253,11 @@ path applies and when it does not. This is the procedure once it does.
 
 Record the reviewed head, the old and approved new tips, the non-interaction
 analysis, and the user's decision on the PR.
+
+Two things the numbered steps do not say. **Repeat this whenever the base moves
+again** — a carried-forward head is review-clean, so a later move re-enters at
+step 1, and each pass needs its own analysis and its own approval. And **a
+failure in step 4's validation or CI ends the candidate**: it is a current-head
+merge-path failure, so the reviews do not carry, the fix is an author change,
+and the replacement head owes a normal round. Carry-forward transfers a clean
+result across an integration; it does not survive that integration going wrong.
