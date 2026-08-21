@@ -1296,6 +1296,37 @@ public class ApiSurfaceExtractorTests
     }
 
     [Fact]
+    public void PublicExtractionUsesEffectiveNestedVisibility()
+    {
+        string assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var publicStream = File.OpenRead(assemblyPath);
+        using var publicReader = new PEReader(publicStream);
+        using var allStream = File.OpenRead(assemblyPath);
+        using var allReader = new PEReader(allStream);
+
+        ApiSurface publicSurface =
+            ApiSurfaceExtractor.Extract(publicReader, includeAll: false);
+        ApiSurface allSurface =
+            ApiSurfaceExtractor.Extract(allReader, includeAll: true);
+
+        Assert.Contains(
+            publicSurface.Types,
+            type => type.FullName.EndsWith(
+                ".VisibleNestedContainer.VisibleNested",
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            publicSurface.Types,
+            type => type.FullName.EndsWith(
+                ".HiddenNestedContainer.LeakedNested",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            allSurface.Types,
+            type => type.FullName.EndsWith(
+                ".HiddenNestedContainer.LeakedNested",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Extract_FoldsFieldLikeEventBackingFieldIntoEvent()
     {
         var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
@@ -1921,6 +1952,20 @@ public class SampleObsoleteHost
 public class SampleRequiredHost
 {
     public required bool Active { get; set; }
+}
+
+public class VisibleNestedContainer
+{
+    public class VisibleNested
+    {
+    }
+}
+
+internal class HiddenNestedContainer
+{
+    public class LeakedNested
+    {
+    }
 }
 
 public ref struct SampleRefStruct

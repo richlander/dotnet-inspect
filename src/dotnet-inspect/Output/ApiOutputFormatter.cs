@@ -24,13 +24,26 @@ namespace DotnetInspector.Output;
 /// </summary>
 public static class ApiOutputFormatter
 {
-    static readonly CSharpFormatter DefaultCSharpFormatter = new();
+    static readonly CSharpFormatter DefaultCSharpFormatter = new(
+        new CSharpFormatOptions { AllowMetadataFallback = true });
     static readonly CSharpFormatter AnnotatedCSharpFormatter = new(
-        new CSharpFormatOptions { IncludeCustomAttributes = true });
+        new CSharpFormatOptions
+        {
+            IncludeCustomAttributes = true,
+            AllowMetadataFallback = true
+        });
     static readonly CSharpFormatter AbbreviatedCSharpFormatter = new(
-        new CSharpFormatOptions { AbbreviateSignature = true });
+        new CSharpFormatOptions
+        {
+            AbbreviateSignature = true,
+            AllowMetadataFallback = true
+        });
     static readonly CSharpFormatter CSharpFormatterWithoutObsolete = new(
-        new CSharpFormatOptions { IncludeObsoleteAttribute = false });
+        new CSharpFormatOptions
+        {
+            IncludeObsoleteAttribute = false,
+            AllowMetadataFallback = true
+        });
 
     // ===== Full API View Model Factory =====
 
@@ -3278,7 +3291,8 @@ public static class ApiOutputFormatter
             {
                 AbbreviateSignature = abbreviate,
                 ForceAsync = forceAsync,
-                ForceUnsafe = forceUnsafe
+                ForceUnsafe = forceUnsafe,
+                AllowMetadataFallback = true
             });
         return formatter.FormatMember(type, member, methodParameters);
     }

@@ -50,6 +50,7 @@ public sealed record CSharpFormatOptions
     public bool IncludeObsoleteAttribute { get; init; } = true;
     public bool OmitInterfaceMemberModifiers { get; init; }
     public bool OmitPropertyAccessors { get; init; }
+    public bool AllowMetadataFallback { get; init; }
 }
 
 /// <summary>
@@ -774,7 +775,8 @@ public sealed class CSharpFormatter
             IncludeSignatureAttributes = options.IncludeSignatureAttributes,
             IncludeObsoleteAttribute = options.IncludeObsoleteAttribute,
             OmitInterfaceMemberModifiers = options.OmitInterfaceMemberModifiers,
-            OmitPropertyAccessors = options.OmitPropertyAccessors
+            OmitPropertyAccessors = options.OmitPropertyAccessors,
+            AllowMetadataFallback = options.AllowMetadataFallback
         };
 
     static CSharpFormattedDeclaration ToFormattedDeclaration(CSharpRenderedDeclaration declaration)

@@ -1441,6 +1441,67 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void MethodImplProjectionRequiresCategoryConstraintsAndInterfaceClosure()
+    {
+        string path = EmitMethodImplSemanticCases();
+        try
+        {
+            using var peReader = new PEReader(File.OpenRead(path));
+            MetadataReader reader = peReader.GetMetadataReader();
+            TypeDefinitionHandle typeHandle =
+                GetTypeDefinitionHandle(reader, "SemanticImplementation");
+            ApiType queried = MetadataDeclarationQuery.GetTypeSurface(
+                reader,
+                typeHandle,
+                includeNonPublicMembers: false);
+            ApiType extracted = Assert.Single(
+                ApiSurfaceExtractor.Extract(
+                    peReader,
+                    includeAll: false).Types,
+                type => type.FullName == "SemanticImplementation");
+
+            foreach (ApiType surface in new[] { queried, extracted })
+            {
+                ApiMember propertyShapedBody = Assert.Single(
+                    surface.Members,
+                    member => member.Name == "get_Value");
+                Assert.True(
+                    propertyShapedBody.IsExplicitInterfaceImplementation);
+                Assert.False(
+                    propertyShapedBody.CanUseImplicitInterfaceSyntax);
+
+                ApiMember constraintMismatch = Assert.Single(
+                    surface.Members,
+                    member => member.Name == "Convert");
+                Assert.True(
+                    constraintMismatch.IsExplicitInterfaceImplementation);
+                Assert.False(
+                    constraintMismatch.CanUseImplicitInterfaceSyntax);
+
+                ApiMember constraintMatch = Assert.Single(
+                    surface.Members,
+                    member => member.Name == "Transform");
+                Assert.True(
+                    constraintMatch.IsExplicitInterfaceImplementation);
+                Assert.True(
+                    constraintMatch.CanUseImplicitInterfaceSyntax);
+
+                ApiMember inheritedTarget = Assert.Single(
+                    surface.Members,
+                    member => member.Name == "InheritedBody");
+                Assert.True(inheritedTarget.IsExplicitInterfaceImplementation);
+                Assert.Equal(
+                    InterfaceImplementationResolution.Proven,
+                    inheritedTarget.InterfaceImplementationResolution);
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void TypeSurface_FoldsPublicInterfaceMethodImplAccessors()
     {
         using var stream = File.OpenRead(typeof(Half).Assembly.Location);
@@ -1502,6 +1563,13 @@ public sealed class MetadataDeclarationQueryTests
         {
             Assert.DoesNotContain(surface.Members, member => member.Name == "ICollectionCount");
             Assert.Contains(surface.Members, member => member.Name == "get_ICollectionCount");
+            ApiMember inheritedTarget = Assert.Single(
+                surface.Members,
+                member => member.Name == "ICollectionGetEnumerator");
+            Assert.True(inheritedTarget.IsExplicitInterfaceImplementation);
+            Assert.Equal(
+                InterfaceImplementationResolution.Undetermined,
+                inheritedTarget.InterfaceImplementationResolution);
         }
     }
 
@@ -1883,6 +1951,191 @@ public sealed class MetadataDeclarationQueryTests
         string path = Path.Combine(
             Path.GetTempPath(),
             $"UnqualifiedMethodImplAccessor-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
+    static string EmitMethodImplSemanticCases()
+    {
+        var assemblyName = new AssemblyName("MethodImplSemanticCases");
+        var assembly = new PersistedAssemblyBuilder(
+            assemblyName,
+            typeof(object).Assembly);
+        ModuleBuilder module =
+            assembly.DefineDynamicModule(assemblyName.Name!);
+
+        TypeBuilder propertyInterface = module.DefineType(
+            "IPropertyContract",
+            TypeAttributes.Public
+                | TypeAttributes.Interface
+                | TypeAttributes.Abstract);
+        MethodBuilder interfaceGetter = propertyInterface.DefineMethod(
+            "get_Value",
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot
+                | MethodAttributes.SpecialName,
+            typeof(int),
+            Type.EmptyTypes);
+        propertyInterface
+            .DefineProperty(
+                "Value",
+                PropertyAttributes.None,
+                typeof(int),
+                null)
+            .SetGetMethod(interfaceGetter);
+        Type propertyInterfaceType = propertyInterface.CreateType();
+
+        TypeBuilder genericInterface = module.DefineType(
+            "IGenericContract",
+            TypeAttributes.Public
+                | TypeAttributes.Interface
+                | TypeAttributes.Abstract);
+        MethodBuilder interfaceGeneric = genericInterface.DefineMethod(
+            "Convert",
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot);
+        GenericTypeParameterBuilder interfaceParameter =
+            Assert.Single(interfaceGeneric.DefineGenericParameters("T"));
+        interfaceParameter.SetGenericParameterAttributes(
+            GenericParameterAttributes.ReferenceTypeConstraint);
+        interfaceGeneric.SetReturnType(typeof(void));
+        interfaceGeneric.SetParameters(Type.EmptyTypes);
+        MethodBuilder interfaceTransform = genericInterface.DefineMethod(
+            "Transform",
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot);
+        GenericTypeParameterBuilder interfaceTransformParameter =
+            Assert.Single(interfaceTransform.DefineGenericParameters("T"));
+        interfaceTransformParameter.SetGenericParameterAttributes(
+            GenericParameterAttributes.ReferenceTypeConstraint);
+        interfaceTransform.SetReturnType(typeof(void));
+        interfaceTransform.SetParameters(Type.EmptyTypes);
+        Type genericInterfaceType = genericInterface.CreateType();
+
+        TypeBuilder structInterface = module.DefineType(
+            "IStructContract",
+            TypeAttributes.Public
+                | TypeAttributes.Interface
+                | TypeAttributes.Abstract);
+        MethodBuilder structGeneric = structInterface.DefineMethod(
+            "Convert",
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot);
+        GenericTypeParameterBuilder structParameter =
+            Assert.Single(structGeneric.DefineGenericParameters("T"));
+        structParameter.SetGenericParameterAttributes(
+            GenericParameterAttributes.NotNullableValueTypeConstraint);
+        structGeneric.SetReturnType(typeof(void));
+        structGeneric.SetParameters(Type.EmptyTypes);
+        Type structInterfaceType = structInterface.CreateType();
+
+        TypeBuilder rootInterface = module.DefineType(
+            "IRootContract",
+            TypeAttributes.Public
+                | TypeAttributes.Interface
+                | TypeAttributes.Abstract);
+        MethodBuilder rootMethod = rootInterface.DefineMethod(
+            "Run",
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot,
+            typeof(void),
+            Type.EmptyTypes);
+        Type rootInterfaceType = rootInterface.CreateType();
+        TypeBuilder childInterface = module.DefineType(
+            "IChildContract",
+            TypeAttributes.Public
+                | TypeAttributes.Interface
+                | TypeAttributes.Abstract);
+        childInterface.AddInterfaceImplementation(rootInterfaceType);
+        Type childInterfaceType = childInterface.CreateType();
+
+        TypeBuilder implementation = module.DefineType(
+            "SemanticImplementation",
+            TypeAttributes.Public);
+        implementation.AddInterfaceImplementation(propertyInterfaceType);
+        implementation.AddInterfaceImplementation(genericInterfaceType);
+        implementation.AddInterfaceImplementation(structInterfaceType);
+        implementation.AddInterfaceImplementation(childInterfaceType);
+
+        MethodBuilder getterBody = implementation.DefineMethod(
+            "get_Value",
+            MethodAttributes.Public
+                | MethodAttributes.Virtual
+                | MethodAttributes.Final
+                | MethodAttributes.NewSlot
+                | MethodAttributes.SpecialName,
+            typeof(int),
+            Type.EmptyTypes);
+        getterBody.GetILGenerator().Emit(OpCodes.Ldc_I4_1);
+        getterBody.GetILGenerator().Emit(OpCodes.Ret);
+        implementation.DefineMethodOverride(
+            getterBody,
+            propertyInterfaceType.GetMethod("get_Value")!);
+
+        MethodBuilder genericBody = implementation.DefineMethod(
+            "Convert",
+            MethodAttributes.Public
+                | MethodAttributes.Virtual
+                | MethodAttributes.Final
+                | MethodAttributes.NewSlot);
+        GenericTypeParameterBuilder bodyParameter =
+            Assert.Single(genericBody.DefineGenericParameters("T"));
+        bodyParameter.SetGenericParameterAttributes(
+            GenericParameterAttributes.NotNullableValueTypeConstraint);
+        genericBody.SetReturnType(typeof(void));
+        genericBody.SetParameters(Type.EmptyTypes);
+        genericBody.GetILGenerator().Emit(OpCodes.Ret);
+        implementation.DefineMethodOverride(
+            genericBody,
+            genericInterfaceType.GetMethod("Convert")!);
+        implementation.DefineMethodOverride(
+            genericBody,
+            structInterfaceType.GetMethod("Convert")!);
+
+        MethodBuilder transformBody = implementation.DefineMethod(
+            "Transform",
+            MethodAttributes.Public
+                | MethodAttributes.Virtual
+                | MethodAttributes.Final
+                | MethodAttributes.NewSlot);
+        GenericTypeParameterBuilder transformParameter =
+            Assert.Single(transformBody.DefineGenericParameters("T"));
+        transformParameter.SetGenericParameterAttributes(
+            GenericParameterAttributes.ReferenceTypeConstraint);
+        transformBody.SetReturnType(typeof(void));
+        transformBody.SetParameters(Type.EmptyTypes);
+        transformBody.GetILGenerator().Emit(OpCodes.Ret);
+        implementation.DefineMethodOverride(
+            transformBody,
+            genericInterfaceType.GetMethod("Transform")!);
+
+        MethodBuilder inheritedBody = implementation.DefineMethod(
+            "InheritedBody",
+            MethodAttributes.Private
+                | MethodAttributes.Virtual
+                | MethodAttributes.Final
+                | MethodAttributes.NewSlot,
+            typeof(void),
+            Type.EmptyTypes);
+        inheritedBody.GetILGenerator().Emit(OpCodes.Ret);
+        implementation.DefineMethodOverride(
+            inheritedBody,
+            rootInterfaceType.GetMethod("Run")!);
+        implementation.CreateType();
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"MethodImplSemanticCases-{Guid.NewGuid():N}.dll");
         assembly.Save(path);
         return path;
     }

@@ -663,6 +663,13 @@ public enum SignatureDecodeStatus
     Degraded
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter<InterfaceImplementationResolution>))]
+public enum InterfaceImplementationResolution
+{
+    Proven,
+    Undetermined
+}
+
 public class ApiType
 {
     public string? Namespace { get; set; }
@@ -924,6 +931,8 @@ public class ApiMember
 
     public bool IsStatic { get; set; }
     public bool IsVirtual { get; set; }
+    public bool IsNewSlot { get; set; }
+    public bool IsFinal { get; set; }
     public bool IsAbstract { get; set; }
     public bool IsOverride { get; set; }
     public bool IsSealed { get; set; }
@@ -956,6 +965,15 @@ public class ApiMember
     /// </remarks>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool IsExplicitInterfaceImplementation { get; set; }
+
+    /// <summary>
+    /// Whether this member's MethodImpl target was proven to belong to the declaring
+    /// type's interface closure. <see cref="InterfaceImplementationResolution.Undetermined"/>
+    /// preserves a raw external MethodImpl whose inherited-interface relationship cannot
+    /// be established from the inspected image alone.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public InterfaceImplementationResolution? InterfaceImplementationResolution { get; set; }
 
     /// <summary>
     /// True when an unqualified public MethodImpl maps only to interface

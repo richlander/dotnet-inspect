@@ -5178,7 +5178,7 @@ public partial class CommandExecutionTests
 
         // Structured resolution reaches ParamCollectionAttribute through the
         // platform policy instead of dropping it with the sibling-only probe.
-        Assert.Contains("Types: 90", fieldsOutput, StringComparison.Ordinal);
+        Assert.Contains("Types: 88", fieldsOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("Methods:", fieldsOutput, StringComparison.Ordinal);
 
         // --columns is the same surface and was the case the first fix missed: it does not filter
@@ -5195,7 +5195,7 @@ public partial class CommandExecutionTests
             "type", "--platform", "System.Text.Json", "-v:q", "-S", SectionNames.ApiInfo, "--tips", "q");
 
         Assert.Equal(0, bothExit);
-        Assert.Contains("| Types | 90 |", bothOutput, StringComparison.Ordinal);
+        Assert.Contains("| Types | 88 |", bothOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("Library: System.Text.Json.dll |", bothOutput, StringComparison.Ordinal);
     }
 
@@ -12792,14 +12792,14 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task TypeListing_NestedDelegate_ShowsFullDeclaringTypeContext()
+    public async Task TypeListing_NestedDelegateUnderInternalDeclaringType_IsOmitted()
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "System.Text.Json", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("`System.Text.Json.Serialization.Metadata.FSharpCoreReflectionProxy.StructGetter<TStruct, TResult>`", output);
+        Assert.DoesNotContain("FSharpCoreReflectionProxy.StructGetter", output);
         Assert.DoesNotContain("| `StructGetter<TStruct, TResult>` |", output);
     }
 
@@ -12897,6 +12897,35 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("Chars\tpublic char this[int index] { get; }", output);
         Assert.Contains("Gets the Char object at a specified position in the current String object.", output);
+    }
+
+    [Fact]
+    public async Task Member_VisualBasicMethodImplInventoryUsesMetadataFallback()
+    {
+        string library = Path.Combine(
+            Path.GetDirectoryName(typeof(object).Assembly.Location)!,
+            "Microsoft.VisualBasic.Core.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "Microsoft.VisualBasic.Collection",
+            "--library",
+            library,
+            "-S",
+            "Explicit Interface Implementations",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "metadata MethodImpl (proven) private final newslot virtual",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "metadata MethodImpl (undetermined) private final newslot virtual System.Collections.IEnumerator ICollectionGetEnumerator()",
+            output,
+            StringComparison.Ordinal);
     }
 
     [Fact]

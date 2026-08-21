@@ -1330,6 +1330,125 @@ public sealed class CSharpDeclarationWriterTests
         Assert.Equal("public int Read()", declaration);
     }
 
+    [Fact]
+    public void MetadataFormatterFallsBackForUnqualifiedMethodImpl()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class"
+        };
+        var member = new ApiMember
+        {
+            Name = "Read",
+            Kind = "explicit-interface-implementation",
+            Signature = "int Read()",
+            Accessibility = "private",
+            IsVirtual = true,
+            IsNewSlot = true,
+            IsFinal = true,
+            IsExplicitInterfaceImplementation = true,
+            InterfaceImplementationResolution =
+                InterfaceImplementationResolution.Undetermined
+        };
+        var formatter = new CSharpFormatter(
+            new CSharpFormatOptions { AllowMetadataFallback = true });
+
+        string declaration = formatter.FormatMember(type, member);
+
+        Assert.Equal(
+            "metadata MethodImpl (undetermined) private final newslot virtual int Read()",
+            declaration);
+    }
+
+    [Fact]
+    public void IncomparablePropertyAccessorAccessibilityFailsStrictProjection()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class"
+        };
+        var member = new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            Accessibility = "protected internal",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Value",
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "get", Accessibility = "protected" },
+                    new ApiAccessor { Kind = "set", Accessibility = "internal" }
+                ]
+            },
+            AccessorFacts =
+            [
+                new ApiAccessor { Kind = "get", Accessibility = "protected" },
+                new ApiAccessor { Kind = "set", Accessibility = "internal" }
+            ]
+        };
+
+        NotSupportedException exception = Assert.Throws<NotSupportedException>(
+            () => CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+
+        Assert.Contains(
+            "incomparable metadata accessor accessibilities",
+            exception.Message,
+            StringComparison.Ordinal);
+
+        var formatter = new CSharpFormatter(
+            new CSharpFormatOptions { AllowMetadataFallback = true });
+        Assert.Equal(
+            "metadata property protected internal int Value (get: protected, set: internal)",
+            formatter.FormatMember(type, member));
+    }
+
+    [Fact]
+    public void UnequalEventAccessorAccessibilityFailsStrictProjection()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class"
+        };
+        var member = new ApiMember
+        {
+            Name = "Changed",
+            Kind = "event",
+            Accessibility = "public",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.Action",
+                MemberName = "Changed"
+            },
+            AccessorFacts =
+            [
+                new ApiAccessor { Kind = "add" },
+                new ApiAccessor { Kind = "remove", Accessibility = "private" }
+            ]
+        };
+
+        NotSupportedException exception = Assert.Throws<NotSupportedException>(
+            () => CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+
+        Assert.Contains(
+            "unequal metadata accessor accessibilities",
+            exception.Message,
+            StringComparison.Ordinal);
+
+        var formatter = new CSharpFormatter(
+            new CSharpFormatOptions { AllowMetadataFallback = true });
+        Assert.Equal(
+            "metadata event public System.Action Changed (add: public, remove: private)",
+            formatter.FormatMember(type, member));
+    }
+
     [Theory]
     // A C# tuple type is parenthesized, so a parameter-list scan that takes the first
     // '(' mistakes a tuple-typed return for a parameter list and escapes each element's

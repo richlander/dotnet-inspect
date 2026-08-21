@@ -706,9 +706,19 @@ public sealed class ApiSurfaceExtractorBoundsTests
         }
 
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-        ApiSurfaceInspectionFailure failure = Assert.Single(surface.InspectionFailures);
+        ApiSurfaceInspectionFailure failure = Assert.Single(
+            surface.InspectionFailures,
+            candidate => candidate.Operation == "enum attribute type index");
         Assert.Equal("enum attribute type index", failure.Operation);
         Assert.Equal(MetadataTypeNameFailureMechanism.Metadata, failure.Mechanism);
+        Assert.Contains(
+            surface.InspectionFailures,
+            candidate => candidate is
+            {
+                Operation: "type identity",
+                Mechanism: MetadataTypeNameFailureMechanism.Relationship,
+                Kind: "Cycle"
+            });
         ApiType attributed = Assert.Single(surface.Types, type => type.Name == "Attributed");
         Assert.Empty(attributed.Attributes);
         Assert.True(

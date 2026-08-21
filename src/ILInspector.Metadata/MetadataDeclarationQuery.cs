@@ -469,16 +469,22 @@ public static class MetadataDeclarationQuery
                 IsVirtual = isExplicitInterfaceImplementation
                     ? explicitMethodIsVirtual
                     : declaration.IsVirtual,
-                IsOverride = !isExplicitInterfaceImplementation
-                    && declaration.IsOverride,
-                IsSealed = !isExplicitInterfaceImplementation
-                    && declaration.IsSealed,
+                IsNewSlot =
+                    (method.Attributes & MethodAttributes.NewSlot) != 0,
+                IsFinal =
+                    (method.Attributes & MethodAttributes.Final) != 0,
+                IsOverride = declaration.IsOverride,
+                IsSealed = declaration.IsSealed,
                 IsFinalizer = isFinalizer,
                 HasMethodBody = method.RelativeVirtualAddress != 0,
                 IsUnsafe = ApiSurfaceExtractor.HasUnsafeSignature(reader, method)
                     || AttributeReader.HasRequiresUnsafeAttribute(reader, method.GetCustomAttributes()),
                 Accessibility = NonPublicAccessibility(declaration.Accessibility),
                 IsExplicitInterfaceImplementation = isExplicitInterfaceImplementation,
+                InterfaceImplementationResolution =
+                    isExplicitInterfaceImplementation
+                        ? methodImplementations.GetResolution(methodHandle)
+                        : null,
                 CanUseImplicitInterfaceSyntax =
                     canUseImplicitInterfaceSyntax,
                 Attributes = declaration.Attributes.ToList(),

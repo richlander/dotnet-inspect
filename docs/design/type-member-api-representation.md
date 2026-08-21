@@ -97,15 +97,45 @@ intersect across kind and accessibility. Unknown IDs and unclassified producer
 values fail visibly rather than becoming an empty inventory. The contract is
 gated by `ApiInventoryQueryTests`. An explicit interface implementation retains
 its accessibility fact and typed MethodImpl identity in the model and structured
-output, including for aggregate properties and events. Human-facing renderers
-suppress metadata-private accessibility for explicit implementations, and
-suppress finalizer accessibility, because those prefixes are redundant with the
-product-owned identity or illegal in the corresponding C# spelling. Other raw
-accessibility values remain visible in lowered labels and structured output;
-C# projection fails closed for a non-private explicit implementation because
-C# has no legal spelling that preserves both facts. Property accessor
-accessibility is likewise a metadata fact and does not change with the
-disclosure mode used to select the property.
+output, including for aggregate properties and events.
+`InterfaceImplementationResolution` distinguishes a MethodImpl whose target is
+proven to belong to the implemented-interface closure from one whose external
+inherited-interface relationship cannot be decided from the inspected image.
+The latter remains visible as `Undetermined`; it is never silently reclassified
+as an ordinary method. Same-image non-generic interface inheritance is walked
+with the repository relationship bound. Constructed inherited interfaces are
+not conflated across type arguments: an exact direct identity is proven, while
+an inherited generic definition that cannot be proven without that
+substitution remains undetermined.
+
+Virtual-slot facts remain independent from MethodImpl identity.
+`IsNewSlot` and `IsFinal` retain the raw metadata flags; override is derived
+from `Virtual && !NewSlot`, and sealed override from `Final && Override`.
+Ordinary implicit-interface C# syntax requires proven interface membership,
+an ordinary method target rather than a property or event accessor, matching
+method names and signatures, and equivalent generic-parameter constraints for
+every target. An unresolved external MemberRef target cannot establish those
+semantics.
+
+Human-facing inventory uses an explicitly labeled metadata fallback when raw
+MethodImpl or accessor facts have no faithful C# declaration. Strict source
+projection still fails closed. A property may spell at most one strictly more
+restrictive accessor; incomparable accessor accessibilities are metadata-only.
+Event add/remove accessibility must be equal because C# has no accessor
+modifier syntax for events. `AccessorFacts` preserves the raw rows through the
+strict printer snapshot even when presentation accessors are reduced.
+`MetadataDeclarationQueryTests.MethodImplProjectionRequiresCategoryConstraintsAndInterfaceClosure`,
+`CommandExecutionTests.Member_VisualBasicMethodImplInventoryUsesMetadataFallback`,
+`CSharpDeclarationWriterTests.IncomparablePropertyAccessorAccessibilityFailsStrictProjection`,
+`CSharpDeclarationWriterTests.UnequalEventAccessorAccessibilityFailsStrictProjection`,
+and
+`CSharpTypePrinterTests.StrictPrinterSnapshotPreservesAccessorAccessibilityFacts`
+gate these boundaries.
+
+Effective public type extraction also walks the bounded declaring-type chain:
+a `NestedPublic` leaf is public only when every declaring type is externally
+visible. Include-all extraction retains the raw nested type, and focused
+metadata inspection keeps its leaf accessibility.
 
 Aggregate MethodImpl classification compares reader-local structural interface
 identity and substituted method signatures. Resolution scope, generic

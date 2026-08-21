@@ -742,22 +742,50 @@ public sealed class CSharpTypePrinterTests
         Assert.Equal(2, type.Members.Count);
         Assert.All(type.Members, member => Assert.True(member.IsAbstract));
 
-        var result = _printer.Print(new CSharpTypePrintRequest(type));
+        Assert.All(type.Members, member => Assert.True(member.IsOverride));
+        Assert.Throws<NotSupportedException>(
+            () => _printer.Print(new CSharpTypePrintRequest(type)));
+    }
 
-        Assert.Contains("abstract int", result.Source, StringComparison.Ordinal);
-        Assert.Contains("abstract event", result.Source, StringComparison.Ordinal);
-        AssertCompiles(
-            result.Source,
-            """
-            namespace ILInspector.CSharp.Tests;
-
-            public interface IReabstractedSurface
+    [Fact]
+    public void StrictPrinterSnapshotPreservesAccessorAccessibilityFacts()
+    {
+        var property = new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            Accessibility = "protected internal",
+            SignatureModel = new ApiSignature
             {
-                void Reset();
-                int Value { get; }
-                event System.Action Changed;
-            }
-            """);
+                ReturnType = "int",
+                MemberName = "Value",
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "get", Accessibility = "protected" },
+                    new ApiAccessor { Kind = "set", Accessibility = "internal" }
+                ]
+            },
+            AccessorFacts =
+            [
+                new ApiAccessor { Kind = "get", Accessibility = "protected" },
+                new ApiAccessor { Kind = "set", Accessibility = "internal" }
+            ]
+        };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "AccessorHost",
+            Kind = "class",
+            Members = [property]
+        };
+
+        NotSupportedException exception = Assert.Throws<NotSupportedException>(
+            () => _printer.Print(new CSharpTypePrintRequest(type)));
+
+        Assert.Contains(
+            "incomparable metadata accessor accessibilities",
+            exception.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -787,24 +815,13 @@ public sealed class CSharpTypePrinterTests
         ApiMember method = Assert.Single(type.Members);
         Assert.True(method.IsAbstract);
         Assert.True(method.IsVirtual);
-        Assert.False(method.IsOverride);
-        Assert.False(method.IsSealed);
+        Assert.True(method.IsOverride);
+        Assert.True(method.IsSealed);
+        Assert.True(method.IsFinal);
+        Assert.False(method.IsNewSlot);
 
-        var result = _printer.Print(new CSharpTypePrintRequest(type));
-
-        Assert.Contains("abstract void", result.Source, StringComparison.Ordinal);
-        AssertCompiles(
-            result.Source,
-            """
-            namespace ILInspector.CSharp.Tests;
-
-            public interface IReabstractedSurface
-            {
-                void Reset();
-                int Value { get; }
-                event System.Action Changed;
-            }
-            """);
+        Assert.Throws<NotSupportedException>(
+            () => _printer.Print(new CSharpTypePrintRequest(type)));
     }
 
     [Fact]
@@ -834,24 +851,13 @@ public sealed class CSharpTypePrinterTests
         ApiMember method = Assert.Single(type.Members);
         Assert.False(method.IsAbstract);
         Assert.True(method.IsVirtual);
-        Assert.False(method.IsOverride);
-        Assert.False(method.IsSealed);
+        Assert.True(method.IsOverride);
+        Assert.True(method.IsSealed);
+        Assert.True(method.IsFinal);
+        Assert.False(method.IsNewSlot);
 
-        var result = _printer.Print(new CSharpTypePrintRequest(type));
-
-        Assert.Contains("throw null;", result.Source, StringComparison.Ordinal);
-        AssertCompiles(
-            result.Source,
-            """
-            namespace ILInspector.CSharp.Tests;
-
-            public interface IReabstractedSurface
-            {
-                void Reset();
-                int Value { get; }
-                event System.Action Changed;
-            }
-            """);
+        Assert.Throws<NotSupportedException>(
+            () => _printer.Print(new CSharpTypePrintRequest(type)));
     }
 
     [Fact]

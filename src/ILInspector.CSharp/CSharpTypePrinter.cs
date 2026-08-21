@@ -946,6 +946,8 @@ public sealed class CSharpTypePrinter
             SignatureDecodeStatus = member.SignatureDecodeStatus,
             IsStatic = member.IsStatic,
             IsVirtual = member.IsVirtual,
+            IsNewSlot = member.IsNewSlot,
+            IsFinal = member.IsFinal,
             IsAbstract = member.IsAbstract,
             IsOverride = member.IsOverride,
             IsSealed = member.IsSealed,
@@ -953,6 +955,11 @@ public sealed class CSharpTypePrinter
             IsExplicitInterfaceImplementation = member.IsExplicitInterfaceImplementation,
             CanUseImplicitInterfaceSyntax =
                 member.CanUseImplicitInterfaceSyntax,
+            InterfaceImplementationResolution =
+                member.InterfaceImplementationResolution,
+            AccessorFacts = member.AccessorFacts
+                .Select(SnapshotAccessor)
+                .ToList(),
             IsReadOnly = member.IsReadOnly,
             IsConst = member.IsConst,
             IsUnsafe = member.IsUnsafe,

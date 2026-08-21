@@ -41,6 +41,7 @@ internal sealed record CSharpDeclarationOptions
     public bool IncludeObsoleteAttribute { get; init; } = true;
     public bool OmitInterfaceMemberModifiers { get; init; }
     public bool OmitPropertyAccessors { get; init; }
+    public bool AllowMetadataFallback { get; init; }
 
     /// <summary>
     /// When true, a finalizer member (<see cref="ApiMember.IsFinalizer"/>) is
@@ -1042,7 +1043,23 @@ internal static class CSharpDeclarationWriter
         CSharpDeclarationOptions options,
         IReadOnlyList<string>? methodParameters = null)
     {
-        EnsureExplicitInterfaceAccessibilityIsRepresentable(member);
+        string? explicitInterfaceFailure =
+            ExplicitInterfaceRepresentabilityFailure(member);
+        if (explicitInterfaceFailure is not null
+            && !options.AllowMetadataFallback)
+        {
+            throw new NotSupportedException(explicitInterfaceFailure);
+        }
+        if (explicitInterfaceFailure is not null)
+            return RenderMetadataMethodImplFallback(member);
+        string? accessorFailure =
+            AccessorAccessibilityRepresentabilityFailure(member);
+        if (accessorFailure is not null)
+        {
+            if (!options.AllowMetadataFallback)
+                throw new NotSupportedException(accessorFailure);
+            return RenderMetadataAccessorFallback(member);
+        }
 
         string signature;
         var renderedFromModel = false;
@@ -1921,35 +1938,125 @@ internal static class CSharpDeclarationWriter
         => member.Kind == "explicit-interface-implementation"
             || member.IsExplicitInterfaceImplementation;
 
-    static void EnsureExplicitInterfaceAccessibilityIsRepresentable(ApiMember member)
+    static string? ExplicitInterfaceRepresentabilityFailure(ApiMember member)
     {
         if (member.IsFinalizer
             || !IsExplicitInterfaceImplementation(member))
         {
-            return;
+            return null;
+        }
+
+        if (member.IsOverride
+            && !member.CanUseImplicitInterfaceSyntax)
+        {
+            return
+                "A MethodImpl body also reuses a base virtual slot, "
+                + "which explicit-interface C# syntax cannot represent.";
         }
 
         if (!member.Name.Contains('.', StringComparison.Ordinal))
         {
             if (member.CanUseImplicitInterfaceSyntax)
-                return;
+                return null;
 
-            throw new NotSupportedException(
+            return
                 "An explicit interface member has no qualified metadata name, "
-                + "so C# cannot represent its MethodImpl target.");
+                + "so C# cannot represent its MethodImpl target.";
         }
         if (string.Equals(
                 member.Accessibility,
                 "private",
                 StringComparison.Ordinal))
         {
-            return;
+            return null;
         }
 
         string accessibility = member.Accessibility ?? "public";
-        throw new NotSupportedException(
+        return
             $"An explicit interface member has metadata accessibility '{accessibility}', "
-            + "which C# cannot represent.");
+            + "which C# cannot represent.";
+    }
+
+    static string? AccessorAccessibilityRepresentabilityFailure(
+        ApiMember member)
+    {
+        if (member.AccessorFacts.Count < 2)
+            return null;
+
+        string[] accessibilities = member.AccessorFacts
+            .Select(static accessor => accessor.Accessibility ?? "public")
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (accessibilities.Length <= 1)
+            return null;
+
+        if (IsEvent(member))
+        {
+            return
+                $"Event '{member.Name}' has unequal metadata accessor accessibilities, "
+                + "which C# cannot represent.";
+        }
+
+        string memberAccessibility = member.Accessibility ?? "public";
+        int differingAccessors = member.AccessorFacts.Count(accessor =>
+            !string.Equals(
+                accessor.Accessibility ?? "public",
+                memberAccessibility,
+                StringComparison.Ordinal));
+        if (differingAccessors <= 1)
+            return null;
+
+        return
+            $"Property '{member.Name}' has incomparable metadata accessor accessibilities, "
+            + "which C# cannot represent.";
+    }
+
+    static string RenderMetadataAccessorFallback(ApiMember member)
+    {
+        string accessibility = member.Accessibility ?? "public";
+        string memberType =
+            member.SignatureModel?.ReturnType
+            ?? member.ReturnType
+            ?? "<unknown>";
+        string accessors = string.Join(
+            ", ",
+            member.AccessorFacts.Select(accessor =>
+                $"{accessor.Kind}: {accessor.Accessibility ?? "public"}"));
+        return
+            $"metadata {member.Kind} {accessibility} {memberType} "
+            + $"{member.Name} ({accessors})";
+    }
+
+    static string RenderMetadataMethodImplFallback(ApiMember member)
+    {
+        var modifiers = new List<string>
+        {
+            member.Accessibility ?? "public"
+        };
+        if (member.IsStatic)
+            modifiers.Add("static");
+        if (member.IsFinal)
+            modifiers.Add("final");
+        if (member.IsNewSlot)
+            modifiers.Add("newslot");
+        if (member.IsOverride)
+            modifiers.Add("override");
+        else if (member.IsVirtual)
+            modifiers.Add("virtual");
+        if (member.IsAbstract)
+            modifiers.Add("abstract");
+        string signature =
+            member.Signature
+            ?? member.SignatureModel?.MemberName
+            ?? member.Name;
+        string resolution =
+            member.InterfaceImplementationResolution
+                ?.ToString()
+                .ToLowerInvariant()
+            ?? "unrepresentable";
+        return
+            $"metadata MethodImpl ({resolution}) "
+            + $"{string.Join(" ", modifiers)} {signature}";
     }
 
     static bool IsEvent(ApiMember member)
