@@ -772,15 +772,17 @@ selection, ref->def jump targets, cell escaping, heap addressing and coverage
 notes, and the row inspector.
 
 `src/doc-viewer.ts` owns the package document modal (the Markdown reader
-opened from a package's documents list), including its rendered close and
-bare-backdrop bindings. `src/document-inspection.ts` owns its sequence-guarded async
-load/close lifecycle, visible failure, and frontmatter projection.
+opened from a package's documents list) and that list's markup, including its
+open, close, and bare-backdrop bindings. `src/document-inspection.ts` owns its
+sequence-guarded async load/close lifecycle, visible failure, and frontmatter
+projection.
 `dotnet-inspect.ts` validates the selected package document and supplies the
 engine, sanitized Markdown-rendering, state, and render ports.
 `test/doc-viewer.test.ts` gates the closed/no-document fallback, loading and
 error presentation, the
 frontmatter card's presence and fields, and title/subtitle/frontmatter-name
-escaping, plus button/backdrop close dispatch;
+escaping, package-document list output, open dispatch, and button/backdrop
+close dispatch;
 `test/document-inspection.test.ts` gates exact request coordinates,
 frontmatter projection, stale-stage suppression, visible failures, and close
 invalidation (the rendered document body is trusted, pre-sanitized Markdown
