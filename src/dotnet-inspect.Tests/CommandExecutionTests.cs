@@ -22118,6 +22118,35 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_LocalLibraryCanonicalOperator_UsesMemberPipeline()
+    {
+        string[] tail =
+        [
+            "--library",
+            typeof(DateTime).Assembly.Location,
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            [
+                "member",
+                "System.DateTime",
+                "-m",
+                "op_Addition",
+                .. tail
+            ]);
+        var routed = await RunAppAsync(
+            ["System.DateTime.op_Addition", .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Equal("1", routed.Output.Trim());
+    }
+
+    [Fact]
     public async Task Router_ExplicitSourceOperatorPrefixedIdentifierUsesMetadataBoundary()
     {
         const string target =

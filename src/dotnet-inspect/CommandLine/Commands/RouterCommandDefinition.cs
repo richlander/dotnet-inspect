@@ -508,6 +508,12 @@ public static class RouterCommandDefinition
                 StringComparison.OrdinalIgnoreCase);
             if (operatorIndex <= 0)
             {
+                operatorIndex = target.LastIndexOf(
+                    ".op_",
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            if (operatorIndex <= 0)
+            {
                 typeTarget = "";
                 memberSelector = "";
                 return false;

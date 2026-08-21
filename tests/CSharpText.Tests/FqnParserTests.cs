@@ -66,6 +66,7 @@ public class FqnParserTests
     [InlineData("Dictionary<,TValue>")]
     [InlineData("Dictionary<TKey,,TValue>")]
     [InlineData("Dictionary<List<>,TValue>")]
+    [InlineData("List<Dictionary<,>>")]
     [InlineData("Dictionary<TKey,<TValue>>")]
     [InlineData("Dictionary<List<T>U,TValue>")]
     [InlineData("Dictionary<List<T> U,TValue>")]

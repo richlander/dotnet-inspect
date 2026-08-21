@@ -363,6 +363,9 @@ public static class FqnParser
         }
         if (isUnboundGeneric)
         {
+            if (nestingValidated)
+                return false;
+
             count = unboundArity;
             return true;
         }
