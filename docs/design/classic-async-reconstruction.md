@@ -10,8 +10,8 @@
 ## Status
 
 Design. Tracking: [#4472](https://github.com/richlander/dotnet-inspect/issues/4472).
-Not implemented. r1–r13 were BLOCKED; this revision is the replacement
-after integrating `origin/main` `99747bc2c`.
+Not implemented. r1–r14 were BLOCKED; this revision is the replacement
+after integrating `origin/main` `d073009ed`.
 
 `ClassicAsyncReconstructionPass` remains the current fixture-shaped raise.
 
@@ -184,6 +184,10 @@ PassContext.ClassicAsyncDecision
   Unavailable(ImportInternalError)
                          pass deliberately produces no classic outcome
 
+NestedFunctionEmbeddingDisposition
+  Embeddable
+  RetainLowered(AsyncDeclarationCarrierUnavailable | UnsupportedBody)
+
 ClassicAsyncDecision
   KickoffIdentity        module-scoped MethodDef identity
   Outcome
@@ -333,12 +337,37 @@ of calling `IrPasses.Run` with the parent's context.
 
 Imported lambdas, local functions, iterator `MoveNext` bodies, and other
 reconstruction companions therefore recognize/decline under their own
-identity. Any embedded marker/body travels with their IR, but their
-decision cannot overwrite the outer prepared outcome. A source-
+identity. Their decision cannot overwrite the outer prepared outcome,
+and body embedding is a separate typed disposition below. A source-
 architecture gate inventories every product call that runs a pass list
 over a foreign function and permits only
 `PassContext.RunForeignFunctionPipeline`; direct parent-context
 `IrPasses.Run` is zero.
+
+Foreign execution and foreign declaration embedding are separate
+decisions. `Lambda` and `LocalFunctionStatement` do not carry an async
+declaration modifier or classic stage state. Slices 0 and 1 do not add
+that carrier and therefore must not embed a foreign function that needs
+it. One Decompiler-owned
+`NestedFunctionEmbeddingPolicy.Classify(IrFunction)` returns either
+`Embeddable` or `RetainLowered(Reason)`. Both `LambdaRaisingPass` and
+`LocalFunctionRaisingPass` consume it after the foreign pipeline:
+
+- `RequiresAsyncBodyModifier` is
+  `RetainLowered(AsyncDeclarationCarrierUnavailable)`
+- an `UnsupportedNode`, including classic decline or importer crash, is
+  `RetainLowered(UnsupportedBody)`
+- only a body that passes those shared checks plus the existing
+  signature, local, and shape checks is `Embeddable`
+
+`RetainLowered` means the raising pass leaves the compiler-shaped
+invocation/delegate and generated method relationship intact; it does
+not manufacture a nested declaration or borrow the outer modifier.
+The independently imported function may still own its local classic
+decision for evidence and direct rendering. A future slice may add a
+typed async local/lambda declaration carrier, but it must then define
+modifier, outcome, diagnostics, and validity together before changing
+this disposition.
 
 Once an address resolves, its classification is metadata-only and
 exists even when the method is bodyless or body preparation fails. The
@@ -620,10 +649,15 @@ through today's `TryBuild*`. Legacy raise eligibility stays unchanged.
 `HasUnexpectedStore` / empty `HasUnexpectedExpressionStatement`
 allow lists are not that ledger.
 
-`Outcome = Reconstructed` in slice 0 means **a current `TryBuild*`
-succeeded under the unchanged legacy builder gate**. Every method with
-`IsClassicAsync = Yes` that prepared successfully and did not
-reconstruct is `Declined`.
+`Outcome = Reconstructed` in slice 0 means **the current kickoff
+eligibility, builder gate, and a current `TryBuild*` all succeeded**.
+Structured classification may widen the population that receives an
+honest decline, but it does not make async local/lambda state-machine
+names, Debug classes, async void, or another previously ineligible
+kickoff newly reconstructable. `LegacyRaiseEligibility` records that
+boundary separately from recognition. Every method with
+`IsClassicAsync = Yes` that prepared successfully and did not satisfy
+it is `Declined`.
 
 `Declined` reasons include `NoMoveNext`,
 `UnrecognizedAwaiterProtocol`, `UnconsumedMoveNextRegion`,
@@ -732,8 +766,12 @@ the decompiler library and corpus.
    central execution entry always derives a context and resets the
    directive to `None`, including when stepping is disabled. Local
    functions, lambdas, and reducible/foreach iterator `MoveNext`
-   pipelines each get their own identity, decision, marker/body, and
-   outcome.
+   pipelines each get their own identity and decision. Slices 0 and 1
+   retain compiler-shaped calls/delegates instead of embedding a body
+   whose foreign result requires `async` or contains an unsupported
+   marker. `NestedFunctionEmbeddingPolicy` is one shared gate for lambda
+   and local-function raising; an async declaration carrier is a future
+   design prerequisite, not an inferred printer bit.
 7. **Every metadata-addressed declared source-body path uses one front
    door.**
    MemberCodeProvider, direct Research, Research queries,
@@ -781,8 +819,11 @@ the union; a stage inherits an outcome captured only by another stage;
 a post-classic failure changes the modifier selected by its retained
 outcome; a post-import non-DEC0001 stage failure does not count as
 inspected; a parent directive reaches a reducible or foreach iterator
-foreign-function pipeline; the physical C# diff imports a companion
-body; a stage,
+foreign-function pipeline; lambda and local-function raising use
+different embedding rules; a foreign body that requires `async` is
+embedded in a declaration with no async carrier; an unsupported foreign
+body is embedded instead of retained lowered; the physical C# diff
+imports a companion body; a stage,
 corpus, or harness render differs from prepared Raised output for the
 same classic fixture; an in-domain library `MoveNext` still lacks
 distinctive user logic; or an async-iterator `MoveNext` is no longer
@@ -817,7 +858,7 @@ another raise. Do not invent more `TryBuild*` methods.
 
 | Slice | Claim | Residual after it |
 | --- | --- | --- |
-| 0. Honesty | Add SRM `IsClassicAsync`, structured exact-or-selector addressing with resolved `Bodyless`, Decompiler-owned `MetadataBodyProjectionResult`, detached function snapshots, complete classic application values, and typed body carriers. `ClassicAsyncReconstructionPass` remains the single decision implementation: the projector captures/replays one decision across top-level stages, import-internal-error crash functions remain outcome-unavailable, and one foreign-function pipeline entry always resets the parent directive. Seam-enabled stage/corpus/harness runs use the same pass. Every declared source-body path canonicalizes through the front door; seam-free physical evidence remains separate. Every healthy classic decline gets a marker: replace exact narrow handoff; prepend while preserving a non-narrow body. Correlate Debug class allocation and void `Return(null)`. Leave legacy raise eligibility unchanged. Stop hollowing in-domain `MoveNext`; library + corpus A/B. | #4472 fixture still declined, but honest. Debug class SMs are honest but not raised. Async-iterator `MoveNext` still hollow. Custom builders visibly decline with preserved bodies. Bodyless members remain absent/declaration-only. Importer crash markers and metadata modifiers remain unchanged. Physical C# diff remains MethodDef-scoped and seam-free. No trusted Metadata/Analysis lift. |
+| 0. Honesty | Add SRM `IsClassicAsync`, structured exact-or-selector addressing with resolved `Bodyless`, Decompiler-owned `MetadataBodyProjectionResult`, detached function snapshots, complete classic application values, and typed body carriers. `ClassicAsyncReconstructionPass` remains the single decision implementation: the projector captures/replays one decision across top-level stages, import-internal-error crash functions remain outcome-unavailable, and one foreign-function pipeline entry always resets the parent directive. A shared nested-function embedding policy retains any body requiring an async declaration carrier or carrying an unsupported marker as lowered compiler structure. Seam-enabled stage/corpus/harness runs use the same pass. Every declared source-body path canonicalizes through the front door; seam-free physical evidence remains separate. Every healthy classic decline gets a marker: replace exact narrow handoff; prepend while preserving a non-narrow body. Correlate Debug class allocation and void `Return(null)`. Leave legacy raise eligibility unchanged. Stop hollowing in-domain `MoveNext`; library + corpus A/B. | #4472 fixture still declined, but honest. Debug class SMs are honest but not raised. Async-iterator `MoveNext` still hollow. Custom builders visibly decline with preserved bodies. Bodyless members remain absent/declaration-only. Importer crash markers and metadata modifiers remain unchanged. Async local/lambda declarations are not reconstructed until they have a typed async carrier. Physical C# diff remains MethodDef-scoped and seam-free. No trusted Metadata/Analysis lift. |
 | 1. Void-await then statements then return | Accept `await Task.Yield(); return ReadValue(value);` as the first inverse raise from `AwaitPoints` + `UserRegions`, not as a new `TryBuild*` and not as a `HasUnexpectedStore` allow-list tweak. Must consume void `GetResult` as a statement, following statements, a non-await `SetResult` operand, the Yield operand temp, and an explicit `LoadLocalAddress` decline-then-remap. Hoisted parameter binding is already present. The smaller `await Task.Yield();` (no later statements) is the accepted boundary of the same slice. Blocked until the Correct measurement exists. | General multi-state dispatch, class SM, custom awaiters, structural Metadata descriptor, census-defined raises. |
 
 ## Proof obligations (every raise slice)
@@ -844,7 +885,10 @@ another raise. Do not invent more `TryBuild*` methods.
 - Still-flat negatives: existing lookalikes; extra kickoff
   statements; unmatched `LoadLocalAddress` before remap exists;
   class state machine for raising (slice 0 must still recognize and mark it).
-- Nested-function negative: async local function (one hop only).
+- Nested-function negatives: compiler-produced classic async local
+  function and lambda, each at Raised and Lowered. They make their own
+  decision but remain lowered; no `await` body is embedded in a
+  non-async declaration.
 - Slice-0 honesty witnesses (not slice-1 raises): `NoAwait`,
   `Async_VoidBuilder`.
 - Pinned real witness: the #4472 `member` render, Before/After from
@@ -860,6 +904,8 @@ another raise. Do not invent more `TryBuild*` methods.
 - Moving Analysis `MemberRef` / `MemberResolver` / `FrameworkIdentity`
   / attribution filters into Metadata.
 - A product-surface listing filter for nested SM types.
+- An async-capable `LocalFunctionStatement` / `Lambda` declaration
+  carrier or accepted nested classic-async raise.
 - Teaching `TypeShellProducer` about reconstruction outcomes.
 - Changing `CSharpBodyDiff` from physical MethodDef evidence into a
   reconstructed source-body comparison.
@@ -874,6 +920,7 @@ another raise. Do not invent more `TryBuild*` methods.
 | Structural attribute type-arg decode | Metadata residual, not slice 0 |
 | Attribution filters | Analysis |
 | `ClassicAsyncMachine`, decision, and application | Decompiler `ClassicAsyncReconstructionPass` |
+| Slice-0 accepted-raise boundary | Decompiler `LegacyRaiseEligibility`, separate from broader recognition |
 | Classic-async metadata fact | Metadata import → `MethodBody` / `IrFunction` |
 | Exact-or-selector address canonicalization and bodyless/imported/failure union | Decompiler `MetadataBodyProjector` over existing `MetadataMethodAddress` / resolver |
 | Frozen import diagnostics / DEC0001 observation | Decompiler `MetadataBodyProjector` at importer return |
@@ -881,6 +928,7 @@ another raise. Do not invent more `TryBuild*` methods.
 | Shared cross-stage replay authority | Decompiler `MetadataBodyProjection` + `PassContext`, scoped to one top-level prepared host |
 | Stage-local decision/outcome/unavailable state | Decompiler `StageBodyProjection` |
 | Foreign-function execution and classic-directive reset | Decompiler `PassContext.RunForeignFunctionPipeline` |
+| Nested lambda/local-function embedding disposition | Decompiler `NestedFunctionEmbeddingPolicy`, consumed by both raising passes |
 | Canonical classic projection | Decompiler stage snapshots + `NotClassic` / `Reconstructed` / `Declined` |
 | Public typed-body carrier | Decompiler `MemberBodyProductionResult` |
 | Whole-type body/outcome carrier | Decompiler internal `DecompiledBodyProjection` |
@@ -910,8 +958,10 @@ predicate. They must not assume current kickoffs are Full.
 | Complete classic application replay | Decompiler pass/projector tests with accepted interface-fact + declined diagnostic fixtures | A second prepared stage recognizes again; supplied replay differs in body, local state, type facts, diagnostics, provenance/fidelity, modifier state, or outcome; a supplied decision applies to a different kickoff |
 | Stage-local classic state | Decompiler projector tests with a frozen DEC0001 import and injected pre-classic, in-classic, and post-classic failures in both Raised-first and Lowered-first order | A healthy `Prepared` stage lacks `Decided`; a DEC0001 `Prepared` stage is not `Unavailable` or acquires a captured decision; a pre-pass failure acquires another stage's later outcome; recognition/application or supplied-identity failure is not `DecisionFailed`; a post-pass failure loses its own decision/outcome; or two `Decided` stages disagree with shared replay authority |
 | Snapshot clone isolation | Decompiler snapshot/render tests with diagnostic-producing fixture | Mutating one render clone changes a prepared snapshot, another stage/render, diagnostics, local state, type facts, or outcome |
-| Foreign-function decision scope | Decompiler pass/projector tests with compiler-produced classic async local function/lambda plus reducible and foreach iterator paths, each at Raised and Lowered stages | An outer supplied/unavailable directive reaches a foreign-function pipeline; non-stepping execution returns the parent context; nested identity validation fails against the outer kickoff; or nested marker/body/outcome is attributed to the outer decision |
+| Foreign-function decision scope | Decompiler pass/projector tests with compiler-produced classic async local function/lambda plus reducible and foreach iterator paths, each at Raised and Lowered stages | An outer supplied/unavailable directive reaches a foreign-function pipeline; non-stepping execution returns the parent context; nested identity validation fails against the outer kickoff; a nested function fails to make its own decision; or nested state is attributed to the outer decision |
 | Foreign-function pipeline architecture | Source-architecture test over product pass-run sites | Any pass list runs over a separately imported function outside `PassContext.RunForeignFunctionPipeline`, or a direct foreign-function `IrPasses.Run` site appears |
+| Nested async declaration-carrier boundary | Decompiler product tests with compiler-produced classic async local function/lambda shapes that would otherwise reconstruct, decline, or return an importer crash, at Raised and Lowered | A foreign body requiring `async` or containing an unsupported marker becomes a `LocalFunctionStatement`/`Lambda`; the compiler-shaped invocation/delegate is removed; `await` appears in a nested declaration without `async`; or either raising pass differs |
+| Nested embedding architecture | Source-architecture test `NestedFunctionEmbeddingUsesSharedPolicy` | A product `Lambda` or `LocalFunctionStatement` construction from an imported function bypasses `NestedFunctionEmbeddingPolicy`, or the two raising passes own separate async/unsupported checks |
 | Prepared/canonical pipeline parity | `PipelineStageTests.DumpMethod_FinalCSharp_IsTheShippedProductOutput` with compiler-produced reconstructed + declined fixtures and a malformed importer-crash fixture | Terminal seam-enabled stage C# or outcome presence/value differs from prepared Raised output |
 | Corpus/harness classic policy | Decompiler harness contract tests + `CorpusSensor` classic profile | Handle-free sweep or fidelity/validity/render A/B bypasses the pass, misses a decline marker, or loses an accepted reconstruction |
 | Declined classic body, narrow and non-narrow | Five CLI code views + public typed body + whole-type | Render lacks the unsupported marker comment |
@@ -926,6 +976,7 @@ predicate. They must not assume current kickoffs are Full.
 | Debug class narrow handoff | Decompiler library | Correlated `StoreLocal(NewObject(SM::.ctor))` prevents recognition |
 | Async-void narrow handoff | Decompiler library | Terminal `Return(null)` prevents recognition |
 | Non-generic ValueTask / async-void legacy raise negative | Decompiler library | Slice 0 newly reconstructs it |
+| Exact legacy raise population | Decompiler pass tests derived from the current accepted fixture set, with close Debug-class, async-void, async local/lambda, custom-builder, and lookalike negatives | Structured recognition changes which fixtures reconstruct in slice 0, or a new `TryBuild*`/eligibility path escapes set equality |
 | Typed body carriers | `MemberBodyProducer` tests | Outcome/classification is lost in `ProduceBody` or between `DecompileBody` and declaration formatting, or `Bodyless` becomes `ImportFailed` or a failed stage |
 | Body Shape source projection | Decompiler product tests with bodyless, null import, imported DEC0001, imported nonfatal diagnostic, and post-import stage/render-failure fixtures | Search creates a second classic decision, retains the broad classic-or-async-iterator heuristic, records `Bodyless` as inspected/incomplete/failure, counts null import or imported DEC0001 as inspected, skips an imported nonfatal diagnostic, or fails to count a later stage/render failure as inspected |
 | Physical C# body diff boundary | `CSharpBodyDiff` product tests | Diff wires `importMethodBody`, admits foreign MethodDef origins, carries a classic outcome/marker, or changes non-classic lines/offsets |
@@ -942,6 +993,13 @@ modifier formatting must fail its independent gate. Widening
 `IsAsyncMethodBuilder` must fail the legacy-raise negative. A green
 `TypeShellProducer` test is not this gate. A green "fidelity is not
 Full" check is not this gate.
+
+Deleting the shared nested embedding check from either raising pass
+must fail both the compiled validity fixture and
+`NestedFunctionEmbeddingUsesSharedPolicy`. A synthetic
+`LocalFunctionStatement` with an await expression is not sufficient:
+the outcome gate must prove that a compiler-produced classic async
+local/lambda remains lowered at both stages.
 
 The architecture test discovers every product-project reference to
 `CSharpPrinter` body emission and direct top-level pass execution; it
@@ -963,8 +1021,11 @@ complete-application or clone-isolation gate. Reusing a supplied
 top-level directive in any foreign-function pipeline must fail the
 local/lambda and iterator fixtures at both stages. Bypassing
 `RunForeignFunctionPipeline` must independently fail the architecture
-inventory. Removing selector canonicalization must fail the stale-token
-row, not silently retain a direct printer branch.
+inventory. Bypassing `NestedFunctionEmbeddingPolicy` or splitting its
+async/unsupported checks between lambda and local-function raising must
+fail the separate embedding architecture inventory. Removing selector
+canonicalization must fail the stale-token row, not silently retain a
+direct printer branch.
 Collapsing `Bodyless` into `ImportFailed`, a failed stage, `NotClassic`,
 or a consumer-side RVA precheck must fail exact/selector bodyless parity
 and all three surface dispositions. Adding a consumer-side body-status
