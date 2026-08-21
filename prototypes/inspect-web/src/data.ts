@@ -96,6 +96,19 @@ export interface PlatformPackHint {
   pack?: string | null;
 }
 
+export function runtimePackForFramework<
+  TPack extends { activeFramework?: string },
+>(
+  pack: TPack | null | undefined,
+  framework: string,
+): TPack | null {
+  if (!pack || !framework) return pack ?? null;
+  return String(pack.activeFramework || "").toLowerCase()
+      === String(framework).toLowerCase()
+    ? pack
+    : null;
+}
+
 export function platformPackFromProvenance(
   assembly: string,
   exactPack: unknown,

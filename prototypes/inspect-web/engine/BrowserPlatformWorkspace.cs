@@ -435,7 +435,7 @@ internal static class BrowserPlatformWorkspace
                 declaration: null).ConfigureAwait(false);
         }
 
-        PlatformLoadAttempt runtime = await ProbeFamilyAsync(
+        using PlatformLoadAttempt runtime = await ProbeFamilyAsync(
             state,
             targetFramework,
             RuntimeFamily,
@@ -446,11 +446,10 @@ internal static class BrowserPlatformWorkspace
         if (runtime.Failure is not null
             && !IsAssemblyUnavailable(runtime.Failure))
         {
-            runtime.Scope?.Dispose();
             throw Failure(runtime.Failure);
         }
 
-        PlatformLoadAttempt aspNetCore = await ProbeFamilyAsync(
+        using PlatformLoadAttempt aspNetCore = await ProbeFamilyAsync(
             state,
             targetFramework,
             AspNetCoreFamily,
@@ -461,15 +460,11 @@ internal static class BrowserPlatformWorkspace
         if (aspNetCore.Failure is not null
             && !IsAssemblyUnavailable(aspNetCore.Failure))
         {
-            runtime.Scope?.Dispose();
-            aspNetCore.Scope?.Dispose();
             throw Failure(aspNetCore.Failure);
         }
 
         if (runtime.Scope is not null && aspNetCore.Scope is not null)
         {
-            runtime.Scope.Dispose();
-            aspNetCore.Scope.Dispose();
             throw new InvalidOperationException(
                 $"Platform assembly '{assembly}' belongs to more than one supported platform family.");
         }
@@ -494,13 +489,6 @@ internal static class BrowserPlatformWorkspace
                 + FailureMessage(aspNetCore.Failure!));
         }
 
-        PlatformLoadAttempt? declaration = state.Coordinates.Any(coordinate =>
-            coordinate.Family.Equals(family, StringComparison.Ordinal))
-                ? null
-                : selected;
-        if (declaration is null)
-            selected.Scope!.Dispose();
-
         return await OpenCoreAsync(
             targetKey,
             targetFramework,
@@ -509,7 +497,10 @@ internal static class BrowserPlatformWorkspace
             host,
             deadline,
             packageLeases,
-            declaration).ConfigureAwait(false);
+            declaration: state.Coordinates.Any(coordinate =>
+                coordinate.Family.Equals(family, StringComparison.Ordinal))
+                    ? null
+                    : selected).ConfigureAwait(false);
     }
 
     static async Task<BrowserPlatformScopeResolution> OpenCoreAsync(
@@ -628,15 +619,16 @@ internal static class BrowserPlatformWorkspace
                         StringComparison.Ordinal));
             if (familyCoordinate is null)
             {
-                PlatformLoadAttempt declared =
-                    declaration
-                    ?? await LoadDeclaredAttemptAsync(
+                using PlatformLoadAttempt? loaded = declaration is null
+                    ? await LoadDeclaredAttemptAsync(
                         targetFramework,
                         selection.Family,
                         selection.Assembly,
                         host,
                         deadline,
-                        packageLeases).ConfigureAwait(false);
+                        packageLeases).ConfigureAwait(false)
+                    : null;
+                PlatformLoadAttempt declared = declaration ?? loaded!;
                 if (declared.Failure is not null)
                     throw Failure(declared.Failure);
                 try
@@ -656,12 +648,8 @@ internal static class BrowserPlatformWorkspace
                 if (state.Coordinates.IsEmpty
                     && selections.Length == 1)
                 {
-                    candidate = declared.Scope;
+                    candidate = declared.ReleaseScope();
                     packageKeys = declared.PackageKeys;
-                }
-                else
-                {
-                    declared.Scope!.Dispose();
                 }
             }
             else
@@ -868,13 +856,13 @@ internal static class BrowserPlatformWorkspace
                     loaded,
                     platformPacks),
                 packageKeys,
-                Failure: null);
+                failure: null);
         }
 
         workspace.Dispose();
         return outcome is WorkspaceContextLoadOutcome.Failed failed
             ? new PlatformLoadAttempt(
-                Scope: null,
+                scope: null,
                 packageKeys,
                 failed)
             : throw new InvalidOperationException(
@@ -1172,10 +1160,36 @@ internal static class BrowserPlatformWorkspace
         internal long LastAccess { get; set; }
     }
 
-    sealed record PlatformLoadAttempt(
-        BrowserPlatformScope? Scope,
-        ImmutableHashSet<string> PackageKeys,
-        WorkspaceContextLoadOutcome.Failed? Failure);
+    sealed class PlatformLoadAttempt(
+        BrowserPlatformScope? scope,
+        ImmutableHashSet<string> packageKeys,
+        WorkspaceContextLoadOutcome.Failed? failure) : IDisposable
+    {
+        BrowserPlatformScope? _scope = scope;
+
+        internal BrowserPlatformScope? Scope => _scope;
+
+        internal ImmutableHashSet<string> PackageKeys { get; } =
+            packageKeys;
+
+        internal WorkspaceContextLoadOutcome.Failed? Failure { get; } =
+            failure;
+
+        internal BrowserPlatformScope ReleaseScope()
+        {
+            BrowserPlatformScope released = _scope
+                ?? throw new InvalidOperationException(
+                    "A failed platform load attempt has no scope to release.");
+            _scope = null;
+            return released;
+        }
+
+        public void Dispose()
+        {
+            _scope?.Dispose();
+            _scope = null;
+        }
+    }
 
     static Host ProductionHost { get; } =
         new(

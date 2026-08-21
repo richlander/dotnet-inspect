@@ -62,6 +62,7 @@ import {
   resolveOpportunitySourceType,
   resolvePlatformGraphTargetType,
   resolveRuntimeGraphTargetCandidate,
+  runtimePackForFramework,
   runtimeGraphTargetAssemblyIsResident,
   runtimeGraphTargetNavigationDisposition,
   shareStateLengthError,
@@ -493,6 +494,61 @@ test("platform pack inference rejects cross-family ambiguity", () => {
   assert.match(
     appSource,
     /const resident = runtimeAssemblyIsResident\(\s*runtimePackPackage\(\),\s*key,\s*pack\)/);
+});
+
+test("runtime graph acquisition ignores a resident pack from another TFM", () => {
+  const stale = {
+    id: "Microsoft.NETCore.App",
+    activeFramework: "net8.0",
+    isRuntimePack: true,
+    assemblies: [{
+      id: "console",
+      name: "System.Console",
+      version: "8.0.0.0",
+      culture: null,
+      publicKeyToken: "b03f5f7f11d50a3a"
+    }],
+    types: [{
+      id: "System.Console:System.Console",
+      definitionId: "System.Console",
+      assemblyId: "console",
+      assemblyName: "System.Console"
+    }]
+  };
+  const net9Target = {
+    assembly: "System.Console",
+    assemblyVersion: "9.0.0.0",
+    assemblyCulture: null,
+    assemblyPublicKeyToken: "b03f5f7f11d50a3a",
+    typeDefinitionId: "System.Console",
+    kind: "external"
+  };
+
+  const usable = runtimePackForFramework(stale, "net9.0");
+  assert.equal(usable, null);
+  assert.equal(
+    combinedGraphTargetNavigationDisposition(
+      { status: "missing" },
+      usable
+        ? resolveRuntimeGraphTargetCandidate(usable, net9Target)
+        : null,
+      net9Target),
+    "platform");
+
+  const matching = runtimePackForFramework(stale, "NET8.0");
+  assert.equal(matching, stale);
+  assert.equal(
+    resolveRuntimeGraphTargetCandidate(
+      matching,
+      { ...net9Target, assemblyVersion: "8.0.0.0" }).status,
+    "unique");
+  assert.equal(
+    appSource.match(
+      /const pack = runtimePackForFramework\(\s*runtimePackPackage\(\),\s*state\.package\?\.activeFramework \|\| ""\)/g)?.length,
+    2);
+  assert.match(
+    appSource,
+    /let pack = runtimePackForFramework\(\s*runtimePackPackage\(\),\s*framework\)/);
 });
 
 test("shared platform state preserves an exact pack token", () => {
@@ -3687,6 +3743,12 @@ test("navigable call graph targets share mouse and keyboard activation", () => {
   assert.match(
     stylesSource,
     /\.graph-viewport g\.node\.nav-node:focus-visible rect,[\s\S]*?stroke: var\(--blue\); stroke-width: 3px;/);
+  assert.match(
+    appSource,
+    /id="platform-drill-error" class="graph-drill-error" role="alert" tabindex="-1"/);
+  assert.match(
+    appSource,
+    /function showPlatformTargetError[\s\S]*?render\(\);\s*focusPlatformGraphError\(document\);\s*await renderMermaidCallGraph\(\)/);
 });
 
 test("async graph work uses one source-view ownership contract", () => {

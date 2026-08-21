@@ -361,10 +361,76 @@ public sealed class BrowserEngineBoundaryTests
                 TestContext.Current.CancellationToken);
 
         Assert.Equal("aspnetcore", resolution.Coordinate.Family);
+        Assert.True(
+            BrowserPackageWorkspace.IsScopeRetained(resolution.Scope));
+        Assert.Single(resolution.Scope.Members);
         Assert.Equal(
             "aspnetcore.app",
             resolution.Scope.PlatformPackForAssembly(
                 "InspectWeb.Engine.Tests"));
+    }
+
+    [Fact]
+    public async Task PlatformWorkspace_UnknownFamilyCancellationLeavesTargetStateClean()
+    {
+        const string version = "11.0.104";
+        const string runtimePackage =
+            "microsoft.netcore.app.runtime.linux-x64";
+        const string aspNetPackage =
+            "microsoft.aspnetcore.app.runtime.linux-x64";
+        byte[] runtimeNupkg = PlatformPackage(
+            ("InspectWeb.Engine.Tests.dll",
+                File.ReadAllBytes(
+                    typeof(BrowserEngineBoundaryTests).Assembly.Location)));
+        byte[] aspNetNupkg = PlatformPackage(
+            ("Microsoft.AspNetCore.Http.dll",
+                File.ReadAllBytes(typeof(object).Assembly.Location)));
+        var handler = new MultiplePlatformVersionHandler(
+            version,
+            new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                [runtimePackage] = runtimeNupkg,
+                [aspNetPackage] = aspNetNupkg,
+            });
+        using var client = new HttpClient(handler);
+        var authorization =
+            new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
+        using var cancellation = new CancellationTokenSource();
+        handler.BeforeDownload = package =>
+        {
+            if (package.Equals(
+                    aspNetPackage,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                cancellation.Cancel();
+            }
+        };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => BrowserPlatformWorkspace.OpenAssemblyAsync(
+                "net11.0-auto-family-cancellation",
+                "InspectWeb.Engine.Tests.dll",
+                "",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                cancellation.Token));
+
+        handler.BeforeDownload = null;
+        using BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                "net11.0-auto-family-cancellation",
+                "InspectWeb.Engine.Tests.dll",
+                "",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal("runtime", resolution.Coordinate.Family);
+        Assert.True(
+            BrowserPackageWorkspace.IsScopeRetained(resolution.Scope));
+        Assert.Single(resolution.Scope.Members);
     }
 
     [Fact]

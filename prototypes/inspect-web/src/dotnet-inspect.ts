@@ -120,6 +120,7 @@ import { createDocumentInspectionCoordinator } from "./document-inspection.ts";
 import {
   captureMemberFocus,
   createMemberFocusRestorer,
+  focusPlatformGraphError,
   type MemberFocusSnapshot,
 } from "./member-focus.ts";
 import {
@@ -3657,7 +3658,7 @@ function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
               ? `<div class="graph-expanding"><span class="loader"></span> Range-fetching the implementation assembly from the runtime pack…</div>`
               : ""}
             ${state.platformDrillError
-              ? `<div class="graph-drill-error">${escapeHtml(state.platformDrillError)}</div>`
+              ? `<div id="platform-drill-error" class="graph-drill-error" role="alert" tabindex="-1">${escapeHtml(state.platformDrillError)}</div>`
               : ""}
             ${state.memberCallGraphExpanding
               ? `<div class="graph-expanding"><span class="loader"></span> Scanning ${otherWorkspaceLibraries} other librar${otherWorkspaceLibraries === 1 ? "y" : "ies"} for callers…</div>`
@@ -7137,7 +7138,9 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
   state.platformDrillLoading = false;
   state.platformDrillError = "";
   const framework = state.package?.activeFramework || "";
-  let pack = runtimePackPackage();
+  let pack = runtimePackForFramework(
+    runtimePackPackage(),
+    framework);
   if (!pack) {
     state.platformDrillLoading = true;
     state.platformDrillError = "";
@@ -7241,6 +7244,7 @@ async function showPlatformTargetError(
   state.platformDrillError =
     `Could not open ${node.typeFullName}.${node.memberName}: ${reason}.`;
   render();
+  focusPlatformGraphError(document);
   await renderMermaidCallGraph();
 }
 

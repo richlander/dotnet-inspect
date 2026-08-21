@@ -143,6 +143,16 @@ export function resolveMemberFocusSnapshot(
   return current.focusLost && fallback ? fallback : current;
 }
 
+export function focusPlatformGraphError(document: Document): boolean {
+  const error =
+    document.querySelector<HTMLElement>("#platform-drill-error");
+  if (!error)
+    return false;
+
+  error.focus();
+  return true;
+}
+
 export function restoreMemberFocus(
   document: Document,
   snapshot: MemberFocusSnapshot,
