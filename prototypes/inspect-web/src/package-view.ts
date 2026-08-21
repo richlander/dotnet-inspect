@@ -30,17 +30,17 @@ export function bindPackageDependencyList(
   actions: PackageDependencyBindingActions,
 ) {
   root.querySelectorAll<HTMLElement>("[data-dep-open]").forEach(button =>
-    button.addEventListener("click", () => {
+    button.onclick = () => {
       const key = button.dataset.depOpen;
       if (key) actions.onDependencyOpen(key);
-    }));
+    });
   root.querySelectorAll<HTMLElement>("[data-dep-load]").forEach(button =>
-    button.addEventListener("click", () => {
+    button.onclick = () => {
       const id = button.dataset.depLoad;
       if (id) {
         actions.onDependencyLoad(id, button.dataset.depVersion || "");
       }
-    }));
+    });
 }
 
 export function bindPackageView(
