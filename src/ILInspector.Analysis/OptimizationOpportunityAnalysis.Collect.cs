@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 
 using ILInspector.Instructions;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
@@ -748,10 +749,8 @@ internal static partial class OptimizationOpportunityAnalysis
         return true;
     }
 
+    // Canonical `N only; see MetadataNameArity.
     static string StripGenericArity(string name)
-    {
-        int tick = name.IndexOf('`');
-        return tick < 0 ? name : name[..tick];
-    }
+        => MetadataNameArity.StripFromNestedName(name);
 
 }

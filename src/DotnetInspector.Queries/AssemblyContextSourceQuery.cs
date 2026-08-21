@@ -733,12 +733,26 @@ public static class AssemblyContextSourceQuery
         AssemblyContextSourceQueryContext context,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        int maxEmbeddedPdbBytes =
+            context.SymbolAcquisitionLimits is { } acquisitionLimits
+                ? (int)Math.Min(
+                    Math.Min(
+                        acquisitionLimits.MaxPortablePdbBytes,
+                        acquisitionLimits.MaxExpandedPdbBytes),
+                    int.MaxValue)
+                : int.MaxValue;
+        var readLimits = new SourceLinkReadLimits(
+            maxEmbeddedPdbBytes,
+            maxMapBytes: int.MaxValue,
+            maxMappings: int.MaxValue);
         SourceLinkService source;
         try
         {
             source =
-                SourceLinkService.OpenMetadataOnly(
+                SourceLinkService.OpenEmbeddedPdbOnly(
                     retained,
+                    readLimits,
                     context.Log,
                     context.SourceLinkCache);
         }

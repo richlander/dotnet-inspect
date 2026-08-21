@@ -1,24 +1,27 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace ILInspector.Metadata;
 
 /// <summary>Why a structured metadata type-definition name could not be created.</summary>
 public enum MetadataTypeNameRejectionKind
 {
-    MissingNamespace,
-    MissingSegments,
-    MissingSegment,
-    InvalidSerializedName,
-    AssemblyQualifiedSerializedName,
-    NonDefinitionSerializedName,
+    MissingNamespace = 0,
+    MissingSegments = 1,
+    MissingSegment = 2,
+    TooManySegments = 7,
+    InvalidSerializedName = 3,
+    AssemblyQualifiedSerializedName = 4,
+    NonDefinitionSerializedName = 5,
 
     /// <summary>
     /// The namespace and segments together exceed
     /// <see cref="MetadataSafetyPolicy.MaxTypeNameCharacters"/>.
     /// </summary>
-    SegmentsTooLong,
+    SegmentsTooLong = 6,
 }
 
 /// <summary>Typed evidence for a rejected structured metadata type-definition name.</summary>
@@ -53,6 +56,7 @@ public abstract class MetadataTypeDefinitionNameResult
 /// An exact reader-independent metadata lookup name: namespace plus
 /// root-to-leaf metadata-name segments, including generic arity.
 /// </summary>
+[JsonConverter(typeof(MetadataTypeDefinitionNameJsonConverter))]
 public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefinitionName>
 {
     readonly int hashCode;
@@ -67,6 +71,159 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
         foreach (string segment in segments)
             hash.Add(segment, StringComparer.Ordinal);
         hashCode = hash.ToHashCode();
+    }
+
+    public sealed class MetadataTypeDefinitionNameJsonConverter
+        : JsonConverter<MetadataTypeDefinitionName>
+    {
+        public override MetadataTypeDefinitionName Read(
+            ref Utf8JsonReader reader,
+            Type typeToConvert,
+            JsonSerializerOptions options)
+        {
+            if (reader.TokenType != JsonTokenType.StartObject)
+            {
+                throw new JsonException(
+                    "A metadata type definition name must be an object.");
+            }
+
+            string? @namespace = null;
+            bool hasNamespace = false;
+            ImmutableArray<string>.Builder? segments = null;
+            int remainingCharacters =
+                MetadataSafetyPolicy.MaxTypeNameCharacters;
+            while (reader.Read()
+                && reader.TokenType != JsonTokenType.EndObject)
+            {
+                if (reader.TokenType != JsonTokenType.PropertyName)
+                    throw new JsonException("Expected a property name.");
+                bool isNamespace =
+                    reader.ValueTextEquals("namespace"u8);
+                bool isSegments =
+                    reader.ValueTextEquals("segments"u8);
+                if (!reader.Read())
+                    throw new JsonException("Unexpected end of JSON.");
+
+                if (isNamespace)
+                {
+                    if (hasNamespace)
+                        throw new JsonException(
+                            "The metadata namespace must occur once.");
+                    if (reader.TokenType != JsonTokenType.String)
+                        throw new JsonException(
+                            "The metadata namespace must be a string.");
+                    @namespace = ReadBoundedString(
+                        ref reader,
+                        remainingCharacters);
+                    remainingCharacters -= @namespace.Length;
+                    hasNamespace = true;
+                }
+                else if (isSegments)
+                {
+                    if (segments is not null)
+                        throw new JsonException(
+                            "Metadata name segments must occur once.");
+                    if (reader.TokenType != JsonTokenType.StartArray)
+                        throw new JsonException(
+                            "Metadata name segments must be an array.");
+                    segments = ImmutableArray.CreateBuilder<string>();
+                    while (reader.Read()
+                        && reader.TokenType != JsonTokenType.EndArray)
+                    {
+                        if (reader.TokenType != JsonTokenType.String)
+                            throw new JsonException(
+                                "A metadata name segment must be a string.");
+                        if (segments.Count
+                            == MetadataSafetyPolicy.MaxRelationshipNodes)
+                        {
+                            throw new JsonException(
+                                "The metadata name has too many segments.");
+                        }
+                        if (remainingCharacters == 0)
+                        {
+                            throw new JsonException(
+                                "The metadata name exceeds the character budget.");
+                        }
+                        remainingCharacters--;
+                        string segment = ReadBoundedString(
+                            ref reader,
+                            remainingCharacters);
+                        remainingCharacters -= segment.Length;
+                        segments.Add(segment);
+                    }
+                    if (reader.TokenType != JsonTokenType.EndArray)
+                        throw new JsonException(
+                            "Unexpected end of metadata name segments.");
+                }
+                else
+                {
+                    reader.Skip();
+                }
+            }
+            if (reader.TokenType != JsonTokenType.EndObject)
+                throw new JsonException("Unexpected end of JSON.");
+            if (!hasNamespace || segments is null)
+                throw new JsonException(
+                    "A metadata type definition name requires namespace and segments.");
+
+            return RequireValid(
+                MetadataTypeDefinitionName.Create(
+                    @namespace,
+                    segments.ToImmutable()));
+
+            static MetadataTypeDefinitionName RequireValid(
+                MetadataTypeDefinitionNameResult result) =>
+                result switch
+                {
+                    MetadataTypeDefinitionNameResult.Valid valid =>
+                        valid.Name,
+                    MetadataTypeDefinitionNameResult.Rejected rejected =>
+                        throw new JsonException(
+                            $"Invalid metadata type definition name: "
+                                + $"{rejected.Rejection.Kind}."),
+                    _ => throw new JsonException(
+                        "Unexpected metadata type definition name result."),
+                };
+        }
+
+        static string ReadBoundedString(
+            ref Utf8JsonReader reader,
+            int maxCharacters)
+        {
+            Span<char> buffer =
+                stackalloc char[maxCharacters + 1];
+            int length;
+            try
+            {
+                length = reader.CopyString(buffer);
+            }
+            catch (ArgumentException)
+            {
+                throw new JsonException(
+                    "The metadata name exceeds the character budget.");
+            }
+            if (length > maxCharacters)
+            {
+                throw new JsonException(
+                    "The metadata name exceeds the character budget.");
+            }
+            return new string(buffer[..length]);
+        }
+
+        public override void Write(
+            Utf8JsonWriter writer,
+            MetadataTypeDefinitionName value,
+            JsonSerializerOptions options)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("namespace", value.Namespace);
+            writer.WritePropertyName("segments");
+            writer.WriteStartArray();
+            foreach (string segment in value.Segments)
+                writer.WriteStringValue(segment);
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
     }
 
     public string Namespace { get; }
@@ -115,7 +272,8 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
     /// </summary>
     /// <remarks>
     /// Construction is a single linear pass over already-validated segments, and the validated
-    /// name is bounded by <see cref="MetadataSafetyPolicy.MaxTypeNameCharacters"/>, so a caller
+    /// name is bounded by <see cref="MetadataSafetyPolicy.MaxTypeNameCharacters"/>
+    /// and <see cref="MetadataSafetyPolicy.MaxRelationshipNodes"/>, so a caller
     /// can neither rebuild a growing prefix per level nor flatten an unbounded name.
     /// <c>MetadataTypeNameBudgetTests</c> gates both properties.
     /// </remarks>
@@ -156,6 +314,12 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
                 new MetadataTypeNameRejection(
                     MetadataTypeNameRejectionKind.MissingSegments));
         }
+        if (segments.Length > MetadataSafetyPolicy.MaxRelationshipNodes)
+        {
+            return new MetadataTypeDefinitionNameResult.Rejected(
+                new MetadataTypeNameRejection(
+                    MetadataTypeNameRejectionKind.TooManySegments));
+        }
 
         long characters = @namespace.Length;
         for (int i = 0; i < segments.Length; i++)
@@ -168,10 +332,10 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
                         i));
             }
 
-            // One delimiter per boundary: '.' after the namespace, '+' between segments. The
-            // running total is checked per segment so an over-budget name is refused before its
-            // remaining segments are measured, and never after a flattened spelling was built.
-            characters += segments[i].Length + 1;
+            // Reserve one delimiter for every segment, including the root
+            // separator when the namespace is empty, matching SRM projections.
+            characters++;
+            characters += segments[i].Length;
             if (characters > MetadataSafetyPolicy.MaxTypeNameCharacters)
             {
                 return new MetadataTypeDefinitionNameResult.Rejected(

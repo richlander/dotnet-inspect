@@ -1,5 +1,5 @@
 // The Settings page (a persistent preferences panel) and the decompiler "taste" popover it
-// shares its style catalog with. Both are pure, dependency-injected render functions: `app.js`
+// shares its style catalog with. Both are pure, dependency-injected render functions: `dotnet-inspect.ts`
 // owns `state`, localStorage persistence, and event wiring (`setTheme`, `toggleTaste`,
 // `clearTaste`, `bindSettingsEvents`), and passes each computed slice in explicitly.
 
@@ -16,6 +16,7 @@ export interface StyleOption {
   title: string;
   summary: string;
   oracle_endorsed?: boolean;
+  conflict_group?: string;
 }
 
 export interface StyleCatalogState {

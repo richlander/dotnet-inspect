@@ -667,12 +667,19 @@ public class ApiType
     public string? MetadataName { get; set; }
 
     /// <summary>
-    /// Exact structured metadata lookup name retained for in-process
-    /// definition resolution. It is omitted from serialized API surfaces,
-    /// which predate the structured resolution model.
+    /// Exact structured metadata lookup name retained for definition
+    /// resolution and durable member identity. Null in older serialized
+    /// surfaces.
     /// </summary>
-    [JsonIgnore]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public MetadataTypeDefinitionName? DefinitionName { get; set; }
+
+    /// <summary>
+    /// Number of generic parameters introduced by each root-to-leaf exact
+    /// metadata-name segment. Null or empty in older serialized surfaces.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<int>? IntroducedTypeParameterCounts { get; set; }
     
     /// <summary>
     /// Access level for non-public types. Null means public, including for older
@@ -684,6 +691,29 @@ public class ApiType
 
     /// <summary>The C# enum underlying type, captured from the special <c>value__</c> field.</summary>
     public string? EnumUnderlyingType { get; set; }
+
+    /// <summary>
+    /// For an enum (<see cref="Kind"/> == <c>"enum"</c>): whether it carries <c>[Flags]</c>. STJ serializes a
+    /// <c>[Flags]</c> combination as a comma-joined string of member names (e.g. <c>"Read, Write"</c>), which is
+    /// not representable as the closed single-member string-literal union used for a plain enum. Null for
+    /// non-enum types and for older serialized surfaces that predate this field.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IsFlagsEnum { get; set; }
+
+    /// <summary>
+    /// For an enum (<see cref="Kind"/> == <c>"enum"</c>): whether it carries
+    /// <c>[JsonConverter(typeof(JsonStringEnumConverter&lt;...&gt;))]</c> (or the non-generic form), which makes
+    /// STJ serialize its values by declared name rather than by numeric underlying value. This is captured here,
+    /// rather than derived from <see cref="Attributes"/>, because the converter's <c>typeof()</c> argument is a
+    /// generic type reference that the rendered <see cref="Attributes"/> text cannot represent (dropped whole by
+    /// the C#-spelling renderer). Null for non-enum types and for older serialized surfaces.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool HasJsonStringEnumConverter { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public JsonWireNamingPolicy? JsonPropertyNamingPolicy { get; set; }
 
     public bool IsSealed { get; set; }
     public bool IsAbstract { get; set; }
@@ -878,6 +908,30 @@ public class ApiMember
     public bool IsExtension { get; set; }
 
     /// <summary>
+    /// True when the member carries <c>[CompilerGeneratedAttribute]</c> — for example a positional record's
+    /// synthesized <c>EqualityContract</c> property. This is the precise signal for compiler-synthesized
+    /// infrastructure; unlike <see cref="Accessibility"/>, it does not also match a legitimate non-public
+    /// member deliberately opted into the wire contract (e.g. via <c>[JsonInclude]</c>).
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IsCompilerGenerated { get; set; }
+
+    /// <summary>
+    /// True when the member carries <c>[JsonInclude]</c>, which makes STJ include an otherwise-non-public
+    /// property or field in serialization. A wire-shape emitter that otherwise filters non-public members
+    /// (e.g. to exclude a record's compiler-synthesized <c>EqualityContract</c>) must not use this attribute
+    /// as an exclusion signal.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool HasJsonInclude { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool HasJsonIgnore { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? JsonPropertyName { get; set; }
+
+    /// <summary>
     /// True if the member carries an [Obsolete] attribute.
     /// </summary>
     public bool IsObsolete { get; set; }
@@ -899,6 +953,14 @@ public class ApiMember
     /// extension method projected onto its extended type.
     /// </summary>
     public string? DeclaringType { get; set; }
+
+    /// <summary>
+    /// Exact canonical declaring-type spelling for a member projected onto a
+    /// different type. Null for members declared on their containing
+    /// <see cref="ApiType"/>.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DeclaringTypeCanonicalName { get; set; }
 
     /// <summary>
     /// 1-based overload index in <see cref="DeclaringType"/> for projected members.
