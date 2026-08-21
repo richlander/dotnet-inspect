@@ -155,6 +155,36 @@ public class PlantedCoreLibraryIdentityTests
     }
 
     /// <summary>
+    /// A project output is denied as well, exercised end to end against a real
+    /// planted assembly rather than through <c>MayMint</c> alone.
+    /// <para>
+    /// Both round-3 reviewers observed that <c>ProjectAsset</c> was the one
+    /// acquisition with no named case here, which is what made it the natural
+    /// carrier for their tamper. The derived gate below does cover it, but it
+    /// covers it by calling <c>MayMint</c> directly; this case is the
+    /// defence-in-depth backstop that drives the real reader path, so a
+    /// widening that somehow escaped the derived gate still has to get past a
+    /// decoded assembly.
+    /// </para>
+    /// <para>
+    /// A build output is genuinely close to the entitled cases — it is
+    /// produced locally by a compiler the user ran, not fetched from anywhere
+    /// — which is exactly why it needs saying explicitly. It is still a loose
+    /// file, and a loose file is not a coherent closure.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ProjectOutput_IsDenied()
+    {
+        RunWithResolvedCoreLibrary(
+            AssemblyResolutionProvenance.Project(
+                "Contoso.csproj",
+                tfm: "net10.0",
+                rid: null),
+            expectedCorelib: false);
+    }
+
+    /// <summary>
     /// Every concrete acquisition is classified, exactly two are entitled, and
     /// entitlement depends only on how the assembly was acquired.
     /// <para>
@@ -304,6 +334,14 @@ public class PlantedCoreLibraryIdentityTests
             constructors.Length == 1,
             $"{provenanceType.Name} declares {constructors.Length} public "
             + "constructors; this helper assumes one and needs updating.");
+
+        // Without this the reflection call below throws from inside the BCL,
+        // which still fails the gate but reports a MemberAccessException
+        // instead of saying what a maintainer has to do about it.
+        Assert.False(
+            provenanceType.ContainsGenericParameters,
+            $"{provenanceType.Name} is an open generic type; this helper "
+            + "constructs closed types only and needs updating.");
 
         ParameterInfo[] parameters = constructors[0].GetParameters();
         Assert.All(
