@@ -1274,6 +1274,40 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Theory]
+    [InlineData(null)]
+    [InlineData("private")]
+    public void ExplicitInterfaceImplementation_UnqualifiedNameFailsClosed(
+        string? accessibility)
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class"
+        };
+        var member = new ApiMember
+        {
+            Name = "Read",
+            Kind = "explicit-interface-implementation",
+            Accessibility = accessibility,
+            Signature = "int Read()"
+        };
+
+        var exception = Assert.Throws<NotSupportedException>(
+            () => CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+
+        Assert.Contains(
+            "has no qualified metadata name",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "cannot represent its MethodImpl target",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(member.Name, exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
     // A C# tuple type is parenthesized, so a parameter-list scan that takes the first
     // '(' mistakes a tuple-typed return for a parameter list and escapes each element's
     // trailing token. Unnamed elements end in the type keyword, so `(int, string)`

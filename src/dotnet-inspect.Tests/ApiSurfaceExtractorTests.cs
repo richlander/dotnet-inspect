@@ -1127,6 +1127,9 @@ public class ApiSurfaceExtractorTests
         // EditorBrowsable(Never) is still filtered out by default.
         var hidden = testType.Members.FirstOrDefault(m => m.Name == "HiddenMethod");
         Assert.Null(hidden);
+        Assert.DoesNotContain(
+            testType.Members,
+            member => member.Name == "HiddenField");
     }
 
     [Fact]
@@ -1213,6 +1216,34 @@ public class ApiSurfaceExtractorTests
         var hidden = testType.Members.FirstOrDefault(m => m.Name == "HiddenMethod");
         Assert.NotNull(hidden);
         Assert.False(hidden.IsObsolete);
+        Assert.Contains(testType.Members, member => member.Name == "HiddenField");
+    }
+
+    [Fact]
+    public void FocusedSurface_EditorBrowsableNeverMatchesFullExtraction()
+    {
+        string assemblyPath = typeof(SampleObsoleteHost).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle typeHandle = reader.TypeDefinitions.Single(handle =>
+            reader.GetString(reader.GetTypeDefinition(handle).Name)
+                == nameof(SampleObsoleteHost));
+
+        ApiType focused = MetadataDeclarationQuery.GetTypeSurface(
+            reader,
+            typeHandle,
+            includeNonPublicMembers: false);
+        ApiType focusedAll = MetadataDeclarationQuery.GetTypeSurface(
+            reader,
+            typeHandle,
+            includeNonPublicMembers: true);
+
+        Assert.DoesNotContain(
+            focused.Members,
+            member => member.Name is "HiddenMethod" or "HiddenField");
+        Assert.Contains(focusedAll.Members, member => member.Name == "HiddenMethod");
+        Assert.Contains(focusedAll.Members, member => member.Name == "HiddenField");
     }
 
     [Fact]
@@ -1833,6 +1864,9 @@ public class SampleObsoleteHost
 
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public void HiddenMethod() { }
+
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public int HiddenField;
 }
 
 public class SampleRequiredHost

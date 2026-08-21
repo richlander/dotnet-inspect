@@ -899,6 +899,8 @@ public static class ApiSurfaceExtractor
                     IsOverride = isOverride,
                     IsSealed = isOverride && (methodAttributes & MethodAttributes.Final) != 0,
                     IsFinalizer = isFinalizer,
+                    IsExplicitInterfaceImplementation =
+                        isExplicitInterfaceImplementation,
                     Signature = signature.Text,
                     SignatureModel = signature.Model,
                     SignatureDecodeStatus = signature.IsDegraded
@@ -1000,8 +1002,9 @@ public static class ApiSurfaceExtractor
                     var setter = reader.GetMethodDefinition(accessors.Setter);
                     var setterAttributes = setter.Attributes;
                     var setterAccess = setterAttributes & MethodAttributes.MemberAccessMask;
-                    if (setterAccess > bestAccess)
-                        bestAccess = setterAccess;
+                    bestAccess = MetadataAccessibility.Join(
+                        bestAccess,
+                        setterAccess);
                     var setterVirtual = (setterAttributes & MethodAttributes.Virtual) != 0;
                     var setterOverride = setterVirtual && (setterAttributes & MethodAttributes.NewSlot) == 0;
                     isStaticProperty |= (setterAttributes & MethodAttributes.Static) != 0;
@@ -1422,8 +1425,9 @@ public static class ApiSurfaceExtractor
                         malformedAccessibility = true;
                         break;
                     }
-                    if (access > bestAccess)
-                        bestAccess = access;
+                    bestAccess = MetadataAccessibility.Join(
+                        bestAccess,
+                        access);
                 }
                 if (malformedAccessibility)
                     continue;
@@ -1937,8 +1941,9 @@ public static class ApiSurfaceExtractor
             {
                 var setterAccess = reader.GetMethodDefinition(accessors.Setter).Attributes
                     & MethodAttributes.MemberAccessMask;
-                if (setterAccess > bestAccess)
-                    bestAccess = setterAccess;
+                bestAccess = MetadataAccessibility.Join(
+                    bestAccess,
+                    setterAccess);
             }
             bool isAbstractProperty = MetadataAccessorSemantics.AreAllAbstract(
                 reader,
@@ -2100,8 +2105,9 @@ public static class ApiSurfaceExtractor
                     malformedAccess = access;
                     break;
                 }
-                if (access > bestAccess)
-                    bestAccess = access;
+                bestAccess = MetadataAccessibility.Join(
+                    bestAccess,
+                    access);
             }
 
             if (malformedAccessibility)
@@ -3878,8 +3884,7 @@ public static class ApiSurfaceExtractor
                     return;
                 var access = reader.GetMethodDefinition(handle).Attributes
                     & MethodAttributes.MemberAccessMask;
-                if (access > best)
-                    best = access;
+                best = MetadataAccessibility.Join(best, access);
             }
         }
 
@@ -5398,7 +5403,9 @@ public static class ApiSurfaceExtractor
             setterAccess = setter.Attributes & MethodAttributes.MemberAccessMask;
         }
 
-        int bestAccess = Math.Max((int)getterAccess, (int)setterAccess);
+        MethodAttributes bestAccess = MetadataAccessibility.Join(
+            getterAccess,
+            setterAccess);
         var accessorModels = new List<ApiAccessor>();
         var getStr = hasGetter ? FormatAccessor("get", getterAccess, bestAccess) : null;
         var setStr = hasSetter ? FormatAccessor(setterKind, setterAccess, bestAccess) : null;
@@ -5719,16 +5726,23 @@ public static class ApiSurfaceExtractor
     /// <summary>
     /// Formats a property accessor with its access level prefix when it differs from the property's overall level.
     /// </summary>
-    private static string FormatAccessor(string kind, MethodAttributes access, int bestAccess)
+    private static string FormatAccessor(
+        string kind,
+        MethodAttributes access,
+        MethodAttributes bestAccess)
     {
-        if ((int)access == bestAccess)
+        if (MetadataAccessibility.Equivalent(access, bestAccess))
             return kind;
         var prefix = GetAccessibility(access);
         return prefix != null ? $"{prefix} {kind}" : kind;
     }
 
-    private static string? AccessorAccessibility(MethodAttributes access, int bestAccess)
-        => (int)access == bestAccess ? null : GetAccessibility(access);
+    private static string? AccessorAccessibility(
+        MethodAttributes access,
+        MethodAttributes bestAccess)
+        => MetadataAccessibility.Equivalent(access, bestAccess)
+            ? null
+            : GetAccessibility(access);
 
     /// <summary>Gets the first parameter type for the lightweight extraction path.</summary>
     private static string? GetFirstParameterType(

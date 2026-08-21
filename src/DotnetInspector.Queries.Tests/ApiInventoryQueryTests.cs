@@ -203,45 +203,82 @@ public class ApiInventoryQueryTests
     }
 
     [Fact]
-    public void ExtractSummary_PreservesExplicitInterfaceFacets()
+    public void ExtractionModes_PreserveExplicitInterfaceFacets()
     {
-        using var stream = File.OpenRead(typeof(ApiInventoryQueryTests).Assembly.Location);
-        using var peReader = new PEReader(stream);
+        string path = typeof(ApiInventoryQueryTests).Assembly.Location;
+        using var summaryStream = File.OpenRead(path);
+        using var summaryReader = new PEReader(summaryStream);
+        using var fullStream = File.OpenRead(path);
+        using var fullReader = new PEReader(fullStream);
+        using var boundedStream = File.OpenRead(path);
+        using var boundedReader = new PEReader(boundedStream);
+        using var queryStream = File.OpenRead(path);
+        using var queryReader = new PEReader(queryStream);
 
-        ApiSurface summary = ApiSurfaceExtractor.ExtractSummary(peReader);
-        ApiType type = Assert.Single(
-            summary.Types,
+        ApiSurface summary = ApiSurfaceExtractor.ExtractSummary(summaryReader);
+        ApiSurface full = ApiSurfaceExtractor.Extract(fullReader);
+        var bounded = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+            ApiSurfaceExtractor.ExtractBounded(
+                boundedReader,
+                ApiSurfaceExtractionScope.Public,
+                new ApiSurfaceExtractionBounds(
+                    maxTypes: 100_000,
+                    maxMembers: 1_000_000,
+                    maxInspectionFailures: 1_024,
+                    maxTypeForwarders: 100_000,
+                    maxMetadataRows: 10_000_000)));
+        MetadataReader metadata = queryReader.GetMetadataReader();
+        TypeDefinitionHandle typeHandle = metadata.TypeDefinitions.Single(handle =>
+            metadata.GetString(metadata.GetTypeDefinition(handle).Name)
+                == nameof(InventoryFixture));
+        ApiType focused = MetadataDeclarationQuery.GetTypeSurface(
+            metadata,
+            typeHandle,
+            includeNonPublicMembers: false);
+
+        foreach (ApiType type in new[]
+        {
+            FindType(summary),
+            FindType(full),
+            FindType(bounded.Surface),
+            focused,
+        })
+        {
+            ApiMember[] explicitMembers = type.Members
+                .Where(member => member.IsExplicitInterfaceImplementation)
+                .ToArray();
+
+            Assert.Equal(4, explicitMembers.Length);
+            Assert.All(
+                explicitMembers,
+                member => Assert.Equal("private", member.Accessibility));
+            Assert.Contains(
+                explicitMembers,
+                member => member.Kind == "explicit-interface-implementation"
+                    && member.Name.EndsWith(".Explicit", StringComparison.Ordinal));
+            Assert.Contains(
+                explicitMembers,
+                member => member.Kind == "explicit-interface-implementation"
+                    && member.Name.EndsWith(
+                        ".get_ExplicitProperty",
+                        StringComparison.Ordinal));
+            Assert.Contains(
+                explicitMembers,
+                member => member.Kind == "explicit-interface-implementation"
+                    && member.Name.EndsWith(
+                        ".add_ExplicitChanged",
+                        StringComparison.Ordinal));
+            Assert.Contains(
+                explicitMembers,
+                member => member.Kind == "explicit-interface-implementation"
+                    && member.Name.EndsWith(
+                        ".remove_ExplicitChanged",
+                        StringComparison.Ordinal));
+        }
+
+        static ApiType FindType(ApiSurface surface) => Assert.Single(
+            surface.Types,
             candidate => candidate.FullName == typeof(InventoryFixture).FullName);
-        ApiMember[] explicitMembers = type.Members
-            .Where(member => member.IsExplicitInterfaceImplementation)
-            .ToArray();
-
-        Assert.Equal(4, explicitMembers.Length);
-        Assert.All(
-            explicitMembers,
-            member => Assert.Equal("private", member.Accessibility));
-        Assert.Contains(
-            explicitMembers,
-            member => member.Kind == "explicit-interface-implementation"
-                && member.Name.EndsWith(".Explicit", StringComparison.Ordinal));
-        Assert.Contains(
-            explicitMembers,
-            member => member.Kind == "explicit-interface-implementation"
-                && member.Name.EndsWith(
-                    ".get_ExplicitProperty",
-                    StringComparison.Ordinal));
-        Assert.Contains(
-            explicitMembers,
-            member => member.Kind == "explicit-interface-implementation"
-                && member.Name.EndsWith(
-                    ".add_ExplicitChanged",
-                    StringComparison.Ordinal));
-        Assert.Contains(
-            explicitMembers,
-            member => member.Kind == "explicit-interface-implementation"
-                && member.Name.EndsWith(
-                    ".remove_ExplicitChanged",
-                    StringComparison.Ordinal));
     }
 
     [Fact]
@@ -622,6 +659,16 @@ public class ApiInventoryQueryTests
         Assert.NotNull(brokenMember.RemoverToken);
         Assert.Empty(surface.InspectionFailures);
 
+        ApiSurface all = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        ApiType allType = Assert.Single(
+            all.Types,
+            candidate => candidate.Name == "EventAccessibilityHost");
+        Assert.Equal(
+            "protected internal",
+            Assert.Single(
+                allType.Members,
+                member => member.Name == "Mixed").Accessibility);
+
         ApiSurface summary = ApiSurfaceExtractor.ExtractSummary(peReader);
         ApiType summarized = Assert.Single(
             summary.Types,
@@ -642,6 +689,11 @@ public class ApiInventoryQueryTests
             typeHandle,
             includeNonPublicMembers: true);
         Assert.Single(queried.Members, member => member.Name == "Broken");
+        Assert.Equal(
+            "protected internal",
+            Assert.Single(
+                queried.Members,
+                member => member.Name == "Mixed").Accessibility);
     }
 
     [Fact]
@@ -1067,6 +1119,20 @@ public class ApiInventoryQueryTests
             accessorSignatureHandle,
             bodyOffset: 0,
             parameterList: MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle mixedAdder = metadata.AddMethodDefinition(
+            MethodAttributes.Assembly | MethodAttributes.SpecialName,
+            MethodImplAttributes.Runtime,
+            metadata.GetOrAddString("add_Mixed"),
+            accessorSignatureHandle,
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle mixedRemover = metadata.AddMethodDefinition(
+            MethodAttributes.Family | MethodAttributes.SpecialName,
+            MethodImplAttributes.Runtime,
+            metadata.GetOrAddString("remove_Mixed"),
+            accessorSignatureHandle,
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
 
         EventDefinitionHandle changed = metadata.AddEvent(
             EventAttributes.None,
@@ -1076,10 +1142,16 @@ public class ApiInventoryQueryTests
             EventAttributes.None,
             metadata.GetOrAddString("Broken"),
             type);
+        EventDefinitionHandle mixed = metadata.AddEvent(
+            EventAttributes.None,
+            metadata.GetOrAddString("Mixed"),
+            type);
         metadata.AddEventMap(type, changed);
         metadata.AddMethodSemantics(changed, MethodSemanticsAttributes.Adder, adder);
         metadata.AddMethodSemantics(changed, MethodSemanticsAttributes.Remover, remover);
         metadata.AddMethodSemantics(broken, MethodSemanticsAttributes.Remover, brokenRemover);
+        metadata.AddMethodSemantics(mixed, MethodSemanticsAttributes.Adder, mixedAdder);
+        metadata.AddMethodSemantics(mixed, MethodSemanticsAttributes.Remover, mixedRemover);
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),

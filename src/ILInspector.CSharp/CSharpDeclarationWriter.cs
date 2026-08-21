@@ -1921,9 +1921,21 @@ internal static class CSharpDeclarationWriter
     static void EnsureExplicitInterfaceAccessibilityIsRepresentable(ApiMember member)
     {
         if (member.IsFinalizer
-            || !IsExplicitInterfaceImplementation(member)
-            || !member.Name.Contains('.', StringComparison.Ordinal)
-            || string.Equals(member.Accessibility, "private", StringComparison.Ordinal))
+            || !IsExplicitInterfaceImplementation(member))
+        {
+            return;
+        }
+
+        if (!member.Name.Contains('.', StringComparison.Ordinal))
+        {
+            throw new NotSupportedException(
+                "An explicit interface member has no qualified metadata name, "
+                + "so C# cannot represent its MethodImpl target.");
+        }
+        if (string.Equals(
+                member.Accessibility,
+                "private",
+                StringComparison.Ordinal))
         {
             return;
         }

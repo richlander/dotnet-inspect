@@ -265,8 +265,9 @@ public static class MetadataDeclarationQuery
                 var accessor = reader.GetMethodDefinition(accessorHandle);
                 var accessorAttributes = accessor.Attributes;
                 var access = accessorAttributes & MethodAttributes.MemberAccessMask;
-                if (access > bestAccess)
-                    bestAccess = access;
+                bestAccess = MetadataAccessibility.Join(
+                    bestAccess,
+                    access);
                 bool accessorVirtual = (accessorAttributes & MethodAttributes.Virtual) != 0;
                 bool accessorOverride = accessorVirtual && (accessorAttributes & MethodAttributes.NewSlot) == 0;
                 isStatic |= (accessorAttributes & MethodAttributes.Static) != 0;
@@ -420,6 +421,15 @@ public static class MetadataDeclarationQuery
                 && !isRetainedImplementationAccessor)
                 continue;
 
+            if (!includeNonPublicMembers
+                && !isExplicitInterfaceImplementation
+                && AttributeReader.HasEditorBrowsableNeverAttribute(
+                    reader,
+                    method.GetCustomAttributes()))
+            {
+                continue;
+            }
+
             var declaration = GetMethod(reader, typeDef, method);
             if (!includeNonPublicMembers
                 && methodAccessibility != "public"
@@ -475,6 +485,13 @@ public static class MetadataDeclarationQuery
             var fieldName = reader.GetString(field.Name);
             if (fieldName.StartsWith("<", StringComparison.Ordinal))
                 continue;
+            if (!includeNonPublicMembers
+                && AttributeReader.HasEditorBrowsableNeverAttribute(
+                    reader,
+                    field.GetCustomAttributes()))
+            {
+                continue;
+            }
 
             var declaration = GetField(reader, typeDef, field);
             if (!includeNonPublicMembers && declaration.Accessibility != "public")
@@ -1306,15 +1323,18 @@ public static class MetadataDeclarationQuery
         if (!accessors.Setter.IsNil)
         {
             var setterAccess = setter.Attributes & MethodAttributes.MemberAccessMask;
-            if ((int)setterAccess > (int)best)
-                best = setterAccess;
+            best = MetadataAccessibility.Join(best, setterAccess);
         }
 
         return best;
     }
 
-    static string? AccessorAccessibility(MethodAttributes access, MethodAttributes bestAccess)
-        => access == bestAccess ? null : NonPublicAccessibility(access);
+    static string? AccessorAccessibility(
+        MethodAttributes access,
+        MethodAttributes bestAccess)
+        => MetadataAccessibility.Equivalent(access, bestAccess)
+            ? null
+            : NonPublicAccessibility(access);
 
     static string AccessibilityKeyword(MethodAttributes access)
         => MetadataAccessibility.Keyword(access);
