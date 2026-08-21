@@ -657,8 +657,10 @@ public static class PackageContentAudit
     }
 
     private static bool IsWindowsPdbHeader(ReadOnlySpan<byte> header)
-        => header.StartsWith("Microsoft C/C++ MSF "u8)
-            || header.StartsWith("Microsoft C/C++ program database "u8);
+        => header.StartsWith(
+                "Microsoft C/C++ MSF 7.00\r\n\u001ADS\0\0\0"u8)
+            || header.StartsWith(
+                "Microsoft C/C++ program database 2.00\r\n\u001AJG\0\0"u8);
 
     private static bool HasPeHeader(
         string fullPath,

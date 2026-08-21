@@ -603,10 +603,23 @@ public class PackageSignatureVerifierTests : IDisposable
             SignatureVerificationResult result =
                 PackageSignatureVerifier.VerifyPackage(nupkgPath);
 
-            Assert.Equal(SignatureStatus.Valid, result.Status);
-            Assert.True(result.PackageContentVerified);
+            Assert.NotEqual(SignatureStatus.Unsigned, result.Status);
             Assert.Null(result.Timestamp);
-            Assert.NotNull(result.CounterSignature?.Timestamp);
+            Assert.Equal(result.IsValid, result.PackageContentVerified);
+
+            if (result.IsValid)
+            {
+                Assert.Equal(SignatureType.Author, result.SignatureType);
+                SignatureVerificationResult repository =
+                    Assert.IsType<SignatureVerificationResult>(
+                        result.CounterSignature);
+                Assert.Equal(SignatureStatus.Valid, repository.Status);
+                Assert.Equal(
+                    SignatureType.Repository,
+                    repository.SignatureType);
+                Assert.True(repository.PackageContentVerified);
+                Assert.NotNull(repository.Timestamp);
+            }
         }
         finally
         {

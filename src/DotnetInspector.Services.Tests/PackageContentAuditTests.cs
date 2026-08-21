@@ -242,6 +242,40 @@ public sealed class PackageContentAuditTests
         }
     }
 
+    [Theory]
+    [InlineData("Microsoft C/C++ MSF ")]
+    [InlineData("Microsoft C/C++ MSF 7.00\r\n\u001ADS\0\0")]
+    [InlineData("Microsoft C/C++ program database ")]
+    [InlineData("Microsoft C/C++ program database 2.00\r\n\u001AJG\0")]
+    public void TruncatedWindowsPdbSignature_RemainsVisibleAndMarksAuditIncomplete(
+        string signature)
+    {
+        string root = CreateRoot();
+        try
+        {
+            WriteBytes(
+                root,
+                "symbols/truncated-windows.pdb",
+                Encoding.ASCII.GetBytes(signature));
+
+            PackageContentAuditResult result = PackageContentAudit.Scan(
+                root,
+                ["symbols/truncated-windows.pdb"]);
+
+            Assert.False(result.Complete);
+            Assert.Equal(0, result.ScannedSourceLinkMaps);
+            PackageContentAuditFinding finding = Assert.Single(
+                result.Findings);
+            Assert.Equal(
+                PackageContentFindingKind.InvalidSourceLinkMap,
+                finding.Kind);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public void OversizedCandidate_RemainsVisibleWithoutBeingRead()
     {

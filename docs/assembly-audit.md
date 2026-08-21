@@ -180,6 +180,10 @@ gate namespace-safe attributes and NuGet-compatible qualified elements.
 gates the active section hierarchy and casing, while
 `PackageContentAuditTests.NuGetConfiguration_DeepXmlReportsScanLimit` gates the
 fail-visible per-file depth bound without suppressing later package findings.
+`PackageContentAuditTests.TruncatedPdb_RemainsVisibleAndMarksAuditIncomplete`
+and
+`PackageContentAuditTests.TruncatedWindowsPdbSignature_RemainsVisibleAndMarksAuditIncomplete`
+gate visible truncation for portable- and Windows-PDB signatures.
 `PdbContextDescriptorTests.DebugDirectoryAndCodeViewLimits_PrecedePathMaterialization`,
 `PdbContextDescriptorTests.EmbeddedPdbAndSourceLinkLimits_PrecedePayloadMaterialization`,
 and
