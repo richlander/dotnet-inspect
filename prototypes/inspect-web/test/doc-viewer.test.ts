@@ -52,7 +52,9 @@ test("document viewer bindings open documents and close from its modal controls"
   const close = root.add("#doc-viewer-close", new FakeElement());
   const document = new FakeElement();
   document.dataset.docPath = "docs/CHANGELOG.md";
-  root.addAll("[data-doc-path]", document);
+  const secondDocument = new FakeElement();
+  secondDocument.dataset.docPath = "docs/README.md";
+  root.addAll("[data-doc-path]", document, secondDocument);
   const inner = new FakeElement();
   const calls: string[] = [];
   bindDocViewer(
@@ -65,12 +67,29 @@ test("document viewer bindings open documents and close from its modal controls"
   assert.deepEqual(calls, []);
   document.dispatch("click");
   assert.deepEqual(calls, ["open:docs/CHANGELOG.md"]);
+  secondDocument.dispatch("click");
+  assert.deepEqual(calls, [
+    "open:docs/CHANGELOG.md",
+    "open:docs/README.md",
+  ]);
   backdrop.dispatch("mousedown", inner as unknown as EventTarget);
-  assert.deepEqual(calls, ["open:docs/CHANGELOG.md"]);
+  assert.deepEqual(calls, [
+    "open:docs/CHANGELOG.md",
+    "open:docs/README.md",
+  ]);
   backdrop.dispatch("mousedown");
-  assert.deepEqual(calls, ["open:docs/CHANGELOG.md", "close"]);
+  assert.deepEqual(calls, [
+    "open:docs/CHANGELOG.md",
+    "open:docs/README.md",
+    "close",
+  ]);
   close.dispatch("click");
-  assert.deepEqual(calls, ["open:docs/CHANGELOG.md", "close", "close"]);
+  assert.deepEqual(calls, [
+    "open:docs/CHANGELOG.md",
+    "open:docs/README.md",
+    "close",
+    "close",
+  ]);
 });
 
 function escapeHtml(value: unknown) {
@@ -84,12 +103,14 @@ function escapeHtml(value: unknown) {
 const doc = { name: "CHANGELOG.md", path: "docs/CHANGELOG.md" };
 
 test("package document list renders live escaped chips and file counts", () => {
+  const localizedSize = (12_345_678).toLocaleString();
+  assert.notEqual(localizedSize, "12345678");
   const html = renderPackageDocuments([
     {
       kind: "readme",
-      name: "README.md",
+      name: "<README>.md",
       path: "<docs>/README.md",
-      size: 1200,
+      size: 12_345_678,
     },
     {
       kind: "<skill>",
@@ -103,21 +124,33 @@ test("package document list renders live escaped chips and file counts", () => {
       path: "skills/known/SKILL.md",
       size: 64,
     },
+    {
+      kind: "constructor",
+      name: "CONSTRUCTOR.md",
+      path: "docs/CONSTRUCTOR.md",
+      size: 1,
+    },
   ], escapeHtml);
 
-  assert.match(html, /Documentation<\/h2><span>3 files — click to read/);
+  assert.match(html, /Documentation<\/h2><span>4 files — click to read/);
   assert.match(
     html,
     /class="doc-chip doc-readme" data-doc-path="&lt;docs&gt;\/README\.md"/);
   assert.ok(html.includes(
-    `title="&lt;docs&gt;/README.md · ${(1200).toLocaleString()} bytes"`));
+    `title="&lt;docs&gt;/README.md · ${localizedSize} bytes"`));
+  assert.match(html, /<span class="doc-name">&lt;README&gt;\.md<\/span>/);
   assert.match(html, /<span class="doc-kind">Readme<\/span>/);
   assert.match(html, /class="doc-chip doc-&lt;skill&gt;"/);
   assert.match(html, /<span class="doc-kind">&lt;skill&gt;<\/span>/);
   assert.match(html, /<span class="doc-glyph">◆<\/span>/);
   assert.match(html, /<span class="doc-kind">Skill<\/span>/);
+  assert.match(
+    html,
+    /doc-constructor[\s\S]*?<span class="doc-glyph">▤<\/span>[\s\S]*?<span class="doc-kind">constructor<\/span>/);
   assert.doesNotMatch(html, /<docs>/);
+  assert.doesNotMatch(html, /<README>/);
   assert.doesNotMatch(html, /<skill>/);
+  assert.doesNotMatch(html, /function Object/);
 });
 
 test("package document list stays absent when the package ships no documents", () => {

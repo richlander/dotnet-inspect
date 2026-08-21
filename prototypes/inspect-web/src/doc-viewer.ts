@@ -49,16 +49,22 @@ export function renderPackageDocuments(
   escapeHtml: (value: unknown) => string,
 ): string {
   if (!documents.length) return "";
-  const kindLabels: Record<string, string> =
-    { readme: "Readme", package: "Package", skill: "Skill" };
-  const kindGlyphs: Record<string, string> =
-    { readme: "▤", package: "▤", skill: "◆" };
+  const kindLabels = new Map([
+    ["readme", "Readme"],
+    ["package", "Package"],
+    ["skill", "Skill"],
+  ]);
+  const kindGlyphs = new Map([
+    ["readme", "▤"],
+    ["package", "▤"],
+    ["skill", "◆"],
+  ]);
   const chips = documents
     .map(document => `
       <button class="doc-chip doc-${escapeHtml(document.kind)}" data-doc-path="${escapeHtml(document.path)}" title="${escapeHtml(document.path)} · ${document.size.toLocaleString()} bytes">
-        <span class="doc-glyph">${kindGlyphs[document.kind] || "▤"}</span>
+        <span class="doc-glyph">${kindGlyphs.get(document.kind) ?? "▤"}</span>
         <span class="doc-name">${escapeHtml(document.name)}</span>
-        <span class="doc-kind">${escapeHtml(kindLabels[document.kind] || document.kind)}</span>
+        <span class="doc-kind">${escapeHtml(kindLabels.get(document.kind) ?? document.kind)}</span>
       </button>`)
     .join("");
   return `<section class="document-section">
