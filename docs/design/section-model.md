@@ -398,9 +398,10 @@ The library command's current authored ownership is:
 `@Library` and `@Surface` are base categories. The remaining categories are
 domains. `Unsafe Members` is a standalone section with no category membership;
 target-aware discovery advertises it when a bounded early-exit probe finds
-evidence, and `-S "Unsafe Members"` renders its full census. The explicit-only
-`Body Shapes` section is also uncategorized because its required `Kind=...`
-predicate, rather than a category, supplies its scope.
+evidence or metadata scanning yields a renderable incomplete-decode diagnostic,
+and `-S "Unsafe Members"` renders its full census. The explicit-only `Body
+Shapes` section is also uncategorized because its required `Kind=...` predicate,
+rather than a category, supplies its scope.
 
 ## Package category map
 

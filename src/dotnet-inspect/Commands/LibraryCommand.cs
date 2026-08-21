@@ -2387,7 +2387,7 @@ public class LibraryCommand
     // ── Effective sections cache ──
 
     // Bumped to v24: bare discovery now records row-accurate Unsafe Members applicability.
-    private const string EffectiveCategory = "effective-v24";
+    private const string EffectiveCategory = "effective-v25";
 
     static LibraryCommand()
     {

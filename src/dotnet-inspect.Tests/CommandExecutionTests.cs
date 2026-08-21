@@ -7651,7 +7651,7 @@ public partial class CommandExecutionTests
     public async Task Discover_BareEffective_IgnoresLegacyEffectiveCache()
     {
         const string legacyCategory = "effective-v19";
-        const string currentCategory = "effective-v24";
+        const string currentCategory = "effective-v25";
         string directory = Path.Combine(
             Path.GetTempPath(), $"effective-cache-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
