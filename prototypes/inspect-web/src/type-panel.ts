@@ -1,8 +1,8 @@
 // The type selector (the "PUBLIC TYPES" / "MEMBERS" nav pane) and the type viewer (the
 // type heading, metadata, and source sections shown for the "type" scope) as pure,
-// dependency-injected render functions. `dotnet-inspect.ts` owns the type index, filters, member
-// grouping, and navigation/click handling; this module owns only markup shape given an
-// explicit snapshot of the data those helpers already computed. Shared text helpers
+// dependency-injected render functions. This module also binds the controls that its nav pane
+// renders; `dotnet-inspect.ts` owns the type index, filters, member grouping, and navigation
+// state transitions behind explicit callbacks. Shared text helpers
 // (kindIcon, shortKind, typeDisplayName, highlight, highlightCSharp, factRows,
 // factEvidence, relatedTypeChip) stay in `dotnet-inspect.ts`, since they are used well beyond the
 // type panel, and are passed in rather than duplicated here.
@@ -78,6 +78,72 @@ export interface TypeSourceResult {
 type EscapeHtml = (value: unknown) => string;
 
 // -- Type selector (the "PUBLIC TYPES" / "MEMBERS" nav pane) -----------------------------
+
+export interface TypePanelBindingActions {
+  onClearFilters: () => void;
+  onKindSelect: (kind: string) => void;
+  onListKeyDown: (event: KeyboardEvent) => void;
+  onMemberSelect: (memberKey: string | undefined) => void;
+  onNamespaceSelect: (namespace: string) => void;
+  onOverloadSelect: (index: number) => void;
+  onShowTypes: () => void;
+  onTypeFilterChange: (value: string) => void;
+  onTypeFilterEscape: () => void;
+  onTypeSelect: (typeId: string) => void;
+}
+
+export function bindTypePanel(
+  root: ParentNode,
+  actions: TypePanelBindingActions,
+) {
+  root.querySelectorAll<HTMLElement>("[data-type]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onTypeSelect(button.dataset.type ?? "")));
+  root.querySelectorAll<HTMLElement>("[data-namespace]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onNamespaceSelect(button.dataset.namespace ?? "")));
+  root.querySelectorAll<HTMLElement>("[data-kind-filter]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onKindSelect(button.dataset.kindFilter ?? "")));
+  root.querySelectorAll<HTMLElement>("[data-nav-member]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onMemberSelect(button.dataset.navMember)));
+  root.querySelectorAll<HTMLElement>("[data-nav-overload]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onOverloadSelect(Number(button.dataset.navOverload))));
+  root.querySelector("#nav-to-types")?.addEventListener(
+    "click",
+    actions.onShowTypes);
+  root.querySelector("#clear-filter")?.addEventListener(
+    "click",
+    actions.onClearFilters);
+
+  const namespaceJump =
+    root.querySelector<HTMLSelectElement>("#namespace-jump");
+  namespaceJump?.addEventListener(
+    "change",
+    () => actions.onNamespaceSelect(namespaceJump.value));
+
+  const typeList = root.querySelector<HTMLElement>("#type-list");
+  typeList?.addEventListener("keydown", actions.onListKeyDown);
+  const filter = root.querySelector<HTMLInputElement>("#type-filter");
+  filter?.addEventListener(
+    "input",
+    () => actions.onTypeFilterChange(filter.value));
+  filter?.addEventListener("keydown", event => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      typeList?.focus();
+    } else if (event.key === "Escape") {
+      actions.onTypeFilterEscape();
+    }
+  });
+}
 
 export interface TypeNavOptions {
   current?: TypeSummary | null;
