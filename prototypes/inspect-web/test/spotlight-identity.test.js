@@ -186,6 +186,9 @@ const documentInspectionSource = readFileSync(
 const spotlightPackageSearchSource = readFileSync(
   new URL("../src/spotlight-package-search.ts", import.meta.url),
   "utf8");
+const catalogRequestsSource = readFileSync(
+  new URL("../src/catalog-requests.ts", import.meta.url),
+  "utf8");
 const memberFocusSource = readFileSync(
   new URL("../src/member-focus.ts", import.meta.url),
   "utf8");
@@ -324,6 +327,35 @@ test("typed document inspection owns package document request coordination", () 
   assert.match(
     documentInspectionSource,
     /async open\(request: PackageDocumentRequest\)[\s\S]*state\.docViewerSeq/);
+});
+
+test("typed catalog requests own release and package-version coordination", () => {
+  const releaseLoader =
+    appSource.match(/function ensureDotnetReleases\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  const versionLoader =
+    appSource.match(/function ensurePackageVersions\(pkg: AppPackage \| null\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    appSource,
+    /createCatalogRequests\(\{[\s\S]*queryDotnetReleases,[\s\S]*queryPackageVersions: packageId => inspectPackageVersions\(packageId\),[\s\S]*updatePlatformVersionSelect,[\s\S]*updatePackageVersionSelect: updateVersionSelect,/);
+  assert.match(
+    appSource,
+    /raw\.githubusercontent\.com\/dotnet\/core\/refs\/heads\/main\/release-notes\/releases-index\.json/);
+  assert.match(releaseLoader, /return catalogRequests\.ensureDotnetReleases\(\)/);
+  assert.match(versionLoader, /return catalogRequests\.ensurePackageVersions\(pkg\)/);
+  assert.doesNotMatch(
+    `${releaseLoader}\n${versionLoader}`,
+    /dotnetReleasesLoading|packageVersionsLoading|state\.packages/);
+  assert.match(
+    catalogRequestsSource,
+    /state\.dotnetReleasesLoading = true[\s\S]*dependencies\.queryDotnetReleases\(\)[\s\S]*state\.dotnetReleasesLoading = false/);
+  assert.match(
+    catalogRequestsSource,
+    /state\.packageVersionsLoading\[packageId\] = true[\s\S]*dependencies\.queryPackageVersions\(packageId\)[\s\S]*packageIsResident\(packageId\)/);
+  assert.doesNotMatch(
+    catalogRequestsSource,
+    /\bfetch\(|\bdocument\b|inspectPackageVersions/);
 });
 
 test("leaving package search clears its pending loading state", () => {

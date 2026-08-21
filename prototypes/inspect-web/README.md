@@ -617,6 +617,15 @@ escaping; `test/spotlight-package-search.test.ts` gates debounce, scope and
 query eligibility, cancellation, stale suppression, failure settlement, and
 mounted-result refresh.
 
+`src/catalog-requests.ts` owns .NET release and package-version catalog
+lifecycles: cache and loading state, request deduplication, version ordering,
+package-residency guards, and selector-update dispatch. `dotnet-inspect.ts`
+retains the .NET release endpoint, engine version query, option rendering, DOM
+repainting, and version switching. `test/catalog-requests.test.ts` gates cache
+reuse, in-flight deduplication, sorting, current Platform refresh, package
+removal, and both silent transient-failure paths; the composition-root gate
+checks that network and DOM authority remain outside the coordinator.
+
 The typed `src/status-bar.ts` component renders both the full-width workspace
 data bar and the home readiness bar. The workspace bar occupies the bottom row
 formerly used by the persistent command prompt, giving the bar the full
