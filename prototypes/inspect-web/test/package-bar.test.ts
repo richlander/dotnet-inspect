@@ -8,8 +8,9 @@ import {
   parsePackageQuery,
   platformTabHtml,
 } from "../src/package-bar.ts";
+import type { PackageBarPackage } from "../src/package-bar.ts";
 
-function escapeHtml(value) {
+function escapeHtml(value: unknown) {
   return String(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -17,11 +18,16 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
-function packageIdentityKey(pkg) {
+function packageIdentityKey(pkg: PackageBarPackage) {
   return `${pkg.id}@${pkg.version}::${pkg.activeFramework}`;
 }
 
-function pkg(id, version = "1.0.0", activeFramework = "net10.0", isRuntimePack = false) {
+function pkg(
+  id: string,
+  version = "1.0.0",
+  activeFramework = "net10.0",
+  isRuntimePack = false,
+): PackageBarPackage {
   return { id, version, activeFramework, isRuntimePack };
 }
 
