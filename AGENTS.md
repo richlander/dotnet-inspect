@@ -593,8 +593,7 @@ subsequent round:
   green. Re-query after the registration window, following the status-discovery
   cadence, and verify the current head; if no matching workflow run appears,
   that is a scheduling bug to investigate — a PR that triggers no workflow
-  leaves `ci-required` nothing to block on and displays as MERGEABLE and CLEAN
-  (#3706).
+  leaves `ci-required` nothing to block on and displays as MERGEABLE and CLEAN.
 
 Once a candidate is formed, do not fetch or integrate the base while validation,
 CI, or review is in progress. After a review-clean result, a non-mutating fetch
@@ -619,6 +618,18 @@ author change, current-head merge-path failure, required cascading restack, or
 explicit user workflow adjustment has ended the candidate. The procedure, and
 the analysis to bring to the user, are in
 [carry-forward after clean reviews](docs/adversarial-review.md#carry-forward-after-clean-reviews).
+
+Evaluate eligibility from the *latest* review-clean result: an earlier finding
+that was fixed and then reviewed clean does not disqualify it. Carry-forward
+does not apply, and the head must be reviewed normally, when a finding remains
+unresolved, or when the head moved after that result because of an author
+change, conflict resolution, or a restack.
+
+This is the one place the settled-branch rule yields, and it has to, or the
+budget is unbounded: on a busy `main`, a round takes longer than the interval
+between commits, so integrate-and-re-review by reflex never converges. A pair of
+clean reviews is a result. Unrelated commits landing behind it do not retract
+it.
 
 ### A quick read is not a round
 

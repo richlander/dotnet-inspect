@@ -6,15 +6,15 @@ document owns the mechanics those rules depend on — how to query PR status, ho
 to dispatch and reconcile a round, and the carry-forward procedure after clean
 reviews.
 
-Read [Adversarial review](../AGENTS.md#adversarial-review) first. Where the two
-disagree, `AGENTS.md` wins.
+Read [Adversarial review](../AGENTS.md#adversarial-review) first. This document
+states no rules of its own: where it needs a condition, it cites the rule rather
+than restating it, so the two cannot drift apart.
 
 ## Status discovery
 
 Two questions — is the PR mergeable, and is it green — answered by one
-consolidated query. The first attempt at round 1 and conflict-recovery rounds do
-not wait for the result; a failed-gate restart, an ordinary subsequent round, and
-merge readiness do.
+consolidated query. Which attempts must wait for the answer is the eligibility
+table in [Canonical round flow](../AGENTS.md#canonical-round-flow).
 
 ### The consolidated query
 
@@ -39,12 +39,14 @@ a later push. Retain the expected head SHA locally. Separate discovery calls are
 prohibited — additional calls are only for required context pagination or
 one-off details after the aggregate has confirmed the head.
 
-### Four traps, each paid for once
+### Four traps in the result
 
-- **Green CI does not imply mergeable.** #4032 reported successful checks while
-  GitHub reported `CONFLICTING`/`DIRTY`.
+- **Green CI does not imply mergeable.** The two are independent; a PR can
+  report every check successful while GitHub reports `CONFLICTING`/`DIRTY`.
+  Read mergeability from the mergeability fields, never inferred from checks.
 - **`mergeStateStatus` is not check state.** It is a composite, and it reports
-  `CLEAN` for a PR with no checks at all (#3706).
+  `CLEAN` for a PR with no checks at all — so `CLEAN` alone never establishes
+  that anything ran.
 - **A missing `ci-required` is inconclusive**, not green: the aggregate may not
   have registered yet. No PR is green until its current-head `ci-required` has
   completed with a `SUCCESS` conclusion.
@@ -76,7 +78,7 @@ detects conflicts early.
 
 | First check says | Do this |
 | --- | --- |
-| `CONFLICTING` | Integrate the effective base, resolve, push, start the conflict-recovery round if its number is authorized, and schedule a new five-minute check. Do not wait for CI. |
+| `CONFLICTING` | Apply the conflict transition in [Canonical round flow](../AGENTS.md#canonical-round-flow), then schedule a new five-minute check. |
 | `UNKNOWN`, CI green | Use the REST fallback above. |
 | `UNKNOWN`, CI pending or missing | Follow up at 10 minutes plus jitter for documentation-only, or at the 35-minute mark otherwise. |
 | `MERGEABLE`, documentation-only | Treat it as the expected CI completion check. If CI is unexpectedly pending, wait 10 minutes plus jitter. |
@@ -154,17 +156,9 @@ include more detail when the findings or fixes warrant it.
 
 ## Carry-forward after clean reviews
 
-This is the sole default path that integrates the base without opening another
-round. `AGENTS.md` states the rule; this is the procedure.
-
-It applies when a PR targeting `main` — including the bottom slice of a stack —
-has a review-clean required review at the current head and `origin/main` has
-since moved. Evaluate from the latest review-clean result: an earlier finding
-that was fixed and then reviewed clean does not disqualify it.
-
-It does **not** apply, and the head must be reviewed normally, when a finding
-remains unresolved or the head changed after that review-clean result because of
-an author change, conflict resolution, or restack.
+[Clean reviews are not spent by main
+moving](../AGENTS.md#clean-reviews-are-not-spent-by-main-moving) states when this
+path applies and when it does not. This is the procedure once it does.
 
 1. **Detect movement.** Compare the candidate's recorded base tip with the live
    tip in `baseRef.target.oid`. `baseRefOid` is the base commit recorded for the
@@ -182,17 +176,9 @@ an author change, conflict resolution, or restack.
    If the live tip moves before integration, analyze the additional range and
    obtain renewed approval.
 5. **If interacting**, report that carry-forward is unavailable and keep the
-   reviewed head. The PR is not merge-ready: do not post `Ready to merge`. Ask
-   whether to make a workflow adjustment that integrates, re-validates, and
-   re-reviews the replacement head, or to leave the PR blocked.
+   reviewed head. Ask whether to make a workflow adjustment that integrates,
+   re-validates, and re-reviews the replacement head, or to leave the PR
+   blocked.
 
 Record the reviewed head, the old and approved new tips, the non-interaction
 analysis, and the user's decision on the PR.
-
-Carry-forward does not authorize carrying reviews across author changes,
-conflict-resolution changes, or a restack after the recorded reviewed head.
-
-This is the one place the settled-branch rule yields, and it has to, or the
-budget is unbounded: on a busy `main`, a round takes longer than the interval
-between commits, so integrate-and-re-review by reflex never converges. A pair of
-clean reviews is a result. Unrelated commits landing behind it do not retract it.
