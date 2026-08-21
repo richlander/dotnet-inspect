@@ -6185,6 +6185,145 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_PrefixBrowse_ExplicitPlatformNamespace_MatchesTypeCommand()
+    {
+        string[] arguments =
+        [
+            "System.Text.Json.Serialization",
+            "--platform",
+            "System.Text.Json",
+            "--table",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("best-effort prefix matches", routed.Error);
+    }
+
+    [Fact]
+    public async Task Router_PrefixBrowse_ExplicitLibrarySection_MatchesTypeCommand()
+    {
+        string[] arguments =
+        [
+            "DotnetInspector.Tests.Sample",
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            "Classes",
+            "--count",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitLibraryExactTypeRejectsListingSection()
+    {
+        string[] arguments =
+        [
+            "DotnetInspector.Tests.CommandExecutionTests",
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            "Classes",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.DoesNotContain("best-effort prefix matches", routed.Error);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitLibraryQualifiedMemberRejectsListingSection()
+    {
+        const string target =
+            "DotnetInspector.Tests.TypeTargetedDecodeTests"
+            + ".TypeTargetedBuild_MatchesFullBuild_ForEveryMethodOfTheType";
+
+        var (exit, output, error) = await RunAppAsync(
+            target,
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            "Classes",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Select value 'Classes' not found", error);
+        Assert.DoesNotContain("best-effort prefix matches", error);
+    }
+
+    [Fact]
+    public async Task Router_PrefixBrowse_ExplicitPackageNamespace_MatchesTypeCommand()
+    {
+        var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();
+        try
+        {
+            string[] arguments =
+            [
+                "DotnetInspector.Tests.Sample",
+                "--package",
+                packagePath,
+                "--library",
+                "Test.Primary.dll",
+                "--table",
+                "--tips",
+                "q"
+            ];
+
+            var direct = await RunAppAsync(["type", .. arguments]);
+            var routed = await RunAppAsync(arguments);
+
+            Assert.Equal(direct, routed);
+            Assert.Equal(0, routed.Exit);
+            Assert.Contains("best-effort prefix matches", routed.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("--library=-missing.dll")]
+    [InlineData("--library=")]
+    public async Task Router_AttachedLibraryValue_UsesTypeParser(
+        string libraryOption)
+    {
+        string[] arguments =
+        [
+            "System.String",
+            libraryOption,
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+    }
+
+    [Fact]
     public async Task TypeListing_FacadePlatformLibrary_ShowsTypeForwardingDescription()
     {
         var (assemblyPath, _, _, error) = PlatformResolver.ResolveAssembly("System.Runtime");

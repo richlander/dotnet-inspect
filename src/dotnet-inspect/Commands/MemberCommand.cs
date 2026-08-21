@@ -95,6 +95,14 @@ public static class MemberCommand
             var lookupResult = ApiTypeLookupService.LookupType(api, typeName!);
             if (!lookupResult.Found)
             {
+                if (options.RouterDeferredTypeOrMember)
+                {
+                    return await ExecuteDeferredTypeAsync(
+                        unresolvedOptions,
+                        source,
+                        loaded);
+                }
+
                 lookupResult.WriteNotFoundError();
                 return 1;
             }
@@ -103,23 +111,8 @@ public static class MemberCommand
             if (options.RouterDeferredTypeOrMember
                 && lookupResult.ImpliedMember is null)
             {
-                if (unresolvedOptions.MemberGenericArity.HasValue)
-                {
-                    CommandError.Write(
-                        "The type command's -m filter does not support generic arity selectors; use the member command.");
-                    return 1;
-                }
-
-                if (ApiCommand.GetDeferredTypeIncompatibleOption(unresolvedOptions)
-                    is { } incompatibleOption)
-                {
-                    CommandError.Write(
-                        $"Unrecognized option '{incompatibleOption}'.");
-                    return 1;
-                }
-
-                return await TypeCommand.ExecuteResolvedAsync(
-                    ApiCommand.ToTypeOptions(unresolvedOptions),
+                return await ExecuteDeferredTypeAsync(
+                    unresolvedOptions,
                     source,
                     loaded);
             }
@@ -591,6 +584,32 @@ public static class MemberCommand
 
             callerScopeAssemblySet?.Dispose();
         }
+    }
+
+    private static async Task<int> ExecuteDeferredTypeAsync(
+        MemberOptions unresolvedOptions,
+        ApiSourceResult source,
+        ApiServices.LoadedApiSurface loaded)
+    {
+        if (unresolvedOptions.MemberGenericArity.HasValue)
+        {
+            CommandError.Write(
+                "The type command's -m filter does not support generic arity selectors; use the member command.");
+            return 1;
+        }
+
+        if (ApiCommand.GetDeferredTypeIncompatibleOption(unresolvedOptions)
+            is { } incompatibleOption)
+        {
+            CommandError.Write(
+                $"Unrecognized option '{incompatibleOption}'.");
+            return 1;
+        }
+
+        return await TypeCommand.ExecuteResolvedAsync(
+            ApiCommand.ToTypeOptions(unresolvedOptions),
+            source,
+            loaded);
     }
 
     private static async Task<int?> TryExecuteFindIfMissAsync(MemberOptions options)

@@ -151,7 +151,26 @@ public class ApiCommand
             selectDefault: false);
         bool totalFailure = result.Unresolved.Count > 0
             && result.Sections is null or { Count: 0 };
+        if (totalFailure
+            && options.RouterDeferredTypeOrMember
+            && ResolvesAgainstListingPipeline(options.Select))
+        {
+            return false;
+        }
+
         return totalFailure && SelectOutput.WriteUnresolved(result);
+
+        static bool ResolvesAgainstListingPipeline(string[] selectors)
+        {
+            var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
+            var listingResult = SelectResolver.ResolveSelectAsSections(
+                selectors,
+                pipeline.SelectableSectionNames,
+                infoSections: [],
+                pipeline.GetCategoryMap(),
+                selectDefault: false);
+            return listingResult.Sections is { Count: > 0 };
+        }
 
         void AddCategories(
             IReadOnlyDictionary<string, string[]> additions)

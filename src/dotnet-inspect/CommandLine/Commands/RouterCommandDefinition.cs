@@ -807,8 +807,31 @@ public static class RouterCommandDefinition
             ContainsOption(tokens, "--package")
             || ContainsOption(tokens, "--platform")
             || ContainsOption(tokens, "--project")
-            || (GetOptionValue(tokens, "--library") is { Length: > 0 } library
-                && !library.StartsWith('-'));
+            || HasExplicitLibrarySource(tokens);
+
+        private static bool HasExplicitLibrarySource(string[] tokens)
+        {
+            for (var i = 0; i < tokens.Length; i++)
+            {
+                if (tokens[i].StartsWith(
+                        "--library=",
+                        StringComparison.Ordinal))
+                {
+                    return true;
+                }
+
+                if (tokens[i].Equals(
+                        "--library",
+                        StringComparison.Ordinal)
+                    && i + 1 < tokens.Length
+                    && !tokens[i + 1].StartsWith('-'))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
 
         private static string[] FrameworkArgsUnlessSpecified(
             string framework,
