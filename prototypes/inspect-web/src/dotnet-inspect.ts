@@ -4152,11 +4152,12 @@ function bindEvents() {
       const key = name.replace(/\.dll$/i, "");
       const resident = (runtimePackPackage()?.types || []).some(type => libraryKey(type) === key);
       if (!resident) {
-        const loaded = await loadRuntimePackAssembly(
+        const runtimeResult = await loadRuntimePackAssembly(
           platformScopeTfm(),
           `${key}.dll`,
           pack,
           () => state.packages.includes(originPackage));
+        const loaded = runtimeResult.packageModel;
         if (!loaded) {
           if (isCurrent()) {
                   const noticeState: NoticeRetryState = {
@@ -4168,7 +4169,9 @@ function bindEvents() {
               openLibrary(name, pack, originPackage, noticeState);
             noticeState.action = retryAction;
             appendQueryNotice(
-              `Couldn’t load ${key}: ${state.runtimePackError || "runtime pack acquisition failed."}`,
+              `Couldn’t load ${key}: ${runtimeResult.failureMessage
+                || state.runtimePackError
+                || "runtime pack acquisition failed."}`,
               retryAction);
             noticeState.appended = state.queryNotice;
             render();
@@ -4988,14 +4991,17 @@ async function switchPlatformVersion(
   state.loadingMessage = "Loading the .NET Platform…";
   state.loadingSubtitle = `.NET Platform · ${tfm}`;
   render();
-  const loaded = await loadRuntimePack(
+  const runtimeResult = await loadRuntimePack(
     tfm,
     () => navigationSequence.isCurrent(navigationSeq));
+  const loaded = runtimeResult.packageModel;
   if (!navigationSequence.isCurrent(navigationSeq)
     || (state.package && state.package !== pkg)) return;
   if (!loaded) {
     state.loading = false;
-    state.error = state.runtimePackError || "Couldn’t load the .NET Platform.";
+    state.error = runtimeResult.failureMessage
+      || state.runtimePackError
+      || "Couldn’t load the .NET Platform.";
     state.errorTitle = "Platform failed";
     state.retryAction = () => switchPlatformVersion(tfm, pkg);
     render();
@@ -5162,16 +5168,19 @@ async function openPlatformLibrary(
     state.loadingMessage = "Loading the platform library…";
     state.loadingSubtitle = `${key} · ${tfm}`;
     render();
-    const loaded = await loadRuntimePackAssembly(
+    const runtimeResult = await loadRuntimePackAssembly(
       tfm,
       fileName,
       pack,
       () => navigationSequence.isCurrent(navigationSeq));
+    const loaded = runtimeResult.packageModel;
     if (!navigationSequence.isCurrent(navigationSeq)) return;
     if (!loaded) {
       state.loading = false;
-      state.error = state.runtimePackError
-        ? `Couldn’t load ${key}: ${state.runtimePackError}`
+      const failureMessage =
+        runtimeResult.failureMessage || state.runtimePackError;
+      state.error = failureMessage
+        ? `Couldn’t load ${key}: ${failureMessage}`
         : `Couldn’t load ${key} from the .NET runtime pack.`;
       state.errorTitle = "Platform library failed";
       state.retryAction = options.retryAction
@@ -5776,7 +5785,7 @@ async function openRuntimePackFromHome() {
   state.loadingMessage = "Loading the .NET Platform…";
   state.loadingSubtitle = ".NET Platform · net10.0";
   render();
-  const pack = await loadRuntimePack(
+  const { packageModel: pack } = await loadRuntimePack(
     "net10.0",
     () => navigationSequence.isCurrent(navigationSeq));
   if (!navigationSequence.isCurrent(navigationSeq)) return;
@@ -7102,9 +7111,10 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
     state.platformDrillLoading = true;
     state.platformDrillError = "";
     const preservedFocus = renderPreservingMemberFocus();
-    pack = await loadRuntimePack(
+    const runtimeResult = await loadRuntimePack(
       framework,
       ownsNavigation);
+    pack = runtimeResult.packageModel;
     if (!ownsNavigation()) {
       if (seq === state.memberCallGraphSeq) {
         state.platformDrillLoading = false;
@@ -7114,7 +7124,9 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
     }
     state.platformDrillLoading = false;
     if (!pack) {
-      state.platformDrillError = state.runtimePackError || "Could not load the .NET runtime pack.";
+      state.platformDrillError = runtimeResult.failureMessage
+        || state.runtimePackError
+        || "Could not load the .NET runtime pack.";
       renderPreservingMemberFocus(preservedFocus);
       await renderMermaidCallGraph();
       return;
@@ -7836,11 +7848,22 @@ const packageAcquisition = createPackageAcquisition({
   },
 });
 
+interface RuntimeLoadResult {
+  packageModel: AppPackage | null;
+  failureMessage: string;
+}
+
 async function loadRuntimePack(
   framework: string,
   isCurrent: () => boolean = () => true,
-): Promise<AppPackage | null> {
-  return packageAcquisition.loadRuntimePack(framework, isCurrent);
+): Promise<RuntimeLoadResult> {
+  const result = await packageAcquisition.loadRuntimePack(
+    framework,
+    isCurrent);
+  return {
+    packageModel: result.packageModel,
+    failureMessage: result.error === null ? "" : errorMessage(result.error),
+  };
 }
 
 async function loadRuntimePackAssembly(
@@ -7848,12 +7871,16 @@ async function loadRuntimePackAssembly(
   assemblyFileName: string,
   pack: string,
   isCurrent: () => boolean = () => true,
-): Promise<AppPackage | null> {
-  return packageAcquisition.loadRuntimePackAssembly(
+): Promise<RuntimeLoadResult> {
+  const result = await packageAcquisition.loadRuntimePackAssembly(
     framework,
     assemblyFileName,
     pack,
     isCurrent);
+  return {
+    packageModel: result.packageModel,
+    failureMessage: result.error === null ? "" : errorMessage(result.error),
+  };
 }
 
 async function runCallGraphDemo() {
@@ -7984,15 +8011,20 @@ async function restoreWorkspaceFromLocation(
   // once, below — so a non-target tab (e.g. an STJ tab on a platform-library link) never
   // flashes into view before the target resolves.
   let loadedTargetModel: AppPackage | null = null;
+  let runtimeFailureMessage = "";
   for (const tab of tabs) {
     let loaded: AppPackage | null;
     if (isRuntimePackId(tab.id)) {
-      loaded = await loadRuntimePack(
+      const runtimeResult = await loadRuntimePack(
         tab.framework,
         () => navigationSequence.isCurrent(navigationSeq));
+      loaded = runtimeResult.packageModel;
+      runtimeFailureMessage = runtimeResult.failureMessage;
       if (!loaded && navigationSequence.isCurrent(navigationSeq)) {
         const failure =
-          `Workspace restore was incomplete: ${tab.id}: ${state.runtimePackError || "runtime pack acquisition failed."}`;
+          `Workspace restore was incomplete: ${tab.id}: ${runtimeFailureMessage
+            || state.runtimePackError
+            || "runtime pack acquisition failed."}`;
         state.queryNotice = state.queryNotice
           ? `${state.queryNotice} ${failure}`
           : failure;
@@ -8039,7 +8071,9 @@ async function restoreWorkspaceFromLocation(
   } else {
     state.loading = false;
     const failure =
-      state.runtimePackError || "Couldn’t load the requested .NET Platform.";
+      runtimeFailureMessage
+      || state.runtimePackError
+      || "Couldn’t load the requested .NET Platform.";
     state.error = state.queryNotice
       ? `${state.queryNotice} ${failure}`
       : failure;
@@ -8455,9 +8489,10 @@ async function restoreRuntimePackFromHistory(
   deep: DeepLink,
   navigationSeq: number,
 ) {
-  const pack = await loadRuntimePack(
+  const runtimeResult = await loadRuntimePack(
     loc.framework || "",
     () => navigationSequence.isCurrent(navigationSeq));
+  const pack = runtimeResult.packageModel;
   if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (pack) {
     activatePackage(pack, { resetAccessibility: true });
@@ -8478,7 +8513,9 @@ async function restoreRuntimePackFromHistory(
     state.loading = false;
   } else {
     appendQueryNotice(
-      `Workspace restore was incomplete: ${loc.package}: ${state.runtimePackError || "runtime pack acquisition failed."}`);
+      `Workspace restore was incomplete: ${loc.package}: ${runtimeResult.failureMessage
+        || state.runtimePackError
+        || "runtime pack acquisition failed."}`);
   }
   render();
   loadSelectionData();

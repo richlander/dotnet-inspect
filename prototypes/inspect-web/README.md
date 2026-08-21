@@ -544,8 +544,10 @@ the engine and state ports and retains mutable loading/error state, package
 activation, workspace restoration, notices, retries, and rendering.
 `test/package-acquisition.test.ts` gates package projection, publication
 ordering, runtime request serialization and merging, cancellation after queued
-or in-flight work, retry after failure, and resident-pack reuse;
-`test/spotlight-identity.test.js` gates provenance and composition-root wiring.
+or in-flight work, request-local failure reporting, replacement-slot
+preservation, retry after failure, and resident-pack reuse;
+`test/spotlight-identity.test.js` gates provenance, failure adaptation, and
+composition-root wiring.
 
 `src/spotlight.ts` owns the modal workbench search, embedded home search,
 scope/result rendering, selection, and keyboard interaction.

@@ -160,8 +160,13 @@ test("NuGet projection selects the declared assembly and preserves package total
 
 test("package acquisition publishes only current results", async () => {
   const events: string[] = [];
+  const replacedPackage = createNuGetPackageModel(packageSurface({
+    package: "Example.Old",
+    version: "1.0.0",
+  }));
   const acquisition = createPackageAcquisition(acquisitionDependencies({
-    retainPackage: packageModel => events.push(`retain:${packageModel.id}`),
+    retainPackage: (packageModel, replaced) =>
+      events.push(`retain:${packageModel.id}/${replaced?.id ?? "none"}`),
     recordRecentPackage: (id, version, framework) =>
       events.push(`recent:${id}@${version}/${framework}`),
     refreshPackageStats: () => events.push("stats"),
@@ -180,11 +185,12 @@ test("package acquisition publishes only current results", async () => {
     packageId: "Example.Package",
     version: "1.2.3",
     framework: "net10.0",
+    replacePackage: replacedPackage,
   });
   assert.equal(current?.id, "Example.Package");
   assert.deepEqual(events, [
     "stats",
-    "retain:Example.Package",
+    "retain:Example.Package/Example.Old",
     "recent:Example.Package@1.2.3/net10.0",
   ]);
 });
@@ -231,13 +237,17 @@ test("runtime acquisition serializes and merges full-pack and assembly requests"
 
   fullPack.resolve(JSON.stringify(
     runtimeSurface("corelib", "System.Private.CoreLib", "System.Object")));
-  const [packModel, mergedModel] = await Promise.all([
+  const [packResult, mergedResult] = await Promise.all([
     packRequest,
     assemblyRequest,
   ]);
+  const packModel = packResult.packageModel;
+  const mergedModel = mergedResult.packageModel;
 
   assert.ok(packModel);
   assert.ok(mergedModel);
+  assert.equal(packResult.error, null);
+  assert.equal(mergedResult.error, null);
   assert.equal(mergedModel, packModel);
   assert.equal(resident, packModel);
   assert.deepEqual(calls, [
@@ -285,8 +295,11 @@ test("queued runtime work rechecks cancellation before invoking the engine", asy
   fullPack.resolve(JSON.stringify(
     runtimeSurface("corelib", "System.Private.CoreLib", "System.Object")));
 
-  assert.ok(await packRequest);
-  assert.equal(await queuedRequest, null);
+  assert.ok((await packRequest).packageModel);
+  assert.deepEqual(await queuedRequest, {
+    packageModel: null,
+    error: null,
+  });
   assert.equal(assemblyCalls, 0);
 });
 
@@ -307,11 +320,14 @@ test("stale runtime results do not publish after the engine returns", async () =
   fullPack.resolve(JSON.stringify(
     runtimeSurface("corelib", "System.Private.CoreLib", "System.Object")));
 
-  assert.equal(await request, null);
+  assert.deepEqual(await request, {
+    packageModel: null,
+    error: null,
+  });
   assert.deepEqual(events, ["begin", "end"]);
 });
 
-test("runtime failures are reported and do not block a later retry", async () => {
+test("queued runtime retries preserve each request's failure", async () => {
   const status: string[] = [];
   let attempts = 0;
   let resident: AppPackage | null = null;
@@ -332,8 +348,18 @@ test("runtime failures are reported and do not block a later retry", async () =>
     endRuntimeLoad: () => status.push("end"),
   }));
 
-  assert.equal(await acquisition.loadRuntimePack("net10.0"), null);
-  assert.ok(await acquisition.loadRuntimePack("net10.0"));
+  const failedRequest = acquisition.loadRuntimePack("net10.0");
+  const retryRequest = acquisition.loadRuntimePack("net10.0");
+  const [failed, retried] = await Promise.all([
+    failedRequest,
+    retryRequest,
+  ]);
+  assert.equal(failed.packageModel, null);
+  assert.match(
+    failed.error instanceof Error ? failed.error.message : "",
+    /runtime feed unavailable/);
+  assert.ok(retried.packageModel);
+  assert.equal(retried.error, null);
   assert.equal(attempts, 2);
   assert.deepEqual(status, [
     "begin",
@@ -358,7 +384,10 @@ test("resident runtime packs short-circuit without entering loading state", asyn
     beginRuntimeLoad: () => loadingTransitions++,
   }));
 
-  assert.equal(await acquisition.loadRuntimePack("NET10.0"), resident);
+  assert.deepEqual(await acquisition.loadRuntimePack("NET10.0"), {
+    packageModel: resident,
+    error: null,
+  });
   assert.equal(engineCalls, 0);
   assert.equal(loadingTransitions, 0);
 });

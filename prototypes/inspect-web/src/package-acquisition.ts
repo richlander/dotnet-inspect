@@ -177,18 +177,23 @@ export interface NuGetPackageRequest {
   isCurrent?: () => boolean;
 }
 
+export interface RuntimeAcquisitionResult {
+  packageModel: AppPackage | null;
+  error: unknown | null;
+}
+
 export interface PackageAcquisition {
   loadPackage(request: NuGetPackageRequest): Promise<AppPackage | null>;
   loadRuntimePack(
     framework: string,
     isCurrent?: () => boolean,
-  ): Promise<AppPackage | null>;
+  ): Promise<RuntimeAcquisitionResult>;
   loadRuntimePackAssembly(
     framework: string,
     assemblyFileName: string,
     pack: string,
     isCurrent?: () => boolean,
-  ): Promise<AppPackage | null>;
+  ): Promise<RuntimeAcquisitionResult>;
 }
 
 export function createPackageAcquisition(
@@ -209,15 +214,21 @@ export function createPackageAcquisition(
 
   const runRuntimeOperation = async (
     operation: () => Promise<AppPackage | null>,
-  ): Promise<AppPackage | null> => {
+  ): Promise<RuntimeAcquisitionResult> => {
     dependencies.beginRuntimeLoad();
     const pending = operation();
     runtimeOperation = pending;
     try {
-      return await pending;
+      return {
+        packageModel: await pending,
+        error: null,
+      };
     } catch (error) {
       dependencies.failRuntimeLoad(error);
-      return null;
+      return {
+        packageModel: null,
+        error,
+      };
     } finally {
       if (runtimeOperation === pending) runtimeOperation = null;
       dependencies.endRuntimeLoad();
@@ -243,14 +254,14 @@ export function createPackageAcquisition(
 
     async loadRuntimePack(framework, isCurrent = () => true) {
       if (runtimeOperation) await waitForRuntimeOperation();
-      if (!isCurrent()) return null;
+      if (!isCurrent()) return { packageModel: null, error: null };
       const requestedFramework = framework || "";
       const existing = dependencies.runtimePackage();
       if (existing
         && (!requestedFramework
           || existing.activeFramework.toLowerCase()
             === requestedFramework.toLowerCase())) {
-        return existing;
+        return { packageModel: existing, error: null };
       }
 
       return runRuntimeOperation(async () => {
@@ -271,7 +282,7 @@ export function createPackageAcquisition(
       isCurrent = () => true,
     ) {
       if (runtimeOperation) await waitForRuntimeOperation();
-      if (!isCurrent()) return null;
+      if (!isCurrent()) return { packageModel: null, error: null };
       const requestedFramework = framework || "";
       const resident = dependencies.runtimePackage();
       if (resident
@@ -281,7 +292,7 @@ export function createPackageAcquisition(
         && resident.assemblies.some(assembly =>
           assembly.name.toLowerCase()
             === String(assemblyFileName).toLowerCase())) {
-        return resident;
+        return { packageModel: resident, error: null };
       }
 
       return runRuntimeOperation(async () => {
