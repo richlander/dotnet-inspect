@@ -479,6 +479,38 @@ public sealed class BodyShapesSectionTests
     }
 
     [Fact]
+    public async Task TypeKindPredicate_PlainTextHonorsRowWindow()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "type",
+                    typeof(BodyShapeFixture).FullName!,
+                    "--library",
+                    FixturePath,
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                    "--plaintext",
+                    "--columns",
+                    "Kind;Member",
+                    "--rows",
+                    "2",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(
+            2,
+            result.Output
+                .Split('\n')
+                .Count(line => line.Contains(
+                    "ObjectCreationExpression",
+                    StringComparison.Ordinal)));
+    }
+
+    [Fact]
     public async Task TypeKindPredicate_ExplicitShapeWarnsThatSelectionIsIgnored()
     {
         var root = CommandLineBuilder.CreateRootCommand();

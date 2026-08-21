@@ -2099,6 +2099,7 @@ public class ApiCommand
         else
         {
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
+            writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
             if (options.PlainText)
             {
                 var writer = new Markout.MarkoutWriter(sink, options.CreateFormatter(), writerOptions);
@@ -2120,7 +2121,6 @@ public class ApiCommand
                     writerOptions.SectionOrder = pipeline.InfoSectionNames;
                 }
 
-                writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
                 var sw = new StringWriter { NewLine = "\n" };
                 var writer = new Markout.MarkoutWriter(sw, options.CreateFormatter(), writerOptions);
                 ApiOutputFormatter.SerializeTypeDocument(
