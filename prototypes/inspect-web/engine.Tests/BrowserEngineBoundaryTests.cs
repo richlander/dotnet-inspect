@@ -857,6 +857,83 @@ public sealed class BrowserEngineBoundaryTests
             () => expanded.Scope.Members);
     }
 
+    [Fact]
+    public async Task PlatformOpportunities_CarryExactSourceIdentity()
+    {
+        const string packageId =
+            "microsoft.netcore.app.runtime.linux-x64";
+        const string version = "11.0.98";
+        const string framework = "net11.0-opportunity-identity";
+        byte[] nupkg = PlatformPackage(
+            ("System.Data.Common.dll",
+                File.ReadAllBytes(
+                    typeof(System.Data.Common.DbDataSource)
+                        .Assembly.Location)));
+        var handler = new PlatformVersionHandler(
+            packageId,
+            version,
+            nupkg);
+        using var client = new HttpClient(handler);
+        var authorization =
+            new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
+
+        using BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                framework,
+                "System.Data.Common.dll",
+                "netcore.app",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        BrowserPackageSurface surface =
+            Assert.IsType<BrowserPackageSurface>(
+                JsonSerializer.Deserialize(
+                    BrowserInspectionEngine.ProjectPlatformSurface(
+                        resolution),
+                    BrowserJsonContext.Default.BrowserPackageSurface));
+        BrowserPackageOpportunities opportunities =
+            Assert.IsType<BrowserPackageOpportunities>(
+                JsonSerializer.Deserialize(
+                    await BrowserInspectionEngine
+                        .QueryPlatformOpportunities(
+                            framework,
+                            "System.Data.Common.dll",
+                            "netcore.app"),
+                    BrowserJsonContext.Default
+                        .BrowserPackageOpportunities));
+
+        BrowserAssemblySurface assembly =
+            Assert.Single(surface.Assemblies);
+        BrowserOpportunityItem[] items =
+            [.. opportunities.Categories
+                .SelectMany(category => category.Items)];
+        Assert.NotEmpty(items);
+        Assert.All(
+            items,
+            item =>
+            {
+                BrowserTypeSurface type = Assert.Single(
+                    surface.Types,
+                    candidate =>
+                        candidate.DefinitionId
+                            == item.SourceDefinitionId);
+                Assert.Equal(
+                    type.DefinitionId,
+                    item.SourceDefinitionId);
+                Assert.Equal(assembly.Name, item.SourceAssembly);
+                Assert.Equal(
+                    assembly.Version,
+                    item.SourceAssemblyVersion);
+                Assert.Equal(
+                    assembly.Culture,
+                    item.SourceAssemblyCulture);
+                Assert.Equal(
+                    assembly.PublicKeyToken,
+                    item.SourceAssemblyPublicKeyToken);
+            });
+    }
+
     [Theory]
     [InlineData("System.Runtime.dll", "unknown.app")]
     [InlineData("../System.Runtime.dll", "netcore.app")]

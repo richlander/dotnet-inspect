@@ -565,13 +565,19 @@ public static partial class BrowserInspectionEngine
         AssemblyIntegrationOpportunitiesEntry[] materialized =
             [.. entries];
         var failures = new List<string>();
-        var opportunities = new List<IntegrationOpportunityInfo>();
+        var opportunities =
+            new List<(
+                AssemblyReferenceIdentity Source,
+                IntegrationOpportunityInfo Opportunity)>();
         foreach (AssemblyIntegrationOpportunitiesEntry entry in materialized)
         {
             switch (entry)
             {
                 case AssemblyIntegrationOpportunitiesEntry.Available available:
-                    opportunities.AddRange(available.Opportunities);
+                    opportunities.AddRange(
+                        available.Opportunities.Select(
+                            opportunity =>
+                                (available.Subject.Identity, opportunity)));
                     break;
                 case AssemblyIntegrationOpportunitiesEntry.Rejected rejected:
                     failures.Add(
@@ -589,12 +595,14 @@ public static partial class BrowserInspectionEngine
             }
         }
 
-        IntegrationOpportunityInfo[] distinctOpportunities =
+        (AssemblyReferenceIdentity Source, IntegrationOpportunityInfo Opportunity)[]
+            distinctOpportunities =
         [
-            .. opportunities.DistinctBy(opportunity =>
-                (opportunity.Integration,
-                    opportunity.Api,
-                    opportunity.IntegrationType)),
+            .. opportunities.DistinctBy(item =>
+                (item.Source,
+                    item.Opportunity.Integration,
+                    item.Opportunity.Api,
+                    item.Opportunity.IntegrationType)),
         ];
         return JsonSerializer.Serialize(
             new BrowserPackageOpportunities(
@@ -604,7 +612,7 @@ public static partial class BrowserInspectionEngine
                 [
                     .. distinctOpportunities
                         .GroupBy(
-                            opportunity => opportunity.Integration,
+                            item => item.Opportunity.Integration,
                             StringComparer.Ordinal)
                         .OrderBy(
                             group => group.Key,
@@ -614,13 +622,21 @@ public static partial class BrowserInspectionEngine
                             [
                                 .. group
                                     .OrderBy(
-                                        opportunity => opportunity.Api,
+                                        item => item.Opportunity.Api,
                                         StringComparer.OrdinalIgnoreCase)
-                                    .Select(opportunity =>
+                                    .Select(item =>
                                         new BrowserOpportunityItem(
-                                            opportunity.Api,
-                                            opportunity.IntegrationType,
-                                            opportunity.LookFor)),
+                                            item.Opportunity.Api,
+                                            item.Opportunity.IntegrationType,
+                                            item.Opportunity.LookFor,
+                                            item.Opportunity
+                                                .GetSourceTypeDefinition()?
+                                                .ToEscapedFullName(),
+                                            item.Source.Name,
+                                            item.Source.Version?.ToString()
+                                                ?? "",
+                                            item.Source.Culture,
+                                            item.Source.PublicKeyToken)),
                             ])),
                 ],
                 distinctOpportunities.Length,
@@ -971,12 +987,12 @@ public static partial class BrowserInspectionEngine
             int metadataToken,
             CancellationToken cancellationToken = default)
     {
-            BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
-                packageId,
-                version,
-                targetFramework,
-                cancellationToken);
-            cancellationToken.ThrowIfCancellationRequested();
+        BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
+            packageId,
+            version,
+            targetFramework,
+            cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
         (
             BrowserWorkspaceParticipant participant,

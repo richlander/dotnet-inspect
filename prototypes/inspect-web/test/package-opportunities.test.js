@@ -119,7 +119,16 @@ test("an opportunity row splits the API into short name and qualifier", () => {
     data: {
       categories: [{
         integration: "AI",
-        items: [{ api: "System.ClientModel.Primitives.PipelineMessage", integrationType: "IServiceCollection registration", lookFor: "" }],
+        items: [{
+          api: "System.ClientModel.Primitives.PipelineMessage",
+          integrationType: "IServiceCollection registration",
+          lookFor: "",
+          sourceDefinitionId: 'System.ClientModel.Primitives.Pipeline"Message',
+          sourceAssembly: "System.ClientModel",
+          sourceAssemblyVersion: "1.2.3.4",
+          sourceAssemblyCulture: null,
+          sourceAssemblyPublicKeyToken: "0011223344556677",
+        }],
       }],
       totalOpportunities: 1,
     },
@@ -127,6 +136,11 @@ test("an opportunity row splits the API into short name and qualifier", () => {
 
   assert.match(html, /<span class="opp-type-name">PipelineMessage<\/span><span class="opp-type-ns">System\.ClientModel\.Primitives<\/span>/);
   assert.match(html, /data-opp-type="System\.ClientModel\.Primitives\.PipelineMessage"/);
+  assert.match(html, /data-opp-source-definition="System\.ClientModel\.Primitives\.Pipeline&quot;Message"/);
+  assert.match(html, /data-opp-source-assembly="System\.ClientModel"/);
+  assert.match(html, /data-opp-source-version="1\.2\.3\.4"/);
+  assert.match(html, /data-opp-source-culture=""/);
+  assert.match(html, /data-opp-source-token="0011223344556677"/);
 });
 
 test("an integration kind with a leading dotted namespace renders a load-on-demand package chip", () => {

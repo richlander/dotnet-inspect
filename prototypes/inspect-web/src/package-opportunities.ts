@@ -2,6 +2,11 @@ export interface OpportunityItem {
   api: string;
   integrationType: string;
   lookFor: string;
+  sourceDefinitionId?: string | null;
+  sourceAssembly: string;
+  sourceAssemblyVersion: string;
+  sourceAssemblyCulture?: string | null;
+  sourceAssemblyPublicKeyToken?: string | null;
 }
 
 export interface OpportunityCategory {
@@ -72,6 +77,9 @@ function renderLookForChips(lookFor: string, escapeHtml: (value: unknown) => str
 function renderOpportunityRow(item: OpportunityItem, escapeHtml: (value: unknown) => string): string {
   const api = splitApiName(item.api);
   const kind = splitOpportunityKind(item.integrationType);
+  const sourceIdentity = item.sourceDefinitionId
+    ? ` data-opp-source-definition="${escapeHtml(item.sourceDefinitionId)}" data-opp-source-assembly="${escapeHtml(item.sourceAssembly)}" data-opp-source-version="${escapeHtml(item.sourceAssemblyVersion)}" data-opp-source-culture="${escapeHtml(item.sourceAssemblyCulture ?? "")}" data-opp-source-token="${escapeHtml(item.sourceAssemblyPublicKeyToken ?? "")}"`
+    : "";
   const kindHtml = kind.package
     ? `<button class="opp-package-chip" data-opp-package="${escapeHtml(kind.package)}" title="Load ${escapeHtml(kind.package)} into the workspace">${escapeHtml(kind.package)}</button>${kind.text ? `<span class="opp-kind-text">${escapeHtml(kind.text)}</span>` : ""}`
     : `<span class="opp-kind-text">${escapeHtml(item.integrationType)}</span>`;
@@ -80,7 +88,7 @@ function renderOpportunityRow(item: OpportunityItem, escapeHtml: (value: unknown
       <span class="signal-badge signal-type">T</span>
       <div class="opp-body">
         <div class="opp-head">
-          <button class="opp-type-chip" data-opp-type="${escapeHtml(item.api)}" title="Open ${escapeHtml(item.api)} in this package">
+          <button class="opp-type-chip" data-opp-type="${escapeHtml(item.api)}"${sourceIdentity} title="Open ${escapeHtml(item.api)} in this package">
             <span class="opp-type-name">${escapeHtml(api.short)}</span>${api.qualifier ? `<span class="opp-type-ns">${escapeHtml(api.qualifier)}</span>` : ""}
           </button>
           <span class="opp-kind">${kindHtml}</span>

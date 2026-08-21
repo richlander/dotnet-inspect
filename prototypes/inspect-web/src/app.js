@@ -34,6 +34,7 @@ import {
   replaceCurrentNavigationEntry,
   retainWorkspacePackage,
   resolveLoadedGraphTargetCandidate,
+  resolveOpportunitySourceType,
   resolvePlatformGraphTargetType,
   shareStateLengthError,
   scopedRequestState,
@@ -819,7 +820,7 @@ function escapeHtml(value) {
 
 const spotlight = createSpotlight({
   state,
-  lenses,
+  lenses: () => typeLensesFor(state.package),
   escapeHtml,
   highlightRanges,
   kindIcon,
@@ -3615,10 +3616,16 @@ function bindEvents() {
   }));
   document.querySelectorAll("[data-opp-type]").forEach(button => button.addEventListener("click", () => {
     const id = button.dataset.oppType;
-    const target = state.package.types.find(item => item.id === id);
+    const target = resolveOpportunitySourceType(state.package, {
+      sourceDefinitionId: button.dataset.oppSourceDefinition,
+      sourceAssembly: button.dataset.oppSourceAssembly,
+      sourceAssemblyVersion: button.dataset.oppSourceVersion,
+      sourceAssemblyCulture: button.dataset.oppSourceCulture || null,
+      sourceAssemblyPublicKeyToken: button.dataset.oppSourceToken || null
+    });
     if (!target) { openSpotlight(shortTypeName(id)); return; }
     state.atPackageRoot = false;
-    navigateToTypeByName(id);
+    navigateToType(target);
   }));
   document.querySelectorAll("[data-opp-package]").forEach(button => button.addEventListener("click", () => {
     openDependencyPackage(button.dataset.oppPackage, "");

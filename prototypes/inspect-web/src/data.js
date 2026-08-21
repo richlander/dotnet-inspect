@@ -379,6 +379,17 @@ export function resolvePlatformGraphTargetType(pack, target) {
   return matches.length === 1 ? matches[0] : null;
 }
 
+export function resolveOpportunitySourceType(pack, opportunity) {
+  if (!opportunity?.sourceDefinitionId) return null;
+  return resolvePlatformGraphTargetType(pack, {
+    assembly: opportunity.sourceAssembly,
+    assemblyVersion: opportunity.sourceAssemblyVersion,
+    assemblyCulture: opportunity.sourceAssemblyCulture,
+    assemblyPublicKeyToken: opportunity.sourceAssemblyPublicKeyToken,
+    typeDefinitionId: opportunity.sourceDefinitionId
+  });
+}
+
 export function resolveLoadedGraphTargetCandidate(packages, target) {
   const typeId = callGraphTargetTypeId(target);
   if (!typeId || !target?.assembly) return { status: "missing" };

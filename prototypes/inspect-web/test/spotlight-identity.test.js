@@ -41,6 +41,7 @@ import {
   replaceCurrentNavigationEntry,
   retainWorkspacePackage,
   resolveLoadedGraphTargetCandidate,
+  resolveOpportunitySourceType,
   resolvePlatformGraphTargetType,
   shareStateLengthError,
   scopedRequestState,
@@ -1495,6 +1496,43 @@ test("platform call graph navigation requires the target assembly identity", () 
       assemblyVersion: "12.0.0.0"
     }),
     null);
+});
+
+test("opportunity navigation uses exact source assembly and definition identity", () => {
+  const first = {
+    assembly: "A.dll",
+    assemblyId: "a",
+    assemblyName: "Shared",
+    definitionId: "Example.Widget"
+  };
+  const second = {
+    assembly: "B.dll",
+    assemblyId: "b",
+    assemblyName: "Shared",
+    definitionId: "Example.Widget"
+  };
+  const pack = {
+    types: [first, second],
+    assemblies: [
+      { id: "a", name: "Shared", version: "1.0.0.0" },
+      { id: "b", name: "Shared", version: "2.0.0.0" }
+    ]
+  };
+
+  assert.equal(resolveOpportunitySourceType(pack, {
+    sourceDefinitionId: "Example.Widget",
+    sourceAssembly: "Shared",
+    sourceAssemblyVersion: "2.0.0.0",
+    sourceAssemblyCulture: null,
+    sourceAssemblyPublicKeyToken: null
+  }), second);
+  assert.equal(resolveOpportunitySourceType(pack, {
+    sourceDefinitionId: "Example.Widget",
+    sourceAssembly: "Shared",
+    sourceAssemblyVersion: "3.0.0.0",
+    sourceAssemblyCulture: null,
+    sourceAssemblyPublicKeyToken: null
+  }), null);
 });
 
 test("relationship navigation rejects ambiguous dotted identities", () => {

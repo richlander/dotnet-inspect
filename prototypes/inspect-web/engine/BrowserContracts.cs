@@ -353,7 +353,12 @@ public sealed record BrowserOpportunityCategory(
 public sealed record BrowserOpportunityItem(
     string Api,
     string IntegrationType,
-    string LookFor);
+    string LookFor,
+    string? SourceDefinitionId,
+    string SourceAssembly,
+    string SourceAssemblyVersion,
+    string? SourceAssemblyCulture,
+    string? SourceAssemblyPublicKeyToken);
 
 /// <summary>
 /// One progressively acquired member call graph, projected through

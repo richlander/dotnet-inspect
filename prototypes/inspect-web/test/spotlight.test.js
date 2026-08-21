@@ -22,6 +22,7 @@ function createHarness({
   commandContext = null,
   focusAfterDismiss = () => {},
   searchResults = () => [],
+  lenses = () => [["api", "API"], ["metadata", "Metadata"]],
 } = {}) {
   const state = {
     spotlightOpen: false,
@@ -33,7 +34,7 @@ function createHarness({
   };
   const spotlight = createSpotlight({
     state,
-    lenses: [["api", "API"], ["metadata", "Metadata"]],
+    lenses,
     escapeHtml,
     highlightRanges: (value) => escapeHtml(value),
     kindIcon: () => "C",
@@ -222,6 +223,21 @@ test("workspace Spotlight exposes commands as a dedicated scope", () => {
   assert.match(html, /data-sl-index="0"/);
   assert.match(html, />type</);
   assert.doesNotMatch(html, /data-sl-pkg-load/);
+});
+
+test("workspace command lenses are resolved from the current package", () => {
+  let lenses = [["api", "API"], ["metadata", "Metadata"]];
+  const harness = createHarness({
+    scope: "commands",
+    query: "show ",
+    commandContext: { command: "show ", package: packageContext },
+    lenses: () => lenses,
+  });
+
+  assert.match(harness.spotlight.modalHtml(), />show metadata</);
+  lenses = [["api", "API"]];
+  assert.doesNotMatch(harness.spotlight.modalHtml(), />show metadata</);
+  assert.match(harness.spotlight.modalHtml(), />show api</);
 });
 
 test("home Spotlight keeps the shared typed UI without workspace commands", () => {
