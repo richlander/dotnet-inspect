@@ -16,6 +16,12 @@ export type SourceMedium = "CSharp" | "Il";
 
 type LineMedium = SourceMedium | "Mixed";
 
+export function validateAnnotatedSourceDocument(
+  document: unknown,
+): asserts document is AnnotatedSourceDocument {
+  validateDocument(document);
+}
+
 export interface TextSpan {
   start: number;
   length: number;

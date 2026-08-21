@@ -14,6 +14,23 @@ namespace DotnetInspector.Tests;
 public sealed class VocabularyCommandTests
 {
     [Fact]
+    public void JsonSerialization_PreservesWireShapeAcrossIndentationModes()
+    {
+        string indented = VocabularyJson.Serialize(VocabularyCatalog.Document);
+        string compact = VocabularyJson.Serialize(
+            VocabularyCatalog.Document,
+            indented: false);
+        using JsonDocument indentedDocument = JsonDocument.Parse(indented);
+        using JsonDocument compactDocument = JsonDocument.Parse(compact);
+
+        Assert.True(JsonElement.DeepEquals(
+            indentedDocument.RootElement,
+            compactDocument.RootElement));
+        Assert.True(compactDocument.RootElement.TryGetProperty("sections", out _));
+        Assert.False(compactDocument.RootElement.TryGetProperty("Sections", out _));
+    }
+
+    [Fact]
     public void Catalog_ProjectsOwnerValuesWithoutChangingIdentityOrOrder()
     {
         VocabularySection index =
