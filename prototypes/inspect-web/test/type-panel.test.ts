@@ -160,13 +160,20 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
 
 test("type panel bindings dispatch member filters without eager work", () => {
   const root = new FakeRoot();
+  const allKinds = new FakeElement({ memberKindFilter: "all" });
   const kind = new FakeElement({ memberKindFilter: "method" });
+  const allAccessibilities =
+    new FakeElement({ memberAccessFilter: "all" });
   const accessibility =
     new FakeElement({ memberAccessFilter: "protected" });
+  const allTraits = new FakeElement({ memberTraitFilter: "all" });
   const trait = new FakeElement({ memberTraitFilter: "isStatic" });
-  root.addAll("[data-member-kind-filter]", kind);
-  root.addAll("[data-member-access-filter]", accessibility);
-  root.addAll("[data-member-trait-filter]", trait);
+  root.addAll("[data-member-kind-filter]", allKinds, kind);
+  root.addAll(
+    "[data-member-access-filter]",
+    allAccessibilities,
+    accessibility);
+  root.addAll("[data-member-trait-filter]", allTraits, trait);
   const filter = root.add("#member-filter", new FakeElement());
   filter.value = "parse";
   const clear = root.add("#clear-member-filter", new FakeElement());
