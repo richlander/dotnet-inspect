@@ -21,17 +21,29 @@ eligibility table in [Canonical round flow](../AGENTS.md#canonical-round-flow).
 Default to REST. Reach for GraphQL when its capability is worth a point.
 
 The two draw on separate hourly limits, so spending one does not touch the
-other:
+other. Checking is free: the `rate_limit` endpoint is not itself rate limited,
+verified by three consecutive calls leaving both counters unchanged.
 
 ```bash
-gh api rate_limit --jq '.resources|{graphql,core}'
+gh api rate_limit --jq '.resources|to_entries[]
+  |select(.key=="core" or .key=="graphql")
+  |"\(.key)\tused=\(.value.used)/\(.value.limit)\treset=\(.value.reset|todate)"'
 ```
 
-Measured an hour apart, in two different rate windows: GraphQL sat at 4,077 and
-then 4,287 of 5,000 consumed, once falling 55 points across 45 seconds in which
-this session issued no query at all. REST core held at 6 of 5,000 throughout.
-Concurrent agents share these buckets, and GraphQL is persistently the contended
-one.
+```text
+core     used=10/5000     reset=2026-08-21T22:55:53Z
+graphql  used=335/5000    reset=2026-08-21T23:12:28Z
+```
+
+Read the reset, not just the remaining count. That sample looks like GraphQL has
+plenty left, but it was taken three minutes into a fresh window. Concurrent
+agents were burning roughly 77 points per minute, which projects to about 4,600
+of the 5,000 before it resets — consistent with two earlier readings that caught
+the same window late, at 4,077 and 4,287 consumed. REST core stayed at single
+digits throughout.
+
+So GraphQL is reliably contended and REST reliably is not, but a spot check
+early in a window will tell you the opposite.
 
 The cost models differ in the way that decides the rule. A REST call costs one
 request whatever it returns, so a wide question costs a call per object. A
