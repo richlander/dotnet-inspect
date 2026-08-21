@@ -4490,6 +4490,9 @@ public class LibraryBodyIndexTests
                 "CrossKindSynchronousIteratorAttributes.dll",
                 [.. image],
                 LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity source = Assert.Single(
+            index.DeclaredMethods,
+            method => method.Name == "AnalyzeAsync");
         MethodIdentity moveNext = Assert.Single(
             index.DeclaredMethods,
             method => method.Name == "MoveNext"
@@ -4509,6 +4512,35 @@ public class LibraryBodyIndexTests
                 && diagnostic.Message.Contains(
                     "source is invalid or ambiguous",
                     StringComparison.Ordinal));
+
+        LibraryBodyIndex methodScoped =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "CrossKindSynchronousIteratorAttributes.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyScope: new HashSet<int>
+                {
+                    source.MetadataToken,
+                });
+        Assert.DoesNotContain(
+            methodScoped.DirectCalls,
+            candidate =>
+                candidate.EvidenceMethod.MetadataToken
+                    == moveNext.MetadataToken);
+
+        LibraryBodyIndex typeScoped =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "CrossKindSynchronousIteratorAttributes.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyTypeScope:
+                    type => type.Equals(
+                        source.DeclaringType));
+        Assert.DoesNotContain(
+            typeScoped.DirectCalls,
+            candidate =>
+                candidate.EvidenceMethod.MetadataToken
+                    == moveNext.MetadataToken);
     }
 
     [Fact]
@@ -11050,38 +11082,14 @@ public class LibraryBodyIndexTests
         byte[] image = File.ReadAllBytes(
             typeof(OptimizationOpportunityFixtures)
                 .Assembly.Location);
-        using (var peReader = new PEReader(
-            new MemoryStream(image, writable: false)))
-        {
-            MetadataReader reader =
-                peReader.GetMetadataReader();
-            MethodDefinitionHandle sourceHandle =
-                Assert.Single(
-                    reader.MethodDefinitions,
-                    handle => reader.StringComparer.Equals(
-                        reader.GetMethodDefinition(handle).Name,
-                        nameof(OptimizationOpportunityFixtures
-                            .YieldsPlainObjectAsync)));
-            int implFlagsOffset =
-                peReader.PEHeaders.MetadataStartOffset
-                + reader.GetTableMetadataOffset(
-                    TableIndex.MethodDef)
-                + (MetadataTokens.GetRowNumber(sourceHandle) - 1)
-                    * reader.GetTableRowSize(
-                        TableIndex.MethodDef)
-                + sizeof(int);
-            ushort implFlags =
-                BinaryPrimitives.ReadUInt16LittleEndian(
-                    image.AsSpan(
-                        implFlagsOffset,
-                        sizeof(ushort)));
-            BinaryPrimitives.WriteUInt16LittleEndian(
-                image.AsSpan(
-                    implFlagsOffset,
-                    sizeof(ushort)),
-                (ushort)(implFlags
-                    | (ushort)MethodImplAttributes.Async));
-        }
+        SetRuntimeAsyncFlag(
+            image,
+            reader => Assert.Single(
+                reader.MethodDefinitions,
+                handle => reader.StringComparer.Equals(
+                    reader.GetMethodDefinition(handle).Name,
+                    nameof(OptimizationOpportunityFixtures
+                        .YieldsPlainObjectAsync))));
 
         LibraryBodyIndex index =
             LibraryBodyIndex.OpenFromPrefetchedImage(
@@ -11122,6 +11130,124 @@ public class LibraryBodyIndexTests
                 == moveNext.MetadataToken);
         Assert.Null(
             scoped.ResolveDeclaredMethod(moveNext));
+    }
+
+    [Fact]
+    public void
+        DirectCalls_RuntimeAsyncMoveNextCannotAuthenticateKickoff()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(ClassicAsyncSiblingFixture)
+                .Assembly.Location);
+        SetRuntimeAsyncFlag(
+            image,
+            reader => Assert.Single(
+                reader.MethodDefinitions,
+                handle =>
+                {
+                    MethodDefinition method =
+                        reader.GetMethodDefinition(handle);
+                    if (!reader.StringComparer.Equals(
+                            method.Name,
+                            "MoveNext"))
+                    {
+                        return false;
+                    }
+                    TypeDefinition declaringType =
+                        reader.GetTypeDefinition(
+                            method.GetDeclaringType());
+                    return reader.GetString(
+                            declaringType.Name)
+                        .Contains(
+                            "<CallsSyncSiblingFromAsync>",
+                            StringComparison.Ordinal);
+                }));
+
+        LibraryBodyIndex full =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "RuntimeAsyncMoveNext.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity source = Assert.Single(
+            full.DeclaredMethods,
+            method => method.Name
+                == nameof(ClassicAsyncSiblingFixture
+                    .CallsSyncSiblingFromAsync));
+        MethodIdentity moveNext = Assert.Single(
+            full.Methods,
+            method => method.Name == "MoveNext"
+                && method.DeclaringType.Name.Contains(
+                    source.Name,
+                    StringComparison.Ordinal));
+
+        Assert.Null(full.ResolveDeclaredMethod(moveNext));
+        Assert.Contains(
+            full.DirectCalls,
+            call => call.EvidenceMethod == moveNext
+                && call.Caller == moveNext);
+
+        MethodIdentity unrelated = Assert.Single(
+            full.DeclaredMethods,
+            method => method.Name == "ExactPositiveA");
+        LibraryBodyIndex unrelatedScoped =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "RuntimeAsyncMoveNext.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyScope: new HashSet<int>
+                {
+                    unrelated.MetadataToken,
+                });
+        Assert.Null(
+            unrelatedScoped.ResolveDeclaredMethod(moveNext));
+
+        LibraryBodyIndex sourceScoped =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "RuntimeAsyncMoveNext.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyScope: new HashSet<int>
+                {
+                    source.MetadataToken,
+                });
+        Assert.Null(
+            sourceScoped.ResolveDeclaredMethod(moveNext));
+        Assert.DoesNotContain(
+            sourceScoped.DirectCalls,
+            call => call.EvidenceMethod.MetadataToken
+                == moveNext.MetadataToken);
+    }
+
+    static void SetRuntimeAsyncFlag(
+        byte[] image,
+        Func<MetadataReader, MethodDefinitionHandle>
+            selectMethod)
+    {
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        MetadataReader reader =
+            peReader.GetMetadataReader();
+        MethodDefinitionHandle methodHandle =
+            selectMethod(reader);
+        int implFlagsOffset =
+            peReader.PEHeaders.MetadataStartOffset
+            + reader.GetTableMetadataOffset(
+                TableIndex.MethodDef)
+            + (MetadataTokens.GetRowNumber(methodHandle) - 1)
+                * reader.GetTableRowSize(
+                    TableIndex.MethodDef)
+            + sizeof(int);
+        ushort implFlags =
+            BinaryPrimitives.ReadUInt16LittleEndian(
+                image.AsSpan(
+                    implFlagsOffset,
+                    sizeof(ushort)));
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            image.AsSpan(
+                implFlagsOffset,
+                sizeof(ushort)),
+            (ushort)(implFlags
+                | (ushort)MethodImplAttributes.Async));
     }
 
     [Fact]

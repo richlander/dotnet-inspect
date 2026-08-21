@@ -490,6 +490,13 @@ internal sealed class LibraryBodyAsyncSourceResolver
             in _classicAsyncExecutionMethods.Value
                 .SourceByMoveNextToken)
         {
+            if (IsRejectedStateMachineSource(
+                    source,
+                    _stateMachineExecutionMethods.Value
+                        .RejectedStateMachines))
+            {
+                continue;
+            }
             if (sources.TryGetValue(
                     moveNextToken,
                     out MethodIdentity? existing)
@@ -1156,6 +1163,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
             if (bodyDefinition.GetDeclaringType()
                     != typeHandle
                 || !HasAnalyzableIlBody(bodyDefinition)
+                || IsRuntimeAsync(bodyDefinition)
                 || !IsMoveNextBody(body))
             {
                 return false;
@@ -1167,11 +1175,13 @@ internal sealed class LibraryBodyAsyncSourceResolver
 
         foreach (var handle in type.GetMethods())
         {
-            if (!HasAnalyzableIlBody(
-                    _reader.GetMethodDefinition(handle))
+            MethodDefinition method =
+                _reader.GetMethodDefinition(handle);
+            if (!HasAnalyzableIlBody(method)
+                || IsRuntimeAsync(method)
                 || !IsMoveNextBody(handle)
                 || !_reader.StringComparer.Equals(
-                    _reader.GetMethodDefinition(handle).Name,
+                    method.Name,
                     "MoveNext"))
             {
                 continue;
@@ -1218,6 +1228,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
             if (bodyDefinition.GetDeclaringType()
                     != typeHandle
                 || !HasAnalyzableIlBody(bodyDefinition)
+                || IsRuntimeAsync(bodyDefinition)
                 || !IsIteratorMoveNextBody(body))
             {
                 return false;
@@ -1232,6 +1243,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
             MethodDefinition method =
                 _reader.GetMethodDefinition(handle);
             if (!HasAnalyzableIlBody(method)
+                || IsRuntimeAsync(method)
                 || !_reader.StringComparer.Equals(
                     method.Name,
                     "MoveNext")
@@ -1245,6 +1257,12 @@ internal sealed class LibraryBodyAsyncSourceResolver
         }
         return !moveNext.IsNil;
     }
+
+    bool IsRuntimeAsync(MethodDefinition method) =>
+        MethodClassificationScanner.ClassifyAsyncMethod(
+            _reader,
+            method)
+        == MethodClassification.RuntimeAsync;
 
     static bool HasAnalyzableIlBody(
         MethodDefinition method)
