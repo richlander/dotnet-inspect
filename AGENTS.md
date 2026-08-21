@@ -486,12 +486,14 @@ the replacement head. Everything below serves that loop.
 These are the binding invariants. The rest of this section explains them; the
 mechanics live in [`docs/adversarial-review.md`](docs/adversarial-review.md).
 
-1. **One frozen head per round.** Do not edit a head while its lock is held.
-2. **A candidate includes its effective base.** Integrate before validating —
-   and again whenever a conflict, an author change, or a review finding moves
-   the head.
-3. **Base movement alone never invalidates a candidate**, and never justifies
-   another round.
+1. **One frozen head per round.** The lock begins at the push and ends at
+   public reconciliation. Do not edit a head while it is held; fixes belong to
+   the next cycle.
+2. **A candidate includes its effective base.** Integrate twice before pushing
+   — once before fixing, once after — because the fix window is long enough for
+   `main` to move.
+3. **Base movement alone never invalidates a pushed candidate**, and never
+   justifies another round.
 4. **A round that pushes a fix is not review-clean.** Only the replacement head
    can earn that.
 5. **Do not post `Ready to merge` until every required review at the current
@@ -506,6 +508,34 @@ mechanics live in [`docs/adversarial-review.md`](docs/adversarial-review.md).
 This section is the sole source of truth for candidate formation, round
 eligibility, head locking, supersession, and recovery. Other sections add
 reviewer, stack, or readiness detail without redefining these transitions.
+
+#### The round cycle
+
+Steps 1-5 run with no lock held. The lock begins at the push and ends at
+reconciliation.
+
+1. **Integrate** the effective base, so the work is written against current
+   `main` rather than against history.
+2. **Fix** — the review-driven changes, or the initial authoring for round 1.
+3. **Validate** the fix with the focused gate.
+4. **Integrate again.** Fixing takes real time, and `main` moves during it.
+5. **Validate again**, enough to prove the integration did not break the fix.
+   Scope it by the rerun rule under [Evidence and
+   validation](#evidence-and-validation): focused gates for whatever the landed
+   range can interact with, not the broad suite again.
+6. **Push.** That head is the candidate, and the lock begins here.
+7. **Confirm zero conflicts and green current-head `ci-required`** — unless the
+   round's row below leaves them pending, or the user authorized reviewing in
+   parallel with CI.
+8. **Review**: dispatch every required reviewer at that exact head.
+9. **Reconcile** the feedback publicly. The lock ends here. If the
+   reconciliation produced fixes, the next round begins at step 1.
+
+**Two integrations per round, both before the push.** The first makes the work
+current; the second closes the window the fix itself opened, which can be an
+hour wide and several merges deep. After the push, base movement does not
+reopen the candidate — that is invariant 3, and it is what stops the cycle from
+running forever.
 
 | Attempt | Required before reviewer dispatch | May remain pending |
 | --- | --- | --- |
@@ -591,16 +621,15 @@ subsequent round:
   an author change is the exception: it supersedes the incomplete attempt and
   releases the lock. Conflict recovery pushes immediately; failed-gate recovery
   pushes the fix and waits for the ordinary subsequent-round status gate.
-- **The candidate includes its effective base.** Immediately before focused
-  validation, fetch and integrate the effective base and record the integrated
-  tip. That head is the candidate: keep it fixed through broader validation,
-  push, CI, and review. Do **not** refetch merely because the base advances
-  during those steps; that creates an integrate-validate-integrate loop without
-  making the review more useful.
+- **The candidate includes its effective base.** Integrate twice, per [the round
+  cycle](#the-round-cycle): once before fixing, once after, recording the tip
+  you finally integrated. That head is the candidate — keep it fixed through
+  push, CI, and review. Do **not** refetch once it is pushed; that restarts the
+  cycle without making the review more useful.
 - **Re-integrate whenever the head moves.** When a conflict, an author change,
-  or a review finding ends a candidate, integrate the then-current effective
-  base while forming the replacement. A multi-round PR therefore picks up `main`
-  once per round that produced a fix — not never, and not continuously.
+  or a review finding ends a candidate, the replacement is formed by running the
+  cycle again. A multi-round PR therefore picks up `main` on each round that
+  produced a fix — not never, and not continuously while a head is frozen.
 - **Before merge, the PR is mergeable and green.** One consolidated status
   query answers both; see
   [status discovery](docs/adversarial-review.md#status-discovery) for the query,
@@ -626,9 +655,9 @@ subsequent round:
   that is a scheduling bug to investigate — a PR that triggers no workflow
   leaves `ci-required` nothing to block on and displays as MERGEABLE and CLEAN.
 
-Once a candidate is formed, do not fetch or integrate the base while validation,
-CI, or review is in progress. After a review-clean result, a non-mutating fetch
-is permitted solely to inspect the landed range for the carry-forward decision
+Once the candidate is pushed, do not fetch or integrate the base while CI or
+review is in progress. After a review-clean result, a non-mutating fetch is
+permitted solely to inspect the landed range for the carry-forward decision
 below.
 
 ### Clean reviews are not spent by main moving
