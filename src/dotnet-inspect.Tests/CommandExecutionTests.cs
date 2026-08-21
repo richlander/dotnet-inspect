@@ -3332,6 +3332,30 @@ public partial class CommandExecutionTests
         Assert.Equal("1", routed.Output.Trim());
     }
 
+    [Fact]
+    public async Task Router_OperatorLikeGenericArgumentRemainsTypeTarget()
+    {
+        const string target =
+            "System.Collections.Generic.List<System.op_Addition>";
+        string[] tail =
+        [
+            "--platform",
+            "System.Private.CoreLib",
+            "-D",
+            SectionNames.TypeInfo,
+            "--schema",
+            "--table",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["type", target, .. tail]);
+        var routed = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("Type", routed.Output);
+    }
+
     [Theory]
     [InlineData("System.Collections.Generic.List<>")]
     [InlineData("System.Collections.Generic.Dictionary<,>")]
@@ -3767,6 +3791,8 @@ public partial class CommandExecutionTests
         Assert.Contains("Select value 'DefinitelyNotASection' not found.", direct.Error);
         Assert.Contains("Select value 'DefinitelyNotASection' not found.", deferred.Error);
         Assert.DoesNotContain("File not found", deferred.Error);
+        Assert.DoesNotContain("  Classes", deferred.Error);
+        Assert.DoesNotContain("  Inspection Failures", deferred.Error);
     }
 
     [Fact]
@@ -3790,6 +3816,8 @@ public partial class CommandExecutionTests
         Assert.Empty(output);
         Assert.Contains("Select value 'DefinitelyNotASection' not found.", error);
         Assert.DoesNotContain("File not found", error);
+        Assert.DoesNotContain("  Classes", error);
+        Assert.DoesNotContain("  Inspection Failures", error);
     }
 
     [Fact]
@@ -4112,6 +4140,33 @@ public partial class CommandExecutionTests
 
         Assert.Equal(direct, routed);
         Assert.Equal(0, routed.Exit);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitLibraryQualifiedMemberUsesAssemblySource()
+    {
+        const string typeName =
+            "DotnetInspector.Tests.TypeTargetedDecodeTests";
+        const string memberName =
+            "TypeTargetedBuild_MatchesFullBuild_ForEveryMethodOfTheType";
+        string[] tail =
+        [
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            ["member", typeName, "-m", memberName, .. tail]);
+        var routed = await RunAppAsync(
+            [$"{typeName}.{memberName}", .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Equal("1", routed.Output.Trim());
     }
 
     [Fact]

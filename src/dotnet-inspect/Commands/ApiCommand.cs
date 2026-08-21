@@ -118,29 +118,27 @@ public class ApiCommand
     internal static bool RejectUniversallyInvalidMemberSelect(
         MemberOptions options)
     {
-        if (options.Discover is not null
+        if (!options.RouterDeferredTypeOrMember
+            || options.Discover is not null
             || options.IncludeSections is not null
             || options.Select is not { Length: > 0 })
         {
             return false;
         }
 
-        var listingPipeline = ApiTypeSectionDescriptors.CreatePipeline();
         var memberPipelines = new[]
         {
             ApiMemberSectionDescriptors.CreatePipeline(),
             ApiMemberOverloadSectionDescriptors.CreatePipeline(),
             ApiMemberDetailSectionDescriptors.CreatePipeline(),
         };
-        var knownSections = listingPipeline.SelectableSectionNames
-            .Concat(memberPipelines.SelectMany(
-                static pipeline => pipeline.SelectableSectionNames))
+        var knownSections = memberPipelines.SelectMany(
+                static pipeline => pipeline.SelectableSectionNames)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
         Dictionary<string, string[]> categories =
             new(StringComparer.OrdinalIgnoreCase);
 
-        AddCategories(listingPipeline.GetCategoryMap());
         foreach (var pipeline in memberPipelines)
             AddCategories(pipeline.GetCategoryMap());
 

@@ -211,9 +211,7 @@ public static class RouterCommandDefinition
                 || ContainsOption(tokens, "-t");
             var hasMemberOption = ContainsOption(tokens, "--member")
                 || ContainsOption(tokens, "-m");
-            if (hasExplicitGenericNotation
-                && hasTypeOption
-                && hasExplicitApiSource)
+            if (hasTypeOption && hasExplicitApiSource)
             {
                 return ["type", target, .. tail];
             }
@@ -240,9 +238,14 @@ public static class RouterCommandDefinition
                 ];
             }
 
-            if (ContainsOption(tokens, "--library")
-                && !(GetOptionValue(tail, "--library") is { Length: > 0 }
-                    && TypeMatcher.HasExplicitGenericNotation(target)))
+            if (hasExplicitApiSource)
+            {
+                return target.Contains('.')
+                    ? RouteDeferredTypeOrMember(target, tail)
+                    : ["type", target, .. tail];
+            }
+
+            if (ContainsOption(tokens, "--library"))
                 return ["package", .. tokens];
 
             if (tokens.Length >= 2
@@ -298,13 +301,6 @@ public static class RouterCommandDefinition
             }
 
             var allowPlatformPrefixFallback = PlatformResolver.IsPlatformCandidate(target);
-            if (hasExplicitApiSource
-                && hasExplicitGenericNotation)
-            {
-                return target.Contains('.')
-                    ? RouteDeferredTypeOrMember(target, tail)
-                    : ["type", target, .. tail];
-            }
 
             var frameworkSpec = GetOptionValue(tail, "--framework");
             var exactTypeLookup = LookupExactGenericPlatformType(
@@ -503,27 +499,47 @@ public static class RouterCommandDefinition
             out string typeTarget,
             out string memberSelector)
         {
-            var operatorIndex = target.LastIndexOf(
-                ".operator",
-                StringComparison.OrdinalIgnoreCase);
-            if (operatorIndex <= 0)
-            {
-                operatorIndex = target.LastIndexOf(
+            var memberBoundary = Math.Max(
+                target.LastIndexOf(
+                    ".operator",
+                    StringComparison.OrdinalIgnoreCase),
+                target.LastIndexOf(
                     ".op_",
-                    StringComparison.OrdinalIgnoreCase);
-            }
-            if (operatorIndex <= 0)
+                    StringComparison.OrdinalIgnoreCase));
+            if (memberBoundary <= 0
+                || !IsTopLevelDot(target, memberBoundary))
             {
                 typeTarget = "";
                 memberSelector = "";
                 return false;
             }
 
-            typeTarget = target[..operatorIndex];
-            memberSelector = target[(operatorIndex + 1)..];
-            return MemberTargetSelector.Parse(memberSelector).Name.StartsWith(
-                "op_",
-                StringComparison.Ordinal);
+            memberSelector = target[(memberBoundary + 1)..];
+            if (!MemberTargetSelector.Parse(memberSelector).Name.StartsWith(
+                    "op_",
+                    StringComparison.Ordinal))
+            {
+                typeTarget = "";
+                memberSelector = "";
+                return false;
+            }
+
+            typeTarget = target[..memberBoundary];
+            return true;
+        }
+
+        private static bool IsTopLevelDot(string value, int dotIndex)
+        {
+            var depth = 0;
+            for (var i = 0; i < dotIndex; i++)
+            {
+                if (value[i] == '<')
+                    depth++;
+                else if (value[i] == '>')
+                    depth--;
+            }
+
+            return depth == 0;
         }
 
         private static string[] RouteDeferredTypeOrMember(
@@ -789,9 +805,10 @@ public static class RouterCommandDefinition
 
         private static bool HasExplicitApiSource(string[] tokens) =>
             ContainsOption(tokens, "--package")
-            || ContainsOption(tokens, "--library")
             || ContainsOption(tokens, "--platform")
-            || ContainsOption(tokens, "--project");
+            || ContainsOption(tokens, "--project")
+            || (GetOptionValue(tokens, "--library") is { Length: > 0 } library
+                && !library.StartsWith('-'));
 
         private static string[] FrameworkArgsUnlessSpecified(
             string framework,
