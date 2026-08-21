@@ -6361,6 +6361,30 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Package", routed.Error);
     }
 
+    [Theory]
+    [InlineData(@"C:\missing.dll")]
+    [InlineData(@"directory\missing.dll")]
+    public async Task Router_ForeignSeparatorLibraryValue_UsesTypeParser(
+        string libraryPath)
+    {
+        string[] arguments =
+        [
+            "System.String",
+            "--library",
+            libraryPath,
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Contains("File not found:", routed.Error);
+        Assert.DoesNotContain("Package", routed.Error);
+    }
+
     [Fact]
     public async Task TypeListing_FacadePlatformLibrary_ShowsTypeForwardingDescription()
     {
@@ -21804,6 +21828,66 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_LibraryValue_IsIndependentOfCurrentDirectory()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"router-library-selector-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        File.WriteAllText(
+            Path.Combine(tempDir, "Newtonsoft.Json.dll"),
+            "not an assembly");
+        try
+        {
+            string[] arguments =
+            [
+                "Newtonsoft.Json@13.0.4",
+                "--library",
+                "Newtonsoft.Json.dll",
+                "-S",
+                "Library Info",
+                "--tips",
+                "q"
+            ];
+
+            var direct = await RunAppInDirectoryAsync(
+                tempDir,
+                ["package", .. arguments]);
+            var routed = await RunAppInDirectoryAsync(
+                tempDir,
+                arguments);
+
+            Assert.Equal(direct, routed);
+            Assert.Equal(0, routed.Exit);
+            Assert.Contains("# Newtonsoft.Json.dll", routed.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Router_BareLibraryFollowedByColonOption_PreservesPackageInspection()
+    {
+        string[] arguments =
+        [
+            "Newtonsoft.Json@13.0.4",
+            "--library",
+            "-v:q",
+            "-S",
+            "Library Info"
+        ];
+
+        var direct = await RunAppAsync(["package", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("# Newtonsoft.Json.dll", routed.Output);
+    }
+
+    [Fact]
     public async Task Router_ExplicitPackageIdentity_PreservesPackageInspection()
     {
         string[] arguments =
@@ -21830,6 +21914,34 @@ public partial class CommandExecutionTests
         Assert.Equal(0, routed.Exit);
         Assert.Contains("# Newtonsoft.Json", routed.Output);
         Assert.Contains("## Package Info", routed.Output);
+    }
+
+    [Fact]
+    public async Task Router_DuplicatePackageIdentity_PreservesMalformedOption()
+    {
+        string[] arguments =
+        [
+            "Newtonsoft.Json@13.0.4",
+            "--package",
+            "Newtonsoft.Json@13.0.4",
+            "--package",
+            "--version",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(
+            "package",
+            "Newtonsoft.Json@13.0.4",
+            "--package",
+            "--version",
+            "--tips",
+            "q");
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Contains("Unrecognized option '--package'", routed.Error);
     }
 
     [Fact]

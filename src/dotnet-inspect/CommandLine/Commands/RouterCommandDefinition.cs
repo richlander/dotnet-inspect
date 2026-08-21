@@ -256,7 +256,10 @@ public static class RouterCommandDefinition
                 [
                     "package",
                     target,
-                    .. RemoveOptionWithValue(tail, "--package")
+                    .. RemoveOptionWithValue(
+                        tail,
+                        "--package",
+                        target)
                 ];
             }
 
@@ -266,7 +269,7 @@ public static class RouterCommandDefinition
             if (hasLibraryValue
                 && !hasExplicitGenericNotation
                 && !ContainsOption(tail, "--package")
-                && !LooksLikeFileSystemLibraryValue(libraryValue))
+                && IsPackageRelativeLibraryValue(libraryValue))
             {
                 return ["package", .. tokens];
             }
@@ -876,7 +879,7 @@ public static class RouterCommandDefinition
             RootCommand rootCommand,
             string token)
         {
-            var optionName = token.Split('=', 2)[0];
+            var optionName = token.Split(['=', ':'], 2)[0];
             return rootCommand.Options
                 .Concat(rootCommand.Subcommands.SelectMany(
                     static command => command.Options))
@@ -889,13 +892,9 @@ public static class RouterCommandDefinition
                         StringComparer.OrdinalIgnoreCase));
         }
 
-        private static bool LooksLikeFileSystemLibraryValue(string value) =>
-            value.Length == 0
-            || value.StartsWith('-')
-            || Path.IsPathFullyQualified(value)
-            || value.Contains(Path.DirectorySeparatorChar)
-            || value.Contains(Path.AltDirectorySeparatorChar)
-            || File.Exists(value);
+        private static bool IsPackageRelativeLibraryValue(string value) =>
+            !value.StartsWith('-')
+            && SourceResolver.IsLibrarySelector(value, package: null);
 
         private static bool IsExplicitSourceIdentity(
             string target,
@@ -906,22 +905,35 @@ public static class RouterCommandDefinition
 
         private static string[] RemoveOptionWithValue(
             string[] tokens,
-            string option)
+            string option,
+            string value)
         {
             var rewritten = new List<string>(tokens.Length);
+            var removed = false;
             for (var i = 0; i < tokens.Length; i++)
             {
-                if (tokens[i].Equals(option, StringComparison.Ordinal))
+                if (!removed
+                    && tokens[i].Equals(option, StringComparison.Ordinal)
+                    && i + 1 < tokens.Length
+                    && tokens[i + 1].Equals(
+                        value,
+                        StringComparison.OrdinalIgnoreCase))
                 {
-                    if (i + 1 < tokens.Length)
-                        i++;
+                    i++;
+                    removed = true;
                     continue;
                 }
 
-                if (tokens[i].StartsWith(
-                        $"{option}=",
-                        StringComparison.Ordinal))
+                var attachedPrefix = $"{option}=";
+                if (!removed
+                    && tokens[i].StartsWith(
+                        attachedPrefix,
+                        StringComparison.Ordinal)
+                    && tokens[i][attachedPrefix.Length..].Equals(
+                        value,
+                        StringComparison.OrdinalIgnoreCase))
                 {
+                    removed = true;
                     continue;
                 }
 
