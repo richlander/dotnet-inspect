@@ -61,7 +61,7 @@ mechanism-specific owners:
 | Layer and dependency ownership | [Inspection layers](inspection-layers.md) |
 | Gesture disclosure and capability-request provenance | [Progressive disclosure](progressive-disclosure.md) |
 | Candidate, effective, rendered, and discovery semantics | [Section model](section-model.md) |
-| Markout structural schema operations | [Schema query](schema-query.md) |
+| Markout structural schema and realized discovery/render-manifest mechanics | [Schema query](schema-query.md) |
 | Metadata traversal and projection budgets | [Bounded metadata traversal](bounded-metadata-traversal.md) |
 | Type/member identities, selectors, and anchors | [Type, member, and API representation](type-member-api-representation.md) |
 | Untrusted input and failure containment | [Untrusted data threat model](untrusted-data-threat-model.md) |
@@ -245,6 +245,13 @@ inventory needed for lookup. It cannot authorize PDB, source-content, or
 section-analysis augmentation.
 
 The resulting inventory is resolved through existing typed identity owners.
+Address resolution has two ordered phases:
+
+1. resolve the complete positional spelling, fallback peel, positional type,
+   and every qualified selector to canonical type candidates;
+2. require every type candidate to agree, then combine implied and explicit
+   member selectors under the final section's cardinality contract.
+
 Address resolution follows this matrix:
 
 | Input state | Outcome |
@@ -252,11 +259,13 @@ Address resolution follows this matrix:
 | The complete type spelling resolves exactly | Select that type; do not peel an implied member |
 | Complete type lookup misses and one legal trailing segment can be peeled | Resolve the prefix as the type and retain the suffix as implied member intent |
 | Both an exact complete type and a prefix type/member pair exist | Exact complete type wins |
-| Positional type and a qualified explicit member name the same canonical type | Merge their member intent |
+| Positional type and a qualified explicit member name the same canonical type | Continue to member-set combination |
 | Positional type and a qualified explicit member name different types | Return a typed address-conflict diagnostic |
+| Two qualified explicit member selectors name the same canonical type | Continue to member-set combination |
+| Two qualified explicit member selectors name different canonical types | Return a typed address-conflict diagnostic |
 | Implied and explicit member selectors are structurally identical | Coalesce them |
-| Distinct implied/explicit members target a multi-member-capable section | Retain the explicit member set |
-| Distinct implied/explicit members target a single-member detail shape | Return a typed cardinality diagnostic |
+| Distinct implied or explicit members target a multi-member-capable section | Retain their union as the member set |
+| Distinct implied or explicit members target a single-member detail shape | Return a typed cardinality diagnostic |
 | Overload, digest, or generic-arity components disagree | Return a typed selector-conflict diagnostic |
 
 Selector-bearing suffixes are parsed before comparison. Display spelling is not
@@ -347,7 +356,7 @@ from a non-null `Discover` array.
 | --- | --- | --- | --- |
 | `-D --schema` | None | None | None |
 | Type/member `-D` during compatibility migration | Minimal target-resolution plan | Cheap network-free applicability probes | Target acquisition plus cheap probe policy |
-| Type/member `-D <section>` during compatibility migration | Minimal target-resolution plan | Section-specific applicability/render-manifest probe | Target acquisition plus section-specific probe policy |
+| Type/member `-D <section-or-category>` during compatibility migration | Minimal target-resolution plan | Network-free section-specific applicability/render-manifest probes | Target acquisition plus network-free probe policy; no PDB/source request |
 | Future explicit effective discovery | Minimal target-resolution plan | Declared full applicability probes only | Target acquisition plus explicit full-probe policy |
 | `-S <section>` render | Minimal target-resolution plan | Selected producer closure | Target acquisition plus explicit gesture capabilities |
 | Verbosity render | Minimal target-resolution plan | Automatic base-section closure | Target acquisition plus behavior-safe defaults |
@@ -356,22 +365,29 @@ An effective probe and a render are distinct execution modes. A producer may
 support both, one, or neither. A render-only or opt-in producer remains
 structurally discoverable without being executed as a probe.
 
-In particular, named discovery of `Source Locations`, `Original Source`, or
-another source-backed section may describe its schema without acquiring a PDB
-or source document when its section-specific probe is structural. A named
-section may instead declare a bounded data-level probe needed to distinguish
-valid-but-empty from unknown; that probe still cannot acquire capabilities the
-discovery gesture does not request. If a future full effective-discovery
-gesture is allowed to probe one of those sections, the producer declaration,
-probe policy, gesture provenance, and host must all authorize it.
+In particular, named or category discovery of `Source Locations`, `Original
+Source`, `Source Diff`, or another source-backed section does not request PDB
+or source capabilities. It may describe structural schema or run a
+network-free data-level probe needed to distinguish valid-but-empty from
+unknown. If a future full effective-discovery gesture is allowed to probe one
+of those sections, the producer declaration, probe policy, gesture provenance,
+and host must all authorize it.
 
 Type/member commands currently treat every non-schema `-D` as effective
-discovery. The compatibility rows above preserve that behavior during the
-planning migration. Converging those commands on the library command's
-structural/effective split is a separate user-visible transition: it must
-update the section model, progressive-disclosure guidance, command help, and
-valid-but-empty diagnostics together. The planning migration does not silently
-perform that transition.
+discovery. The compatibility rows above preserve that producer scope during
+the planning migration, including section-specific valid-but-empty probes.
+They do not preserve the current accidental union of `Discover` selections
+into render authorization: overload-qualified named/category discovery can
+currently acquire PDB/source content and can convert a failed probe into empty
+successful output. Slice 4 removes that escalation and empty-success path as
+an intentional correctness change.
+
+Converging type/member commands on the library command's structural/effective
+split remains a separate user-visible transition. It must update the section
+model, [schema-query realized mechanics](schema-query.md#effective-filtering),
+progressive-disclosure guidance, command help, and valid-but-empty diagnostics
+together. The planning migration does not silently perform that broader
+transition.
 
 ### Presentation plan
 
@@ -611,7 +627,7 @@ work only when:
 Full, summary, and focused projections may request different retained fields.
 They do not receive different hostile-input ceilings for equivalent work.
 These cache and equivalent-ceiling properties are unverified until `MDP009`
-lands.
+lands; cache-key tests alone do not prove ceiling parity.
 
 ### Failure mapping
 
@@ -684,7 +700,7 @@ the design authority.
 | Compiler-produced and hostile metadata fixtures | Retain and move to the owning boundary gates |
 | Typed member selectors and resolved member targets | Retain where they match the currency contracts |
 | Local selector finalization flags and provisional option mutation | Replace with parsed and resolved plan types |
-| Local source/PDB authorization checks derived from selected sections | Replace with producer-plan authorization |
+| Local source/PDB authorization checks derived from `IncludeSections` or the union of `Discover` selections into requested sections | Replace with producer-plan authorization |
 | Render-manifest effective discovery | Retain for post-producer field/column/empty observation; move every producer call into a declared probe plan |
 | Shared Metadata validators already used by every projection | Retain |
 | Validators duplicated across full, summary, focused, or C# paths | Move to the Metadata declaration owner |
@@ -743,7 +759,8 @@ Depends on: slice 2.
   change.
 
 Exit gate: `MIP006` covers the full matrix, including exact-type/member
-dual-success and conflicting positional/qualified types.
+dual-success, member-set union/cardinality, and conflicting
+positional/qualified and qualified/qualified types.
 
 ### Slice 4: lower resolved selection to typed producer plans
 
@@ -751,15 +768,19 @@ Depends on: slices 2 and 3.
 
 - Bind member sections to typed query definitions.
 - Preflight cost and capability authorization.
-- Remove source/PDB/analysis authorization inferred from `IncludeSections`.
+- Remove source/PDB/analysis authorization inferred from `IncludeSections` or
+  from the union of `Discover` selections into requested render sections.
 - Move every producer reached by render-manifest discovery into the declared
   section-specific probe plan; retain the manifest only as a post-producer
   observation adapter.
-- Keep rendered output unchanged.
+- Update `schema-query.md` realized type/member discovery mechanics to name the
+  declared probe plan rather than render-manifest-owned producer execution.
+- Keep ordinary rendered output unchanged.
 
 Exit gate: the executor accepts only the authorized plan and the producer trace
-matches the resolved selection matrix. `MIP004` and `MIP005` must pass before
-this slice lands.
+matches the resolved selection matrix; named/category source discovery neither
+acquires source capabilities nor becomes empty success. `MIP002`, `MIP004`,
+`MIP005`, and `MIP010` must pass before this slice lands.
 
 ### Slice 5: introduce Metadata declaration scaffolding
 
@@ -772,8 +793,9 @@ be consumed by the type/member plan before slice 4 lands.
   implementation supplies product results.
 - Do not activate the new admission semantics for only one projection path.
 
-Exit gate: cache-context declarations drive `MDP009`, and shadow results expose
-all full/summary/focused disagreements before cutover.
+Exit gate: cache, context, and hostile-input limit declarations drive `MDP009`;
+shadow results expose full/summary/focused limit, rejection, and projection
+disagreements before cutover.
 
 ### Slice 6: activate shared declaration admission atomically
 
@@ -811,10 +833,12 @@ Depends on: slices 4, 6, and 7.
 - Remove duplicate Metadata validators and compatibility branches.
 - Update architecture docs from proposed to implemented only after the
   corresponding gates pass.
+- Update `schema-query.md` and the other mechanism owners to remove superseded
+  transitional type/member discovery descriptions.
 
 Exit gate: targeted searches and architecture tests find no dual-use option
 authority, duplicate declaration validity owner, or CSharp metadata
-reconstruction.
+reconstruction. `MIP011` and `MDP011` must pass.
 
 ## Verification obligations
 
@@ -828,15 +852,16 @@ test method name, but the PR must map each test to its gate ID.
 | Gate | Property | Required evidence |
 | --- | --- | --- |
 | `MIP001` | Static schema runs no acquisition/producers and non-schema discovery runs only mode-declared probes | Separate target-resolution and section-producer trace equality for every actual type/member discovery gesture |
-| `MIP002` | Named source discovery cannot acquire PDB/source | Existing `Member_SourceLocations_Discovery_DoesNotAcquirePdb` plus equivalent authored-source coverage |
+| `MIP002` | Named/category source discovery cannot acquire PDB/source | Overload-qualified `-D "Source Locations"`, `-D "Original Source"`, `-D "Source Diff"`, and source-category cases proving no acquisition and a nonempty schema or typed valid-but-empty diagnostic |
 | `MIP003` | Provisional catalogs cannot satisfy shape validation | Close-negative tests for exact type, implied member, mixed filters, globs, and categories |
 | `MIP004` | Producer demand equals authorization | Exhaustive gesture-provenance/query-requirement/host-policy matrix, preflight-before-execution assertions, and artifact-owner lease revalidation |
 | `MIP005` | Presentation cannot widen work | A non-vacuity test that fails when render-manifest or ordinary rendering starts an undeclared producer |
-| `MIP006` | Address resolution is deterministic and conflict-bearing | Exact type, fallback peel, dual-success, qualified/positional conflict, implied/explicit member, overload, digest, and arity matrix |
+| `MIP006` | Address resolution is deterministic and conflict-bearing | Exact type, fallback peel, dual-success, qualified/positional conflict, same-type and conflicting qualified/qualified selectors, implied/explicit member union and cardinality, overload, digest, and arity matrix |
 | `MIP007` | L1 member execution remains content-shaped and owner-authorized | Architecture closure plus admission/query-lease tests proving no readable path or descriptor bypass |
 | `MIP008` | The plan executes sequentially without filesystem assumptions | Browser/Wasm host test over in-memory content with the same producer trace and failures |
 | `MIP009` | The path remains NativeAOT-friendly, SRM-only, Roslyn-free, and load-free | NativeAOT publish/run plus dependency and inspected-assembly-loading architecture gates |
 | `MIP010` | Typed planning and resolution failures stay visible | Outcome tests proving diagnostics cannot become empty selection, empty results, or success exit |
+| `MIP011` | Host preflight remains the only authorization mint after migration | Declaration-driven architecture closure over every type/member entry point, option field, descriptor, and executor call site; fail on a second mint or dual-use authorization state |
 | `MDP001` | Full/summary/focused validity agrees | Set equality over accepted identities and typed rejection rule IDs |
 | `MDP002` | Declaration admission order is preserved | Direct-invalid, charged name/attribute exclusion, excluded-hostile, public/non-public accessor dependency, retained-rejected, aggregate-rejected, and valid-empty fixtures |
 | `MDP003` | Cheap filtering precedes hostile MethodImpl projection | Large excluded-row fixture with bounded allocation/work evidence |
@@ -845,8 +870,9 @@ test method name, but the PR must map each test to its gate ID.
 | `MDP006` | Decode accounting is transitive | Amplification fixtures for names, modifiers, signatures, accessors, and MethodImpl targets |
 | `MDP007` | Failure text contains no artifact data | Hostile control-character names across Metadata, C#, and CLI failure paths |
 | `MDP008` | Real artifacts remain stable | Pinned platform and package canaries with recorded rows and retained-text totals |
-| `MDP009` | Declaration caches preserve context, budget, and failure semantics | Declaration-driven cache-key set equality, cached-work budget rejection, and same-context negative-result caching |
+| `MDP009` | Declaration caches and hostile-input ceilings preserve context, budget, and failure semantics | Declaration-driven cache-key set equality, cached-work budget rejection, same-context negative-result caching, declared limit equality, and equivalent near-limit/over-limit full/summary/focused fixtures with identical consumed-work boundaries and rejection rules |
 | `MDP010` | Degraded signatures remain nonauthoritative at the CSharp boundary | Existing degraded-signature fixtures mapped to typed `Degraded` outcomes with no authoritative C# or metadata fallback |
+| `MDP011` | Metadata admission and C# representability have no parallel owner after migration | Declaration-driven architecture closure over full, summary, focused, and CSharp call sites; fail on duplicate validity logic or in-scope CSharp `MetadataReader`/handle relationship reconstruction |
 
 Contract tests should derive their cases from the declaration or section
 catalog where practical, so a new mode or validator cannot silently avoid the
@@ -856,15 +882,17 @@ matrix.
 
 | Claim | Owner | Gate |
 | --- | --- | --- |
-| Type/member producer capability preflight is the only execution authority | Typed query executor | `MIP004` |
+| Type/member producer capability preflight is the only execution authority | Typed query executor | `MIP004`, `MIP011` |
 | Discovery catalog and producer traces agree for every mode | Section/query plan integration | `MIP001`, `MIP003` |
 | Renderer code cannot trigger acquisition or analysis | Presentation boundary | `MIP005` |
 | Target/member execution preserves content, lease, host, and platform boundaries | Query/acquisition integration | `MIP007`, `MIP008`, `MIP009` |
 | Planning and address failures cannot become ordinary absence | Planning/resolution boundary | `MIP006`, `MIP010` |
-| One declaration admission decision governs all API projections | Metadata | `MDP001`, `MDP002` |
+| No dual-use option or alternate authorization mint survives migration | Planning/execution architecture | `MIP011` |
+| One declaration admission decision governs all API projections | Metadata | `MDP001`, `MDP002`, `MDP011` |
 | Excluded hostile rows cannot amplify expensive projection | Metadata | `MDP003`, `MDP006` |
 | Valid metadata and C# fallback remain distinct from degraded or invalid input | Metadata/CSharp boundary | `MDP004`, `MDP005`, `MDP007`, `MDP010` |
 | Cache reuse cannot bypass context or operation budgets | Metadata declaration session | `MDP009` |
+| No duplicate validity owner or CSharp raw-metadata reconstruction survives migration | Metadata/CSharp architecture | `MDP011` |
 
 ## Review exit criteria
 

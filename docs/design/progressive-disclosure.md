@@ -127,23 +127,27 @@ After selection binds stable sections to typed queries, the disclosure policy
 maps that provenance to requests for capabilities declared by those queries.
 The host preflight grants or denies the requests before execution.
 
-Exact selection of a source-content section may request its PDB and
-source-content capabilities. Detailed verbosity may request bounded PDB or
-source-audit work where the section contract permits it, but it does not
-request source-content fetch. An internal verbosity promotion never widens the
-request. Section descriptors and query definitions declare requirements; they
-do not grant authority. Artifact admission/query leases revalidate the
-authorized plan at content access.
+Exact render selection of a source-content section may request its PDB and
+source-content capabilities. Discovery selection retains the same provenance,
+but does not request PDB or source content unless an explicit effective-
+discovery policy declares that capability. Detailed verbosity may request
+bounded PDB or source-audit work where the section contract permits it, but it
+does not request source-content fetch. An internal verbosity promotion never
+widens the request. Section descriptors and query definitions declare
+requirements; they do not grant authority. Artifact admission/query leases
+revalidate the authorized plan at content access.
 
 - A package may be downloaded to resolve the requested target.
 - Default gestures must not automatically fetch symbols or source content.
 - Embedded, adjacent, or cached symbols may be used by network-free gestures
   when their latency budget permits.
-- Selecting a network-bound section or running full effective discovery for a
-  category may authorize the capability declared by that section.
+- Selecting a network-bound render section or running an explicitly
+  capability-bearing effective-discovery gesture may request the capability
+  declared by that section.
 
-Capability authorization comes from the user's gesture, not from an internal
-verbosity promotion.
+Capability-request provenance comes from the user's gesture, not from an
+internal verbosity promotion. Capability authorization comes solely from host
+preflight.
 
 ## Projection
 
