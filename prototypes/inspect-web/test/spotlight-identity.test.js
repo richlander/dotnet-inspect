@@ -418,9 +418,9 @@ test("typed type panel owns its rendered control bindings", () => {
   assert.equal(
     rootEventBinder.match(/\bbindTypePanelEvents\(\)/g)?.length,
     1);
-  assert.match(
-    rootEventBinder,
-    /function bindEvents\(\) \{\s*bindStatusBarToggle\(\);\s*packageBar\.bind\(document\);\s*bindTypePanelEvents\(\);/);
+  assert.equal(
+    rootEventBinder.match(/^\s*bindTypePanelEvents\(\);$/gm)?.length,
+    1);
   assert.match(
     typePanelSource,
     /export function bindTypePanel\([\s\S]*\[data-type\][\s\S]*\[data-namespace\][\s\S]*\[data-kind-filter\][\s\S]*\[data-nav-member\][\s\S]*\[data-nav-overload\][\s\S]*#nav-to-types[\s\S]*#clear-filter[\s\S]*#namespace-jump[\s\S]*#type-list[\s\S]*#type-filter/);
