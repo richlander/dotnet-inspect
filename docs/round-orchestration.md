@@ -249,8 +249,8 @@ path applies and when it does not. This is the procedure once it does.
 4. **Execute the rule's decision.** Exactly one of its outcomes runs here: when
    it authorizes carry-forward, integrate that exact analyzed tip by SHA, not a
    moving branch ref, and re-run the claimed validation and current-head CI.
-   Every other outcome — declined, interacting, or that re-run failing — keeps
-   the reviewed head and is resolved by the rule, not by this document.
+   Every other outcome — declined, interacting, or that re-run failing — returns
+   to the rule for its terminal action, which this document does not restate.
 
-Record the reviewed head, the old and approved new tips, the non-interaction
-analysis, and the user's decision on the PR.
+For an approved carry-forward, record the reviewed head, the old and approved
+new tips, the non-interaction analysis, and the user's decision on the PR.
