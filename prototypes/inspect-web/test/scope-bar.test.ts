@@ -1,6 +1,53 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { renderScopeBar } from "../src/scope-bar.ts";
+import {
+  bindScopeBar,
+  renderScopeBar,
+  type ScopeBarBindingActions,
+} from "../src/scope-bar.ts";
+
+class FakeElement {
+  readonly dataset: Record<string, string | undefined>;
+  private readonly listeners = new Map<string, EventListener[]>();
+
+  constructor(dataset: Record<string, string | undefined> = {}) {
+    this.dataset = dataset;
+  }
+
+  addEventListener(type: string, listener: EventListener) {
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  dispatch(type: string) {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener({} as Event);
+    }
+  }
+}
+
+class FakeRoot {
+  private readonly elements = new Map<string, FakeElement[]>();
+
+  add(selector: string, ...elements: FakeElement[]) {
+    this.elements.set(selector, elements);
+    return elements;
+  }
+
+  querySelectorAll(selector: string) {
+    return this.elements.get(selector) ?? [];
+  }
+}
+
+function recordingActions(calls: string[]): ScopeBarBindingActions {
+  return {
+    onMemberSectionSelect: value => calls.push(`member:${value}`),
+    onPackageLensSelect: value => calls.push(`package:${value}`),
+    onScopeSelect: value => calls.push(`scope:${value}`),
+    onTypeLensSelect: value => calls.push(`type:${value}`),
+  };
+}
 
 function escapeHtml(value: unknown) {
   return String(value)
@@ -15,6 +62,70 @@ const typeLenses = [
   ["metadata", "Metadata"],
   ["source", "Source"],
 ] as const;
+
+test("package scope bindings dispatch only scope and package-lens controls", () => {
+  const root = new FakeRoot();
+  const packageScope = new FakeElement({ scope: "package" });
+  const typeScope = new FakeElement({ scope: "type" });
+  const dependencies = new FakeElement({ packageLens: "dependencies" });
+  root.add("[data-scope]", packageScope, typeScope);
+  root.add("[data-package-lens]", dependencies);
+  const calls: string[] = [];
+  bindScopeBar(
+    root as unknown as ParentNode,
+    recordingActions(calls));
+
+  packageScope.dispatch("click");
+  typeScope.dispatch("click");
+  dependencies.dispatch("click");
+
+  assert.deepEqual(calls, [
+    "scope:package",
+    "scope:type",
+    "package:dependencies",
+  ]);
+});
+
+test("type scope bindings dispatch only scope and type-lens controls", () => {
+  const root = new FakeRoot();
+  const typeScope = new FakeElement({ scope: "type" });
+  const metadata = new FakeElement({ lens: "metadata" });
+  root.add("[data-scope]", typeScope);
+  root.add("[data-lens]", metadata);
+  const calls: string[] = [];
+  bindScopeBar(
+    root as unknown as ParentNode,
+    recordingActions(calls));
+
+  typeScope.dispatch("click");
+  metadata.dispatch("click");
+
+  assert.deepEqual(calls, ["scope:type", "type:metadata"]);
+});
+
+test("member scope bindings dispatch only scope and member-section controls", () => {
+  const root = new FakeRoot();
+  const memberScope = new FakeElement({ scope: "member" });
+  const facts = new FakeElement({ memberSection: "facts" });
+  root.add("[data-scope]", memberScope);
+  root.add("[data-member-section]", facts);
+  const calls: string[] = [];
+  bindScopeBar(
+    root as unknown as ParentNode,
+    recordingActions(calls));
+
+  memberScope.dispatch("click");
+  facts.dispatch("click");
+
+  assert.deepEqual(calls, ["scope:member", "member:facts"]);
+});
+
+test("scope bar binding tolerates an empty strip", () => {
+  const root = new FakeRoot();
+  assert.doesNotThrow(() => bindScopeBar(
+    root as unknown as ParentNode,
+    recordingActions([])));
+});
 
 test("package scope marks only the package segment and the active package lens", () => {
   const html = renderScopeBar({

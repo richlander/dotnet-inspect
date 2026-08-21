@@ -198,6 +198,9 @@ const graphSource = readFileSync(
 const typePanelSource = readFileSync(
   new URL("../src/type-panel.ts", import.meta.url),
   "utf8");
+const scopeBarSource = readFileSync(
+  new URL("../src/scope-bar.ts", import.meta.url),
+  "utf8");
 const packageBarSource = readFileSync(
   new URL("../src/package-bar.ts", import.meta.url),
   "utf8");
@@ -408,6 +411,23 @@ test("typed type panel owns its rendered control bindings", () => {
     });
   assert.equal(selectorCount("#type-filter"), 1);
   assert.equal(selectorCount("#type-list"), 5);
+});
+
+test("typed scope bar owns its rendered control bindings", () => {
+  assert.match(
+    appSource,
+    /function bindScopeBarEvents\(\) \{\s*bindScopeBar\(document, \{/);
+  assert.match(
+    scopeBarSource,
+    /export function bindScopeBar\([\s\S]*\[data-scope\][\s\S]*\[data-package-lens\][\s\S]*\[data-lens\][\s\S]*\[data-member-section\]/);
+  for (const selector of [
+    "[data-scope]",
+    "[data-package-lens]",
+    "[data-lens]",
+    "[data-member-section]",
+  ]) {
+    assert.equal(appSource.split(selector).length - 1, 0, selector);
+  }
 });
 
 test("leaving package search clears its pending loading state", () => {
