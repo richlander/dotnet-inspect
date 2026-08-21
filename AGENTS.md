@@ -526,7 +526,8 @@ reconciliation.
 6. **Push.** That head is the candidate, and the lock begins here.
 7. **Confirm zero conflicts and green current-head `ci-required`** — unless the
    round's row below leaves them pending, or the user authorized reviewing in
-   parallel with CI.
+   parallel with CI. A conflict or a failed check here does not mean waiting
+   longer; take the matching [recovery transition](#recovery-transitions).
 8. **Review**: dispatch every required reviewer at that exact head.
 9. **Reconcile** the feedback publicly. The lock ends here. If the
    reconciliation produced fixes, the next round begins at step 1.

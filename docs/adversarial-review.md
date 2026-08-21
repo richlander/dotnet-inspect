@@ -78,11 +78,16 @@ detects conflicts early.
 
 | First check says | Do this |
 | --- | --- |
+| `ci-required` failed or was cancelled | Stop polling and apply the matching [recovery transition](../AGENTS.md#recovery-transitions): a failure needing an author change supersedes the attempt, while a cancelled or evidenced-transient one keeps the head and re-runs the check. A settled red result is an answer, not something to wait out. |
 | `CONFLICTING` | Apply the conflict transition in [Canonical round flow](../AGENTS.md#canonical-round-flow), then schedule a new five-minute check. |
 | `UNKNOWN`, CI green | Use the REST fallback above. |
 | `UNKNOWN`, CI pending or missing | Follow up at 10 minutes plus jitter for documentation-only, or at the 35-minute mark otherwise. |
 | `MERGEABLE`, documentation-only | Treat it as the expected CI completion check. If CI is unexpectedly pending, wait 10 minutes plus jitter. |
 | `MERGEABLE`, not documentation-only | Expect CI at about 35 minutes from the push; schedule the next check about 30 minutes out. |
+
+Read the table top-down: the first matching row wins. A failed or cancelled
+check outranks every mergeability value, because `MERGEABLE` describes the merge
+path and never means green.
 
 If both mergeability and CI remain unresolved, keep at least 10 minutes plus
 small random jitter between aggregate queries. Switch to the five-minute
