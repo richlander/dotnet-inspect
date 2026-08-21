@@ -69,6 +69,9 @@ public class InspectionResult
     /// </summary>
     public bool? IsVerified { get; set; }
 
+    /// <summary>Whether this exact package version is listed by its NuGet registry.</summary>
+    public bool? Listed { get; set; }
+
     /// <summary>
     /// Package owners (from NuGet.org).
     /// </summary>
@@ -210,6 +213,12 @@ public class InspectionResult
     public List<PackageFile>? PackageFiles { get; set; }
 
     /// <summary>
+    /// Bounded findings from explicitly auditing text-bearing package content.
+    /// </summary>
+    [JsonIgnore]
+    public PackageContentAuditResult? PackageContentAudit { get; set; }
+
+    /// <summary>
     /// Result of NuGet package signature verification.
     /// </summary>
     public SignatureVerificationResult? SignatureResult { get; set; }
@@ -228,7 +237,7 @@ public class InspectionResult
         null => null,
         { IsUnsigned: true } => false,
         { AuthorVerified: true } or { RepositoryVerified: true } => true,
-        _ => false
+        _ => null
     };
 }
 
@@ -275,7 +284,9 @@ public sealed record PackageFileContent(
     string Content,
     // Carried so consumers can tell a document's kind by role rather than by extension: the
     // package readme is Markdown because the manifest declared it as the readme.
-    [property: JsonIgnore] bool IsReadme = false);
+    [property: JsonIgnore] bool IsReadme = false,
+    // Full-payload export writes the package bytes rather than round-tripping decoded text.
+    [property: JsonIgnore] byte[]? ExactContent = null);
 
 public sealed record PackageSourceFileInfo(
     string Library,
