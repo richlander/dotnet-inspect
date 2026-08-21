@@ -9,6 +9,8 @@ namespace ILInspector.Decompiler.Tests;
 
 public sealed class CSharpPrinterReceiverTests
 {
+    static readonly IAssemblyReferenceResolver RuntimeResolver =
+        TestAssemblyReferenceResolvers.TrustedPlatformAssemblies();
     static readonly TypeRef Int32Type = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef StringType = TypeRef.CoreLib("System", "String");
     static readonly TypeRef ObjectType = TypeRef.CoreLib("System", "Object");
@@ -700,7 +702,10 @@ public sealed class CSharpPrinterReceiverTests
 
     static string PrintFixture(Type type, string methodName)
     {
-        using var source = MetadataSource.Open(type.Assembly.Location);
+        using var source = MetadataSource.Open(
+            type.Assembly.Location,
+            externalPdbPath: null,
+            RuntimeResolver);
         var function = IrImporter.Import(
             source,
             type.FullName!,
