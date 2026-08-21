@@ -85,7 +85,10 @@ public static class RouterCommandDefinition
             }
 
             RequestTelemetry.Breadcrumb("router-hit", string.Join(' ', tokens));
-            var rewritten = await RouterTokenRewriter.RewriteAsync(tokens, sourceOptions);
+            var rewritten = await RouterTokenRewriter.RewriteAsync(
+                tokens,
+                sourceOptions,
+                rootCommand);
             RequestTelemetry.Breadcrumb(
                 "router-rewrite",
                 $"{string.Join(' ', tokens)} -> {string.Join(' ', rewritten)}");
@@ -186,11 +189,11 @@ public static class RouterCommandDefinition
 
         public static async Task<string[]> RewriteAsync(
             string[] tokens,
-            NuGetSourceOptions sourceOptions)
+            NuGetSourceOptions sourceOptions,
+            RootCommand rootCommand)
         {
             var target = tokens[0];
             var tail = tokens[1..];
-            var hasExplicitApiSource = HasExplicitApiSource(tail);
 
             if (CommandLineHelpers.TryClassifyAsFilePath(target, out var dllPath, out var nupkgPath))
             {
@@ -211,6 +214,15 @@ public static class RouterCommandDefinition
                 || ContainsOption(tokens, "-t");
             var hasMemberOption = ContainsOption(tokens, "--member")
                 || ContainsOption(tokens, "-m");
+            var hasLibraryValue = TryGetLibraryValue(
+                tail,
+                rootCommand,
+                out var libraryValue);
+            var hasExplicitApiSource =
+                ContainsOption(tail, "--package")
+                || ContainsOption(tail, "--platform")
+                || ContainsOption(tail, "--project")
+                || hasLibraryValue;
             if (hasTypeOption && hasExplicitApiSource)
             {
                 return ["type", target, .. tail];
@@ -236,6 +248,27 @@ public static class RouterCommandDefinition
                     operatorMember,
                     .. tail
                 ];
+            }
+
+            if (IsExplicitSourceIdentity(target, tail, "--package"))
+            {
+                return
+                [
+                    "package",
+                    target,
+                    .. RemoveOptionWithValue(tail, "--package")
+                ];
+            }
+
+            if (IsExplicitSourceIdentity(target, tail, "--platform"))
+                return ["library", target, .. tail];
+
+            if (hasLibraryValue
+                && !hasExplicitGenericNotation
+                && !ContainsOption(tail, "--package")
+                && !LooksLikeFileSystemLibraryValue(libraryValue))
+            {
+                return ["package", .. tokens];
             }
 
             if (hasExplicitApiSource)
@@ -805,11 +838,14 @@ public static class RouterCommandDefinition
 
         private static bool HasExplicitApiSource(string[] tokens) =>
             ContainsOption(tokens, "--package")
+            || ContainsOption(tokens, "--library")
             || ContainsOption(tokens, "--platform")
-            || ContainsOption(tokens, "--project")
-            || HasExplicitLibrarySource(tokens);
+            || ContainsOption(tokens, "--project");
 
-        private static bool HasExplicitLibrarySource(string[] tokens)
+        private static bool TryGetLibraryValue(
+            string[] tokens,
+            RootCommand rootCommand,
+            out string value)
         {
             for (var i = 0; i < tokens.Length; i++)
             {
@@ -817,6 +853,7 @@ public static class RouterCommandDefinition
                         "--library=",
                         StringComparison.Ordinal))
                 {
+                    value = tokens[i]["--library=".Length..];
                     return true;
                 }
 
@@ -824,13 +861,74 @@ public static class RouterCommandDefinition
                         "--library",
                         StringComparison.Ordinal)
                     && i + 1 < tokens.Length
-                    && !tokens[i + 1].StartsWith('-'))
+                    && !IsKnownOption(rootCommand, tokens[i + 1]))
                 {
+                    value = tokens[i + 1];
                     return true;
                 }
             }
 
+            value = "";
             return false;
+        }
+
+        private static bool IsKnownOption(
+            RootCommand rootCommand,
+            string token)
+        {
+            var optionName = token.Split('=', 2)[0];
+            return rootCommand.Options
+                .Concat(rootCommand.Subcommands.SelectMany(
+                    static command => command.Options))
+                .Any(option =>
+                    option.Name.Equals(
+                        optionName,
+                        StringComparison.OrdinalIgnoreCase)
+                    || option.Aliases.Contains(
+                        optionName,
+                        StringComparer.OrdinalIgnoreCase));
+        }
+
+        private static bool LooksLikeFileSystemLibraryValue(string value) =>
+            value.Length == 0
+            || value.StartsWith('-')
+            || Path.IsPathFullyQualified(value)
+            || value.Contains(Path.DirectorySeparatorChar)
+            || value.Contains(Path.AltDirectorySeparatorChar)
+            || File.Exists(value);
+
+        private static bool IsExplicitSourceIdentity(
+            string target,
+            string[] tokens,
+            string option) =>
+            GetOptionValue(tokens, option) is { Length: > 0 } source
+            && target.Equals(source, StringComparison.OrdinalIgnoreCase);
+
+        private static string[] RemoveOptionWithValue(
+            string[] tokens,
+            string option)
+        {
+            var rewritten = new List<string>(tokens.Length);
+            for (var i = 0; i < tokens.Length; i++)
+            {
+                if (tokens[i].Equals(option, StringComparison.Ordinal))
+                {
+                    if (i + 1 < tokens.Length)
+                        i++;
+                    continue;
+                }
+
+                if (tokens[i].StartsWith(
+                        $"{option}=",
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                rewritten.Add(tokens[i]);
+            }
+
+            return [.. rewritten];
         }
 
         private static string[] FrameworkArgsUnlessSpecified(
