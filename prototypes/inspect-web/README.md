@@ -581,6 +581,17 @@ stale completion, cached failures, runtime documentation, exact request
 coordinates, cross-surface invalidation, and focus restoration;
 `test/spotlight-identity.test.js` gates composition-root wiring.
 
+`src/call-graph-inspection.ts` owns member call-graph request coordination:
+fast local publication followed by full-workspace expansion, runtime-member
+platform routing, sequence/current/key stale suppression, visible partial and
+terminal failures, and the platform drill stack. `dotnet-inspect.ts` validates
+the selected overload, constructs exact engine requests, and supplies paint,
+rendering, DOM patching, package-stat, and platform-navigation ports.
+`test/call-graph-inspection.test.ts` gates cache reuse, progressive ordering,
+workspace and runtime routing, partial failures, stale completion, drill
+navigation, and focus restoration; `test/spotlight-identity.test.js` gates
+composition-root wiring.
+
 `src/metadata-inspection.ts` owns the type-metadata request lifecycle and the
 Metadata Explorer's table-window and heap-listing requests, including cache
 identity, package/platform routing, stale-explorer suppression, visible

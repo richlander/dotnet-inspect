@@ -86,6 +86,10 @@ import {
   type MemberFacts,
 } from "./member-detail-inspection.ts";
 import {
+  createCallGraphInspectionCoordinator,
+  type PlatformStackEntry,
+} from "./call-graph-inspection.ts";
+import {
   captureMemberFocus,
   createMemberFocusRestorer,
   type MemberFocusSnapshot,
@@ -371,11 +375,6 @@ interface DotnetRelease {
   major: number;
   tfm: string;
   version: string;
-}
-
-interface PlatformStackEntry {
-  graph: BrowserCallGraph;
-  title: string;
 }
 
 interface PlatformRecent {
@@ -724,6 +723,37 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
   describeError: errorMessage,
   render,
   renderPreservingMemberFocus,
+});
+const callGraphInspection = createCallGraphInspectionCoordinator({
+  state,
+  queryWorkspace: (request, workspace) => inspectMemberCallGraph(
+    request.packageId,
+    request.version,
+    request.framework,
+    request.assembly,
+    request.typeIdentity,
+    request.type,
+    request.member,
+    request.memberSignature,
+    request.selectorKey,
+    request.metadataToken,
+    JSON.stringify(workspace)),
+  queryPlatform: async request =>
+    parseEngineJson<BrowserCallGraph>(
+      await inspectExpandPlatformCallGraph(
+        request.framework,
+        request.assembly,
+        request.type,
+        request.member,
+        request.selectorKey,
+        request.metadataToken)),
+  describeError: errorMessage,
+  render,
+  renderPreservingMemberFocus,
+  renderCallGraph: renderMermaidCallGraph,
+  nextPaint,
+  refreshPackageStats,
+  patchCallGraphSection,
 });
 
 function captureView(): WorkspaceView | null {
@@ -6222,162 +6252,35 @@ async function loadSelectedMemberCallGraph() {
     return;
   }
   const signature = memberRequestSignature(type, overload, true);
-  if (state.memberCallGraphKey === signature
-    && (state.memberCallGraph || state.memberCallGraphError)) {
-    render();
-    renderMermaidCallGraph();
-    return;
-  }
-  state.memberCallGraphKey = signature;
-  state.memberCallGraph = null;
-  state.memberCallGraphError = "";
-
-  // A resident runtime pack has no NuGet workspace to scan for callers; its members'
-  // implementation lives in the range-fetched platform assembly. Route them through the
-  // same platform-descent path the BCL call-graph nodes use so the graph resolves.
-  if (state.package?.isRuntimePack) {
-    await loadRuntimeMemberCallGraph(type, overload);
-    return;
-  }
-
-  // Progressive, two-stage load so live data prints quickly even with many libraries open.
-  // Stage 1 (fast) scopes the query to the target assembly only — that yields the callees and
-  // the intra-library callers without downloading/opening any other package. Stage 2 (slow)
-  // re-runs across the full workspace to add cross-library callers, then re-renders (the
-  // "flash"). A sequence token drops results once the member/overload selection has moved on.
-  const seq = ++state.memberCallGraphSeq;
-  // A fresh workspace graph invalidates any in-progress platform descent.
-  state.platformStack = [];
-  state.platformDrillLoading = false;
-  state.platformDrillError = "";
-  const base = {
-    packageId: currentPackage().id,
-    version: currentPackage().version,
-    framework: currentPackage().activeFramework,
-    assembly: type.assembly,
-    type: type.queryId ?? type.id,
-    typeIdentity: type.definitionId ?? type.id,
-    member: state.selectedBodyTarget?.memberName ?? overload.name,
-    signature: overload.signature,
-    selectorKey: state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
-    metadataToken: state.selectedBodyTarget?.metadataToken
-      ?? overload.metadataToken
-      ?? 0,
-  };
+  const pkg = currentPackage();
   const workspacePackages =
     state.packages.filter(packageItem => !packageItem.isRuntimePack);
   const hasOtherLibraries =
     workspacePackages.some(packageItem => packageItem !== state.package);
-
-  state.memberCallGraphLoading = true;
-  state.memberCallGraphExpanding = false;
-  state.memberCallGraphError = "";
-  const preservedFocus = renderPreservingMemberFocus();
-  try {
-    const queryCallGraph = (workspace: Array<{
-      package: string;
-      version: string;
-      framework: string;
-    }>) => inspectMemberCallGraph(
-      base.packageId,
-      base.version,
-      base.framework,
-      base.assembly,
-      base.typeIdentity,
-      base.type,
-      base.member,
-      base.signature,
-      base.selectorKey,
-      base.metadataToken,
-      JSON.stringify(workspace));
-    const local = await queryCallGraph([]);
-    if (seq !== state.memberCallGraphSeq
-      || !memberRequestIsCurrent(signature, true)
-      || state.memberCallGraphKey !== signature) return;
-    state.memberCallGraph = local;
-    state.memberCallGraphLoading = false;
-    state.memberCallGraphExpanding = hasOtherLibraries;
-    renderPreservingMemberFocus(preservedFocus);
-    await renderMermaidCallGraph();
-
-    if (hasOtherLibraries) {
-      // The engine runs synchronously on the main thread, so yield a paint frame first —
-      // otherwise the stage-1 graph never appears before the blocking cross-library pass.
-      await nextPaint();
-      if (seq !== state.memberCallGraphSeq
-        || !memberRequestIsCurrent(signature, true)
-        || state.memberCallGraphKey !== signature) return;
-      const full = await queryCallGraph(
-        workspacePackages.map(packageItem => ({
-          package: packageItem.id,
-          version: packageItem.version,
-          framework: packageItem.activeFramework
-        })));
-      if (seq !== state.memberCallGraphSeq
-        || !memberRequestIsCurrent(signature, true)
-        || state.memberCallGraphKey !== signature) return;
-      const previousMermaid = state.memberCallGraph?.mermaid;
-      state.memberCallGraph = full;
-      state.memberCallGraphExpanding = false;
-      refreshPackageStats();
-      patchCallGraphSection(previousMermaid);
-    }
-  } catch (error) {
-    if (seq !== state.memberCallGraphSeq
-      || !memberRequestIsCurrent(signature, true)
-      || state.memberCallGraphKey !== signature) return;
-    state.memberCallGraphLoading = false;
-    state.memberCallGraphExpanding = false;
-    if (state.memberCallGraph) {
-      state.memberCallGraphError =
-        `Workspace expansion was incomplete: ${errorMessage(error)}`;
-      renderPreservingMemberFocus(preservedFocus);
-      await renderMermaidCallGraph();
-    } else {
-      state.memberCallGraphError = errorMessage(error);
-      renderPreservingMemberFocus(preservedFocus);
-    }
-  }
-}
-
-// Builds a runtime-pack member's call graph via the platform-descent engine export (which
-// range-fetches the owning platform assembly) rather than the workspace call-graph path.
-// The result is itself a platform graph, so its callees descend further (see the
-// isRuntimePack branch in the node-binding block).
-async function loadRuntimeMemberCallGraph(
-  type: BrowserTypeSurface,
-  overload: BrowserMemberSurface,
-) {
-  const seq = ++state.memberCallGraphSeq;
-  state.platformStack = [];
-  state.platformDrillLoading = false;
-  state.platformDrillError = "";
-  state.memberCallGraphLoading = true;
-  state.memberCallGraphExpanding = false;
-  state.memberCallGraphError = "";
-  const preservedFocus = renderPreservingMemberFocus();
-  try {
-    const graph = parseEngineJson<BrowserCallGraph>(
-      await inspectExpandPlatformCallGraph(
-        currentPackage().activeFramework,
-        type.assembly,
-        type.metadataId ?? type.queryId ?? type.id,
-        state.selectedBodyTarget?.memberName ?? overload.name,
-        state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
-        state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0));
-    if (seq !== state.memberCallGraphSeq) return;
-    state.memberCallGraph = graph;
-    state.memberCallGraphLoading = false;
-    state.memberCallGraphExpanding = false;
-    renderPreservingMemberFocus(preservedFocus);
-    await renderMermaidCallGraph();
-  } catch (error) {
-    if (seq !== state.memberCallGraphSeq) return;
-    state.memberCallGraphLoading = false;
-    state.memberCallGraphExpanding = false;
-    state.memberCallGraphError = errorMessage(error);
-    renderPreservingMemberFocus(preservedFocus);
-  }
+  return callGraphInspection.load({
+    signature,
+    isRuntimePack: Boolean(state.package?.isRuntimePack),
+    packageId: pkg.id,
+    version: pkg.version,
+    framework: pkg.activeFramework,
+    assembly: type.assembly,
+    type: type.queryId ?? type.id,
+    typeIdentity: type.definitionId ?? type.id,
+    platformType: type.metadataId ?? type.queryId ?? type.id,
+    member: state.selectedBodyTarget?.memberName ?? overload.name,
+    memberSignature: overload.signature,
+    selectorKey:
+      state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
+    metadataToken:
+      state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0,
+    workspacePackages: workspacePackages.map(packageItem => ({
+      package: packageItem.id,
+      version: packageItem.version,
+      framework: packageItem.activeFramework,
+    })),
+    hasOtherLibraries,
+    isCurrent: () => memberRequestIsCurrent(signature, true),
+  });
 }
 
 // Update just the call-graph section in place so the stage-2 result doesn't flash
@@ -6726,44 +6629,21 @@ function findGraphMemberSelection(
 }
 
 async function drillPlatformNode(node: BrowserCallGraphTarget) {
-  if (state.platformDrillLoading) return;
-  const seq = state.memberCallGraphSeq;
-  state.platformDrillLoading = true;
-  state.platformDrillError = "";
-  const preservedFocus = renderPreservingMemberFocus();
-  try {
-    const graph = parseEngineJson<BrowserCallGraph>(
-      await inspectExpandPlatformCallGraph(
-        currentPackage().activeFramework,
-        node.assembly,
-        callGraphTargetTypeId(node),
-        node.memberName,
-        node.selectorKey,
-        node.metadataToken ?? 0));
-    if (seq !== state.memberCallGraphSeq) return;
-    state.platformStack.push({
-      graph,
-      title: `${stripArity(node.typeFullName.split(".").pop() ?? "")}.${node.memberName}`
-    });
-    state.platformDrillLoading = false;
-    renderPreservingMemberFocus(preservedFocus);
-    await renderMermaidCallGraph();
-  } catch (error) {
-    if (seq !== state.memberCallGraphSeq) return;
-    state.platformDrillLoading = false;
-    state.platformDrillError =
-      `Could not descend into ${node.typeFullName}.${node.memberName}: ${errorMessage(error)}`;
-    renderPreservingMemberFocus(preservedFocus);
-    await renderMermaidCallGraph();
-  }
+  return callGraphInspection.drill({
+    framework: currentPackage().activeFramework,
+    assembly: node.assembly,
+    type: callGraphTargetTypeId(node),
+    member: node.memberName,
+    selectorKey: node.selectorKey,
+    metadataToken: node.metadataToken ?? 0,
+    title:
+      `${stripArity(node.typeFullName.split(".").pop() ?? "")}.${node.memberName}`,
+    errorTarget: `${node.typeFullName}.${node.memberName}`,
+  });
 }
 
 function popPlatformDrill() {
-  if (state.platformStack.length === 0) return;
-  state.platformStack.pop();
-  state.platformDrillError = "";
-  render();
-  renderMermaidCallGraph();
+  callGraphInspection.popDrill();
 }
 
 // A clicked platform (BCL) call-graph node should land the user *inside* the resident
