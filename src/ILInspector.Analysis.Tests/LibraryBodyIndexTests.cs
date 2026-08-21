@@ -11638,6 +11638,171 @@ public class LibraryBodyIndexTests
                     diagnostic.SourceMethodToken));
     }
 
+    [Fact]
+    public void
+        ScopeDiagnosticAggregation_UsesStructuralTypeProvenanceCompatibility()
+    {
+        TypeRef legacy =
+            TypeRef.Definition(
+                "Fixture",
+                "Sample",
+                "Value");
+        TypeRef exact =
+            ExactDefinition(
+                "Value",
+                "Value");
+        TypeRef exactLiteral =
+            ExactDefinition(
+                "Outer+Inner",
+                "Outer+Inner");
+        TypeRef exactNested =
+            ExactDefinition(
+                "Outer+Inner",
+                "Outer",
+                "Inner");
+        var compatibleLegacy = new AnalysisDiagnostic(
+            0x06000003,
+            "Sample.<Source>d__1::MoveNext()",
+            "Compatible provenance",
+            DeclaringType: legacy,
+            SourceDeclaringType: exact);
+        AnalysisDiagnostic compatibleExact =
+            compatibleLegacy with
+            {
+                DeclaringType = exact,
+                SourceDeclaringType = legacy,
+            };
+        AnalysisDiagnostic declaringLiteral =
+            compatibleLegacy with
+            {
+                Message = "Declaring type conflict",
+                DeclaringType = exactLiteral,
+                SourceDeclaringType = null,
+            };
+        AnalysisDiagnostic declaringNested =
+            declaringLiteral with
+            {
+                DeclaringType = exactNested,
+            };
+        AnalysisDiagnostic sourceLiteral =
+            compatibleLegacy with
+            {
+                Message = "Source declaring type conflict",
+                DeclaringType = null,
+                SourceDeclaringType = exactLiteral,
+            };
+        AnalysisDiagnostic sourceNested =
+            sourceLiteral with
+            {
+                SourceDeclaringType = exactNested,
+            };
+
+        ImmutableArray<AnalysisDiagnostic> diagnostics =
+            AnalysisDiagnosticAggregation
+                .MergeInMetadataOrder(
+                    [
+                        compatibleLegacy,
+                        declaringLiteral,
+                        sourceLiteral,
+                    ],
+                    [
+                        compatibleExact,
+                        declaringNested,
+                        sourceNested,
+                    ]);
+
+        AnalysisDiagnostic compatible =
+            Assert.Single(
+                diagnostics.Where(
+                    diagnostic =>
+                        diagnostic.Message
+                            == "Compatible provenance"));
+        Assert.Same(
+            legacy,
+            compatible.DeclaringType);
+        Assert.Same(
+            exact,
+            compatible.SourceDeclaringType);
+        Assert.Equal(
+            new[]
+            {
+                exactLiteral,
+                exactNested,
+            },
+            diagnostics
+                .Where(
+                    diagnostic =>
+                        diagnostic.Message
+                            == "Declaring type conflict")
+                .Select(
+                    diagnostic =>
+                        diagnostic.DeclaringType));
+        Assert.Equal(
+            new[]
+            {
+                exactLiteral,
+                exactNested,
+            },
+            diagnostics
+                .Where(
+                    diagnostic =>
+                        diagnostic.Message
+                            == "Source declaring type conflict")
+                .Select(
+                    diagnostic =>
+                        diagnostic.SourceDeclaringType));
+
+        TypeRef ExactDefinition(
+            string flattenedName,
+            params string[] segments)
+        {
+            var result =
+                Assert.IsType<
+                    MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "Sample",
+                        [.. segments]));
+            return TypeRef.Definition(
+                "Fixture",
+                "Sample",
+                flattenedName,
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin.CurrentAssembly(),
+                    result.Name));
+        }
+    }
+
+    [Fact]
+    public void
+        ScopeDiagnosticAggregation_PreservesDistinctFailureMessages()
+    {
+        var first = new AnalysisDiagnostic(
+            0x06000003,
+            "Sample.<Source>d__1::MoveNext()",
+            "BadImageFormatException: Invalid attribute");
+        AnalysisDiagnostic second = first with
+        {
+            Message =
+                "BadImageFormatException: Invalid signature",
+        };
+
+        ImmutableArray<AnalysisDiagnostic> diagnostics =
+            AnalysisDiagnosticAggregation
+                .MergeInMetadataOrder(
+                    [first],
+                    [second]);
+
+        Assert.Equal(
+            new[]
+            {
+                first.Message,
+                second.Message,
+            },
+            diagnostics.Select(
+                diagnostic =>
+                    diagnostic.Message));
+    }
+
     static byte[]
         BuildNestedLiftedInvalidAsyncSourceAssembly(
             out int sourceToken,

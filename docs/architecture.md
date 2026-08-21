@@ -804,6 +804,8 @@ Research overlay bridge, and the application layer:
   `ScopedLiftedResolution_NestedFailurePublishesOneDiagnostic`,
   `ScopeDiagnosticAggregation_EnrichesFailuresInMetadataOrder`,
   `ScopeDiagnosticAggregation_PreservesConflictingProvenance`,
+  `ScopeDiagnosticAggregation_UsesStructuralTypeProvenanceCompatibility`,
+  `ScopeDiagnosticAggregation_PreservesDistinctFailureMessages`,
   `TypeTargetedBuild_MatchesFullBuild_ForEveryMethodOfTheType`,
   `OptimizationOpportunities_ClassicAsyncTypeDefinitionsAreIndexedOnce`, and
   the top-level local-function tests gate the lifted-owner caches, closure, and
