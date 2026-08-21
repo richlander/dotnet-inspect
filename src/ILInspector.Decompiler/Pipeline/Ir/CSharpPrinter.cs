@@ -56,12 +56,14 @@ public sealed partial class CSharpPrinter
     readonly HashSet<string> _reservedScopeNames;
     readonly List<DecompilerDecision> _decisions;
     readonly HashSet<string> _decisionKeys;
+    readonly IrNode _stackSlotTelemetryScope;
 
     CSharpPrinter(
         IrFunction function,
         PrinterOptions? options = null,
         IEnumerable<string>? reservedScopeNames = null,
         StackSlotUnifierTelemetryBuilder? stackSlotTelemetry = null,
+        IrNode? stackSlotTelemetryScope = null,
         List<DecompilerDecision>? decisions = null,
         HashSet<string>? decisionKeys = null)
     {
@@ -73,6 +75,7 @@ public sealed partial class CSharpPrinter
             ? []
             : new HashSet<string>(reservedScopeNames, StringComparer.Ordinal);
         _stackSlotTelemetry = stackSlotTelemetry;
+        _stackSlotTelemetryScope = stackSlotTelemetryScope ?? function.Body;
         _decisions = decisions ?? [];
         _decisionKeys = decisionKeys ?? [];
     }
@@ -561,6 +564,7 @@ public sealed partial class CSharpPrinter
     internal sealed record StackSlotUnifierTelemetry(
         int StoreNodes,
         int LoadNodes,
+        int DirectCopyStores,
         int DistinctSlots,
         int CandidateSlots,
         int SingleCandidateSlots,
@@ -901,9 +905,14 @@ public sealed partial class CSharpPrinter
                     break;
             }
         }
-        _stackSlotTelemetry?.RecordNodes(
+        var telemetry = _stackSlotTelemetry is { } collector
+            && collector.TryBeginScope(_stackSlotTelemetryScope)
+                ? collector
+                : null;
+        telemetry?.RecordNodes(
             storesBySlot.Values.Sum(stores => stores.Count),
-            loadsBySlot.Values.Sum(loads => loads.Count));
+            loadsBySlot.Values.Sum(loads => loads.Count),
+            storesBySlot.Values.Sum(stores => stores.Count(store => store is LoadStackSlot)));
 
         foreach (var storeElement in nodes.OfType<StoreElement>())
         {
@@ -920,7 +929,7 @@ public sealed partial class CSharpPrinter
 
         foreach (int slot in storesBySlot.Keys.Concat(loadsBySlot.Keys).Distinct())
         {
-            if (_stackSlotTelemetry is { } telemetry)
+            if (telemetry is not null)
             {
                 telemetry.RecordCandidate(
                     CandidateCount(
@@ -935,12 +944,11 @@ public sealed partial class CSharpPrinter
                 out var unifiedType))
             {
                 _stackSlotUnifiedTypes[slot] = unifiedType;
-                if (_stackSlotTelemetry is { } telemetryAfter)
-                    telemetryAfter.RecordUnified(unifiedType);
+                telemetry?.RecordUnified(unifiedType);
             }
-            else if (_stackSlotTelemetry is { } telemetryAfter)
+            else
             {
-                telemetryAfter.RecordUnunifiedSplit();
+                telemetry?.RecordUnunifiedSplit();
             }
         }
 
@@ -977,7 +985,7 @@ public sealed partial class CSharpPrinter
                     break;
             }
         }
-        _stackSlotTelemetry?.RecordEmittedDeclarations(EmittedStackSlotDeclarationCount());
+        telemetry?.RecordEmittedDeclarations(EmittedStackSlotDeclarationCount());
 
         static int CandidateCount(
             IReadOnlyList<IrExpression> stores,
@@ -1007,19 +1015,24 @@ public sealed partial class CSharpPrinter
     sealed class StackSlotUnifierTelemetryBuilder
     {
         int _lastCandidateCount;
+        readonly HashSet<IrNode> _recordedScopes = [];
 
         public int StoreNodes { get; private set; }
         public int LoadNodes { get; private set; }
+        public int DirectCopyStores { get; private set; }
         public int CandidateSlots { get; private set; }
         public int SingleCandidateSlots { get; private set; }
         public int MultiCandidateUnifiedSlots { get; private set; }
         public int UnunifiedSplitSlots { get; private set; }
         public int EmittedDeclarationNames { get; private set; }
 
-        public void RecordNodes(int stores, int loads)
+        public bool TryBeginScope(IrNode scope) => _recordedScopes.Add(scope);
+
+        public void RecordNodes(int stores, int loads, int directCopyStores)
         {
             StoreNodes += stores;
             LoadNodes += loads;
+            DirectCopyStores += directCopyStores;
         }
 
         public void RecordCandidate(int candidateCount)
@@ -1044,6 +1057,7 @@ public sealed partial class CSharpPrinter
             => new(
                 StoreNodes,
                 LoadNodes,
+                DirectCopyStores,
                 DistinctSlots: CandidateSlots,
                 CandidateSlots,
                 SingleCandidateSlots,
@@ -1765,35 +1779,50 @@ public sealed partial class CSharpPrinter
 
     void AppendNestedLocalFunctionBody(StringBuilder sb, LocalFunctionStatement localFunction, int indent)
     {
-        var body = (BlockContainer)localFunction.Body.Clone();
-        var function = new IrFunction(
-            localFunction.Name,
-            _function.DeclaringType,
-            new MethodSignature(localFunction.ReturnType, localFunction.Parameters, HasThis: false, GenericParameterCount: 0),
-            localFunction.Locals,
-            body)
-        {
-            LocalNames = localFunction.LocalNames,
-            UsesUpdatedMemorySafetyRules = localFunction.UsesUpdatedMemorySafetyRules,
-            SkipLocalsInit = localFunction.SkipLocalsInit,
-            // The nested scope is metadata-free like the enclosing one; carry the
-            // enclosing function's resolved type maps so an enum constant renders
-            // by member name, not a bare int (issue #2983). LocalFunctionRaisingPass
-            // merges each raised body's maps into the enclosing function, so these
-            // include the definitions this local function references.
-        };
-        function.CopyTypeFactsFrom(_function);
-
         string pad = new(' ', indent * 4);
-        var nestedPrinter = new CSharpPrinter(
-            function,
-            _options,
-            CurrentScopeNames(),
-            _stackSlotTelemetry,
-            _decisions,
-            _decisionKeys);
-        foreach (var line in nestedPrinter.PrintBody(function).TrimEnd().Split("\n"))
+        foreach (var line in NestedLocalFunctionBodyText(localFunction).Split("\n"))
             sb.Append(pad).AppendLf(line);
+    }
+
+    string NestedLocalFunctionBodyText(LocalFunctionStatement localFunction)
+    {
+        var body = localFunction.Body;
+        body.Detach();
+        try
+        {
+            var function = new IrFunction(
+                localFunction.Name,
+                _function.DeclaringType,
+                new MethodSignature(localFunction.ReturnType, localFunction.Parameters, HasThis: false, GenericParameterCount: 0),
+                localFunction.Locals,
+                body)
+            {
+                LocalNames = localFunction.LocalNames,
+                UsesUpdatedMemorySafetyRules = localFunction.UsesUpdatedMemorySafetyRules,
+                SkipLocalsInit = localFunction.SkipLocalsInit,
+                // The nested scope is metadata-free like the enclosing one; carry the
+                // enclosing function's resolved type maps so an enum constant renders
+                // by member name, not a bare int (issue #2983). LocalFunctionRaisingPass
+                // merges each raised body's maps into the enclosing function, so these
+                // include the definitions this local function references.
+            };
+            function.CopyTypeFactsFrom(_function);
+
+            var nestedPrinter = new CSharpPrinter(
+                function,
+                _options,
+                CurrentScopeNames(),
+                _stackSlotTelemetry,
+                stackSlotTelemetryScope: localFunction,
+                decisions: _decisions,
+                decisionKeys: _decisionKeys);
+            return nestedPrinter.PrintBody(function).TrimEnd();
+        }
+        finally
+        {
+            body.Detach();
+            localFunction.ResetBody(body);
+        }
     }
 
     /// <summary>
@@ -2087,6 +2116,11 @@ public sealed partial class CSharpPrinter
             string header = $"{modifier}{TypeText(localFunction.ReturnType)} {CSharpNaming.ContainedIdentifier(localFunction.Name)}({parameters})";
             if (localFunction.ExpressionBody is { } body)
             {
+                if (_stackSlotTelemetry is not null
+                    && NeedsNestedLocalFunctionScope(localFunction))
+                {
+                    _ = NestedLocalFunctionBodyText(localFunction);
+                }
                 sb.Append(pad).Append(header).Append(" => ").Append(Expression(body)).AppendLf(";");
             }
             else
@@ -6192,18 +6226,13 @@ public sealed partial class CSharpPrinter
         // unless the reference is made from inside that enclosing type, where the
         // innermost name is in scope (Enumerator inside List<T>.GetEnumerator).
         string text = TypeTextCore(type);
-        int tick = text.IndexOf('`');
-        string rendered = tick < 0 ? text : text[..tick];
-        RecordFrameworkTypeImportDecision(type, rendered);
-        return rendered;
+        RecordFrameworkTypeImportDecision(type, text);
+        return text;
     }
 
     string TypeQualifierText(TypeRef type)
     {
         string rendered = TypeTextCore(type);
-        int tick = rendered.IndexOf('`');
-        if (tick >= 0)
-            rendered = rendered[..tick];
 
         if (FirstTypeQualifierSegment(rendered) is { } segment && IsStaticCallNameShadowed(segment))
             rendered = FullyQualifiedTypeText(type);
@@ -6234,10 +6263,11 @@ public sealed partial class CSharpPrinter
         if (definition.Kind != TypeRefKind.Definition || definition.Namespace.Length == 0 && definition.Name.Length == 0)
             return type.ToDisplayString();
 
-        string text = type.ToDisplayString(TypeRef.Definition("__dotnet_inspect", "__", "__"));
-        int tick = text.IndexOf('`');
-        if (tick >= 0)
-            text = text[..tick];
+        string text =
+            type.ToDisplayString(TypeRef.Definition(
+                "__dotnet_inspect",
+                "__",
+                "__"));
         return definition.Namespace.Length == 0
             ? $"global::{text}"
             : $"global::{EscapeNamespace(definition.Namespace)}.{text}";
@@ -6259,14 +6289,14 @@ public sealed partial class CSharpPrinter
             return;
         if (!IsFrameworkNamespace(definition.Namespace))
             return;
-        if (HasGenericEnclosingSegment(definition.Name))
+        if (HasGenericEnclosingSegment(definition))
         {
             RecordNestedGenericEnclosingImportDecisions(definition, rendered);
             return;
         }
 
         string fullName = FrameworkMetadataName(definition);
-        string simpleName = TypeNamePath(definition.Name);
+        string simpleName = TypeNamePath(definition);
         if (rendered.Contains(definition.Namespace + ".", StringComparison.Ordinal))
             return;
 
@@ -6281,9 +6311,9 @@ public sealed partial class CSharpPrinter
 
     void RecordNestedGenericEnclosingImportDecisions(TypeRef definition, string rendered)
     {
-        var segments = definition.Name.Split('+');
-        var sourceSegments = new List<string>(segments.Length);
-        for (int i = 0; i < segments.Length - 1; i++)
+        IReadOnlyList<string> segments = definition.MetadataNameSegments();
+        var sourceSegments = new List<string>(segments.Count);
+        for (int i = 0; i < segments.Count - 1; i++)
         {
             sourceSegments.Add(CSharpNaming.TypeNameSegment(segments[i]));
             if (GenericArity(segments[i]) == 0)
@@ -6324,24 +6354,24 @@ public sealed partial class CSharpPrinter
 
     static string FrameworkSourceName(TypeRef type)
         => type.Namespace.Length == 0
-            ? TypeNamePath(type.Name)
-            : $"{type.Namespace}.{TypeNamePath(type.Name)}";
+            ? TypeNamePath(type)
+            : $"{type.Namespace}.{TypeNamePath(type)}";
 
-    static string TypeNamePath(string metadataName)
-        => string.Join(".", metadataName.Split('+').Select(CSharpNaming.TypeNameSegment));
+    static string TypeNamePath(TypeRef type)
+        => string.Join(
+            ".",
+            type.MetadataNameSegments().Select(CSharpNaming.TypeNameSegment));
 
-    static bool HasGenericEnclosingSegment(string metadataName)
+    static bool HasGenericEnclosingSegment(TypeRef type)
     {
-        var segments = metadataName.Split('+');
-        return segments.Length > 1
-            && segments.Take(segments.Length - 1).Any(segment => GenericArity(segment) > 0);
+        IReadOnlyList<string> segments = type.MetadataNameSegments();
+        return segments.Count > 1
+            && segments.Take(segments.Count - 1)
+                .Any(segment => GenericArity(segment) > 0);
     }
 
     static int GenericArity(string metadataName)
-    {
-        int tick = metadataName.IndexOf('`', StringComparison.Ordinal);
-        return tick >= 0 && int.TryParse(metadataName[(tick + 1)..], out int arity) ? arity : 0;
-    }
+        => MetadataNameArity.OfSegment(metadataName);
 
     static bool IsFrameworkNamespace(string ns)
         => ns == "System" || ns.StartsWith("System.", StringComparison.Ordinal);
@@ -6470,11 +6500,9 @@ public sealed partial class CSharpPrinter
         var name = type.Name;
         var nested = name.LastIndexOf('+');
         var innermost = nested < 0 ? name : name[(nested + 1)..];
-        var tick = innermost.IndexOf('`');
-        if (tick < 0)
-            return null;
-        return int.TryParse(innermost[(tick + 1)..], out var arity) && arity > 0
-            ? arity
-            : null;
+        // Only a canonical `N declares arity: int.TryParse would take a signed or
+        // padded count, spelling `Widget<>` for a type that is not generic.
+        int arity = MetadataNameArity.OfSegment(innermost);
+        return arity > 0 ? arity : null;
     }
 }

@@ -66,8 +66,9 @@ public sealed class TypeRef : IEquatable<TypeRef>
     internal byte RawTypeKind { get; set; }
 
     /// <summary>
-    /// Decoder-retained origin and exact metadata name. It is excluded from
-    /// structural equality, hashing, and display.
+    /// Decoder-retained origin and exact metadata name. The origin is
+    /// provenance, while the name's segments participate in definition
+    /// identity so literal delimiter text cannot alias nesting.
     /// </summary>
     public ResolvableTypeReference? Resolution { get; private init; }
 
@@ -289,7 +290,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
                     left.Assembly,
                     right.Assembly)
                 || left.Namespace != right.Namespace
-                || left.Name != right.Name
+                || !SameNameIdentity(left, right)
                 || left.Rank != right.Rank
                 || left.GenericParameterIndex
                     != right.GenericParameterIndex
@@ -352,7 +353,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
                 left.Assembly,
                 right.Assembly)
             || left.Namespace != right.Namespace
-            || left.Name != right.Name
+            || !SameNameIdentity(left, right)
             || left.Rank != right.Rank
             || left.GenericParameterIndex
                 != right.GenericParameterIndex
@@ -405,7 +406,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
             type.Assembly,
             StringComparer.OrdinalIgnoreCase);
         hash.Add(type.Namespace);
-        hash.Add(type.Name);
+        AddNameIdentity(ref hash, type);
         hash.Add(type.Rank);
         hash.Add(type.GenericParameterIndex);
         hash.Add(type.UnsupportedReason);
@@ -453,7 +454,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
             type.Assembly,
             StringComparer.OrdinalIgnoreCase);
         hash.Add(type.Namespace);
-        hash.Add(type.Name);
+        AddNameIdentity(ref hash, type);
         hash.Add(type.Rank);
         hash.Add(type.GenericParameterIndex);
         hash.Add(type.UnsupportedReason);
@@ -498,18 +499,85 @@ public sealed class TypeRef : IEquatable<TypeRef>
         Fallback,
     }
 
+    static bool SameNameIdentity(TypeRef left, TypeRef right)
+    {
+        if (left.Kind != TypeRefKind.Definition)
+            return left.Name == right.Name;
+        MetadataTypeDefinitionName? leftName =
+            left.Resolution?.Type;
+        MetadataTypeDefinitionName? rightName =
+            right.Resolution?.Type;
+        if (leftName is null)
+            return rightName is null
+                ? left.Name == right.Name
+                : SameUnambiguousLegacyName(left.Name, rightName);
+        if (rightName is null)
+            return SameUnambiguousLegacyName(right.Name, leftName);
+        return leftName == rightName;
+    }
+
+    static bool SameUnambiguousLegacyName(
+        string legacyName,
+        MetadataTypeDefinitionName exactName) =>
+        exactName.Segments.Length == 1
+        && IsUnambiguousLegacyName(legacyName)
+        && exactName.Segments[0] == legacyName;
+
+    static bool IsUnambiguousLegacyName(string name) =>
+        name.IndexOf('.') < 0
+        && name.IndexOf('+') < 0
+        && name.IndexOf('\\') < 0;
+
+    internal static bool TryGetLegacyCompatibleExactName(
+        TypeRef type,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+        out MetadataTypeDefinitionName? exactName)
+    {
+        exactName = type.Resolution?.Type;
+        return exactName is not null
+            && exactName.Segments.Length == 1
+            && IsUnambiguousLegacyName(exactName.Segments[0]);
+    }
+
+    static void AddNameIdentity(ref HashCode hash, TypeRef type)
+    {
+        if (type.Kind != TypeRefKind.Definition)
+        {
+            hash.Add(type.Name);
+            return;
+        }
+
+        if (type.Resolution?.Type is not { } exactName)
+        {
+            hash.Add(0);
+            hash.Add(type.Name);
+            return;
+        }
+
+        if (exactName.Segments.Length == 1
+            && IsUnambiguousLegacyName(exactName.Segments[0]))
+        {
+            hash.Add(0);
+            hash.Add(exactName.Segments[0]);
+        }
+        else
+        {
+            hash.Add(1);
+            hash.Add(exactName);
+        }
+    }
+
     string DisplayName()
     {
         if (Assembly == CoreLibrary && Namespace == "System" && PrimitiveTypeNames.TryToKeywordForSystemType(Name, out var keyword))
             return keyword;
-        // Preserve the full nested declaring-type path. Metadata joins a containing
-        // type and its nested type with '+' (see TypeRefDecoder), so a name like
-        // "Left+Dup" must render as "Left.Dup", not the innermost "Dup" alone —
-        // collapsing to the innermost segment merges distinct nested types that share
-        // a simple name (Left+Dup and Right+Dup). Per-segment arity is stripped.
-        if (Name.IndexOf('+') < 0)
-            return StripArity(Name);
-        return string.Join('.', Name.Split('+').Select(StripArity));
+        if (Resolution?.Type is { } exactName)
+            return RenderExactSegments(
+                exactName.Segments,
+                stripArity: true);
+        if (Name.IndexOfAny(['.', '+']) >= 0)
+            return Name;
+        return StripArity(Name);
     }
 
     string QualifiedDisplayName()
@@ -522,28 +590,184 @@ public sealed class TypeRef : IEquatable<TypeRef>
 
     string RenderGenericInstance(bool qualified)
     {
-        int nested = ElementType!.Name.LastIndexOf('+');
-        string innermost = nested < 0 ? ElementType.Name : ElementType.Name[(nested + 1)..];
-        int ownArity = ArityOf(innermost);
-        string simpleName = qualified ? ElementType.QualifiedDisplayName() : ElementType.DisplayName();
-        if (ownArity == 0)
-            return simpleName;
-        var ownArguments = TypeArguments.Skip(Math.Max(0, TypeArguments.Length - ownArity));
-        string arguments = string.Join(", ", ownArguments.Select(a => qualified ? a.ToQualifiedDisplayString() : a.ToDisplayString()));
-        return $"{simpleName}<{arguments}>";
+        var arguments = TypeArguments
+            .Select(argument => qualified
+                ? argument.ToQualifiedDisplayString()
+                : argument.ToDisplayString())
+            .ToArray();
+
+        if (ElementType!.Resolution?.Type is { } exactName)
+        {
+            string display = TryRenderNestedGenericInstance(
+                    exactName.Segments,
+                    arguments,
+                    out string rendered)
+                ? rendered
+                : RenderExactSegments(
+                    exactName.Segments,
+                    stripArity: false);
+            return qualified && exactName.Namespace.Length > 0
+                ? $"{exactName.Namespace}.{display}"
+                : display;
+        }
+
+        if (TryInferNestedSegments(
+                ElementType.Name,
+                arguments.Length,
+                out string[] inferredSegments)
+            && TryRenderNestedGenericInstance(
+                inferredSegments,
+                arguments,
+                out string inferredDisplay))
+        {
+            return qualified && ElementType.Namespace.Length > 0
+                ? $"{ElementType.Namespace}.{inferredDisplay}"
+                : inferredDisplay;
+        }
+
+        if (ElementType.Name.IndexOfAny(['.', '+']) >= 0)
+            return qualified
+                ? ElementType.QualifiedRawName()
+                : ElementType.Name;
+
+        int ownArity = ArityOf(ElementType.Name);
+        if (ownArity == 0 || ownArity != arguments.Length)
+            return qualified
+                ? ElementType.QualifiedRawName()
+                : ElementType.Name;
+        string displayName = qualified
+            ? ElementType.QualifiedDisplayName()
+            : ElementType.DisplayName();
+        return $"{displayName}<{string.Join(", ", arguments)}>";
     }
 
-    static string StripArity(string name)
+    static bool TryRenderNestedGenericInstance(
+        IReadOnlyList<string> segments,
+        IReadOnlyList<string> arguments,
+        out string display)
     {
-        int tick = name.IndexOf('`');
-        return tick < 0 ? name : name[..tick];
+        display = "";
+        if (segments.Count == 0)
+            return false;
+
+        long totalArity = 0;
+        foreach (string segment in segments)
+            totalArity += ArityOf(segment);
+        int ownArity = ArityOf(segments[^1]);
+        if (totalArity == 0 && arguments.Count > 0)
+        {
+            display =
+                $"{RenderExactSegments(segments, stripArity: false)}"
+                + $"<{string.Join(", ", arguments)}>";
+            return true;
+        }
+        bool completeCompilerGeneratedName =
+            arguments.Count > 0
+            && arguments.Count < totalArity
+            && totalArity <= TypeResolver.MaxDisplayedPlaceholders
+            && IsCompilerGeneratedName(segments[^1]);
+        if (totalArity != arguments.Count
+            && !completeCompilerGeneratedName)
+        {
+            return false;
+        }
+
+        string typeName = RenderExactSegments(
+            segments,
+            stripArity: true);
+        if (ownArity == 0)
+        {
+            display = typeName;
+            return true;
+        }
+
+        int outerArity = checked((int)totalArity - ownArity);
+        var ownArguments = new string[ownArity];
+        for (int index = 0; index < ownArguments.Length; index++)
+        {
+            int argumentIndex = outerArity + index;
+            ownArguments[index] = argumentIndex < arguments.Count
+                ? arguments[argumentIndex]
+                : $"T{argumentIndex + 1}";
+        }
+        display = $"{typeName}<{string.Join(", ", ownArguments)}>";
+        return true;
     }
+
+    IReadOnlyList<string> MetadataNameSegments()
+        => Resolution?.Type is { } exactName
+            ? exactName.Segments
+            : Name.Split('+');
+
+    internal static string RenderExactSegments(
+        IReadOnlyList<string> segments,
+        bool stripArity)
+        => string.Join(
+            '.',
+            segments.Select(segment =>
+            {
+                string value = stripArity
+                    ? StripArity(segment)
+                    : segment;
+                return value
+                    .Replace("\\", "\\\\", StringComparison.Ordinal)
+                    .Replace(".", "\\.", StringComparison.Ordinal)
+                    .Replace("+", "\\+", StringComparison.Ordinal);
+            }));
+
+    static bool IsCompilerGeneratedName(string name)
+    {
+        string simpleName = StripArity(name);
+        return simpleName.Length > 1
+            && simpleName[0] == '<'
+            && simpleName.IndexOf('>') > 0;
+    }
+
+    static bool TryInferNestedSegments(
+        string name,
+        int argumentCount,
+        out string[] segments)
+    {
+        segments = [];
+        int boundary = name.IndexOf('+');
+        if (boundary <= 0
+            || boundary != name.LastIndexOf('+')
+            || boundary == name.Length - 1)
+        {
+            return false;
+        }
+
+        string outer = name[..boundary];
+        string inner = name[(boundary + 1)..];
+        long nestedArity = (long)ArityOf(outer) + ArityOf(inner);
+        int literalArity = ArityOf(name);
+        bool completeCompilerGeneratedName =
+            argumentCount > literalArity
+            && argumentCount < nestedArity
+            && nestedArity <= TypeResolver.MaxDisplayedPlaceholders
+            && IsCompilerGeneratedName(inner);
+        if ((nestedArity != argumentCount
+                && !completeCompilerGeneratedName)
+            || literalArity == argumentCount)
+        {
+            return false;
+        }
+
+        segments = [outer, inner];
+        return true;
+    }
+
+    string QualifiedRawName()
+        => Namespace.Length == 0 ? Name : $"{Namespace}.{Name}";
+
+    // Metadata owns what a generic-arity suffix is: only a canonical trailing `N is
+    // one, so a name whose backtick is literal (Widget`Literal) keeps its identity
+    // instead of collapsing onto the unsuffixed name. See MetadataNameArity.
+    static string StripArity(string name)
+        => MetadataNameArity.StripFromSegment(name);
 
     static int ArityOf(string name)
-    {
-        int tick = name.IndexOf('`');
-        return tick >= 0 && int.TryParse(name[(tick + 1)..], out int arity) ? arity : 0;
-    }
+        => MetadataNameArity.OfSegment(name);
 
     internal static string CanonicalAssembly(string assemblyName)
     {

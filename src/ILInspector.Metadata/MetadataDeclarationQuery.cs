@@ -61,6 +61,18 @@ public sealed record MetadataFieldDeclaration(
 /// </summary>
 public static class MetadataDeclarationQuery
 {
+    public static MetadataTypeDefinitionName GetTypeDefinitionName(
+        MetadataReader reader,
+        TypeDefinitionHandle handle)
+        => MetadataTypeDefinitionNameReader.Read(reader, handle) switch
+        {
+            MetadataTypeDefinitionNameReadResult.Read read => read.Name,
+            MetadataTypeDefinitionNameReadResult.Rejected rejected =>
+                throw new BadImageFormatException(rejected.Failure.Detail),
+            _ => throw new InvalidOperationException(
+                "Unknown metadata type-name result."),
+        };
+
     const string DegradedType = "object";
     static readonly MethodSignature<string> DegradedMethodSignature =
         new(default, DegradedType, requiredParameterCount: 0, genericParameterCount: 0, []);
@@ -73,11 +85,23 @@ public static class MetadataDeclarationQuery
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var attributes = typeDef.Attributes;
         var (ns, name) = GetApiTypeNameParts(reader, typeHandle);
+        MetadataTypeDefinitionName definitionName =
+            MetadataTypeDefinitionNameReader.Read(reader, typeHandle) switch
+            {
+                MetadataTypeDefinitionNameReadResult.Read read => read.Name,
+                MetadataTypeDefinitionNameReadResult.Rejected rejected =>
+                    throw new BadImageFormatException(rejected.Failure.Detail),
+                _ => throw new InvalidOperationException(
+                    "Unexpected metadata type-name result."),
+            };
         var type = new ApiType
         {
             Namespace = ns,
             Name = name,
             MetadataToken = MetadataTokens.GetToken(typeHandle),
+            DefinitionName = definitionName,
+            IntroducedTypeParameterCounts =
+                GetIntroducedTypeParameterCounts(reader, typeHandle),
             Accessibility = TypeAccessibility(typeDef),
             IsSealed = (attributes & TypeAttributes.Sealed) != 0,
             IsAbstract = (attributes & TypeAttributes.Abstract) != 0,
@@ -376,6 +400,60 @@ public static class MetadataDeclarationQuery
             : null;
     }
 
+    public static List<int> GetIntroducedTypeParameterCounts(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle)
+    {
+        Span<TypeDefinitionHandle> chain =
+            stackalloc TypeDefinitionHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
+                reader,
+                typeHandle,
+                chain,
+                out int consumed,
+                out EntityHandle terminal,
+                out RelationshipTraversalRejection? rejection)
+            || consumed == 0
+            || !terminal.IsNil)
+        {
+            throw new BadImageFormatException(
+                rejection?.Detail
+                    ?? "The type has an invalid declaring-type chain.");
+        }
+
+        var counts = new List<int>(consumed);
+        int enclosingCount = 0;
+        for (int index = 0; index < consumed; index++)
+        {
+            if (!MetadataTypeDeclarationProbe.TryGetGenericParameterCount(
+                    reader,
+                    chain[index],
+                    out int cumulativeCount))
+            {
+                throw new BadImageFormatException(
+                    "Generic parameter indices must be contiguous and ordered.");
+            }
+            counts.Add(GetIntroducedTypeParameterCount(
+                cumulativeCount,
+                enclosingCount));
+            enclosingCount = cumulativeCount;
+        }
+        return counts;
+    }
+
+    internal static int GetIntroducedTypeParameterCount(
+        int cumulativeCount,
+        int enclosingCount)
+    {
+        if (cumulativeCount < enclosingCount)
+        {
+            throw new BadImageFormatException(
+                "A nested type has fewer generic parameters than its declaring type.");
+        }
+        return cumulativeCount - enclosingCount;
+    }
+
     /// <summary>
     /// The C#-declaration type parameters for a type — its own parameters only,
     /// excluding any inherited from an enclosing generic type (which a nested
@@ -386,15 +464,43 @@ public static class MetadataDeclarationQuery
     public static IReadOnlyList<TypeParameter> GetTypeParameters(MetadataReader reader, TypeDefinition typeDef)
     {
         var handles = typeDef.GetGenericParameters();
-        var inheritedCount = 0;
+        GenericContext.ValidateParameterIndices(reader, handles);
+        int inheritedCount = 0;
+        int childCount = handles.Count;
+        var seen = new HashSet<TypeDefinitionHandle>();
         var declaringType = typeDef.GetDeclaringType();
-        if (!declaringType.IsNil)
-            inheritedCount = reader.GetTypeDefinition(declaringType).GetGenericParameters().Count;
+        for (int depth = 0; !declaringType.IsNil; depth++)
+        {
+            if (depth >= MetadataSafetyPolicy.MaxRelationshipNodes
+                || !seen.Add(declaringType))
+            {
+                throw new BadImageFormatException(
+                    "The type has an invalid declaring-type chain.");
+            }
+
+            TypeDefinition declaringDefinition =
+                reader.GetTypeDefinition(declaringType);
+            GenericParameterHandleCollection declaringHandles =
+                declaringDefinition.GetGenericParameters();
+            GenericContext.ValidateParameterIndices(
+                reader,
+                declaringHandles);
+            if (childCount < declaringHandles.Count)
+            {
+                throw new BadImageFormatException(
+                    "A nested type has fewer generic parameters than its declaring type.");
+            }
+            if (depth == 0)
+                inheritedCount = declaringHandles.Count;
+            childCount = declaringHandles.Count;
+            declaringType = declaringDefinition.GetDeclaringType();
+        }
 
         return TypeParameters(
             reader,
             handles.Skip(inheritedCount),
-            GenericContext.ForType(reader, typeDef));
+            GenericContext.ForType(reader, typeDef),
+            expectedIndex: inheritedCount);
     }
 
     public static MetadataMethodDeclaration GetMethod(
@@ -722,12 +828,19 @@ public static class MetadataDeclarationQuery
 
     public static string SelfTypeSignature(MetadataReader reader, TypeDefinition typeDef)
     {
-        var metadataFullName = TypeResolver.GetFullName(reader, typeDef);
+        MetadataTypeNameParts name =
+            TypeResolver.GetTypeNameParts(reader, typeDef);
         var directTypeParameters = TypeParameterNames(reader, typeDef);
-        var typeParameters = directTypeParameters.Count >= GenericArity(metadataFullName)
+        var typeParameters = directTypeParameters.Count
+                >= GenericArity(name.Segments)
             ? directTypeParameters
             : TypeAndDeclaringTypeParameters(reader, typeDef);
-        return TypeResolver.ApplyGenericArguments(metadataFullName, typeParameters);
+        string typeName = TypeResolver.ApplyGenericArguments(
+            name.Segments,
+            typeParameters);
+        return name.Namespace.Length == 0
+            ? typeName
+            : $"{name.Namespace}.{typeName}";
     }
 
     public static IReadOnlyList<string> RenderMemberAttributes(
@@ -938,9 +1051,14 @@ public static class MetadataDeclarationQuery
     static IReadOnlyList<TypeParameter> TypeParameters(
         MetadataReader reader,
         IEnumerable<GenericParameterHandle> handles,
-        GenericContext context)
+        GenericContext context,
+        int expectedIndex = 0)
     {
         var parameters = new List<TypeParameter>();
+        GenericContext.ValidateParameterIndices(
+            reader,
+            handles,
+            expectedIndex);
 
         // Shared across the list for the same reason `ApiSurfaceExtractor` shares one:
         // `where T : U` chains run through it, and answering each parameter from scratch
@@ -1546,35 +1664,49 @@ public static class MetadataDeclarationQuery
     static IReadOnlyList<string> TypeAndDeclaringTypeParameters(MetadataReader reader, TypeDefinition typeDef)
     {
         var parameters = new List<string>();
-        var declaringType = typeDef.GetDeclaringType();
+        TypeDefinitionHandle declaringType = typeDef.GetDeclaringType();
         if (!declaringType.IsNil)
-            parameters.AddRange(TypeAndDeclaringTypeParameters(reader, reader.GetTypeDefinition(declaringType)));
+        {
+            RelationshipChain<TypeDefinitionHandle> chain =
+                MetadataRelationshipTraversal
+                    .WalkTypeDefinitionDeclaringChain(
+                        reader,
+                        declaringType)
+                    .GetValueOrThrow();
+            foreach (TypeDefinitionHandle handle in chain.Handles)
+            {
+                parameters.AddRange(
+                    TypeParameterNames(
+                        reader,
+                        reader.GetTypeDefinition(handle)));
+            }
+        }
         parameters.AddRange(TypeParameterNames(reader, typeDef));
         return parameters;
     }
 
-    static IReadOnlyList<string> TypeParameterNames(MetadataReader reader, TypeDefinition typeDef)
-        => typeDef.GetGenericParameters()
+    static IReadOnlyList<string> TypeParameterNames(
+        MetadataReader reader,
+        TypeDefinition typeDef)
+    {
+        GenericParameterHandleCollection handles =
+            typeDef.GetGenericParameters();
+        GenericContext.ValidateParameterIndices(reader, handles);
+        return handles
             .Select(handle => reader.GetString(reader.GetGenericParameter(handle).Name))
             .ToArray();
+    }
 
-    static int GenericArity(string metadataFullName)
+    /// <summary>
+    /// The cumulative arity a metadata full name declares across its components.
+    /// Only a canonical <c>`N</c> counts (<see cref="MetadataNameArity"/>), so a
+    /// digit run that is name text does not inflate the count.
+    /// </summary>
+    static int GenericArity(IReadOnlyList<string> metadataNameSegments)
     {
-        var arity = 0;
-        for (var i = 0; i < metadataFullName.Length; i++)
-        {
-            if (metadataFullName[i] != '`')
-                continue;
-            var start = i + 1;
-            var end = start;
-            while (end < metadataFullName.Length && char.IsDigit(metadataFullName[end]))
-                end++;
-            if (end > start && int.TryParse(metadataFullName.AsSpan(start, end - start), out var value))
-            {
-                arity += value;
-                i = end - 1;
-            }
-        }
+        int arity = 0;
+        foreach (string segment in metadataNameSegments)
+            arity += MetadataNameArity.OfSegment(segment);
 
         return arity;
     }

@@ -8066,15 +8066,29 @@ public class LibraryBodyIndexTests
     [Fact]
     public void GeneratedFrameworkTypes_NestedCompilerGeneratedWalksMetadataParentsNotDisplay()
     {
-        var generated = TypeRef.Definition("Asm", "CollisionNs.A", "GeneratedLeaf");
-        var generatedNested = TypeRef.Definition(
-            "Asm",
-            "CollisionNs.A",
-            "GeneratedLeaf+<>c");
-        var lookalikeNested = TypeRef.Definition(
-            "Asm",
-            "CollisionNs",
-            "A+GeneratedLeaf+<>c");
+        static TypeRef Exact(string @namespace, params string[] segments)
+        {
+            MetadataTypeDefinitionName name =
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        @namespace,
+                        [.. segments]))
+                .Name;
+            return TypeRef.Definition(
+                "Asm",
+                @namespace,
+                string.Join('+', segments),
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin.CurrentAssembly(),
+                    name));
+        }
+
+        TypeRef generated =
+            Exact("CollisionNs.A", "GeneratedLeaf");
+        TypeRef generatedNested =
+            Exact("CollisionNs.A", "GeneratedLeaf", "<>c");
+        TypeRef lookalikeNested =
+            Exact("CollisionNs", "A", "GeneratedLeaf", "<>c");
 
         Assert.Equal(
             generatedNested.ToQualifiedDisplayString(),

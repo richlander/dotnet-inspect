@@ -1,9 +1,11 @@
 using System.Diagnostics;
+using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
 using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
@@ -200,6 +202,57 @@ public class ApiOutputFormatterTests
         var typeRef = TypeRef.Definition(Asm, "N", "Outer+Inner");
 
         Assert.True(ApiAnalysisInspection.SameType(typeRef, apiType));
+    }
+
+    [Fact]
+    public void SameType_ExactIdentitySeparatesLiteralDotFromNesting()
+    {
+        MetadataTypeDefinitionName literalName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create("N", ["Outer.Inner"]))
+            .Name;
+        MetadataTypeDefinitionName nestedName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "N",
+                    ["Outer", "Inner"]))
+            .Name;
+        var origin = Assert.IsType<TypeReferenceOrigin.CurrentAssembly>(
+            typeof(TypeReferenceOrigin.CurrentAssembly)
+                .GetConstructors(
+                    BindingFlags.Instance | BindingFlags.NonPublic)
+                .Single(constructor =>
+                    constructor.GetParameters() is
+                    [
+                        {
+                            ParameterType:
+                            var parameterType
+                        },
+                    ]
+                    && parameterType
+                        == typeof(AssemblyReferenceIdentity))
+                .Invoke([null]));
+        var typeRef = TypeRef.Definition(
+            Asm,
+            "N",
+            "Outer.Inner");
+        typeof(TypeRef).GetProperty(
+                nameof(TypeRef.Resolution),
+                BindingFlags.Instance | BindingFlags.Public)!
+            .SetValue(
+                typeRef,
+                new ResolvableTypeReference(
+                    origin,
+                    literalName));
+        var apiType = new ApiType
+        {
+            Namespace = "N",
+            Name = "Outer.Inner",
+            MetadataName = "Outer.Inner",
+            DefinitionName = nestedName,
+        };
+
+        Assert.False(ApiAnalysisInspection.SameType(typeRef, apiType));
     }
 
     [Fact]
@@ -784,6 +837,48 @@ public class ApiOutputFormatterTests
         var finalizerNode = Assert.Single(view.Members, n => n.Text.StartsWith("Finalizer", System.StringComparison.Ordinal));
         var child = Assert.Single(finalizerNode.Children!);
         Assert.Equal("~Nested()", child.Text);
+    }
+
+    [Fact]
+    public void ShapeView_FinalizerUsesExactLiteralPlusLeaf()
+    {
+        MetadataTypeDefinitionName exactName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "",
+                    ["A+B"]))
+                .Name;
+        var type = new ApiType
+        {
+            Name = "A+B",
+            DefinitionName = exactName,
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Finalize",
+                    Kind = "finalizer",
+                    Signature = "void Finalize()",
+                    IsFinalizer = true,
+                },
+            ],
+        };
+
+        var view = ApiOutputFormatter.BuildShapeView(
+            type,
+            foundIn: null,
+            packageName: null,
+            packageVersion: null,
+            memberFilter: []);
+        var finalizer = Assert.Single(
+            view.Members,
+            node => node.Text.StartsWith(
+                "Finalizer",
+                StringComparison.Ordinal));
+        Assert.Equal(
+            @"~A\+B()",
+            Assert.Single(finalizer.Children!).Text);
     }
 
     [Fact]
@@ -2337,6 +2432,13 @@ public class ApiOutputFormatterTests
             Namespace = null,
             Name = "A+B",
             MetadataName = "A+B",
+            DefinitionName = Assert
+                .IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "",
+                        ["A+B"]))
+                .Name,
+            IntroducedTypeParameterCounts = [0],
             MetadataToken = 0x02000002,
             Members = [],
         };
@@ -2344,8 +2446,39 @@ public class ApiOutputFormatterTests
         var filtered = ApiCommand.BuildFilteredTypeForSections(type, new ApiOptions());
 
         Assert.Equal("A+B", filtered.MetadataName);
+        Assert.Equal(type.DefinitionName, filtered.DefinitionName);
+        Assert.Equal([0], filtered.IntroducedTypeParameterCounts);
         Assert.Equal(0x02000002, filtered.MetadataToken);
         Assert.True(ApiAnalysisInspection.SameType(TypeRef.Definition(Asm, "", "A+B"), filtered));
+    }
+
+    [Fact]
+    public void SourceGeneratedJson_RoundTripsAllLegalMetadataNameCharacters()
+    {
+        MetadataTypeDefinitionName exact = Assert
+            .IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "N",
+                    ["A[]*&,.", "B+C"]))
+            .Name;
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "A[]*&,..B+C",
+            Kind = "class",
+            DefinitionName = exact,
+            IntroducedTypeParameterCounts = [0, 0],
+        };
+
+        string json = JsonSerializer.Serialize(
+            type,
+            ApiTypeJsonContext.Default.ApiType);
+        ApiType restored = JsonSerializer.Deserialize(
+            json,
+            ApiTypeJsonContext.Default.ApiType)!;
+
+        Assert.Equal(exact, restored.DefinitionName);
+        Assert.Equal([0, 0], restored.IntroducedTypeParameterCounts);
     }
 
     [Fact]

@@ -168,6 +168,31 @@ public sealed class CallGraphMemberResolverTests
     }
 
     [Fact]
+    public void Resolve_StaleTokenDoesNotOverrideStructuralAmbiguity()
+    {
+        ApiMember first = Method("int");
+        first.MetadataToken = 0x06000001;
+        ApiMember second = Method("int");
+        second.MetadataToken = 0x06000002;
+        ApiMember stale = Method("string");
+        stale.MetadataToken = 0x06000003;
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Owner",
+            Members = [first, second, stale],
+        };
+        CallGraphMemberSelector selector =
+            CallGraphMemberResolver.CreateSelector(type, first);
+
+        Assert.Null(CallGraphMemberResolver.Resolve(
+            type,
+            selector.Name,
+            selector.Key,
+            metadataToken: stale.MetadataToken));
+    }
+
+    [Fact]
     public void Resolve_SurfaceUsesMetadataTypeIdentityAndStructuralFallback()
     {
         var member = Method("int");
@@ -801,6 +826,331 @@ public sealed class CallGraphMemberResolverTests
         Assert.Equal("Samples.Outer+Inner", literalSelector.ParameterTypes[0]);
         Assert.Equal("Samples.Outer.Inner", nestedSelector.ParameterTypes[0]);
         Assert.NotEqual(literalSelector.Key, nestedSelector.Key);
+    }
+
+    [Fact]
+    public void SelectorAndAnalysisKey_DistinguishNestedTypeFromLiteralDotName()
+    {
+        TypeRef literal = TypeRef.Definition(
+            "Samples",
+            "Samples",
+            "Outer.Inner",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(),
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "Samples",
+                        ["Outer.Inner"]))
+                .Name));
+        TypeRef nested = TypeRef.Definition(
+            "Samples",
+            "Samples",
+            "Outer+Inner",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(),
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "Samples",
+                        ["Outer", "Inner"]))
+                .Name));
+
+        CallGraphMemberSelector Selector(TypeRef parameter) =>
+            CallGraphMemberResolver.CreateSelector(new MemberRef(
+                TypeRef.Definition("Samples", "Samples", "Owner"),
+                "M",
+                [parameter],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method));
+
+        Assert.NotEqual(Selector(literal).Key, Selector(nested).Key);
+        Assert.NotEqual(
+            GenericMemberIdentity.KeyFragment(literal),
+            GenericMemberIdentity.KeyFragment(nested));
+    }
+
+    [Fact]
+    public void Selector_ExactOrdinaryTypeStillMatchesApiSignature()
+    {
+        TypeRef parameter = TypeRef.Definition(
+            "Samples",
+            "Samples",
+            "Token",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(),
+                Name("Samples", ["Token"])));
+        var member = Method("Samples.Token");
+        var owner = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Owner",
+            Members = [member],
+        };
+        var reference = new MemberRef(
+            TypeRef.Definition("Samples", "Samples", "Owner"),
+            "M",
+            [parameter],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method)
+        {
+            HasThis = true,
+        };
+
+        Assert.Equal(
+            CallGraphMemberResolver.CreateSelector(owner, member).Key,
+            CallGraphMemberResolver.CreateSelector(reference).Key);
+    }
+
+    [Fact]
+    public void Selector_ResolvedNestedTypeStillMatchesApiSignature()
+    {
+        TypeRef parameter = TypeRef.Definition(
+            "Samples",
+            "Samples",
+            "Outer+Inner",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(),
+                Name("Samples", ["Outer", "Inner"])));
+        var member = Method("Samples.Outer.Inner");
+        var owner = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Owner",
+            Members = [member],
+        };
+        var reference = new MemberRef(
+            TypeRef.Definition("Samples", "Samples", "Owner"),
+            "M",
+            [parameter],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method)
+        {
+            HasThis = true,
+        };
+
+        Assert.Equal(
+            CallGraphMemberResolver.CreateSelector(owner, member).Key,
+            CallGraphMemberResolver.CreateSelector(reference).Key);
+    }
+
+    [Fact]
+    public void SelectorKey_DistinguishesLiteralGrammarFromGenericShape()
+    {
+        TypeRef literal = TypeRef.Definition(
+            "Samples",
+            "Samples",
+            "G{X}",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(),
+                Name("Samples", ["G{X}"])));
+        TypeRef generic = TypeRef.GenericInstance(
+            TypeRef.Definition(
+                "Samples",
+                "Samples",
+                "G`1",
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin.CurrentAssembly(),
+                    Name("Samples", ["G`1"]))),
+            [TypeRef.Definition("Samples", "", "X")]);
+
+        CallGraphMemberSelector LiteralSelector() =>
+            CallGraphMemberResolver.CreateSelector(new MemberRef(
+                TypeRef.Definition("Samples", "Samples", "Owner"),
+                "M",
+                [literal],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method));
+        CallGraphMemberSelector GenericSelector() =>
+            CallGraphMemberResolver.CreateSelector(new MemberRef(
+                TypeRef.Definition("Samples", "Samples", "Owner"),
+                "M",
+                [generic],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method));
+
+        Assert.Equal(
+            LiteralSelector().ParameterTypes,
+            GenericSelector().ParameterTypes);
+        Assert.NotEqual(LiteralSelector().Key, GenericSelector().Key);
+    }
+
+    [Fact]
+    public void SelectorKey_PreservesMalformedDeclaredArity()
+    {
+        ImmutableArray<TypeRef> arguments =
+        [
+            TypeRef.CoreLib("System", "Int32"),
+            TypeRef.CoreLib("System", "String")
+        ];
+        TypeRef Generic(string name) => TypeRef.GenericInstance(
+            TypeRef.Definition(
+                "Samples",
+                "Samples",
+                name,
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin.CurrentAssembly(),
+                    Name("Samples", [name]))),
+            arguments);
+        CallGraphMemberSelector Selector(TypeRef parameter) =>
+            CallGraphMemberResolver.CreateSelector(new MemberRef(
+                TypeRef.Definition("Samples", "Samples", "Owner"),
+                "M",
+                [parameter],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method));
+
+        CallGraphMemberSelector malformed = Selector(Generic("G`1"));
+        CallGraphMemberSelector valid = Selector(Generic("G`2"));
+
+        Assert.Equal(malformed.ParameterTypes, valid.ParameterTypes);
+        Assert.NotEqual(malformed.Key, valid.Key);
+    }
+
+    [Fact]
+    public void SelectorKey_DistinguishesMissingFromCanonicalDeclaredArity()
+    {
+        TypeRef argument = TypeRef.Definition("Samples", "", "X");
+        TypeRef Generic(string name) => TypeRef.GenericInstance(
+            TypeRef.Definition(
+                "Samples",
+                "Samples",
+                name,
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin.CurrentAssembly(),
+                    Name("Samples", [name]))),
+            [argument]);
+        CallGraphMemberSelector Selector(TypeRef parameter) =>
+            CallGraphMemberResolver.CreateSelector(new MemberRef(
+                TypeRef.Definition("Samples", "Samples", "Owner"),
+                "M",
+                [parameter],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method));
+
+        CallGraphMemberSelector missing = Selector(Generic("G"));
+        CallGraphMemberSelector canonical = Selector(Generic("G`1"));
+
+        Assert.Equal(missing.ParameterTypes, canonical.ParameterTypes);
+        Assert.NotEqual(missing.Key, canonical.Key);
+    }
+
+    [Fact]
+    public void SelectorKey_DistinguishesNamespaceCommaFromArgumentSeparator()
+    {
+        TypeRef Generic(string name, params TypeRef[] arguments) =>
+            TypeRef.GenericInstance(
+                TypeRef.Definition(
+                    "Samples",
+                    "Samples",
+                    name,
+                    new ResolvableTypeReference(
+                        new TypeReferenceOrigin.CurrentAssembly(),
+                        Name("Samples", [name]))),
+                [.. arguments]);
+        TypeRef Exact(string @namespace, string name) =>
+            TypeRef.Definition(
+                "Samples",
+                @namespace,
+                name,
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin.CurrentAssembly(),
+                    Name(@namespace, [name])));
+        CallGraphMemberSelector Selector(TypeRef parameter) =>
+            CallGraphMemberResolver.CreateSelector(new MemberRef(
+                TypeRef.Definition("Samples", "Samples", "Owner"),
+                "M",
+                [parameter],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method));
+
+        CallGraphMemberSelector namespaceComma = Selector(
+            Generic("G`1", Exact("A,B", "C")));
+        CallGraphMemberSelector separateArguments = Selector(
+            Generic("G`2", Exact("", "A"), Exact("B", "C")));
+
+        Assert.Equal(
+            namespaceComma.ParameterTypes,
+            separateArguments.ParameterTypes);
+        Assert.NotEqual(namespaceComma.Key, separateArguments.Key);
+    }
+
+    [Fact]
+    public void SelectorKey_DistinguishesLiteralWrapperAndGenericParameterSyntax()
+    {
+        TypeRef Exact(string name) => TypeRef.Definition(
+            "Samples",
+            "",
+            name,
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(),
+                Name("", [name])));
+        CallGraphMemberSelector Selector(TypeRef parameter) =>
+            CallGraphMemberResolver.CreateSelector(new MemberRef(
+                TypeRef.Definition("Samples", "Samples", "Owner"),
+                "M",
+                [parameter],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method));
+        void AssertCollisionAvoided(TypeRef literal, TypeRef structural)
+        {
+            CallGraphMemberSelector literalSelector = Selector(literal);
+            CallGraphMemberSelector structuralSelector = Selector(structural);
+            Assert.Equal(
+                literalSelector.ParameterTypes,
+                structuralSelector.ParameterTypes);
+            Assert.NotEqual(literalSelector.Key, structuralSelector.Key);
+        }
+
+        AssertCollisionAvoided(Exact("X[]"), TypeRef.SzArray(Exact("X")));
+        AssertCollisionAvoided(Exact("X*"), TypeRef.Pointer(Exact("X")));
+        AssertCollisionAvoided(Exact("X@"), TypeRef.ByRef(Exact("X")));
+        AssertCollisionAvoided(Exact("T0"), TypeRef.GenericParameter(0));
+        AssertCollisionAvoided(Exact("G`1"), Exact("G"));
+    }
+
+    [Fact]
+    public void Resolve_UsesTokenWhenApiSignatureCannotProjectExactDelimiter()
+    {
+        TypeRef parameter = TypeRef.Definition(
+            "Samples",
+            "Samples",
+            "A+B",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(),
+                Name("Samples", ["A+B"])));
+        var member = Method("Samples.A+B");
+        member.MetadataToken = 0x06000001;
+        var owner = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Owner",
+            Members = [member],
+        };
+        CallGraphMemberSelector referenceSelector =
+            CallGraphMemberResolver.CreateSelector(new MemberRef(
+                TypeRef.Definition("Samples", "Samples", "Owner"),
+                "M",
+                [parameter],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method)
+            {
+                HasThis = true,
+            });
+
+        Assert.NotEqual(
+            CallGraphMemberResolver.CreateSelector(owner, member).Key,
+            referenceSelector.Key);
+        Assert.Null(CallGraphMemberResolver.Resolve(
+            owner,
+            referenceSelector.Name,
+            referenceSelector.Key));
+        Assert.Same(
+            member,
+            CallGraphMemberResolver.Resolve(
+                owner,
+                referenceSelector.Name,
+                referenceSelector.Key,
+                metadataToken: 0x06000001)!
+                .Member);
     }
 
     // End-to-end: the identity the product projects for a call-graph target's declaring type is

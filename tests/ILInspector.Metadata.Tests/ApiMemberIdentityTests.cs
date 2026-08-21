@@ -30,9 +30,9 @@ public class ApiMemberIdentityTests
         var anchor = ApiMemberIdentity.CreateMethodAnchor(reader, typeHandle, method);
 
         Assert.Equal(
-            "M:ILInspector.Metadata.Tests.ApiMemberIdentityTests.ApiMemberIdentityFixture<T>.M<U>(System.Int32,U)",
+            "M:ILInspector.Metadata.Tests.ApiMemberIdentityTests+ApiMemberIdentityFixture<T>.M<U>(System.Int32,U)",
             anchor.CanonicalSignature);
-        Assert.Equal("ILInspector.Metadata.Tests.ApiMemberIdentityTests.ApiMemberIdentityFixture<T>", anchor.TypeFullName);
+        Assert.Equal("ILInspector.Metadata.Tests.ApiMemberIdentityTests+ApiMemberIdentityFixture<T>", anchor.TypeFullName);
         Assert.Equal("M<U>", anchor.MemberName);
         Assert.StartsWith("M~", anchor.StableSelector, StringComparison.Ordinal);
         Assert.Equal(MemberAnchor.ComputeFingerprint(anchor.CanonicalSignature), anchor.Fingerprint);
@@ -211,6 +211,51 @@ public class ApiMemberIdentityTests
         Assert.Equal("private", setter.Accessibility);
         Assert.False(setter.HasMethodBody);
         Assert.True(setter.IsAbstract);
+    }
+
+    [Fact]
+    public void CompleteNestedAnchor_SurvivesJsonRoundTrip()
+    {
+        var definition = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("N", ["Outer", "Inner"])).Name;
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "Outer.Inner",
+            Kind = "class",
+            DefinitionName = definition,
+            IntroducedTypeParameterCounts = [0, 0],
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "M",
+                    Kind = "method",
+                    Signature = "void M()",
+                    SignatureModel = new ApiSignature
+                    {
+                        MemberName = "M",
+                        ReturnType = "void",
+                    },
+                },
+            ],
+        };
+        var surface = new ApiSurface { Types = [type] };
+        ApiMemberIdentity.PopulateCanonicalIdentities(surface);
+        MemberAnchor before =
+            ApiMemberIdentity.GetMemberAnchor(type, type.Members[0]);
+
+        string json = JsonSerializer.Serialize(surface);
+        ApiSurface restored =
+            JsonSerializer.Deserialize<ApiSurface>(json)!;
+        ApiType restoredType = Assert.Single(restored.Types);
+        MemberAnchor after = ApiMemberIdentity.GetMemberAnchor(
+            restoredType,
+            Assert.Single(restoredType.Members));
+
+        Assert.Contains("definitionName", json, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(definition, restoredType.DefinitionName);
+        Assert.Equal(before, after);
     }
 
     [Fact]
