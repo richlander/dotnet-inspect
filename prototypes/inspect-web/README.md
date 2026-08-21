@@ -734,6 +734,13 @@ runtime pack — so the component acquires no engine or workspace authority.
 `test/package-bar.test.ts` gates tab markup, active/close state, escaping,
 open-package query parsing, and package selection dispatch.
 
+`src/package-view.ts` owns package-level dependency, overview, type-graph, and
+performance navigation bindings. `dotnet-inspect.ts` still owns package and
+filter state, in-place dependency updates, navigation effects, and member
+inspection effects behind typed callbacks. `test/package-view.test.ts` gates
+dataset decoding, missing values, replacement dependency-list binding, inactive
+surfaces, and no eager dispatch.
+
 `src/settings-panel.ts` owns the Settings page and the decompiler "taste"
 popover it shares its style catalog with, including each surface's rendered DOM
 bindings and the home/workbench controls that open them. `dotnet-inspect.ts`

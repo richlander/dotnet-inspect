@@ -286,6 +286,9 @@ const packageAcquisitionSource = readFileSync(
 const packageInspectionSource = readFileSync(
   new URL("../src/package-inspection.ts", import.meta.url),
   "utf8");
+const packageViewSource = readFileSync(
+  new URL("../src/package-view.ts", import.meta.url),
+  "utf8");
 const sourceInspectionSource = readFileSync(
   new URL("../src/source-inspection.ts", import.meta.url),
   "utf8");
@@ -492,6 +495,86 @@ test("typed package inspection owns package-root request coordination", () => {
     packageInspectionSource,
     /async loadDependencies\(packageModel, signature\)[\s\S]*state\.packageDependenciesKey/);
   assert.doesNotMatch(dependenciesLoader, /state\.packageDependenciesKey/);
+});
+
+test("typed package view owns package navigation bindings", () => {
+  const binding =
+    appSource.match(/const packageViewActions: PackageViewBindingActions = \{[\s\S]*?\n};/)?.[0]
+    ?? "";
+  const workspaceBinding =
+    appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
+    ?? "";
+  const packageViewBinding =
+    appSource.match(/function bindPackageViewEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction bindPackageDependencyListEvents)/)?.[0]
+    ?? "";
+  const dependencyListBinding =
+    appSource.match(/function bindPackageDependencyListEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction bindStatusBarEvents)/)?.[0]
+    ?? "";
+  const dependencyPatch =
+    appSource.match(/function patchDependenciesGroup\(\) \{[\s\S]*?\n}/)?.[0]
+    ?? "";
+  const actionSource = name =>
+    binding.match(
+      new RegExp(`  ${name}: [\\s\\S]*?(?=\\n  on[A-Z])`))?.[0]
+      ?? "";
+  assert.match(
+    packageViewSource,
+    /export function bindPackageView\([\s\S]*\[data-dep-group\][\s\S]*\[data-kind-jump\][\s\S]*\[data-namespace-jump\][\s\S]*\[data-lib-scope\][\s\S]*\[data-graph-type\][\s\S]*\[data-perf-token\]/);
+  assert.match(
+    packageViewSource,
+    /export function bindPackageDependencyList\([\s\S]*\[data-dep-open\][\s\S]*\[data-dep-load\]/);
+  assert.equal(
+    workspaceBinding.match(/\bbindPackageViewEvents\(\)/g)?.length,
+    1);
+  assert.match(
+    packageViewBinding,
+    /bindPackageView\(document, packageViewActions\)/);
+  assert.doesNotMatch(
+    packageViewBinding,
+    /\bquerySelector(?:All)?\b|\baddEventListener\b/);
+  assert.match(
+    dependencyListBinding,
+    /bindPackageDependencyList\(document, packageViewActions\)/);
+  assert.doesNotMatch(
+    dependencyListBinding,
+    /\bquerySelector(?:All)?\b|\baddEventListener\b/);
+  assert.match(
+    dependencyPatch,
+    /listSection\.outerHTML = dependencyListSectionHtml[\s\S]*bindPackageDependencyListEvents\(\);[\s\S]*renderDependencyGraph\(\)/);
+  assert.match(
+    binding,
+    /onDependencyGroupSelect: index => \{[\s\S]*state\.dependenciesGroupIndex === index[\s\S]*state\.dependenciesGroupIndex = index;[\s\S]*patchDependenciesGroup\(\)/);
+  assert.match(
+    binding,
+    /onDependencyLoad: openDependencyPackage,\s*onDependencyOpen: switchToPackageForDependencies,\s*onGraphTypeSelect: navigateToTypeByName/);
+  const kindJump = actionSource("onKindJump");
+  const libraryJump = actionSource("onLibraryScopeSelect");
+  const namespaceJump = actionSource("onNamespaceJump");
+  assert.match(
+    kindJump,
+    /state\.atPackageRoot = false;[\s\S]*state\.kindFilter = kind;[\s\S]*state\.namespaceFilter = ""/);
+  assert.match(
+    libraryJump,
+    /state\.atPackageRoot = false;[\s\S]*if \(!library\) return;[\s\S]*state\.libraryScope = new Set\(\[library\]\);[\s\S]*state\.package\?\.isRuntimePack[\s\S]*recordPlatformRecent\(library, platformPackForAssembly\(library\)\);[\s\S]*state\.kindFilter = kind;[\s\S]*state\.namespaceFilter = ""/);
+  assert.match(
+    namespaceJump,
+    /state\.atPackageRoot = false;[\s\S]*state\.namespaceFilter = namespace;[\s\S]*state\.kindFilter = ""/);
+  for (const source of [kindJump, libraryJump, namespaceJump]) {
+    assert.match(
+      source,
+      /state\.typeFilter = "";[\s\S]*state\.selectedMemberKey = "";[\s\S]*state\.memberBrowseTypeId = "";[\s\S]*resetMemberFilters\(\);[\s\S]*state\.typeCursor = 0;[\s\S]*const first = filteredTypes\(\)\[0\];[\s\S]*if \(first\) state\.selectedTypeId = first\.id;[\s\S]*render\(\)/);
+    assert.equal(source.match(/\brender\(\)/g)?.length, 1);
+  }
+  assert.match(
+    binding,
+    /onPerformanceMemberSelect: target => \{[\s\S]*drillToPerfMember\(\s*target\.metadataToken,\s*target\.assembly,\s*target\.typeId\)/);
+  assert.doesNotMatch(
+    appSource,
+    /document\.querySelectorAll<HTMLElement>\("\[data-(?:dep-group|dep-open|dep-load|kind-jump|namespace-jump|lib-scope|graph-type|perf-token)\]"\)/);
+  assert.doesNotMatch(
+    workspaceBinding,
+    /\[data-(?:dep-group|dep-open|dep-load|kind-jump|namespace-jump|lib-scope|graph-type|perf-token)\]/);
+  assert.doesNotMatch(appSource, /function bindDependencyListHandlers\(/);
 });
 
 test("typed document inspection owns package document request coordination", () => {
