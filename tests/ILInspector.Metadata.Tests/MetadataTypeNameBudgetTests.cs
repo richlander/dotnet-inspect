@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Text;
+using System.Text.Json;
 using ILInspector.Metadata;
 
 namespace ILInspector.Metadata.Tests;
@@ -15,6 +16,47 @@ namespace ILInspector.Metadata.Tests;
 /// </summary>
 public class MetadataTypeNameBudgetTests
 {
+    [Fact]
+    public void JsonNameBudgetRejectsBeforeOversizedStringMaterialization()
+    {
+        _ = JsonSerializer.Deserialize<MetadataTypeDefinitionName>(
+            """{"namespace":"N","segments":["Warmup"]}""");
+        byte[] payload = Encoding.UTF8.GetBytes(
+            "{\"namespace\":\"N\",\"segments\":[\""
+                + new string('X', 2_000_000)
+                + "\"]}");
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        Assert.Throws<JsonException>(() =>
+            JsonSerializer.Deserialize<
+                MetadataTypeDefinitionName>(payload));
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(
+            allocated < 256 * 1024,
+            $"Oversized JSON name allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void JsonNameBudgetAcceptsEscapedTextAtDecodedLimit()
+    {
+        string escapedSegment = string.Concat(
+            Enumerable.Repeat(
+                "\\u4E00",
+                MetadataSafetyPolicy.MaxTypeNameCharacters - 1));
+        string json =
+            $"{{\"namespace\":\"\",\"segments\":[\"{escapedSegment}\"]}}";
+
+        MetadataTypeDefinitionName name =
+            JsonSerializer.Deserialize<
+                MetadataTypeDefinitionName>(json)!;
+
+        Assert.Equal(
+            MetadataSafetyPolicy.MaxTypeNameCharacters - 1,
+            name.Segments[0].Length);
+    }
+
     [Fact]
     public void NameAtTheCharacterBudget_IsAccepted()
     {
@@ -48,6 +90,25 @@ public class MetadataTypeNameBudgetTests
     }
 
     [Fact]
+    public void GlobalNamespaceNestedNameAtTheCharacterBudget_IsAccepted()
+    {
+        // The policy reserves one root delimiter plus the visible nested
+        // separator, so the flattened spelling is one character below the cap.
+        ImmutableArray<string> segments =
+        [
+            new string('a', 2048),
+            new string('b', 2046),
+        ];
+
+        var valid = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("", segments));
+
+        Assert.Equal(
+            MetadataSafetyPolicy.MaxTypeNameCharacters - 1,
+            valid.Name.ToNestedMetadataName().Length);
+    }
+
+    [Fact]
     public void ManySegmentsWithinTheNodeBudget_AreRejectedOnAggregateSize()
     {
         // Every individual segment is ordinary and the segment count is inside the relationship
@@ -71,6 +132,28 @@ public class MetadataTypeNameBudgetTests
         // spelling could be built.
         Assert.NotNull(rejected.Rejection.SegmentIndex);
         Assert.True(rejected.Rejection.SegmentIndex < segments.Length - 1);
+    }
+
+    [Fact]
+    public void SegmentCountIsBoundedAtTheRelationshipNodeLimit()
+    {
+        ImmutableArray<string> atLimit =
+        [
+            .. Enumerable.Range(
+                0,
+                MetadataSafetyPolicy.MaxRelationshipNodes)
+                .Select(static index => index.ToString()),
+        ];
+        ImmutableArray<string> overLimit = [.. atLimit, "overflow"];
+
+        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("N", atLimit));
+        var rejected =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Rejected>(
+                MetadataTypeDefinitionName.Create("N", overLimit));
+        Assert.Equal(
+            MetadataTypeNameRejectionKind.TooManySegments,
+            rejected.Rejection.Kind);
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Runtime.CompilerServices;
 
 namespace ILInspector.Metadata;
 
@@ -10,6 +11,16 @@ namespace ILInspector.Metadata;
 public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
 {
     const string Unresolved = "object";
+    internal const int MaxAcceptedNameCacheEntries =
+        MetadataSafetyPolicy.MaxRelationshipNodes * 16;
+    internal const int MaxAcceptedNameCacheCharacters =
+        MetadataSafetyPolicy.MaxStructuralSignatureChars;
+    // SRM's string provider callback erases segment boundaries before
+    // GetGenericInstantiation runs. Every TypeDef/TypeRef head keeps exact parts:
+    // display-decoration characters are legal metadata-name text, so a flat
+    // prefilter cannot prove that later generic parsing is safe.
+    readonly ConditionalWeakTable<string, MetadataTypeNameParts> structuredNames = new();
+    readonly ConditionalWeakTable<MetadataReader, ReaderNameCache> readerNames = new();
     readonly Action<int>? _beforeMaterialize;
     readonly bool _enforceCharacterBudget;
 
@@ -62,28 +73,70 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
     };
 
     public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
-        => ReadNameOrContinue(
+    {
+        if (TryGetCached(reader, handle, out string? cached))
+            return cached;
+        int materializationWork = 0;
+        Action<int>? observe = _beforeMaterialize is null
+            ? null
+            : amount =>
+            {
+                materializationWork = SaturatingAdd(
+                    materializationWork,
+                    amount);
+                _beforeMaterialize(amount);
+            };
+        return Retain(
+            reader,
+            handle,
             TypeResolver.TryGetTypeNameFromDefinition(
                 reader,
                 handle,
-                _beforeMaterialize,
+                observe,
                 out string? name,
-                out var rejection,
+                out RelationshipTraversalRejection? rejection,
                 _enforceCharacterBudget),
             name,
-            rejection);
+            rejection,
+            () => TypeResolver.ResolveTypeNamePartsFromDefinition(
+                reader,
+                handle,
+                _enforceCharacterBudget),
+            materializationWork);
+    }
 
     public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
-        => ReadNameOrContinue(
+    {
+        if (TryGetCached(reader, handle, out string? cached))
+            return cached;
+        int materializationWork = 0;
+        Action<int>? observe = _beforeMaterialize is null
+            ? null
+            : amount =>
+            {
+                materializationWork = SaturatingAdd(
+                    materializationWork,
+                    amount);
+                _beforeMaterialize(amount);
+            };
+        return Retain(
+            reader,
+            handle,
             TypeResolver.TryGetTypeNameFromReference(
                 reader,
                 handle,
-                _beforeMaterialize,
+                observe,
                 out string? name,
-                out var rejection,
+                out RelationshipTraversalRejection? rejection,
                 _enforceCharacterBudget),
             name,
-            rejection);
+            rejection,
+            () => TypeResolver.ResolveTypeNamePartsFromReference(
+                reader,
+                handle,
+                _enforceCharacterBudget),
+            materializationWork);
+    }
 
     public string GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
     {
@@ -214,8 +267,202 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
         foreach (string argument in typeArguments)
             estimatedLength += argument.Length + 2L;
         ObserveMaterialization(estimatedLength);
-        return TypeResolver.ApplyGenericArguments(genericType, typeArguments);
+        if (!structuredNames.TryGetValue(genericType, out MetadataTypeNameParts? structured))
+            return TypeResolver.ApplyGenericArguments(genericType, typeArguments);
+
+        string typeName = TypeResolver.ApplyGenericArguments(
+            structured.Segments,
+            typeArguments);
+        return structured.Namespace.Length == 0
+            ? typeName
+            : $"{structured.Namespace}.{typeName}";
     }
+
+    string Retain(
+        MetadataReader reader,
+        EntityHandle handle,
+        bool resolved,
+        string? projectedName,
+        RelationshipTraversalRejection? rejection,
+        Func<RelationshipTraversalResult<MetadataTypeNameParts>> create,
+        int materializationWork)
+    {
+        if (!resolved)
+        {
+            ArgumentNullException.ThrowIfNull(rejection);
+            ReaderNameCache rejectedCache = readerNames.GetValue(
+                reader,
+                static _ => new ReaderNameCache());
+            lock (rejectedCache.Names)
+            {
+                if (!rejectedCache.Rejections.ContainsKey(handle)
+                    && rejectedCache.TryReserve(
+                        rejection.Detail.Length))
+                {
+                    rejectedCache.Rejections.Add(
+                        handle,
+                        new(rejection, materializationWork));
+                }
+            }
+            return ReadNameOrContinue(false, projectedName, rejection);
+        }
+
+        ReaderNameCache cache = readerNames.GetValue(
+            reader,
+            static _ => new ReaderNameCache());
+        lock (cache.Names)
+        {
+            if (cache.Names.TryGetValue(
+                    handle,
+                    out CachedName? retained))
+            {
+                return retained.Name;
+            }
+
+            RelationshipTraversalResult<MetadataTypeNameParts> result = create();
+            MetadataTypeNameParts structured = result.GetValueOrThrow();
+            string value = structured.ToDottedName();
+            if (!string.Equals(
+                    projectedName,
+                    value,
+                    StringComparison.Ordinal))
+            {
+                throw new BadImageFormatException(
+                    "Structured and projected metadata type names disagree.");
+            }
+            if (value.Length == 0)
+            {
+                if (cache.TryReserve(
+                        RetainedCharacters(value, structured)))
+                {
+                    cache.Names.Add(
+                        handle,
+                        new(value, materializationWork));
+                }
+                return value;
+            }
+
+            string name = string.Create(
+                value.Length,
+                value,
+                static (destination, source) =>
+                    source.AsSpan().CopyTo(destination));
+            structuredNames.Add(name, structured);
+            if (cache.TryReserve(
+                    RetainedCharacters(name, structured)))
+            {
+                cache.Names.Add(
+                    handle,
+                    new(name, materializationWork));
+            }
+            return name;
+        }
+    }
+
+    static int SaturatingAdd(int left, int right)
+        => (int)Math.Min(int.MaxValue, (long)left + right);
+
+    bool TryGetCached(
+        MetadataReader reader,
+        EntityHandle handle,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? value)
+    {
+        if (!readerNames.TryGetValue(reader, out ReaderNameCache? cache))
+        {
+            value = null;
+            return false;
+        }
+
+        lock (cache.Names)
+        {
+            if (cache.Names.TryGetValue(
+                    handle,
+                    out CachedName? cached))
+            {
+                ReplayMaterializationWork(cached.MaterializationWork);
+                value = cached.Name;
+                return true;
+            }
+            if (cache.Rejections.TryGetValue(
+                    handle,
+                    out CachedRejection? cachedRejection))
+            {
+                ReplayMaterializationWork(
+                    cachedRejection.MaterializationWork);
+                value = ReadNameOrContinue(
+                    resolved: false,
+                    name: null,
+                    cachedRejection.Rejection);
+                return true;
+            }
+        }
+
+        value = null;
+        return false;
+    }
+
+    void ReplayMaterializationWork(int amount)
+    {
+        if (amount > 0)
+            _beforeMaterialize?.Invoke(amount);
+    }
+
+    internal int GetCachedEntryCount(MetadataReader reader)
+    {
+        if (!readerNames.TryGetValue(
+                reader,
+                out ReaderNameCache? cache))
+        {
+            return 0;
+        }
+
+        lock (cache.Names)
+            return cache.EntryCount;
+    }
+
+    static long RetainedCharacters(
+        string name,
+        MetadataTypeNameParts structured)
+    {
+        long characters =
+            name.Length + structured.Namespace.Length;
+        foreach (string segment in structured.Segments)
+            characters += segment.Length;
+        return characters;
+    }
+
+    sealed class ReaderNameCache
+    {
+        internal Dictionary<EntityHandle, CachedName> Names { get; } = [];
+        internal Dictionary<EntityHandle, CachedRejection> Rejections { get; } = [];
+
+        long _retainedCharacters;
+
+        internal int EntryCount =>
+            Names.Count + Rejections.Count;
+
+        internal bool TryReserve(long characters)
+        {
+            if (EntryCount >= MaxAcceptedNameCacheEntries
+                || characters
+                    > MaxAcceptedNameCacheCharacters
+                        - _retainedCharacters)
+            {
+                return false;
+            }
+
+            _retainedCharacters += characters;
+            return true;
+        }
+    }
+
+    sealed record CachedName(
+        string Name,
+        int MaterializationWork);
+
+    sealed record CachedRejection(
+        RelationshipTraversalRejection Rejection,
+        int MaterializationWork);
 
     public string GetGenericMethodParameter(GenericContext? context, int index)
     {
