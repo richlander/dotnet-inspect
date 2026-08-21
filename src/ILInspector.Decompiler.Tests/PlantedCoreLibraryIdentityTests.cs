@@ -182,6 +182,16 @@ public class PlantedCoreLibraryIdentityTests
                 tfm: "net10.0",
                 rid: null),
             expectedCorelib: false);
+
+        // A project acquisition may carry no target framework at all, and
+        // round 4 found that absence was a shape nothing exercised. Denial
+        // must not depend on the optional fields being populated.
+        RunWithResolvedCoreLibrary(
+            AssemblyResolutionProvenance.Project(
+                "Contoso.csproj",
+                tfm: null,
+                rid: null),
+            expectedCorelib: false);
     }
 
     /// <summary>
@@ -270,14 +280,26 @@ public class PlantedCoreLibraryIdentityTests
     /// content-keyed rule could plausibly notice. <c>MayMint</c> must answer
     /// identically for all of them.
     /// <para>
-    /// Each spelling is used twice: once with every field set to it, and once
-    /// with every field distinct. Both halves are load-bearing. The uniform
-    /// shape catches a rule comparing a field against a constant, such as
-    /// <c>PackageAsset { PackageId: "System.Runtime" }</c>. The distinct shape
-    /// catches a rule comparing two fields to each other, such as
-    /// <c>ProjectAsset p when p.Project != p.Tfm</c> — round 3 found that one
-    /// slipping through, because a single value per acquisition makes every
-    /// field equal and silently answers only half the question.
+    /// Each spelling is used three times, and each shape answers a question the
+    /// others cannot. The **uniform** shape sets every field to the same value,
+    /// which catches a rule comparing a field against a constant, such as
+    /// <c>PackageAsset { PackageId: "System.Runtime" }</c>. The **distinct**
+    /// shape gives every field a different value, which catches a rule
+    /// comparing two fields to each other, such as
+    /// <c>ProjectAsset p when p.Project != p.Tfm</c>. The **absent** shape
+    /// passes <see langword="null"/> for every optional field, which catches a
+    /// rule keyed on a field simply not being there, such as
+    /// <c>ProjectAsset { Tfm: null }</c>.
+    /// </para>
+    /// <para>
+    /// Each shape was added because a round found a rule the previous shapes
+    /// could not distinguish — values alone in round 2, the relationship
+    /// between values in round 3, and their absence in round 4. Several
+    /// acquisitions carry optional fields (a project without a target
+    /// framework or runtime identifier, a package without either), so
+    /// <see langword="null"/> is an ordinary value here rather than an exotic
+    /// one, and a rule that reads it is a plausible confusion rather than a
+    /// contrived attack.
     /// </para>
     /// </summary>
     static AssemblyResolutionProvenance[] Variants(Type provenanceType) =>
@@ -288,8 +310,23 @@ public class PlantedCoreLibraryIdentityTests
                 Construct(
                     provenanceType,
                     (parameter, index) => $"{spelling}.{index}.{parameter.Name}"),
+                Construct(
+                    provenanceType,
+                    (parameter, index) => IsOptional(parameter)
+                        ? null
+                        : $"{spelling}.{index}.{parameter.Name}"),
             })
             .ToArray();
+
+    /// <summary>
+    /// Whether the acquisition may be constructed without this field. Read
+    /// from the declared nullability rather than from a list, so a field that
+    /// becomes optional later is exercised as absent without anyone
+    /// remembering to say so.
+    /// </summary>
+    static bool IsOptional(ParameterInfo parameter) =>
+        new NullabilityInfoContext().Create(parameter).WriteState
+            == NullabilityState.Nullable;
 
     /// <summary>
     /// Field values used to build each acquisition. The first is neutral; the
@@ -327,7 +364,7 @@ public class PlantedCoreLibraryIdentityTests
     /// </summary>
     static AssemblyResolutionProvenance Construct(
         Type provenanceType,
-        Func<ParameterInfo, int, string> value)
+        Func<ParameterInfo, int, string?> value)
     {
         ConstructorInfo[] constructors = provenanceType.GetConstructors();
         Assert.True(
