@@ -520,6 +520,9 @@ test("typed library controls own library and Platform picker bindings", () => {
   assert.doesNotMatch(
     workspaceBinding,
     /\[data-(?:library-chip|access-chip|platform-(?:library-select|integrations-library|opportunities-library|analysis-library|metadata-library))\]|#library-jump/);
+  assert.doesNotMatch(
+    appSource,
+    /\[data-(?:library-chip|access-chip|platform-(?:library-select|integrations-library|opportunities-library|analysis-library|metadata-library))\]|#library-jump/);
   assert.doesNotMatch(appSource, /bindPlatformLensPicker/);
 });
 
