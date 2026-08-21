@@ -284,7 +284,7 @@ test("typed status bar owns its rendered toggle binding", () => {
     appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
     ?? "";
   const homeBinding =
-    appSource.match(/function bindHomeEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
+    appSource.match(/function bindHomeEvents\(\) \{[\s\S]*?\n}(?=\n\n\/\/ The two package demos)/)?.[0]
     ?? "";
   assert.match(
     binding,
