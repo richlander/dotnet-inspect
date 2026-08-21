@@ -8,6 +8,9 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "noEmit": true,
+    "paths": {
+      "/inspect-web-engine.js": ["./src/inspect-web-engine.d.ts"]
+    },
     "strict": true,
     "target": "ES2022",
     "verbatimModuleSyntax": true
