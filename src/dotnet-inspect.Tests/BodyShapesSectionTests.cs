@@ -448,6 +448,154 @@ public sealed class BodyShapesSectionTests
     }
 
     [Fact]
+    public async Task TypeKindPredicate_AutoSelectsBodyShapesInDefaultOutput()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "type",
+                    typeof(BodyShapeFixture).FullName!,
+                    "--library",
+                    FixturePath,
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain("Error:", result.Error, StringComparison.Ordinal);
+        Assert.Contains("Body Shapes", result.Output, StringComparison.Ordinal);
+        Assert.Contains(
+            nameof(BodyShapeFixture.PublicCreation),
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ObjectCreationExpression",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("├─", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TypeKindPredicate_PlainTextHonorsRowWindow()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "type",
+                    typeof(BodyShapeFixture).FullName!,
+                    "--library",
+                    FixturePath,
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                    "--plaintext",
+                    "--columns",
+                    "Kind;Member",
+                    "--rows",
+                    "2",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(
+            2,
+            result.Output
+                .Split('\n')
+                .Count(line => line.Contains(
+                    "ObjectCreationExpression",
+                    StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task TypeKindPredicate_ExplicitShapeWarnsThatSelectionIsIgnored()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "type",
+                    typeof(BodyShapeFixture).FullName!,
+                    "--library",
+                    FixturePath,
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                    "--shape",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains(
+            "--where Kind=...",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Contains("├─", result.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Body Shapes", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TypeKindPredicate_QuietVerbosityFailsVisibly()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "type",
+                    typeof(BodyShapeFixture).FullName!,
+                    "--library",
+                    FixturePath,
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                    "-v:q",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "-v:q is not supported by Body Shapes queries",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Empty(result.Output);
+    }
+
+    [Theory]
+    [InlineData("--count")]
+    [InlineData("--markdown")]
+    [InlineData("--plaintext")]
+    [InlineData("--no-header")]
+    public async Task TypeKindPredicate_QuietVerbosityWithOutputModifierFailsVisibly(
+        string outputOption)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "type",
+                    typeof(BodyShapeFixture).FullName!,
+                    "--library",
+                    FixturePath,
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                    "-v:q",
+                    outputOption,
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "-v:q is not supported by Body Shapes queries",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Empty(result.Output);
+    }
+
+    [Fact]
     public void TypeBodyShapeTokens_ExcludeProjectedExtensionMethods()
     {
         using var source = MetadataSource.Open(FixturePath);
@@ -537,6 +685,33 @@ public sealed class BodyShapesSectionTests
             "requires one exact type name",
             result.Error,
             StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--jsonl")]
+    [InlineData("--count")]
+    public async Task TypeKindPredicate_UnresolvedTypeDoesNotFallBackToPrefixBrowse(
+        string outputOption)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "type",
+                    "DotnetInspector.Fixtures.BodyShape",
+                    "--library",
+                    FixturePath,
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                    outputOption,
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("not found", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("prefix matches", result.Error, StringComparison.Ordinal);
+        Assert.Empty(result.Output);
     }
 
     [Fact]

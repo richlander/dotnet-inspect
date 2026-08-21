@@ -1274,6 +1274,7 @@ public class ApiCommand
         else
         {
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
+            writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
             if (options.PlainText)
             {
                 // Buffered rather than written straight to the console so the empty-render gate
@@ -1288,7 +1289,6 @@ public class ApiCommand
             }
             else
             {
-                writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
                 var markdownWriter = new StringWriter { NewLine = "\n" };
                 MarkoutSerializer.Serialize(
                     view, markdownWriter, new MarkdownFormatter(), ApiViewContext.Default, writerOptions);
@@ -2212,6 +2212,7 @@ public class ApiCommand
         else
         {
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
+            writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
             if (options.PlainText)
             {
                 var writer = new Markout.MarkoutWriter(sink, options.CreateFormatter(), writerOptions);
@@ -2233,7 +2234,6 @@ public class ApiCommand
                     writerOptions.SectionOrder = pipeline.InfoSectionNames;
                 }
 
-                writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
                 var sw = new StringWriter { NewLine = "\n" };
                 var writer = new Markout.MarkoutWriter(sw, options.CreateFormatter(), writerOptions);
                 ApiOutputFormatter.SerializeTypeDocument(

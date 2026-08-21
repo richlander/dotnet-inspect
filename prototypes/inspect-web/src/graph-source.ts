@@ -1,9 +1,6 @@
-export interface GraphSourceResult {
-  provider: string;
-  provenance: string;
-  url: string | null | undefined;
-  text: string;
-}
+import type { BrowserSource } from "./inspect-web-engine.d.ts";
+
+export type GraphSourceResult = BrowserSource;
 
 export interface RenderGraphSourceOptions {
   title: string;
