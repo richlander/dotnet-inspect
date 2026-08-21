@@ -599,6 +599,56 @@ public class OutputFormatterTests
         Assert.Null(projected.ModuleVersionId);
     }
 
+    [Fact]
+    public void ProjectOptimizationOpportunity_SeparatesAggregateSupportCoordinate()
+    {
+        var opportunity = Opp(
+            "AggregateScan",
+            inLoop: true,
+            confidence: "low",
+            rootReach: 1,
+            shape: "scan-method-in-loop-call") with
+        {
+            Provenance =
+                PerformanceTriageProvenance.Aggregate,
+            SupportingCallSite =
+                new OptimizationSupportingCallSite(
+                    0x06000002,
+                    0x001F)
+                {
+                    SourceFinding =
+                        AnalysisFindings
+                            .CallSiteDescriptor.Id,
+                    Operation = "call",
+                    OperandToken = 0x0A000001,
+                },
+        };
+
+        var projected =
+            LibraryMetadataService
+                .ProjectOptimizationOpportunity(
+                    opportunity);
+
+        Assert.Equal("aggregate", projected.Provenance);
+        Assert.Null(projected.Finding);
+        Assert.Null(projected.IL);
+        Assert.Equal(
+            AnalysisFindings.CallSiteDescriptor.Id,
+            projected.SupportingFinding);
+        Assert.Equal(
+            "0x06000002",
+            projected.SupportingEvidenceMethod);
+        Assert.Equal(
+            "IL_001F",
+            projected.SupportingIL);
+        Assert.Equal(
+            "call",
+            projected.SupportingOperation);
+        Assert.Equal(
+            "0x0A000001",
+            projected.SupportingToken);
+    }
+
     // #1623 rung 5: a labeled, non-vacuous ranking guard for the Performance Triage
     // model. Unlike the monotonicity check above (which re-derives the production key and
     // only proves self-consistency), this asserts the model's intended priority on seeded
