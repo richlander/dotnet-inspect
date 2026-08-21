@@ -109,7 +109,11 @@ compose method candidates without selecting a Performance section. In that
 case the filtered typed opportunities remain available to the scanner, but the
 compatibility Performance JSON projection is not materialized;
 `ComposedBodyShapesJson_OmitsUnselectedPerformanceProjection` gates that
-section-isolation contract.
+section-isolation contract. Full effective discovery reports a failed typed
+producer as a section failure and exits unsuccessfully rather than describing
+its sections as empty; `LibraryCommand_EffectivePerformanceDiscoveryNamesOptimizationFailure`
+and `LibraryCommand_EffectiveComposedBodyShapesDiscoveryNamesOptimizationFailure`
+gate the direct and composed projections.
 
 The residual `ScannerRegistry` now contains only Resource Triage and Body
 Shapes.

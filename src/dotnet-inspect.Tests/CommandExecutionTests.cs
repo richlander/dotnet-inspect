@@ -18589,6 +18589,98 @@ public partial class CommandExecutionTests
                 FailedResourceTriageInspection()));
     }
 
+    [Fact]
+    public async Task LibraryCommand_EffectivePerformanceDiscoveryNamesOptimizationFailure()
+    {
+        var inspection = FailedOptimizationInspection();
+        var options = new LibraryOptions
+        {
+            Discover = [SectionNames.PerformanceArrays],
+            IncludeSections = [SectionNames.PerformanceArrays],
+        };
+
+        int exit = 0;
+        var (output, error) = await ConsoleCapture.RunAsync(
+            () => exit = LibraryCommand.WriteEffectiveSections(
+                inspection.FileName,
+                inspection,
+                options,
+                LibrarySections.CreatePipeline(),
+                Verbosity.Normal,
+                fullEffectiveness: true,
+                effectivenessScope: [SectionNames.PerformanceArrays],
+                cache: false));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Performance Triage inspection failed "
+            + "(Optimization opportunities): body index failed",
+            error);
+        Assert.DoesNotContain("has no data", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_EffectiveComposedBodyShapesDiscoveryNamesOptimizationFailure()
+    {
+        var inspection = FailedOptimizationInspection(composedBodyShapes: true);
+        var options = new LibraryOptions
+        {
+            Discover = [SectionNames.BodyShapes],
+            IncludeSections = [SectionNames.BodyShapes],
+            BodyKindQuery = inspection.BodyKindQueryOptions,
+            PerformanceTriage = inspection.PerformanceTriageOptions,
+        };
+
+        int exit = 0;
+        var (output, error) = await ConsoleCapture.RunAsync(
+            () => exit = LibraryCommand.WriteEffectiveSections(
+                inspection.FileName,
+                inspection,
+                options,
+                LibrarySections.CreatePipeline(),
+                Verbosity.Normal,
+                fullEffectiveness: true,
+                effectivenessScope: [SectionNames.BodyShapes],
+                cache: false));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Body Shapes inspection failed "
+            + "(Optimization opportunities): body index failed",
+            error);
+        Assert.DoesNotContain("has no data", error);
+    }
+
+    static LibraryInspection FailedOptimizationInspection(
+        bool composedBodyShapes = false)
+    {
+        var inspection = new LibraryInspection
+        {
+            FileName = "broken.dll",
+            BodyKindQueryOptions = composedBodyShapes
+                ? new BodyKindQueryOptions
+                {
+                    Kind = "ArrayCreationExpression",
+                }
+                : BodyKindQueryOptions.Default,
+            PerformanceTriageOptions = composedBodyShapes
+                ? new PerformanceTriageOptions
+                {
+                    Shapes = ["small-array"],
+                }
+                : PerformanceTriageOptions.Default,
+        };
+        LibraryMetadataService.ApplyOptimizationOpportunitiesResult(
+            inspection.FileName,
+            inspection,
+            new Output.VerboseLogger(false),
+            new OptimizationOpportunitiesResult.Failed(
+                new IOException("body index failed")));
+        return inspection;
+    }
+
     static LibraryInspection FailedResourceTriageInspection()
     {
         var subject = new FindingSubject("fixture", "fixture");
