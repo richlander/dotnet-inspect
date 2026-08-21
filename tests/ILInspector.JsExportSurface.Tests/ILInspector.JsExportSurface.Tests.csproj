@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <IsAotCompatible>false</IsAotCompatible>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
+    <ProjectReference Include="../../src/ILInspector.Analysis/ILInspector.Analysis.csproj" />
+    <ProjectReference Include="../../src/ILInspector.JsExportSurface/ILInspector.JsExportSurface.csproj" />
+    <ProjectReference Include="../../src/tsbindgen/tsbindgen.csproj" />
+    <ProjectReference Include="../../src/ILInspector.JsExportSurface.Fixtures/ILInspector.JsExportSurface.Fixtures.csproj" />
+  </ItemGroup>
+
+</Project>
