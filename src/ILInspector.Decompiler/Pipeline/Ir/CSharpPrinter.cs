@@ -1779,6 +1779,13 @@ public sealed partial class CSharpPrinter
 
     void AppendNestedLocalFunctionBody(StringBuilder sb, LocalFunctionStatement localFunction, int indent)
     {
+        string pad = new(' ', indent * 4);
+        foreach (var line in NestedLocalFunctionBodyText(localFunction).Split("\n"))
+            sb.Append(pad).AppendLf(line);
+    }
+
+    string NestedLocalFunctionBodyText(LocalFunctionStatement localFunction)
+    {
         var body = localFunction.Body;
         body.Detach();
         try
@@ -1801,7 +1808,6 @@ public sealed partial class CSharpPrinter
             };
             function.CopyTypeFactsFrom(_function);
 
-            string pad = new(' ', indent * 4);
             var nestedPrinter = new CSharpPrinter(
                 function,
                 _options,
@@ -1810,8 +1816,7 @@ public sealed partial class CSharpPrinter
                 stackSlotTelemetryScope: localFunction,
                 decisions: _decisions,
                 decisionKeys: _decisionKeys);
-            foreach (var line in nestedPrinter.PrintBody(function).TrimEnd().Split("\n"))
-                sb.Append(pad).AppendLf(line);
+            return nestedPrinter.PrintBody(function).TrimEnd();
         }
         finally
         {
@@ -2111,6 +2116,11 @@ public sealed partial class CSharpPrinter
             string header = $"{modifier}{TypeText(localFunction.ReturnType)} {CSharpNaming.ContainedIdentifier(localFunction.Name)}({parameters})";
             if (localFunction.ExpressionBody is { } body)
             {
+                if (_stackSlotTelemetry is not null
+                    && NeedsNestedLocalFunctionScope(localFunction))
+                {
+                    _ = NestedLocalFunctionBodyText(localFunction);
+                }
                 sb.Append(pad).Append(header).Append(" => ").Append(Expression(body)).AppendLf(";");
             }
             else
