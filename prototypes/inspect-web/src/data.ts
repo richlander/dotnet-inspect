@@ -83,19 +83,22 @@ export function platformPackToken(value: unknown): PlatformPack | null {
     : null;
 }
 
-export interface PlatformAssemblyProvenance {
+export interface PlatformPackAssembly {
   name?: string;
-  assembly?: string;
   platformPack?: string | null;
+}
+
+export interface PlatformPackHint {
+  assembly?: string;
   pack?: string | null;
 }
 
 export function platformPackFromProvenance(
-  assembly: unknown,
+  assembly: string,
   exactPack: unknown,
-  loadedAssemblies: readonly PlatformAssemblyProvenance[] | null | undefined,
-  recent: readonly PlatformAssemblyProvenance[] | null | undefined,
-  roster: readonly PlatformAssemblyProvenance[] | null | undefined,
+  loadedAssemblies: readonly PlatformPackAssembly[] | null | undefined,
+  recent: readonly PlatformPackHint[] | null | undefined,
+  roster: readonly PlatformPackHint[] | null | undefined,
 ): PlatformPack {
   const exact = platformPackToken(exactPack);
   if (exact) return exact;
@@ -985,7 +988,7 @@ export function memberSectionIdsFor(
 
 export function typeLensesFor(
   pkg: { isRuntimePack?: boolean } | null | undefined,
-) {
+): readonly (readonly [string, string])[] {
   return pkg?.isRuntimePack
     ? lenses.filter(([id]) => id === "api")
     : lenses;

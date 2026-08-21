@@ -884,7 +884,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function memberSectionsFor(member: BrowserMemberSurface | AppMemberGroup) {
   const allowed = new Set(
-    memberSectionIdsFor(member, state.package?.isRuntimePack));
+    memberSectionIdsFor(
+      member,
+      state.package?.isRuntimePack));
   return memberSectionDefs.filter(([id]) => allowed.has(id));
 }
 
@@ -2800,12 +2802,12 @@ async function loadPackageIntegrations() {
   state.packageIntegrationsLoading = true;
   render();
   try {
-  const result = isPlatform
-    ? await inspectPlatformIntegrations(
-        pkg.activeFramework,
-        `${scopedLib}.dll`,
-        platformPackForAssembly(scopedLib ?? ""))
-    : await inspectPackageIntegrations(
+    const result = isPlatform
+      ? await inspectPlatformIntegrations(
+          pkg.activeFramework,
+          `${scopedLib}.dll`,
+          platformPackForAssembly(scopedLib ?? ""))
+      : await inspectPackageIntegrations(
           pkg.id,
           pkg.version,
           pkg.activeFramework);
@@ -4184,10 +4186,10 @@ function bindEvents() {
   }));
   document.querySelectorAll<HTMLElement>("[data-opp-type]").forEach(button => button.addEventListener("click", () => {
     const id = button.dataset.oppType ?? "";
-    const target = resolveOpportunitySourceType(state.package, {
-      sourceDefinitionId: button.dataset.oppSourceDefinition,
-      sourceAssembly: button.dataset.oppSourceAssembly,
-      sourceAssemblyVersion: button.dataset.oppSourceVersion,
+    const target = resolveOpportunitySourceType(currentPackage(), {
+      sourceDefinitionId: button.dataset.oppSourceDefinition ?? null,
+      sourceAssembly: button.dataset.oppSourceAssembly ?? null,
+      sourceAssemblyVersion: button.dataset.oppSourceVersion ?? null,
       sourceAssemblyCulture: button.dataset.oppSourceCulture || null,
       sourceAssemblyPublicKeyToken: button.dataset.oppSourceToken || null
     });
@@ -7003,7 +7005,7 @@ async function loadRuntimeMemberCallGraph(
       currentPackage().activeFramework,
       type.assembly,
       platformPackForAssembly(type.assembly, type.platformPack),
-      type.metadataId ?? type.queryId ?? type.id,
+      type.definitionId ?? type.metadataId ?? type.queryId ?? type.id,
       state.selectedBodyTarget?.memberName ?? overload.name,
       state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
       state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0);

@@ -236,13 +236,10 @@ test("platform call graphs carry the target pack into lazy acquisition", () => {
     "aspnetcore.app");
   assert.match(
     appSource,
-    /inspectExpandPlatformCallGraph\(\{[\s\S]*?assembly:\s*node\.assembly,[\s\S]*?pack:\s*platformPackForAssembly\(node\.assembly,\s*node\.platformPack\)/);
+    /inspectExpandPlatformCallGraph\(\s*currentPackage\(\)\.activeFramework,\s*node\.assembly,\s*platformPackForAssembly\(node\.assembly,\s*node\.platformPack\)/);
   assert.match(
     appSource,
-    /pack:\s*platformPackForAssembly\(type\.assembly,\s*type\.platformPack\)/);
-  assert.match(
-    appSource,
-    /type:\s*type\.definitionId\s*\?\?\s*type\.metadataId/);
+    /inspectExpandPlatformCallGraph\(\s*currentPackage\(\)\.activeFramework,\s*type\.assembly,\s*platformPackForAssembly\(type\.assembly,\s*type\.platformPack\),\s*type\.definitionId\s*\?\?\s*type\.metadataId/);
 });
 
 test("shared platform state preserves an exact pack token", () => {
