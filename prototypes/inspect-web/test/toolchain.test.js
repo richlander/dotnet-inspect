@@ -15,6 +15,15 @@ import { verifySiteArtifact } from "../scripts/verify-site-artifact.js";
 const packageLock = JSON.parse(
   readFileSync(new URL("../package-lock.json", import.meta.url), "utf8"),
 );
+const packageJson = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+);
+const browserTsconfig = JSON.parse(
+  readFileSync(new URL("../tsconfig.json", import.meta.url), "utf8"),
+);
+const testTsconfig = JSON.parse(
+  readFileSync(new URL("tsconfig.json", import.meta.url), "utf8"),
+);
 
 test("the package lock pins every registry artifact", () => {
   const missingArtifactIdentity = Object.entries(packageLock.packages)
@@ -25,6 +34,18 @@ test("the package lock pins every registry artifact", () => {
     .map(([path]) => path);
 
   assert.deepEqual(missingArtifactIdentity, []);
+});
+
+test("TypeScript compiler contexts keep Node globals out of browser source", () => {
+  assert.deepEqual(browserTsconfig.compilerOptions.types, []);
+  assert.deepEqual(browserTsconfig.include, ["src/**/*.ts"]);
+  assert.equal(testTsconfig.extends, "../tsconfig.json");
+  assert.deepEqual(testTsconfig.compilerOptions.types, ["node"]);
+  assert.deepEqual(testTsconfig.include, ["./**/*.ts"]);
+  assert.equal(
+    packageJson.scripts.typecheck,
+    "tsc --noEmit && tsc --noEmit -p test/tsconfig.json",
+  );
 });
 
 test("the site artifact rejects a missing Vite output", (context) => {

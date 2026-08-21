@@ -6052,6 +6052,7 @@ public class SectionPipelineTests
             [
                 PackageSections.Signals,
                 PackageSections.AuditArtifactText,
+                PackageSections.AuditFindings,
                 PackageSections.AuditIdentifierConfusion,
                 PackageSections.Signature,
                 PackageSections.Vulnerabilities,
@@ -6080,6 +6081,28 @@ public class SectionPipelineTests
         Assert.Equal(
             expected,
             PackageSectionDescriptors.AuditArtifactText.CanRender(model));
+    }
+
+    [Fact]
+    public void PackagePipeline_PackageContentAuditRendersOnlyWithFindings()
+    {
+        var model = new InspectionResult
+        {
+            PackageContentAudit = new PackageContentAuditResult(
+                [new PackageContentAuditFinding(
+                    "README.md",
+                    PackageContentFindingKind.NonGraphicText,
+                    TextConcern.Format,
+                    new InertString(TextPolicy.Field, "encoded"))],
+                EligibleFiles: 1,
+                ScannedFiles: 1,
+                ScannedBytes: 7,
+                Complete: true),
+        };
+
+        Assert.True(PackageSectionDescriptors.AuditFindings.CanRender(model));
+        model.PackageContentAudit = model.PackageContentAudit with { Findings = [] };
+        Assert.False(PackageSectionDescriptors.AuditFindings.CanRender(model));
     }
 
     [Theory]
@@ -6163,7 +6186,7 @@ public class SectionPipelineTests
     public void PackagePipeline_HasExpectedSectionCount()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
-        Assert.Equal(20, pipeline.AllSectionNames.Length);
+        Assert.Equal(21, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -6177,6 +6200,7 @@ public class SectionPipelineTests
         Assert.Contains("Package README file", names);
         Assert.Contains("Signals", names);
         Assert.Contains(PackageSections.AuditArtifactText, names);
+        Assert.Contains(PackageSections.AuditFindings, names);
         Assert.Contains(PackageSections.AuditIdentifierConfusion, names);
         Assert.Contains("Target Frameworks", names);
         Assert.Contains("Package nuspec file", names);

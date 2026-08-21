@@ -582,7 +582,7 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
-    public void Resolve_DeepDeclaringTypeDoesNotExpandAnchorQuadratically()
+    public void Resolve_DeepDeclaringTypeRejectsAggregateNameWithoutQuadraticExpansion()
     {
         byte[] warmImage = BuildNestedDeclaringTypeImage(
             nestingDepth: 2,
@@ -618,8 +618,8 @@ public sealed class MethodCorrespondenceResolverTests
         long allocated =
             GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
 
-        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
-        Assert.NotNull(result.Anchor);
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("metadata type name exceeds", result.Failure);
         Assert.True(
             allocated < 32 * 1024 * 1024,
             $"Deep declaring-type anchor allocated {allocated:N0} bytes.");

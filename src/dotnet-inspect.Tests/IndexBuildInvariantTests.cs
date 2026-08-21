@@ -287,8 +287,12 @@ public class IndexBuildInvariantTests
     }
 
     [Fact]
-    public void PdbContext_MetadataOnlyPrefetch_RetainsImageWithoutLoadingAdjacentPdb()
+    public void PdbContext_EmbeddedOnlyPrefetch_RetainsImageWithoutLoadingAdjacentPdb()
     {
+        var limits = new ILInspector.SourceLink.SourceLinkReadLimits(
+            LibraryMetadataService.DiscoveryMaxEmbeddedPdbBytes,
+            maxMapBytes: 4 * 1024 * 1024,
+            maxMappings: 16 * 1024);
         Assert.True(
             File.Exists(
                 Path.ChangeExtension(
@@ -298,8 +302,9 @@ public class IndexBuildInvariantTests
 
         using var prefetched =
             ILInspector.SourceLink.SourceLinkService
-                .OpenMetadataOnlyPrefetched(
-                    FixtureAssembly);
+                .OpenEmbeddedPdbOnlyPrefetched(
+                    FixtureAssembly,
+                    limits);
         var image =
             prefetched.Context.GetPrefetchedImage();
 
@@ -316,11 +321,12 @@ public class IndexBuildInvariantTests
                     FixtureAssembly,
                     ILInspector.Metadata
                         .AssemblyResolutionProvenance
-                        .Local("metadata-only prefetch gate"));
+                        .Local("embedded-only prefetch gate"));
         using var descriptorPrefetched =
             ILInspector.SourceLink.SourceLinkService
-                .OpenMetadataOnlyPrefetched(
-                    descriptor);
+                .OpenEmbeddedPdbOnlyPrefetched(
+                    descriptor,
+                    limits);
         Assert.False(
             descriptorPrefetched.Context
                 .GetPrefetchedImage()
@@ -343,8 +349,9 @@ public class IndexBuildInvariantTests
 
             using var embeddedPrefetched =
                 ILInspector.SourceLink.SourceLinkService
-                    .OpenMetadataOnlyPrefetched(
-                        embeddedAssembly);
+                    .OpenEmbeddedPdbOnlyPrefetched(
+                        embeddedAssembly,
+                        limits);
             Assert.True(
                 embeddedPrefetched.Context.HasEmbeddedPdb);
             Assert.True(embeddedPrefetched.HasPdb);

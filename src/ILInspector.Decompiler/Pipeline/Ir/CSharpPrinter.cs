@@ -6226,18 +6226,13 @@ public sealed partial class CSharpPrinter
         // unless the reference is made from inside that enclosing type, where the
         // innermost name is in scope (Enumerator inside List<T>.GetEnumerator).
         string text = TypeTextCore(type);
-        int tick = text.IndexOf('`');
-        string rendered = tick < 0 ? text : text[..tick];
-        RecordFrameworkTypeImportDecision(type, rendered);
-        return rendered;
+        RecordFrameworkTypeImportDecision(type, text);
+        return text;
     }
 
     string TypeQualifierText(TypeRef type)
     {
         string rendered = TypeTextCore(type);
-        int tick = rendered.IndexOf('`');
-        if (tick >= 0)
-            rendered = rendered[..tick];
 
         if (FirstTypeQualifierSegment(rendered) is { } segment && IsStaticCallNameShadowed(segment))
             rendered = FullyQualifiedTypeText(type);
@@ -6268,10 +6263,11 @@ public sealed partial class CSharpPrinter
         if (definition.Kind != TypeRefKind.Definition || definition.Namespace.Length == 0 && definition.Name.Length == 0)
             return type.ToDisplayString();
 
-        string text = type.ToDisplayString(TypeRef.Definition("__dotnet_inspect", "__", "__"));
-        int tick = text.IndexOf('`');
-        if (tick >= 0)
-            text = text[..tick];
+        string text =
+            type.ToDisplayString(TypeRef.Definition(
+                "__dotnet_inspect",
+                "__",
+                "__"));
         return definition.Namespace.Length == 0
             ? $"global::{text}"
             : $"global::{EscapeNamespace(definition.Namespace)}.{text}";
@@ -6293,14 +6289,14 @@ public sealed partial class CSharpPrinter
             return;
         if (!IsFrameworkNamespace(definition.Namespace))
             return;
-        if (HasGenericEnclosingSegment(definition.Name))
+        if (HasGenericEnclosingSegment(definition))
         {
             RecordNestedGenericEnclosingImportDecisions(definition, rendered);
             return;
         }
 
         string fullName = FrameworkMetadataName(definition);
-        string simpleName = TypeNamePath(definition.Name);
+        string simpleName = TypeNamePath(definition);
         if (rendered.Contains(definition.Namespace + ".", StringComparison.Ordinal))
             return;
 
@@ -6315,9 +6311,9 @@ public sealed partial class CSharpPrinter
 
     void RecordNestedGenericEnclosingImportDecisions(TypeRef definition, string rendered)
     {
-        var segments = definition.Name.Split('+');
-        var sourceSegments = new List<string>(segments.Length);
-        for (int i = 0; i < segments.Length - 1; i++)
+        IReadOnlyList<string> segments = definition.MetadataNameSegments();
+        var sourceSegments = new List<string>(segments.Count);
+        for (int i = 0; i < segments.Count - 1; i++)
         {
             sourceSegments.Add(CSharpNaming.TypeNameSegment(segments[i]));
             if (GenericArity(segments[i]) == 0)
@@ -6358,24 +6354,24 @@ public sealed partial class CSharpPrinter
 
     static string FrameworkSourceName(TypeRef type)
         => type.Namespace.Length == 0
-            ? TypeNamePath(type.Name)
-            : $"{type.Namespace}.{TypeNamePath(type.Name)}";
+            ? TypeNamePath(type)
+            : $"{type.Namespace}.{TypeNamePath(type)}";
 
-    static string TypeNamePath(string metadataName)
-        => string.Join(".", metadataName.Split('+').Select(CSharpNaming.TypeNameSegment));
+    static string TypeNamePath(TypeRef type)
+        => string.Join(
+            ".",
+            type.MetadataNameSegments().Select(CSharpNaming.TypeNameSegment));
 
-    static bool HasGenericEnclosingSegment(string metadataName)
+    static bool HasGenericEnclosingSegment(TypeRef type)
     {
-        var segments = metadataName.Split('+');
-        return segments.Length > 1
-            && segments.Take(segments.Length - 1).Any(segment => GenericArity(segment) > 0);
+        IReadOnlyList<string> segments = type.MetadataNameSegments();
+        return segments.Count > 1
+            && segments.Take(segments.Count - 1)
+                .Any(segment => GenericArity(segment) > 0);
     }
 
     static int GenericArity(string metadataName)
-    {
-        int tick = metadataName.IndexOf('`', StringComparison.Ordinal);
-        return tick >= 0 && int.TryParse(metadataName[(tick + 1)..], out int arity) ? arity : 0;
-    }
+        => MetadataNameArity.OfSegment(metadataName);
 
     static bool IsFrameworkNamespace(string ns)
         => ns == "System" || ns.StartsWith("System.", StringComparison.Ordinal);
@@ -6504,11 +6500,9 @@ public sealed partial class CSharpPrinter
         var name = type.Name;
         var nested = name.LastIndexOf('+');
         var innermost = nested < 0 ? name : name[(nested + 1)..];
-        var tick = innermost.IndexOf('`');
-        if (tick < 0)
-            return null;
-        return int.TryParse(innermost[(tick + 1)..], out var arity) && arity > 0
-            ? arity
-            : null;
+        // Only a canonical `N declares arity: int.TryParse would take a signed or
+        // padded count, spelling `Widget<>` for a type that is not generic.
+        int arity = MetadataNameArity.OfSegment(innermost);
+        return arity > 0 ? arity : null;
     }
 }

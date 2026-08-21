@@ -24,6 +24,9 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class LibraryMetadataService
 {
+    internal const int DiscoveryMaxEmbeddedPdbBytes =
+        64 * 1024 * 1024;
+
     /// <summary>
     /// Full inspection pipeline for a single assembly.
     /// </summary>
@@ -93,17 +96,40 @@ internal static class LibraryMetadataService
                             PreferImplementationAssemblies = true,
                         })
                     : null;
-            using var service = assemblyReference is not null
-                ? !needsPrefetchedImage
-                    ? SourceLinkService.Open(assemblyReference, logger.Log)
-                    : SourceLinkService.OpenPrefetched(
-                        assemblyReference,
-                        logger.Log)
-                : discoveryOnly && !needsPrefetchedImage
-                    ? SourceLinkService.OpenMetadataOnly(path, logger.Log)
-                    : discoveryOnly
-                        ? SourceLinkService.OpenMetadataOnlyPrefetched(
+            var discoveryReadLimits =
+                new SourceLinkReadLimits(
+                    DiscoveryMaxEmbeddedPdbBytes,
+                    maxMapBytes: 4 * 1024 * 1024,
+                    maxMappings: 16 * 1024);
+            using var service = discoveryOnly
+                ? assemblyReference is not null
+                    ? needsPrefetchedImage
+                        ? SourceLinkService
+                            .OpenEmbeddedPdbOnlyPrefetched(
+                                assemblyReference,
+                                discoveryReadLimits,
+                                logger.Log)
+                        : SourceLinkService.OpenEmbeddedPdbOnly(
+                            assemblyReference,
+                            discoveryReadLimits,
+                            logger.Log)
+                    : needsPrefetchedImage
+                        ? SourceLinkService
+                            .OpenEmbeddedPdbOnlyPrefetched(
+                                path,
+                                discoveryReadLimits,
+                                logger.Log)
+                        : SourceLinkService.OpenEmbeddedPdbOnly(
                             path,
+                            discoveryReadLimits,
+                            logger.Log)
+                : assemblyReference is not null
+                    ? !needsPrefetchedImage
+                        ? SourceLinkService.Open(
+                            assemblyReference,
+                            logger.Log)
+                        : SourceLinkService.OpenPrefetched(
+                            assemblyReference,
                             logger.Log)
                     : !needsPrefetchedImage
                         ? SourceLinkService.Open(path, logger.Log)
