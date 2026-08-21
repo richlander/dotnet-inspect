@@ -918,7 +918,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
     }
 
     [Fact]
-    public async Task PackageCommand_IdentifierMetadataFailureIsNonzero()
+    public async Task PackageCommand_IdentifierMetadataFailureIsScopedToIdentifierConsumers()
     {
         string packageId =
             $"Private.Command.{Guid.NewGuid():N}";
@@ -1004,6 +1004,32 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                 new CommandContext(
                     verbose: false,
                     client)));
+        InspectionOptions auditDiscoveryOptions = Options() with
+        {
+            IncludeSections = null,
+            Discover = [PackageSections.AuditIdentifierConfusion],
+        };
+        var auditDiscovered = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                auditDiscoveryOptions,
+                new CommandContext(
+                    verbose: false,
+                    client)));
+        InspectionOptions statisticsOptions = Options() with
+        {
+            IncludeSections =
+                new HashSet<string>(
+                    StringComparer.OrdinalIgnoreCase)
+                {
+                    PackageSections.Statistics,
+                },
+        };
+        var statistics = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                statisticsOptions,
+                new CommandContext(
+                    verbose: false,
+                    client)));
 
         Assert.Equal(1, rendered.ExitCode);
         Assert.Contains("Identifier confusion", rendered.Output);
@@ -1020,8 +1046,19 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             + "package registry metadata unavailable"
             + Environment.NewLine,
             discovered.Error);
+        Assert.Equal(1, auditDiscovered.ExitCode);
+        Assert.Contains(
+            "Warning: Identifier audit failed for package input #1: "
+            + "package registry metadata unavailable",
+            auditDiscovered.Error);
+        Assert.Equal(0, statistics.ExitCode);
+        Assert.DoesNotContain(
+            "Identifier audit failed",
+            statistics.Error);
         Assert.DoesNotContain(packageId, rendered.Error);
         Assert.DoesNotContain(packageId, discovered.Error);
+        Assert.DoesNotContain(packageId, auditDiscovered.Error);
+        Assert.DoesNotContain(packageId, statistics.Error);
     }
 
     [Fact]
@@ -1258,6 +1295,31 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                 StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public void PackageCommand_TargetedDiscoveryKeepsExplicitBoundedProducer()
+    {
+        var pipeline =
+            PackageSectionDescriptors.CreateCatalog().Pipeline;
+        var options = new InspectionOptions
+        {
+            Discover = [PackageSections.AuditIdentifierConfusion],
+            Verbosity = Verbosity.Detailed,
+        };
+
+        InspectionOptions producerOptions =
+            PackageCommand.CreateProducerOptions(
+                options,
+                userVerbosity: Verbosity.Minimal,
+                pipeline);
+
+        Assert.Contains(
+            PackageSections.AuditIdentifierConfusion,
+            producerOptions.IncludeSections!);
+        Assert.True(PackageCommand.RequiresIdentifierMetadata(
+            producerOptions,
+            pipeline));
+    }
+
     [Theory]
     [InlineData(PackageSections.Statistics)]
     [InlineData(PackageSections.Vulnerabilities)]
@@ -1276,6 +1338,9 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         };
 
         Assert.True(PackageCommand.RequiresPackageMetadata(
+            options,
+            pipeline));
+        Assert.False(PackageCommand.RequiresIdentifierMetadata(
             options,
             pipeline));
         Assert.True(PackageCommand.AllowsVulnerabilityTraffic(

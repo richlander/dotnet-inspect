@@ -724,6 +724,8 @@ public class PackageCommand
                     producerOptions,
                     target.IsLocalFile,
                     pipeline);
+            bool wantsIdentifierMetadata =
+                RequiresIdentifierMetadata(producerOptions, pipeline);
             bool wantsPackageMetadata =
                 RequiresPackageMetadata(producerOptions, pipeline);
             using var vulnerabilityTrafficScope = AllowsVulnerabilityTraffic(
@@ -737,7 +739,7 @@ public class PackageCommand
                 nuspec, client, logger,
                 options.ForceLatest, producerOptions.Verbosity,
                 fetchMetadata: wantsPackageMetadata,
-                requireIdentifierMetadata: wantsPackageMetadata,
+                requireIdentifierMetadata: wantsIdentifierMetadata,
                 verifyRidPackageAvailability: wantsRidPackageAvailability,
                 sourceOptions: options.SourceOptions);
 
@@ -1545,12 +1547,23 @@ public class PackageCommand
         HashSet<string>? producerSections = options.IncludeSections;
         if (options.Discover is not null)
         {
-            HashSet<string> candidates =
-                pipeline.GetCandidateSections(
+            HashSet<string> candidates;
+            if (options.Discover.Length == 0)
+            {
+                candidates = pipeline.GetCandidateSections(
                     options.Verbosity,
                     fixedOverview: options.FixedOverview);
-            if (options.IncludeSections is { } selectedSections)
-                candidates.IntersectWith(selectedSections);
+                if (options.IncludeSections is { } selectedSections)
+                    candidates.IntersectWith(selectedSections);
+            }
+            else
+            {
+                candidates = options.IncludeSections is { } selectedSections
+                    ? selectedSections.ToHashSet(
+                        StringComparer.OrdinalIgnoreCase)
+                    : pipeline.SelectableSectionNames.ToHashSet(
+                        StringComparer.OrdinalIgnoreCase);
+            }
 
             producerSections = candidates
                 .Where(section => DiscoverRequestsSection(
@@ -2205,6 +2218,8 @@ public class PackageCommand
                     producerOptions,
                     target.IsLocalFile,
                     pipeline);
+            bool wantsIdentifierMetadata =
+                RequiresIdentifierMetadata(producerOptions, pipeline);
             bool wantsPackageMetadata =
                 RequiresPackageMetadata(producerOptions, pipeline);
             using var vulnerabilityTrafficScope = AllowsVulnerabilityTraffic(
@@ -2223,7 +2238,7 @@ public class PackageCommand
                 options.ForceLatest,
                 producerOptions.Verbosity,
                 fetchMetadata: wantsPackageMetadata,
-                requireIdentifierMetadata: wantsPackageMetadata,
+                requireIdentifierMetadata: wantsIdentifierMetadata,
                 verifyRidPackageAvailability: wantsRidPackageAvailability,
                 sourceOptions: options.SourceOptions);
 
@@ -4065,14 +4080,7 @@ public class PackageCommand
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(pipeline);
 
-        return RequestsSelectedOrDiscoveredSection(
-                   options,
-                   PackageSections.Signals,
-                   pipeline)
-               || RequestsSelectedOrDiscoveredSection(
-                   options,
-                   PackageSections.AuditIdentifierConfusion,
-                   pipeline)
+        return RequiresIdentifierMetadata(options, pipeline)
                || RequestsSelectedOrDiscoveredSection(
                    options,
                    PackageSections.Statistics,
@@ -4080,6 +4088,23 @@ public class PackageCommand
                || RequestsSelectedOrDiscoveredSection(
                    options,
                    PackageSections.Vulnerabilities,
+                   pipeline);
+    }
+
+    internal static bool RequiresIdentifierMetadata(
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(pipeline);
+
+        return RequestsSelectedOrDiscoveredSection(
+                   options,
+                   PackageSections.Signals,
+                   pipeline)
+               || RequestsSelectedOrDiscoveredSection(
+                   options,
+                   PackageSections.AuditIdentifierConfusion,
                    pipeline);
     }
 
