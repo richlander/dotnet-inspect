@@ -346,6 +346,26 @@ test("dependency results cache for a resident package after the foreground lens 
   assert.deepEqual(events, ["render", "stats", "render", "graph"]);
 });
 
+test("foreground dependency success refreshes cached groups and clears a prior error", async () => {
+  const packageItem = packageModel();
+  const key = workspaceDependencyKey(packageItem);
+  const state = inspectionState({
+    packages: [packageItem],
+    workspaceDependencyErrors: { [key]: "stale failure" },
+  });
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state));
+
+  await coordinator.loadDependencies(packageItem, "current");
+
+  const workspace = state.workspaceDependencies[key];
+  assert.ok(workspace);
+  assert.equal(
+    workspace.dependencyGroups?.[0]?.dependencies?.[0]?.id,
+    "Example.Dependency");
+  assert.equal(Object.hasOwn(state.workspaceDependencyErrors, key), false);
+});
+
 test("package lens loaders reuse cached results without querying or clearing them", async () => {
   const packageItem = packageModel();
   const dependencies = dependencyResult();
@@ -590,10 +610,12 @@ test("workspace dependency loading records failures and ignores runtime packs", 
     source: { kind: "platform" },
   });
   const events: string[] = [];
+  const goodKey = workspaceDependencyKey(good);
   const state = inspectionState({
     packages: [good, partial, bad, runtime],
     atPackageRoot: true,
     packageLens: "dependencies",
+    workspaceDependencyErrors: { [goodKey]: "stale failure" },
   });
   const coordinator = createPackageInspectionCoordinator(
     inspectionDependencies(state, {
@@ -620,7 +642,12 @@ test("workspace dependency loading records failures and ignores runtime packs", 
     "render",
     "stats",
   ]);
-  assert.ok(state.workspaceDependencies[workspaceDependencyKey(good)]);
+  const goodWorkspace = state.workspaceDependencies[goodKey];
+  assert.ok(goodWorkspace);
+  assert.equal(
+    goodWorkspace.dependencyGroups?.[0]?.dependencies?.[0]?.id,
+    "Example.Dependency");
+  assert.equal(Object.hasOwn(state.workspaceDependencyErrors, goodKey), false);
   const partialKey = workspaceDependencyKey(partial);
   assert.equal(
     state.workspaceDependencies[partialKey].dependencyGroupError,
