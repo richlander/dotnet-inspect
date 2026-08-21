@@ -631,14 +631,14 @@ operation deadline. The index admits at most 128 pages, and leaf work is capped
 at the greater of 4,096 observations or four times the flat-container candidate
 count. Parsing validates every leaf inside that budget but retains listing state
 only for normalized flat-container candidates, so unrelated registration
-versions cannot grow operation memory. A complete join reports authoritative
-`listed` and `unlisted` candidates. Missing, malformed, incomplete, unavailable,
-or over-budget registration data returns the flat-container candidates as a
-typed partial result with `unknown` state. Duplicate JSON properties are
-malformed rather than allowing one of several possible listing readings to
-become authoritative. Deadline expiry during coverage or final authority
-projection also returns the partial result, while caller cancellation outranks
-a concurrent page failure.
+versions cannot grow retained registration state. A complete join reports
+authoritative `listed` and `unlisted` candidates. Missing, malformed,
+incomplete, unavailable, or over-budget registration data returns the
+flat-container candidates as a typed partial result with `unknown` state.
+Duplicate JSON properties are malformed rather than allowing one of several
+possible listing readings to become authoritative. Deadline expiry during
+coverage or final authority projection also returns the partial result, while
+caller cancellation outranks a concurrent page failure.
 
 Canonical NuGet.org and custom v3 enumeration still report `unknown`, because
 a raw flat-container list can include unlisted versions without carrying their
@@ -673,6 +673,9 @@ The local-folder descriptor remains modeled without a runtime client.
 `GalleryEnumerationJoinsAuthoritativeListingState`,
 `GalleryExternalRegistrationPageIsValidatedAndRebased`,
 `GalleryExternalPagesUseBoundedConcurrency`,
+`GalleryRegistrationParserRetainsOnlyFlatCandidates`,
+`GalleryRegistrationLeafLimitIsTypedPartialEnumeration`,
+`GalleryRegistrationPageLimitIsTypedPartialEnumeration`,
 `GalleryRejectsIneligibleExternalRegistrationPage`,
 `GalleryMalformedRegistrationIsTypedPartialEnumeration`,
 `GalleryMalformedExternalPageIsTypedPartialEnumeration`,
