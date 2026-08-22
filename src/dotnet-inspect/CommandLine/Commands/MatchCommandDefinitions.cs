@@ -37,6 +37,10 @@ public static class MatchCommandDefinitions
         var tfmOption = new Option<string?>("--tfm") { Description = "Source: select by TFM (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include non-public members when resolving selectors" };
         var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json)" };
+        var implementationOption = new Option<bool>("--implementation")
+        {
+            Description = "Also decompile both members and render a side-by-side C#/IL implementation-diff view",
+        };
 
         matchCommand.Arguments.Add(leftArg);
         matchCommand.Arguments.Add(rightArg);
@@ -49,6 +53,7 @@ public static class MatchCommandDefinitions
         matchCommand.Options.Add(allOption);
         matchCommand.Options.Add(opts.Json);
         matchCommand.Options.Add(compactOption);
+        matchCommand.Options.Add(implementationOption);
         opts.AddTableOptionsTo(matchCommand);
         opts.AddOutputOptionsTo(matchCommand);
         opts.AddNuGetOptionsTo(matchCommand);
@@ -78,6 +83,7 @@ public static class MatchCommandDefinitions
                 IncludeAll = parseResult.GetValue(allOption),
                 JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
                 CompactJson = parseResult.GetValue(compactOption),
+                IncludeImplementation = parseResult.GetValue(implementationOption),
                 Tabular = opts.ResolveTabular(parseResult),
                 Tsv = opts.ResolveTsv(parseResult),
                 Jsonl = opts.ResolveJsonl(parseResult),

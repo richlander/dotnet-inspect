@@ -144,7 +144,9 @@ Searches for types across packages, platform libraries, projects, and local asse
 
 ### relationships
 
-`depends`, `extensions`, and `implements` expose dependency graphs, extension methods/properties, implementors, and subclasses.
+`graph integrations` induces typed Integration relationships over an explicit
+package workspace. `depends`, `extensions`, and `implements` expose dependency
+graphs, extension methods/properties, implementors, and subclasses.
 
 ### source
 

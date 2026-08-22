@@ -82,7 +82,7 @@ export interface CallGraphInspectionDependencies {
 export interface CallGraphInspectionCoordinator {
   load(request: MemberCallGraphRequest): Promise<void>;
   drill(request: PlatformDrillRequest): Promise<void>;
-  popDrill(): void;
+  popDrill(): Promise<void>;
 }
 
 export function createCallGraphInspectionCoordinator(
@@ -133,7 +133,7 @@ export function createCallGraphInspectionCoordinator(
       if (state.memberCallGraphKey === request.signature
         && (state.memberCallGraph || state.memberCallGraphError)) {
         dependencies.render();
-        dependencies.renderCallGraph();
+        await dependencies.renderCallGraph();
         return;
       }
       state.memberCallGraphKey = request.signature;
@@ -218,12 +218,12 @@ export function createCallGraphInspectionCoordinator(
       }
     },
 
-    popDrill() {
+    async popDrill() {
       if (state.platformStack.length === 0) return;
       state.platformStack.pop();
       state.platformDrillError = "";
       dependencies.render();
-      dependencies.renderCallGraph();
+      await dependencies.renderCallGraph();
     },
   };
 }
