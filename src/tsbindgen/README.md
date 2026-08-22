@@ -80,14 +80,16 @@ output.
 
 A DTO whose serializer contexts declare conflicting property-naming policies
 is emitted as `unknown`, without guessing a policy, and the diagnostic keeps
-generation red until the wire contract is corrected. Duplicate or malformed
-context-options rows are also unsupported rather than resolved by metadata
-order. Non-default context options that change serialized wire shape are
-unsupported until the object model projects their semantics; formatting and
-read-only options remain accepted. `JsonSourceGenerationOptionsAttributeTests`
-gates duplicate-row orders, duplicate agreement, duplicate or malformed
-arguments within one row, wire-shaping rejection, supported peer options, and
-the ordinary single-row case.
+generation red until the wire contract is corrected. The same rule applies to
+enum roots. Duplicate or malformed context-options rows are also unsupported
+rather than resolved by metadata order. Non-default context options that change
+serialized wire shape are unsupported until the object model projects their
+semantics; formatting and read-only options remain accepted.
+`JsonSourceGenerationOptionsAttributeTests` gates duplicate-row orders,
+duplicate agreement, duplicate or malformed arguments within one row,
+wire-shaping rejection, supported peer options, and the ordinary single-row
+case. `DtsEmitterTests.Emit_BlocksEnumWithUnsupportedContextOptions` gates the
+enum path.
 
 A control character in `[JsonPropertyName]` is a harder boundary: generation
 stops without emitting declarations, and reports only a safe metadata location
@@ -109,21 +111,32 @@ disambiguation scheme. Export function, declaring-type, and parameter names are
 validated before either declarations or JavaScript wrappers are emitted, and
 strict-mode names and collisions with the wrapper's generated `dotnet`,
 `<name>Export`, and `result` bindings are fatal. Valid Unicode TypeScript
-identifiers remain supported, including TypeScript's measured
-continuation-only edge points. Property keys use the broader `IdentifierName`
-grammar, where reserved words remain valid and do not require quoting;
+identifiers remain supported, including TypeScript's measured continuation-only
+edge points. Identifier acceptance is pinned to the TypeScript 7.0.2 scanner
+rather than the runtime's newer Unicode tables. Qualified CLR type identities
+must match a discovered local identity exactly; an unrelated external type with
+the same simple name becomes diagnosed `unknown`, not an alias. Empty
+string-converted enums are rejected before output. Property keys use the
+broader `IdentifierName` grammar, where reserved words remain valid and do not
+require quoting;
 `DtsEmitterTests.Emit_DoesNotQuoteReservedWordsUsedAsPropertyKeys` gates that
 distinction.
 `DtsEmitterTests.Emit_RefusesInvalidJsExportIdentifiers`,
 `DtsEmitterTests.Emit_RefusesJsExportNameCollisions`, and
-`DtsEmitterTests.Emit_RefusesGeneratedModuleBindingCollisions` gate the export
-path. Incomplete metadata extraction and unsafe or signature-less JS exports
-stop before declaration or file output and report only token-based locations;
-incomplete extraction is rejected before body analysis begins.
+`DtsEmitterTests.Emit_RefusesGeneratedModuleBindingCollisions` plus
+`DtsEmitterTests.Emit_RefusesParameterThatShadowsItsExportSlot` gate the export
+path. `DtsEmitterTests.Emit_RefusesIdentifiersNewerThanPinnedTypeScriptUnicode`,
+`TsTypeMapperTests.Map_QualifiedExternalTypeDoesNotAliasLocalRecord`, and
+`DtsEmitterTests.Emit_RefusesEmptyStringConvertedEnumBeforeOutput` gate the
+remaining declaration boundaries. Incomplete metadata extraction and unsafe,
+signature-less, or degraded JS-export/wire signatures stop before declaration
+or file output and report only token-based locations; incomplete extraction is
+rejected before body analysis begins.
 `TsBindGenCommandTests.Invoke_IncompleteExtractionFailsWithoutOutput` and
-`JsExportSurfaceBuilderTests.Build_InvalidExportUsesContainedFailure` gate those
-boundaries. Artifact-derived text in diagnostics is visually contained before
-it reaches stderr. `DtsEmitterTests.Emit_AcceptsUnicodeTypeScriptIdentifiers`,
+`JsExportSurfaceBuilderTests.Build_InvalidExportUsesContainedFailure` plus the
+`Build_RejectsDegraded*` tests gate those boundaries. Artifact-derived text in
+diagnostics is visually contained before it reaches stderr.
+`DtsEmitterTests.Emit_AcceptsUnicodeTypeScriptIdentifiers`,
 `DtsEmitterTests.Emit_RefusesUnicodePatternSyntaxAsIdentifierStart`,
 `DtsEmitterTests.Emit_RefusesForbiddenTypeDeclarationNames`,
 `DtsEmitterTests.Emit_DoesNotEchoRejectedTypeNames`, and

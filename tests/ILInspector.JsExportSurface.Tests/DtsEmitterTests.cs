@@ -277,6 +277,54 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
+    public void Emit_BlocksEnumWithUnsupportedContextOptions()
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+        var enumType = new ApiType
+        {
+            Name = "Status",
+            Kind = "enum",
+            JsonPropertyNamingPolicy = JsonWireNamingPolicy.Unsupported,
+        };
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Enums = [enumType],
+        };
+
+        string dts = DtsEmitter.Emit(surface, diagnostics);
+
+        Assert.Contains(
+            "export type Status = unknown;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic =>
+                diagnostic.Location
+                    == "Status JsonSerializerContext options"
+                && diagnostic.CSharpType
+                    == "unsupported wire-shaping options");
+    }
+
+    [Fact]
+    public void Emit_RefusesEmptyStringConvertedEnumBeforeOutput()
+    {
+        var enumType = new ApiType
+        {
+            Name = "Empty",
+            Kind = "enum",
+            HasJsonStringEnumConverter = true,
+        };
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Enums = [enumType],
+        };
+
+        Assert.Throws<UnsupportedWireContractException>(
+            () => DtsEmitter.Emit(surface));
+    }
+
+    [Fact]
     public void Emit_WithIncludeAllKeepsJsonIncludeNonPublicProperty()
     {
         string dts = EmitFixtureDts(includeAll: true);
@@ -565,6 +613,21 @@ public sealed class DtsEmitterTests
         var surface = new ILInspector.JsExportSurface.JsExportSurface
         {
             Records = [new ApiType { Name = "ⸯValue" }],
+        };
+
+        Assert.Throws<UnsupportedWireContractException>(
+            () => DtsEmitter.Emit(surface));
+    }
+
+    [Theory]
+    [InlineData("\u1C89Value")]
+    [InlineData("A\u0897Value")]
+    public void Emit_RefusesIdentifiersNewerThanPinnedTypeScriptUnicode(
+        string name)
+    {
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records = [new ApiType { Name = name }],
         };
 
         Assert.Throws<UnsupportedWireContractException>(
@@ -935,6 +998,35 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
+    public void Emit_RefusesParameterThatShadowsItsExportSlot()
+    {
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Functions =
+            [
+                new JsExportFunction
+                {
+                    DeclaringType = "Ns.Exports",
+                    Name = "Foo",
+                    ReturnType = "string",
+                    ReturnWireType = "Widget",
+                    Parameters =
+                    [
+                        new ApiParameter
+                        {
+                            Name = "FooExport",
+                            Type = "string",
+                        },
+                    ],
+                },
+            ],
+        };
+
+        Assert.Throws<UnsupportedWireContractException>(
+            () => DtsEmitter.Emit(surface));
+    }
+
+    [Fact]
     public void Emit_RefusesControlCharacterJsonPropertyNamesOnEnumFields()
     {
         using FileStream stream = File.OpenRead(
@@ -1224,7 +1316,8 @@ public sealed class DtsEmitterTests
             diagnostics.UnmappedTypes,
             diagnostic =>
                 diagnostic.Location
-                    == "ConflictingPolicyWidget JsonSerializerContext.PropertyNamingPolicy"
-                && diagnostic.CSharpType == "unsupported JsonKnownNamingPolicy");
+                == "ConflictingPolicyWidget JsonSerializerContext options"
+            && diagnostic.CSharpType
+                == "unsupported wire-shaping options");
     }
 }

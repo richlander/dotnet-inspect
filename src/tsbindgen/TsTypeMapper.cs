@@ -131,11 +131,9 @@ static class TsTypeMapper
             return dictionaryType!;
         }
 
-        string simpleName = LastSegment(trimmed);
-
-        if (recordNames.Contains(simpleName))
+        if (recordNames.Contains(trimmed))
         {
-            return simpleName;
+            return LastSegment(trimmed);
         }
 
         // JsonElement is STJ's own representation of arbitrary/untyped JSON — there is no more

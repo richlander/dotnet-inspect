@@ -101,6 +101,134 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     [Fact]
+    public void Build_RejectsDegradedJsExportSignature()
+    {
+        var apiSurface = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType
+                {
+                    Name = "Exports",
+                    Members =
+                    [
+                        new ApiMember
+                        {
+                            Name = "Broken",
+                            Kind = "method",
+                            IsStatic = true,
+                            SignatureDecodeStatus =
+                                SignatureDecodeStatus.Degraded,
+                            SignatureModel = new ApiSignature
+                            {
+                                ReturnType = "object",
+                            },
+                            Attributes =
+                            [
+                                "System.Runtime.InteropServices.JavaScript.JSExport",
+                            ],
+                        },
+                    ],
+                },
+            ],
+        };
+
+        Assert.Throws<UnsupportedJsExportSurfaceException>(
+            () => JsExportSurfaceBuilder.Build(apiSurface));
+    }
+
+    [Fact]
+    public void Build_RejectsDegradedSerializerContextProperty()
+    {
+        ApiType context = CreateSerializerContext(
+            "Context",
+            "Root",
+            JsonWireNamingPolicy.None);
+        context.Members[0].SignatureDecodeStatus =
+            SignatureDecodeStatus.Degraded;
+        var apiSurface = new ApiSurface
+        {
+            Types = [context, new ApiType { Name = "Root" }],
+        };
+
+        Assert.Throws<UnsupportedJsExportSurfaceException>(
+            () => JsExportSurfaceBuilder.Build(apiSurface));
+    }
+
+    [Fact]
+    public void Build_RejectsDegradedSerializedMember()
+    {
+        ApiType context = CreateSerializerContext(
+            "Context",
+            "Root",
+            JsonWireNamingPolicy.None);
+        var root = new ApiType
+        {
+            Name = "Root",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    HasGetter = true,
+                    SignatureDecodeStatus =
+                        SignatureDecodeStatus.Degraded,
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "object",
+                    },
+                },
+            ],
+        };
+        var apiSurface = new ApiSurface
+        {
+            Types = [context, root],
+        };
+
+        Assert.Throws<UnsupportedJsExportSurfaceException>(
+            () => JsExportSurfaceBuilder.Build(apiSurface));
+    }
+
+    [Fact]
+    public void Build_IgnoresDegradedExcludedMember()
+    {
+        ApiType context = CreateSerializerContext(
+            "Context",
+            "Root",
+            JsonWireNamingPolicy.None);
+        var root = new ApiType
+        {
+            Name = "Root",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Ignored",
+                    Kind = "property",
+                    HasGetter = true,
+                    HasJsonIgnore = true,
+                    SignatureDecodeStatus =
+                        SignatureDecodeStatus.Degraded,
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "object",
+                    },
+                },
+            ],
+        };
+        var apiSurface = new ApiSurface
+        {
+            Types = [context, root],
+        };
+
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            JsExportSurfaceBuilder.Build(apiSurface);
+
+        Assert.Single(surface.Records);
+    }
+
+    [Fact]
     public void Build_DiscoversJsonSerializerContextRootsAndNestedRecords()
     {
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();

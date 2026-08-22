@@ -43,6 +43,13 @@ public static class JsExportSurfaceBuilder
                     throw new UnsupportedJsExportSurfaceException(
                         FormatMemberLocation(type, member),
                         "unsafe JS exports are not supported");
+                if (member.SignatureDecodeStatus
+                    == SignatureDecodeStatus.Degraded)
+                {
+                    throw new UnsupportedJsExportSurfaceException(
+                        FormatMemberLocation(type, member),
+                        "JS export signature metadata is degraded");
+                }
 
                 ApiSignature? signature = member.SignatureModel;
                 if (signature is null)
@@ -78,9 +85,18 @@ public static class JsExportSurfaceBuilder
 
             foreach (ApiMember member in type.Members)
             {
+                if (member.Kind != "property")
+                    continue;
+                if (member.SignatureDecodeStatus
+                    == SignatureDecodeStatus.Degraded)
+                {
+                    throw new UnsupportedJsExportSurfaceException(
+                        FormatMemberLocation(type, member),
+                        "serializer-context property signature metadata is degraded");
+                }
+
                 string? returnType = member.SignatureModel?.ReturnType ?? member.ReturnType;
-                if (member.Kind != "property"
-                    || returnType is null
+                if (returnType is null
                     || !returnType.StartsWith(JsonTypeInfoPrefix, StringComparison.Ordinal))
                 {
                     continue;
@@ -126,6 +142,13 @@ public static class JsExportSurfaceBuilder
             {
                 if (!JsonWireMemberRules.IsSerialized(member))
                     continue;
+                if (member.SignatureDecodeStatus
+                    == SignatureDecodeStatus.Degraded)
+                {
+                    throw new UnsupportedJsExportSurfaceException(
+                        FormatMemberLocation(type, member),
+                        "serialized member signature metadata is degraded");
+                }
 
                 string? propertyType = member.SignatureModel?.ReturnType ?? member.ReturnType;
                 foreach (string candidate in ExtractCandidateTypeNames(propertyType))

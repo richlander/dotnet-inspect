@@ -18,13 +18,16 @@ static class DtsEmitter
         ValidateFunctionNames(surface.Functions);
 
         var knownTypeNames = new HashSet<string>(
-            surface.Records.Select(r => r.Name).Concat(surface.Enums.Select(e => e.Name)),
+            declarationTypes.SelectMany(
+                type => new[] { type.Name, type.FullName, type.MetadataName }
+                    .Where(identity => !string.IsNullOrEmpty(identity))
+                    .Select(identity => identity!)),
             StringComparer.Ordinal);
 
         var sb = new StringBuilder();
 
         foreach (ApiType enumType in surface.Enums.OrderBy(e => e.Name, StringComparer.Ordinal))
-            EmitEnum(sb, enumType);
+            EmitEnum(sb, enumType, diagnostics);
 
         foreach (ApiType record in surface.Records.OrderBy(r => r.Name, StringComparer.Ordinal))
             EmitRecord(sb, record, knownTypeNames, diagnostics);
@@ -38,8 +41,19 @@ static class DtsEmitter
         return sb.ToString();
     }
 
-    static void EmitEnum(StringBuilder sb, ApiType enumType)
+    static void EmitEnum(
+        StringBuilder sb,
+        ApiType enumType,
+        TsBindGenDiagnostics? diagnostics)
     {
+        if (enumType.JsonPropertyNamingPolicy
+            == JsonWireNamingPolicy.Unsupported)
+        {
+            ReportUnsupportedContextOptions(enumType, diagnostics);
+            EmitBlockedType(sb, enumType);
+            return;
+        }
+
         if (!enumType.HasJsonStringEnumConverter)
         {
             sb.Append("export type ").Append(enumType.Name).Append(" = number;\n\n");
@@ -68,10 +82,8 @@ static class DtsEmitter
         JsonWireNamingPolicy namingPolicy = record.JsonPropertyNamingPolicy ?? JsonWireNamingPolicy.None;
         if (namingPolicy == JsonWireNamingPolicy.Unsupported)
         {
-            diagnostics?.ReportUnmappedType(
-                $"{record.Name} JsonSerializerContext.PropertyNamingPolicy",
-                "unsupported JsonKnownNamingPolicy");
-            EmitBlockedRecord(sb, record);
+            ReportUnsupportedContextOptions(record, diagnostics);
+            EmitBlockedType(sb, record);
             return;
         }
 
@@ -122,12 +134,24 @@ static class DtsEmitter
 
             if (type.Kind == "enum")
             {
-                foreach (ApiMember member in type.Members
-                    .Where(member => member.Kind == "field" && member.IsConst))
+                ApiMember[] members =
+                    [.. type.Members.Where(
+                        member => member.Kind == "field" && member.IsConst)];
+                foreach (ApiMember member in members)
                 {
                     ValidatePropertyName(
                         FormatMemberLocation(type, member),
                         member.Name);
+                }
+                if (type.JsonPropertyNamingPolicy
+                        != JsonWireNamingPolicy.Unsupported
+                    && type.HasJsonStringEnumConverter
+                    && !type.IsFlagsEnum
+                    && members.Length == 0)
+                {
+                    throw new UnsupportedWireContractException(
+                        FormatTypeLocation(type),
+                        "string-converted enums must declare at least one member");
                 }
                 continue;
             }
@@ -226,6 +250,7 @@ static class DtsEmitter
                 }
 
                 if (!parameterNames.Add(parameterName)
+                    || parameterName == exportSlotName
                     || reservesResult && parameterName == "result")
                 {
                     throw new UnsupportedWireContractException(
@@ -294,8 +319,15 @@ static class DtsEmitter
             ? $"member 0x{token:X8}"
             : $"{FormatTypeLocation(type)} member";
 
-    static void EmitBlockedRecord(StringBuilder sb, ApiType record) =>
-        sb.Append("export type ").Append(record.Name).Append(" = unknown;\n\n");
+    static void ReportUnsupportedContextOptions(
+        ApiType type,
+        TsBindGenDiagnostics? diagnostics) =>
+        diagnostics?.ReportUnmappedType(
+            $"{type.Name} JsonSerializerContext options",
+            "unsupported wire-shaping options");
+
+    static void EmitBlockedType(StringBuilder sb, ApiType type) =>
+        sb.Append("export type ").Append(type.Name).Append(" = unknown;\n\n");
 
     static void EmitFunction(
         StringBuilder sb,

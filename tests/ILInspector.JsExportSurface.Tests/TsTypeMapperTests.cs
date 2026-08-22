@@ -9,7 +9,11 @@ namespace ILInspector.JsExportSurface.Tests;
 /// </summary>
 public sealed class TsTypeMapperTests
 {
-    private static readonly HashSet<string> RecordNames = new(StringComparer.Ordinal) { "WidgetDto" };
+    private static readonly HashSet<string> RecordNames = new(StringComparer.Ordinal)
+    {
+        "WidgetDto",
+        "ILInspector.JsExportSurface.Fixtures.WidgetDto",
+    };
 
     [Theory]
     [InlineData("string", "string")]
@@ -92,6 +96,34 @@ public sealed class TsTypeMapperTests
                 Assert.Equal("WidgetDto.Property", d.Location);
                 Assert.Equal("SomeUnmappedType", d.CSharpType);
             });
+    }
+
+    [Fact]
+    public void Map_QualifiedExternalTypeDoesNotAliasLocalRecord()
+    {
+        var knownTypes = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "Result",
+            "Mine.Result",
+        };
+        var diagnostics = new TsBindGenDiagnostics();
+
+        Assert.Equal(
+            "unknown",
+            TsTypeMapper.MapParameterType(
+                "Other.Result",
+                knownTypes,
+                diagnostics,
+                "Holder.Value"));
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic => diagnostic.Location == "Holder.Value"
+                && diagnostic.CSharpType == "Other.Result");
+        Assert.Equal(
+            "Result",
+            TsTypeMapper.MapParameterType(
+                "Mine.Result",
+                knownTypes));
     }
 
     [Fact]
