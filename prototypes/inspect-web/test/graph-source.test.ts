@@ -4,6 +4,7 @@ import {
   bindGraphSource,
   renderGraphSource,
 } from "../src/graph-source.ts";
+import { fakeDom } from "./fake-dom.ts";
 
 class FakeElement {
   private readonly listeners = new Map<string, EventListener[]>();
@@ -14,9 +15,9 @@ class FakeElement {
     this.listeners.set(type, listeners);
   }
 
-  dispatch(type: string, target: EventTarget = this as unknown as EventTarget) {
+  dispatch(type: string, target: EventTarget = fakeDom.eventTarget(this)) {
     for (const listener of this.listeners.get(type) ?? []) {
-      listener({ target } as unknown as Event);
+      listener(fakeDom.event({ target }));
     }
   }
 }
@@ -41,11 +42,11 @@ test("graph source bindings close from the button or bare backdrop only", () => 
   const inner = new FakeElement();
   const calls: string[] = [];
   bindGraphSource(
-    root as unknown as ParentNode,
+    fakeDom.parentNode(root),
     { onClose: () => calls.push("close") });
 
   assert.deepEqual(calls, []);
-  backdrop.dispatch("mousedown", inner as unknown as EventTarget);
+  backdrop.dispatch("mousedown", fakeDom.eventTarget(inner));
   assert.deepEqual(calls, []);
   backdrop.dispatch("mousedown");
   assert.deepEqual(calls, ["close"]);

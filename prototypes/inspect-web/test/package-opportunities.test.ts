@@ -5,6 +5,7 @@ import {
   renderPackageOpportunities,
   type PackageOpportunitiesBindingActions,
 } from "../src/package-opportunities.ts";
+import { fakeDom } from "./fake-dom.ts";
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
@@ -22,7 +23,7 @@ class FakeElement {
 
   dispatch(type: string) {
     for (const listener of this.listeners.get(type) ?? []) {
-      listener({} as Event);
+      listener(fakeDom.event());
     }
   }
 }
@@ -61,7 +62,7 @@ test("opportunity bindings dispatch type, package, and search actions", () => {
   root.add("[data-opp-lookfor]", lookFor, secondLookFor);
   const calls: string[] = [];
   bindPackageOpportunities(
-    root as unknown as ParentNode,
+    fakeDom.parentNode(root),
     recordingActions(calls));
 
   assert.deepEqual(calls, []);
@@ -103,7 +104,7 @@ test("opportunity bindings preserve empty values for malformed controls", () => 
   root.add("[data-opp-lookfor]", lookFor);
   const calls: string[] = [];
   bindPackageOpportunities(
-    root as unknown as ParentNode,
+    fakeDom.parentNode(root),
     recordingActions(calls));
 
   assert.deepEqual(calls, []);

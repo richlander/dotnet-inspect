@@ -441,7 +441,7 @@ test("typed package bar owns package framework and version selection bindings", 
     ?? "";
   assert.match(
     packageBarCreation,
-    /selectFramework: switchPackageFramework,[\s\S]*selectVersion: version => \{[\s\S]*state\.package\?\.isRuntimePack[\s\S]*switchPlatformVersion\(version\);[\s\S]*else switchPackageVersion\(version\)/);
+    /selectFramework: framework =>\s*observeAsync\(\s*switchPackageFramework\(framework\),\s*"Switching the package framework"\),[\s\S]*selectVersion: version => \{[\s\S]*state\.package\?\.isRuntimePack[\s\S]*observeAsync\(\s*switchPlatformVersion\(version\),\s*"Switching the platform version"\);[\s\S]*else\s*observeAsync\(\s*switchPackageVersion\(version\),\s*"Switching the package version"\)/);
   assert.match(
     packageBarSource,
     /export function bindPackageSelections\([\s\S]*\[data-framework-chip\][\s\S]*#framework[\s\S]*#package-version/);
@@ -555,7 +555,7 @@ test("typed package view owns package navigation bindings", () => {
     /onDependencyGroupSelect: index => \{[\s\S]*state\.dependenciesGroupIndex === index[\s\S]*state\.dependenciesGroupIndex = index;[\s\S]*patchDependenciesGroup\(\)/);
   assert.match(
     binding,
-    /onDependencyLoad: openDependencyPackage,\s*onDependencyOpen: switchToPackageForDependencies,\s*onGraphTypeSelect: navigateToTypeByName/);
+    /onDependencyLoad: \(id, version\) =>\s*observeAsync\(\s*openDependencyPackage\(id, version\),\s*"Opening a dependency package"\),\s*onDependencyOpen: switchToPackageForDependencies,\s*onGraphTypeSelect: navigateToTypeByName/);
   const kindJump = actionSource("onKindJump");
   const libraryJump = actionSource("onLibraryScopeSelect");
   const namespaceJump = actionSource("onNamespaceJump");
@@ -629,10 +629,10 @@ test("typed library controls own library and Platform picker bindings", () => {
     /onLibraryJump: library => \{[\s\S]*state\.libraryScope = library \? new Set\(\[library\]\) : null;[\s\S]*afterLibraryScopeChange\(\)/);
   assert.match(
     binding,
-    /onPlatformLibrarySelect: openPlatformLibrary/);
+    /onPlatformLibrarySelect: \(name, pack\) =>\s*observeAsync\(\s*openPlatformLibrary\(name, pack\),\s*"Opening a platform library"\)/);
   assert.match(
     binding,
-    /onPlatformLensLibrarySelect: \(lens, name, pack\) => \{\s*void openPlatformLensLibrary\(lens, name, pack\)/);
+    /onPlatformLensLibrarySelect: \(lens, name, pack\) =>\s*observeAsync\(\s*openPlatformLensLibrary\(lens, name, pack\),\s*"Opening a platform library"\)/);
   assert.doesNotMatch(
     workspaceBinding,
     /\[data-(?:library-chip|access-chip|platform-(?:library-select|integrations-library|opportunities-library|analysis-library|metadata-library))\]|#library-jump/);
@@ -693,13 +693,13 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /onDismissPackageNotice: \(\) => \{[\s\S]*currentPackage\(\)\.inspectionError = "";[\s\S]*render\(\);\s*\},\n  onGoHome:/);
   assert.match(
     workbenchActions,
-    /onGoHome: goHome,[\s\S]*onHelp: \(\) => showToast\([\s\S]*onNavigateBack: navBack,[\s\S]*onNavigateForward: navForward,[\s\S]*onRetryNotice: \(\) => state\.queryNoticeRetryAction\?\.\(\),[\s\S]*onShare: share,[\s\S]*onToggleTheme: toggleTheme/);
+    /onGoHome: goHome,[\s\S]*onHelp: \(\) => showToast\([\s\S]*onNavigateBack: navBack,[\s\S]*onNavigateForward: navForward,[\s\S]*onRetryNotice: \(\) => \{[\s\S]*state\.queryNoticeRetryAction;[\s\S]*if \(retryAction\) observeAction\(retryAction, "Retrying the inspection"\);[\s\S]*onShare: \(\) => void share\(\),[\s\S]*onToggleTheme: toggleTheme/);
   assert.match(
     homeActions,
     /onDemo: runHomeDemo,\s*onDismissNotice: \(\) => \{[\s\S]*state\.queryNotice = "";[\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*render\(\);\s*\},\n  onToggleTheme: toggleTheme/);
   assert.match(
     loadErrorActions,
-    /onOpenPackage: openPackageFromError,\s*onRetry: \(\) => \(state\.retryAction \?\? bootstrap\)\(\)/);
+    /onOpenPackage: openPackageFromError,\s*onRetry: \(\) =>\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\)/);
   assert.doesNotMatch(
     appSource,
     /\bquerySelector(?:All)?(?:<[^>]+>)?\("(?:#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|go-home|theme-toggle|help|home-theme|retry-load|error-package-query|error-package-input|toggle-error-detail)|\[data-home-demo\]|\.load-error-detail)"\)/);
@@ -772,7 +772,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /callGraph\.targets\?\.find\(candidate => candidate\.id === nodeId\)[\s\S]*const drilled =\s*state\.platformStack\.length > 0 \|\| Boolean\(state\.package\?\.isRuntimePack\);\s*if \(drilled\) \{\s*if \(target\.id === "n0" \|\| !target\.assembly \|\| !typeId\) return null;[\s\S]*navigateOrDrillPlatform\(target\)[\s\S]*resolveLoadedGraphTargetCandidate[\s\S]*graphTargetNavigationDisposition[\s\S]*if \(disposition === "blocked" \|\| disposition === "none"\) return null;[\s\S]*navigateToMember\([\s\S]*openGraphSource\([\s\S]*navigateOrDrillPlatform\(target\)/);
   assert.match(
     callGraphBinding,
-    /if \(drilled\) \{[\s\S]*return \{\s*platform: true,\s*onSelect: \(\) => \{[\s\S]*navigateOrDrillPlatform\(target\)/);
+    /if \(drilled\) \{[\s\S]*return \{\s*platform: true,\s*onSelect: \(\) =>\s*observeAsync\(\s*navigateOrDrillPlatform\(target\),\s*"Opening a platform call-graph target"\)/);
   assert.match(
     callGraphBinding,
     /const loaded = disposition === "loaded" && candidate\.status === "unique"\s*\? resolveLoadedGraphTarget\(target, candidate\)\s*: null/);
@@ -781,7 +781,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /const platform = disposition === "platform";\s*return \{\s*platform,\s*onSelect:/);
   assert.match(
     callGraphBinding,
-    /if \(loaded\?\.group\) \{\s*navigateToMember\([\s\S]*\} else if \(loaded\) \{\s*openGraphSource\(loaded\.request, loaded\.title\);\s*\} else if \(platform\) \{\s*void navigateOrDrillPlatform\(target\);\s*\}/);
+    /if \(loaded\?\.group\) \{\s*navigateToMember\([\s\S]*\} else if \(loaded\) \{\s*observeAsync\(\s*openGraphSource\(loaded\.request, loaded\.title\),\s*"Loading graph source"\);\s*\} else if \(platform\) \{\s*observeAsync\(\s*navigateOrDrillPlatform\(target\),\s*"Opening a platform call-graph target"\);\s*\}/);
   assert.equal(appSource.match(/\bbindGraphBack\(/g)?.length, 1);
   assert.equal(appSource.match(/\bbindGraphPanZoom\(/g)?.length, 3);
   assert.equal(appSource.match(/\bbindTypeGraphNodes\(/g)?.length, 1);
@@ -930,16 +930,16 @@ test("typed type panel owns its rendered control bindings", () => {
     /onMemberBack: drillOut[\s\S]*onMemberOverloadOpen: openOverload/);
   assert.match(
     binding,
-    /onCopyName: async \(\) => \{[\s\S]*const fullName = member \? `\$\{typeName\}\.\$\{member\.name\}` : typeName;[\s\S]*copyText\(fullName, "name copied"\)/);
+    /onCopyName: \(\) => \{[\s\S]*const fullName = member \? `\$\{typeName\}\.\$\{member\.name\}` : typeName;[\s\S]*void copyText\(fullName, "name copied"\)/);
   assert.match(
     binding,
-    /onCopySignature: async \(\) => \{[\s\S]*copyText\(overload\.signature, "signature copied"\)/);
+    /onCopySignature: \(\) => \{[\s\S]*void copyText\(overload\.signature, "signature copied"\)/);
   assert.match(
     binding,
-    /onCopyAnchor: async anchor => \{[\s\S]*selector: overload\?\.stableSelector,[\s\S]*digest: overload\?\.anchorDigest,[\s\S]*canonical: overload\?\.canonicalSignature[\s\S]*copyText\(value, `\$\{anchor\} copied`\)/);
+    /onCopyAnchor: anchor => \{[\s\S]*selector: overload\?\.stableSelector,[\s\S]*digest: overload\?\.anchorDigest,[\s\S]*canonical: overload\?\.canonicalSignature[\s\S]*void copyText\(value, `\$\{anchor\} copied`\)/);
   assert.match(
     binding,
-    /onCopyMemberSource: async \(\) => \{[\s\S]*copyText\(state\.memberSource\.text, "source copied"\)[\s\S]*onCopyTypeSource: async \(\) => \{[\s\S]*copyText\(state\.typeSource\.text, "source copied"\)/);
+    /onCopyMemberSource: \(\) => \{[\s\S]*void copyText\(state\.memberSource\.text, "source copied"\)[\s\S]*onCopyTypeSource: \(\) => \{[\s\S]*void copyText\(state\.typeSource\.text, "source copied"\)/);
   assert.match(
     binding,
     /onMemberFilterClear: \(\) => \{[\s\S]*resetMemberFilters\(\);[\s\S]*renderMemberFilterAndRestoreFocus\("#clear-member-filter"\)/);
@@ -1410,7 +1410,7 @@ test("package opportunities owns its rendered control bindings", () => {
     ?? "";
   assert.match(
     binding,
-    /bindPackageOpportunities\(document, \{\s*onLookForSelect: openSpotlight,\s*onPackageSelect: packageId => openDependencyPackage\(packageId, ""\),\s*onTypeSelect: typeId => \{[\s\S]*currentPackage\(\)\.types\.find\(item => item\.id === typeId\);\s*if \(!target\) \{[\s\S]*openSpotlight\(shortTypeName\(typeId\)\);\s*return;\s*\}[\s\S]*state\.atPackageRoot = false;[\s\S]*navigateToTypeByName\(typeId\)/);
+    /bindPackageOpportunities\(document, \{\s*onLookForSelect: openSpotlight,\s*onPackageSelect: packageId =>\s*observeAsync\(\s*openDependencyPackage\(packageId, ""\),\s*"Opening an opportunity package"\),\s*onTypeSelect: typeId => \{[\s\S]*currentPackage\(\)\.types\.find\(item => item\.id === typeId\);\s*if \(!target\) \{[\s\S]*openSpotlight\(shortTypeName\(typeId\)\);\s*return;\s*\}[\s\S]*state\.atPackageRoot = false;[\s\S]*navigateToTypeByName\(typeId\)/);
   assert.match(
     bindEvents,
     /^\s*bindPackageOpportunitiesEvents\(\);\s*$/m);
@@ -1452,9 +1452,13 @@ test("modal viewers own their rendered close bindings", () => {
     /bindGraphSource\(document, \{\s*onClose: closeGraphSource,\s*\}\)/);
   assert.match(
     docBinding,
-    /bindDocViewer\(document, \{\s*onClose: closeDocViewer,\s*onOpenDocument: openPackageDocument,\s*\}\)/);
-  assert.equal(graphBinding.match(/\bdocument\b/g)?.length, 1);
-  assert.equal(docBinding.match(/\bdocument\b/g)?.length, 1);
+    /bindDocViewer\(document, \{\s*onClose: closeDocViewer,\s*onOpenDocument: path =>\s*observeAsync\(openPackageDocument\(path\), "Opening a package document"\),\s*\}\)/);
+  assert.equal(
+    graphBinding.match(/\bbindGraphSource\(document\b/g)?.length,
+    1);
+  assert.equal(
+    docBinding.match(/\bbindDocViewer\(document\b/g)?.length,
+    1);
   assert.match(
     graphSourceViewerSource,
     /export function bindGraphSource\([\s\S]*#graph-source-backdrop[\s\S]*event\.target === backdrop[\s\S]*#graph-source-close/);
@@ -1489,7 +1493,7 @@ test("annotated source owns its rendered control bindings", () => {
     ?? "";
   assert.match(
     binding,
-    /bindAnnotatedSource\(document, \{[\s\S]*onClearSelection: \(\) => \{[\s\S]*memberAnnotatedFactId = null;[\s\S]*memberAnnotatedNodeIds = \[\];[\s\S]*onCopy: async \(\) => \{[\s\S]*memberAnnotated\.document\.text[\s\S]*onFactSelect: factId => \{[\s\S]*memberAnnotatedFactId === factId \? null : factId[\s\S]*onMediumToggle: medium => \{[\s\S]*MEDIA\.includes[\s\S]*MEDIA\.some\(candidate => next\[candidate\]\)[\s\S]*onOffsetSelect: offset => \{[\s\S]*nodeAtOffset\(state\.memberAnnotated\.document, offset\)[\s\S]*factsForNode/);
+    /bindAnnotatedSource\(document, \{[\s\S]*onClearSelection: \(\) => \{[\s\S]*memberAnnotatedFactId = null;[\s\S]*memberAnnotatedNodeIds = \[\];[\s\S]*onCopy: \(\) => \{[\s\S]*void copyText\([\s\S]*memberAnnotated\.document\.text[\s\S]*onFactSelect: factId => \{[\s\S]*memberAnnotatedFactId === factId \? null : factId[\s\S]*onMediumToggle: medium => \{[\s\S]*isAnnotatedMedium\(medium\)[\s\S]*MEDIA\.some\(candidate => next\[candidate\]\)[\s\S]*onOffsetSelect: offset => \{[\s\S]*nodeAtOffset\(state\.memberAnnotated\.document, offset\)[\s\S]*factsForNode/);
   assert.match(
     binding,
     /\[typedMedium\]: !state\.memberAnnotatedMedia\[typedMedium\],[\s\S]*if \(!MEDIA\.some\(candidate => next\[candidate\]\)\) return;/);
@@ -3003,7 +3007,9 @@ test("workspace UI routes replacements and restore notices through bounded paths
   assert.match(
     packageBarSource,
     /onFrameworkSelect\(button\.dataset\.frameworkChip \?\? ""\)/);
-  assert.match(appSource, /selectFramework: switchPackageFramework/);
+  assert.match(
+    appSource,
+    /selectFramework: framework =>\s*observeAsync\(\s*switchPackageFramework\(framework\),\s*"Switching the package framework"\)/);
   assert.match(appSource, /switchPackageFramework\(argument\)/);
   assert.doesNotMatch(
     appSource,
@@ -3031,7 +3037,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /state\.error = "";\s+state\.errorTitle = "";\s+state\.errorDetail = "";\s+state\.retryAction = null;\s+state\.home = true;/);
   assert.match(
     appSource,
-    /\(\) => observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\)/);
+    /\(\) =>\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\)/);
   assert.match(
     appSource,
     /state\.retryAction = openRuntimePackFromHome/);

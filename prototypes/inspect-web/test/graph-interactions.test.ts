@@ -6,6 +6,7 @@ import {
   bindGraphPanZoom,
   bindTypeGraphNodes,
 } from "../src/graph-interactions.ts";
+import { fakeDom } from "./fake-dom.ts";
 
 class FakeClassList {
   private readonly values = new Set<string>();
@@ -51,11 +52,11 @@ class FakeElement {
 
   dispatch(type: string, values: Record<string, unknown> = {}) {
     let prevented = false;
-    const event = {
+    const event = fakeDom.event({
       target: this,
       preventDefault: () => prevented = true,
       ...values,
-    } as unknown as Event;
+    });
     for (const listener of this.listeners.get(type) ?? []) {
       listener(event);
     }
@@ -180,7 +181,7 @@ test("graph back binding dispatches only from the rendered control", () => {
   };
 
   bindGraphBack(
-    root as unknown as ParentNode,
+    fakeDom.parentNode(root),
     { onBack: () => calls += 1 });
 
   assert.equal(calls, 0);
@@ -195,7 +196,7 @@ test("type and dependency nodes decode stable Mermaid identities", () => {
   const typeCalls: string[] = [];
 
   bindTypeGraphNodes(
-    new FakeNodeRoot([type, unavailable, unknown]) as unknown as ParentNode,
+    fakeDom.parentNode(new FakeNodeRoot([type, unavailable, unknown])),
     nodeId => {
       if (nodeId === "t1") {
         return { onSelect: () => typeCalls.push(nodeId) };
@@ -220,7 +221,7 @@ test("type and dependency nodes decode stable Mermaid identities", () => {
   const self = new FakeElement({ dataId: "d0" });
   const dependencyCalls: string[] = [];
   bindDependencyGraphNodes(
-    new FakeNodeRoot([dependency, self]) as unknown as ParentNode,
+    fakeDom.parentNode(new FakeNodeRoot([dependency, self])),
     nodeId => nodeId === "d7"
       ? { onSelect: () => dependencyCalls.push(nodeId) }
       : null);
@@ -249,8 +250,8 @@ test("graph pan, zoom, keyboard, controls, and call-node clicks stay coordinated
   const calls: string[] = [];
 
   bindGraphPanZoom(
-    container as unknown as ParentNode,
-    viewport as unknown as HTMLElement,
+    fakeDom.parentNode(container),
+    fakeDom.htmlElement(viewport),
     {
       resolveCallGraphNode: nodeId => nodeId
         ? {
@@ -382,15 +383,15 @@ test("graph pan, zoom, keyboard, controls, and call-node clicks stay coordinated
 });
 
 test("graph bindings tolerate missing rendered surfaces", () => {
-  const root = new FakeNodeRoot([]) as unknown as ParentNode;
+  const root = fakeDom.parentNode(new FakeNodeRoot([]));
   assert.doesNotThrow(() => bindTypeGraphNodes(root, () => null));
   assert.doesNotThrow(() => bindDependencyGraphNodes(root, () => null));
   assert.doesNotThrow(() => bindGraphBack(
-    { querySelector: () => null } as unknown as ParentNode,
+    fakeDom.parentNode({ querySelector: () => null }),
     { onBack() {} }));
   assert.doesNotThrow(() => bindGraphPanZoom(
-    new FakeContainer([]) as unknown as ParentNode,
-    {
+    fakeDom.parentNode(new FakeContainer([])),
+    fakeDom.htmlElement({
       querySelector: () => null,
-    } as unknown as HTMLElement));
+    })));
 });

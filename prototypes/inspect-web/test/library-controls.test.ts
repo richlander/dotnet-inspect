@@ -5,6 +5,7 @@ import type {
   LibraryControlBindingActions,
   PlatformLibraryLens,
 } from "../src/library-controls.ts";
+import { fakeDom } from "./fake-dom.ts";
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
@@ -24,7 +25,7 @@ class FakeElement {
 
   dispatch(type: string) {
     for (const listener of this.listeners.get(type) ?? []) {
-      listener({ target: this } as unknown as Event);
+      listener(fakeDom.event({ target: this }));
     }
   }
 }
@@ -114,7 +115,7 @@ test("library controls decode every rendered selector without eager work", () =>
   const calls: string[] = [];
 
   bindLibraryControls(
-    root as unknown as ParentNode,
+    fakeDom.parentNode(root),
     recordingActions(calls));
 
   assert.deepEqual(calls, []);
@@ -152,6 +153,6 @@ test("library controls decode every rendered selector without eager work", () =>
 
 test("library control binding tolerates an inactive surface", () => {
   assert.doesNotThrow(() => bindLibraryControls(
-    new FakeRoot() as unknown as ParentNode,
+    fakeDom.parentNode(new FakeRoot()),
     recordingActions([])));
 });

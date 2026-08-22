@@ -104,15 +104,15 @@ test("settings bindings dispatch entry controls and contain taste clicks", () =>
   const workbench = root.add("#open-settings", new FakeElement());
   const taste = root.add("#taste-btn", new FakeElement());
   const propagation = { stopped: false };
-  const event = {
+  const event = fakeDom.event({
     stopPropagation: () => {
       propagation.stopped = true;
     },
-  } as unknown as Event;
+  });
   const calls: string[] = [];
 
   bindSettingsPanel(
-    root as unknown as ParentNode,
+    fakeDom.parentNode(root),
     recordingActions(calls));
 
   assert.deepEqual(calls, []);

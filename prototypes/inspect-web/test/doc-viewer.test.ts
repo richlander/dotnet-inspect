@@ -5,6 +5,7 @@ import {
   renderDocViewer,
   renderPackageDocuments,
 } from "../src/doc-viewer.ts";
+import { fakeDom } from "./fake-dom.ts";
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined> = {};
@@ -16,9 +17,9 @@ class FakeElement {
     this.listeners.set(type, listeners);
   }
 
-  dispatch(type: string, target: EventTarget = this as unknown as EventTarget) {
+  dispatch(type: string, target: EventTarget = fakeDom.eventTarget(this)) {
     for (const listener of this.listeners.get(type) ?? []) {
-      listener({ target } as unknown as Event);
+      listener(fakeDom.event({ target }));
     }
   }
 }
@@ -58,7 +59,7 @@ test("document viewer bindings open documents and close from its modal controls"
   const inner = new FakeElement();
   const calls: string[] = [];
   bindDocViewer(
-    root as unknown as ParentNode,
+    fakeDom.parentNode(root),
     {
       onClose: () => calls.push("close"),
       onOpenDocument: path => calls.push(`open:${path}`),
@@ -72,7 +73,7 @@ test("document viewer bindings open documents and close from its modal controls"
     "open:docs/CHANGELOG.md",
     "open:docs/README.md",
   ]);
-  backdrop.dispatch("mousedown", inner as unknown as EventTarget);
+  backdrop.dispatch("mousedown", fakeDom.eventTarget(inner));
   assert.deepEqual(calls, [
     "open:docs/CHANGELOG.md",
     "open:docs/README.md",

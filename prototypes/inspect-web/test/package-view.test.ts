@@ -8,6 +8,7 @@ import type {
   PackagePerformanceTarget,
   PackageViewBindingActions,
 } from "../src/package-view.ts";
+import { fakeDom } from "./fake-dom.ts";
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
@@ -25,7 +26,7 @@ class FakeElement {
   }
 
   dispatch(type: string) {
-    const event = { target: this } as unknown as Event;
+    const event = fakeDom.event({ target: this });
     if (type === "click") this.onclick?.(event);
     for (const listener of this.listeners.get(type) ?? []) {
       listener(event);
@@ -103,7 +104,7 @@ test("package view bindings decode navigation controls without eager work", () =
   const calls: string[] = [];
 
   bindPackageView(
-    root as unknown as ParentNode,
+    fakeDom.parentNode(root),
     recordingActions(calls));
 
   assert.deepEqual(calls, []);
@@ -159,10 +160,10 @@ test("dependency list binding reconnects only replacement list controls", () => 
   const calls: string[] = [];
 
   bindPackageDependencyList(
-    root as unknown as ParentNode,
+    fakeDom.parentNode(root),
     recordingActions(calls));
   bindPackageDependencyList(
-    root as unknown as ParentNode,
+    fakeDom.parentNode(root),
     recordingActions(calls));
 
   assert.deepEqual(calls, []);
@@ -178,6 +179,6 @@ test("dependency list binding reconnects only replacement list controls", () => 
 
 test("package view binding tolerates an inactive surface", () => {
   assert.doesNotThrow(() => bindPackageView(
-    new FakeRoot() as unknown as ParentNode,
+    fakeDom.parentNode(new FakeRoot()),
     recordingActions([])));
 });

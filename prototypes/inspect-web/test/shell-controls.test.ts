@@ -5,6 +5,7 @@ import {
   bindLoadErrorShell,
   bindWorkbenchShell,
 } from "../src/shell-controls.ts";
+import { fakeDom } from "./fake-dom.ts";
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
@@ -24,10 +25,10 @@ class FakeElement {
 
   dispatch(type: string) {
     let prevented = false;
-    const event = {
+    const event = fakeDom.event({
       target: this,
       preventDefault: () => prevented = true,
-    } as unknown as Event;
+    });
     for (const listener of this.listeners.get(type) ?? []) {
       listener(event);
     }
@@ -74,7 +75,7 @@ test("workbench shell binds every rendered control without eager work", () => {
   }
   const calls: string[] = [];
 
-  bindWorkbenchShell(root as unknown as ParentNode, {
+  bindWorkbenchShell(fakeDom.parentNode(root), {
     onDismissNotice: () => calls.push("dismiss-notice"),
     onDismissPackageNotice: () => calls.push("dismiss-package-notice"),
     onGoHome: () => calls.push("go-home"),
@@ -115,7 +116,7 @@ test("home shell accepts only known demos", () => {
   );
   const calls: string[] = [];
 
-  bindHomeShell(root as unknown as ParentNode, {
+  bindHomeShell(fakeDom.parentNode(root), {
     onDemo: demo => calls.push(`demo:${demo}`),
     onDismissNotice: () => calls.push("dismiss"),
     onToggleTheme: () => calls.push("theme"),
@@ -152,7 +153,7 @@ test("load error shell parses replacement packages and owns local detail state",
   root.add(".load-error-detail", detail);
   const calls: string[] = [];
 
-  bindLoadErrorShell(root as unknown as ParentNode, {
+  bindLoadErrorShell(fakeDom.parentNode(root), {
     onOpenPackage: (id, version) => calls.push(`open:${id}@${version}`),
     onRetry: () => calls.push("retry"),
   });
@@ -179,7 +180,7 @@ test("load error shell parses replacement packages and owns local detail state",
 });
 
 test("shell bindings tolerate inactive surfaces", () => {
-  const root = new FakeRoot() as unknown as ParentNode;
+  const root = fakeDom.parentNode(new FakeRoot());
   assert.doesNotThrow(() => bindWorkbenchShell(root, {
     onDismissNotice() {},
     onDismissPackageNotice() {},

@@ -205,7 +205,7 @@ test("type panel bindings dispatch member filters without eager work", () => {
   const calls: string[] = [];
 
   bindTypePanel(
-    root as unknown as ParentNode,
+    fakeDom.parentNode(root),
     recordingActions(calls));
 
   assert.deepEqual(calls, []);
@@ -352,7 +352,7 @@ test("type panel bindings dispatch member composition and detail controls", () =
   const calls: string[] = [];
 
   bindTypePanel(
-    root as unknown as ParentNode,
+    fakeDom.parentNode(root),
     recordingActions(calls));
 
   assert.deepEqual(calls, []);

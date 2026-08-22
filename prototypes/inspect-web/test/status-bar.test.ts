@@ -8,6 +8,7 @@ import {
   packageSourceLabel,
   statusBarHtml,
 } from "../src/status-bar.ts";
+import { fakeDom } from "./fake-dom.ts";
 
 class FakeElement {
   private readonly listeners = new Map<string, EventListener[]>();
@@ -20,7 +21,7 @@ class FakeElement {
 
   dispatch(type: string) {
     for (const listener of this.listeners.get(type) ?? []) {
-      listener({ target: this } as unknown as Event);
+      listener(fakeDom.event({ target: this }));
     }
   }
 }
@@ -51,7 +52,7 @@ test("status bar binding dispatches each rendered toggle without eager work", ()
   let toggles = 0;
 
   bindStatusBar(
-    new FakeRoot([workspace, home]) as unknown as ParentNode,
+    fakeDom.parentNode(new FakeRoot([workspace, home])),
     { onToggle: () => toggles += 1 });
 
   assert.equal(toggles, 0);

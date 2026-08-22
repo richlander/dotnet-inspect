@@ -9,6 +9,7 @@ import {
 import { validateAnnotatedSourceDocument } from "../src/annotated-source-view.ts";
 import type { AnnotatedSourceDocument } from "../src/annotated-source-view.ts";
 import { sampleDocument as sampleDocumentFixture } from "../../annotated-source-viewer/src/sample-document.js";
+import { fakeDom } from "./fake-dom.ts";
 
 validateAnnotatedSourceDocument(sampleDocumentFixture);
 const sampleDocument: AnnotatedSourceDocument = sampleDocumentFixture;
@@ -29,7 +30,7 @@ class FakeElement {
 
   dispatch(type: string) {
     for (const listener of this.listeners.get(type) ?? []) {
-      listener({} as Event);
+      listener(fakeDom.event());
     }
   }
 }
@@ -81,7 +82,7 @@ test("annotated source bindings dispatch every rendered control", () => {
   const clear = root.add("#annotated-clear", new FakeElement());
   const calls: string[] = [];
   bindAnnotatedSource(
-    root as unknown as ParentNode,
+    fakeDom.parentNode(root),
     recordingActions(calls));
 
   assert.deepEqual(calls, []);
@@ -113,7 +114,7 @@ test("annotated source bindings preserve malformed dataset values", () => {
   root.addAll("[data-annotated-offset]", offset);
   const calls: string[] = [];
   bindAnnotatedSource(
-    root as unknown as ParentNode,
+    fakeDom.parentNode(root),
     recordingActions(calls));
 
   assert.deepEqual(calls, []);

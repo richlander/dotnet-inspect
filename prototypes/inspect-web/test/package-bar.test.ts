@@ -11,6 +11,7 @@ import {
   platformTabHtml,
 } from "../src/package-bar.ts";
 import type { PackageBarPackage } from "../src/package-bar.ts";
+import { fakeDom } from "./fake-dom.ts";
 
 function escapeHtml(value: unknown) {
   return String(value)
@@ -46,7 +47,7 @@ class FakeElement {
 
   dispatch(type: string) {
     for (const listener of this.listeners.get(type) ?? []) {
-      listener({ target: this } as unknown as Event);
+      listener(fakeDom.event({ target: this }));
     }
   }
 }
@@ -88,7 +89,7 @@ test("package selection bindings map overview and header controls without eager 
   const calls: string[] = [];
 
   bindPackageSelections(
-    root as unknown as ParentNode,
+    fakeDom.parentNode(root),
     {
       onFrameworkSelect: value => calls.push(`framework:${value}`),
       onVersionSelect: value => calls.push(`version:${value}`),
@@ -121,7 +122,7 @@ test("package selection bindings map overview and header controls without eager 
 test("package selection binding tolerates an inactive surface with no controls", () => {
   const calls: string[] = [];
   bindPackageSelections(
-    new FakeRoot() as unknown as ParentNode,
+    fakeDom.parentNode(new FakeRoot()),
     {
       onFrameworkSelect: value => calls.push(`framework:${value}`),
       onVersionSelect: value => calls.push(`version:${value}`),
@@ -157,7 +158,7 @@ test("package bar connects package selection controls to its typed options", () 
     showToast: () => {},
   });
 
-  packageBar.bind(root as unknown as ParentNode);
+  packageBar.bind(fakeDom.parentNode(root));
 
   assert.deepEqual(calls, []);
   chip.dispatch("click");
