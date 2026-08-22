@@ -68,6 +68,7 @@ test("package view bindings decode navigation controls without eager work", () =
   const group = new FakeElement({ depGroup: "2" });
   const invalidGroups = [
     new FakeElement(),
+    new FakeElement({ depGroup: "02" }),
     new FakeElement({ depGroup: "1.5" }),
   ];
   const open = new FakeElement({ depOpen: "Example@1.0.0::net10.0" });
@@ -95,10 +96,20 @@ test("package view bindings decode navigation controls without eager work", () =
     perfAssembly: "Example.dll",
     perfType: "Example.Type",
   });
-  const invalidPerformance = new FakeElement({
+  const invalidPerformanceToken = new FakeElement({
+    perfToken: "0100663297",
+    perfAssembly: "Example.dll",
+    perfType: "Example.Type",
+  });
+  const invalidPerformanceAssembly = new FakeElement({
     perfToken: "0x06000002",
     perfAssembly: "",
     perfType: "Example.Type",
+  });
+  const invalidPerformanceType = new FakeElement({
+    perfToken: "0x06000003",
+    perfAssembly: "Example.dll",
+    perfType: "",
   });
   root.addAll("[data-dep-group]", group, ...invalidGroups);
   root.addAll("[data-dep-open]", open, secondOpen, emptyOpen);
@@ -107,7 +118,12 @@ test("package view bindings decode navigation controls without eager work", () =
   root.addAll("[data-namespace-jump]", namespace, defaultNamespace);
   root.addAll("[data-lib-scope]", library, defaultLibrary);
   root.addAll("[data-graph-type]", graphType, defaultGraphType);
-  root.addAll("[data-perf-token]", performance, invalidPerformance);
+  root.addAll(
+    "[data-perf-token]",
+    performance,
+    invalidPerformanceToken,
+    invalidPerformanceAssembly,
+    invalidPerformanceType);
   const calls: string[] = [];
 
   bindPackageView(
@@ -132,7 +148,9 @@ test("package view bindings decode navigation controls without eager work", () =
   graphType.dispatch("click");
   defaultGraphType.dispatch("click");
   performance.dispatch("click");
-  invalidPerformance.dispatch("click");
+  invalidPerformanceToken.dispatch("click");
+  invalidPerformanceAssembly.dispatch("click");
+  invalidPerformanceType.dispatch("click");
 
   assert.deepEqual(calls, [
     "dependency-group:2",
