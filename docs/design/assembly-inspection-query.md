@@ -430,6 +430,13 @@ accessible-parameterless-constructor and abstractness facts onto transient
 constructor shape: special and runtime-special names, a default managed signature with no
 explicit `this`, no generic parameters, `void` return, no parameters, and accessible
 visibility.
+
+The source-level override, constructor, property-accessibility, and harness-consumption
+decisions built from these facts are owned by
+[override-shell authentication](override-shell-authentication.md). This document owns the
+resolution and provenance inputs; the focused document owns the downstream authentication
+decisions and their enforcement map.
+
 Missing or ambiguous base bindings produce no evidence, so the harness cannot substitute a
 same-named type from another assembly. The compile-back reference resolver matches the
 case-insensitive assembly name plus culture and public-key token exactly (normalizing only neutral
@@ -447,61 +454,10 @@ reuse-slot methods and properties as override stubs with metadata accessibility,
 abstract slots remain implemented and target bodies may still construct their own declaring type.
 Recompiled targets are found by canonical member signature rather than their original same-name
 ordinal, so scaffold changes cannot shift a target onto a sibling overload.
-Closure constructor surfaces retain each metadata overload. A synthetic parameterless constructor
-is added only when no parameterless instance-constructor signature already occupies the C# member
-set. A private or internal metadata constructor omitted from that emitted shell does not occupy
-its member set and therefore does not suppress synthesis; a non-public constructor that is emitted
-still prevents a duplicate signature. Nested types emitted inside the same enclosing requirement
-are checked before that requirement is excluded from direct self-derivation, so a nested type that
-derives from its enclosing type still receives the parameterless base support its implicit
-`base()` needs. Private base constructors are eligible for an explicit initializer only when the
-derived type's exact metadata identity is transitively nested within the constructor's declaring
-type; unrelated types and the reverse nesting direction remain inaccessible. A Full-body
-constructor retains an explicit `base(...)` initializer only when the printed shell retains a base
-list; record and other flattened shells drop the now-unbindable initializer rather than targeting
-the compiler-implied base. That explicit-base-constructor preservation authenticates the full CLI
-constructor shape before trusting a metadata row named `.ctor`.
-Same-assembly override closure also authenticates Roslyn's covariant-return encoding: a virtual
-`NewSlot` method or property/indexer accessor is still a source `override` when an unambiguous
-`MethodImpl` maps its body to a source-declarable virtual method on its base-class chain with
-compatible declaration shape. Parameters and equal returns correspond through complete scoped
-`TypeNode` structural identities, including namespace and nesting boundaries, exact non-platform
-assembly or module scope, typed trusted-platform normalization, by-reference shape, custom
-modifiers, and function-pointer headers; rendered spelling never authenticates them. Locally
-resolved return types must prove covariance; when simple reference-type returns are external
-`TypeRef`s, the authenticated slot is preserved and the C# compiler validates the referenced
-hierarchy during compile-back rather than silently severing the slot. Local arrays and constructed
-generic returns are compared structurally, including array element covariance, complete
-multi-dimensional `ArrayShape`, modifier/pinned wrappers, and the declared variance of the exact
-local generic definition. That lookup retains namespace, the root-to-leaf nested segment chain,
-scope, and trusted per-segment introduced arity; an external definition is never replaced by a
-same-spelled local type. Exact current-image definition lookup recurses through wrapper and
-container children, so an unavailable or ambiguous current-image definition still fails closed when
-hidden under modifiers, pinning, arrays, or generic arguments. Unavailable external variance
-remains unknown and preserves the authenticated slot for compiler validation, while unavailable or
-ambiguous exact current-image definition lookup fails closed. A generic return parameter accepts
-exact identity, conversion to `object` proved by its reference-type constraint, or a conversion
-established by a typed explicit base/interface constraint reachable in the local metadata. For
-array covariance, an explicit class constraint can prove a generic element is a reference type
-only when metadata authenticates that constraint as a class; interface constraints do not prove
-reference-ness because value types can implement interfaces. Constructed constraints require full
-typed identity or compatibility proved from the exact local generic definition's declared
-variance; definition-only equality never erases constructed arguments. When that constructed
-constraint path stays external, the authenticated slot remains available for compiler validation
-rather than collapsing unknown variance to incompatibility. The reference-type flag alone never
-authorizes conversion to an arbitrary reference type, and absence of that flag is not inferred to
-mean reference type. Full member-surface closure queues
-authenticated `NewSlot` class-MethodImpl members even when they are not the selected target, so an
-unrelated target cannot sever their rebuilt slots. Members discovered during that surface pass
-retain `override` when their authenticated slot declaration is present in the emitted surface.
-Target and synthesized slot declarations are deduplicated first by their shared metadata or
-accessor token, with declaration-shape comparison only as a fallback. Property accessibility
-inheritance follows authenticated single-accessor override chains with a bounded, cycle-detecting
-traversal so malformed self- or mutual-base metadata fails closed instead of recursing until
-process abort.
-Interface, unrelated-class, external, malformed, and ambiguous `MethodImpl` declarations do not
-materialize a class override slot. The reconstructed source must compile back to the same
-`NewSlot` plus class-`MethodImpl` relationship, not merely reproduce the target body.
+Constructor retention and synthesis, same-assembly covariant override closure, generic
+conversion evidence, full member-surface preservation, property accessibility, and malformed
+relationship traversal follow
+[override-shell authentication](override-shell-authentication.md).
 Unselected `System.Exception` support types additionally require the referenced assembly to bind
 through the platform scope before retaining their base clause. Manifest-less modules begin from
 the base `TypeRef`'s platform reference, then use the Metadata resolution catalog to follow
@@ -582,69 +538,9 @@ matching and trusted-platform upgrade-only unification,
 `SkeletonKeepsConcreteTypeForAbstractBaseWithoutAbstractMembers` gate concrete abstract-base
 scaffolding, `SkeletonFindsTargetByCanonicalSignatureAfterOverrideScaffolding` gates target
 identity after scaffold changes,
-`SameAssemblyOverrideSlot_UsesCompilerProducedCovariantMethodImpl` and
-`PropertyDeclaration_UsesCompilerProducedCovariantMethodImpl` and
-`SameAssemblyOverrideSlot_DeclinesInterfaceMethodImpl` gate covariant class-`MethodImpl`
-authentication, `SameAssemblyOverrideSlot_DeclinesUnauthenticatedClassMethodImpl` gates unrelated
-and ambiguous class declarations, and
-`CompileBackTargets_PreservesCompilerProducedCovariantMethodImpl`,
-`CompileBackTargets_PreservesExternalCovariantMethodImpl`,
-`CompileBackTargets_PreservesCovariantPropertyMethodImpl`, and
-`CompileBackTargets_PreservesCovariantIndexerMethodImpl`, and
-`CompileBackTargets_AllFullPreservesUnrelatedCovariantMethodImpl` gate rebuilt metadata
-relationships. `SameAssemblyOverrideSlot_DeclinesIncompatibleStructuredReturn` gates local
-structured-return rejection.
-`CompileBackTargets_AllFullDoesNotDuplicatePrivateParameterlessConstructor` and
-`CompileBackTargets_SelectedSynthesizesConstructorWhenMetadataSignatureIsOmitted` gate constructor
-overload retention and emitted-signature-safe synthesis.
-`CompileBackTargets_SelectedSynthesizesConstructorForOwnNestedDerivedType` gates the enclosing
-requirement's nested-derived scan, and
-`CompileBackTargets_PreservesPrivateEnclosingBaseConstructorForNestedDerived` and
-`CompileBackTargets_DropsUnrelatedPrivateBaseConstructorInitializer` gate private constructor
-accessibility in Selected and All/Full reconstruction, while
-`CompileBackTargets_RecordShellDropsExplicitBaseInitializerWithDroppedBaseList`,
-`FindAccessibleInstanceConstructor_ReturnsValidConstructor`, and
-`FindAccessibleInstanceConstructor_RejectsMalformedConstructorShapes` gate Full-body initializer
-removal when the emitted shell has no base list and the planner's constructor-shape
-authentication.
-`SameAssemblyOverrideSlot_AllowsReferenceConstrainedGenericCovariantMethodImpl` and
-`CompileBackTargets_AllFullPreservesReferenceConstrainedGenericCovariantMethodImpl` gate
-reference-constrained generic covariance to `object`;
-`SameAssemblyOverrideSlot_DeclinesReferenceConstrainedGenericToArbitraryClass`,
-`SameAssemblyOverrideSlot_AllowsExplicitGenericBaseConstraint`, and
-`SameAssemblyOverrideSlot_DeclinesExplicitConstraintThatDoesNotReachReturn`,
-`SameAssemblyOverrideSlot_AllowsExplicitClassConstrainedGenericArrayCovariance`,
-`SameAssemblyOverrideSlot_DeclinesInterfaceConstrainedGenericArrayCovariance`, and
-`SameAssemblyOverrideSlot_DeclinesArrayCovarianceWhenExplicitConstraintDoesNotReachReturn` gate
-the exact generic-parameter conversion boundary. Constructed constraints preserve their arguments
-and use the exact generic definition's variance, gated by
-`SameAssemblyOverrideSlot_AllowsCovariantConstructedConstraint` and
-`SameAssemblyOverrideSlot_DeclinesInvariantConstructedConstraint`,
-`SameAssemblyOverrideSlot_AllowsCompilerProducedExternalConstructedConstraintVariance`, and
-`SameAssemblyOverrideSlot_DeclinesExternalConstructedConstraintForNonGenericCandidate`, while
-`SameAssemblyOverrideSlot_DeclinesIncompatibleCovariantReturn` remains its value-return negative.
-`SameAssemblyOverrideSlot_AuthenticatesCompilerProducedScopedParameterIdentity`,
-`SameAssemblyOverrideSlot_DeclinesSameFqnReturnFromDifferentAssemblies`, and
-`SameAssemblyOverrideSlot_DeclinesNestedVsNamespaceParameter` gate scoped structural signature
-authentication.
-`SameAssemblyOverrideSlot_AllowsCompilerProducedNestedGenericVariance`,
-`SameAssemblyOverrideSlot_UsesExactNestedGenericVarianceDefinition`, and
-`SameAssemblyOverrideSlot_DeclinesAmbiguousExactLocalGenericDefinition`,
-`SameAssemblyOverrideSlot_DeclinesArrayWrappedAmbiguousExactLocalGenericDefinition`,
-`SameAssemblyOverrideSlot_AllowsModifierWrappedExactLocalGenericCovariance`,
-`SameAssemblyOverrideSlot_DeclinesModifierWrappedAmbiguousExactLocalGenericDefinition`,
-`SameAssemblyOverrideSlot_DeclinesPinnedWrappedAmbiguousExactLocalGenericDefinition`,
-`SameAssemblyOverrideSlot_AllowsMultiDimensionalArrayCovarianceWhenShapeMatches`,
-`SameAssemblyOverrideSlot_DeclinesDifferentMultiDimensionalArrayShape`,
-`SameAssemblyOverrideSlot_AllowsCompilerProducedExternalGenericCovariance`,
-`SameAssemblyOverrideSlot_DoesNotUseLocalVarianceForExternalGeneric`, and
-`CompileBackTargets_PreservesExternalGenericCovariantMethodImpl` gate exact local variance
-definition selection, external unknown preservation, and local-shadow isolation.
-`PropertyDeclaration_DerivesPropertyAccessibilityAcrossAcyclicSetterOnlyOverrideChain`,
-`PropertyDeclaration_SelfBasePropertyCycleFailsClosed`, and
-`PropertyDeclaration_TwoTypePropertyCycleFailsClosed` gate property-access override traversal.
-`CompileBackTargets_AllFullDoesNotDuplicateTargetedOverrideSlot` gates metadata-token slot
-deduplication. `SkeletonEmitsExplicitInterfaceTargets` gates
+and the focused constructor, override, covariance, property-traversal, and compile-back gates are
+indexed by [override-shell authentication](override-shell-authentication.md).
+`SkeletonEmitsExplicitInterfaceTargets` gates
 selected explicit methods and
 accessors,
 `SkeletonExplicitInterfaceWholeMemberHonorsRequestedView` gates whole-member production rendering

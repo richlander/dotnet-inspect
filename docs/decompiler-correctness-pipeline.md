@@ -57,6 +57,12 @@ planning state. This keeps assembly identity, modifiers, primary-constructor
 shape, closure membership, references, and every non-target source byte fixed
 between the experiment and its control.
 
+The metadata proof required before that shell may retain overrides, base
+constructors, or inherited property accessibility is owned by
+[override-shell authentication](design/override-shell-authentication.md). The
+harness consumes those product-owned decisions and does not reconstruct them
+from source or display text.
+
 ReturnToSender's earlier source-corpus lookup is a different, non-authoritative
 operation. It may use `CSharpText.MemberSignatureShape` to discriminate
 same-named candidates, but correspondence remains typed as unique, ambiguous,
