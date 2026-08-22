@@ -6,7 +6,7 @@ namespace InspectWeb.Engine.Tests;
 public class BrowserStaticWebAppConfigTests
 {
     [Fact]
-    public void RootDocumentsAreNotCachedAndConfigIsPublished()
+    public void EntryDocumentsAreNotCachedAndConfigIsPublished()
     {
         string repository = RepositoryRoot();
         string configPath = Path.Combine(
@@ -21,9 +21,11 @@ public class BrowserStaticWebAppConfigTests
             .. config.RootElement.GetProperty("routes").EnumerateArray(),
         ];
 
-        Assert.Equal(2, routes.Length);
+        Assert.Equal(4, routes.Length);
         AssertRoute(routes[0], "/");
         AssertRoute(routes[1], "/index.html");
+        AssertRoute(routes[2], "/credits", "/index.html");
+        AssertRoute(routes[3], "/credits/", "/index.html");
         Assert.Equal(
             "dotnet-isolated:8.0",
             config.RootElement
@@ -51,9 +53,22 @@ public class BrowserStaticWebAppConfigTests
             (string?)content.Attribute("CopyToPublishDirectory"));
     }
 
-    private static void AssertRoute(JsonElement route, string expectedPath)
+    private static void AssertRoute(
+        JsonElement route,
+        string expectedPath,
+        string? expectedRewrite = null)
     {
         Assert.Equal(expectedPath, route.GetProperty("route").GetString());
+        if (expectedRewrite is null)
+        {
+            Assert.False(route.TryGetProperty("rewrite", out _));
+        }
+        else
+        {
+            Assert.Equal(
+                expectedRewrite,
+                route.GetProperty("rewrite").GetString());
+        }
         Assert.Equal(
             "no-cache, no-store, must-revalidate",
             route
