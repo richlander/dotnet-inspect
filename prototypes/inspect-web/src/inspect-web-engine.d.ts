@@ -4,6 +4,9 @@
 //   eng/generate-inspect-web-engine-dts.sh
 // CI fails if the committed file drifts from this output.
 
+declare const inertStringBrand: unique symbol;
+export type InertString = string & { readonly [inertStringBrand]: true };
+
 export type BrowserDependencyCoordinateMatchOutcome = "NoMatch" | "Unique" | "Ambiguous";
 
 export type BrowserDependencyCoordinateProvenance = "NuGetPackage" | "PlatformRuntime";
@@ -271,7 +274,7 @@ export interface BrowserParameterSurface {
 
 export interface BrowserSource {
   provider: string;
-  provenance: string;
+  provenance: InertString;
   url: string | null;
   pdbSourceLimitation: string | null;
   text: string;

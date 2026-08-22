@@ -9,6 +9,8 @@ import { pdbSourceLimitationHtml } from "./data.ts";
 // factEvidence, relatedTypeChip) stay in `dotnet-inspect.ts`, since they are used well beyond the
 // type panel, and are passed in rather than duplicated here.
 
+import type { BrowserSource } from "./inspect-web-engine.d.ts";
+
 export interface TypeSummary {
   id: string;
   name: string;
@@ -70,13 +72,7 @@ export interface TypeMetadata {
   inspectionFailures?: readonly string[];
 }
 
-export interface TypeSourceResult {
-  provider: string;
-  provenance: string;
-  url?: string | null;
-  pdbSourceLimitation?: string | null;
-  text: string;
-}
+export type TypeSourceResult = BrowserSource;
 
 type EscapeHtml = (value: unknown) => string;
 

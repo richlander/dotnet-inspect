@@ -5,6 +5,7 @@ import {
   renderGraphSource,
 } from "../src/graph-source.ts";
 import { fakeDom } from "./fake-dom.ts";
+import { inertStringFixture } from "./inert-string-fixture.ts";
 
 class FakeElement {
   private readonly listeners = new Map<string, EventListener[]>();
@@ -72,7 +73,7 @@ test("loading state shows a status scoped to the title, not stale source or erro
     loading: true,
     source: {
       provider: "pdb",
-      provenance: "unused while loading",
+      provenance: inertStringFixture("unused while loading"),
       url: "",
       pdbSourceLimitation: null,
       text: "unused",
@@ -92,7 +93,7 @@ test("loaded PDB source renders provenance, an open-source link, and highlighted
     loading: false,
     source: {
       provider: "pdb",
-      provenance: "github.com/example/widget",
+      provenance: inertStringFixture("github.com/example/widget"),
       url: "https://github.com/example/widget/blob/main/Widget.cs",
       pdbSourceLimitation: null,
       text: "void Render() {}",
@@ -114,7 +115,7 @@ test("loaded decompiled source labels the provenance as decompiled and omits the
     loading: false,
     source: {
       provider: "decompiled",
-      provenance: "decompiled from IL",
+      provenance: inertStringFixture("decompiled from IL"),
       url: null,
       pdbSourceLimitation: "<checksum mismatch>",
       text: "void Render() {}",
@@ -156,16 +157,17 @@ test("error state with an explicit message renders that message escaped", () => 
 });
 
 test("provenance and url are escaped", () => {
+  const unbrandedSource = {
+    provider: "original",
+    provenance: '<b>"evil"</b>',
+    url: 'https://example.com/"><script>alert(1)</script>',
+    text: "void Render() {}",
+  };
   const html = renderGraphSource({
     title: "Widget.Render()",
     loading: false,
-    source: {
-      provider: "pdb",
-      provenance: '<b>"evil"</b>',
-      url: 'https://example.com/"><script>alert(1)</script>',
-      pdbSourceLimitation: null,
-      text: "void Render() {}",
-    },
+    // @ts-expect-error Plain strings cannot cross the branded provenance boundary.
+    source: unbrandedSource,
     error: "",
     escapeHtml,
     highlightCSharp,

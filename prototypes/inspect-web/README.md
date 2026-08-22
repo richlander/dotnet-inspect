@@ -308,6 +308,12 @@ outcomes become visible failures; only an `Available` result crosses the
 bridge. Decompiled results disclose why the PDB-source attempt was unavailable.
 `BrowserEngineBoundaryTests.DecompiledSources_CarryPdbAttemptLimitation` gates
 that adapter wiring.
+`BrowserSource.provenance` crosses that bridge as `InertString`: the engine
+applies `TextPolicy.Field`, generated TypeScript retains the opaque brand, and
+the renderer still applies `escapeHtml` because inert text is not HTML-safe.
+`BrowserSource_ProvenanceSerializesAsAnEncodedString` gates the scalar JSON
+contract, while the TypeScript `provenance and url are escaped` case both
+rejects a plain string at compile time and gates sink-specific escaping.
 Reference-only type source is refused rather than presented as a body-free
 decompilation. Printer options apply to decompiled fallback and never rewrite
 PDB source. Whole-member source remains MethodDef-scoped: a
@@ -837,8 +843,9 @@ bindings.
 `test/graph-source.test.ts` gates the loading state, the
 original-versus-decompiled provenance labels, the open-source link's presence
 only when a `url` is provided, the error state's fallback message, and title
-escaping in both the header and loading status, plus button/backdrop close
-dispatch.
+escaping in both the header and loading status. It also gates branded
+provenance at the component boundary while preserving HTML escaping, plus
+button/backdrop close dispatch.
 
 `src/annotated-source.ts` owns the annotated source result (the
 fact-annotated C#/IL dual view shown for a member overload), including its

@@ -15,6 +15,7 @@ using ILInspector.CallGraph;
 using ILInspector.Decompiler;
 using ILInspector.Findings;
 using ILInspector.Metadata;
+using InertText;
 using NuGetFetch;
 
 namespace InspectWeb.Engine.Tests;
@@ -23,6 +24,24 @@ namespace InspectWeb.Engine.Tests;
 public sealed class BrowserEngineBoundaryTests
 {
     const int MiB = 1024 * 1024;
+
+    [Fact]
+    public void BrowserSource_ProvenanceSerializesAsAnEncodedString()
+    {
+        var source = new BrowserSource(
+            "original",
+            new InertString(TextPolicy.Field, "repo\u202Egpj"),
+            null,
+            "text");
+
+        string json = JsonSerializer.Serialize(
+            source,
+            BrowserJsonContext.Default.BrowserSource);
+
+        Assert.Equal(
+            """{"provider":"original","provenance":"repo\\u202Egpj","url":null,"text":"text"}""",
+            json);
+    }
 
     [Fact]
     public void MemberProjection_CarriesFilterFactsWithoutSignatureParsing()

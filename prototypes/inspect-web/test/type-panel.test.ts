@@ -16,6 +16,7 @@ import type {
   TypeSummary,
 } from "../src/type-panel.ts";
 import { fakeDom } from "./fake-dom.ts";
+import { inertStringFixture } from "./inert-string-fixture.ts";
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
@@ -706,7 +707,13 @@ test("type PDB source renders the provenance and copy action once loaded", () =>
     sourceState: {
       typeSourceKey: "sig",
       typeSourceLoading: false,
-      typeSource: { provider: "pdb", provenance: "SourceLink", url: "https://example.test", text: "class JsonSerializer {}" },
+      typeSource: {
+        provider: "pdb",
+        provenance: inertStringFixture("SourceLink"),
+        url: "https://example.test",
+        pdbSourceLimitation: null,
+        text: "class JsonSerializer {}",
+      },
       typeSourceError: null,
     },
     escapeHtml,

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using InertText;
 
 namespace InspectWeb.Engine;
 
@@ -325,7 +326,7 @@ public sealed record BrowserAnnotatedSource(
 
 public sealed record BrowserSource(
     string Provider,
-    string Provenance,
+    InertString Provenance,
     string? Url,
     string? PdbSourceLimitation,
     string Text);
