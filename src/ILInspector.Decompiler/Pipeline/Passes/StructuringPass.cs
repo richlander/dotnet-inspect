@@ -441,8 +441,6 @@ public sealed class StructuringPass : IIrPass
             return;
         }
 
-        context.StructuringDiagnostics?.RecordStructured();
-
         context.Stepper.StepOver(
             $"structure container at IL_{blocks[0].StartOffset:X4} ({blocks.Count} blocks) into nested if/diamond regions",
             container);
@@ -450,6 +448,7 @@ public sealed class StructuringPass : IIrPass
         var replacement = new BlockContainer();
         replacement.Add(structured);
         container.ReplaceWith(replacement);
+        context.StructuringDiagnostics?.RecordStructured();
     }
 
     static bool TryStructureRetainedRegions(BlockContainer container, Ctx sourceCtx, PassContext context)
