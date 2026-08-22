@@ -861,11 +861,31 @@ public class CommandErrorOwnershipTests
                         StringComparison.OrdinalIgnoreCase))?.Value
                     is { Length: > 0 } include)
             {
-                references.Add(include);
+                AddPackageReferenceIncludes(references, include, source);
             }
         }
 
         return references;
+    }
+
+    private static void AddPackageReferenceIncludes(
+        HashSet<string> references,
+        string include,
+        string source)
+    {
+        if (include.Contains("$(", StringComparison.Ordinal)
+            || include.Contains("@(", StringComparison.Ordinal)
+            || include.Contains("%(", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Could not determine the PackageReference closure declared by {source}: "
+                    + $"the preprocessed Include '{include}' retains an unevaluated MSBuild expression.");
+        }
+
+        references.UnionWith(
+            include.Split(
+                ';',
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
     }
 
     internal static HashSet<string> PackageDependenciesFromAssets(JsonElement assets)

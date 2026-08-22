@@ -84,7 +84,7 @@ public sealed class LayeringTests
                     new XAttribute("Condition", "'$(Configuration)' == 'Debug'"),
                     new XElement(
                         "PackageReference",
-                        new XAttribute("Include", "NuGet.Versioning"))),
+                        new XAttribute("Include", "Build.Helper;NuGet.Versioning"))),
                 new XComment(
                     $"{Environment.NewLine}===={Environment.NewLine}"
                         + $"{Path.Combine(Path.GetTempPath(), "Sdk.targets")}"
@@ -106,7 +106,7 @@ public sealed class LayeringTests
             """);
 
         Assert.Equal(
-            ["NuGet.Versioning"],
+            ["Build.Helper", "NuGet.Versioning"],
             CommandErrorOwnershipTests.PackageReferencesFromPreprocessedProject(
                 Path.Combine(root, "fixture.csproj"),
                 root,
@@ -116,6 +116,38 @@ public sealed class LayeringTests
             ["Local.Transitive.Wrapper", "NuGet.Protocol"],
             CommandErrorOwnershipTests.PackageDependenciesFromAssets(assets.RootElement)
                 .Order(StringComparer.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("$(PackageImpl)")]
+    [InlineData("@(PackageImpls)")]
+    [InlineData("%(PackageImpl.Identity)")]
+    public void PreprocessedPackageReader_RejectsUnevaluatedItemExpressions(
+        string include)
+    {
+        string root = CommandErrorOwnershipTests.RepositoryRoot();
+        string targets = Path.Combine(root, "Directory.Build.targets");
+        XDocument preprocessed = new(
+            new XElement(
+                "Project",
+                new XComment(
+                    $"{Environment.NewLine}===={Environment.NewLine}"
+                        + $"{targets}"
+                        + $"{Environment.NewLine}===={Environment.NewLine}"),
+                new XElement(
+                    "ItemGroup",
+                    new XElement(
+                        "PackageReference",
+                        new XAttribute("Include", include)))));
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(
+            () => CommandErrorOwnershipTests.PackageReferencesFromPreprocessedProject(
+                Path.Combine(root, "fixture.csproj"),
+                root,
+                preprocessed));
+
+        Assert.Contains(targets, exception.Message);
+        Assert.Contains(include, exception.Message);
     }
 
     [Fact]
