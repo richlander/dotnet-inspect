@@ -161,6 +161,7 @@ test("provenance and url are escaped", () => {
     provider: "original",
     provenance: '<b>"evil"</b>',
     url: 'https://example.com/"><script>alert(1)</script>',
+    pdbSourceLimitation: null,
     text: "void Render() {}",
   };
   const html = renderGraphSource({
