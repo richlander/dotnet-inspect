@@ -21,6 +21,10 @@
   control or bidi text, package-source declarations, cleared restore sources,
   concerning SourceLink text, and literal parent-path references while keeping
   artifact text visually encoded in terminal output (#4408).
+- Package signature inspection now verifies signed archive content against its
+  embedded hash and validates NuGet signer, repository, certificate, and
+  accepted timestamp profiles before reporting valid provenance. Malformed
+  signature entries and invalid profiles fail closed (#4408).
 
 ### Performance analysis
 
