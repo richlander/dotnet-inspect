@@ -107,6 +107,23 @@ function runtimeSurface(
   });
 }
 
+function runtimeSurfaceWithInvalidAssemblyIds(
+  mode: "missing" | "empty",
+): BrowserPackageSurface {
+  const result =
+    runtimeSurface("json", "System.Text.Json", "System.Text.Json.JsonDocument");
+  const selected = result.assemblies?.[0];
+  assert.ok(selected);
+  if (mode === "missing") {
+    Reflect.deleteProperty(result, "defaultAssemblyId");
+    Reflect.deleteProperty(selected, "id");
+  } else {
+    result.defaultAssemblyId = "";
+    selected.id = "";
+  }
+  return result;
+}
+
 function acquisitionDependencies(
   overrides: Partial<PackageAcquisitionDependencies> = {},
 ): PackageAcquisitionDependencies {
@@ -190,6 +207,16 @@ test("runtime assembly acquisition reports a missing selected descriptor", async
   ]);
 });
 
+test("runtime models reject missing and empty selected assembly IDs", () => {
+  for (const mode of ["missing", "empty"] as const) {
+    assert.throws(
+      () => createRuntimePackageModel(
+        runtimeSurfaceWithInvalidAssemblyIds(mode)),
+      /platform query did not return its selected assembly descriptor/,
+      mode);
+  }
+});
+
 test("resident runtime assembly acquisition reports a missing selected descriptor before merging", async () => {
   const resident = createRuntimePackageModel(
     runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"));
@@ -241,6 +268,46 @@ test("resident runtime assembly acquisition reports a missing selected descripto
     residentAccessibility);
   assert.equal(resident.totalMembers, residentTotalMembers);
   assert.equal(resident.totalTypes, residentTotalTypes);
+});
+
+test("resident runtime assembly acquisition rejects missing and empty IDs before merging", async () => {
+  for (const mode of ["missing", "empty"] as const) {
+    const resident = createRuntimePackageModel(
+      runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"));
+    const residentAssemblyNames =
+      resident.assemblies.map(candidate => candidate.name);
+    const residentTypeIds = resident.types.map(candidate => candidate.id);
+    const failures: string[] = [];
+    const acquisition = createPackageAcquisition(acquisitionDependencies({
+      loadRuntimePackAssembly: async () =>
+        JSON.stringify(runtimeSurfaceWithInvalidAssemblyIds(mode)),
+      runtimePackage: () => resident,
+      failRuntimeLoad: error =>
+        failures.push(error instanceof Error ? error.message : String(error)),
+    }));
+
+    const result = await acquisition.loadRuntimePackAssembly(
+      "net10.0",
+      "System.Text.Json",
+      "netcore.app");
+
+    assert.equal(result.packageModel, null, mode);
+    assert.match(
+      result.error instanceof Error ? result.error.message : "",
+      /platform assembly query did not return its selected assembly descriptor/,
+      mode);
+    assert.deepEqual(failures, [
+      "The platform assembly query did not return its selected assembly descriptor.",
+    ], mode);
+    assert.deepEqual(
+      resident.assemblies.map(candidate => candidate.name),
+      residentAssemblyNames,
+      mode);
+    assert.deepEqual(
+      resident.types.map(candidate => candidate.id),
+      residentTypeIds,
+      mode);
+  }
 });
 
 test("package acquisition publishes only current results", async () => {

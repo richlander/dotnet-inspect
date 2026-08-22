@@ -41,8 +41,13 @@ function defaultAssembly(
   result: BrowserPackageSurface,
   failureMessage: string,
 ): BrowserAssemblySurface {
+  const defaultAssemblyId = result.defaultAssemblyId;
+  if (typeof defaultAssemblyId !== "string"
+    || defaultAssemblyId.trim().length === 0) {
+    throw new Error(failureMessage);
+  }
   const assembly = (result.assemblies ?? [])
-    .find(candidate => candidate.id === result.defaultAssemblyId);
+    .find(candidate => candidate.id === defaultAssemblyId);
   if (!assembly) throw new Error(failureMessage);
   return assembly;
 }
