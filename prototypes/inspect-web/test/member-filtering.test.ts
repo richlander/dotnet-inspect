@@ -249,7 +249,7 @@ test("library scope round-trips only within the restored package", () => {
       "System.Console",
       "System.Private.CoreLib",
       "System.Runtime",
-    ])],
+    ])!],
     captured);
   assert.equal(
     restoreLibraryScope(["System.Private.CoreLib"], ["Newtonsoft.Json"]),

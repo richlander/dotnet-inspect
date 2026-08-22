@@ -7,13 +7,54 @@ import {
   nextSpotlightSelection,
   visibleSpotlightPackageHits,
 } from "../src/spotlight.ts";
+import type { SpotlightResult, SpotlightState } from "../src/spotlight.ts";
+import type { CommandContext } from "../src/command-bar.ts";
 
-function escapeHtml(value) {
+function escapeHtml(value: unknown) {
   return String(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+interface HarnessOptions {
+  scope?: string;
+  query?: string;
+  commandContext?: CommandContext | null;
+  focusAfterDismiss?: () => void;
+  searchResults?: () => SpotlightResult[];
+}
+
+// The library owns the real DOM event/element contract; this harness models only the
+// mutable pieces spotlight.ts reads, and callers cast to the real DOM types at the one
+// boundary where the library calls through.
+interface MockKeyboardEvent {
+  key: string;
+  currentTarget: unknown;
+  shiftKey?: boolean;
+  preventDefault(): void;
+}
+
+interface MockInputElement {
+  value: string;
+  selectionStart: number;
+  selectionEnd: number;
+  addEventListener(name: string, listener: (event: MockKeyboardEvent) => void): void;
+  focus(): void;
+  setAttribute(): void;
+  setSelectionRange(): void;
+}
+
+interface MockElement {
+  classList?: { toggle(className: string, force?: boolean): void };
+  scrollIntoView?(): void;
+  setAttribute?(): void;
+}
+
+interface MockParentNode {
+  querySelector(selector: string): MockInputElement | MockElement | null;
+  querySelectorAll(selector: string): MockElement[];
 }
 
 function createHarness({
@@ -22,8 +63,8 @@ function createHarness({
   commandContext = null,
   focusAfterDismiss = () => {},
   searchResults = () => [],
-} = {}) {
-  const state = {
+}: HarnessOptions = {}) {
+  const state: SpotlightState = {
     spotlightOpen: false,
     spotlightQuery: query,
     spotlightIndex: 0,
@@ -39,7 +80,8 @@ function createHarness({
     kindIcon: () => "C",
     searchResults,
     pickResult: () => {},
-    executeCommand: () => {},
+    executeCommand: () => undefined,
+    reportCommandError: () => {},
     commandContext: () => commandContext,
     schedulePackageFetch: () => {},
     resetPackageSearch: () => {},
@@ -52,7 +94,7 @@ function createHarness({
   return { spotlight, state };
 }
 
-const packageContext = {
+const packageContext: CommandContext["package"] = {
   id: "Example.Package",
   activeFramework: "net10.0",
   types: [{
@@ -83,19 +125,19 @@ test("NuGet hits are visible only for their resolved query and survive a query r
 
 test("Spotlight keeps the selected result when async rows are inserted before it", () => {
   const pkg = { id: "Example.Package", version: "1.0.0" };
-  const first = {
+  const first: SpotlightResult = {
     kind: "type",
     pkg,
     type: { id: "Example.First", name: "First", kind: "class" },
     ranges: [],
   };
-  const selected = {
+  const selected: SpotlightResult = {
     kind: "type",
     pkg,
     type: { id: "Example.Selected", name: "Selected", kind: "class" },
     ranges: [],
   };
-  let results = [first, selected];
+  let results: SpotlightResult[] = [first, selected];
   const { spotlight, state } = createHarness({
     query: "Example",
     searchResults: () => results,
@@ -119,7 +161,7 @@ test("Spotlight keeps the selected result when async rows are inserted before it
 
 test("modal arrow navigation reuses rendered results", () => {
   const pkg = { id: "Example.Package", version: "1.0.0" };
-  const rows = ["First", "Second", "Third"].map(name => ({
+  const rows: SpotlightResult[] = ["First", "Second", "Third"].map(name => ({
     kind: "type",
     pkg,
     type: { id: `Example.${name}`, name, kind: "class" },
@@ -135,56 +177,71 @@ test("modal arrow navigation reuses rendered results", () => {
   });
   spotlight.modalHtml();
 
-  const listeners = new Map();
-  const input = {
+  const listeners = new Map<string, (event: MockKeyboardEvent) => void>();
+  const input: MockInputElement = {
     value: "Example",
     selectionStart: 7,
     selectionEnd: 7,
-    addEventListener: (name, listener) => listeners.set(name, listener),
+    addEventListener: (name, listener) => {
+      listeners.set(name, listener);
+    },
     focus: () => {},
     setAttribute: () => {},
     setSelectionRange: () => {},
   };
-  const domRows = rows.map(() => ({
+  const domRows: MockElement[] = rows.map(() => ({
     classList: { toggle: () => {} },
     scrollIntoView: () => {},
     setAttribute: () => {},
   }));
-  const container = {
+  const container: MockParentNode = {
     querySelector: () => null,
     querySelectorAll: selector => selector === ".spotlight-item" ? domRows : [],
   };
-  const root = {
+  const root: MockParentNode = {
     querySelector: selector => selector === "#spotlight-input" ? input : null,
     querySelectorAll: () => [],
   };
-  const previousDocument = globalThis.document;
-  const previousRequestAnimationFrame = globalThis.requestAnimationFrame;
-  globalThis.document = {
-    querySelector: selector => {
+  // The harness temporarily installs its minimal DOM globals and restores them below.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  const globals = globalThis as unknown as {
+    document?: Document;
+    requestAnimationFrame?: (callback: FrameRequestCallback) => number;
+  };
+  const previousDocument = globals.document;
+  const previousRequestAnimationFrame = globals.requestAnimationFrame;
+  // oxlint-disable typescript/no-unsafe-type-assertion
+  globals.document = {
+    querySelector: (selector: string) => {
       if (selector === "#spotlight-input") return input;
       if (selector === "#spotlight-results") return container;
       return null;
     },
+  } as unknown as Document;
+  // oxlint-enable typescript/no-unsafe-type-assertion
+  globals.requestAnimationFrame = (callback: FrameRequestCallback) => {
+    callback(0);
+    return 0;
   };
-  globalThis.requestAnimationFrame = callback => callback();
 
   try {
-    spotlight.bind(root, "modal");
+    // The root implements the exact ParentNode query surface Spotlight consumes.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+    spotlight.bind(root as unknown as ParentNode, "modal");
     for (let index = 0; index < 4; index++) {
-      listeners.get("keydown")({
+      listeners.get("keydown")!({
         key: "ArrowDown",
         currentTarget: input,
         preventDefault: () => {},
       });
     }
   } finally {
-    if (previousDocument === undefined) delete globalThis.document;
-    else globalThis.document = previousDocument;
+    if (previousDocument === undefined) delete globals.document;
+    else globals.document = previousDocument;
     if (previousRequestAnimationFrame === undefined) {
-      delete globalThis.requestAnimationFrame;
+      delete globals.requestAnimationFrame;
     } else {
-      globalThis.requestAnimationFrame = previousRequestAnimationFrame;
+      globals.requestAnimationFrame = previousRequestAnimationFrame;
     }
   }
 

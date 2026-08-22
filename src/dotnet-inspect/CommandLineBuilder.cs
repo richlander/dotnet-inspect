@@ -178,6 +178,10 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(InspectionCommandDefinitions.CreateDiffCommand(opts));
         rootCommand.Subcommands.Add(InspectionCommandDefinitions.CreateTimelineCommand(opts));
 
+        // Inspection graph command
+        rootCommand.Subcommands.Add(
+            InspectionGraphCommandDefinitions.CreateGraphCommand(opts));
+
         // Depends command
         rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateDependsCommand(opts));
 
@@ -192,6 +196,9 @@ public static class CommandLineBuilder
 
         // Implements command
         rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateImplementsCommand(opts));
+
+        // Match command (pairwise structural-clone correspondence)
+        rootCommand.Subcommands.Add(MatchCommandDefinitions.CreateMatchCommand(opts));
 
         // Package command
         rootCommand.Subcommands.Add(PackageCommandDefinitions.CreatePackageCommand(opts));

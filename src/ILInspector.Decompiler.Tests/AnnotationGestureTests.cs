@@ -137,6 +137,60 @@ public class AnnotationGestureTests
     }
 
     [Fact]
+    public void DefaultDetailLayoutRemainsInlineWhenItFits()
+    {
+        var rendered = AnnotationCaret.Render(
+            "        Work();",
+            "    ",
+            [Fact(Alloc, "short")]);
+
+        Assert.Single(rendered);
+        Assert.Contains("^ alloc.new(short)", rendered[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AlignedDetailsStartBelowTheFirstCaret()
+    {
+        var rendered = AnnotationCaret.Render(
+            "                Work();",
+            "",
+            [Fact(Alloc, "short")],
+            alignDetailWithCaret: true);
+
+        Assert.Equal(2, rendered.Count);
+        Assert.Equal(rendered[0].IndexOf('^'), FirstTextColumn(rendered[1]));
+
+        static int FirstTextColumn(string line)
+        {
+            int start = line.IndexOf("//", StringComparison.Ordinal) + "//".Length;
+            while (start < line.Length && line[start] == ' ')
+                start++;
+            return start;
+        }
+    }
+
+    [Fact]
+    public void AlignedDetailContinuationsShareTheFirstCaretColumn()
+    {
+        string detail = string.Join("; ", Enumerable.Repeat("key=value-that-is-long", 8));
+        var rendered = AnnotationCaret.Render(
+            "                Work();",
+            "",
+            [Fact(Alloc, detail)],
+            alignDetailWithCaret: true);
+
+        Assert.True(rendered.Count > 2);
+        int caretColumn = rendered[0].IndexOf('^');
+        foreach (string line in rendered.Skip(1))
+        {
+            int textColumn = line.IndexOf("//", StringComparison.Ordinal) + "//".Length;
+            while (textColumn < line.Length && line[textColumn] == ' ')
+                textColumn++;
+            Assert.Equal(caretColumn, textColumn);
+        }
+    }
+
+    [Fact]
     public void EachFactStartsItsOwnLine()
     {
         var rendered = AnnotationCaret.Render(
@@ -196,6 +250,17 @@ public class AnnotationGestureTests
         Assert.Contains("2.", caretLine, StringComparison.Ordinal);
         Assert.Contains(rendered, l => l.Contains("1. alloc.new(object)", StringComparison.Ordinal));
         Assert.Contains(rendered, l => l.Contains("2. unsafe.stackalloc(array)", StringComparison.Ordinal));
+
+        var aligned = AnnotationCaret.Render(
+            Line,
+            "    ",
+            [first, second],
+            extents: extents,
+            alignDetailWithCaret: true);
+        string firstDetail = Assert.Single(
+            aligned,
+            line => line.Contains("1. alloc.new(object)", StringComparison.Ordinal));
+        Assert.Equal(aligned[0].IndexOf('^'), firstDetail.IndexOf("1.", StringComparison.Ordinal));
     }
 
     [Fact]

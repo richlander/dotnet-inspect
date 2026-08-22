@@ -18,8 +18,8 @@ function escapeHtml(value: unknown) {
     .replaceAll('"', "&quot;");
 }
 
-function packageIdentityKey(pkg: PackageBarPackage) {
-  return `${pkg.id}@${pkg.version}::${pkg.activeFramework}`;
+function packageIdentityKey(packageModel: PackageBarPackage) {
+  return `${packageModel.id}@${packageModel.version}::${packageModel.activeFramework}`;
 }
 
 function pkg(
