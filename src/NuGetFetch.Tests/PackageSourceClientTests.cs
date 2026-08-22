@@ -451,7 +451,9 @@ public sealed class PackageSourceClientTests
             Versions,
             request => new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StreamContent(new ImmediateIoFailureStream()),
+                Content = new StreamContent(
+                    new ImmediateReadFailureStream(
+                        new IOException("The response body ended."))),
                 RequestMessage = request,
             });
         HttpMessageHandler client = handler;
@@ -1186,6 +1188,64 @@ public sealed class PackageSourceClientTests
             [GalleryVersions] = """{"versions":["1.0.0"]}""",
             [GalleryRegistration] = registration,
         };
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        PackageVersionResult result = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.False(result.HasAuthoritativeListingState);
+        Assert.Equal(
+            PackageListingState.Unknown,
+            Assert.Single(result.Candidates).ListingState);
+    }
+
+    [Fact]
+    public async Task GalleryCorruptEncodedVersionMetadataIsInvalidResponse()
+    {
+        var handler = new RecordingHandler();
+        handler.SetResponse(
+            GalleryVersions,
+            request => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(
+                    new ImmediateReadFailureStream(
+                        new InvalidDataException(
+                            "The encoded response body is corrupt."))),
+                RequestMessage = request,
+            });
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageSourceFailureKind.InvalidResponse,
+            failure.Kind);
+    }
+
+    [Fact]
+    public async Task GalleryCorruptEncodedRegistrationIsTypedPartialEnumeration()
+    {
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] = """{"versions":["1.0.0"]}""",
+        };
+        handler.SetResponse(
+            GalleryRegistration,
+            request => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(
+                    new ImmediateReadFailureStream(
+                        new InvalidDataException(
+                            "The encoded response body is corrupt."))),
+                RequestMessage = request,
+            });
         using IPackageSourceClient runtime =
             PackageSourceClientFactory.CreateGallery(handler);
 
@@ -2869,7 +2929,8 @@ public sealed class PackageSourceClientTests
         }
     }
 
-    private sealed class ImmediateIoFailureStream : Stream
+    private sealed class ImmediateReadFailureStream(Exception failure)
+        : Stream
     {
         public override bool CanRead => true;
         public override bool CanSeek => false;
@@ -2885,13 +2946,12 @@ public sealed class PackageSourceClientTests
             byte[] buffer,
             int offset,
             int count) =>
-            throw new IOException("The response body ended.");
+            throw failure;
 
         public override ValueTask<int> ReadAsync(
             Memory<byte> buffer,
             CancellationToken cancellationToken = default) =>
-            ValueTask.FromException<int>(
-                new IOException("The response body ended."));
+            ValueTask.FromException<int>(failure);
 
         public override void Flush() =>
             throw new NotSupportedException();

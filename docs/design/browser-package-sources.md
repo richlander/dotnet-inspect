@@ -689,6 +689,8 @@ The local-folder descriptor remains modeled without a runtime client.
 `GalleryRegistrationPageLimitIsTypedPartialEnumeration`,
 `GalleryRejectsIneligibleExternalRegistrationPage`,
 `GalleryMalformedRegistrationIsTypedPartialEnumeration`,
+`GalleryCorruptEncodedVersionMetadataIsInvalidResponse`,
+`GalleryCorruptEncodedRegistrationIsTypedPartialEnumeration`,
 `GalleryMalformedExternalPageIsTypedPartialEnumeration`,
 `GalleryIncompleteRegistrationIsTypedPartialEnumeration`,
 `GalleryCallerCancellationDuringRegistrationRemainsCancellation`,

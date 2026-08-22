@@ -72,6 +72,7 @@ shortening the selected assembly set.
    `GalleryRegistrationLeafLimitIsTypedPartialEnumeration`,
    `GalleryRegistrationPageLimitIsTypedPartialEnumeration`,
    `GalleryMalformedRegistrationIsTypedPartialEnumeration`,
+   `GalleryCorruptEncodedRegistrationIsTypedPartialEnumeration`,
    `GalleryIncompleteRegistrationIsTypedPartialEnumeration`, and
    `GalleryFinalListingProjectionExpiresToPartial` gate the source contract.
    `GalleryCallerCancellationDuringRegistrationRemainsCancellation` and

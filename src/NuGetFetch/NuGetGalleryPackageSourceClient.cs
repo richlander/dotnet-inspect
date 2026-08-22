@@ -542,6 +542,7 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
         Exception exception) =>
         exception is HttpRequestException
             or IOException
+            or InvalidDataException
             or TimeoutException
             or OperationCanceledException
             or System.Text.Json.JsonException

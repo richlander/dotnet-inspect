@@ -326,7 +326,8 @@ internal static class PackageSourceOperation
             NuGetRedirectLimitExceededException =>
                 PackageSourceFailureKind.ResponseRejected,
             NuGetSourceResponseException
-                or JsonException =>
+                or JsonException
+                or InvalidDataException =>
                 PackageSourceFailureKind.InvalidResponse,
             HttpRequestException
             {
@@ -363,6 +364,7 @@ internal static class PackageSourceOperation
             or NuGetRedirectLimitExceededException
             or NuGetSourceResponseException
             or JsonException
+            or InvalidDataException
             or HttpRequestException
             or IOException;
     }
