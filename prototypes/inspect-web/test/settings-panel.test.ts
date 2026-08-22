@@ -7,6 +7,7 @@ import {
   type SettingsPanelBindingActions,
   styleCatalogGroupsHtml,
 } from "../src/settings-panel.ts";
+import { fakeDom } from "./fake-dom.ts";
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
@@ -24,7 +25,7 @@ class FakeElement {
 
   dispatch(type: string) {
     for (const listener of this.listeners.get(type) ?? []) {
-      listener({} as Event);
+      listener(fakeDom.event());
     }
   }
 }
@@ -96,7 +97,7 @@ test("settings bindings dispatch valid settings-page controls", () => {
   const clear = root.add("#settings-taste-clear", new FakeElement());
   const calls: string[] = [];
   bindSettingsPanel(
-    root as unknown as ParentNode,
+    fakeDom.parentNode(root),
     recordingActions(calls));
 
   close.dispatch("click");
@@ -124,7 +125,7 @@ test("taste popover bindings dispatch its optional controls", () => {
   const clear = root.add("#taste-clear", new FakeElement());
   const calls: string[] = [];
   bindSettingsPanel(
-    root as unknown as ParentNode,
+    fakeDom.parentNode(root),
     recordingActions(calls));
 
   taste.dispatch("change");
@@ -141,7 +142,7 @@ test("taste popover bindings dispatch its optional controls", () => {
 test("settings binding tolerates controls from the inactive surface being absent", () => {
   const root = new FakeRoot();
   assert.doesNotThrow(() => bindSettingsPanel(
-    root as unknown as ParentNode,
+    fakeDom.parentNode(root),
     recordingActions([])));
 });
 
