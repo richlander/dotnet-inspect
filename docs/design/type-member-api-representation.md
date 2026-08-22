@@ -605,11 +605,11 @@ This document is the map. Each document below keeps its own mechanics.
 | `metadata-primitives.md` | Shared bounded SRM mechanics; why semantic `TypeRef` models remain local; convergence sequencing |
 | `architecture.md` (principle 9) | Analysis's local structural type model and its Metadata-owned correspondence boundary |
 | `finding-coordinates.md` | Finding coordinate axes; why there is no generic anchor |
-| `member-target-resolution.md` | Selector → resolver → anchor; API vs body identity ownership |
+| `member-target-resolution.md` | Selector → resolver → anchor; exact/carried body addressing; strict body keys versus version-neutral body correspondence |
 | `member-body-substrate.md` | `filter → render` producer contract; scope-per-type |
 | `decompiler-ir.md` | `TypeRef` in the pipeline; the strings-end-at-printers rule; the `MetadataSource` escape rule |
 | `bounded-metadata-traversal.md` | `GetFullTypeName` traversal and its bounds |
-| `implementation-diff.md` | Row currency: `MemberAnchor`/`StableMemberKey` vs `ResearchSubjectKey`; why body substrate does not embed `MemberAnchor` |
+| `implementation-diff.md` | Structured participant/target/work-item comparison lifecycle and row currency; why body substrate does not embed `MemberAnchor` |
 | `il-diff-canonicalization.md` | IL operation canonicalization; why raw tokens and `IL_####` offsets are not durable identity |
 | `csharp-member-recompilation.md` | Round-trip scope selection; `ModuleIdentity` (name + MVID) as the scope a member anchor is interpreted within |
 | `source-finding-producers.md` | Source-document identity vs member-source identity; token-scoped PDB lookup instead of overload ordinals |

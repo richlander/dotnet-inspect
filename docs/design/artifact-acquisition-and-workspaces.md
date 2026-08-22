@@ -13,6 +13,8 @@ See [inspection-space.md](../inspection-space.md) for workspace and query
 planning, [inspection-layers.md](inspection-layers.md) for consumer layers, and
 [assembly-inspection-query.md](assembly-inspection-query.md) for the
 `ResolvedAssemblyReference` and `AssemblyInspectionSession` seam.
+[Implementation Diff](implementation-diff.md) owns the structured comparison
+that consumes endpoint manifests and opaque participant pairings.
 [workspace-definitions.md](workspace-definitions.md) owns static context
 coordinates, while
 [inspection-graph-document.md](inspection-graph-document.md) owns graph
@@ -375,6 +377,126 @@ are not:
 - cancellation propagates as cancellation rather than occupying a failure arm
   or being relabeled as an acquisition diagnostic.
 
+### Comparison endpoint realization
+
+Acquisition inputs and comparison participants have different cardinality.
+Before acquisition, a host can declare package, project, platform, directory,
+workspace, or designated-local **endpoints**. It cannot enumerate every
+assembly, target framework, runtime asset, dependency, or embedded member that
+those endpoints will realize after source-specific selection.
+
+A multi-participant comparison therefore uses two levels:
+
+```text
+ComparisonEndpointRequest
+  Id                     opaque host-declared endpoint identity
+  Side                   Before | After
+  Coordinate             adapter- or host-owned typed endpoint coordinate
+
+ComparisonEndpointOutcome
+  Realized               sealed non-empty ArtifactParticipantManifest
+  Unavailable            typed diagnostic
+  Rejected               typed diagnostic
+  Failed                 typed diagnostic
+
+ArtifactParticipantManifest
+  Revision               sealed adapter-issued inventory identity
+  Entries                complete selected logical participant slots/bindings
+
+ArtifactParticipantPairing
+  Id                     opaque comparison-scoped participant identity
+  Before/After           validated side-local participant bindings
+  Outcome                Paired | BeforeOnly | AfterOnly | Ambiguous | Failed
+```
+
+Every declared endpoint produces exactly one endpoint outcome. A realized
+endpoint carries one sealed 1:N manifest; an unavailable, rejected, or failed
+endpoint remains a terminal comparison input failure. It never becomes an
+empty manifest or disappears because another endpoint succeeded.
+
+The adapter seals its manifest from the complete selected artifact inventory
+that its acquisition policy admitted and the workspace projected into assembly
+participants. A package endpoint may therefore realize multiple assemblies and
+TFM/RID groups; a project endpoint may realize direct outputs and package-owned
+dependencies; a directory endpoint may realize multiple files. Empty or wholly
+non-projectable acquisition remains the typed member failure defined above,
+not a successful manifest.
+
+The comparison coordinator forms the union of the before/after manifests and
+requires exactly one paired, one-sided, ambiguous, or failed pairing outcome
+for every manifest entry. Missing, extra, or duplicate outcomes reject the
+comparison plan. It also requires one terminal failed comparison input for
+every non-realized endpoint outcome. The anti-omission claim is relative to the
+complete declared endpoint set and sealed manifests that the pairing stage did
+not author.
+
+Adapter selection completeness is a separate gate. Package archives, restore
+graphs, project outputs, platform packs, workspace definitions, and directory
+snapshots each require a real-artifact inventory test proving that the sealed
+manifest equals the selected participants. The product does not attempt to
+defend against a malicious in-process adapter that falsifies its own manifest;
+it does prevent a well-behaved adapter, coordinator, or consumer from silently
+shortening one.
+
+### Comparison participant correspondence
+
+The owner that understands an endpoint coordinate also owns the logical
+participant slots it realizes. Research and presentation receive only opaque
+`ArtifactParticipantPairing.Id` values plus validated side-local bindings.
+They do not inspect package, project, platform, path, or workspace provenance
+to reconstruct correspondence.
+
+Each pairing first validates equal version-neutral assembly identity: name,
+normalized culture, and canonical public-key token. The owner then applies its
+logical selection rule:
+
+| Acquisition owner | Logical participant slot | Side-local evidence |
+| --- | --- | --- |
+| Direct package | Paired endpoint request, selection slot, asset role, and logical assembly entry | Package id/version, selected TFM/RID, archive/path locator, digest |
+| Project dependency | Paired project request, target-selection slot, dependency package id, asset role, and logical assembly entry | Package version, restore root, resolved asset path, digest |
+| Direct project output | Paired project request, target-selection slot, configuration, output role, and logical assembly entry | Build root, resolved TFM/RID, output path, digest |
+| Platform | Paired endpoint request, version-neutral framework slot, asset role, and logical assembly entry | Framework family/version, installed/remote locator, digest |
+| Embedded workspace | Workspace context id, canonical bundle-relative `ContentRef`, and declared assembly name | Provider handle and SHA-256 digest |
+| Designated/local | Explicit paired input id, or host-issued stable directory/member id, plus logical assembly entry | Absolute path, retained-snapshot id, digest |
+| Explicit cross-source | Host-issued paired endpoint/member id plus logical assembly entry | Both adapters' source-specific provenance and locators |
+| Direct live-member call | One invocation-scoped paired-input designation | Live reader/session and exact method addresses |
+
+A package selection slot describes the request, not whichever framework folder
+won independently on one side. Default highest-compatible selection uses one
+`Preferred` slot even when versions resolve different TFMs. Explicit TFM/RID
+selection uses that canonical request. `all` creates one `Enumerated` slot per
+canonical resolved TFM/RID and asset role. Runtime copies selected for distinct
+RIDs remain distinct. Normalized `ref`, `lib`, and `runtimes` paths are
+locators, not slots.
+
+Project dependencies retain package ownership and selected target-graph
+identity instead of collapsing into their enclosing direct-output slot. Direct
+project outputs retain project-input id, target-selection request,
+configuration, and output role. `ContentRef` is the embedded member's canonical
+bundle-relative logical slot; provider handles and digests remain side-local.
+
+Endpoint source kinds and source identities need not match. An explicit
+package-to-local comparison is valid because the host owns that paired
+endpoint designation. Package id and framework version remain provenance for
+direct endpoint comparison; package id is part of a project dependency slot
+because the restore graph supplies that correspondence.
+
+There is no occurrence ordinal. Two participants with the same logical slot on
+one side are ambiguous even when path, version, digest, MVID, or registration
+distinguishes their bytes. Adding or reordering another endpoint therefore
+cannot renumber an existing pairing. Those values remain side-local evidence
+and never become cross-side participant identity.
+
+The direct live-member call is the one non-adapter designation.
+`ImplementationDiff.DesignateMemberPair` explicitly authorizes exactly two
+already-open participants as a pair and returns a typed
+`DirectMemberPairingDesignation`. The designation retains an opaque id, exact
+live participant bindings, both MVIDs, and a lifetime bounded by the supplied
+sources. It contains no path, handle, token, or display identity.
+`CompareMembers` separately validates its exact participant-scoped method
+addresses and relationship role against that designation. This convenience
+cannot feed an assembly-wide comparison or outlive either supplied source.
+
 ## Source adapters
 
 An artifact source adapter owns the semantics needed to resolve its coordinate.
@@ -713,6 +835,10 @@ Several current types are migration inputs, not target precedent:
   exposes `RootPath`, `NupkgPath`, and unguarded archive/entry openers for
   compatibility with current desktop consumers. It is a package-specific
   migration input, not the generic guarded artifact contract.
+- Implementation comparison currently receives flat assembly lists and
+  reconstructs pairing from provenance, raw keys, and occurrence order. No
+  endpoint outcome carries a sealed 1:N participant manifest, and no gate
+  proves comparison pairing is total over the selected artifact inventory.
 
 These types need not move in one change. The design requires each migration
 slice to reduce the forbidden dependency closure rather than add another
@@ -740,22 +866,26 @@ The migration is intentionally incremental:
    retained workspaces own multiple sealed artifact sessions.
 6. **Adapt package acquisition.** Reuse current package stores, source policy,
    package admission, and TFM selection behind a package artifact adapter.
-7. **Move package correspondence.** Have the package adapter mint typed
+7. **Add comparison endpoint realization.** Have each selected endpoint produce
+   one typed outcome and every successful outcome seal a complete 1:N
+   participant manifest. Validate comparison pairing against the before/after
+   manifest union and retain non-realized endpoints as failures.
+8. **Move package correspondence.** Have the package adapter mint typed
    realization proofs and move package graph construction out of core assembly
    Queries while preserving the full host's graph wire contract.
-8. **Move platform correspondence.** Have the platform adapter mint typed
+9. **Move platform correspondence.** Have the platform adapter mint typed
    realization proofs and remove platform provenance/version parsing from core
    assembly Queries without pulling the package companion into platform
    projection. Keep installed-platform acquisition package-free; place any
    NuGet-backed remote-platform implementation with the optional package
    acquisition side.
-9. **Retire package-aware assembly sets.** Replace package cases in
+10. **Retire package-aware assembly sets.** Replace package cases in
    `AssemblySetRequest` with host composition of artifact acquisitions and
    workspace groups.
-10. **Migrate API source selection.** Select package assets in the package
+11. **Migrate API source selection.** Select package assets in the package
    adapter, then pass neutral assembly artifacts to the existing assembly/query
    path.
-11. **Add other adapters independently.** Project, platform, embedded, and CI
+12. **Add other adapters independently.** Project, platform, embedded, and CI
    adapters land only with their own typed coordinates, capabilities, limits,
    and provenance gates.
 
@@ -809,6 +939,14 @@ The target remains unverified until tests equivalent to these exist:
 - `ArtifactAcquisition_CancellationRemainsCancellation`
 - `RequiredMember_EmptyOrNonProjectableAcquisitionFailsContext`
 - `RequiredAcquisitionFailure_DoesNotShortenWorkspaceContext`
+- `ComparisonEndpoint_ProducesExactlyOneOutcome`
+- `ComparisonEndpoint_RealizedManifestIsNonEmptyAndSealed`
+- `ComparisonParticipantManifest_EqualsSelectedArtifactInventory`
+- `ComparisonParticipantPairing_IsTotalOverManifestUnion`
+- `ComparisonEndpointFailure_RemainsComparisonInputFailure`
+- `ComparisonParticipantPairing_DuplicateLogicalSlotIsAmbiguous`
+- `ComparisonParticipantPairing_IsStableAcrossInputReordering`
+- `DirectMemberPairing_RequiresInvocationScopedDesignation`
 - `AssemblyContextGroup_CanBindParticipantsFromDifferentArtifactSources`
 - `RetainedWorkspace_CanAddASecondSealedContextGeneration`
 - `PackageAdapter_ProjectsSelectedEntriesWithoutLeakingPackageTypes`
