@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { parseSync, visitorKeys } from "oxc-parser";
+
 import {
   activeSourceOperationKind,
   assemblyDescriptorForType,
@@ -159,6 +161,78 @@ test("normalizing a history entry keeps its consumed position and later entries"
 });
 
 const appSource = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.url), "utf8");
+const parsedAppSource = parseSync("dotnet-inspect.ts", appSource);
+const appSyntax = parsedAppSource.program;
+
+function walkSyntax(node, visit) {
+  if (!node) return;
+  visit(node);
+  for (const key of visitorKeys[node.type] ?? []) {
+    const child = node[key];
+    if (Array.isArray(child)) {
+      for (const item of child) walkSyntax(item, visit);
+    } else if (child) {
+      walkSyntax(child, visit);
+    }
+  }
+}
+
+function syntaxNodes(root, predicate) {
+  const matches = [];
+  walkSyntax(root, node => {
+    if (predicate(node)) matches.push(node);
+  });
+  return matches;
+}
+
+function onlySyntaxNode(nodes, description) {
+  assert.equal(nodes.length, 1, description);
+  return nodes[0];
+}
+
+function functionDeclaration(name) {
+  return onlySyntaxNode(
+    appSyntax.body.filter(
+      node => node.type === "FunctionDeclaration" && node.id?.name === name),
+    `${name} declaration`);
+}
+
+function callExpressionsNamed(root, name) {
+  return syntaxNodes(
+    root,
+    node => node.type === "CallExpression"
+      && node.callee?.type === "Identifier"
+      && node.callee.name === name);
+}
+
+function sourceText(node) {
+  return appSource.slice(node.start, node.end).replace(/\s+/g, " ");
+}
+
+function callbackProperty(actions, name) {
+  const property = onlySyntaxNode(
+    actions.properties.filter(
+      item => item.type === "Property"
+        && item.key.type === "Identifier"
+        && item.key.name === name),
+    `${name} callback`);
+  assert.equal(property.value.type, "ArrowFunctionExpression");
+  assert.equal(property.value.body.type, "BlockStatement");
+  return property.value;
+}
+
+function syntaxEffects(root) {
+  const effects = [];
+  walkSyntax(root, node => {
+    if (node.type === "AssignmentExpression") {
+      effects.push(`assign:${sourceText(node.left)} = ${sourceText(node.right)}`);
+    } else if (node.type === "CallExpression" && node.callee?.type === "Identifier") {
+      effects.push(`call:${node.callee.name}(${node.arguments.map(sourceText).join(", ")})`);
+    }
+  });
+  return effects;
+}
+
 const workspaceNavigationSource = readFileSync(
   new URL("../src/workspace-navigation.ts", import.meta.url),
   "utf8");
@@ -414,21 +488,98 @@ test("typed type panel owns its rendered control bindings", () => {
 });
 
 test("typed scope bar owns its rendered control bindings", () => {
-  const rootEventBinder =
-    appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
-    ?? "";
-  assert.match(
-    appSource,
-    /function bindScopeBarEvents\(\) \{\s*bindScopeBar\(document, \{/);
+  assert.deepEqual(parsedAppSource.errors, []);
+  const rootEventBinder = functionDeclaration("bindEvents");
+  const scopeEventBinder = functionDeclaration("bindScopeBarEvents");
+  const rootScopeCalls = callExpressionsNamed(appSyntax, "bindScopeBarEvents");
+  const innerScopeCalls = callExpressionsNamed(appSyntax, "bindScopeBar");
+  assert.equal(rootScopeCalls.length, 1);
+  assert.equal(rootScopeCalls[0].arguments.length, 0);
+  assert.equal(innerScopeCalls.length, 1);
+  const innerScopeCall = innerScopeCalls[0];
+  assert.equal(innerScopeCall.arguments.length, 2);
+  assert.equal(innerScopeCall.arguments[0].type, "Identifier");
+  assert.equal(innerScopeCall.arguments[0].name, "document");
+  assert.equal(innerScopeCall.arguments[1].type, "ObjectExpression");
   assert.equal(
-    appSource.match(/\bbindScopeBarEvents\b/g)?.length,
-    2);
-  assert.equal(
-    rootEventBinder.match(/\bbindScopeBarEvents\(\)/g)?.length,
+    callExpressionsNamed(scopeEventBinder, "bindScopeBar").length,
     1);
-  assert.match(
-    rootEventBinder,
-    /bindTypePanelEvents\(\);\s*bindScopeBarEvents\(\);/);
+  assert.equal(
+    callExpressionsNamed(rootEventBinder, "bindScopeBarEvents").length,
+    1);
+  const directCallName = statement =>
+    statement.type === "ExpressionStatement"
+      && statement.expression.type === "CallExpression"
+      && statement.expression.callee?.type === "Identifier"
+      ? statement.expression.callee.name
+      : null;
+  const directRootCalls = rootEventBinder.body.body.map(directCallName);
+  const typePanelIndex = directRootCalls.indexOf("bindTypePanelEvents");
+  assert.notEqual(typePanelIndex, -1);
+  assert.equal(directRootCalls[typePanelIndex + 1], "bindScopeBarEvents");
+
+  const actions = innerScopeCall.arguments[1];
+  const memberSection = callbackProperty(actions, "onMemberSectionSelect");
+  assert.equal(memberSection.body.body.length, 1);
+  assert.equal(memberSection.body.body[0].type, "IfStatement");
+  assert.equal(
+    sourceText(memberSection.body.body[0].test),
+    "section && isMemberSection(section)");
+  assert.deepEqual(
+    syntaxEffects(memberSection.body),
+    [
+      "call:isMemberSection(section)",
+      "call:applyMemberSection(section)",
+    ]);
+
+  const packageLens = callbackProperty(actions, "onPackageLensSelect");
+  assert.deepEqual(
+    syntaxEffects(packageLens.body),
+    [
+      "assign:state.packageLens = lens",
+      "call:render()",
+    ]);
+
+  const scope = callbackProperty(actions, "onScopeSelect");
+  assert.equal(scope.body.body.length, 2);
+  const packageBranch = scope.body.body[0];
+  assert.equal(packageBranch.type, "IfStatement");
+  assert.equal(sourceText(packageBranch.test), 'target === "package"');
+  assert.deepEqual(
+    syntaxEffects(packageBranch.consequent),
+    ["assign:state.atPackageRoot = true"]);
+  const typeBranch = packageBranch.alternate;
+  assert.equal(typeBranch.type, "IfStatement");
+  assert.equal(sourceText(typeBranch.test), 'target === "type"');
+  assert.deepEqual(
+    syntaxEffects(typeBranch.consequent),
+    [
+      "assign:state.atPackageRoot = false",
+      "call:filteredTypes()",
+      "assign:state.selectedTypeId = first.id",
+      'assign:state.selectedMemberKey = ""',
+      'assign:state.memberBrowseTypeId = ""',
+      "assign:state.selectedOverloadIndex = null",
+    ]);
+  const memberBranch = typeBranch.alternate;
+  assert.equal(memberBranch.type, "IfStatement");
+  assert.equal(sourceText(memberBranch.test), 'target === "member"');
+  assert.deepEqual(
+    syntaxEffects(memberBranch.consequent),
+    ["call:enterMemberScope()"]);
+  assert.deepEqual(
+    syntaxEffects(scope.body.body[1]),
+    ["call:render()"]);
+
+  const typeLens = callbackProperty(actions, "onTypeLensSelect");
+  assert.deepEqual(
+    syntaxEffects(typeLens.body),
+    [
+      "assign:state.lens = lens",
+      'assign:state.selectedMemberKey = ""',
+      'assign:state.memberBrowseTypeId = ""',
+      "call:render()",
+    ]);
   assert.match(
     scopeBarSource,
     /export function bindScopeBar\([\s\S]*\[data-scope\][\s\S]*\[data-package-lens\][\s\S]*\[data-lens\][\s\S]*\[data-member-section\]/);
