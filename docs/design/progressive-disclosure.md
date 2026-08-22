@@ -47,11 +47,20 @@ no category and is selected for rendering by exact name (or an explicit
 matching wildcard). Target-aware bare discovery lists it when a bounded,
 early-exit presence probe finds evidence or the metadata scan produces a
 renderable incomplete-decode diagnostic. The probe caches no-copy signature
-marker scans by blob, applies an assembly-wide work budget, and fails visibly
-when a candidate local or call signature cannot be decoded safely; it does not
-materialize the complete unsafe-evidence census. The explicit-only `Body
+marker scans by blob and streams IL without copying or materializing decoded
+instruction arrays. It charges signature and visited-IL bytes to separate
+4 MiB assembly-wide budgets and fails visibly when either budget is exhausted
+or a candidate local or call signature cannot be decoded safely. A namespace
+and type-name match for `System.Runtime.CompilerServices.Unsafe` is only a
+candidate; terminal evidence requires the same trusted framework identity as
+the full census. It does not materialize that census. The explicit-only `Body
 Shapes` section is likewise uncategorized; its required `Kind=...` predicate
 supplies its scope.
+
+`UnsafeEvidencePresenceTests.UnsafeEvidencePresence_UserDefinedUnsafeLookalikeDoesNotCountAsEvidence`,
+`UnsafeEvidencePresence_RejectsAssemblyIlAboveBudget`, and
+`UnsafeEvidencePresence_StopsBeforeCopyingOrMaterializingLargeSuffix` gate the
+trusted-identity and bounded-streaming properties.
 
 There are no user-facing `@All`, `@Default`, or `@Hidden` categories. Users who
 need broad evidence select the relevant authored categories explicitly.

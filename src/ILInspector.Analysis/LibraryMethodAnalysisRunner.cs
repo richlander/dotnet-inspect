@@ -162,6 +162,8 @@ internal sealed class LibraryMethodAnalysisRunner(
         infrastructure;
     readonly UnsafeSignatureMarkerCache _unsafeSignatureMarkers =
         new(infrastructure.Reader);
+    readonly UnsafePresenceWorkBudget _unsafePresenceWork =
+        new();
 
     internal UnsafeEvidencePresenceMethodResult ProbeUnsafeEvidence(
         TypeDefinitionHandle typeHandle,
@@ -234,75 +236,80 @@ internal sealed class LibraryMethodAnalysisRunner(
             }
 
             IMethodCallResolver? resolver = null;
-            foreach (var instruction in InstructionDecoder.Decode(
-                         body.GetILBytes() ?? []))
-            {
-                switch (instruction.OpCode)
+            bool hasEvidence = false;
+            InstructionDecoder.Visit(
+                body,
+                (operation, operandToken, instructionSize) =>
                 {
-                    case ILOpCode.Call:
-                    case ILOpCode.Callvirt:
-                    case ILOpCode.Newobj:
-                    case ILOpCode.Ldftn:
-                    case ILOpCode.Ldvirtftn:
-                        int operandToken =
-                            MethodInstructionFacts
-                                .OperandInt32(
-                                    instruction);
-                        UnsafeCallProbeResult callProbe =
-                            ProbeUnsafeCall(
-                                reader,
-                                operandToken);
-                        if (callProbe
-                            == UnsafeCallProbeResult.Evidence)
-                        {
-                            return new(true, null);
-                        }
-                        if (callProbe
-                            == UnsafeCallProbeResult.Incomplete)
-                        {
-                            throw new BadImageFormatException(
-                                "An unsafe call signature exceeds the safe decoding limits.");
-                        }
-                        if (callProbe
-                            == UnsafeCallProbeResult
-                                .RequiresResolution)
-                        {
-                            resolver ??=
-                                _infrastructure.CreateCallResolver(
-                                    Scope(),
-                                    Caller());
-                            MemberRef member =
-                                resolver.ResolveMember(
+                    _unsafePresenceWork.ReserveIlBytes(
+                        instructionSize);
+                    switch (operation)
+                    {
+                        case ILOpCode.Call:
+                        case ILOpCode.Callvirt:
+                        case ILOpCode.Newobj:
+                        case ILOpCode.Ldftn:
+                        case ILOpCode.Ldvirtftn:
+                            UnsafeCallProbeResult callProbe =
+                                ProbeUnsafeCall(
+                                    reader,
                                     operandToken);
-                            if (MethodSafetyAnalysis.IsUnsafeCall(
-                                    member))
+                            if (callProbe
+                                == UnsafeCallProbeResult.Evidence)
                             {
-                                return new(true, null);
+                                hasEvidence = true;
+                                return false;
                             }
-                            if (member.Kind
-                                == MemberKind.Unsupported)
+                            if (callProbe
+                                == UnsafeCallProbeResult.Incomplete)
                             {
                                 throw new BadImageFormatException(
-                                    "An unsafe call signature could not be decoded.");
+                                    "An unsafe call signature exceeds the safe decoding limits.");
                             }
-                        }
-                        break;
+                            if (callProbe
+                                == UnsafeCallProbeResult
+                                    .RequiresResolution)
+                            {
+                                resolver ??=
+                                    _infrastructure.CreateCallResolver(
+                                        Scope(),
+                                        Caller());
+                                MemberRef member =
+                                    resolver.ResolveMember(
+                                        operandToken);
+                                if (MethodSafetyAnalysis.IsUnsafeCall(
+                                        member))
+                                {
+                                    hasEvidence = true;
+                                    return false;
+                                }
+                                if (member.Kind
+                                    == MemberKind.Unsupported)
+                                {
+                                    throw new BadImageFormatException(
+                                        "An unsafe call signature could not be decoded.");
+                                }
+                            }
+                            return true;
 
-                    case ILOpCode.Calli:
-                        return new(true, null);
+                        case ILOpCode.Calli:
+                            hasEvidence = true;
+                            return false;
 
-                    default:
-                        if (MethodSafetyAnalysis.IsUnsafeOperation(
-                                instruction.OpCode,
+                        default:
+                            if (MethodSafetyAnalysis.IsUnsafeOperation(
+                                operation,
                                 includeIndirectOperations: false))
-                        {
-                            return new(true, null);
-                        }
-                        break;
+                            {
+                                hasEvidence = true;
+                                return false;
+                            }
+                            return true;
+                    }
                 }
-            }
+            );
 
-            return new(false, null);
+            return new(hasEvidence, null);
         }
         catch (Exception ex)
             when (IsRecoverableMethodFailure(ex))
@@ -361,12 +368,10 @@ internal sealed class LibraryMethodAnalysisRunner(
                     var method =
                         reader.GetMethodDefinition(
                             (MethodDefinitionHandle)handle);
-                    if (MayBeUnsafeApiType(
+                    bool unsafeApiCandidate =
+                        MayBeUnsafeApiType(
                             reader,
-                            method.GetDeclaringType()))
-                    {
-                        return UnsafeCallProbeResult.Evidence;
-                    }
+                            method.GetDeclaringType());
                     UnsafeCallProbeResult result =
                         ProbeUnsafeSignature(
                             reader,
@@ -375,7 +380,10 @@ internal sealed class LibraryMethodAnalysisRunner(
                     return result
                         == UnsafeCallProbeResult.Incomplete
                             ? UnsafeCallProbeResult.Evidence
-                            : result;
+                            : unsafeApiCandidate
+                                ? UnsafeCallProbeResult
+                                    .RequiresResolution
+                                : result;
                 }
 
             case HandleKind.MemberReference:
@@ -391,7 +399,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                             reader,
                             member.Parent))
                     {
-                        return UnsafeCallProbeResult.Evidence;
+                        parentRequiresResolution = true;
                     }
                     UnsafeCallProbeResult signature =
                         ProbeUnsafeSignature(

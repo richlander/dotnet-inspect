@@ -98,13 +98,18 @@ later source evidence lands. `Unsafe Members` binds the unbounded
 and retains raw unsafe evidence through the Finding and presentation boundary.
 Bare library discovery instead uses the network-free
 `UnsafeEvidencePresenceQuery`, which reuses the same Analysis safety producer
-but stops at the first finding and does not materialize the body index.
-Signature-marker prescans are no-copy, cached by blob, and charged to an
-assembly-wide work budget. A marker-bearing local, member-reference, or method
-specification signature that the structural guard rejects makes the presence
-result explicitly incomplete instead of becoming successful absence. The
-discovery gate also retains renderable metadata signature-decode diagnostics so
-a negative bounded probe cannot hide a known-incomplete scan.
+but stops at the first finding and does not materialize the body index or
+decoded instruction arrays. Signature-marker prescans are no-copy, cached by
+blob, and charged to a 4 MiB assembly-wide budget; streaming instruction visits
+have a separate 4 MiB aggregate budget. A marker-bearing local,
+member-reference, or method specification signature that the structural guard
+rejects makes the presence result explicitly incomplete instead of becoming
+successful absence. Name-only `Unsafe` candidates require trusted framework
+identity resolution before becoming evidence. The discovery gate also retains
+renderable metadata signature-decode diagnostics so a negative bounded probe
+cannot hide a known-incomplete scan.
+`UnsafeEvidencePresenceTests` gates these properties, including lookalike
+identity, signature-guard, aggregate-budget, and large-suffix cases.
 `Top Leverage` binds `TopLeverageQuery`, which retains ranked
 `MethodLeverage`, generated-framework evidence, and Analysis diagnostics until
 the presentation boundary. The CLI joins its API-surface drill map for legacy

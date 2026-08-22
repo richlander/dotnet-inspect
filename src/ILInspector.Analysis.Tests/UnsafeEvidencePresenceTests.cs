@@ -151,8 +151,101 @@ public class UnsafeEvidencePresenceTests
                 image));
     }
 
+    [Fact]
+    public void
+        UnsafeEvidencePresence_UserDefinedUnsafeLookalikeDoesNotCountAsEvidence()
+    {
+        ImmutableArray<byte> image =
+            BuildUnsafeLookalikeCallAssembly();
+
+        Assert.False(
+            LibraryBodyIndex.HasUnsafeEvidence(
+                "UnsafeLookalike.dll",
+                image));
+        AssertNoUnsafeEvidenceInFullCensus(image);
+    }
+
+    [Fact]
+    public void
+        UnsafeEvidencePresence_ExternalUnsafeLookalikeDoesNotCountAsEvidence()
+    {
+        ImmutableArray<byte> image =
+            BuildExternalUnsafeLookalikeCallAssembly();
+
+        Assert.False(
+            LibraryBodyIndex.HasUnsafeEvidence(
+                "ExternalUnsafeLookalike.dll",
+                image));
+        AssertNoUnsafeEvidenceInFullCensus(image);
+    }
+
+    [Fact]
+    public void
+        UnsafeEvidencePresence_GuardRejectedUnsafeLookalikeMemberRefFailsVisibly()
+    {
+        ImmutableArray<byte> image =
+            BuildGuardRejectedUnsafeAssembly(
+                GuardRejectedSignatureKind.MemberReference,
+                unsafeLookalikeParent: true);
+
+        InvalidDataException exception =
+            Assert.Throws<InvalidDataException>(
+                () => LibraryBodyIndex.HasUnsafeEvidence(
+                    "GuardRejectedUnsafeLookalike.dll",
+                    image));
+
+        Assert.Contains(
+            "unsafe call signature exceeds the safe decoding limits",
+            exception.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void UnsafeEvidencePresence_RejectsAssemblyIlAboveBudget()
+    {
+        ImmutableArray<byte> image =
+            BuildLargeBodyAssembly(
+                unsafeFirst: false);
+
+        InvalidDataException exception =
+            Assert.Throws<InvalidDataException>(
+                () => LibraryBodyIndex.HasUnsafeEvidence(
+                    "LargeSafeBody.dll",
+                    image));
+
+        Assert.Contains(
+            "IL scanning exceeds the assembly budget",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void
+        UnsafeEvidencePresence_StopsBeforeCopyingOrMaterializingLargeSuffix()
+    {
+        ImmutableArray<byte> image =
+            BuildLargeBodyAssembly(
+                unsafeFirst: true);
+        long before =
+            GC.GetAllocatedBytesForCurrentThread();
+
+        Assert.True(
+            LibraryBodyIndex.HasUnsafeEvidence(
+                "LargeUnsafeBody.dll",
+                image));
+
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread()
+            - before;
+        Assert.True(
+            allocated
+                < UnsafePresenceWorkBudget.MaxIlBytes / 4,
+            $"Presence probing allocated {allocated:N0} bytes.");
+    }
+
     static ImmutableArray<byte> BuildGuardRejectedUnsafeAssembly(
-        GuardRejectedSignatureKind rejectedKind)
+        GuardRejectedSignatureKind rejectedKind,
+        bool unsafeLookalikeParent = false)
     {
         var metadata = CreateMetadata("GuardRejected");
         metadata.AddTypeDefinition(
@@ -189,8 +282,14 @@ public class UnsafeEvidencePresenceTests
             TypeReferenceHandle external =
                 metadata.AddTypeReference(
                     reference,
-                    metadata.GetOrAddString("N"),
-                    metadata.GetOrAddString("External"));
+                    metadata.GetOrAddString(
+                        unsafeLookalikeParent
+                            ? "System.Runtime.CompilerServices"
+                            : "N"),
+                    metadata.GetOrAddString(
+                        unsafeLookalikeParent
+                            ? "Unsafe"
+                            : "External"));
             BlobHandle memberSignature =
                 rejectedKind
                     == GuardRejectedSignatureKind
@@ -294,6 +393,161 @@ public class UnsafeEvidencePresenceTests
             .Parameters(
                 parameterCount: 0,
                 returnType => returnType.Void(),
+                parameters => { });
+        return metadata.GetOrAddBlob(signature);
+    }
+
+    static ImmutableArray<byte> BuildUnsafeLookalikeCallAssembly()
+    {
+        var metadata = CreateMetadata("UnsafeLookalike");
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            metadata.GetOrAddString(
+                "System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("Unsafe"),
+            baseType: default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Entry"),
+            baseType: default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        var identityCode = new BlobBuilder();
+        identityCode.WriteByte(
+            (byte)ILOpCode.Ldc_i4_1);
+        identityCode.WriteByte((byte)ILOpCode.Ret);
+        int identityBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(identityCode),
+            maxStack: 1);
+        MethodDefinitionHandle identity =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Identity"),
+                AddIntMethodSignature(metadata),
+                identityBody,
+                MetadataTokens.ParameterHandle(1));
+
+        var callerCode = new BlobBuilder();
+        callerCode.WriteByte((byte)ILOpCode.Call);
+        callerCode.WriteInt32(
+            MetadataTokens.GetToken(identity));
+        callerCode.WriteByte((byte)ILOpCode.Ret);
+        int callerBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(callerCode),
+            maxStack: 1);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Run"),
+            AddIntMethodSignature(metadata),
+            callerBody,
+            MetadataTokens.ParameterHandle(1));
+
+        return Serialize(metadata, bodies);
+    }
+
+    static ImmutableArray<byte>
+        BuildExternalUnsafeLookalikeCallAssembly()
+    {
+        var metadata = CreateMetadata(
+            "ExternalUnsafeLookalike");
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Entry"),
+            baseType: default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        AssemblyReferenceHandle reference =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("UnsafeLookalike"),
+                new Version(1, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
+        TypeReferenceHandle unsafeType =
+            metadata.AddTypeReference(
+                reference,
+                metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                metadata.GetOrAddString("Unsafe"));
+        MemberReferenceHandle method =
+            metadata.AddMemberReference(
+                unsafeType,
+                metadata.GetOrAddString("M"),
+                AddVoidMethodSignature(metadata));
+        var code = new BlobBuilder();
+        code.WriteByte((byte)ILOpCode.Call);
+        code.WriteInt32(MetadataTokens.GetToken(method));
+        code.WriteByte((byte)ILOpCode.Ret);
+        var bodies = new BlobBuilder();
+        int bodyOffset = new MethodBodyStreamEncoder(bodies)
+            .AddMethodBody(
+                new InstructionEncoder(code),
+                maxStack: 1);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Run"),
+            AddVoidMethodSignature(metadata),
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+
+        return Serialize(metadata, bodies);
+    }
+
+    static ImmutableArray<byte> BuildLargeBodyAssembly(
+        bool unsafeFirst)
+    {
+        var metadata = CreateMetadata("LargeBody");
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("LargeBody"),
+            baseType: default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        byte[] il = new byte[
+            UnsafePresenceWorkBudget.MaxIlBytes + 2];
+        if (unsafeFirst)
+            il[0] = (byte)ILOpCode.Calli;
+        il[^1] = (byte)ILOpCode.Ret;
+        var code = new BlobBuilder(il.Length);
+        code.WriteBytes(il);
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        int bodyOffset = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(code),
+            maxStack: 1);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            AddVoidMethodSignature(metadata),
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+
+        return Serialize(metadata, bodies);
+    }
+
+    static BlobHandle AddIntMethodSignature(
+        MetadataBuilder metadata)
+    {
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                parameterCount: 0,
+                returnType => returnType.Type().Int32(),
                 parameters => { });
         return metadata.GetOrAddBlob(signature);
     }
@@ -415,6 +669,44 @@ public class UnsafeEvidencePresenceTests
             mappedFieldDataStreamRva: 0);
         return MetadataReaderProvider.FromMetadataImage(
             ImmutableArray.Create(image.ToArray()));
+    }
+
+    static ImmutableArray<byte> Serialize(
+        MetadataBuilder metadata,
+        BlobBuilder bodies)
+    {
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return ImmutableArray.Create(image.ToArray());
+    }
+
+    static void AssertNoUnsafeEvidenceInFullCensus(
+        ImmutableArray<byte> image)
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"unsafe-lookalike-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, image.AsSpan());
+        try
+        {
+            LibraryBodyIndex index =
+                LibraryBodyIndex.Open(
+                    path,
+                    LibraryBodyAnalysisFeatures.MethodEvidence);
+            Assert.Empty(index.UnsafeEvidence);
+            Assert.Empty(index.Diagnostics);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     enum GuardRejectedSignatureKind

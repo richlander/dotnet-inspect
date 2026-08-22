@@ -2421,8 +2421,8 @@ public class LibraryCommand
 
     // ── Effective sections cache ──
 
-    // Bumped to v26: rejected unsafe signature candidates cannot reuse cached absence.
-    private const string EffectiveCategory = "effective-v26";
+    // Bumped to v27: trusted unsafe identity and bounded IL scanning change applicability.
+    private const string EffectiveCategory = "effective-v27";
 
     static LibraryCommand()
     {
