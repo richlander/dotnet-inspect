@@ -33,6 +33,7 @@ class FakeElement {
 class FakeRoot {
   private readonly single = new Map<string, FakeElement>();
   private readonly multiple = new Map<string, FakeElement[]>();
+  private readonly selectorQueries: string[] = [];
 
   add(selector: string, element: FakeElement) {
     this.single.set(selector, element);
@@ -45,11 +46,26 @@ class FakeRoot {
   }
 
   querySelector(selector: string) {
+    this.selectorQueries.push(`one:${selector}`);
     return this.single.get(selector) ?? null;
   }
 
   querySelectorAll(selector: string) {
+    this.selectorQueries.push(`all:${selector}`);
     return this.multiple.get(selector) ?? [];
+  }
+
+  assertSelectorQueries() {
+    assert.deepEqual(
+      [...this.selectorQueries].sort(),
+      [
+        "all:#taste-popover [data-taste]",
+        "all:.settings-seg[data-theme]",
+        "all:.settings-taste [data-taste]",
+        "one:#settings-close",
+        "one:#settings-taste-clear",
+        "one:#taste-clear",
+      ].sort());
   }
 }
 
@@ -99,6 +115,7 @@ test("settings bindings dispatch valid settings-page controls", () => {
   bindSettingsPanel(
     fakeDom.parentNode(root),
     recordingActions(calls));
+  root.assertSelectorQueries();
 
   close.dispatch("click");
   dark.dispatch("click");
@@ -127,6 +144,7 @@ test("taste popover bindings dispatch its optional controls", () => {
   bindSettingsPanel(
     fakeDom.parentNode(root),
     recordingActions(calls));
+  root.assertSelectorQueries();
 
   taste.dispatch("change");
   missingTaste.dispatch("change");
@@ -144,6 +162,7 @@ test("settings binding tolerates controls from the inactive surface being absent
   assert.doesNotThrow(() => bindSettingsPanel(
     fakeDom.parentNode(root),
     recordingActions([])));
+  root.assertSelectorQueries();
 });
 
 test("style catalog groups render tiers, byte-divergent badges, and checked state", () => {
