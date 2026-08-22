@@ -143,10 +143,10 @@ static class AuthoredCorpusDrift
             $"{record.Type}::{record.Method}#{record.Overload}",
             $"{record.Type}.{record.Method}");
 
-        AuthoredMemberSourceInspection authored;
+        PdbMemberSourceInspection authored;
         try
         {
-            authored = await AuthoredSourceAcquisition.AcquireMemberAsync(
+            authored = await PdbSourceAcquisition.AcquireMemberAsync(
                 source,
                 record.MetadataToken,
                 record.Method,
