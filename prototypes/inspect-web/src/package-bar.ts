@@ -24,7 +24,32 @@ interface PackageBarOptions {
   closePackageTab: (packageKey: string) => void;
   openRuntimePack: () => void;
   openPackage: (packageId: string, version: string) => void;
+  selectFramework: (framework: string) => void;
+  selectVersion: (version: string) => void;
   showToast: (message: string) => void;
+}
+
+export interface PackageSelectionActions {
+  onFrameworkSelect: (framework: string) => void;
+  onVersionSelect: (version: string) => void;
+}
+
+export function bindPackageSelections(
+  root: ParentNode,
+  actions: PackageSelectionActions,
+): void {
+  root.querySelectorAll<HTMLElement>("[data-framework-chip]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onFrameworkSelect(button.dataset.frameworkChip ?? "")));
+  const framework = root.querySelector<HTMLSelectElement>("#framework");
+  framework?.addEventListener(
+    "change",
+    () => actions.onFrameworkSelect(framework.value));
+  const version = root.querySelector<HTMLSelectElement>("#package-version");
+  version?.addEventListener(
+    "change",
+    () => actions.onVersionSelect(version.value));
 }
 
 export function packageIdentityEquals(
@@ -132,6 +157,8 @@ export function createPackageBar(options: PackageBarOptions) {
     closePackageTab,
     openRuntimePack,
     openPackage,
+    selectFramework,
+    selectVersion,
     showToast,
   } = options;
 
@@ -140,6 +167,10 @@ export function createPackageBar(options: PackageBarOptions) {
   }
 
   function bind(root: ParentNode): void {
+    bindPackageSelections(root, {
+      onFrameworkSelect: selectFramework,
+      onVersionSelect: selectVersion,
+    });
     root.querySelectorAll<HTMLElement>("[data-package-key]").forEach(tab => {
       const activate = () => {
         const target = state.packages.find(item => packageIdentityKey(item) === tab.dataset.packageKey);

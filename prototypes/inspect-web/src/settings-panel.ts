@@ -30,7 +30,9 @@ type EscapeHtml = (value: unknown) => string;
 
 export interface SettingsPanelBindingActions {
   onClose: () => void;
+  onOpen: (from: "home" | "workbench") => void;
   onTasteClear: () => void;
+  onTasteOpenToggle: () => void;
   onTasteToggle: (taste: string) => void;
   onThemeSelect: (theme: "dark" | "light") => void;
 }
@@ -42,6 +44,16 @@ export function bindSettingsPanel(
   root.querySelector("#settings-close")?.addEventListener(
     "click",
     actions.onClose);
+  root.querySelector("#home-settings")?.addEventListener(
+    "click",
+    () => actions.onOpen("home"));
+  root.querySelector("#open-settings")?.addEventListener(
+    "click",
+    () => actions.onOpen("workbench"));
+  root.querySelector("#taste-btn")?.addEventListener("click", event => {
+    event.stopPropagation();
+    actions.onTasteOpenToggle();
+  });
   root.querySelectorAll<HTMLElement>(".settings-seg[data-theme]")
     .forEach(button => button.addEventListener("click", () => {
       const theme = button.dataset.theme;
