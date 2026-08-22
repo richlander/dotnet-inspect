@@ -31,11 +31,11 @@ export function renderAnnotatedSource(options: RenderAnnotatedSourceOptions): st
   const { result, media, selectedFactId, selectedNodeIds, escapeHtml } = options;
   let view;
   try {
-    view = buildAnnotatedView(result.document, {
-      media,
-      selectedFactId,
-      selectedNodeIds,
-    });
+    const viewState: AnnotatedViewState = {};
+    if (media !== undefined) viewState.media = media;
+    if (selectedFactId !== undefined) viewState.selectedFactId = selectedFactId;
+    if (selectedNodeIds !== undefined) viewState.selectedNodeIds = selectedNodeIds;
+    view = buildAnnotatedView(result.document, viewState);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return `<section class="document-section empty-member-section"><h2>Annotated source document rejected</h2><p>${escapeHtml(message)}</p></section>`;

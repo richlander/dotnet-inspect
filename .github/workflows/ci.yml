@@ -182,6 +182,7 @@ jobs:
         working-directory: prototypes/inspect-web
         run: |
           npm ci
+          npm run analyze
           npm run build
           grep -q '<script type="importmap"></script>' dist/index.html
           grep -Eq '<link rel="preload" id="webassembly"[[:space:]]*/?>' dist/index.html

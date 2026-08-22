@@ -20,7 +20,6 @@ export type {
   AnnotatedSourceFact,
   AnnotatedSourceNode,
   SourceMedium,
-  TextSpan,
 } from "./document-model.ts";
 
 // The document model owns validation, coordinates, line derivation, segmentation, and
@@ -39,11 +38,11 @@ export interface AnnotatedViewState {
   selectedNodeIds?: readonly number[];
 }
 
-export interface AnnotatedViewSegment extends SourceSegment {
+interface AnnotatedViewSegment extends SourceSegment {
   selected: boolean;
 }
 
-export interface AnnotatedViewLine {
+interface AnnotatedViewLine {
   number: number;
   medium: LineMedium;
   start: number;
@@ -51,7 +50,7 @@ export interface AnnotatedViewLine {
   segments: AnnotatedViewSegment[];
 }
 
-export interface AnnotatedViewFact {
+interface AnnotatedViewFact {
   id: number;
   descriptor: string;
   category: string;
@@ -166,11 +165,6 @@ export function factsForNode(
     document.targets.filter(target => target.node_id === nodeId).map(target => target.fact_id),
   );
   return document.facts.filter(fact => factIds.has(fact.id));
-}
-
-export function factLabel(fact: AnnotatedSourceFact): string {
-  const detail = fact.detail ? ` ${fact.detail}` : "";
-  return `${fact.descriptor}${detail}`;
 }
 
 function isVisible(
