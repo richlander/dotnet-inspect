@@ -131,7 +131,8 @@ test("overview bindings dispatch explorer navigation from the wall controls", ()
   const chip = new FakeElement({ mdeChip: "3" });
   root.addAll("[data-mde-chip]", chip);
   const heapChip = new FakeElement({ mdeHeapChip: "String" });
-  root.addAll("[data-mde-heap-chip]", heapChip);
+  const emptyHeapChip = new FakeElement({ mdeHeapChip: "" });
+  root.addAll("[data-mde-heap-chip]", heapChip, emptyHeapChip);
 
   const tableCard = new FakeElement({ mdeIndex: "6" });
   const tableHead = new FakeElement().withClosest(".mde-card", tableCard);
@@ -142,12 +143,13 @@ test("overview bindings dispatch explorer navigation from the wall controls", ()
     orphanTableHead);
   const heapCard = new FakeElement({ mdeHeap: "Blob" });
   const heapHead = new FakeElement().withClosest(".mde-heap-card", heapCard);
-  const incompleteHeapHead =
-    new FakeElement().withClosest(".mde-heap-card", new FakeElement());
+  const emptyHeapHead = new FakeElement().withClosest(
+    ".mde-heap-card",
+    new FakeElement({ mdeHeap: "" }));
   root.addAll(
     ".mde-wall .mde-heap-card[data-mde-heap] .mde-card-head",
     heapHead,
-    incompleteHeapHead);
+    emptyHeapHead);
   const row = new FakeElement({ mdeRow: "7:8" });
   root.addAll(".mde-wall .mde-row[data-mde-row]", row);
 
@@ -162,10 +164,11 @@ test("overview bindings dispatch explorer navigation from the wall controls", ()
   forward.dispatch("click");
   chip.dispatch("click");
   heapChip.dispatch("click");
+  emptyHeapChip.dispatch("click");
   tableHead.dispatch("click");
   orphanTableHead.dispatch("click");
   heapHead.dispatch("click");
-  incompleteHeapHead.dispatch("click");
+  emptyHeapHead.dispatch("click");
   row.dispatch("click");
 
   assert.deepEqual(calls, [
@@ -232,9 +235,20 @@ test("focus bindings dispatch lightbox controls and keep inner clicks contained"
 test("metadata lens bindings open table and heap explorer views", () => {
   const root = new FakeRoot();
   const table = new FakeElement({ mdeOpen: "Contoso.dll|6" });
-  root.addAll("[data-mde-open]", table);
+  const tableZero = new FakeElement({ mdeOpen: "Contoso.dll|0" });
+  const invalidTables = [
+    new FakeElement({ mdeOpen: "|6" }),
+    new FakeElement({ mdeOpen: "Contoso.dll|" }),
+    new FakeElement({ mdeOpen: "Contoso.dll|NaN" }),
+    new FakeElement({ mdeOpen: "Contoso.dll|9007199254740992" }),
+  ];
+  root.addAll("[data-mde-open]", table, tableZero, ...invalidTables);
   const heap = new FakeElement({ mdeOpenHeap: "Contoso.dll|String" });
-  root.addAll("[data-mde-open-heap]", heap);
+  const invalidHeaps = [
+    new FakeElement({ mdeOpenHeap: "|String" }),
+    new FakeElement({ mdeOpenHeap: "Contoso.dll|" }),
+  ];
+  root.addAll("[data-mde-open-heap]", heap, ...invalidHeaps);
   const chip = new FakeElement({ mdeChip: "3" });
   root.addAll("[data-mde-chip]", chip);
   const calls: string[] = [];
@@ -244,11 +258,15 @@ test("metadata lens bindings open table and heap explorer views", () => {
     recordingActions(calls));
 
   table.dispatch("click");
+  tableZero.dispatch("click");
+  for (const invalidTable of invalidTables) invalidTable.dispatch("click");
   heap.dispatch("click");
+  for (const invalidHeap of invalidHeaps) invalidHeap.dispatch("click");
   chip.dispatch("click");
 
   assert.deepEqual(calls, [
     "open-table:Contoso.dll:6",
+    "open-table:Contoso.dll:0",
     "open-heap:Contoso.dll:String",
   ]);
   assert.equal(root.queriedSelectors.has("[data-mde-chip]"), false);

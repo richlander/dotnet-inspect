@@ -225,15 +225,17 @@ export function bindMetadataExplorer(
     actions.onHistoryForward);
   root.querySelectorAll<HTMLElement>("[data-mde-open]").forEach(button =>
     button.addEventListener("click", () => {
-      const [assembly = "", tableIndex = "0"] =
+      const [assembly = "", tableIndex = ""] =
         (button.dataset.mdeOpen ?? "").split("|");
-      actions.onOpenTable(assembly, Number(tableIndex));
+      if (!assembly || !/^\d+$/.test(tableIndex)) return;
+      const index = Number(tableIndex);
+      if (Number.isSafeInteger(index)) actions.onOpenTable(assembly, index);
     }));
   root.querySelectorAll<HTMLElement>("[data-mde-open-heap]").forEach(button =>
     button.addEventListener("click", () => {
       const [assembly = "", heap = ""] =
         (button.dataset.mdeOpenHeap ?? "").split("|");
-      actions.onOpenHeap(assembly, heap);
+      if (assembly && heap) actions.onOpenHeap(assembly, heap);
     }));
   if (!explorer) return;
 
