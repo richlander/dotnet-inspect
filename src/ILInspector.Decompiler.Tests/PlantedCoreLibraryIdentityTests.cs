@@ -230,7 +230,7 @@ public class PlantedCoreLibraryIdentityTests
     /// <para>
     /// Whether entitlement follows the <em>kind</em> of acquisition rather than
     /// its contents is gated separately and structurally, by
-    /// <see cref="MayMint_ReadsNoValueOutOfTheAcquisition"/>. That gate replaced
+    /// <see cref="TheEntitlementDecisionPath_ReadsNoValueOutOfTheAcquisition"/>. That gate replaced
     /// four rounds of sampling: this one need only establish which kinds are
     /// entitled, using any single instance of each.
     /// </para>
@@ -247,8 +247,13 @@ public class PlantedCoreLibraryIdentityTests
         // change without proving anything the rest does not.
         Assert.NotEmpty(concrete);
 
+        // Observed through the grant path rather than by calling MayMint, so
+        // that an entitlement added in GrantIfEntitled is caught here too.
+        // Round 7 moved a rule one frame out and left every gate green; a gate
+        // that asks the decision method directly cannot see that, because the
+        // grant no longer depends only on the answer it gives.
         Type[] entitled = concrete
-            .Where(t => CoreLibraryIdentityTrust.MayMint(Sample(t)))
+            .Where(t => GrantsIdentity(Sample(t)))
             .ToArray();
 
         Assert.True(
@@ -268,7 +273,7 @@ public class PlantedCoreLibraryIdentityTests
     /// An absent acquisition entitles nothing. This is a third property, not a
     /// restatement of the other two, and neither of them can see it.
     /// <para>
-    /// <see cref="MayMint_ReadsNoValueOutOfTheAcquisition"/> cannot, because
+    /// <see cref="TheEntitlementDecisionPath_ReadsNoValueOutOfTheAcquisition"/> cannot, because
     /// <c>provenance is null</c> is honestly not a read: it lowers to
     /// <c>ldnull</c> and <c>ceq</c>, carries no field, getter, or literal, and
     /// so satisfies that gate truthfully rather than by evading it. That gate's
@@ -295,13 +300,22 @@ public class PlantedCoreLibraryIdentityTests
             "A missing acquisition entitled the assembly to core-library "
             + "identity. Nothing was acquired, so nothing establishes the "
             + "coherent closure that identity depends on.");
+
+        // Asked of the grant path as well, for the same reason the entitled
+        // set is: `provenance is null` short-circuiting in GrantIfEntitled
+        // never reaches MayMint, and reads nothing, so neither the assertion
+        // above nor the IL gate can see it.
+        Assert.False(
+            GrantsIdentity(null!),
+            "A missing acquisition granted core-library identity on the way "
+            + "to the decision, without the decision entitling it.");
     }
 
     /// <summary>
     /// One acquisition of the given type, built with a neutral value in every
     /// field. Which value it is no longer matters: that entitlement cannot
     /// depend on any value is established structurally by
-    /// <see cref="MayMint_ReadsNoValueOutOfTheAcquisition"/>, so this only has
+    /// <see cref="TheEntitlementDecisionPath_ReadsNoValueOutOfTheAcquisition"/>, so this only has
     /// to produce an instance of the right kind.
     /// </summary>
     static AssemblyResolutionProvenance Sample(Type provenanceType) =>
@@ -348,9 +362,29 @@ public class PlantedCoreLibraryIdentityTests
     /// holds it. The two compose: this one fixes what the decision may be made
     /// of, that one fixes what the decision is.
     /// </para>
+    /// <para>
+    /// It covers the whole decision <em>path</em>, not one method. Round 7
+    /// defeated a version that decoded only <c>MayMint</c>: the rule was moved
+    /// one frame out into <c>GrantIfEntitled</c>, which is what actually
+    /// performs the grant, and every gate stayed green while a package named
+    /// <c>System.Runtime</c> minted identity. Constraining the method that
+    /// answers the question while leaving the method that acts on the answer
+    /// unconstrained gates nothing, so both are decoded here.
+    /// <c>GrantIfEntitled</c> is additionally allowed to <em>call</em> the two
+    /// members it must call, and nothing else — permitting a call is not
+    /// permitting a read, and any other callee would be a place to hide one.
+    /// </para>
+    /// <para>
+    /// The path is bounded by <c>ReaderConstructionSiteTests</c> rather than by
+    /// this list being complete: the trust type's members are classified as
+    /// granting or non-granting there, and a new member fails until someone
+    /// classifies it. <c>GrantCoreLibraryIdentity</c> is the other granting
+    /// member and is deliberately absent here, because it takes only a reader
+    /// and so has no acquisition to key on.
+    /// </para>
     /// </summary>
     [Fact]
-    public void MayMint_ReadsNoValueOutOfTheAcquisition()
+    public void TheEntitlementDecisionPath_ReadsNoValueOutOfTheAcquisition()
     {
         string assemblyPath = typeof(CoreLibraryIdentityTrust).Assembly.Location;
         Assert.True(
@@ -360,14 +394,54 @@ public class PlantedCoreLibraryIdentityTests
         using var pe = new PEReader(File.OpenRead(assemblyPath));
         MetadataReader metadata = pe.GetMetadataReader();
 
-        MethodDefinition method = TheEntitlementDecision(metadata);
+        AssertReadsNothing(
+            pe,
+            metadata,
+            TheEntitlementDecision(metadata),
+            nameof(CoreLibraryIdentityTrust.MayMint),
+            permittedCallees: []);
+
+        AssertReadsNothing(
+            pe,
+            metadata,
+            TheGrantSite(metadata),
+            nameof(CoreLibraryIdentityTrust.GrantIfEntitled),
+            permittedCallees:
+            [
+                TheEntitlementDecisionHandle(metadata),
+                TheUnconditionalGrantHandle(metadata),
+            ]);
+    }
+
+    /// <summary>
+    /// Decodes one method on the decision path and requires that it read no
+    /// value out of the acquisition: no field, no property getter, no literal.
+    /// <paramref name="permittedCallees"/> is the exact set of methods it may
+    /// call, empty for a method that should call nothing at all.
+    /// <para>
+    /// Callees are matched by <em>metadata row</em>, never by name. Matching on
+    /// the name alone was itself an escape, found by replaying round 6's decoy
+    /// trick one frame out: a <c>Decoy.MayMint</c> on an unrelated type, called
+    /// <em>in addition to</em> the real one, satisfied a name-based allow list
+    /// while keeping every legitimate grant working, and the whole class stayed
+    /// green. A row handle names one method in one type, so nothing can stand in
+    /// for the method the product actually calls.
+    /// </para>
+    /// </summary>
+    static void AssertReadsNothing(
+        PEReader pe,
+        MetadataReader metadata,
+        MethodDefinition method,
+        string methodName,
+        MethodDefinitionHandle[] permittedCallees)
+    {
 
         MethodInstructions decoded = MethodInstructions.Decode(
             pe.GetMethodBody(method.RelativeVirtualAddress));
 
         // Non-vacuity: an undecodable or empty body would satisfy every
         // assertion below without proving anything.
-        Assert.True(decoded.IsComplete, "MayMint's IL did not decode.");
+        Assert.True(decoded.IsComplete, $"{methodName}'s IL did not decode.");
         Assert.NotEmpty(decoded.Instructions);
 
         DecodedInstruction[] reads = decoded.Instructions
@@ -377,17 +451,76 @@ public class PlantedCoreLibraryIdentityTests
                 or OperandKind.InlineString // ldstr: a literal to compare against
                 or OperandKind.InlineTok
                 or OperandKind.InlineSig)
+            .Where(instruction =>
+                instruction.Operand != OperandKind.InlineMethod
+                || !IsPermittedCallee(
+                    metadata, instruction.OperandValue, permittedCallees))
             .ToArray();
 
         Assert.True(
             reads.Length == 0,
-            "MayMint reads a value out of the acquisition at IL offset(s) "
+            $"{methodName} reads a value out of the acquisition at IL "
+            + "offset(s) "
             + string.Join(
                 ", ",
-                reads.Select(r => $"{r.Offset:x4} ({r.OpCode}, {r.Operand})"))
+                reads.Select(r =>
+                    $"{r.Offset:x4} ({r.OpCode}, {r.Operand}"
+                    + (r.Operand == OperandKind.InlineMethod
+                        ? $", {CalleeName(metadata, r.OperandValue)}"
+                        : string.Empty)
+                    + ")"))
             + ". Core-library trust must follow the kind of acquisition, not "
             + "anything the acquisition happens to contain, so the decision may "
-            + "name types and nothing else.");
+            + "name types and nothing else."
+            + (permittedCallees.Length == 0
+                ? string.Empty
+                : " This method may call only "
+                    + string.Join(
+                        " and ",
+                        permittedCallees.Select(c =>
+                            metadata.GetString(
+                                metadata.GetMethodDefinition(c).Name)))
+                    + ", because any other callee is a place to hide a read."));
+    }
+
+    /// <summary>
+    /// Whether a call instruction's operand is one of the permitted callees,
+    /// compared by metadata row. A <c>MemberReference</c> — which is how a call
+    /// to any other assembly is encoded — is never permitted, and neither is a
+    /// same-named method on another type, because neither shares a row with the
+    /// method the product actually calls.
+    /// </summary>
+    static bool IsPermittedCallee(
+        MetadataReader metadata,
+        long token,
+        MethodDefinitionHandle[] permittedCallees)
+    {
+        _ = metadata;
+        EntityHandle handle = MetadataTokens.EntityHandle((int)token);
+
+        return handle.Kind == HandleKind.MethodDefinition
+            && permittedCallees.Contains((MethodDefinitionHandle)handle);
+    }
+
+    /// <summary>
+    /// The name a call instruction's operand refers to, for diagnostics only.
+    /// Permission is decided by <see cref="IsPermittedCallee"/> on the metadata
+    /// row; this never participates in that decision.
+    /// </summary>
+    static string CalleeName(MetadataReader metadata, long token)
+    {
+        EntityHandle handle = MetadataTokens.EntityHandle((int)token);
+
+        return handle.Kind switch
+        {
+            HandleKind.MethodDefinition => metadata.GetString(
+                metadata.GetMethodDefinition(
+                    (MethodDefinitionHandle)handle).Name),
+            HandleKind.MemberReference => metadata.GetString(
+                metadata.GetMemberReference(
+                    (MemberReferenceHandle)handle).Name),
+            _ => $"<{handle.Kind}>",
+        };
     }
 
     /// <summary>
@@ -410,7 +543,62 @@ public class PlantedCoreLibraryIdentityTests
     /// quietly gating one of them and leaving the other unexamined.
     /// </para>
     /// </summary>
-    static MethodDefinition TheEntitlementDecision(MetadataReader metadata)
+    static MethodDefinition TheEntitlementDecision(MetadataReader metadata) =>
+        metadata.GetMethodDefinition(
+            Resolve(
+                metadata,
+                nameof(CoreLibraryIdentityTrust.MayMint),
+                typeof(bool),
+                [typeof(AssemblyResolutionProvenance)]));
+
+    /// <summary>
+    /// The row <c>MayMint</c> occupies, so that a call to it can be told from a
+    /// call to anything else that merely shares its name.
+    /// </summary>
+    static MethodDefinitionHandle TheEntitlementDecisionHandle(
+        MetadataReader metadata) =>
+        Resolve(
+            metadata,
+            nameof(CoreLibraryIdentityTrust.MayMint),
+            typeof(bool),
+            [typeof(AssemblyResolutionProvenance)]);
+
+    /// <summary>
+    /// The row of the unconditional grant. <c>GrantIfEntitled</c> is permitted
+    /// to call it because that call is the grant itself; it takes only a
+    /// reader, so it has no acquisition to key on and nothing to hide.
+    /// </summary>
+    static MethodDefinitionHandle TheUnconditionalGrantHandle(
+        MetadataReader metadata) =>
+        Resolve(
+            metadata,
+            nameof(CoreLibraryIdentityTrust.GrantCoreLibraryIdentity),
+            typeof(void),
+            [typeof(MetadataReader)]);
+
+    /// <summary>
+    /// The method that acts on the decision, resolved the same way and for the
+    /// same reason. Round 7 moved a content-keyed rule here, one frame out from
+    /// <c>MayMint</c>, and every gate stayed green — so this body is decoded
+    /// too.
+    /// </summary>
+    static MethodDefinition TheGrantSite(MetadataReader metadata) =>
+        metadata.GetMethodDefinition(
+            Resolve(
+                metadata,
+                nameof(CoreLibraryIdentityTrust.GrantIfEntitled),
+                typeof(void),
+                [typeof(MetadataReader), typeof(AssemblyResolutionProvenance)]));
+
+    /// <summary>
+    /// The single method of that name and signature on the trust type,
+    /// resolved by metadata token rather than by name.
+    /// </summary>
+    static MethodDefinitionHandle Resolve(
+        MetadataReader metadata,
+        string methodName,
+        Type returnType,
+        Type[] parameterTypes)
     {
         const BindingFlags Declared =
             BindingFlags.Static
@@ -420,43 +608,66 @@ public class PlantedCoreLibraryIdentityTests
 
         MethodInfo[] named = typeof(CoreLibraryIdentityTrust)
             .GetMethods(Declared)
-            .Where(m => m.Name == nameof(CoreLibraryIdentityTrust.MayMint))
+            .Where(m => m.Name == methodName)
             .ToArray();
 
         Assert.True(
             named.Length == 1,
             $"Expected exactly one {nameof(CoreLibraryIdentityTrust)}."
-            + $"{nameof(CoreLibraryIdentityTrust.MayMint)}, found "
-            + $"{named.Length}: "
+            + $"{methodName}, found {named.Length}: "
             + string.Join(", ", named.Select(m => m.ToString()))
-            + ". This gate decodes the entitlement decision, and cannot tell "
-            + "which overload that is. Name the decision uniquely, or teach "
-            + "this gate which one to read.");
+            + ". This gate decodes that method, and cannot tell which overload "
+            + "is meant. Name it uniquely, or teach this gate which one to "
+            + "read.");
 
         MethodInfo decision = named[0];
 
-        // The signature is pinned as well as the count, so that redefining
-        // MayMint to take something other than an acquisition -- which would
+        // The signature is pinned as well as the count, so that redefining the
+        // method to take something other than an acquisition -- which would
         // make "reads no value out of the acquisition" a claim about a
         // different argument -- fails here rather than passing quietly.
-        Assert.Equal(typeof(bool), decision.ReturnType);
+        Assert.Equal(returnType, decision.ReturnType);
         Assert.Equal(
-            [typeof(AssemblyResolutionProvenance)],
+            parameterTypes,
             decision.GetParameters().Select(p => p.ParameterType));
 
         var handle = (MethodDefinitionHandle)
             MetadataTokens.EntityHandle(decision.MetadataToken);
 
-        MethodDefinition method = metadata.GetMethodDefinition(handle);
-
         // Guards the assumption that the loaded assembly and the file just
         // opened are the same build. A token read from one and resolved
         // against the other would otherwise land on an arbitrary method.
         Assert.Equal(
-            nameof(CoreLibraryIdentityTrust.MayMint),
-            metadata.GetString(method.Name));
+            methodName,
+            metadata.GetString(metadata.GetMethodDefinition(handle).Name));
 
-        return method;
+        return handle;
+    }
+
+    /// <summary>
+    /// Whether the product actually grants core-library identity for an
+    /// acquisition, observed end to end: hand it to the grant site and ask the
+    /// reader afterwards.
+    /// <para>
+    /// This is what makes the behavioural gates cover the decision
+    /// <em>path</em> rather than the decision method. A rule added anywhere on
+    /// the way to the grant changes this answer, wherever it is spelled.
+    /// </para>
+    /// <para>
+    /// Each call opens its own reader because trust is recorded per reader
+    /// instance, so a shared one would carry a grant from an earlier sample
+    /// into a later one and report entitlement that acquisition never earned.
+    /// </para>
+    /// </summary>
+    static bool GrantsIdentity(AssemblyResolutionProvenance provenance)
+    {
+        using var pe = new PEReader(
+            File.OpenRead(typeof(CoreLibraryIdentityTrust).Assembly.Location));
+
+        MetadataReader reader = pe.GetMetadataReader();
+        CoreLibraryIdentityTrust.GrantIfEntitled(reader, provenance);
+
+        return CoreLibraryIdentityTrust.MayMintCoreLibraryIdentity(reader);
     }
 
     /// <summary>

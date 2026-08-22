@@ -85,6 +85,16 @@ static class CoreLibraryIdentityTrust
     /// <summary>
     /// Grants when <paramref name="provenance"/> entitles a discovered
     /// assembly to core-library identity.
+    /// <para>
+    /// This body is gated as tightly as <see cref="MayMint"/> is, by
+    /// <c>TheEntitlementDecisionPath_ReadsNoValueOutOfTheAcquisition</c>, which
+    /// decodes it and permits it to call only <see cref="MayMint"/> and
+    /// <see cref="GrantCoreLibraryIdentity"/>. Round 7 of review moved a
+    /// content-keyed rule here, one frame out from the decision, and every gate
+    /// stayed green while a package named <c>System.Runtime</c> minted
+    /// identity: constraining the method that answers the question while
+    /// leaving the method that acts on the answer unconstrained gates nothing.
+    /// </para>
     /// </summary>
     internal static void GrantIfEntitled(
         MetadataReader reader,
@@ -114,10 +124,14 @@ static class CoreLibraryIdentityTrust
     /// <c>EveryAcquisitionIsClassified_AndExactlyTwoAreEntitled</c>, which
     /// enumerates every acquisition the product can express and requires this
     /// set exactly. That the answer depends on the kind alone is held by
-    /// <c>MayMint_ReadsNoValueOutOfTheAcquisition</c>, which decodes this
-    /// method's emitted IL and requires that it read no field, property, or
-    /// literal — a rule keyed on what an acquisition contains must load
-    /// something, so a body that loads nothing cannot be one. That an
+    /// <c>TheEntitlementDecisionPath_ReadsNoValueOutOfTheAcquisition</c>,
+    /// which decodes the emitted IL of this method <em>and</em> of
+    /// <see cref="GrantIfEntitled"/>, and requires that neither read a field,
+    /// property, or literal — a rule keyed on what an acquisition contains must
+    /// load something, so a body that loads nothing cannot be one. Both gates
+    /// observe the grant path end to end rather than calling this method, so a
+    /// rule added anywhere on the way to the grant is caught wherever it is
+    /// spelled. That an
     /// <em>absent</em> acquisition entitles nothing is a third property that
     /// neither of those can see, and
     /// <c>AnAbsentAcquisition_IsNotEntitled</c> holds it.
