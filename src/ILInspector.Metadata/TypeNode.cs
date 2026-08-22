@@ -78,6 +78,20 @@ internal abstract class TypeNode
         }
     }
 
+    internal ApiTypeReferenceIdentity? DefinitionReference() =>
+        this switch
+        {
+            NamedTypeNode
+            {
+                AssemblyIdentity: { } assembly
+            } named => new(assembly, named.Name),
+            GenericTypeNode
+            {
+                DefinitionAssemblyIdentity: { } assembly
+            } generic => new(assembly, generic.DefinitionName),
+            _ => null,
+        };
+
     /// <summary>Renders this type to a C# display string with nullability annotations,
     /// including C# tuple syntax (<c>(int count, string name)</c>) for
     /// <c>System.ValueTuple</c> instantiations.</summary>

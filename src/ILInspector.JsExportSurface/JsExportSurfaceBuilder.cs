@@ -154,14 +154,13 @@ public static class JsExportSurfaceBuilder
                 JsonWireNamingPolicy policy =
                     type.JsonPropertyNamingPolicy
                         ?? JsonWireNamingPolicy.None;
+                ApiSignature? signature = member.SignatureModel;
                 IReadOnlyList<ApiTypeReferenceIdentity>? references =
-                    member.SignatureModel?.ReturnTypeReferences;
+                    signature?.ReturnTypeReferences;
                 if (surface.AssemblyIdentity is not null
-                    && (references is null
-                        || !references.Any(reference =>
-                            IsTrustedSystemTextJsonType(
-                                reference,
-                                JsonTypeInfoMetadataName))))
+                    && !IsTrustedSystemTextJsonType(
+                        signature?.ReturnTypeDefinitionReference,
+                        JsonTypeInfoMetadataName))
                 {
                     continue;
                 }

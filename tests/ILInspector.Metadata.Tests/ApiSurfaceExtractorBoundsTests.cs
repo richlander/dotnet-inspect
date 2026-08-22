@@ -377,6 +377,34 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void BaseTypeReferenceContributesItsCompleteRetainedText()
+    {
+        const string assemblyName = "Dependency";
+        const string culture = "en-US";
+        const string token = "0011223344556677";
+        const string fullName = "Dependency.ReallyLongBaseType";
+        var withoutReference = new ApiType();
+        var withReference = new ApiType
+        {
+            BaseTypeReference = new(
+                new ApiAssemblyIdentity(
+                    assemblyName,
+                    new Version(1, 2, 3, 4),
+                    culture,
+                    token),
+                fullName),
+        };
+
+        Assert.Equal(
+            assemblyName.Length
+                + culture.Length
+                + token.Length
+                + fullName.Length,
+            ApiSurfaceExtractor.CountRetainedText(withReference)
+                - ApiSurfaceExtractor.CountRetainedText(withoutReference));
+    }
+
+    [Fact]
     public void RepeatedLongMemberName_StopsBeforeLargeAllocationAmplification()
     {
         byte[] image = BuildRepeatedLongMethodNameImage(

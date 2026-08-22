@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -19,6 +20,46 @@ public sealed class JsonWireContractResolverTests
 {
     private const string FixtureNamespace =
         "ILInspector.JsExportSurface.Fixtures.";
+
+    [Fact]
+    public void WireTypesEqual_DistinguishesCompleteAssemblyIdentity()
+    {
+        TypeRef first = ScopedType("0011223344556677");
+        TypeRef equivalent = ScopedType("0011223344556677");
+        TypeRef different = ScopedType("8899aabbccddeeff");
+
+        Assert.True(
+            JsonWireContractResolver.WireTypesEqual(
+                first,
+                equivalent));
+        Assert.False(
+            JsonWireContractResolver.WireTypesEqual(
+                first,
+                different));
+    }
+
+    static TypeRef ScopedType(string publicKeyToken)
+    {
+        var name = Assert.IsType<
+            MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Mine",
+                    ImmutableArray.Create("Result")))
+            .Name;
+        var assembly = new AssemblyReferenceIdentity(
+            "Shared",
+            new Version(1, 0, 0, 0),
+            null,
+            publicKeyToken);
+        return TypeRef.Definition(
+            "Shared",
+            "Mine",
+            "Result",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.AssemblyReference(
+                    assembly),
+                name));
+    }
 
     private static ILInspector.JsExportSurface.JsExportSurface BuildFixtureSurfaceWithWireContracts()
     {

@@ -552,6 +552,10 @@ public class ApiSignature
     [JsonIgnore]
     public List<ApiTypeReferenceIdentity> ReturnTypeReferences { get; set; } = [];
 
+    [JsonIgnore]
+    public ApiTypeReferenceIdentity? ReturnTypeDefinitionReference
+        { get; set; }
+
     public List<string> ReturnAttributes { get; set; } = [];
     public string? MemberName { get; set; }
     public bool IsRequired { get; set; }

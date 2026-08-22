@@ -3155,6 +3155,8 @@ public static class ApiSurfaceExtractor
                 : null,
             ReturnTypeReferences =
                 [.. treeSignature.ReturnType.ReferencedTypes().Distinct()],
+            ReturnTypeDefinitionReference =
+                treeSignature.ReturnType.DefinitionReference(),
             ReturnAttributes = returnAttributes,
             MemberName = methodName,
             TypeParameters = methodTypeParameters,
@@ -4258,6 +4260,8 @@ public static class ApiSurfaceExtractor
                 : null,
             ReturnTypeReferences =
                 [.. treeSignature.ReturnType.ReferencedTypes().Distinct()],
+            ReturnTypeDefinitionReference =
+                treeSignature.ReturnType.DefinitionReference(),
             MemberName = indexerParameters.Count > 0 ? "this[]" : name,
             IsRequired = isRequired,
             Parameters = parameterModels,
@@ -4621,6 +4625,7 @@ public static class ApiSurfaceExtractor
         AddText(ref count, type.EnumUnderlyingType);
         AddText(ref count, type.BaseType);
         AddText(ref count, type.BaseTypeReference?.Assembly);
+        AddText(ref count, type.BaseTypeReference?.FullName);
         AddText(ref count, type.Interfaces);
         foreach (FilteredJsonPropertyNameFact fact
             in type.FilteredJsonPropertyNameFacts)
@@ -4774,6 +4779,12 @@ public static class ApiSurfaceExtractor
         AddText(ref count, signature.ReturnType);
         AddText(ref count, signature.CanonicalReturnType);
         AddText(ref count, signature.StructuralReturnType);
+        AddText(
+            ref count,
+            signature.ReturnTypeDefinitionReference?.Assembly);
+        AddText(
+            ref count,
+            signature.ReturnTypeDefinitionReference?.FullName);
         foreach (ApiTypeReferenceIdentity reference
             in signature.ReturnTypeReferences)
         {

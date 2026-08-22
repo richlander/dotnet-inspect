@@ -1024,6 +1024,14 @@ public sealed class JsExportSurfaceBuilderTests
         context.Members[0].SignatureModel = new ApiSignature
         {
             ReturnType = context.Members[0].ReturnType,
+            ReturnTypeDefinitionReference = new(
+                new ApiAssemblyIdentity(
+                    "System.Text.Json",
+                    new Version(11, 0, 0, 0),
+                    culture: null,
+                    publicKeyToken:
+                        "cc7b13ffcd2ddd51"),
+                "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1"),
             ReturnTypeReferences =
             [
                 new(
@@ -1109,12 +1117,20 @@ public sealed class JsExportSurfaceBuilderTests
         context.Members[0].SignatureModel = new ApiSignature
         {
             ReturnType = context.Members[0].ReturnType,
+            ReturnTypeDefinitionReference = new(
+                spoofBaseType
+                    ? authenticSystemTextJson
+                    : lookalikeSystemTextJson,
+                "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1"),
             ReturnTypeReferences =
             [
                 new(
                     spoofBaseType
                         ? authenticSystemTextJson
                         : lookalikeSystemTextJson,
+                    "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1"),
+                new(
+                    authenticSystemTextJson,
                     "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1"),
                 new(localAssembly, "Mine.Result"),
             ],

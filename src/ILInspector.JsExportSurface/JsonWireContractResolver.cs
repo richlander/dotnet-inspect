@@ -81,7 +81,8 @@ public static class JsonWireContractResolver
 
             if (call.Callee.Name == SerializeMethodName)
             {
-                if (!returnTypes.Contains(dto))
+                if (!returnTypes.Any(existing =>
+                    WireTypesEqual(existing, dto)))
                 {
                     returnTypes.Add(dto);
                 }
@@ -109,6 +110,13 @@ public static class JsonWireContractResolver
                     type => type.ToQualifiedDisplayString())],
         };
     }
+
+    internal static bool WireTypesEqual(
+        TypeRef left,
+        TypeRef right) =>
+        left.Equals(right)
+        && ReferencedTypes(left).SequenceEqual(
+            ReferencedTypes(right));
 
     static TypeRef? ResolveJsonTypeInfoArgument(MemberRef callee)
     {
