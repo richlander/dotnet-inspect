@@ -170,20 +170,22 @@ public class MemberIdentityValueEqualityTests
     {
         TypeRef owner =
             TypeRef.Definition("Sample", "Sample", "Value");
-        TypeRef integer = TypeRef.CoreLib("System", "Int32");
-        TypeRef longInteger = TypeRef.CoreLib("System", "Int64");
-        var toInteger = new MethodIdentity(
+        TypeRef libraryAResult =
+            TypeRef.Definition("LibraryA", "Shared", "Result");
+        TypeRef libraryBResult =
+            TypeRef.Definition("LibraryB", "Shared", "Result");
+        var toLibraryA = new MethodIdentity(
             "Sample",
             Guid.Empty,
             owner,
             "op_Explicit",
             [owner],
-            integer,
+            libraryAResult,
             0x06000001,
             true);
-        var toLong = toInteger with
+        var toLibraryB = toLibraryA with
         {
-            ReturnType = longInteger,
+            ReturnType = libraryBResult,
             MetadataToken = 0x06000002,
         };
         var caller = new MethodIdentity(
@@ -195,37 +197,150 @@ public class MemberIdentityValueEqualityTests
             TypeRef.CoreLib("System", "Void"),
             0x06000003,
             true);
-        var integerCall = new DirectCall(
+        var libraryACall = new DirectCall(
             caller,
             new MemberRef(
                 owner,
                 "op_Explicit",
                 [owner],
-                integer,
+                libraryAResult,
                 MemberKind.Method),
             0,
             0x0A000001,
             0x0A000001,
             CallKind.Call);
-        var longCall = integerCall with
+        var libraryBCall = libraryACall with
         {
-            Callee = integerCall.Callee with
+            Callee = libraryACall.Callee with
             {
-                ReturnType = longInteger,
+                ReturnType = libraryBResult,
             },
             ILOffset = 1,
             OperandToken = 0x0A000002,
             CalleeDefinitionToken = 0x0A000002,
         };
         MethodDefinitionMap map =
-            MethodDefinitionMap.Create([toInteger, toLong, caller]);
+            MethodDefinitionMap.Create(
+                [toLibraryA, toLibraryB, caller]);
 
         Assert.Equal(
-            toInteger.MetadataToken,
-            map.Resolve(integerCall));
+            toLibraryA.MetadataToken,
+            map.Resolve(libraryACall));
         Assert.Equal(
-            toLong.MetadataToken,
-            map.Resolve(longCall));
+            toLibraryB.MetadataToken,
+            map.Resolve(libraryBCall));
+    }
+
+    [Fact]
+    public void MethodDefinitionMap_ConstructedGenericFallbackPreservesReturnAssembly()
+    {
+        TypeRef owner =
+            TypeRef.Definition("Sample", "Sample", "Box`1");
+        TypeRef closedOwner =
+            TypeRef.GenericInstance(
+                owner,
+                [TypeRef.CoreLib("System", "Int32")]);
+        TypeRef libraryAResult =
+            TypeRef.Definition("LibraryA", "Shared", "Result");
+        TypeRef libraryBResult =
+            TypeRef.Definition("LibraryB", "Shared", "Result");
+        var getA = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Get",
+            [],
+            libraryAResult,
+            0x06000001,
+            true);
+        var getB = getA with
+        {
+            ReturnType = libraryBResult,
+            MetadataToken = 0x06000002,
+        };
+        var caller = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Call",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000003,
+            true);
+        var call = new DirectCall(
+            caller,
+            new MemberRef(
+                closedOwner,
+                "Get",
+                [],
+                libraryBResult,
+                MemberKind.Method),
+            0,
+            0x0A000001,
+            0x0A000001,
+            CallKind.Call);
+
+        Assert.Equal(
+            getB.MetadataToken,
+            MethodDefinitionMap.Create([getA, getB, caller])
+                .Resolve(call));
+    }
+
+    [Fact]
+    public void MemberPattern_ConversionReturnUsesExactRetainedIdentity()
+    {
+        TypeRef owner =
+            TypeRef.Definition("Sample", "Sample", "Value");
+        TypeRef integer = TypeRef.CoreLib("System", "Int32");
+        TypeRef modifierA =
+            TypeRef.Definition("LibraryA", "Shared", "Marker");
+        TypeRef modifierB =
+            TypeRef.Definition("LibraryB", "Shared", "Marker");
+        TypeRef returnA =
+            TypeRef.UnsupportedModified(
+                modifierA,
+                TypeRef.MdArray(
+                    integer,
+                    new ArrayShape(1, [6], [0])),
+                isRequired: true);
+        TypeRef differentModifier =
+            TypeRef.UnsupportedModified(
+                modifierB,
+                TypeRef.MdArray(
+                    integer,
+                    new ArrayShape(1, [6], [0])),
+                isRequired: true);
+        TypeRef differentArrayShape =
+            TypeRef.UnsupportedModified(
+                modifierA,
+                TypeRef.MdArray(
+                    integer,
+                    new ArrayShape(1, [7], [0])),
+                isRequired: true);
+        var conversion = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "op_Explicit",
+            [owner],
+            returnA,
+            0x06000001,
+            true);
+        MemberPattern pattern = MemberPattern.Method(conversion);
+        MemberRef member = new(
+            owner,
+            conversion.Name,
+            conversion.ParameterTypes,
+            returnA,
+            MemberKind.Method);
+
+        Assert.True(pattern.Matches(member));
+        Assert.False(
+            pattern.Matches(
+                member with { ReturnType = differentModifier }));
+        Assert.False(
+            pattern.Matches(
+                member with { ReturnType = differentArrayShape }));
     }
 
     [Fact]

@@ -7,6 +7,8 @@ internal sealed class MethodDefinitionMap
 {
     readonly HashSet<int> _methodTokens = [];
     readonly Dictionary<string, int> _tokenByKey = new(StringComparer.Ordinal);
+    readonly Dictionary<string, List<MethodIdentity>> _conversionsByKey =
+        new(StringComparer.Ordinal);
     readonly Dictionary<string, List<MethodIdentity>> _methodsByDeclaringTypeAndName = new(StringComparer.Ordinal);
 
     MethodDefinitionMap(ImmutableArray<MethodIdentity> methods)
@@ -14,13 +16,21 @@ internal sealed class MethodDefinitionMap
         foreach (var method in methods)
         {
             _methodTokens.Add(method.MetadataToken);
-            _tokenByKey.TryAdd(
-                Key(
-                    method.DeclaringType,
-                    method.Name,
-                    method.ParameterTypes,
-                    method.ReturnType),
-                method.MetadataToken);
+            string key = Key(
+                method.DeclaringType,
+                method.Name,
+                method.ParameterTypes);
+            if (ApiMemberIdentity.IsConversionOperator(method.Name))
+            {
+                if (_conversionsByKey.TryGetValue(key, out var conversions))
+                    conversions.Add(method);
+                else
+                    _conversionsByKey[key] = [method];
+            }
+            else
+            {
+                _tokenByKey.TryAdd(key, method.MetadataToken);
+            }
 
             var groupKey = DeclaringTypeAndNameKey(method.DeclaringType, method.Name);
             if (_methodsByDeclaringTypeAndName.TryGetValue(groupKey, out var list))
@@ -40,13 +50,26 @@ internal sealed class MethodDefinitionMap
             return call.CalleeDefinitionToken;
         if (call.Callee.Kind == MemberKind.Unsupported)
             return 0;
-        if (_tokenByKey.TryGetValue(
-                Key(
-                    call.Callee.DeclaringType,
-                    call.Callee.Name,
-                    call.Callee.ParameterTypes,
-                    call.Callee.OpenSignatureReturn),
-                out int token))
+        string key = Key(
+            call.Callee.DeclaringType,
+            call.Callee.Name,
+            call.Callee.ParameterTypes);
+        if (ApiMemberIdentity.IsConversionOperator(call.Callee.Name))
+        {
+            if (_conversionsByKey.TryGetValue(key, out var conversions))
+            {
+                foreach (MethodIdentity conversion in conversions)
+                {
+                    if (TypeRef.ExactSignatureEquals(
+                            conversion.ReturnType,
+                            call.Callee.OpenSignatureReturn))
+                    {
+                        return conversion.MetadataToken;
+                    }
+                }
+            }
+        }
+        else if (_tokenByKey.TryGetValue(key, out int token))
         {
             return token;
         }
@@ -93,13 +116,14 @@ internal sealed class MethodDefinitionMap
             if (!candidate.ParameterTypes[i].Instantiate(typeArguments, methodArguments).Equals(parameterTypes[i]))
                 return false;
         }
-        return string.Equals(
-            CallGraphMemberResolver.StructuralTypeKey(
-                candidate.ReturnType.Instantiate(
-                    typeArguments,
-                    methodArguments)),
-            CallGraphMemberResolver.StructuralTypeKey(returnType),
-            StringComparison.Ordinal);
+        TypeRef candidateReturn = candidate.ReturnType.Instantiate(
+            typeArguments,
+            methodArguments);
+        return ApiMemberIdentity.IsConversionOperator(candidate.Name)
+            ? TypeRef.ExactSignatureEquals(
+                candidateReturn,
+                returnType)
+            : candidateReturn.Equals(returnType);
     }
 
     static string DeclaringTypeAndNameKey(TypeRef declaringType, string name)
@@ -108,20 +132,10 @@ internal sealed class MethodDefinitionMap
     static string Key(
         TypeRef declaringType,
         string name,
-        ImmutableArray<TypeRef> parameterTypes,
-        TypeRef returnType)
-    {
-        string key =
-            $"{GenericMemberIdentity.KeyFragment(declaringType)}|{name}|"
-            + string.Join(
-                ",",
-                parameterTypes.Select(
-                    GenericMemberIdentity.KeyFragment));
-        if (!ApiMemberIdentity.IsConversionOperator(name))
-            return key;
-
-        string returnKey =
-            CallGraphMemberResolver.StructuralTypeKey(returnType);
-        return $"{key}|{returnKey.Length}:{returnKey}";
-    }
+        ImmutableArray<TypeRef> parameterTypes) =>
+        $"{GenericMemberIdentity.KeyFragment(declaringType)}|{name}|"
+        + string.Join(
+            ",",
+            parameterTypes.Select(
+                GenericMemberIdentity.KeyFragment));
 }
