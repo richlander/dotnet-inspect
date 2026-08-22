@@ -324,6 +324,8 @@ public static partial class InspectionEngine
     /// <see cref="AssemblyContextMemberProjectionQuery"/> over the participant that owns the
     /// member's implementation. The document is serialized by its owning product context, so the
     /// payload is the same artifact the CLI emits and the viewer validates.
+    /// <c>MemberProjection_ContentAndPathBackedPortableDocumentsAreIdentical</c> gates parity
+    /// between the browser's content-backed projection and the CLI's path-backed projection.
     /// </summary>
     [JSExport]
     public static async Task<string> QueryMemberAnnotatedSource(
