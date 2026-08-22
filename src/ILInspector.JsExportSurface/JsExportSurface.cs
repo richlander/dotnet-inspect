@@ -14,7 +14,7 @@ namespace ILInspector.JsExportSurface;
 public sealed class JsExportSurface
 {
     [JsonIgnore]
-    public string? AssemblyName { get; init; }
+    public ApiAssemblyIdentity? AssemblyIdentity { get; init; }
 
     public IReadOnlyList<JsExportFunction> Functions { get; init; } = [];
 

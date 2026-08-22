@@ -172,13 +172,10 @@ public static class ApiSurfaceExtractor
     {
         var surface = new ApiSurface();
         var reader = peReader.GetMetadataReader();
-        string currentAssemblyName = reader.IsAssembly
-            ? DecodeString(
-                reader,
-                reader.GetAssemblyDefinition().Name,
-                beforeDecodeWork: null)
-            : "";
-        surface.AssemblyName = currentAssemblyName;
+        ApiAssemblyIdentity? currentAssemblyIdentity = reader.IsAssembly
+            ? ApiAssemblyIdentity.FromDefinition(reader)
+            : null;
+        surface.AssemblyIdentity = currentAssemblyIdentity;
         var extensionReceiverDefinitions =
             new Dictionary<ApiMember, MetadataTypeDefinitionName>();
 
@@ -482,13 +479,27 @@ public static class ApiSurfaceExtractor
             ? null
             : materializationContext.Observe;
         Action<int> observeAttributeMaterialize = materializationContext.Observe;
-        string currentAssemblyName = reader.IsAssembly
-            ? DecodeString(
+        ApiAssemblyIdentity? currentAssemblyIdentity = reader.IsAssembly
+            ? ApiAssemblyIdentity.FromDefinition(
                 reader,
-                reader.GetAssemblyDefinition().Name,
                 observeDecodeWork)
-            : "";
-        surface.AssemblyName = currentAssemblyName;
+            : null;
+        if (currentAssemblyIdentity is not null && budget is not null)
+        {
+            budget.RetainCommittedText(
+                currentAssemblyIdentity.Name);
+            if (currentAssemblyIdentity.Culture is not null)
+            {
+                budget.RetainCommittedText(
+                    currentAssemblyIdentity.Culture);
+            }
+            if (currentAssemblyIdentity.PublicKeyToken is not null)
+            {
+                budget.RetainCommittedText(
+                    currentAssemblyIdentity.PublicKeyToken);
+            }
+        }
+        surface.AssemblyIdentity = currentAssemblyIdentity;
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
@@ -616,6 +627,21 @@ public static class ApiSurfaceExtractor
                     baseTypeName,
                     observeText,
                     observeDecodeWork);
+                ApiAssemblyIdentity? baseAssembly =
+                    ResolveTypeAssemblyIdentity(
+                        reader,
+                        typeDef.BaseType,
+                        currentAssemblyIdentity,
+                        observeDecodeWork);
+                if (baseAssembly is not null)
+                {
+                    RetainAssemblyIdentity(
+                        baseAssembly,
+                        observeText);
+                    apiType.BaseTypeReference = new(
+                        baseAssembly,
+                        baseTypeName);
+                }
 
                 apiType.Kind = baseTypeName switch
                 {
@@ -672,7 +698,7 @@ public static class ApiSurfaceExtractor
                         reader,
                         jsonTypeAttributes,
                         apiType.FullName,
-                        currentAssemblyName,
+                        currentAssemblyIdentity,
                         observeDecodeWork);
             }
 
@@ -1007,7 +1033,8 @@ public static class ApiSurfaceExtractor
                         prop.Name,
                         observeDecodeWork),
                     Kind = "property",
-                    MetadataToken = MetadataTokens.GetToken(propHandle),
+                    DeclarationMetadataToken =
+                        MetadataTokens.GetToken(propHandle),
                     Signature = propertySignature.Text,
                     SignatureModel = propertySignature.Model,
                     SignatureDecodeStatus = propertySignature.IsDegraded
@@ -1207,7 +1234,8 @@ public static class ApiSurfaceExtractor
                 {
                     Name = fieldName,
                     Kind = "field",
-                    MetadataToken = MetadataTokens.GetToken(fieldHandle),
+                    DeclarationMetadataToken =
+                        MetadataTokens.GetToken(fieldHandle),
                     ReturnType = fieldType,
                     SignatureModel = fieldType is null ? null : new ApiSignature
                     {
@@ -4592,6 +4620,7 @@ public static class ApiSurfaceExtractor
         AddText(ref count, type.Attributes);
         AddText(ref count, type.EnumUnderlyingType);
         AddText(ref count, type.BaseType);
+        AddText(ref count, type.BaseTypeReference?.Assembly);
         AddText(ref count, type.Interfaces);
         foreach (FilteredJsonPropertyNameFact fact
             in type.FilteredJsonPropertyNameFacts)
@@ -4684,6 +4713,60 @@ public static class ApiSurfaceExtractor
         return reader.GetString(handle);
     }
 
+    static ApiAssemblyIdentity? ResolveTypeAssemblyIdentity(
+        MetadataReader reader,
+        EntityHandle type,
+        ApiAssemblyIdentity? currentAssembly,
+        Action<int>? beforeDecodeWork)
+    {
+        if (type.Kind == HandleKind.TypeDefinition)
+            return currentAssembly;
+        if (type.Kind != HandleKind.TypeReference)
+            return null;
+
+        Span<TypeReferenceHandle> chain =
+            stackalloc TypeReferenceHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal
+                .TryWalkTypeReferenceResolutionScope(
+                    reader,
+                    (TypeReferenceHandle)type,
+                    chain,
+                    out _,
+                    out EntityHandle terminal,
+                    out _))
+        {
+            return null;
+        }
+
+        return terminal.Kind switch
+        {
+            HandleKind.AssemblyReference =>
+                ApiAssemblyIdentity.FromReference(
+                    reader,
+                    (AssemblyReferenceHandle)terminal,
+                    beforeDecodeWork),
+            HandleKind.ModuleDefinition or HandleKind.ModuleReference =>
+                currentAssembly,
+            _ when terminal.IsNil => currentAssembly,
+            _ => null,
+        };
+    }
+
+    static void RetainAssemblyIdentity(
+        ApiAssemblyIdentity? identity,
+        Action<string>? observeText)
+    {
+        if (identity is null || observeText is null)
+            return;
+
+        observeText(identity.Name);
+        if (identity.Culture is not null)
+            observeText(identity.Culture);
+        if (identity.PublicKeyToken is not null)
+            observeText(identity.PublicKeyToken);
+    }
+
     static void AddText(ref long count, ApiSignature? signature)
     {
         if (signature is null)
@@ -4694,7 +4777,7 @@ public static class ApiSurfaceExtractor
         foreach (ApiTypeReferenceIdentity reference
             in signature.ReturnTypeReferences)
         {
-            AddText(ref count, reference.AssemblyName);
+            AddText(ref count, reference.Assembly);
             AddText(ref count, reference.FullName);
         }
         AddText(ref count, signature.ReturnAttributes);
@@ -4747,6 +4830,18 @@ public static class ApiSurfaceExtractor
     {
         foreach (string value in values)
             AddText(ref count, value);
+    }
+
+    static void AddText(
+        ref long count,
+        ApiAssemblyIdentity? identity)
+    {
+        if (identity is null)
+            return;
+        count = count > long.MaxValue
+                - identity.RetainedCharacterCount
+            ? long.MaxValue
+            : count + identity.RetainedCharacterCount;
     }
 
     static void AddText(ref long count, string? value)

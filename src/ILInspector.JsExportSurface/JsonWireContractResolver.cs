@@ -143,9 +143,14 @@ public static class JsonWireContractResolver
     {
         if (type.Kind == TypeRefKind.Definition)
         {
-            yield return new(
-                type.Assembly,
-                type.ToQualifiedDisplayString());
+            ApiAssemblyIdentity? assembly =
+                GetAssemblyIdentity(type);
+            if (assembly is not null)
+            {
+                yield return new(
+                    assembly,
+                    type.ToQualifiedDisplayString());
+            }
         }
 
         if (type.ElementType is not null)
@@ -164,6 +169,31 @@ public static class JsonWireContractResolver
             {
                 yield return reference;
             }
+        }
+
+        static ApiAssemblyIdentity? GetAssemblyIdentity(TypeRef type)
+        {
+            AssemblyReferenceIdentity? identity =
+                type.Resolution?.Origin switch
+                {
+                    TypeReferenceOrigin.AssemblyReference reference =>
+                        reference.Assembly,
+                    TypeReferenceOrigin.CurrentAssembly current =>
+                        current.Assembly,
+                    _ => null,
+                };
+            if (identity is not null)
+            {
+                return new(
+                    identity.Name,
+                    identity.Version,
+                    identity.Culture,
+                    identity.PublicKeyToken);
+            }
+
+            return type.Assembly.Length > 0
+                ? new(type.Assembly, null, null, null)
+                : null;
         }
     }
 }

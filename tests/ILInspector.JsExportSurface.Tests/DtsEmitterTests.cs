@@ -519,7 +519,7 @@ public sealed class DtsEmitterTests
         string dts = DtsEmitter.Emit(
             new ILInspector.JsExportSurface.JsExportSurface
             {
-                AssemblyName = apiSurface.AssemblyName,
+                AssemblyIdentity = apiSurface.AssemblyIdentity,
                 Enums = [enumType],
             },
             diagnostics);
@@ -602,9 +602,14 @@ public sealed class DtsEmitterTests
     public void Emit_ExternalEnvelopeCannotAliasLocalQualifiedType()
     {
         var diagnostics = new TsBindGenDiagnostics();
+        var localAssembly = new ApiAssemblyIdentity(
+            "Local",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: "0011223344556677");
         var surface = new ILInspector.JsExportSurface.JsExportSurface
         {
-            AssemblyName = "Local",
+            AssemblyIdentity = localAssembly,
             Records =
             [
                 new ApiType
@@ -623,7 +628,14 @@ public sealed class DtsEmitterTests
                     ReturnWireType = "Mine.Result",
                     ReturnWireTypeReferences =
                     [
-                        new("External", "Mine.Result"),
+                        new(
+                            new ApiAssemblyIdentity(
+                                "Local",
+                                new Version(1, 0, 0, 0),
+                                culture: null,
+                                publicKeyToken:
+                                    "8899aabbccddeeff"),
+                            "Mine.Result"),
                     ],
                 },
             ],
@@ -678,7 +690,7 @@ public sealed class DtsEmitterTests
             candidate => candidate.Name == "Value");
 
         Assert.Equal(
-            $"member 0x{member.MetadataToken:X8} "
+            $"member 0x{member.DeclarationMetadataToken:X8} "
                 + "[JsonPropertyName]: control-character JSON property names "
                 + "are not supported.",
             exception.Message);
@@ -988,7 +1000,7 @@ public sealed class DtsEmitterTests
                     Name = unsafeName,
                     Kind = "property",
                     ReturnType = "string",
-                    MetadataToken = 0x17000001,
+                    DeclarationMetadataToken = 0x17000001,
                 },
             ],
         };
@@ -1365,7 +1377,7 @@ public sealed class DtsEmitterTests
             enumType.Members,
             candidate => candidate.Name == "Value");
         Assert.Equal(
-            $"member 0x{member.MetadataToken:X8} [JsonPropertyName]: "
+            $"member 0x{member.DeclarationMetadataToken:X8} [JsonPropertyName]: "
                 + "control-character JSON property names are not supported.",
             exception.Message);
     }

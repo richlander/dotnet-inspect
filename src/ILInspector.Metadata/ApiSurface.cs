@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
+using System.Reflection.Metadata;
 using System.Text.Json.Serialization;
 using CSharpText;
 using ILInspector.Findings;
@@ -133,7 +135,7 @@ public class ApiSurface
     int _suppressedConstraintResolutionFailureCount;
 
     [JsonIgnore]
-    public string? AssemblyName { get; set; }
+    public ApiAssemblyIdentity? AssemblyIdentity { get; set; }
 
     /// <summary>
     /// Package or assembly name.
@@ -764,6 +766,8 @@ public class ApiType
     public bool IsReadOnly { get; set; }
 
     public string? BaseType { get; set; }
+    [JsonIgnore]
+    public ApiTypeReferenceIdentity? BaseTypeReference { get; set; }
     public List<string> Interfaces { get; set; } = [];
 
     /// <summary>
@@ -886,6 +890,16 @@ public class ApiMember
     /// Used for stable body evidence lookups such as call-site sections.
     /// </summary>
     public int? MetadataToken { get; set; }
+
+    /// <summary>
+    /// PropertyDef or FieldDef token used to identify declaration-scoped
+    /// metadata diagnostics without changing the MethodDef-only body token
+    /// contract of <see cref="MetadataToken"/>. Gated by
+    /// <c>MatchCommandTests.ExecuteAsync_PropertyWithGetterAndSetter_RejectsRatherThanSilentlySelectingGetter</c>
+    /// and <c>ExecuteAsync_GetOnlyProperty_ResolvesToGetterBody</c>.
+    /// </summary>
+    [JsonIgnore]
+    public int? DeclarationMetadataToken { get; set; }
 
     /// <summary>
     /// MethodDef tokens of a property's get/set accessors when known. Lets accessor-level
@@ -1056,6 +1070,144 @@ public class ApiMember
     public DocComment Documentation { get; set; } = new();
 }
 
+public sealed class ApiAssemblyIdentity : IEquatable<ApiAssemblyIdentity>
+{
+    public ApiAssemblyIdentity(
+        string name,
+        Version? version,
+        string? culture,
+        string? publicKeyToken)
+    {
+        Name = name;
+        Version = version;
+        Culture = culture;
+        PublicKeyToken = publicKeyToken;
+    }
+
+    public string Name { get; }
+    public Version? Version { get; }
+    public string? Culture { get; }
+    public string? PublicKeyToken { get; }
+
+    public bool Equals(ApiAssemblyIdentity? other) =>
+        other is not null
+        && StringComparer.OrdinalIgnoreCase.Equals(Name, other.Name)
+        && Version == other.Version
+        && StringComparer.OrdinalIgnoreCase.Equals(
+            NormalizeCulture(Culture),
+            NormalizeCulture(other.Culture))
+        && StringComparer.OrdinalIgnoreCase.Equals(
+            PublicKeyToken ?? "",
+            other.PublicKeyToken ?? "");
+
+    public override bool Equals(object? obj) =>
+        obj is ApiAssemblyIdentity other && Equals(other);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Name, StringComparer.OrdinalIgnoreCase);
+        hash.Add(Version);
+        hash.Add(
+            NormalizeCulture(Culture),
+            StringComparer.OrdinalIgnoreCase);
+        hash.Add(
+            PublicKeyToken ?? "",
+            StringComparer.OrdinalIgnoreCase);
+        return hash.ToHashCode();
+    }
+
+    internal int RetainedCharacterCount =>
+        Name.Length
+        + (Culture?.Length ?? 0)
+        + (PublicKeyToken?.Length ?? 0);
+
+    internal static ApiAssemblyIdentity FromDefinition(
+        MetadataReader reader,
+        Action<int>? beforeMaterialize = null)
+    {
+        AssemblyDefinition definition = reader.GetAssemblyDefinition();
+        return new(
+            ReadString(reader, definition.Name, beforeMaterialize),
+            definition.Version,
+            ReadStringOrNull(
+                reader,
+                definition.Culture,
+                beforeMaterialize),
+            ReadToken(
+                reader,
+                definition.PublicKey,
+                isPublicKey: true,
+                beforeMaterialize));
+    }
+
+    internal static ApiAssemblyIdentity FromReference(
+        MetadataReader reader,
+        AssemblyReferenceHandle handle,
+        Action<int>? beforeMaterialize = null)
+    {
+        System.Reflection.Metadata.AssemblyReference reference =
+            reader.GetAssemblyReference(handle);
+        return new(
+            ReadString(reader, reference.Name, beforeMaterialize),
+            reference.Version,
+            ReadStringOrNull(
+                reader,
+                reference.Culture,
+                beforeMaterialize),
+            ReadToken(
+                reader,
+                reference.PublicKeyOrToken,
+                (reference.Flags & AssemblyFlags.PublicKey) != 0,
+                beforeMaterialize));
+    }
+
+    static string ReadString(
+        MetadataReader reader,
+        StringHandle handle,
+        Action<int>? beforeMaterialize)
+    {
+        beforeMaterialize?.Invoke(reader.GetBlobReader(handle).Length);
+        return reader.GetString(handle);
+    }
+
+    static string? ReadStringOrNull(
+        MetadataReader reader,
+        StringHandle handle,
+        Action<int>? beforeMaterialize) =>
+        handle.IsNil
+            ? null
+            : ReadString(reader, handle, beforeMaterialize);
+
+    static string? ReadToken(
+        MetadataReader reader,
+        BlobHandle handle,
+        bool isPublicKey,
+        Action<int>? beforeMaterialize)
+    {
+        if (handle.IsNil)
+            return null;
+
+        int length = reader.GetBlobReader(handle).Length;
+        long work = (long)length
+            + (isPublicKey ? 16L : (long)length * 2);
+        beforeMaterialize?.Invoke(
+            (int)Math.Min(int.MaxValue, work));
+        return AssemblyReferenceIdentity.TokenOrNull(
+            reader,
+            handle,
+            isPublicKey);
+    }
+
+    static string NormalizeCulture(string? value) =>
+        string.IsNullOrEmpty(value)
+            || value.Equals(
+                "neutral",
+                StringComparison.OrdinalIgnoreCase)
+                ? ""
+                : value;
+}
+
 public sealed record ApiTypeReferenceIdentity(
-    string AssemblyName,
+    ApiAssemblyIdentity Assembly,
     string FullName);

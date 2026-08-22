@@ -44,7 +44,7 @@ public sealed class JsonWireContractResolverTests
         Assert.Equal(
             [
                 new ApiTypeReferenceIdentity(
-                    "ILInspector.JsExportSurface.Fixtures",
+                    surface.AssemblyIdentity!,
                     FixtureNamespace + "WidgetDto"),
             ],
             getWidget.ReturnWireTypeReferences);

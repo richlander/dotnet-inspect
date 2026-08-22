@@ -9,7 +9,10 @@ namespace ILInspector.JsExportSurface;
 public static class JsExportSurfaceBuilder
 {
     const string JsonTypeInfoPrefix = "System.Text.Json.Serialization.Metadata.JsonTypeInfo<";
+    const string JsonTypeInfoMetadataName =
+        "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1";
     const string JsonSerializerContextBaseType = "System.Text.Json.Serialization.JsonSerializerContext";
+    const string SystemTextJsonAssemblyName = "System.Text.Json";
 
     public static JsExportSurface Build(ApiSurface surface) => Build(surface, bodyIndex: null);
 
@@ -29,19 +32,23 @@ public static class JsExportSurfaceBuilder
                 group => group.Key,
                 group => group.First().Type,
                 StringComparer.Ordinal);
-        var typesByScopedIdentity = surface.Types
-            .Select(type => (
-                Identity: new ApiTypeReferenceIdentity(
-                    surface.AssemblyName ?? "",
-                    type.FullName),
-                Type: type))
-            .GroupBy(candidate => candidate.Identity)
-            .Where(group => group.Select(candidate => candidate.Type)
-                .Distinct()
-                .Count() == 1)
-            .ToDictionary(
-                group => group.Key,
-                group => group.First().Type);
+        var typesByScopedIdentity =
+            surface.AssemblyIdentity is { } assemblyIdentity
+                ? surface.Types
+                    .Select(type => (
+                        Identity: new ApiTypeReferenceIdentity(
+                            assemblyIdentity,
+                            type.FullName),
+                        Type: type))
+                    .GroupBy(candidate => candidate.Identity)
+                    .Where(group => group
+                        .Select(candidate => candidate.Type)
+                        .Distinct()
+                        .Count() == 1)
+                    .ToDictionary(
+                        group => group.Key,
+                        group => group.First().Type)
+                : [];
 
         var incompleteBodyTokens = new HashSet<int>();
         if (bodyIndex is not null)
@@ -116,6 +123,13 @@ public static class JsExportSurfaceBuilder
         {
             if (type.BaseType != JsonSerializerContextBaseType)
                 continue;
+            if (surface.AssemblyIdentity is not null
+                && !IsTrustedSystemTextJsonType(
+                    type.BaseTypeReference,
+                    JsonSerializerContextBaseType))
+            {
+                continue;
+            }
 
             foreach (ApiMember member in type.Members)
             {
@@ -140,11 +154,29 @@ public static class JsExportSurfaceBuilder
                 JsonWireNamingPolicy policy =
                     type.JsonPropertyNamingPolicy
                         ?? JsonWireNamingPolicy.None;
-                if (member.SignatureModel?.ReturnTypeReferences.Count > 0)
+                IReadOnlyList<ApiTypeReferenceIdentity>? references =
+                    member.SignatureModel?.ReturnTypeReferences;
+                if (surface.AssemblyIdentity is not null
+                    && (references is null
+                        || !references.Any(reference =>
+                            IsTrustedSystemTextJsonType(
+                                reference,
+                                JsonTypeInfoMetadataName))))
+                {
+                    continue;
+                }
+
+                if (references?.Count > 0)
                 {
                     foreach (ApiTypeReferenceIdentity reference
-                        in member.SignatureModel.ReturnTypeReferences)
+                        in references)
                     {
+                        if (IsTrustedSystemTextJsonType(
+                                reference,
+                                JsonTypeInfoMetadataName))
+                        {
+                            continue;
+                        }
                         queue.Enqueue((null, reference, policy));
                     }
                 }
@@ -231,7 +263,7 @@ public static class JsExportSurfaceBuilder
 
         return new JsExportSurface
         {
-            AssemblyName = surface.AssemblyName,
+            AssemblyIdentity = surface.AssemblyIdentity,
             Functions = functions,
             Records = records,
             Enums = enums,
@@ -247,6 +279,15 @@ public static class JsExportSurfaceBuilder
             : type.MetadataToken is { } typeToken
                 ? $"type 0x{typeToken:X8} member"
                 : "JS export member";
+
+    static bool IsTrustedSystemTextJsonType(
+        ApiTypeReferenceIdentity? reference,
+        string fullName) =>
+        reference is not null
+        && reference.FullName == fullName
+        && reference.Assembly.Name == SystemTextJsonAssemblyName
+        && PlatformKeys.IsPlatform(
+            reference.Assembly.PublicKeyToken);
 
     static IEnumerable<string> ExtractCandidateTypeNames(JsExportFunction function)
     {

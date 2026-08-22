@@ -171,7 +171,9 @@ public static class CustomAttributeValueGuard
                 => SkipBytes(ref value, 4),
             ElementTypeI8 or ElementTypeU8 or ElementTypeR8
                 => SkipBytes(ref value, 8),
-            ElementTypeString => SkipSerString(ref value),
+            ElementTypeString => SkipSerString(
+                ref value,
+                beforeMaterialize),
             ElementTypeObject => SkipBoxed(
                 reader,
                 ref value,
@@ -272,7 +274,7 @@ public static class CustomAttributeValueGuard
         // CLASS/VALUETYPE token, including System.String and System.Object,
         // goes through GetUnderlyingEnumType and consumes that width.
         if (IsSystemNamedType(reader, handle, "Type"))
-            return SkipSerString(ref value);
+            return SkipSerString(ref value, beforeMaterialize);
         return SkipBytes(
             ref value,
             EnumUnderlyingPrimitive.ByteSize(
@@ -296,13 +298,16 @@ public static class CustomAttributeValueGuard
         Result type = ReadFieldOrPropType(
             ref value,
             depth,
+            beforeMaterialize,
             out byte leaf,
             out int arrayDepth,
             out string? enumName);
         if (type != Result.Safe)
             return type;
 
-        Result name = SkipSerString(ref value);
+        Result name = SkipSerString(
+            ref value,
+            beforeMaterialize);
         if (name != Result.Safe)
             return name;
 
@@ -320,6 +325,7 @@ public static class CustomAttributeValueGuard
     static Result ReadFieldOrPropType(
         ref BlobReader value,
         int depth,
+        Action<int>? beforeMaterialize,
         out byte leaf,
         out int arrayDepth,
         out string? enumName)
@@ -343,7 +349,10 @@ public static class CustomAttributeValueGuard
 
             leaf = code;
             if (code == SerializedEnum)
-                return TryReadSerString(ref value, out enumName);
+                return TryReadSerString(
+                    ref value,
+                    beforeMaterialize,
+                    out enumName);
             return code is ElementTypeBoolean or ElementTypeChar
                 or ElementTypeI1 or ElementTypeU1
                 or ElementTypeI2 or ElementTypeU2
@@ -409,7 +418,9 @@ public static class CustomAttributeValueGuard
                 => SkipBytes(ref value, 4),
             ElementTypeI8 or ElementTypeU8 or ElementTypeR8
                 => SkipBytes(ref value, 8),
-            ElementTypeString or SerializedType => SkipSerString(ref value),
+            ElementTypeString or SerializedType => SkipSerString(
+                ref value,
+                beforeMaterialize),
             ElementTypeObject or SerializedBoxed => SkipBoxed(
                 reader,
                 ref value,
@@ -474,7 +485,9 @@ public static class CustomAttributeValueGuard
                 return SkipBytes(ref value, 8);
             case ElementTypeString:
             case SerializedType:
-                return SkipSerString(ref value);
+                return SkipSerString(
+                    ref value,
+                    beforeMaterialize);
             case SerializedBoxed:
                 return SkipBoxed(
                     reader,
@@ -484,7 +497,10 @@ public static class CustomAttributeValueGuard
                     depth + 1);
             case SerializedEnum:
             {
-                Result name = TryReadSerString(ref value, out string? enumName);
+                Result name = TryReadSerString(
+                    ref value,
+                    beforeMaterialize,
+                    out string? enumName);
                 return name != Result.Safe
                     ? name
                     : SkipBytes(
@@ -648,23 +664,55 @@ public static class CustomAttributeValueGuard
         return !spec.Signature.IsNil;
     }
 
-    static Result SkipSerString(ref BlobReader blob)
-        => TryReadSerString(ref blob, out _);
+    static Result SkipSerString(
+        ref BlobReader blob,
+        Action<int>? beforeMaterialize)
+    {
+        if (!TryReadSerStringLength(
+                ref blob,
+                out int length))
+        {
+            return Result.Safe;
+        }
 
-    static Result TryReadSerString(ref BlobReader blob, out string? text)
+        beforeMaterialize?.Invoke(length);
+        blob.Offset += length;
+        return Result.Safe;
+    }
+
+    static Result TryReadSerString(
+        ref BlobReader blob,
+        Action<int>? beforeMaterialize,
+        out string? text)
     {
         text = null;
-        if (blob.RemainingBytes < 1)
+        if (!TryReadSerStringLength(
+                ref blob,
+                out int length))
+        {
             return Result.Safe;
-        int offset = blob.Offset;
-        if (blob.ReadByte() == 0xFF)
-            return Result.Safe;
-        blob.Offset = offset;
-        int length = blob.ReadCompressedInteger();
-        if (blob.RemainingBytes < length)
-            return Result.Safe;
+        }
+
+        beforeMaterialize?.Invoke(length);
         text = blob.ReadUTF8(length);
         return Result.Safe;
+    }
+
+    static bool TryReadSerStringLength(
+        ref BlobReader blob,
+        out int length)
+    {
+        length = 0;
+        if (blob.RemainingBytes < 1)
+            return false;
+        int offset = blob.Offset;
+        if (blob.ReadByte() == 0xFF)
+            return false;
+        blob.Offset = offset;
+        length = blob.ReadCompressedInteger();
+        if (blob.RemainingBytes < length)
+            return false;
+        return true;
     }
 
     static Result SkipBytes(ref BlobReader blob, int count)

@@ -210,11 +210,20 @@ public static class AttributeDecoder
     public static CustomAttributeValue<string>? TryDecodePreservingSerializedTypeNames(
         MetadataReader reader,
         CustomAttribute attribute)
+        => TryDecodePreservingSerializedTypeNames(
+            reader,
+            attribute,
+            beforeMaterialize: null);
+
+    public static CustomAttributeValue<string>? TryDecodePreservingSerializedTypeNames(
+        MetadataReader reader,
+        CustomAttribute attribute,
+        Action<int>? beforeMaterialize)
         => TryDecode(
             reader,
             attribute,
             preserveSerializedTypeNames: true,
-            beforeMaterialize: null,
+            beforeMaterialize,
             externalEnumUnderlyingTypes: null);
 
     static CustomAttributeValue<string>? TryDecode(

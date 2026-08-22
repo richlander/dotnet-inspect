@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
@@ -437,7 +438,15 @@ public static partial class AttributeReader
                     attr.Constructor,
                     RuntimeJsExportAttributeName,
                     RuntimeJavaScriptAssemblyName,
-                    beforeMaterialize))
+                    beforeMaterialize)
+                && HasExpectedConstructor(
+                    reader,
+                    attr.Constructor,
+                    FrameworkConstructorKind.Marker,
+                    beforeMaterialize)
+                && HasMarkerValueBlob(
+                    reader,
+                    attr))
             {
                 return true;
             }
@@ -602,7 +611,7 @@ public static partial class AttributeReader
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
         string enumFullName,
-        string enumAssemblyName,
+        ApiAssemblyIdentity? enumAssemblyIdentity,
         Action<int>? beforeMaterialize = null)
     {
         foreach (var attrHandle in attributes)
@@ -616,17 +625,192 @@ public static partial class AttributeReader
                 beforeMaterialize);
             if (!isJsonConverter)
                 continue;
-            if (AttributeDecoder.TryDecodePreservingSerializedTypeNames(reader, attr)
-                    is not { FixedArguments.Length: 1 } decoded
+            if (!HasExpectedConstructor(
+                    reader,
+                    attr.Constructor,
+                    FrameworkConstructorKind.SystemType,
+                    beforeMaterialize)
+                || !HasSingleTypeArgumentValueBlob(
+                    reader,
+                    attr)
+                || AttributeDecoder
+                    .TryDecodePreservingSerializedTypeNames(
+                        reader,
+                        attr,
+                        beforeMaterialize)
+                    is not
+                    {
+                        FixedArguments.Length: 1,
+                        NamedArguments.Length: 0,
+                    } decoded
                 || decoded.FixedArguments[0].Value is not string converterTypeName)
                 continue;
             if (IsSupportedJsonStringEnumConverter(
                     converterTypeName,
                     enumFullName,
-                    enumAssemblyName))
+                    enumAssemblyIdentity))
                 return true;
         }
         return false;
+    }
+
+    enum FrameworkConstructorKind
+    {
+        Marker,
+        SystemType,
+    }
+
+    static bool HasExpectedConstructor(
+        MetadataReader reader,
+        EntityHandle constructor,
+        FrameworkConstructorKind expected,
+        Action<int>? beforeMaterialize)
+    {
+        try
+        {
+            MethodSignature<TypeNode> signature;
+            switch (constructor.Kind)
+            {
+                case HandleKind.MethodDefinition:
+                {
+                    MethodDefinition method = reader.GetMethodDefinition(
+                        (MethodDefinitionHandle)constructor);
+                    if (!reader.StringComparer.Equals(
+                            method.Name,
+                            ".ctor"))
+                    {
+                        return false;
+                    }
+                    if (!SignatureBlobGuard
+                        .IsSafeAndCompleteToDecode(
+                            reader,
+                            method.Signature,
+                            SignatureBlobGuard.Kind.Method))
+                    {
+                        return false;
+                    }
+                    signature = method.DecodeSignature(
+                        new TypeNodeProvider(
+                            beforeMaterialize:
+                                beforeMaterialize),
+                        genericContext: null);
+                    break;
+                }
+                case HandleKind.MemberReference:
+                {
+                    MemberReference member = reader.GetMemberReference(
+                        (MemberReferenceHandle)constructor);
+                    if (!reader.StringComparer.Equals(
+                            member.Name,
+                            ".ctor"))
+                    {
+                        return false;
+                    }
+                    if (!SignatureBlobGuard
+                        .IsSafeAndCompleteToDecode(
+                            reader,
+                            member.Signature,
+                            SignatureBlobGuard.Kind.Method))
+                    {
+                        return false;
+                    }
+                    signature = member.DecodeMethodSignature(
+                        new TypeNodeProvider(
+                            beforeMaterialize:
+                                beforeMaterialize),
+                        genericContext: null);
+                    break;
+                }
+                default:
+                    return false;
+            }
+
+            if (!signature.Header.IsInstance
+                || signature.Header.CallingConvention
+                    != SignatureCallingConvention.Default
+                || signature.Header.HasExplicitThis
+                || signature.GenericParameterCount != 0
+                || signature.ReturnType
+                    is not PrimitiveTypeNode { Name: "void" })
+            {
+                return false;
+            }
+
+            return expected switch
+            {
+                FrameworkConstructorKind.Marker =>
+                    signature.ParameterTypes.Length == 0,
+                FrameworkConstructorKind.SystemType =>
+                    signature.ParameterTypes is
+                    [
+                        NamedTypeNode
+                        {
+                            Name: "System.Type",
+                            AssemblyIdentity: { } identity,
+                        },
+                    ]
+                    && PlatformKeys.IsPlatform(
+                        identity.PublicKeyToken),
+                _ => false,
+            };
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException)
+        {
+            return false;
+        }
+    }
+
+    static bool HasMarkerValueBlob(
+        MetadataReader reader,
+        CustomAttribute attribute)
+    {
+        try
+        {
+            BlobReader blob = reader.GetBlobReader(attribute.Value);
+            return blob.Length == 4
+                && blob.ReadUInt16() == 1
+                && blob.ReadUInt16() == 0;
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException)
+        {
+            return false;
+        }
+    }
+
+    static bool HasSingleTypeArgumentValueBlob(
+        MetadataReader reader,
+        CustomAttribute attribute)
+    {
+        try
+        {
+            BlobReader blob = reader.GetBlobReader(attribute.Value);
+            if (blob.RemainingBytes < 5
+                || blob.ReadUInt16() != 1
+                || blob.ReadByte() == 0xff)
+            {
+                return false;
+            }
+
+            blob.Offset--;
+            int length = blob.ReadCompressedInteger();
+            if (length < 0
+                || blob.RemainingBytes != length + 2)
+            {
+                return false;
+            }
+            blob.Offset += length;
+            return blob.ReadUInt16() == 0;
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException)
+        {
+            return false;
+        }
     }
 
     static bool IsFrameworkAttributeType(
@@ -638,7 +822,7 @@ public static partial class AttributeReader
     {
         try
         {
-            AssemblyReferenceIdentity identity;
+            ApiAssemblyIdentity identity;
             if (constructor.Kind == HandleKind.MethodDefinition
                 && AttributeDecoder.GetAttributeTypeName(
                     reader,
@@ -646,9 +830,9 @@ public static partial class AttributeReader
                     beforeMaterialize)
                     == fullTypeName)
             {
-                identity =
-                    AssemblyReferenceIdentity.FromAssemblyDefinition(
-                        reader);
+                identity = ApiAssemblyIdentity.FromDefinition(
+                    reader,
+                    beforeMaterialize);
             }
             else if (AttributeDecoder
                 .TryGetAttributeTypeAssemblyReference(
@@ -658,9 +842,10 @@ public static partial class AttributeReader
                     out AssemblyReferenceHandle assemblyReference,
                     beforeMaterialize))
             {
-                identity = AssemblyReferenceIdentity.From(
+                identity = ApiAssemblyIdentity.FromReference(
                     reader,
-                    assemblyReference);
+                    assemblyReference,
+                    beforeMaterialize);
             }
             else
             {
@@ -682,7 +867,7 @@ public static partial class AttributeReader
     static bool IsSupportedJsonStringEnumConverter(
         string serializedName,
         string enumFullName,
-        string enumAssemblyName)
+        ApiAssemblyIdentity? enumAssemblyIdentity)
     {
         const string genericPrefix =
             JsonStringEnumConverterTypeName + "`1[";
@@ -708,16 +893,17 @@ public static partial class AttributeReader
             bool hasArgumentAssembly = TryReadSerializedTypeIdentity(
                     serializedArgument,
                     out string? argumentType,
-                    out string? argumentAssembly);
+                    out ApiAssemblyIdentity? argumentAssembly);
             if (!hasArgumentAssembly)
             {
                 argumentType = serializedArgument.Trim();
-                argumentAssembly = enumAssemblyName;
+                argumentAssembly = enumAssemblyIdentity;
             }
 
             if (argumentType!.Replace('+', '.')
                     != enumFullName
-                || argumentAssembly != enumAssemblyName)
+                || enumAssemblyIdentity is null
+                || !enumAssemblyIdentity.Equals(argumentAssembly))
             {
                 return false;
             }
@@ -762,7 +948,7 @@ public static partial class AttributeReader
     static bool TryReadSerializedTypeIdentity(
         string serializedName,
         out string? typeName,
-        out string? assemblyName)
+        out ApiAssemblyIdentity? assemblyIdentity)
     {
         int depth = 0;
         for (int i = 0; i < serializedName.Length; i++)
@@ -777,52 +963,110 @@ public static partial class AttributeReader
                     if (depth < 0)
                     {
                         typeName = null;
-                        assemblyName = null;
+                        assemblyIdentity = null;
                         return false;
                     }
                     break;
                 case ',' when depth == 0:
                     typeName = serializedName[..i].Trim();
-                    assemblyName =
-                        ReadAssemblySimpleName(serializedName[(i + 1)..]);
+                    bool parsed = TryReadAssemblyIdentity(
+                        serializedName[(i + 1)..],
+                        out assemblyIdentity);
                     return typeName.Length > 0
-                        && assemblyName.Length > 0;
+                        && parsed;
             }
         }
 
         typeName = null;
-        assemblyName = null;
+        assemblyIdentity = null;
         return false;
-    }
-
-    static string ReadAssemblySimpleName(string assemblyIdentity)
-    {
-        ReadOnlySpan<char> trimmed = assemblyIdentity.AsSpan().Trim();
-        int comma = trimmed.IndexOf(',');
-        return (comma >= 0 ? trimmed[..comma] : trimmed).Trim().ToString();
     }
 
     static bool IsTrustedSerializedAssembly(string assemblyIdentity)
     {
-        if (ReadAssemblySimpleName(assemblyIdentity)
-            != SystemTextJsonAssemblyName)
+        if (!TryReadAssemblyIdentity(
+                assemblyIdentity,
+                out ApiAssemblyIdentity? identity)
+            || identity.Name != SystemTextJsonAssemblyName)
         {
             return false;
         }
 
-        foreach (string component in assemblyIdentity.Split(','))
+        return PlatformKeys.IsPlatform(
+            identity.PublicKeyToken);
+    }
+
+    static bool TryReadAssemblyIdentity(
+        string serializedIdentity,
+        [NotNullWhen(true)] out ApiAssemblyIdentity? identity)
+    {
+        string[] components = serializedIdentity.Split(',');
+        string name = components[0].Trim();
+        if (name.Length == 0)
         {
-            ReadOnlySpan<char> trimmed = component.AsSpan().Trim();
-            const string prefix = "PublicKeyToken=";
-            if (trimmed.StartsWith(
-                    prefix,
-                    StringComparison.OrdinalIgnoreCase))
+            identity = null;
+            return false;
+        }
+
+        Version? version = null;
+        string? culture = null;
+        string? publicKeyToken = null;
+        var seen = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase);
+        for (int i = 1; i < components.Length; i++)
+        {
+            string component = components[i].Trim();
+            int separator = component.IndexOf('=');
+            if (separator <= 0
+                || separator == component.Length - 1)
             {
-                return PlatformKeys.IsPlatform(
-                    trimmed[prefix.Length..].ToString());
+                identity = null;
+                return false;
+            }
+
+            string key = component[..separator].Trim();
+            string value = component[(separator + 1)..].Trim();
+            if (!seen.Add(key))
+            {
+                identity = null;
+                return false;
+            }
+
+            switch (key.ToUpperInvariant())
+            {
+                case "VERSION":
+                    if (!Version.TryParse(value, out version))
+                    {
+                        identity = null;
+                        return false;
+                    }
+                    break;
+                case "CULTURE":
+                    culture = value.Equals(
+                        "neutral",
+                        StringComparison.OrdinalIgnoreCase)
+                            ? null
+                            : value;
+                    break;
+                case "PUBLICKEYTOKEN":
+                    publicKeyToken = value.Equals(
+                        "null",
+                        StringComparison.OrdinalIgnoreCase)
+                            ? null
+                            : value;
+                    break;
+                default:
+                    identity = null;
+                    return false;
             }
         }
-        return false;
+
+        identity = new(
+            name,
+            version,
+            culture,
+            publicKeyToken);
+        return true;
     }
 
 

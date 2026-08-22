@@ -23,11 +23,11 @@ static class DtsEmitter
                     .Where(identity => !string.IsNullOrEmpty(identity))
                     .Select(identity => identity!)),
             StringComparer.Ordinal);
-        var knownTypeIdentities = surface.AssemblyName is { } assemblyName
+        var knownTypeIdentities = surface.AssemblyIdentity is { } assembly
             ? new HashSet<ApiTypeReferenceIdentity>(
                 declarationTypes.Select(type =>
                     new ApiTypeReferenceIdentity(
-                        assemblyName,
+                        assembly,
                         type.FullName)))
             : [];
 
@@ -397,7 +397,7 @@ static class DtsEmitter
             : "JSON type";
 
     static string FormatMemberLocation(ApiType type, ApiMember member) =>
-        member.MetadataToken is { } token
+        (member.DeclarationMetadataToken ?? member.MetadataToken) is { } token
             ? $"member 0x{token:X8}"
             : $"{FormatTypeLocation(type)} member";
 

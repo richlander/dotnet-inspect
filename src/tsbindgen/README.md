@@ -38,13 +38,15 @@ the OM.
 A `[JSExport]` method's signature in this ABI style is always a plain
 `string`/`Task<string>` — the real DTO type only appears inside the method
 body, via a call such as `JsonSerializer.Serialize(dto, Context.Default.SomeDto)`.
-Record shapes are therefore discovered from the assembly's
-`JsonSerializerContext`-derived type: each `[JsonSerializable(typeof(T))]` on
-that type compiles to a `JsonTypeInfo<T>`-typed property, which is readable
-directly from metadata. This list is not a heuristic — System.Text.Json's
-fast (non-reflection) serialization path requires every (de)serialized type to
-be registered there, so it is exactly the set of shapes that can flow across
-the `[JSExport]` boundary via this pattern.
+Record shapes are therefore discovered from the assembly's authentic,
+framework-signed `JsonSerializerContext`-derived type: each
+`[JsonSerializable(typeof(T))]` on that type compiles to a property whose
+`JsonTypeInfo<T>` definition is likewise authenticated to System.Text.Json.
+Both checks use typed metadata identity rather than matching those names as
+text. This list is not a heuristic — System.Text.Json's fast (non-reflection)
+serialization path requires every (de)serialized type to be registered there,
+so it is exactly the set of shapes that can flow across the `[JSExport]`
+boundary via this pattern.
 
 Generated interfaces include properties with an accessible getter and
 `[JsonInclude]` properties or fields accessible to the source-generated
@@ -95,10 +97,11 @@ path.
 Type- or member-level custom `[JsonConverter]` attributes can replace the
 entire inferred wire shape. Types using an unsupported converter are emitted
 as diagnosed `unknown`; individual serialized members using one have an
-`unknown` TypeScript type. Ignored members remain irrelevant. Exactly one
-framework-signed `JsonStringEnumConverter` on an enum remains supported; its
-generic argument, when present, must identify that exact enum. Duplicate,
-malformed, mismatched, spoofed, or other converter metadata is not guessed.
+`unknown` TypeScript type. Ignored members remain irrelevant. Exactly one framework-signed `JsonStringEnumConverter` on an enum remains
+supported; its constructor and complete value blob must have the expected
+shape, and its generic argument, when present, must identify that exact enum by
+complete ECMA assembly identity and qualified type name. Duplicate, malformed,
+mismatched, spoofed, or other converter metadata is not guessed.
 Once a type-level converter makes the CLR member shape irrelevant, well-formed
 member wire names cannot turn that diagnosed `unknown` into a fatal result;
 malformed attribute rows remain fatal.
@@ -140,11 +143,11 @@ strict-mode names and collisions with the wrapper's generated `dotnet`,
 `<name>Export`, and `result` bindings are fatal. Valid Unicode TypeScript
 identifiers remain supported, including TypeScript's measured continuation-only
 edge points. Identifier acceptance is pinned to the TypeScript 7.0.2 scanner
-rather than the runtime's newer Unicode tables. Qualified CLR type identities
-must match a discovered local identity by assembly scope and qualified name;
-an unrelated external type with the same simple or namespace-qualified name
-becomes diagnosed `unknown`, not an alias. Empty string-converted enums are
-rejected before output. Property keys use the broader `IdentifierName` grammar,
+rather than the runtime's newer Unicode tables. Qualified CLR type identities must match a discovered local identity by
+complete ECMA assembly identity and qualified name; an unrelated external type
+with the same assembly simple name, simple type name, or namespace-qualified
+name becomes diagnosed `unknown`, not an alias. Empty string-converted enums
+are rejected before output. Property keys use the broader `IdentifierName` grammar,
 where reserved words remain valid and do not require quoting;
 `DtsEmitterTests.Emit_DoesNotQuoteReservedWordsUsedAsPropertyKeys` gates that
 distinction.
@@ -156,6 +159,7 @@ path. `DtsEmitterTests.Emit_RefusesIdentifiersNewerThanPinnedTypeScriptUnicode`,
 `TsTypeMapperTests.Map_QualifiedExternalTypeDoesNotAliasLocalRecord`, and
 `DtsEmitterTests.Emit_ExternalEnvelopeCannotAliasLocalQualifiedType` plus
 `JsExportSurfaceBuilderTests.Build_DoesNotAliasExternalContextRootToLocalType`
+and `Build_DoesNotTrustLookalikeSerializerContextTypes`
 and `DtsEmitterTests.Emit_RefusesEmptyStringConvertedEnumBeforeOutput` gate the
 remaining declaration boundaries. Incomplete metadata extraction and unsafe,
 signature-less, or degraded JS-export/wire signatures stop before declaration
@@ -171,8 +175,12 @@ unrelated methods remain irrelevant.
 `JsonWireContractResolverTests.Build_RejectsRealAsyncStateMachineAnalysisFailure`
 corrupts a compiled `MoveNext` body and gates production source-method
 attribution. `Build_IgnoresLookalikeJsExportAttribute` and
-`Extract_DoesNotTrustSameNameJsExportFromAnotherAssembly` gate exact,
-framework-signed `System.Runtime.InteropServices.JavaScript.JSExport` identity.
+`Extract_DoesNotTrustSameNameJsExportFromAnotherAssembly` plus
+`Extract_DoesNotTrustMalformedAuthenticJsExportRows` gate the exact,
+framework-signed `System.Runtime.InteropServices.JavaScript.JSExport`
+constructor and value contract.
+`Extract_ChargesSerializedConverterTypeNameBeforeDecode` gates bounded
+materialization accounting for converter-controlled serialized type names.
 Property and field metadata tokens identify the precise offending row in fatal
 messages. Artifact-derived text in diagnostics is visually contained before it
 reaches stderr.

@@ -54,15 +54,18 @@ internal abstract class TypeNode
 
     internal IEnumerable<ApiTypeReferenceIdentity> ReferencedTypes()
     {
-        if (this is NamedTypeNode named)
+        if (this is NamedTypeNode { AssemblyIdentity: { } assembly } named)
         {
-            yield return new(named.AssemblyName, named.Name);
+            yield return new(assembly, named.Name);
         }
-        else if (this is GenericTypeNode generic)
+        else if (this is GenericTypeNode
+            {
+                DefinitionAssemblyIdentity: { } definitionAssembly
+            } generic)
         {
             yield return new(
-                generic.DefinitionAssemblyName,
-                generic.BaseName);
+                definitionAssembly,
+                generic.DefinitionName);
         }
 
         foreach (TypeNode child in TypeChildren(this))
@@ -301,10 +304,10 @@ internal sealed class NamedTypeNode(
     string name,
     bool isReferenceType,
     MetadataTypeNameParts? metadataName = null,
-    string assemblyName = "") : TypeNode
+    ApiAssemblyIdentity? assemblyIdentity = null) : TypeNode
 {
     public string Name => name;
-    public string AssemblyName => assemblyName;
+    public ApiAssemblyIdentity? AssemblyIdentity => assemblyIdentity;
     public MetadataTypeNameParts? MetadataName => metadataName;
     public override bool IsReferenceType => isReferenceType;
     public override long EstimatedRenderedLength => name.Length + 1L;
@@ -334,13 +337,18 @@ internal sealed class GenericTypeNode(
     bool degradedGenericType = false,
     MetadataTypeNameParts? metadataName = null,
     string? structuralMetadataName = null,
-    string definitionAssemblyName = "") : TypeNode
+    ApiAssemblyIdentity? definitionAssemblyIdentity = null) : TypeNode
 {
     readonly long estimatedRenderedLength =
         EstimateRenderedLength(baseName, arguments, nestedSuffix);
 
     public string BaseName => baseName;
-    public string DefinitionAssemblyName => definitionAssemblyName;
+    public string DefinitionName =>
+        structuralMetadataName
+        ?? metadataName?.ToDottedName()
+        ?? baseName;
+    public ApiAssemblyIdentity? DefinitionAssemblyIdentity =>
+        definitionAssemblyIdentity;
     public ImmutableArray<TypeNode> Arguments => arguments;
     public override bool IsReferenceType => isReferenceType;
     public override bool IsDegraded => degradedGenericType || arguments.Any(argument => argument.IsDegraded);

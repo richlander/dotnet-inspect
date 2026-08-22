@@ -194,6 +194,36 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     [Theory]
+    [InlineData(".notctor", false)]
+    [InlineData(".ctor", true)]
+    public void Extract_DoesNotTrustMalformedAuthenticJsExportRows(
+        string constructorName,
+        bool addNamedArgument)
+    {
+        using var stream = new MemoryStream(
+            BuildFakeJsExportImage(
+                trustedAssembly: true,
+                constructorName,
+                addNamedArgument),
+            writable: false);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiMember method = Assert.Single(
+            Assert.Single(
+                apiSurface.Types,
+                type => type.Name == "FakeJsExportFixture")
+                .Members,
+            member => member.Name == "NotAnExport");
+
+        Assert.False(method.HasRuntimeJsExport);
+        Assert.DoesNotContain(
+            JsExportSurfaceBuilder.Build(apiSurface).Functions,
+            function => function.Name == "NotAnExport");
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void Build_RejectsOnlyExportScopedBodyDiagnostics(
@@ -655,6 +685,58 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     [Fact]
+    public void Extract_ChargesSerializedConverterTypeNameBeforeDecode()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(NamedEnumFixture).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiAssemblyIdentity assemblyIdentity =
+            ApiSurfaceExtractor.Extract(
+                peReader,
+                includeAll: true)
+                .AssemblyIdentity!;
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition enumType = reader.GetTypeDefinition(
+            Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.StringComparer.Equals(
+                    reader.GetTypeDefinition(handle).Name,
+                    nameof(NamedEnumFixture))));
+        CustomAttribute converter = Assert.Single(
+            enumType.GetCustomAttributes()
+                .Select(reader.GetCustomAttribute),
+            attribute =>
+                AttributeDecoder.GetAttributeTypeName(
+                    reader,
+                    attribute.Constructor)
+                == "System.Text.Json.Serialization.JsonConverterAttribute");
+        string serializedName = Assert.IsType<string>(
+            Assert.Single(
+                AttributeDecoder
+                    .TryDecodePreservingSerializedTypeNames(
+                        reader,
+                        converter)!
+                    .Value
+                    .FixedArguments)
+                .Value);
+        int charged = 0;
+
+        bool supported =
+            AttributeReader.HasJsonStringEnumConverterAttribute(
+                reader,
+                enumType.GetCustomAttributes(),
+                typeof(NamedEnumFixture).FullName!,
+                assemblyIdentity,
+                amount => charged = checked(charged + amount));
+
+        Assert.True(supported);
+        Assert.True(
+            charged >= serializedName.Length,
+            $"Expected at least {serializedName.Length} charged characters, "
+                + $"but observed {charged}.");
+    }
+
+    [Fact]
     public void Extract_RejectsStringEnumConverterForAnotherEnum()
     {
         using FileStream stream = File.OpenRead(
@@ -702,7 +784,10 @@ public sealed class JsExportSurfaceBuilderTests
             ],
         };
 
-    static byte[] BuildFakeJsExportImage()
+    static byte[] BuildFakeJsExportImage(
+        bool trustedAssembly = false,
+        string constructorName = ".ctor",
+        bool addNamedArgument = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -722,9 +807,16 @@ public sealed class JsExportSurfaceBuilderTests
             metadata.AddAssemblyReference(
                 metadata.GetOrAddString(
                     "System.Runtime.InteropServices.JavaScript"),
-                new Version(1, 0, 0, 0),
+                new Version(11, 0, 0, 0),
                 default,
-                default,
+                trustedAssembly
+                    ? metadata.GetOrAddBlob(
+                        new byte[]
+                        {
+                            0xcc, 0x7b, 0x13, 0xff,
+                            0xcd, 0x2d, 0xdd, 0x51,
+                        })
+                    : default,
                 default,
                 default);
         TypeReferenceHandle fakeAttribute =
@@ -744,7 +836,7 @@ public sealed class JsExportSurfaceBuilderTests
         MemberReferenceHandle attributeConstructor =
             metadata.AddMemberReference(
                 fakeAttribute,
-                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddString(constructorName),
                 metadata.GetOrAddBlob(
                     attributeConstructorSignature));
 
@@ -783,7 +875,18 @@ public sealed class JsExportSurfaceBuilderTests
             parameterList: MetadataTokens.ParameterHandle(1));
         var attributeValue = new BlobBuilder();
         attributeValue.WriteUInt16(1);
-        attributeValue.WriteUInt16(0);
+        if (addNamedArgument)
+        {
+            attributeValue.WriteUInt16(1);
+            attributeValue.WriteByte(0x54);
+            attributeValue.WriteByte(0x0e);
+            attributeValue.WriteSerializedString("Bogus");
+            attributeValue.WriteSerializedString("value");
+        }
+        else
+        {
+            attributeValue.WriteUInt16(0);
+        }
         metadata.AddCustomAttribute(
             method,
             attributeConstructor,
@@ -923,12 +1026,102 @@ public sealed class JsExportSurfaceBuilderTests
             ReturnType = context.Members[0].ReturnType,
             ReturnTypeReferences =
             [
-                new("External", "Mine.Result"),
+                new(
+                    new ApiAssemblyIdentity(
+                        "System.Text.Json",
+                        new Version(11, 0, 0, 0),
+                        culture: null,
+                        publicKeyToken:
+                            "cc7b13ffcd2ddd51"),
+                    "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1"),
+                new(
+                    new ApiAssemblyIdentity(
+                        "Local",
+                        new Version(1, 0, 0, 0),
+                        culture: null,
+                        publicKeyToken:
+                            "8899aabbccddeeff"),
+                    "Mine.Result"),
+            ],
+        };
+        context.BaseTypeReference = new(
+            new ApiAssemblyIdentity(
+                "System.Text.Json",
+                new Version(11, 0, 0, 0),
+                culture: null,
+                publicKeyToken: "cc7b13ffcd2ddd51"),
+            "System.Text.Json.Serialization.JsonSerializerContext");
+        var apiSurface = new ApiSurface
+        {
+            AssemblyIdentity = new ApiAssemblyIdentity(
+                "Local",
+                new Version(1, 0, 0, 0),
+                culture: null,
+                publicKeyToken:
+                    "0011223344556677"),
+            Types =
+            [
+                context,
+                new ApiType
+                {
+                    Namespace = "Mine",
+                    Name = "Result",
+                },
+            ],
+        };
+
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            JsExportSurfaceBuilder.Build(apiSurface);
+
+        Assert.Empty(surface.Records);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Build_DoesNotTrustLookalikeSerializerContextTypes(
+        bool spoofBaseType)
+    {
+        var localAssembly = new ApiAssemblyIdentity(
+            "Local",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: "0011223344556677");
+        var authenticSystemTextJson = new ApiAssemblyIdentity(
+            "System.Text.Json",
+            new Version(11, 0, 0, 0),
+            culture: null,
+            publicKeyToken: "cc7b13ffcd2ddd51");
+        var lookalikeSystemTextJson = new ApiAssemblyIdentity(
+            "System.Text.Json",
+            new Version(11, 0, 0, 0),
+            culture: null,
+            publicKeyToken: "8899aabbccddeeff");
+        ApiType context = CreateSerializerContext(
+            "Context",
+            "Mine.Result",
+            JsonWireNamingPolicy.None);
+        context.BaseTypeReference = new(
+            spoofBaseType
+                ? lookalikeSystemTextJson
+                : authenticSystemTextJson,
+            "System.Text.Json.Serialization.JsonSerializerContext");
+        context.Members[0].SignatureModel = new ApiSignature
+        {
+            ReturnType = context.Members[0].ReturnType,
+            ReturnTypeReferences =
+            [
+                new(
+                    spoofBaseType
+                        ? authenticSystemTextJson
+                        : lookalikeSystemTextJson,
+                    "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1"),
+                new(localAssembly, "Mine.Result"),
             ],
         };
         var apiSurface = new ApiSurface
         {
-            AssemblyName = "Local",
+            AssemblyIdentity = localAssembly,
             Types =
             [
                 context,
