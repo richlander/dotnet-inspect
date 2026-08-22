@@ -585,7 +585,7 @@ test("platform drill publishes current graphs and pop restores the parent", asyn
   }]);
   assert.deepEqual(events, ["focus:capture", "focus:restore", "graph"]);
 
-  coordinator.popDrill();
+  await coordinator.popDrill();
   assert.deepEqual(state.platformStack, []);
   assert.deepEqual(events, [
     "focus:capture",

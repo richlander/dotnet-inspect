@@ -33,7 +33,7 @@ export interface PackageIdentity {
 export function packageIdentityKey(pkg: PackageIdentity | null | undefined): string {
   if (!pkg) return "";
   return [pkg.id, pkg.version, pkg.activeFramework]
-    .map(value => encodeURIComponent(String(value || "").toLowerCase()))
+    .map(value => encodeURIComponent(value.toLowerCase()))
     .join("|");
 }
 
@@ -195,7 +195,7 @@ export function dependencyGraphRenderSignature(graph: DependencyGraphResult | nu
   ]);
   return JSON.stringify([
     graph.definition,
-    Boolean(graph.truncated),
+    graph.truncated,
     graph.nodeLimit,
     navigation
   ]);
@@ -291,13 +291,22 @@ export function normalizeShareTabs(list: unknown): NormalizedShareTabs {
   const tabs: WorkspaceTab[] = [];
   const sourceIndexes: number[] = [];
   const identityIndexes = new Map<string, number>();
-  for (let sourceIndex = 0; sourceIndex < list.length; sourceIndex++) {
-    const tuple: unknown = list[sourceIndex];
-    if (!Array.isArray(tuple)
-      || tuple.length < 1
-      || tuple.length > 3
-      || tuple.some(value => typeof value !== "string")
-      || !tuple[0].trim()) {
+  const entries: unknown[] = list;
+  for (let sourceIndex = 0; sourceIndex < entries.length; sourceIndex++) {
+    const tuple: unknown = entries[sourceIndex];
+    if (!Array.isArray(tuple) || tuple.length < 1 || tuple.length > 3) {
+      return {
+        tabs: [],
+        sourceIndexes: [],
+        error: "The shared workspace state is invalid and was ignored."
+      };
+    }
+    const values: unknown[] = tuple;
+    const [idValue, versionValue, frameworkValue] = values;
+    if (typeof idValue !== "string"
+      || !idValue.trim()
+      || (versionValue !== undefined && typeof versionValue !== "string")
+      || (frameworkValue !== undefined && typeof frameworkValue !== "string")) {
       return {
         tabs: [],
         sourceIndexes: [],
@@ -305,9 +314,9 @@ export function normalizeShareTabs(list: unknown): NormalizedShareTabs {
       };
     }
     const tab: WorkspaceTab = {
-      id: tuple[0],
-      version: tuple[1] || "latest",
-      framework: tuple[2] || ""
+      id: idValue,
+      version: versionValue || "latest",
+      framework: frameworkValue || ""
     };
     const identity = packageIdentityKey({
       id: tab.id,
@@ -323,8 +332,8 @@ export function normalizeShareTabs(list: unknown): NormalizedShareTabs {
   return { tabs, sourceIndexes, error: "" };
 }
 
-export function shareStateLengthError(value: unknown): string {
-  return String(value || "").length > MAX_SHARE_STATE_CHARACTERS
+export function shareStateLengthError(value: string): string {
+  return value.length > MAX_SHARE_STATE_CHARACTERS
     ? `The shared workspace state exceeds the ${MAX_SHARE_STATE_CHARACTERS}-character limit and was ignored.`
     : "";
 }
@@ -398,7 +407,7 @@ export interface DependencyGroup {
   dependencies?: readonly DependencyGroupDependency[];
 }
 
-export interface DependencyGroupDependency {
+interface DependencyGroupDependency {
   id: string;
   versionRange?: string;
 }
@@ -479,16 +488,16 @@ export function packageCoordinateMatchesLocation(
   location: PackageCoordinateLocation | null | undefined,
 ): boolean {
   if (!pkg || !location?.package || !location.version || !location.framework) return false;
-  return String(pkg.id).toLowerCase() === String(location.package).toLowerCase()
-    && String(pkg.version).toLowerCase() === String(location.version).toLowerCase()
-    && String(pkg.activeFramework).toLowerCase() === String(location.framework).toLowerCase();
+  return pkg.id.toLowerCase() === location.package.toLowerCase()
+    && pkg.version.toLowerCase() === location.version.toLowerCase()
+    && pkg.activeFramework.toLowerCase() === location.framework.toLowerCase();
 }
 
 export function workspaceCoordinatesMatch(
   packages: readonly PackageIdentity[] | null | undefined,
   tabs: readonly WorkspaceTab[] | null | undefined,
 ): boolean {
-  if (!Array.isArray(packages) || !Array.isArray(tabs) || packages.length !== tabs.length)
+  if (!packages || !tabs || packages.length !== tabs.length)
     return false;
   return tabs.every((tab, index) =>
     packageIdentityKey(packages[index]) === packageIdentityKey({
@@ -505,7 +514,7 @@ export function removeAppendedNotice(current: string, previous: string, appended
   return [previous, laterNotice].filter(Boolean).join(" ");
 }
 
-export interface NavigationEntry {
+interface NavigationEntry {
   sig: string;
   view: unknown;
 }
@@ -584,16 +593,16 @@ export function callGraphAssemblyIdentityMatches(
   if (!hasVersion) return true;
   if (!target?.assemblyVersion) return false;
   if (!assembly) return false;
-  const normalizeCulture = (value: unknown) => {
-    const normalized = String(value ?? "").toLowerCase();
+  const normalizeCulture = (value: string | null | undefined) => {
+    const normalized = value?.toLowerCase() ?? "";
     return normalized === "neutral" ? "" : normalized;
   };
-  return String(assembly.name ?? "").toLowerCase()
-      === String(target.assembly ?? "").toLowerCase()
-    && String(assembly.version ?? "") === String(target.assemblyVersion)
+  return (assembly.name ?? "").toLowerCase()
+      === (target.assembly ?? "").toLowerCase()
+    && (assembly.version ?? "") === target.assemblyVersion
     && normalizeCulture(assembly.culture) === normalizeCulture(target.assemblyCulture)
-    && String(assembly.publicKeyToken ?? "").toLowerCase()
-      === String(target.assemblyPublicKeyToken ?? "").toLowerCase();
+    && (assembly.publicKeyToken ?? "").toLowerCase()
+      === (target.assemblyPublicKeyToken ?? "").toLowerCase();
 }
 
 export interface ResolvableGraphType extends CallGraphMatchableType {
@@ -602,10 +611,10 @@ export interface ResolvableGraphType extends CallGraphMatchableType {
   assemblyId?: string;
 }
 
-export interface ResolvableGraphPackage {
+export interface ResolvableGraphPackage<TType extends ResolvableGraphType = ResolvableGraphType> {
   isRuntimePack?: boolean;
   assembly?: string;
-  types?: readonly ResolvableGraphType[];
+  types?: readonly TType[];
   assemblies?: readonly AssemblyDescriptor[];
 }
 
@@ -669,7 +678,7 @@ export type GraphTargetCandidate<TPackage, TType> =
   | { status: "unique"; pkg: TPackage; type: TType };
 
 export function resolveLoadedGraphTargetCandidate<
-  TPackage extends ResolvableGraphPackage,
+  TPackage extends ResolvableGraphPackage<TType>,
   TType extends ResolvableGraphType,
 >(
   packages: readonly TPackage[],
@@ -680,15 +689,14 @@ export function resolveLoadedGraphTargetCandidate<
   const matches: { pkg: TPackage; type: TType }[] = [];
   for (const pkg of packages) {
     if (!pkg || pkg.isRuntimePack) continue;
-    for (const type of (pkg.types ?? []) as readonly TType[]) {
-      const assembly = String(
-        type.assemblyName ?? type.assembly ?? pkg.assembly ?? "")
+    for (const type of pkg.types ?? []) {
+      const assembly = (type.assemblyName ?? type.assembly ?? pkg.assembly ?? "")
         .replace(/\.dll$/i, "");
       const descriptors = pkg.assemblies ?? [];
       const descriptor = type.assemblyId
         ? descriptors.find(candidate => candidate.id === type.assemblyId)
         : descriptors.find(candidate =>
-            String(candidate.name ?? "").replace(/\.dll$/i, "").toLowerCase()
+            (candidate.name ?? "").replace(/\.dll$/i, "").toLowerCase()
               === assembly.toLowerCase());
       if (assembly.toLowerCase() === target.assembly.toLowerCase()
           && callGraphAssemblyIdentityMatches(target, descriptor)
@@ -775,13 +783,13 @@ export const MARKDOWN_SANITIZE_OPTIONS = Object.freeze({
   ALLOW_DATA_ATTR: false
 });
 
-export interface GraphMemberBodySelector {
+interface GraphMemberBodySelector {
   memberName: string;
   selectorKey: string;
   token?: number;
 }
 
-export interface GraphMemberOverload {
+interface GraphMemberOverload {
   bodySelectors?: readonly GraphMemberBodySelector[];
   graphSelectorKey?: string;
 }
@@ -996,9 +1004,9 @@ export function typeLensesFor(
 
 const FORMAT_CHARACTER = /^\p{Cf}$/u;
 
-export function mermaidLabel(value: unknown): string {
+export function mermaidLabel(value: string): string {
   let encoded = "";
-  for (const character of String(value ?? "")) {
+  for (const character of value) {
     const scalar = character.codePointAt(0)!;
     if (character === "&") encoded += "&amp;";
     else if (character === "<") encoded += "&lt;";
