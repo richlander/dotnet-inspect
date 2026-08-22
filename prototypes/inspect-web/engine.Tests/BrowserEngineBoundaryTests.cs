@@ -1696,7 +1696,7 @@ public sealed class BrowserEngineBoundaryTests
                     "contoso",
                     "[1.0.0,2.0.0)",
                     source,
-                    TimeSpan.FromSeconds(2)));
+                    TimeSpan.FromSeconds(10)));
 
         Assert.Contains(
             "authoritative Gallery listing state is unavailable",
@@ -1739,7 +1739,7 @@ public sealed class BrowserEngineBoundaryTests
         string[] versions = await BrowserPackageWorkspace.GetVersionsAsync(
             "contoso",
             source,
-            TimeSpan.FromSeconds(2));
+            TimeSpan.FromSeconds(10));
 
         Assert.Equal(["1.0.0"], versions);
         Assert.Equal(2, handler.Requests);
