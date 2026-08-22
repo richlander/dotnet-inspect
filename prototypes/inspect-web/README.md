@@ -160,7 +160,7 @@ body selector even when the graph has no `MethodDef` token.
 | `engine/BrowserStyleOptions.cs` | resolving the client's style ids through `StyleOptionCatalog` |
 | `engine/BrowserXmlDocumentation.cs` | reading one member's package-shipped XML documentation |
 | `engine/InspectionEngine.cs` | the supported `[JSExport]` operations |
-| `engine/BrowserSourceOperations.cs` | pathless authored-or-decompiled type/member source and Browser source capabilities |
+| `engine/BrowserSourceOperations.cs` | pathless PDB-mapped-or-decompiled type/member source and Browser source capabilities |
 | `engine/BrowserUnsupportedOperations.cs` | the `[JSExport]` operations this engine refuses |
 
 Inspected assemblies are read with System.Reflection.Metadata only, are never
@@ -299,7 +299,7 @@ visible failure, not a silently ignored selection.
 
 The three source exports resolve the exact structured type identity and opaque
 member body selector against the implementation participant before calling
-`AssemblyContextSourceQuery`. The query tries checksum-verified authored source
+`AssemblyContextSourceQuery`. The query tries checksum-verified PDB source
 through Browser HTTP and explicit nuget.org authorization, then falls back to
 pathless decompilation under the workspace binding policy. Symbol-package
 responses are capped at 24 MiB, expanded PDBs at 8 MiB, and archives at 2,048
@@ -335,10 +335,12 @@ bounded cache operation for other consumers; `CancelledWait_ReleasesSharedPackag
 gates that separation. Source lookup therefore adds no ambient filesystem
 dependency or unbounded retained cache. Typed rejection and unavailable
 outcomes become visible failures; only an `Available` result crosses the
-bridge. Decompiled results disclose why the authored attempt was unavailable.
+bridge. Decompiled results disclose why the PDB-source attempt was unavailable.
+`BrowserEngineBoundaryTests.DecompiledSources_CarryPdbAttemptLimitation` gates
+that adapter wiring.
 Reference-only type source is refused rather than presented as a body-free
 decompilation. Printer options apply to decompiled fallback and never rewrite
-authored source. Whole-member source remains MethodDef-scoped: a
+PDB source. Whole-member source remains MethodDef-scoped: a
 call-graph accessor body reports that limitation rather than returning its owner
 property or the whole type as a success-shaped substitute, and bodiless API
 groups do not offer a Source section.
