@@ -135,28 +135,54 @@ Restate it after every resume and at the start of every round, not once at the
 beginning. A window that has scrolled past its only mention of the PR is a
 window nobody can identify.
 
-### Signal when you need a person
+### Publish your state where tooling can read it
 
-Whenever you stop and wait on a human decision, say so out of band as well as on
-screen. This is the standing convention during normal work, not an option:
+Set a window-scoped tmux option whenever your state changes. The bar renders it
+for whoever is viewing that window, and tooling reads it directly instead of
+scraping your output:
 
 ```sh
-tmux display-message -d 10000 'PR #4405 needs a decision'
+tmux set -w -t "$TMUX_PANE" @agent "round 6 on pr4405, waiting on CI"
+tmux set -w -t "$TMUX_PANE" -u @agent          # clear when it no longer holds
 ```
 
-Send it once, when you become blocked — not on a timer, and not again while
-waiting on the same question. Keep it to one short line naming the PR and what
-is needed; the message takes over the status line for as long as it shows.
+`-w -t "$TMUX_PANE"` scopes it to **your** window. `status-right` is a session
+option; writing it directly would overwrite every other agent, the same way bare
+`rename-window` did.
 
-**It is best effort and will often go unseen.** Nobody may be attached; the
-person may be in another window, on another machine, or asleep. So it is a
-nudge, never a handoff: a sent notification is not a delivered question and
-never an answered one. Stop at your prompt and wait exactly as you would have
-without it, and restate the request in full when resumed.
+Omit your window number from the value — the bar already knows where it is.
+Update on real transitions, not on a timer.
 
-Signal only for being blocked. Progress, completion, and resuming are not
-signals — they belong in your output, where they can be read whenever someone
-looks.
+### Signal when you need a person
+
+Whenever you stop and wait on a human decision, raise a flag that persists and
+send one nudge that does not:
+
+```sh
+tmux set -w -t "$TMUX_PANE" @agent "HELP: rebase pr4405 onto main, or close it?"
+tmux display-message -d 10000 -t "$TMUX_PANE" \
+  "HELP pr4405 in w#{window_index}: rebase onto main, or close it?"
+```
+
+The `HELP` prefix marks your window with `!` in the window list, so you are
+visible from any window, not only your own. `display-message` expands
+`#{window_index}` against `-t`, so the nudge names both the PR and where to find
+you — a notification that says only "something needs a decision" makes the
+operator hunt.
+
+Send the nudge once, on becoming blocked — not on a timer, and not again for the
+same question. Clear `@agent` when you are unblocked; a stale `HELP` is worse
+than none, because it spends attention on a question already answered.
+
+**The nudge is best effort and will often go unseen.** Nobody may be attached;
+the person may be in another window, on another machine, or asleep. That is what
+the flag is for: it waits. Neither is a handoff — a raised flag is not a
+delivered question and never an answered one. Stop at your prompt and wait
+exactly as you would have without it, and restate the request in full when
+resumed.
+
+Flag only for being blocked. Progress and completion belong in `@agent` as
+ordinary state and in your output; resuming is not a signal at all.
 
 ## User-directed workflow adjustments
 
