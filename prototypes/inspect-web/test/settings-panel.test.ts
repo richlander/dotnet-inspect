@@ -62,8 +62,11 @@ class FakeRoot {
         "all:#taste-popover [data-taste]",
         "all:.settings-seg[data-theme]",
         "all:.settings-taste [data-taste]",
+        "one:#home-settings",
+        "one:#open-settings",
         "one:#settings-close",
         "one:#settings-taste-clear",
+        "one:#taste-btn",
         "one:#taste-clear",
       ].sort());
   }
@@ -114,6 +117,7 @@ test("settings bindings dispatch entry controls and contain taste clicks", () =>
   bindSettingsPanel(
     fakeDom.parentNode(root),
     recordingActions(calls));
+  root.assertSelectorQueries();
 
   assert.deepEqual(calls, []);
   home.dispatch("click");
