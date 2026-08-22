@@ -1,7 +1,7 @@
 import { pdbSourceLimitationHtml } from "./data.ts";
 import type { BrowserSource } from "./inspect-web-engine.d.ts";
 
-export type GraphSourceResult = BrowserSource;
+type GraphSourceResult = BrowserSource;
 
 export interface RenderGraphSourceOptions {
   title: string;
@@ -9,7 +9,7 @@ export interface RenderGraphSourceOptions {
   source: GraphSourceResult | null;
   error: string;
   escapeHtml: (value: unknown) => string;
-  highlightCSharp: (value: unknown) => string;
+  highlightCSharp: (value: string) => string;
 }
 
 export function renderGraphSource(options: RenderGraphSourceOptions): string {

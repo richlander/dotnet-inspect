@@ -115,7 +115,8 @@ interface SpotlightOptions {
   executeCommand: (
     command: string,
     result: CommandPaletteResult,
-  ) => unknown;
+  ) => Promise<unknown> | undefined;
+  reportCommandError: (error: unknown) => void;
   commandContext: () => CommandContext | null;
   schedulePackageFetch: () => void;
   resetPackageSearch: () => void;
@@ -227,6 +228,17 @@ export function spotlightResultIdentity(result: SpotlightResult): string {
     default:
       return result.kind;
   }
+}
+
+function isTextInputTarget(value: EventTarget | null): value is HTMLInputElement {
+  return value !== null
+    && "selectionStart" in value
+    && "selectionEnd" in value
+    && "value" in value;
+}
+
+function hasElementId(value: EventTarget | null): value is EventTarget & { id: string } {
+  return value !== null && "id" in value && typeof value.id === "string";
 }
 
 export function createSpotlight(options: SpotlightOptions) {
@@ -581,11 +593,15 @@ export function createSpotlight(options: SpotlightOptions) {
     reset();
     const execution = options.executeCommand(result.command, result);
     options.render();
-    void Promise.resolve(execution).then(() => {
-      if (generation === interactionGeneration) {
-        options.focusAfterDismiss?.();
-      }
-    });
+    const focusAfterExecution = () => {
+      if (generation === interactionGeneration) options.focusAfterDismiss?.();
+    };
+    Promise.resolve(execution).then(
+      focusAfterExecution,
+      (error: unknown) => {
+        options.reportCommandError(error);
+        focusAfterExecution();
+      });
   }
 
   function highlightSelection(): number {
@@ -679,7 +695,8 @@ export function createSpotlight(options: SpotlightOptions) {
     }
 
     if (event.key === "ArrowRight") {
-      const input = event.currentTarget as HTMLInputElement;
+      const input = event.currentTarget;
+      if (!isTextInputTarget(input)) return;
       const atEnd = input.selectionStart === input.selectionEnd
         && input.selectionStart === input.value.length;
       if (atEnd) {
@@ -755,8 +772,8 @@ export function createSpotlight(options: SpotlightOptions) {
       root.querySelector("#spotlight-backdrop")?.addEventListener(
         "mousedown",
         event => {
-          const target = event.target as HTMLElement;
-          if (target.id === "spotlight-backdrop") close();
+          const target = event.target;
+          if (hasElementId(target) && target.id === "spotlight-backdrop") close();
         },
       );
       focus();
