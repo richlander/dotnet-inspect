@@ -508,15 +508,16 @@ publish artifact imports `./_framework/dotnet.js`, which exists only after Wasm
 publish.
 
 The tsgolint semantic backend publishes native binaries for x64 and arm64 hosts
-running macOS, Linux, or Windows. Those are the supported
+running macOS, Linux (glibc or musl), or Windows. Those are the supported
 development-analysis hosts; `npm run lint` fails before launching the analyzer
 on other operating-system or architecture combinations, including Linux
 ppc64le and s390x. Oxlint itself supports additional hosts, but type-aware
 analysis is the limiting capability. This approved development-tool exception
 does not affect the browser/Wasm product runtime or artifact. The host-matrix
 unit test derives the supported intersection from the locked Oxlint and
-tsgolint package metadata and pins the npm preflight wiring; `npm run analyze`
-on macOS arm64 and the Linux x64 CI host gates the supported paths.
+tsgolint package metadata, requires both Linux libc variants, and pins the npm
+preflight wiring; `npm run analyze` on macOS arm64 and the Linux x64 CI host
+gates the supported paths.
 
 `noUncheckedIndexedAccess` is not enabled yet. A TypeScript 7.0.2 migration
 probe reports 77 findings across 15 files: 65 in nine product files and 12 in

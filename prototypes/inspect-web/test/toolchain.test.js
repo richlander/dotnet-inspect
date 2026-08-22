@@ -52,40 +52,65 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
   );
 });
 
-function optionalNativeHosts(packagePath, dependencyPrefix) {
+const linuxLibcs = ["glibc", "musl"];
+
+function optionalNativeVariants(packagePath, dependencyPrefix) {
   const packageEntry = packageLock.packages[packagePath];
   assert.ok(packageEntry);
   const dependencies = Object.keys(packageEntry.optionalDependencies ?? {})
     .filter(dependency => dependency.startsWith(dependencyPrefix));
   assert.notEqual(dependencies.length, 0);
 
-  return new Set(dependencies.map(dependency => {
+  const variants = new Set();
+  for (const dependency of dependencies) {
     const nativeEntry = packageLock.packages[`node_modules/${dependency}`];
     assert.ok(nativeEntry);
     assert.equal(nativeEntry.os?.length, 1);
     assert.equal(nativeEntry.cpu?.length, 1);
-    return `${nativeEntry.os[0]}-${nativeEntry.cpu[0]}`;
+    assert.ok(nativeEntry.libc === undefined || nativeEntry.libc.length === 1);
+
+    const host = `${nativeEntry.os[0]}-${nativeEntry.cpu[0]}`;
+    const libcs = nativeEntry.libc
+      ?? (nativeEntry.os[0] === "linux" ? linuxLibcs : ["none"]);
+    for (const libc of libcs) {
+      variants.add(`${host}/${libc}`);
+    }
+  }
+  return variants;
+}
+
+function completeAnalyzerHosts(oxlintVariants, tsgolintVariants) {
+  const sharedVariants = new Set(
+    [...tsgolintVariants].filter(variant => oxlintVariants.has(variant)),
+  );
+  const hosts = new Set(
+    [...oxlintVariants, ...tsgolintVariants]
+      .map(variant => variant.slice(0, variant.indexOf("/"))),
+  );
+
+  return new Set([...hosts].filter(host => {
+    const requiredLibcs = host.startsWith("linux-") ? linuxLibcs : ["none"];
+    return requiredLibcs.every(libc => sharedVariants.has(`${host}/${libc}`));
   }));
 }
 
 test("the analysis host check matches locked native packages and lint wiring", () => {
-  const oxlintHosts = optionalNativeHosts(
+  const oxlintVariants = optionalNativeVariants(
     "node_modules/oxlint",
     "@oxlint/binding-",
   );
-  const tsgolintHosts = optionalNativeHosts(
+  const tsgolintVariants = optionalNativeVariants(
     "node_modules/oxlint-tsgolint",
     "@oxlint-tsgolint/",
   );
-  const expectedHosts = new Set(
-    [...tsgolintHosts].filter(host => oxlintHosts.has(host)),
-  );
+  const expectedHosts = completeAnalyzerHosts(oxlintVariants, tsgolintVariants);
 
-  assert.deepEqual(
-    [...supportedAnalysisHosts].sort(),
-    [...expectedHosts].sort(),
+  assert.deepEqual(new Set(supportedAnalysisHosts), expectedHosts);
+  const availableHosts = new Set(
+    [...oxlintVariants, ...tsgolintVariants]
+      .map(variant => variant.slice(0, variant.indexOf("/"))),
   );
-  for (const host of new Set([...oxlintHosts, ...tsgolintHosts])) {
+  for (const host of availableHosts) {
     const separator = host.indexOf("-");
     const platform = host.slice(0, separator);
     const architecture = host.slice(separator + 1);
