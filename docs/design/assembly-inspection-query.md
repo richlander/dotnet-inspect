@@ -498,6 +498,9 @@ facade/core-library correspondence is normalized only when both assembly referen
 platform key tokens. For constructed platform interfaces, that relaxation replaces only trusted
 platform assembly scopes in the complete structural identity; namespace, nesting, arity, raw type
 kind, arguments, modifiers, declaration-signature structure, and non-platform scopes remain exact.
+When a same-image interface is reconstructed into a new compile-back image, its definition identity
+remains exact while trusted platform scopes nested in its constructed identity or declaration
+signature may normalize across the compiler's facade/core-library choice.
 Event raiser and other semantic
 methods remain method members because `ApiMember` has no event-token slots through which their
 bodies could otherwise remain addressable.

@@ -109,7 +109,9 @@ public sealed class LayeringTests
         string[] expected =
         [
             "DotnetInspector.MetadataRendering.Tests",
+            "ILInspector.Decompiler.Tests",
             "ILInspector.Metadata.Tests",
+            "decompiler-harness",
             "dotnet-inspect.Tests",
         ];
 

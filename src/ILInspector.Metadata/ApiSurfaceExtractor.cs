@@ -2439,9 +2439,11 @@ public static class ApiSurfaceExtractor
                 signatureBuilder);
         MethodSignatureIdentity?
             platformNormalizedDeclarationSignatureIdentity =
-                typeContextResult.Assembly is { } assembly
-                && PlatformKeys.IsPlatform(
-                    assembly.PublicKeyToken)
+                typeContextResult.Kind
+                    == ApiExplicitInterfaceDeclarationKind.SameImage
+                || typeContextResult.Assembly is { } assembly
+                    && PlatformKeys.IsPlatform(
+                        assembly.PublicKeyToken)
                     ? MethodImplSignatureIdentity(
                         reader,
                         declaration,
@@ -2688,8 +2690,10 @@ public static class ApiSurfaceExtractor
         string interfaceTypeIdentity =
             interfaceType.StructuralIdentity();
         string? platformNormalizedInterfaceTypeIdentity =
-            context.Assembly is { } assembly
-            && PlatformKeys.IsPlatform(assembly.PublicKeyToken)
+            context.Kind
+                == ApiExplicitInterfaceDeclarationKind.SameImage
+            || context.Assembly is { } assembly
+                && PlatformKeys.IsPlatform(assembly.PublicKeyToken)
                 ? interfaceType
                     .PlatformNormalizedStructuralIdentity()
                 : null;

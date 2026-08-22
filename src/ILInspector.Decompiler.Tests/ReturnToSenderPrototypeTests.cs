@@ -6310,6 +6310,34 @@ public class ReturnToSenderPrototypeTests
                     coreLibrarySignature,
                 platformNormalizedDeclarationSignatureIdentity:
                     platformSignature);
+        var sameImageFacade =
+            new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.SameImage,
+                definitionName,
+                interfaceTypeName: "System.IContract<int>",
+                declarationMemberName: "GetValue",
+                interfaceTypeIdentity:
+                    "current-IContract<system-runtime-int>",
+                platformNormalizedInterfaceTypeIdentity:
+                    "current-IContract<platform-int>",
+                declarationSignatureIdentity:
+                    facadeSignature,
+                platformNormalizedDeclarationSignatureIdentity:
+                    platformSignature);
+        var sameImageCoreLibrary =
+            new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.SameImage,
+                definitionName,
+                interfaceTypeName: "System.IContract<int>",
+                declarationMemberName: "GetValue",
+                interfaceTypeIdentity:
+                    "current-IContract<corelib-int>",
+                platformNormalizedInterfaceTypeIdentity:
+                    "current-IContract<platform-int>",
+                declarationSignatureIdentity:
+                    coreLibrarySignature,
+                platformNormalizedDeclarationSignatureIdentity:
+                    platformSignature);
 
         Assert.NotNull(trustedFacade.InterfaceTypeIdentity);
         Assert.NotNull(trustedCoreLibrary.InterfaceTypeIdentity);
@@ -6338,6 +6366,10 @@ public class ReturnToSenderPrototypeTests
             FidelityCheck.ExplicitInterfaceDeclarationEqualsForTest(
                 trustedFacade,
                 exactAssemblySignatureMismatch));
+        Assert.True(
+            FidelityCheck.ExplicitInterfaceDeclarationEqualsForTest(
+                sameImageFacade,
+                sameImageCoreLibrary));
         Assert.NotNull(spoofedFacade.InterfaceTypeIdentity);
         Assert.NotNull(spoofedCoreLibrary.InterfaceTypeIdentity);
         Assert.False(

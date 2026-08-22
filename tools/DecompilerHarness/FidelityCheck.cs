@@ -6515,6 +6515,22 @@ static class FidelityCheck
         {
             return false;
         }
+        if (expected.Kind
+            == ApiExplicitInterfaceDeclarationKind.SameImage)
+        {
+            return ScopedIdentityCorresponds(
+                    expected.InterfaceTypeIdentity,
+                    actual.InterfaceTypeIdentity,
+                    expected.PlatformNormalizedInterfaceTypeIdentity,
+                    actual.PlatformNormalizedInterfaceTypeIdentity)
+                && SignatureIdentityCorresponds(
+                    expected.DeclarationSignatureIdentity,
+                    actual.DeclarationSignatureIdentity,
+                    expected
+                        .PlatformNormalizedDeclarationSignatureIdentity,
+                    actual
+                        .PlatformNormalizedDeclarationSignatureIdentity);
+        }
         if (expected.Assembly == actual.Assembly)
         {
             return expected.InterfaceTypeIdentity
@@ -6550,6 +6566,28 @@ static class FidelityCheck
             && expectedNormalizedSignature
                 == actualNormalizedSignature;
     }
+
+    static bool ScopedIdentityCorresponds(
+        string? expected,
+        string? actual,
+        string? expectedPlatformNormalized,
+        string? actualPlatformNormalized)
+        => expected == actual
+            || expectedPlatformNormalized is not null
+                && actualPlatformNormalized is not null
+                && expectedPlatformNormalized
+                    == actualPlatformNormalized;
+
+    static bool SignatureIdentityCorresponds(
+        MethodSignatureIdentity? expected,
+        MethodSignatureIdentity? actual,
+        MethodSignatureIdentity? expectedPlatformNormalized,
+        MethodSignatureIdentity? actualPlatformNormalized)
+        => expected == actual
+            || expectedPlatformNormalized is not null
+                && actualPlatformNormalized is not null
+                && expectedPlatformNormalized
+                    == actualPlatformNormalized;
 
     internal static bool ExplicitInterfaceDeclarationEqualsForTest(
         ApiExplicitInterfaceDeclarationContext expected,
