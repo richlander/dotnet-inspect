@@ -673,6 +673,17 @@ test("typed settings panel owns its rendered control bindings", () => {
       1,
       `${description} direct call`);
   }
+  const directWorkbenchCalls = bindEvents.body.body.map(statement => {
+    if (statement.type !== "ExpressionStatement") return null;
+    const expression = statement.expression;
+    return expression.type === "CallExpression"
+      && expression.callee?.type === "Identifier"
+      ? expression.callee.name
+      : null;
+  });
+  assert.equal(
+    directWorkbenchCalls.indexOf("bindSettingsPanelEvents"),
+    directWorkbenchCalls.indexOf("bindScopeBarEvents") + 1);
   assert.equal(renderSettings.body.body.length, 2);
   const renderStatement = renderSettings.body.body[0];
   assert.equal(renderStatement.type, "ExpressionStatement");
