@@ -321,7 +321,7 @@ public sealed record BrowserDependencyCoordinateMatch(
 /// </param>
 public sealed record BrowserAnnotatedSource(
     JsonElement Document,
-    string Provenance,
+    InertString Provenance,
     string? ContextLimitation);
 
 public sealed record BrowserSource(

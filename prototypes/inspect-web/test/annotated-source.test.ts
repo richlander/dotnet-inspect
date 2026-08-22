@@ -10,6 +10,7 @@ import { validateAnnotatedSourceDocument } from "../src/annotated-source-view.ts
 import type { AnnotatedSourceDocument } from "../src/annotated-source-view.ts";
 import { sampleDocument as sampleDocumentFixture } from "../../annotated-source-viewer/src/sample-document.js";
 import { fakeDom } from "./fake-dom.ts";
+import { inertStringFixture } from "./inert-string-fixture.ts";
 
 validateAnnotatedSourceDocument(sampleDocumentFixture);
 const sampleDocument: AnnotatedSourceDocument = sampleDocumentFixture;
@@ -136,7 +137,7 @@ function escapeHtml(value: unknown) {
 
 const result: AnnotatedSourceRenderResult = {
   document: sampleDocument,
-  provenance: "decompiled from IL",
+  provenance: inertStringFixture("decompiled from IL"),
 };
 
 test("the render result preserves the validated document contract", () => {
@@ -285,7 +286,7 @@ test("source text is escaped as it is rendered into spans", () => {
         facts: [],
         targets: [],
       },
-      provenance: "decompiled from IL",
+      provenance: inertStringFixture("decompiled from IL"),
       contextLimitation: null,
     },
     media: undefined,

@@ -385,8 +385,7 @@ public static partial class InspectionEngine
         return JsonSerializer.Serialize(
             new BrowserAnnotatedSource(
                 serialized.RootElement,
-                $"Annotated by dotnet-inspect from {participant.Coordinate.PackageId} "
-                    + $"{participant.Coordinate.Version} {participant.Asset.Path}",
+                PackageProvenance("Annotated by dotnet-inspect from", participant),
                 projection.ContextLimitation is { } limitation
                     ? $"{limitation.Kind}: {limitation.Detail}"
                     : null),

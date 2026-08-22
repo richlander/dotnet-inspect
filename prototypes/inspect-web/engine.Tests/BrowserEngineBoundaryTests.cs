@@ -44,6 +44,24 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void BrowserAnnotatedSource_ProvenanceSerializesAsAnEncodedString()
+    {
+        using JsonDocument document = JsonDocument.Parse("{}");
+        var source = new BrowserAnnotatedSource(
+            document.RootElement,
+            new InertString(TextPolicy.Field, "repo\u202Egpj"),
+            null);
+
+        string json = JsonSerializer.Serialize(
+            source,
+            BrowserJsonContext.Default.BrowserAnnotatedSource);
+
+        Assert.Equal(
+            """{"document":{},"provenance":"repo\\u202Egpj","contextLimitation":null}""",
+            json);
+    }
+
+    [Fact]
     public void MemberProjection_CarriesFilterFactsWithoutSignatureParsing()
     {
         var type = new ApiType

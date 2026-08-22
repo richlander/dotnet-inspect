@@ -21,7 +21,7 @@ export interface BrowserAccessibilityDescriptor {
 
 export interface BrowserAnnotatedSource {
   document: unknown;
-  provenance: string;
+  provenance: InertString;
   contextLimitation: string | null;
 }
 

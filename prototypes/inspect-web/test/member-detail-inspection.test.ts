@@ -15,6 +15,7 @@ import {
   type MemberFactsRequest,
 } from "../src/member-detail-inspection.ts";
 import type { MemberFocusSnapshot } from "../src/member-focus.ts";
+import { inertStringFixture } from "./inert-string-fixture.ts";
 
 function memberSurface(
   overrides: Partial<DocumentableMemberSurface> = {},
@@ -80,7 +81,7 @@ function annotatedResult(): AnnotatedSourceResult {
   validateAnnotatedSourceDocument(document);
   return {
     document,
-    provenance: "decompiled from IL",
+    provenance: inertStringFixture("decompiled from IL"),
     contextLimitation: null,
   };
 }

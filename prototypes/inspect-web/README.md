@@ -308,11 +308,13 @@ outcomes become visible failures; only an `Available` result crosses the
 bridge. Decompiled results disclose why the PDB-source attempt was unavailable.
 `BrowserEngineBoundaryTests.DecompiledSources_CarryPdbAttemptLimitation` gates
 that adapter wiring.
-`BrowserSource.provenance` crosses that bridge as `InertString`: the engine
-applies `TextPolicy.Field`, generated TypeScript retains the opaque brand, and
-the renderer still applies `escapeHtml` because inert text is not HTML-safe.
-`BrowserSource_ProvenanceSerializesAsAnEncodedString` gates the scalar JSON
-contract, while the TypeScript `provenance and url are escaped` case both
+Source provenance crosses that bridge as `InertString` in both `BrowserSource`
+and `BrowserAnnotatedSource`: the engine applies `TextPolicy.Field`, generated
+TypeScript retains the opaque brand, and each renderer still applies
+`escapeHtml` because inert text is not HTML-safe.
+`BrowserSource_ProvenanceSerializesAsAnEncodedString` and
+`BrowserAnnotatedSource_ProvenanceSerializesAsAnEncodedString` gate the scalar
+JSON contracts, while the TypeScript `provenance and url are escaped` case both
 rejects a plain string at compile time and gates sink-specific escaping.
 Reference-only type source is refused rather than presented as a body-free
 decompilation. Printer options apply to decompiled fallback and never rewrite

@@ -381,9 +381,14 @@ public static partial class InspectionEngine
 
     static InertString DecompiledProvenance(
         BrowserWorkspaceParticipant participant) =>
+        PackageProvenance("dotnet-inspect from", participant);
+
+    static InertString PackageProvenance(
+        string prefix,
+        BrowserWorkspaceParticipant participant) =>
         new(
             TextPolicy.Field,
-            $"dotnet-inspect from {participant.Coordinate.PackageId} "
+            $"{prefix} {participant.Coordinate.PackageId} "
             + $"{participant.Coordinate.Version} {participant.Asset.Path}");
 
     static string? PdbSourceLimitation(
