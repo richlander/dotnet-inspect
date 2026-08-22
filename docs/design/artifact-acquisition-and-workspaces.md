@@ -765,7 +765,7 @@ materialization.
 
 ## Required gates
 
-The target remains unverified until tests equivalent to these exist:
+The target is complete only when tests equivalent to these exist:
 
 - `ArtifactContractsClosure_ExcludesMetadataPackagesAndStorageImplementations`
 - `PackagesClosure_ExcludesMetadata`
@@ -830,6 +830,11 @@ unconditional path and prefetched-image grants from the reader-construction
 site inventory and asserts coverage equality, so adding or reshaping an entry
 point cannot escape the migration. The browser gate runs the same composition
 sequentially without threads, blocking waits, or a filesystem.
+
+`AssemblyOnlyHostClosure_ExcludesPackageAndNuGetImplementations` and
+`MetadataClosure_ExcludesPackageAndStorageImplementations` are enforced by
+`LayeringTests`; the remaining gates are migration targets and remain
+unverified.
 
 ## Non-goals
 

@@ -748,6 +748,35 @@ public class CommandErrorOwnershipTests
         }
     }
 
+    internal static HashSet<string> ProjectPackageReferences(string projectPath)
+    {
+        HashSet<string> references = new(StringComparer.OrdinalIgnoreCase);
+        XDocument document = XDocument.Load(projectPath);
+
+        foreach (XElement element in document.Descendants())
+        {
+            if (element.Name.LocalName.Equals("PackageReference", StringComparison.OrdinalIgnoreCase)
+                && element.Attributes().FirstOrDefault(
+                    attribute => attribute.Name.LocalName.Equals(
+                        "Include",
+                        StringComparison.OrdinalIgnoreCase))?.Value
+                    is { Length: > 0 } include)
+            {
+                references.Add(include);
+            }
+        }
+
+        foreach (Dictionary<string, string> package in EvaluatedItems(projectPath, "PackageReference"))
+        {
+            if (package.GetValueOrDefault("Identity") is { Length: > 0 } identity)
+            {
+                references.Add(identity);
+            }
+        }
+
+        return references;
+    }
+
     private static readonly ConcurrentDictionary<string, HashSet<string>> Closures = new(StringComparer.Ordinal);
 
     /// <summary>
