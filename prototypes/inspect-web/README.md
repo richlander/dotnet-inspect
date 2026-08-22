@@ -710,17 +710,18 @@ Symbol/PDB acquisition status is not yet surfaced here — no backend contract
 reports it today — and is a tracked fast-follow.
 
 `src/type-panel.ts` owns the type selector (the "PUBLIC TYPES" / "MEMBERS" nav
-pane) and the type viewer (the type heading, metadata, and source sections
-shown for the "type" scope) as pure, dependency-injected render functions.
+pane), its rendered DOM control bindings, and the type viewer (the type
+heading, metadata, and source sections shown for the "type" scope).
 `dotnet-inspect.ts` still owns the type index, filtering, member grouping, and
-click/keyboard navigation, and passes each computed slice in explicitly; the
+navigation state transitions, and supplies them through typed callbacks; the
 shared text helpers used well beyond the type panel (`kindIcon`, `shortKind`,
 `typeDisplayName`, `highlight`, `highlightCSharp`, `factRows`,
 `relatedTypeChip`) stay in `dotnet-inspect.ts` and are injected the same way.
-`test/type-panel.test.ts` gates namespace grouping and selection in the type
-list, active-group and overload selection in the member list, the type
-heading's package/library fields, the metadata- and source-signature cache
-keys, and the metadata/source panels' loading, error, and loaded states.
+`test/type-panel.test.ts` gates every rendered control binding, type-filter
+keyboard behavior, namespace grouping and selection in the type list,
+active-group and overload selection in the member list, the type heading's
+package/library fields, the metadata- and source-signature cache keys, and the
+metadata/source panels' loading, error, and loaded states.
 
 `src/package-bar.ts` owns the package tab strip (including the always-present
 Platform tab), the open-package query form, and their keyboard/mouse/wheel
@@ -740,12 +741,12 @@ close-button label, and active-style-count states.
 
 `src/scope-bar.ts` owns the scope switcher and lens strip (the segmented
 Package/Types/Member control and the buttons beside it for the active scope's
-lenses or member sections) as a pure, dependency-injected render function.
+lenses or member sections), including their rendered DOM bindings.
 `dotnet-inspect.ts` still owns the current scope, the package/type/member lens
-definitions, and the active lens/section per scope, and passes each computed
-slice in explicitly. `test/scope-bar.test.ts` gates the active scope segment,
-the active lens/section marking per scope, keyboard-shortcut indices, and
-label escaping.
+definitions, and each navigation state transition, supplying those effects
+through typed callbacks. `test/scope-bar.test.ts` gates each mutually exclusive
+binding shape, the active scope segment, active lens/section marking,
+keyboard-shortcut indices, and label escaping.
 
 `src/metadata-viewer.ts` owns the Metadata lens (the image-level summary of each
 assembly — format stamp, heap sizes, ECMA-335 table row counts, and PE/CLI

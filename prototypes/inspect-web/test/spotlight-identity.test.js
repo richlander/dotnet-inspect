@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { parseSync, visitorKeys } from "oxc-parser";
+
 import {
   activeSourceOperationKind,
   assemblyDescriptorForType,
@@ -159,6 +161,114 @@ test("normalizing a history entry keeps its consumed position and later entries"
 });
 
 const appSource = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.url), "utf8");
+const parsedAppSource = parseSync("dotnet-inspect.ts", appSource);
+const appSyntax = parsedAppSource.program;
+
+function walkSyntax(node, visit) {
+  if (!node) return;
+  visit(node);
+  for (const key of visitorKeys[node.type] ?? []) {
+    const child = node[key];
+    if (Array.isArray(child)) {
+      for (const item of child) walkSyntax(item, visit);
+    } else if (child) {
+      walkSyntax(child, visit);
+    }
+  }
+}
+
+function syntaxNodes(root, predicate) {
+  const matches = [];
+  walkSyntax(root, node => {
+    if (predicate(node)) matches.push(node);
+  });
+  return matches;
+}
+
+function onlySyntaxNode(nodes, description) {
+  assert.equal(nodes.length, 1, description);
+  return nodes[0];
+}
+
+function functionDeclaration(name) {
+  return onlySyntaxNode(
+    appSyntax.body.filter(
+      node => node.type === "FunctionDeclaration" && node.id?.name === name),
+    `${name} declaration`);
+}
+
+function callExpressionsNamed(root, name) {
+  return syntaxNodes(
+    root,
+    node => node.type === "CallExpression"
+      && node.callee?.type === "Identifier"
+      && node.callee.name === name);
+}
+
+function sourceText(node) {
+  return appSource.slice(node.start, node.end).replace(/\s+/g, " ");
+}
+
+function callbackProperty(actions, name) {
+  const property = onlySyntaxNode(
+    actions.properties.filter(
+      item => item.type === "Property"
+        && item.key.type === "Identifier"
+        && item.key.name === name),
+    `${name} callback`);
+  assert.equal(property.value.type, "ArrowFunctionExpression");
+  assert.equal(property.value.body.type, "BlockStatement");
+  return property.value;
+}
+
+function directCallExpression(statement, name) {
+  if (statement.type !== "ExpressionStatement") return null;
+  const expression = statement.expression;
+  return expression.type === "CallExpression"
+    && expression.callee?.type === "Identifier"
+    && expression.callee.name === name
+    ? expression
+    : null;
+}
+
+function statementSignatures(statements) {
+  return statements.map(statementSignature);
+}
+
+function branchSignatures(branch) {
+  return branch.type === "BlockStatement"
+    ? statementSignatures(branch.body)
+    : [statementSignature(branch)];
+}
+
+function statementSignature(statement) {
+  if (statement.type === "ExpressionStatement") {
+    const expression = statement.expression;
+    if (expression.type === "AssignmentExpression") {
+      return `assign:${sourceText(expression.left)} ${expression.operator} ${sourceText(expression.right)}`;
+    }
+    if (expression.type === "CallExpression" && expression.callee?.type === "Identifier") {
+      return `call:${expression.callee.name}(${expression.arguments.map(sourceText).join(", ")})`;
+    }
+    return `expression:${sourceText(expression)}`;
+  }
+  if (statement.type === "IfStatement") {
+    return {
+      if: sourceText(statement.test),
+      whenTrue: branchSignatures(statement.consequent),
+      whenFalse: statement.alternate ? branchSignatures(statement.alternate) : [],
+    };
+  }
+  if (statement.type === "VariableDeclaration"
+      && statement.declarations.length === 1) {
+    const declaration = statement.declarations[0];
+    if (declaration.id.type === "Identifier" && declaration.init) {
+      return `declare:${statement.kind} ${declaration.id.name} = ${sourceText(declaration.init)}`;
+    }
+  }
+  return `statement:${statement.type}:${sourceText(statement)}`;
+}
+
 const workspaceNavigationSource = readFileSync(
   new URL("../src/workspace-navigation.ts", import.meta.url),
   "utf8");
@@ -197,6 +307,9 @@ const graphSource = readFileSync(
   "utf8");
 const typePanelSource = readFileSync(
   new URL("../src/type-panel.ts", import.meta.url),
+  "utf8");
+const scopeBarSource = readFileSync(
+  new URL("../src/scope-bar.ts", import.meta.url),
   "utf8");
 const packageBarSource = readFileSync(
   new URL("../src/package-bar.ts", import.meta.url),
@@ -358,6 +471,176 @@ test("typed catalog requests own release and package-version coordination", () =
     /\bfetch\(|\bdocument\b|inspectPackageVersions/);
 });
 
+test("typed type panel owns its rendered control bindings", () => {
+  const rootEventBinder =
+    appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
+    ?? "";
+  assert.match(
+    appSource,
+    /function bindTypePanelEvents\(\) \{\s*bindTypePanel\(document, \{/);
+  assert.match(
+    appSource,
+    /onTypeFilterChange: value => \{[\s\S]*?render\(\);\s*focusFilter\(\{ immediate: true \}\);\s*},\s*onTypeFilterEscape:/);
+  assert.match(
+    appSource,
+    /onTypeFilterEscape: \(\) => \{\s*state\.typeFilter = "";\s*render\(\);\s*focusFilter\(\{ immediate: true \}\);\s*},/);
+  assert.equal(
+    appSource.match(/\bbindTypePanelEvents\b/g)?.length,
+    2);
+  assert.equal(
+    rootEventBinder.match(/\bbindTypePanelEvents\(\)/g)?.length,
+    1);
+  assert.match(
+    rootEventBinder,
+    /function bindEvents\(\) \{\s*bindStatusBarToggle\(\);\s*packageBar\.bind\(document\);\s*bindTypePanelEvents\(\);/);
+  assert.match(
+    typePanelSource,
+    /export function bindTypePanel\([\s\S]*\[data-type\][\s\S]*\[data-namespace\][\s\S]*\[data-kind-filter\][\s\S]*\[data-nav-member\][\s\S]*\[data-nav-overload\][\s\S]*#nav-to-types[\s\S]*#clear-filter[\s\S]*#namespace-jump[\s\S]*#type-list[\s\S]*#type-filter/);
+  const selectorCount = selector =>
+    appSource.split(selector).length - 1;
+  assert.deepEqual(
+    Object.fromEntries([
+      "[data-type]",
+      "[data-namespace]",
+      "[data-kind-filter]",
+      "[data-nav-member]",
+      "[data-nav-overload]",
+      "#nav-to-types",
+      "#clear-filter",
+      "#namespace-jump",
+    ].map(selector => [selector, selectorCount(selector)])),
+    {
+      "[data-type]": 0,
+      "[data-namespace]": 0,
+      "[data-kind-filter]": 0,
+      "[data-nav-member]": 0,
+      "[data-nav-overload]": 0,
+      "#nav-to-types": 0,
+      "#clear-filter": 0,
+      "#namespace-jump": 0,
+    });
+  assert.equal(selectorCount("#type-filter"), 1);
+  assert.equal(selectorCount("#type-list"), 5);
+});
+
+test("typed scope bar owns its rendered control bindings", () => {
+  assert.deepEqual(parsedAppSource.errors, []);
+  const rootEventBinder = functionDeclaration("bindEvents");
+  const scopeEventBinder = functionDeclaration("bindScopeBarEvents");
+  const rootScopeCalls = callExpressionsNamed(appSyntax, "bindScopeBarEvents");
+  const innerScopeCalls = callExpressionsNamed(appSyntax, "bindScopeBar");
+  assert.equal(rootScopeCalls.length, 1);
+  assert.equal(rootScopeCalls[0].arguments.length, 0);
+  assert.equal(innerScopeCalls.length, 1);
+  const innerScopeCall = innerScopeCalls[0];
+  assert.equal(innerScopeCall.arguments.length, 2);
+  assert.equal(innerScopeCall.arguments[0].type, "Identifier");
+  assert.equal(innerScopeCall.arguments[0].name, "document");
+  assert.equal(innerScopeCall.arguments[1].type, "ObjectExpression");
+  assert.equal(
+    callExpressionsNamed(scopeEventBinder, "bindScopeBar").length,
+    1);
+  assert.equal(scopeEventBinder.body.body.length, 1);
+  assert.equal(
+    directCallExpression(scopeEventBinder.body.body[0], "bindScopeBar"),
+    innerScopeCall);
+  assert.equal(
+    callExpressionsNamed(rootEventBinder, "bindScopeBarEvents").length,
+    1);
+  const directCallName = statement =>
+    statement.type === "ExpressionStatement"
+      && statement.expression.type === "CallExpression"
+      && statement.expression.callee?.type === "Identifier"
+      ? statement.expression.callee.name
+      : null;
+  const directRootCalls = rootEventBinder.body.body.map(directCallName);
+  const typePanelIndex = directRootCalls.indexOf("bindTypePanelEvents");
+  assert.notEqual(typePanelIndex, -1);
+  assert.equal(directRootCalls[typePanelIndex + 1], "bindScopeBarEvents");
+
+  const actions = innerScopeCall.arguments[1];
+  const memberSection = callbackProperty(actions, "onMemberSectionSelect");
+  assert.deepEqual(
+    statementSignatures(memberSection.body.body),
+    [
+      {
+        if: "section && isMemberSection(section)",
+        whenTrue: ["call:applyMemberSection(section)"],
+        whenFalse: [],
+      },
+    ]);
+
+  const packageLens = callbackProperty(actions, "onPackageLensSelect");
+  assert.deepEqual(
+    statementSignatures(packageLens.body.body),
+    [
+      "assign:state.packageLens = lens",
+      "call:render()",
+    ]);
+
+  const scope = callbackProperty(actions, "onScopeSelect");
+  assert.deepEqual(
+    statementSignatures(scope.body.body),
+    [
+      {
+        if: 'target === "package"',
+        whenTrue: ["assign:state.atPackageRoot = true"],
+        whenFalse: [
+          {
+            if: 'target === "type"',
+            whenTrue: [
+              "assign:state.atPackageRoot = false",
+              {
+                if: "!state.selectedTypeId",
+                whenTrue: [
+                  "declare:const first = filteredTypes()[0]",
+                  {
+                    if: "first",
+                    whenTrue: ["assign:state.selectedTypeId = first.id"],
+                    whenFalse: [],
+                  },
+                ],
+                whenFalse: [],
+              },
+              'assign:state.selectedMemberKey = ""',
+              'assign:state.memberBrowseTypeId = ""',
+              "assign:state.selectedOverloadIndex = null",
+            ],
+            whenFalse: [
+              {
+                if: 'target === "member"',
+                whenTrue: ["call:enterMemberScope()"],
+                whenFalse: [],
+              },
+            ],
+          },
+        ],
+      },
+      "call:render()",
+    ]);
+
+  const typeLens = callbackProperty(actions, "onTypeLensSelect");
+  assert.deepEqual(
+    statementSignatures(typeLens.body.body),
+    [
+      "assign:state.lens = lens",
+      'assign:state.selectedMemberKey = ""',
+      'assign:state.memberBrowseTypeId = ""',
+      "call:render()",
+    ]);
+  assert.match(
+    scopeBarSource,
+    /export function bindScopeBar\([\s\S]*\[data-scope\][\s\S]*\[data-package-lens\][\s\S]*\[data-lens\][\s\S]*\[data-member-section\]/);
+  for (const selector of [
+    "[data-scope]",
+    "[data-package-lens]",
+    "[data-lens]",
+    "[data-member-section]",
+  ]) {
+    assert.equal(appSource.split(selector).length - 1, 0, selector);
+  }
+});
+
 test("leaving package search clears its pending loading state", () => {
   assert.match(
     spotlightPackageSearchSource,
@@ -407,6 +690,9 @@ test("global workbench shortcuts respect the topmost modal", () => {
     /state\.spotlightOpen[\s\S]*event\.key === "Escape"[\s\S]*closeSpotlight\(\)/);
   assert.match(
     appSource,
+    /event\.key === "Escape" && !event\.defaultPrevented && state\.tasteOpen/);
+  assert.match(
+    appSource,
     /function openSpotlight\(seed = "", spotlightScope = "all"\) \{\s*if \(state\.loading \|\| state\.error\) return;\s*state\.tasteOpen = false;/);
   assert.match(
     spotlightSource,
@@ -425,7 +711,7 @@ test("global workbench shortcuts respect the topmost modal", () => {
     /if \(state\.loading \|\| state\.error\) \{\s*if \(isContainedBrowserShortcut\(event\) \|\| event\.key === "\/"\)[\s\S]*event\.preventDefault\(\);[\s\S]*return;/);
   assert.match(
     appSource,
-    /function focusFilter\(\) \{[\s\S]*const input = document\.querySelector<HTMLInputElement>\([\s\S]*"#member-filter, #type-filter"\);\s*if \(!input\) return;/);
+    /function focusFilter\([\s\S]*\{ immediate = false \}: \{ immediate\?: boolean \} = \{\},[\s\S]*const focus = \(\) => \{[\s\S]*"#member-filter, #type-filter"[\s\S]*if \(immediate\) \{\s*focus\(\);\s*return;\s*}\s*requestAnimationFrame\(focus\);/);
 });
 
 test("Spotlight navigation waits for selection data before restoring focus", () => {
@@ -577,13 +863,13 @@ test("member filters retain accessible controls and focus across rerenders", () 
     /memberFilter\?\.addEventListener\("input"[\s\S]*renderPreservingMemberFocus\(\)/);
   assert.match(
     appSource,
-    /memberFilter\?\.addEventListener\("keydown"[\s\S]*event\.key === "Escape"[\s\S]*if \(navMode\(\) === "member"\)[\s\S]*exitMemberScope\(\)[\s\S]*state\.memberTextFilter = ""[\s\S]*renderMemberFilterAndRestoreFocus\("#member-filter"\)[\s\S]*stepMemberNav/);
+    /memberFilter\?\.addEventListener\("keydown"[\s\S]*event\.key === "Escape"[\s\S]*if \(navMode\(\) !== "member" && memberFilter\.value === ""\) return;[\s\S]*event\.preventDefault\(\);[\s\S]*if \(navMode\(\) === "member"\)[\s\S]*exitMemberScope\(\)[\s\S]*state\.memberTextFilter = ""[\s\S]*renderMemberFilterAndRestoreFocus\("#member-filter"\)[\s\S]*stepMemberNav/);
   assert.match(
     appSource,
     /event\.key === "Escape" && !event\.defaultPrevented && !typing[\s\S]*if \(navMode\(\) === "member"\) exitMemberScope\(\)/);
   assert.match(
     appSource,
-    /#nav-to-types"\)\?\.addEventListener\("click", \(\) => \{\s*exitMemberScope\(\)/);
+    /onShowTypes: exitMemberScope/);
   assert.match(
     appSource,
     /const renderMemberFilterAndRestoreFocus = \(selector = ""\) => \{[\s\S]*renderWithMemberFocus\(preserved\)/);
