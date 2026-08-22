@@ -649,6 +649,24 @@ test("typed settings panel owns its rendered control bindings", () => {
   const bindEvents = functionDeclaration("bindEvents");
   const renderSettings = functionDeclaration("renderSettingsViewHtml");
   const settingsEventBinder = functionDeclaration("bindSettingsPanelEvents");
+  const settingsPanelImport = onlySyntaxNode(
+    appSyntax.body.filter(
+      node => node.type === "ImportDeclaration"
+        && node.source.value === "./settings-panel.ts"),
+    "settings panel import");
+  assert.equal(
+    settingsPanelImport.specifiers.filter(
+      specifier => specifier.type === "ImportSpecifier"
+        && specifier.imported.type === "Identifier"
+        && specifier.imported.name === "bindSettingsPanel"
+        && specifier.local.name === "bindSettingsPanel").length,
+    1);
+  assert.equal(
+    syntaxNodes(
+      appSyntax,
+      node => node.type === "Identifier"
+        && node.name === "bindSettingsPanel").length,
+    3);
   const eventBinderCalls = callExpressionsNamed(appSyntax, "bindSettingsPanelEvents");
   assert.equal(eventBinderCalls.length, 2);
   assert.equal(
