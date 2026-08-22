@@ -127,23 +127,44 @@ internal static class RepeatedScanAnalysis
         foreach (var method in methods)
             methodByToken[method.MetadataToken] = method;
 
-        var scanningMethods = new Dictionary<int, string>();
+        var scanningMethods =
+            new Dictionary<int, ScanMethodEvidence>();
         var inAssemblyCallees = new Dictionary<int, HashSet<int>>();
-        var lazyReturning = new Dictionary<int, string>();
+        var lazyReturning =
+            new Dictionary<int, ScanMethodEvidence>();
         var immediateLazyProducers =
-            new Dictionary<(int MethodToken, int NextOffset), string>();
+            new Dictionary<
+                (int MethodToken, int NextOffset),
+                (string Operation, DirectCall Call)>();
+        var immediateObjectProducers =
+            new Dictionary<
+                (int MethodToken, int NextOffset),
+                DirectCall>();
         foreach (var call in directCalls)
         {
             if (!IsInvocation(call))
                 continue;
 
+            if (call.Kind == CallKind.NewObject
+                && call.ReturnAddress is { } objectNextOffset)
+            {
+                immediateObjectProducers.TryAdd(
+                    (
+                        call.Caller.MetadataToken,
+                        objectNextOffset),
+                    call);
+            }
+
             if (IsLinqMembershipScan(
                     call.Callee,
                     out var membershipOperation))
             {
-                scanningMethods.TryAdd(
+                AddScanEvidence(
+                    scanningMethods,
                     call.Caller.MetadataToken,
-                    membershipOperation);
+                    new ScanMethodEvidence(
+                        membershipOperation,
+                        SupportingCall(call)));
             }
             else if (IsLinqLazyProducer(
                     call.Callee,
@@ -154,16 +175,21 @@ internal static class RepeatedScanAnalysis
                 {
                     immediateLazyProducers.TryAdd(
                         (call.Caller.MetadataToken, nextOffset),
-                        lazyOperation);
+                        (
+                            lazyOperation,
+                            SupportingCall(call)));
                 }
                 if (methodByToken.TryGetValue(
                         call.Caller.MetadataToken,
                         out var producer)
                     && ReturnsEnumerableSequence(producer.ReturnType))
                 {
-                    lazyReturning.TryAdd(
+                    AddScanEvidence(
+                        lazyReturning,
                         call.Caller.MetadataToken,
-                        lazyOperation);
+                        new ScanMethodEvidence(
+                            lazyOperation,
+                            SupportingCall(call)));
                 }
             }
             else if (IsLinqParameterlessTerminal(
@@ -171,11 +197,14 @@ internal static class RepeatedScanAnalysis
                     out var terminalOperation)
                 && immediateLazyProducers.TryGetValue(
                     (call.Caller.MetadataToken, call.ILOffset),
-                    out var producerOperation))
+                    out var producer))
             {
-                scanningMethods.TryAdd(
+                AddScanEvidence(
+                    scanningMethods,
                     call.Caller.MetadataToken,
-                    $"{producerOperation}+{terminalOperation}");
+                    new ScanMethodEvidence(
+                        $"{producer.Operation}+{terminalOperation}",
+                        producer.Call));
             }
 
             if (methodByToken.ContainsKey(call.CalleeDefinitionToken))
@@ -190,6 +219,15 @@ internal static class RepeatedScanAnalysis
                 callees.Add(call.CalleeDefinitionToken);
             }
         }
+
+        DirectCall SupportingCall(DirectCall scanCall)
+            => immediateObjectProducers.TryGetValue(
+                    (
+                        scanCall.Caller.MetadataToken,
+                        scanCall.ILOffset),
+                    out var producer)
+                ? producer
+                : scanCall;
 
         for (var changed = true; changed;)
         {
@@ -209,9 +247,12 @@ internal static class RepeatedScanAnalysis
                 {
                     if (lazyReturning.TryGetValue(
                             callee,
-                            out var operation))
+                            out var evidence))
                     {
-                        lazyReturning[callerToken] = operation;
+                        lazyReturning[callerToken] =
+                            new ScanMethodEvidence(
+                                evidence.Operation,
+                                null);
                         changed = true;
                         break;
                     }
@@ -219,8 +260,13 @@ internal static class RepeatedScanAnalysis
             }
         }
 
-        foreach (var (token, operation) in lazyReturning)
-            scanningMethods.TryAdd(token, operation);
+        foreach (var (token, evidence) in lazyReturning)
+        {
+            AddScanEvidence(
+                scanningMethods,
+                token,
+                evidence);
+        }
 
         var methodMap = MethodDefinitionMap.Create(methods);
         var recursiveTraversalTokens = directCalls
@@ -250,7 +296,7 @@ internal static class RepeatedScanAnalysis
             int calleeToken = call.CalleeDefinitionToken;
             if (!scanningMethods.TryGetValue(
                     calleeToken,
-                    out var operation)
+                    out var scan)
                 || !methodByToken.TryGetValue(calleeToken, out var method)
                 || suppressedMethodTokens.Contains(calleeToken)
                 || inMethodScanLoopTokens.Contains(calleeToken)
@@ -263,13 +309,17 @@ internal static class RepeatedScanAnalysis
             opportunities.Add(new OptimizationOpportunity(
                 method,
                 "scan-method-in-loop-call",
-                $"Linearly scans a sequence (Enumerable.{operation}); invoked inside a loop by {call.Caller.DeclaringType.ToQualifiedDisplayString()}::{call.Caller.Name}",
+                $"Linearly scans a sequence (Enumerable.{scan.Operation}); invoked inside a loop by {call.Caller.DeclaringType.ToQualifiedDisplayString()}::{call.Caller.Name}",
                 "A method that linearly scans a sequence is called on every iteration of a caller's loop; precompute an index the caller can reuse, or hoist the scan out of the loop.",
                 "low",
                 true,
                 null,
                 "Quadratic only if the scanned sequence grows with the caller's loop; confirm the sequence is the loop-variant collection and not small/constant.",
-                reachByToken.GetValueOrDefault(calleeToken)));
+                reachByToken.GetValueOrDefault(calleeToken))
+            {
+                SupportingCallSite =
+                    CreateSupportingCallSite(scan.Call),
+            });
         }
 
         foreach (var call in directCalls)
@@ -278,7 +328,7 @@ internal static class RepeatedScanAnalysis
             if (!IsInvocation(call)
                 || !recursiveTraversalTokens.Contains(
                     call.Caller.MetadataToken)
-                || !scanningMethods.TryGetValue(calleeToken, out var operation)
+                || !scanningMethods.TryGetValue(calleeToken, out var scan)
                 || !methodByToken.TryGetValue(calleeToken, out var method)
                 || suppressedMethodTokens.Contains(calleeToken)
                 || inMethodScanLoopTokens.Contains(calleeToken)
@@ -291,17 +341,52 @@ internal static class RepeatedScanAnalysis
             opportunities.Add(new OptimizationOpportunity(
                 method,
                 "scan-method-in-recursive-traversal",
-                $"Linearly scans a sequence (Enumerable.{operation}); invoked once per recursive traversal node by {call.Caller.DeclaringType.ToQualifiedDisplayString()}::{call.Caller.Name}",
+                $"Linearly scans a sequence (Enumerable.{scan.Operation}); invoked once per recursive traversal node by {call.Caller.DeclaringType.ToQualifiedDisplayString()}::{call.Caller.Name}",
                 "If the scan source is shared across recursive calls, build an index before recursion and reuse it; otherwise keep the node-local scan.",
                 "low",
                 true,
                 null,
                 "Potentially superlinear only when each recursive step scans the same growing sequence; static analysis has not proved source identity.",
-                reachByToken.GetValueOrDefault(calleeToken)));
+                reachByToken.GetValueOrDefault(calleeToken))
+            {
+                SupportingCallSite =
+                    CreateSupportingCallSite(scan.Call),
+            });
         }
 
         return opportunities.ToImmutable();
     }
+
+    static void AddScanEvidence(
+        Dictionary<int, ScanMethodEvidence> scanningMethods,
+        int methodToken,
+        ScanMethodEvidence evidence)
+    {
+        if (!scanningMethods.TryGetValue(
+                methodToken,
+                out var existing))
+        {
+            scanningMethods.Add(
+                methodToken,
+                evidence);
+            return;
+        }
+
+        scanningMethods[methodToken] =
+            existing with { Call = null };
+    }
+
+    static OptimizationSupportingCallSite?
+        CreateSupportingCallSite(DirectCall? call)
+        => call is null
+            ? null
+            : new(
+                call.EvidenceMethod.MetadataToken,
+                call.ILOffset);
+
+    sealed record ScanMethodEvidence(
+        string Operation,
+        DirectCall? Call);
 
     static bool IsInvocation(DirectCall call) =>
         call.Kind is
