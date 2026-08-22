@@ -259,12 +259,21 @@ Resolving a package that is not local may require downloading the package.
 That acquisition can exceed the discovery latency budget. Once the target is
 local, ordinary discovery should be fast.
 
-Symbol and source acquisition are augmentation:
+Symbol and source inspection are augmentation with separate authority:
 
-- Cached, embedded, or adjacent symbols may be used without network access.
-- Default gestures must not fetch symbols or source content.
+- `LocalPdbRead` permits bounded reads from an embedded PDB, an adjacent PDB,
+  or an already-populated symbol cache without network acquisition. A declared
+  cheap probe such as plain library SourceLink-door discovery may request it;
+  availability alone does not grant it.
+- `PdbAcquire` permits acquiring a missing PDB.
+- `SourceContent` permits fetching or reading authored source content.
+- Default gestures must not acquire PDBs or access source content.
 - Package acquisition must not silently imply symbol acquisition.
 - Network-bound source and audit work requires an explicit gesture.
+
+The realized library probe and its positive, expansion-bound, and close-negative
+gates are documented in
+[SourceLink exposure](../sourcelink-exposure.md#discovery-time-cache-only-probe).
 
 The latency target for plain discovery of a local target is under 0.5 seconds.
 

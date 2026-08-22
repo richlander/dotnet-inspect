@@ -128,22 +128,32 @@ their transitive prerequisites and the disclosure policy maps that provenance
 to requests for capabilities declared anywhere in the closed query plan. The
 host preflight grants or denies the complete request before execution.
 
-Exact render selection of a source-content section may request its PDB and
-source-content capabilities. Discovery selection retains the same provenance,
-but does not request PDB or source content unless an explicit effective-
-discovery policy declares that capability. Detailed verbosity may request
-bounded PDB or source-audit work where the section contract permits it, but it
-does not request source-content fetch. An internal verbosity promotion never
-widens the request. Section descriptors and query definitions declare
-requirements; they do not grant authority. Artifact admission/query leases
-revalidate the authorized plan at content access.
+Symbol policy distinguishes three capabilities:
+
+- `LocalPdbRead`: bounded reads from an embedded PDB, an adjacent PDB, or an
+  already-populated symbol cache, with no network acquisition;
+- `PdbAcquire`: acquiring a missing PDB from an authorized source;
+- `SourceContent`: fetching or reading authored source content.
+
+Exact render selection of a source-content section may request all three as its
+producer plan requires. Discovery selection retains the same provenance but
+requests only capabilities declared by its discovery mode and probe policy.
+For example, plain library discovery may request `LocalPdbRead` for its bounded
+SourceLink-door probe, while named/category type/member discovery requests none
+of the three. An explicit effective-discovery policy may request more.
+Detailed verbosity may request bounded local-PDB, PDB-acquisition, or
+source-audit work where the section contract permits it, but it does not
+request `SourceContent` merely because code promoted the effective verbosity.
+Section descriptors and query definitions declare requirements; they do not
+grant authority. Artifact admission/query leases revalidate the authorized
+plan at content access.
 
 - A package may be downloaded to resolve the requested target.
-- Default gestures must not automatically fetch symbols or source content.
+- Default gestures must not automatically acquire PDBs or access source
+  content.
 - Embedded, adjacent, or cached symbols avoid network cost, but may be used
-  only when the host-preflight-authorized plan includes PDB access for that
-  producer and coordinate. Named/category discovery without that grant cannot
-  use them.
+  only when the host-preflight-authorized plan includes `LocalPdbRead` for that
+  producer and coordinate. Availability is not authority.
 - Selecting a network-bound render section or running an explicitly
   capability-bearing effective-discovery gesture may request the capability
   declared by that section.
