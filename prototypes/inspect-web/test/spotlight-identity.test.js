@@ -221,16 +221,52 @@ function callbackProperty(actions, name) {
   return property.value;
 }
 
-function syntaxEffects(root) {
-  const effects = [];
-  walkSyntax(root, node => {
-    if (node.type === "AssignmentExpression") {
-      effects.push(`assign:${sourceText(node.left)} = ${sourceText(node.right)}`);
-    } else if (node.type === "CallExpression" && node.callee?.type === "Identifier") {
-      effects.push(`call:${node.callee.name}(${node.arguments.map(sourceText).join(", ")})`);
+function directCallExpression(statement, name) {
+  if (statement.type !== "ExpressionStatement") return null;
+  const expression = statement.expression;
+  return expression.type === "CallExpression"
+    && expression.callee?.type === "Identifier"
+    && expression.callee.name === name
+    ? expression
+    : null;
+}
+
+function statementSignatures(statements) {
+  return statements.map(statementSignature);
+}
+
+function branchSignatures(branch) {
+  return branch.type === "BlockStatement"
+    ? statementSignatures(branch.body)
+    : [statementSignature(branch)];
+}
+
+function statementSignature(statement) {
+  if (statement.type === "ExpressionStatement") {
+    const expression = statement.expression;
+    if (expression.type === "AssignmentExpression") {
+      return `assign:${sourceText(expression.left)} ${expression.operator} ${sourceText(expression.right)}`;
     }
-  });
-  return effects;
+    if (expression.type === "CallExpression" && expression.callee?.type === "Identifier") {
+      return `call:${expression.callee.name}(${expression.arguments.map(sourceText).join(", ")})`;
+    }
+    return `expression:${sourceText(expression)}`;
+  }
+  if (statement.type === "IfStatement") {
+    return {
+      if: sourceText(statement.test),
+      whenTrue: branchSignatures(statement.consequent),
+      whenFalse: statement.alternate ? branchSignatures(statement.alternate) : [],
+    };
+  }
+  if (statement.type === "VariableDeclaration"
+      && statement.declarations.length === 1) {
+    const declaration = statement.declarations[0];
+    if (declaration.id.type === "Identifier" && declaration.init) {
+      return `declare:${statement.kind} ${declaration.id.name} = ${sourceText(declaration.init)}`;
+    }
+  }
+  return `statement:${statement.type}:${sourceText(statement)}`;
 }
 
 const workspaceNavigationSource = readFileSync(
@@ -504,6 +540,10 @@ test("typed scope bar owns its rendered control bindings", () => {
   assert.equal(
     callExpressionsNamed(scopeEventBinder, "bindScopeBar").length,
     1);
+  assert.equal(scopeEventBinder.body.body.length, 1);
+  assert.equal(
+    directCallExpression(scopeEventBinder.body.body[0], "bindScopeBar"),
+    innerScopeCall);
   assert.equal(
     callExpressionsNamed(rootEventBinder, "bindScopeBarEvents").length,
     1);
@@ -520,60 +560,68 @@ test("typed scope bar owns its rendered control bindings", () => {
 
   const actions = innerScopeCall.arguments[1];
   const memberSection = callbackProperty(actions, "onMemberSectionSelect");
-  assert.equal(memberSection.body.body.length, 1);
-  assert.equal(memberSection.body.body[0].type, "IfStatement");
-  assert.equal(
-    sourceText(memberSection.body.body[0].test),
-    "section && isMemberSection(section)");
   assert.deepEqual(
-    syntaxEffects(memberSection.body),
+    statementSignatures(memberSection.body.body),
     [
-      "call:isMemberSection(section)",
-      "call:applyMemberSection(section)",
+      {
+        if: "section && isMemberSection(section)",
+        whenTrue: ["call:applyMemberSection(section)"],
+        whenFalse: [],
+      },
     ]);
 
   const packageLens = callbackProperty(actions, "onPackageLensSelect");
   assert.deepEqual(
-    syntaxEffects(packageLens.body),
+    statementSignatures(packageLens.body.body),
     [
       "assign:state.packageLens = lens",
       "call:render()",
     ]);
 
   const scope = callbackProperty(actions, "onScopeSelect");
-  assert.equal(scope.body.body.length, 2);
-  const packageBranch = scope.body.body[0];
-  assert.equal(packageBranch.type, "IfStatement");
-  assert.equal(sourceText(packageBranch.test), 'target === "package"');
   assert.deepEqual(
-    syntaxEffects(packageBranch.consequent),
-    ["assign:state.atPackageRoot = true"]);
-  const typeBranch = packageBranch.alternate;
-  assert.equal(typeBranch.type, "IfStatement");
-  assert.equal(sourceText(typeBranch.test), 'target === "type"');
-  assert.deepEqual(
-    syntaxEffects(typeBranch.consequent),
+    statementSignatures(scope.body.body),
     [
-      "assign:state.atPackageRoot = false",
-      "call:filteredTypes()",
-      "assign:state.selectedTypeId = first.id",
-      'assign:state.selectedMemberKey = ""',
-      'assign:state.memberBrowseTypeId = ""',
-      "assign:state.selectedOverloadIndex = null",
+      {
+        if: 'target === "package"',
+        whenTrue: ["assign:state.atPackageRoot = true"],
+        whenFalse: [
+          {
+            if: 'target === "type"',
+            whenTrue: [
+              "assign:state.atPackageRoot = false",
+              {
+                if: "!state.selectedTypeId",
+                whenTrue: [
+                  "declare:const first = filteredTypes()[0]",
+                  {
+                    if: "first",
+                    whenTrue: ["assign:state.selectedTypeId = first.id"],
+                    whenFalse: [],
+                  },
+                ],
+                whenFalse: [],
+              },
+              'assign:state.selectedMemberKey = ""',
+              'assign:state.memberBrowseTypeId = ""',
+              "assign:state.selectedOverloadIndex = null",
+            ],
+            whenFalse: [
+              {
+                if: 'target === "member"',
+                whenTrue: ["call:enterMemberScope()"],
+                whenFalse: [],
+              },
+            ],
+          },
+        ],
+      },
+      "call:render()",
     ]);
-  const memberBranch = typeBranch.alternate;
-  assert.equal(memberBranch.type, "IfStatement");
-  assert.equal(sourceText(memberBranch.test), 'target === "member"');
-  assert.deepEqual(
-    syntaxEffects(memberBranch.consequent),
-    ["call:enterMemberScope()"]);
-  assert.deepEqual(
-    syntaxEffects(scope.body.body[1]),
-    ["call:render()"]);
 
   const typeLens = callbackProperty(actions, "onTypeLensSelect");
   assert.deepEqual(
-    syntaxEffects(typeLens.body),
+    statementSignatures(typeLens.body.body),
     [
       "assign:state.lens = lens",
       'assign:state.selectedMemberKey = ""',
