@@ -10,6 +10,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import {
+  supportedAnalysisHosts,
+  verifyAnalysisHost,
+} from "../scripts/verify-analysis-host.js";
 import { verifySiteArtifact } from "../scripts/verify-site-artifact.js";
 
 const packageLock = JSON.parse(
@@ -45,6 +49,82 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
   assert.equal(
     packageJson.scripts.typecheck,
     "tsc --noEmit && tsc --noEmit -p test/tsconfig.json",
+  );
+});
+
+const linuxLibcs = ["glibc", "musl"];
+
+function optionalNativeVariants(packagePath, dependencyPrefix) {
+  const packageEntry = packageLock.packages[packagePath];
+  assert.ok(packageEntry);
+  const dependencies = Object.keys(packageEntry.optionalDependencies ?? {})
+    .filter(dependency => dependency.startsWith(dependencyPrefix));
+  assert.notEqual(dependencies.length, 0);
+
+  const variants = new Set();
+  for (const dependency of dependencies) {
+    const nativeEntry = packageLock.packages[`node_modules/${dependency}`];
+    assert.ok(nativeEntry);
+    assert.equal(nativeEntry.os?.length, 1);
+    assert.equal(nativeEntry.cpu?.length, 1);
+    assert.ok(nativeEntry.libc === undefined || nativeEntry.libc.length === 1);
+
+    const host = `${nativeEntry.os[0]}-${nativeEntry.cpu[0]}`;
+    const libcs = nativeEntry.libc
+      ?? (nativeEntry.os[0] === "linux" ? linuxLibcs : ["none"]);
+    for (const libc of libcs) {
+      variants.add(`${host}/${libc}`);
+    }
+  }
+  return variants;
+}
+
+function completeAnalyzerHosts(oxlintVariants, tsgolintVariants) {
+  const sharedVariants = new Set(
+    [...tsgolintVariants].filter(variant => oxlintVariants.has(variant)),
+  );
+  const hosts = new Set(
+    [...oxlintVariants, ...tsgolintVariants]
+      .map(variant => variant.slice(0, variant.indexOf("/"))),
+  );
+
+  return new Set([...hosts].filter(host => {
+    const requiredLibcs = host.startsWith("linux-") ? linuxLibcs : ["none"];
+    return requiredLibcs.every(libc => sharedVariants.has(`${host}/${libc}`));
+  }));
+}
+
+test("the analysis host check matches locked native packages and lint wiring", () => {
+  const oxlintVariants = optionalNativeVariants(
+    "node_modules/oxlint",
+    "@oxlint/binding-",
+  );
+  const tsgolintVariants = optionalNativeVariants(
+    "node_modules/oxlint-tsgolint",
+    "@oxlint-tsgolint/",
+  );
+  const expectedHosts = completeAnalyzerHosts(oxlintVariants, tsgolintVariants);
+
+  assert.deepEqual(new Set(supportedAnalysisHosts), expectedHosts);
+  const availableHosts = new Set(
+    [...oxlintVariants, ...tsgolintVariants]
+      .map(variant => variant.slice(0, variant.indexOf("/"))),
+  );
+  for (const host of availableHosts) {
+    const separator = host.indexOf("-");
+    const platform = host.slice(0, separator);
+    const architecture = host.slice(separator + 1);
+    const verify = () => verifyAnalysisHost(platform, architecture);
+    if (expectedHosts.has(host)) {
+      assert.doesNotThrow(verify);
+    } else {
+      assert.throws(verify, new RegExp(`current host is ${host}`));
+    }
+  }
+
+  assert.equal(
+    packageJson.scripts.lint,
+    "node scripts/verify-analysis-host.js && oxlint src test scripts vite.config.js",
   );
 });
 

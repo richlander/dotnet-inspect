@@ -9,6 +9,11 @@
   different, unsupported, failed, limit-reached, and
   ambiguous-correspondence results instead of collapsing incomplete
   comparisons into matches (#4540).
+- Adds `graph integrations` for inducing typed Integration relationships over
+  an explicit, binding-consistent package set. Markdown, tree, Mermaid, count,
+  and structured formats project the same logical edges, while missing peer
+  packages remain visible as failures instead of silently shortening the graph
+  (#4421).
 - Fixes canonical metadata generic-arity handling across API identity,
   relationship traversal, type forwarding, PDB/source mapping, decompilation,
   and selector spelling. Nested and foreign generic types now retain their

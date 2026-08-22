@@ -32,6 +32,8 @@ interface MockDocument {
 }
 
 function captureMemberFocus(document: MockDocument): MemberFocusSnapshot {
+  // The harness supplies the exact DOM subset the product reads.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   return captureMemberFocusImpl(document as unknown as Document);
 }
 
@@ -41,6 +43,7 @@ function restoreMemberFocus(
   requestFrame: (callback: FrameRequestCallback) => number,
   isCurrent?: () => boolean,
 ): void {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   restoreMemberFocusImpl(document as unknown as Document, snapshot, requestFrame, isCurrent);
 }
 
@@ -54,6 +57,7 @@ function createMemberFocusRestorer() {
       snapshot: MemberFocusSnapshot,
       requestFrame: (callback: FrameRequestCallback) => number,
     ) {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       restorer.schedule(document as unknown as Document, snapshot, requestFrame);
     },
   };
@@ -70,7 +74,9 @@ function createDocument() {
     },
     querySelectorAll(selector: string) {
       const key = selector.match(/^\[data-([a-z-]+)\]$/)?.[1]
-        ?.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+        ?.replace(
+          /-([a-z])/g,
+          (_match: string, letter: string) => letter.toUpperCase());
       return key
         ? [...elements.values()].filter(value =>
           value.isConnected && value.dataset[key] !== undefined)
@@ -196,6 +202,7 @@ test("member-filter selection survives a replacement render", () => {
     selectionStart: 2,
     selectionEnd: 5,
     selectionDirection: "backward",
+    setSelectionRange() {},
   });
   document.activeElement = initialInput;
   const snapshot = captureMemberFocus(document);
@@ -203,6 +210,9 @@ test("member-filter selection survives a replacement render", () => {
   let restoredSelection = null;
   const replacementInput = element("#member-filter", {
     id: "member-filter",
+    selectionStart: null,
+    selectionEnd: null,
+    selectionDirection: null,
     setSelectionRange(start, end, direction) {
       restoredSelection = { start, end, direction };
     },
@@ -227,6 +237,7 @@ test("type-filter selection survives a replacement render", () => {
     selectionStart: 2,
     selectionEnd: 5,
     selectionDirection: "backward",
+    setSelectionRange() {},
   });
   document.activeElement = initialInput;
   const snapshot = captureMemberFocus(document);
@@ -234,6 +245,9 @@ test("type-filter selection survives a replacement render", () => {
   let restoredSelection = null;
   const replacementInput = element("#type-filter", {
     id: "type-filter",
+    selectionStart: null,
+    selectionEnd: null,
+    selectionDirection: null,
     setSelectionRange(start, end, direction) {
       restoredSelection = { start, end, direction };
     },
@@ -312,24 +326,24 @@ test("member and overload rows survive activation renders", () => {
     });
 
     test("taste controls survive source completion renders", () => {
-      const { document, element } = createDocument();
-      const selector = "[data-taste=\"prefer-var\"]";
-      const initialCheckbox = element(selector, {
+      const { document: tasteDocument, element: tasteElement } = createDocument();
+      const tasteSelector = "[data-taste=\"prefer-var\"]";
+      const initialCheckbox = tasteElement(tasteSelector, {
         dataset: { taste: "prefer-var" },
       });
-      document.activeElement = initialCheckbox;
-      const snapshot = captureMemberFocus(document);
+      tasteDocument.activeElement = initialCheckbox;
+      const tasteSnapshot = captureMemberFocus(tasteDocument);
 
-      const replacementCheckbox = element(selector, {
+      const replacementCheckbox = tasteElement(tasteSelector, {
         dataset: { taste: "prefer-var" },
       });
-      document.activeElement = document.body;
-      restoreMemberFocus(document, snapshot, callback => {
+      tasteDocument.activeElement = tasteDocument.body;
+      restoreMemberFocus(tasteDocument, tasteSnapshot, callback => {
         callback(0);
         return 1;
       });
 
-      assert.equal(document.activeElement, replacementCheckbox);
+      assert.equal(tasteDocument.activeElement, replacementCheckbox);
     });
 
     assert.equal(document.activeElement, replacementButton);
