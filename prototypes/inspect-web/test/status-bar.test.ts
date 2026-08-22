@@ -1,12 +1,42 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  bindStatusBar,
   buildIdentityHtml,
   fmtBytes,
   fmtMs,
   packageSourceLabel,
   statusBarHtml,
 } from "../src/status-bar.ts";
+import { fakeDom } from "./fake-dom.ts";
+
+class FakeElement {
+  private readonly listeners = new Map<string, EventListener[]>();
+
+  addEventListener(type: string, listener: EventListener) {
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  dispatch(type: string) {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener(fakeDom.event({ target: this }));
+    }
+  }
+}
+
+class FakeRoot {
+  private readonly toggles: FakeElement[];
+
+  constructor(toggles: FakeElement[]) {
+    this.toggles = toggles;
+  }
+
+  querySelectorAll(selector: string) {
+    return selector === "[data-status-bar-toggle-button]" ? this.toggles : [];
+  }
+}
 
 function escapeHtml(value: unknown) {
   return String(value)
@@ -15,6 +45,22 @@ function escapeHtml(value: unknown) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
 }
+
+test("status bar binding dispatches each rendered toggle without eager work", () => {
+  const workspace = new FakeElement();
+  const home = new FakeElement();
+  let toggles = 0;
+
+  bindStatusBar(
+    fakeDom.parentNode(new FakeRoot([workspace, home])),
+    { onToggle: () => toggles += 1 });
+
+  assert.equal(toggles, 0);
+  workspace.dispatch("click");
+  assert.equal(toggles, 1);
+  home.dispatch("click");
+  assert.equal(toggles, 2);
+});
 
 test("status values use stable compact units", () => {
   assert.equal(fmtMs(null), "—");

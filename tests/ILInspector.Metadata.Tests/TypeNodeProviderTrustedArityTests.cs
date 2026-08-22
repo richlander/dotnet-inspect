@@ -20,7 +20,11 @@ public sealed class TypeNodeProviderTrustedArityTests
     // generic parameter; Inner's raw name (Inner`1) only advertises its own
     // introduced parameter, not the enclosing one. Metadata proves Outer owns
     // 1 parameter and Inner introduces 1 more (cumulative 2).
-    static readonly (MetadataReader Reader, TypeDefinitionHandle Inner) Fixture = BuildFixture();
+    static readonly (
+        MetadataReader Reader,
+        TypeDefinitionHandle Inner,
+        MethodDefinitionHandle Method,
+        byte[] Image) Fixture = BuildFixture();
 
     [Fact]
     public void NestedGenericDefinition_WithMissingOuterSuffix_RendersUnboundArityOnOuterSegment()
@@ -38,17 +42,15 @@ public sealed class TypeNodeProviderTrustedArityTests
     [Fact]
     public void NestedGenericInstance_WithMissingOuterSuffix_PlacesArgumentsOnCorrectSegments()
     {
-        TypeNode node = TypeNodeProvider.Instance.GetTypeFromDefinition(
+        MethodDefinition method =
+            Fixture.Reader.GetMethodDefinition(Fixture.Method);
+        MethodSignature<TypeNode> signature = GuardedProviderDecode.Method(
             Fixture.Reader,
-            Fixture.Inner,
-            rawTypeKind: 0x12);
-
-        TypeNode generic = TypeNodeProvider.Instance.GetGenericInstantiation(
-            node,
-            [
-                new PrimitiveTypeNode("int", isReferenceType: false),
-                new PrimitiveTypeNode("string", isReferenceType: true),
-            ]);
+            method,
+            TypeNodeProvider.Instance,
+            context: (GenericContext?)null,
+            fallbackReturn: (TypeNode)new DegradedTypeNode());
+        TypeNode generic = Assert.Single(signature.ParameterTypes);
 
         // The outer segment's trusted count (1) places the first argument on
         // Outer, and Inner's own declared suffix (`1) places the second on
@@ -57,7 +59,33 @@ public sealed class TypeNodeProviderTrustedArityTests
         Assert.Equal("N.Outer<int>.Inner<string>", generic.Render());
     }
 
-    static (MetadataReader, TypeDefinitionHandle) BuildFixture()
+    [Fact]
+    public void NestedGenericSignature_WithMalformedOwnership_IsReportedAsInspectionFailure()
+    {
+        var fixture = BuildFixture(innerSecondParameterIndex: 2);
+        using var stream = new MemoryStream(fixture.Image);
+
+        ApiSurface? surface = AssemblyReader.ExtractApiSurface(
+            stream,
+            includeAll: true);
+
+        Assert.NotNull(surface);
+        Assert.DoesNotContain(
+            surface.Types,
+            type => type.Name == "Consumer");
+        ApiSurfaceInspectionFailure failure = Assert.Single(
+            surface.InspectionFailures,
+            failure => failure.SubjectToken == 0x02000004);
+        Assert.Equal("type row", failure.Operation);
+        Assert.Equal("MalformedMetadata", failure.Kind);
+    }
+
+    static (
+        MetadataReader Reader,
+        TypeDefinitionHandle Inner,
+        MethodDefinitionHandle Method,
+        byte[] Image) BuildFixture(
+            ushort innerSecondParameterIndex = 1)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -89,19 +117,31 @@ public sealed class TypeNodeProviderTrustedArityTests
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
-        metadata.AddGenericParameter(
-            outer,
-            GenericParameterAttributes.None,
-            metadata.GetOrAddString("TOuter"),
-            0);
 
         TypeDefinitionHandle inner = metadata.AddTypeDefinition(
             TypeAttributes.NestedPublic | TypeAttributes.Class,
             default,
             metadata.GetOrAddString("Inner`1"),
             default,
-            MetadataTokens.FieldDefinitionHandle(2),
-            MetadataTokens.MethodDefinitionHandle(2));
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddNestedType(inner, outer);
+
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Interface,
+            ns,
+            metadata.GetOrAddString("Consumer"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        metadata.AddGenericParameter(
+            outer,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("TOuter"),
+            0);
         metadata.AddGenericParameter(
             inner,
             GenericParameterAttributes.None,
@@ -111,8 +151,35 @@ public sealed class TypeNodeProviderTrustedArityTests
             inner,
             GenericParameterAttributes.None,
             metadata.GetOrAddString("TInner"),
-            1);
-        metadata.AddNestedType(inner, outer);
+            innerSecondParameterIndex);
+
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature()
+            .Parameters(
+                1,
+                returnType => returnType.Void(),
+                parameters =>
+                {
+                    GenericTypeArgumentsEncoder arguments = parameters
+                        .AddParameter()
+                        .Type()
+                        .GenericInstantiation(
+                            inner,
+                            genericArgumentCount: 2,
+                            isValueType: false);
+                    arguments.AddArgument().Int32();
+                    arguments.AddArgument().String();
+                });
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Use"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
 
         var peBuilder = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
@@ -130,7 +197,13 @@ public sealed class TypeNodeProviderTrustedArityTests
         {
             TypeDefinition typeDef = reader.GetTypeDefinition(handle);
             if (reader.GetString(typeDef.Name) == "Inner`1")
-                return (reader, handle);
+            {
+                return (
+                    reader,
+                    handle,
+                    MetadataTokens.MethodDefinitionHandle(1),
+                    bytes);
+            }
         }
 
         throw new InvalidOperationException("Inner`1 was not found in the fixture.");

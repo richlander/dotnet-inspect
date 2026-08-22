@@ -292,6 +292,7 @@ export interface BrowserSource {
   provider: string;
   provenance: string;
   url: string | null;
+  pdbSourceLimitation: string | null;
   text: string;
 }
 

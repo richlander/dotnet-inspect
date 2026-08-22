@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
@@ -359,12 +360,20 @@ public sealed class MemberPattern
 {
     readonly TypeRef? _declaringType;
     readonly string? _declaringTypeName;
+    readonly TypeRef? _returnType;
     readonly bool _eraseGenericSignature;
 
-    MemberPattern(TypeRef? declaringType, string? declaringTypeName, string name, ImmutableArray<TypeRef> parameterTypes, bool matchParameterTypes)
+    MemberPattern(
+        TypeRef? declaringType,
+        string? declaringTypeName,
+        string name,
+        ImmutableArray<TypeRef> parameterTypes,
+        bool matchParameterTypes,
+        TypeRef? returnType = null)
     {
         _declaringType = declaringType;
         _declaringTypeName = declaringTypeName;
+        _returnType = returnType;
         Name = name;
         ParameterTypes = parameterTypes;
         MatchParameterTypes = matchParameterTypes;
@@ -393,6 +402,20 @@ public sealed class MemberPattern
     public static MemberPattern Method(TypeRef declaringType, string name, ImmutableArray<TypeRef> parameterTypes)
         => new(declaringType, null, name, parameterTypes, matchParameterTypes: true);
 
+    public static MemberPattern Method(MethodIdentity method)
+    {
+        ArgumentNullException.ThrowIfNull(method);
+        return new(
+            method.DeclaringType,
+            null,
+            method.Name,
+            method.ParameterTypes,
+            matchParameterTypes: true,
+            ApiMemberIdentity.IsConversionOperator(method.Name)
+                ? method.ReturnType
+                : null);
+    }
+
     public bool Matches(MemberRef member)
     {
         bool declaringMatches = _declaringType is not null
@@ -402,7 +425,12 @@ public sealed class MemberPattern
         {
             return false;
         }
-        return !MatchParameterTypes || member.ParameterTypes.SequenceEqual(ParameterTypes);
+        return (!MatchParameterTypes
+                || member.ParameterTypes.SequenceEqual(ParameterTypes))
+            && (_returnType is null
+                || TypeRef.ExactSignatureEquals(
+                    member.OpenSignatureReturn,
+                    _returnType));
     }
 
 }
