@@ -384,6 +384,43 @@ public sealed class PackageCoordinateResolverTests
         Assert.Equal(target, resolved.Coordinate.RuntimeIdentifier);
     }
 
+    [Theory]
+    [InlineData("lib/net8.0/Foo.dll")]
+    [InlineData("ref/net8.0-windows/Foo.dll")]
+    [InlineData("tools/net9.0/any/tool.dll")]
+    [InlineData("lib/monoandroid/Foo.dll")]
+    [InlineData("lib/uap10.0/Foo.dll")]
+    [InlineData("ref/portable-net45+win8/Foo.dll")]
+    [InlineData("lib/Debug/Foo.dll")]
+    [InlineData("runtimes/linux-x64/lib/net8.0/Foo.dll")]
+    [InlineData("runtimes\\win-x64\\lib\\uap10.0\\Foo.dll")]
+    public void PackageFrameworkAssetPath_AcceptsAnchoredFrameworkAssets(
+        string path)
+    {
+        Assert.True(
+            PackageCoordinateResolver.IsPackageFrameworkAssetPath(path));
+    }
+
+    [Theory]
+    [InlineData("directory/lib/net8.0/Foo.dll")]
+    [InlineData("lib/net8bogus/Foo.dll")]
+    [InlineData("lib/netstandardbogus/Foo.dll")]
+    [InlineData("lib/netcoreappbogus/Foo.dll")]
+    [InlineData("lib//net8.0/Foo.dll")]
+    [InlineData("lib/./Foo.dll")]
+    [InlineData("lib/net8.0/../Foo.dll")]
+    [InlineData("lib/net8.0 bad/Foo.dll")]
+    [InlineData("runtimes/linux-x64/native/Foo.dll")]
+    [InlineData("runtimes/linux-x64/lib/../Foo.dll")]
+    [InlineData("runtimes//lib/net8.0/Foo.dll")]
+    [InlineData("runtimes/lib/net8.0/Foo.dll")]
+    public void PackageFrameworkAssetPath_RejectsMalformedOrShiftedPaths(
+        string path)
+    {
+        Assert.False(
+            PackageCoordinateResolver.IsPackageFrameworkAssetPath(path));
+    }
+
     /// <summary>
     /// The rejected version text is the value that just failed a grammar, so it
     /// is the most hostile string the resolver has seen. Quoting it into the

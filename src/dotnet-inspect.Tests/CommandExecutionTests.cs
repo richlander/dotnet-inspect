@@ -22211,6 +22211,11 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("lib/Debug/Missing.dll")]
+    [InlineData("lib/monoandroid/Missing.dll")]
+    [InlineData("lib/uap10.0/Missing.dll")]
+    [InlineData("lib/portable-net45+win8/Missing.dll")]
+    [InlineData("lib/x/lib/net8.0/Missing.dll")]
     [InlineData("ref/net6.0/Missing.dll")]
     [InlineData("tools/net6.0/Missing.dll")]
     [InlineData("runtimes/linux-x64/lib/net6.0/Missing.dll")]
@@ -22262,10 +22267,12 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData("directory/lib/net8.0/missing.dll")]
-    [InlineData("lib/Debug/missing.dll")]
-    [InlineData("lib/x/lib/net8.0/missing.dll")]
-    [InlineData("tools/sub/lib/net8.0/missing.dll")]
+    [InlineData("lib/net8bogus/missing.dll")]
+    [InlineData("lib//net8.0/missing.dll")]
+    [InlineData("lib/./missing.dll")]
+    [InlineData("lib/net8.0/../missing.dll")]
     [InlineData("runtimes/linux-x64/native/missing.dll")]
+    [InlineData("runtimes/linux-x64/lib/../missing.dll")]
     [InlineData("runtimes/lib/net8.0/missing.dll")]
     public async Task Router_NestedPackageLikeLibraryPath_UsesTypeParser(
         string libraryPath)

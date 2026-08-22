@@ -11,7 +11,6 @@ using DotnetInspector.Services;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using NuGet.Versioning;
-using TfmResolver = NuGetFetch.TfmResolver;
 
 namespace DotnetInspector.CommandLine;
 
@@ -937,32 +936,9 @@ public static class RouterCommandDefinition
 
         private static bool IsPackageAssetLibraryPath(string value)
         {
-            var parts = value.Split(
-                ['/', '\\'],
-                StringSplitOptions.RemoveEmptyEntries);
-            var packageRootAsset = parts.Length >= 3
-                && TfmResolver.IsTfmLike(parts[1])
-                && (parts[0].Equals(
-                        "lib",
-                        StringComparison.OrdinalIgnoreCase)
-                    || parts[0].Equals(
-                        "ref",
-                        StringComparison.OrdinalIgnoreCase)
-                    || parts[0].Equals(
-                        "tools",
-                        StringComparison.OrdinalIgnoreCase));
-            var runtimeAsset = parts.Length >= 5
-                && parts[0].Equals(
-                    "runtimes",
-                    StringComparison.OrdinalIgnoreCase)
-                && parts[2].Equals(
-                    "lib",
-                    StringComparison.OrdinalIgnoreCase)
-                && TfmResolver.IsTfmLike(parts[3]);
-
             // A package asset root is authoritative even when the target resembles
             // a type; consulting cwd would make the same command route differently.
-            return packageRootAsset || runtimeAsset;
+            return PackageCoordinateResolver.IsPackageFrameworkAssetPath(value);
         }
 
         private static bool IsExplicitLibraryPath(string value) =>
