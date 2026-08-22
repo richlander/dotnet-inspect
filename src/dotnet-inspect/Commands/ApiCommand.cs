@@ -1504,48 +1504,32 @@ public class ApiCommand
     {
         try
         {
-            using var service = SourceLinkService.Open(dllPath, logger.Log);
-            var context = service.Context;
-
             // A member with no IL body has no PDB source to resolve, whatever the PDB and
             // SourceLink situation is. The selected MethodDef token belongs to the assembly that
             // supplied the API member, which may differ from the runtime facade opened for PDB
             // lookup. Preserve that identity instead of applying the token to the wrong image;
             // when it is unavailable, use the same name/overload fallback as source lookup
             // (issue #3299).
-            bool? memberHasBody = null;
-            if (memberMetadataToken != 0
-                && memberMetadataAssemblyPath is { Length: > 0 })
-            {
-                if (LibraryMetadataService
-                    .ReferenceTreePathComparer(OperatingSystem.IsWindows())
-                    .Equals(
-                        Path.GetFullPath(dllPath),
-                        Path.GetFullPath(memberMetadataAssemblyPath)))
-                {
-                    memberHasBody = context.MethodHasBody(memberMetadataToken);
-                }
-                else
-                {
-                    using var memberContext = PdbContext.Open(memberMetadataAssemblyPath);
-                    memberHasBody = memberContext.MethodHasBody(memberMetadataToken);
-                }
-            }
-
-            memberHasBody ??= context.MethodHasBody(
+            bool? memberHasBody = ResolveMemberBodyState(
+                dllPath,
                 typeName,
                 methodName,
                 overloadIndex,
                 publicOnly,
-                sourceMetadataToken);
-            bool memberHasNoBody = memberHasBody == false;
-            if (memberHasNoBody)
+                sourceMetadataToken,
+                memberMetadataAssemblyPath,
+                memberMetadataToken,
+                logger.Log);
+            if (memberHasBody == false)
             {
                 return new ResolvedMethodSource(
                     null,
-                    context.PortablePdbPath,
+                    null,
                     MemberHasNoBody: true);
             }
+
+            using var service = SourceLinkService.Open(dllPath, logger.Log);
+            var context = service.Context;
 
             // Acquire PDB if needed (same flow as SourceEnricher)
             if (context.NeedsPdb)
@@ -1652,6 +1636,55 @@ public class ApiCommand
                 null,
                 PdbSourceUnavailableReason: PdbSourceInspectionFailedReason);
         }
+    }
+
+    static bool? ResolveMemberBodyState(
+        string dllPath,
+        string typeName,
+        string methodName,
+        int overloadIndex,
+        bool publicOnly,
+        int sourceMetadataToken,
+        string? memberMetadataAssemblyPath,
+        int memberMetadataToken,
+        Action<string>? log)
+    {
+        bool hasMemberToken =
+            memberMetadataToken != 0
+            && memberMetadataAssemblyPath is { Length: > 0 };
+        bool tokenAddressesLookupImage =
+            hasMemberToken
+            && LibraryMetadataService
+                .ReferenceTreePathComparer(OperatingSystem.IsWindows())
+                .Equals(
+                    Path.GetFullPath(dllPath),
+                    Path.GetFullPath(memberMetadataAssemblyPath!));
+
+        if (hasMemberToken && !tokenAddressesLookupImage)
+        {
+            using var memberContext =
+                PdbContext.OpenMetadataOnly(memberMetadataAssemblyPath!);
+            bool? memberHasBody =
+                memberContext.MethodHasBody(memberMetadataToken);
+            if (memberHasBody.HasValue)
+                return memberHasBody;
+        }
+
+        using var lookupContext = PdbContext.OpenMetadataOnly(dllPath, log);
+        if (hasMemberToken && tokenAddressesLookupImage)
+        {
+            bool? memberHasBody =
+                lookupContext.MethodHasBody(memberMetadataToken);
+            if (memberHasBody.HasValue)
+                return memberHasBody;
+        }
+
+        return lookupContext.MethodHasBody(
+            typeName,
+            methodName,
+            overloadIndex,
+            publicOnly,
+            sourceMetadataToken);
     }
 
     internal static string NormalizePdbSourceLineEndings(string content)

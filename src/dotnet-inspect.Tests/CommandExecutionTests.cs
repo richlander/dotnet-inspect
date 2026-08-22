@@ -7127,6 +7127,18 @@ public partial class CommandExecutionTests
         Assert.Contains("## PDB Source", forwardedOutput);
         Assert.Contains("has no IL body", forwardedOutput);
         Assert.DoesNotContain(ApiCommand.NoPdbSourceMappingReason, forwardedOutput);
+
+        // Body-state inspection is metadata-only. Even a valid adjacent portable PDB must not be
+        // loaded before the selected P/Invoke method is classified as definitively bodyless.
+        var (pinvokeExit, pinvokeOutput, pinvokeError) = await RunAppAsync(
+            "member", typeof(SamplePInvokeClass).FullName!,
+            nameof(SamplePInvokeClass.GetCurrentProcessId),
+            "--library", TestAssemblyPath, "--all",
+            "-S", "PDB Source", "--tips", "q", "--verbose");
+
+        Assert.Equal(0, pinvokeExit);
+        Assert.Contains("has no IL body", pinvokeOutput);
+        Assert.DoesNotContain("Loaded PDB", pinvokeError);
     }
 
     [Theory]

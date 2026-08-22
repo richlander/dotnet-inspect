@@ -783,9 +783,10 @@ public class PdbContext : IDisposable
     /// answer as "no body" and must not be reported as one (issue #3299).
     /// </summary>
     /// <remarks>
-    /// A reference assembly's zero RVA is not evidence by itself because the image strips IL.
-    /// Abstract, P/Invoke, non-IL code-type, internal-call, and forward-reference flags still
-    /// prove that a method has no IL body; other reference methods remain unknown.
+    /// A reference assembly's RVA describes a synthesized body rather than the implementation
+    /// member's body, so it is not evidence in either direction. Abstract, P/Invoke, non-IL
+    /// code-type, internal-call, and forward-reference flags still prove that a method has no IL
+    /// body; other reference methods remain unknown.
     /// <c>MethodHasBodyTests.ReferenceAssembly_ReportsOnlyDefiniteBodylessness</c> gates this
     /// distinction.
     /// </remarks>
@@ -1130,8 +1131,8 @@ public class PdbContext : IDisposable
     {
         if (metadataToken != 0)
         {
-            // Handle() rejects an invalid token by throwing, and an inspected assembly is
-            // untrusted input, so callers invoke this helper inside their decode guards.
+            // Handle() rejects invalid tokens by throwing. Callers that accept untrusted token
+            // values must guard this decode.
             var tokenHandle = MetadataTokens.Handle(metadataToken);
             return tokenHandle.Kind == HandleKind.MethodDefinition
                 ? (MethodDefinitionHandle)tokenHandle

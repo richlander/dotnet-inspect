@@ -101,9 +101,9 @@ public class MethodHasBodyTests
     [Fact]
     public void ReferenceAssembly_ReportsOnlyDefiniteBodylessness()
     {
-        // A reference assembly strips all IL, so RVA 0 describes the image's surface-only nature
-        // rather than the method. Metadata flags still prove an interface method is bodyless,
-        // while an ordinary concrete method remains unknown.
+        // A reference assembly's RVA describes its synthesized body rather than the implementation
+        // member's body. Metadata flags still prove an interface method is bodyless, while an
+        // ordinary concrete method remains unknown despite its non-zero synthesized-body RVA.
         var referenceAssembly = FindReferenceAssembly();
         Assert.SkipWhen(referenceAssembly is null, "No targeting-pack reference assembly available.");
 
