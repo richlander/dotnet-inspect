@@ -265,6 +265,39 @@ public class PlantedCoreLibraryIdentityTests
     }
 
     /// <summary>
+    /// An absent acquisition entitles nothing. This is a third property, not a
+    /// restatement of the other two, and neither of them can see it.
+    /// <para>
+    /// <see cref="MayMint_ReadsNoValueOutOfTheAcquisition"/> cannot, because
+    /// <c>provenance is null</c> is honestly not a read: it lowers to
+    /// <c>ldnull</c> and <c>ceq</c>, carries no field, getter, or literal, and
+    /// so satisfies that gate truthfully rather than by evading it. That gate's
+    /// claim is about the acquisition's <em>contents</em>, and a missing
+    /// acquisition has none.
+    /// <see cref="EveryAcquisitionIsClassified_AndExactlyTwoAreEntitled"/>
+    /// cannot either, because it enumerates the provenance types the product
+    /// declares, and absence is not one of them.
+    /// </para>
+    /// <para>
+    /// It is worth gating even though the parameter is declared non-nullable:
+    /// nullable annotations are not enforced at run time, so a caller reaching
+    /// <c>GrantIfEntitled</c> with a null acquisition would mint core-library
+    /// identity for an assembly that was never acquired at all. Round 6 raised
+    /// this as a live escape; it is closed here by naming the property rather
+    /// than by widening either of the other gates past what it honestly proves.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void AnAbsentAcquisition_IsNotEntitled()
+    {
+        Assert.False(
+            CoreLibraryIdentityTrust.MayMint(null!),
+            "A missing acquisition entitled the assembly to core-library "
+            + "identity. Nothing was acquired, so nothing establishes the "
+            + "coherent closure that identity depends on.");
+    }
+
+    /// <summary>
     /// One acquisition of the given type, built with a neutral value in every
     /// field. Which value it is no longer matters: that entitlement cannot
     /// depend on any value is established structurally by
@@ -327,10 +360,7 @@ public class PlantedCoreLibraryIdentityTests
         using var pe = new PEReader(File.OpenRead(assemblyPath));
         MetadataReader metadata = pe.GetMetadataReader();
 
-        MethodDefinition method = FindMethod(
-            metadata,
-            nameof(CoreLibraryIdentityTrust),
-            nameof(CoreLibraryIdentityTrust.MayMint));
+        MethodDefinition method = TheEntitlementDecision(metadata);
 
         MethodInstructions decoded = MethodInstructions.Decode(
             pe.GetMethodBody(method.RelativeVirtualAddress));
@@ -361,30 +391,72 @@ public class PlantedCoreLibraryIdentityTests
     }
 
     /// <summary>
-    /// The named method on the named type, or a failure that names what was
-    /// missing. Resolved by name so that a rename of either — which
-    /// <c>nameof</c> keeps in step — cannot silently leave this gate matching
-    /// nothing and passing.
+    /// The one method whose IL decides entitlement, resolved by metadata token
+    /// rather than by name.
+    /// <para>
+    /// Round 6 defeated a name-scanning predecessor that returned the first
+    /// method called <c>MayMint</c>: adding an unrelated parameterless
+    /// <c>MayMint()</c> overload ahead of the real one redirected the gate onto
+    /// the decoy's empty body, so a genuinely content-keyed rule
+    /// (<c>PackageAsset { PackageId: "System.Runtime" }</c>) passed the whole
+    /// class. Reflection binds the overload by parameter type, and the token it
+    /// reports names exactly one row in the method table, so no sibling method
+    /// can stand in for the one the product actually consults.
+    /// </para>
+    /// <para>
+    /// Ambiguity is refused rather than resolved: if the type ever declares
+    /// more than one <c>MayMint</c>, this fails and asks for a deliberate
+    /// decision about which one is the entitlement decision, instead of
+    /// quietly gating one of them and leaving the other unexamined.
+    /// </para>
     /// </summary>
-    static MethodDefinition FindMethod(
-        MetadataReader metadata,
-        string typeName,
-        string methodName)
+    static MethodDefinition TheEntitlementDecision(MetadataReader metadata)
     {
-        foreach (MethodDefinitionHandle handle in metadata.MethodDefinitions)
-        {
-            MethodDefinition method = metadata.GetMethodDefinition(handle);
-            if (metadata.GetString(method.Name) != methodName)
-                continue;
+        const BindingFlags Declared =
+            BindingFlags.Static
+            | BindingFlags.Public
+            | BindingFlags.NonPublic
+            | BindingFlags.DeclaredOnly;
 
-            TypeDefinition declaring =
-                metadata.GetTypeDefinition(method.GetDeclaringType());
-            if (metadata.GetString(declaring.Name) == typeName)
-                return method;
-        }
+        MethodInfo[] named = typeof(CoreLibraryIdentityTrust)
+            .GetMethods(Declared)
+            .Where(m => m.Name == nameof(CoreLibraryIdentityTrust.MayMint))
+            .ToArray();
 
-        Assert.Fail($"{typeName}.{methodName} is not in the product assembly.");
-        return default;
+        Assert.True(
+            named.Length == 1,
+            $"Expected exactly one {nameof(CoreLibraryIdentityTrust)}."
+            + $"{nameof(CoreLibraryIdentityTrust.MayMint)}, found "
+            + $"{named.Length}: "
+            + string.Join(", ", named.Select(m => m.ToString()))
+            + ". This gate decodes the entitlement decision, and cannot tell "
+            + "which overload that is. Name the decision uniquely, or teach "
+            + "this gate which one to read.");
+
+        MethodInfo decision = named[0];
+
+        // The signature is pinned as well as the count, so that redefining
+        // MayMint to take something other than an acquisition -- which would
+        // make "reads no value out of the acquisition" a claim about a
+        // different argument -- fails here rather than passing quietly.
+        Assert.Equal(typeof(bool), decision.ReturnType);
+        Assert.Equal(
+            [typeof(AssemblyResolutionProvenance)],
+            decision.GetParameters().Select(p => p.ParameterType));
+
+        var handle = (MethodDefinitionHandle)
+            MetadataTokens.EntityHandle(decision.MetadataToken);
+
+        MethodDefinition method = metadata.GetMethodDefinition(handle);
+
+        // Guards the assumption that the loaded assembly and the file just
+        // opened are the same build. A token read from one and resolved
+        // against the other would otherwise land on an arbitrary method.
+        Assert.Equal(
+            nameof(CoreLibraryIdentityTrust.MayMint),
+            metadata.GetString(method.Name));
+
+        return method;
     }
 
     /// <summary>

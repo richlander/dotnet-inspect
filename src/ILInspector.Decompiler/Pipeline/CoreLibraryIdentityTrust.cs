@@ -117,7 +117,10 @@ static class CoreLibraryIdentityTrust
     /// <c>MayMint_ReadsNoValueOutOfTheAcquisition</c>, which decodes this
     /// method's emitted IL and requires that it read no field, property, or
     /// literal — a rule keyed on what an acquisition contains must load
-    /// something, so a body that loads nothing cannot be one.
+    /// something, so a body that loads nothing cannot be one. That an
+    /// <em>absent</em> acquisition entitles nothing is a third property that
+    /// neither of those can see, and
+    /// <c>AnAbsentAcquisition_IsNotEntitled</c> holds it.
     /// </para>
     /// </summary>
     internal static bool MayMint(
