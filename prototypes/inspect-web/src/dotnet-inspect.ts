@@ -3962,6 +3962,7 @@ function bindEvents() {
   });
   memberFilter?.addEventListener("keydown", event => {
     if (event.key === "Escape") {
+      if (navMode() !== "member" && memberFilter.value === "") return;
       event.preventDefault();
       if (navMode() === "member") {
         exitMemberScope();
