@@ -364,6 +364,59 @@ public static class MetadataDeclarationQuery
         return FormatMethodReturnType(reader, signature.ReturnType, method.GetParameters());
     }
 
+    public static bool TryGetCliInstanceConstructorSignature(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition method,
+        out MethodSignature<string> signature)
+    {
+        signature = default;
+        const MethodAttributes constructorFlags =
+            MethodAttributes.SpecialName
+            | MethodAttributes.RTSpecialName;
+        if ((method.Attributes & MethodAttributes.Static) != 0
+            || (method.Attributes & constructorFlags) != constructorFlags
+            || !reader.StringComparer.Equals(
+                method.Name,
+                ".ctor")
+            || method.GetGenericParameters().Count != 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            signature = GuardedSignatureText.MethodText(
+                reader,
+                method,
+                GenericContext.ForMethod(
+                    reader,
+                    typeDef,
+                    method))
+                .GetValueOrThrow();
+        }
+        catch (Exception ex)
+            when (ex is BadImageFormatException
+                or InvalidOperationException
+                or ArgumentException)
+        {
+            signature = default;
+            return false;
+        }
+
+        return signature.Header.Kind
+                == SignatureKind.Method
+            && signature.Header.CallingConvention
+                == SignatureCallingConvention.Default
+            && signature.Header.IsInstance
+            && !signature.Header.IsGeneric
+            && !signature.Header.HasExplicitThis
+            && string.Equals(
+                signature.ReturnType,
+                "void",
+                StringComparison.Ordinal);
+    }
+
     public static MetadataMethodDeclaration GetMethod(
         MetadataReader reader,
         TypeDefinition typeDef,
@@ -647,6 +700,7 @@ public static class MetadataDeclarationQuery
 
     readonly record struct OverrideParameterShape(
         OverrideTypeIdentity Type,
+        TypeNode TypeNode,
         OverrideModifier Modifier);
 
     readonly record struct OverrideTypeContext(
@@ -697,6 +751,7 @@ public static class MetadataDeclarationQuery
                 new OverrideParameterShape(
                     TypeIdentity(
                         nodeSignature.ParameterTypes[index]),
+                    nodeSignature.ParameterTypes[index],
                     index < parameters.Count
                         ? ParameterModifier(
                             parameters[index].Modifier)
@@ -724,6 +779,7 @@ public static class MetadataDeclarationQuery
         => !method.IsDegraded
             && !candidate.IsDegraded
             && ParametersMatch(
+                reader,
                 method.Parameters,
                 candidate.Parameters)
             && ReturnTypesAreOverrideCompatible(
@@ -732,6 +788,7 @@ public static class MetadataDeclarationQuery
                 candidate);
 
     static bool ParametersMatch(
+        MetadataReader reader,
         IReadOnlyList<OverrideParameterShape> methodParameters,
         IReadOnlyList<OverrideParameterShape> candidateParameters)
     {
@@ -742,9 +799,10 @@ public static class MetadataDeclarationQuery
         {
             if (methodParameters[index].Modifier
                     != candidateParameters[index].Modifier
-                || !TypeIdentitiesCorrespond(
-                    methodParameters[index].Type,
-                    candidateParameters[index].Type))
+                || !TypeNodesCorrespond(
+                    reader,
+                    methodParameters[index].TypeNode,
+                    candidateParameters[index].TypeNode))
             {
                 return false;
             }
@@ -761,9 +819,10 @@ public static class MetadataDeclarationQuery
         if (method.ReturnModifier != candidate.ReturnModifier)
             return false;
 
-        if (TypeIdentitiesCorrespond(
-                method.ReturnType,
-                candidate.ReturnType))
+        if (TypeNodesCorrespond(
+                reader,
+                method.ReturnTypeNode,
+                candidate.ReturnTypeNode))
         {
             return true;
         }
@@ -785,7 +844,7 @@ public static class MetadataDeclarationQuery
                     candidate.ReturnTypeNode,
                     candidate.TypeContext,
                     [])
-                == OverrideCompatibility.Compatible;
+                != OverrideCompatibility.Incompatible;
         }
 
         if (candidate.ReturnTypeNode
@@ -836,12 +895,12 @@ public static class MetadataDeclarationQuery
                 reader,
                 candidate.ReturnTypeNode,
                 out var candidateReturnHandle);
-        if ((RequiresExactLocalDefinition(
-                        method.ReturnTypeNode)
-                    && !hasMethodReturnDefinition)
-            || (RequiresExactLocalDefinition(
-                        candidate.ReturnTypeNode)
-                    && !hasCandidateReturnDefinition))
+        if (HasUnavailableOrAmbiguousExactLocalDefinition(
+                reader,
+                method.ReturnTypeNode)
+            || HasUnavailableOrAmbiguousExactLocalDefinition(
+                reader,
+                candidate.ReturnTypeNode))
         {
             return false;
         }
@@ -858,17 +917,6 @@ public static class MetadataDeclarationQuery
         return IsSameOrDerivedOrImplements(reader, methodReturnHandle, candidateReturnHandle);
     }
 
-    static bool RequiresExactLocalDefinition(
-        TypeNode type)
-        => TryGetNamedDefinition(
-                type,
-                out _,
-                out ScopedNamedTypeIdentity? scope)
-            && string.Equals(
-                scope.Scope,
-                "current",
-                StringComparison.Ordinal);
-
     enum OverrideCompatibility
     {
         Unknown,
@@ -883,11 +931,46 @@ public static class MetadataDeclarationQuery
         TypeNode candidate,
         OverrideTypeContext candidateContext)
     {
-        if (TypeIdentitiesCorrespond(
-                TypeIdentity(method),
-                TypeIdentity(candidate)))
+        if (TypeNodesCorrespond(
+                reader,
+                method,
+                candidate))
         {
             return OverrideCompatibility.Compatible;
+        }
+
+        if (method is ModifiedTypeNode
+            || candidate is ModifiedTypeNode)
+        {
+            return method is ModifiedTypeNode methodModified
+                && candidate is ModifiedTypeNode candidateModified
+                && methodModified.IsRequired
+                    == candidateModified.IsRequired
+                && TypeNodesCorrespond(
+                    reader,
+                    methodModified.Modifier,
+                    candidateModified.Modifier)
+                ? CompareStructuredReturnTypes(
+                    reader,
+                    methodModified.Inner,
+                    methodContext,
+                    candidateModified.Inner,
+                    candidateContext)
+                : OverrideCompatibility.Incompatible;
+        }
+
+        if (method is PinnedTypeNode
+            || candidate is PinnedTypeNode)
+        {
+            return method is PinnedTypeNode methodPinned
+                && candidate is PinnedTypeNode candidatePinned
+                ? CompareStructuredReturnTypes(
+                    reader,
+                    methodPinned.Inner,
+                    methodContext,
+                    candidatePinned.Inner,
+                    candidateContext)
+                : OverrideCompatibility.Incompatible;
         }
 
         if (method is GenericParameterNode
@@ -905,11 +988,19 @@ public static class MetadataDeclarationQuery
         if (candidate is GenericParameterNode)
             return OverrideCompatibility.Incompatible;
 
-        if (method is SZArrayTypeNode methodSz
-            && candidate is SZArrayTypeNode candidateSz)
+        if (method is SZArrayTypeNode
+            || candidate is SZArrayTypeNode)
         {
-            if (!methodSz.ElementType.IsReferenceType
-                || !candidateSz.ElementType.IsReferenceType)
+            if (method is not SZArrayTypeNode methodSz
+                || candidate is not SZArrayTypeNode candidateSz
+                || !TypeIsAuthenticatedReferenceType(
+                    reader,
+                    methodSz.ElementType,
+                    methodContext)
+                || !TypeIsAuthenticatedReferenceType(
+                    reader,
+                    candidateSz.ElementType,
+                    candidateContext))
             {
                 return OverrideCompatibility.Incompatible;
             }
@@ -921,12 +1012,22 @@ public static class MetadataDeclarationQuery
                 candidateContext);
         }
 
-        if (method is MDArrayTypeNode methodMd
-            && candidate is MDArrayTypeNode candidateMd)
+        if (method is MDArrayTypeNode
+            || candidate is MDArrayTypeNode)
         {
-            return methodMd.Rank == candidateMd.Rank
-                && methodMd.ElementType.IsReferenceType
-                && candidateMd.ElementType.IsReferenceType
+            return method is MDArrayTypeNode methodMd
+                && candidate is MDArrayTypeNode candidateMd
+                && ArrayShapesCorrespond(
+                    methodMd.Shape,
+                    candidateMd.Shape)
+                && TypeIsAuthenticatedReferenceType(
+                    reader,
+                    methodMd.ElementType,
+                    methodContext)
+                && TypeIsAuthenticatedReferenceType(
+                    reader,
+                    candidateMd.ElementType,
+                    candidateContext)
                 ? CompareVariantTypeArguments(
                     reader,
                     methodMd.ElementType,
@@ -990,9 +1091,10 @@ public static class MetadataDeclarationQuery
                 variance switch
                 {
                     GenericParameterAttributes.None =>
-                        TypeIdentitiesCorrespond(
-                            TypeIdentity(methodArgument),
-                            TypeIdentity(candidateArgument))
+                        TypeNodesCorrespond(
+                            reader,
+                            methodArgument,
+                            candidateArgument)
                             ? OverrideCompatibility.Compatible
                             : OverrideCompatibility.Incompatible,
                     GenericParameterAttributes.Covariant =>
@@ -1052,10 +1154,12 @@ public static class MetadataDeclarationQuery
                 reader,
                 candidate,
                 out TypeDefinitionHandle candidateHandle);
-        if ((RequiresExactLocalDefinition(method)
-                    && !hasMethodDefinition)
-            || (RequiresExactLocalDefinition(candidate)
-                    && !hasCandidateDefinition))
+        if (HasUnavailableOrAmbiguousExactLocalDefinition(
+                reader,
+                method)
+            || HasUnavailableOrAmbiguousExactLocalDefinition(
+                reader,
+                candidate))
         {
             return OverrideCompatibility.Incompatible;
         }
@@ -1081,9 +1185,10 @@ public static class MetadataDeclarationQuery
         OverrideTypeContext candidateContext,
         HashSet<GenericParameterHandle> visited)
     {
-        if (TypeIdentitiesCorrespond(
-                TypeIdentity(method),
-                TypeIdentity(candidate)))
+        if (TypeNodesCorrespond(
+                reader,
+                method,
+                candidate))
         {
             return OverrideCompatibility.Compatible;
         }
@@ -1116,6 +1221,7 @@ public static class MetadataDeclarationQuery
 
         try
         {
+            bool hasUnknownConstraintCompatibility = false;
             GenericParameter parameter =
                 reader.GetGenericParameter(parameterHandle);
             foreach (GenericParameterConstraintHandle constraintHandle
@@ -1160,23 +1266,47 @@ public static class MetadataDeclarationQuery
                 {
                     return OverrideCompatibility.Compatible;
                 }
+                if (HasUnavailableOrAmbiguousExactLocalDefinition(
+                        reader,
+                        constraintType)
+                    || HasUnavailableOrAmbiguousExactLocalDefinition(
+                        reader,
+                        candidate))
+                {
+                    continue;
+                }
+
+                bool candidateHasGenericShape =
+                    HasGenericShape(candidate);
+                bool hasConstraintDefinition =
+                    TryFindExactLocalTypeDefinition(
+                        reader,
+                        constraintType,
+                        out TypeDefinitionHandle constraintDefinition);
+                bool hasCandidateDefinition =
+                    TryFindExactLocalTypeDefinition(
+                        reader,
+                        candidate,
+                        out TypeDefinitionHandle candidateDefinition);
+                if (constraintCompatibility
+                        == OverrideCompatibility.Unknown
+                    && candidateHasGenericShape
+                    && (!hasConstraintDefinition
+                        || !hasCandidateDefinition))
+                {
+                    hasUnknownConstraintCompatibility = true;
+                }
                 if (constraintCompatibility
                         == OverrideCompatibility.Incompatible
-                    || HasGenericShape(candidate))
+                    || candidateHasGenericShape)
                 {
                     // Definition-only ancestry cannot prove a conversion to a
                     // constructed or raw generic target without preserving arguments.
                     continue;
                 }
 
-                if (TryFindExactLocalTypeDefinition(
-                        reader,
-                        constraintType,
-                        out TypeDefinitionHandle constraintDefinition)
-                    && TryFindExactLocalTypeDefinition(
-                        reader,
-                        candidate,
-                        out TypeDefinitionHandle candidateDefinition)
+                if (hasConstraintDefinition
+                    && hasCandidateDefinition
                     && IsSameOrDerivedOrImplements(
                         reader,
                         constraintDefinition,
@@ -1185,6 +1315,10 @@ public static class MetadataDeclarationQuery
                     return OverrideCompatibility.Compatible;
                 }
             }
+
+            return hasUnknownConstraintCompatibility
+                ? OverrideCompatibility.Unknown
+                : OverrideCompatibility.Incompatible;
         }
         catch (Exception exception)
             when (exception is BadImageFormatException
@@ -1197,8 +1331,6 @@ public static class MetadataDeclarationQuery
         {
             visited.Remove(parameterHandle);
         }
-
-        return OverrideCompatibility.Incompatible;
     }
 
     static OverrideTypeIdentity TypeIdentity(
@@ -1221,6 +1353,20 @@ public static class MetadataDeclarationQuery
                     left.PlatformNormalized,
                     right.PlatformNormalized,
                     StringComparison.Ordinal));
+
+    static bool TypeNodesCorrespond(
+        MetadataReader reader,
+        TypeNode left,
+        TypeNode right)
+        => !HasUnavailableOrAmbiguousExactLocalDefinition(
+                reader,
+                left)
+            && !HasUnavailableOrAmbiguousExactLocalDefinition(
+                reader,
+                right)
+            && TypeIdentitiesCorrespond(
+                TypeIdentity(left),
+                TypeIdentity(right));
 
     static OverrideModifier ParameterModifier(
         string? modifier)
@@ -1251,6 +1397,46 @@ public static class MetadataDeclarationQuery
         {
             Name: "object" or "System.Object",
         };
+
+    static bool TypeIsAuthenticatedReferenceType(
+        MetadataReader reader,
+        TypeNode type,
+        OverrideTypeContext context)
+    {
+        if (type.IsDegraded)
+            return false;
+
+        if (type is PassthroughTypeNode passthrough)
+            return TypeIsAuthenticatedReferenceType(
+                reader,
+                passthrough.Inner,
+                context);
+
+        if (type is not GenericParameterNode parameter)
+            return type.IsReferenceType;
+
+        return TryGetGenericParameterHandle(
+                parameter,
+                context,
+                out GenericParameterHandle parameterHandle)
+            && TypeParameterKindClassifier.Classify(
+                    reader,
+                    parameterHandle,
+                    parameter.HasValueTypeConstraint,
+                    parameter.HasReferenceTypeConstraint,
+                    new TypeParameterKindClassifier
+                        .ChainState())
+                == TypeParameterTypeKind
+                    .ReferenceType;
+    }
+
+    static bool ArrayShapesCorrespond(
+        ArrayShape left,
+        ArrayShape right)
+        => left.Rank == right.Rank
+            && left.Sizes.SequenceEqual(right.Sizes)
+            && left.LowerBounds.SequenceEqual(
+                right.LowerBounds);
 
     static bool TryGetGenericParameterHandle(
         GenericParameterNode parameter,
@@ -1345,6 +1531,64 @@ public static class MetadataDeclarationQuery
                 out ScopedNamedTypeIdentity? rightScope)
             && NamesCorrespond(leftName, rightName)
             && !ScopesCorrespond(leftScope, rightScope);
+
+    static bool HasUnavailableOrAmbiguousExactLocalDefinition(
+        MetadataReader reader,
+        TypeNode type)
+    {
+        if (TryGetNamedDefinition(
+                type,
+                out _,
+                out ScopedNamedTypeIdentity? scope)
+            && string.Equals(
+                scope.Scope,
+                "current",
+                StringComparison.Ordinal)
+            && !TryFindExactLocalTypeDefinition(
+                reader,
+                type,
+                out _))
+        {
+            return true;
+        }
+
+        foreach (TypeNode child in StructuralChildren(type))
+        {
+            if (HasUnavailableOrAmbiguousExactLocalDefinition(
+                    reader,
+                    child))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static IEnumerable<TypeNode> StructuralChildren(
+        TypeNode type)
+        => type switch
+        {
+            ModifiedTypeNode modified =>
+                [modified.Modifier, modified.Inner],
+            GenericTypeNode generic =>
+                generic.Arguments,
+            SZArrayTypeNode array =>
+                [array.ElementType],
+            MDArrayTypeNode array =>
+                [array.ElementType],
+            PointerTypeNode pointer =>
+                [pointer.ElementType],
+            ByRefTypeNode byRef =>
+                [byRef.ElementType],
+            FunctionPointerTypeNode functionPointer =>
+                functionPointer.ChildTypes,
+            PinnedTypeNode pinned =>
+                [pinned.Inner],
+            PassthroughTypeNode passthrough =>
+                [passthrough.Inner],
+            _ => [],
+        };
 
     static bool TryGetNamedDefinition(
         TypeNode type,
@@ -1641,25 +1885,76 @@ public static class MetadataDeclarationQuery
         out MethodAttributes access)
     {
         access = default;
-        if (accessors.Getter.IsNil == accessors.Setter.IsNil)
-            return false;
-
-        var accessorHandle = accessors.Getter.IsNil
-            ? accessors.Setter
-            : accessors.Getter;
-        var accessor = reader.GetMethodDefinition(accessorHandle);
-        if (GetSameAssemblyOverrideSlot(
-                reader,
-                accessor.GetDeclaringType(),
-                accessorHandle) is not { } slot
-            || !TryGetPropertyForAccessor(reader, slot.DeclaringType, slot.Method, out var baseProperty))
+        bool followedOverride = false;
+        var visited = new HashSet<MethodDefinitionHandle>();
+        while (true)
         {
-            return false;
-        }
+            if (accessors.Getter.IsNil
+                && accessors.Setter.IsNil)
+            {
+                return false;
+            }
 
-        var baseType = reader.GetTypeDefinition(slot.DeclaringType);
-        access = AccessibilityValue(GetProperty(reader, baseType, baseProperty).Accessibility);
-        return true;
+            MethodDefinition getter =
+                accessors.Getter.IsNil
+                    ? default
+                    : reader.GetMethodDefinition(
+                        accessors.Getter);
+            MethodDefinition setter =
+                accessors.Setter.IsNil
+                    ? default
+                    : reader.GetMethodDefinition(
+                        accessors.Setter);
+            MethodAttributes bestAccess =
+                BestAccessorAccess(
+                    getter,
+                    setter,
+                    accessors);
+            if (accessors.Getter.IsNil
+                == accessors.Setter.IsNil)
+            {
+                if (!followedOverride)
+                    return false;
+
+                access = bestAccess;
+                return true;
+            }
+
+            var accessorHandle = accessors.Getter.IsNil
+                ? accessors.Setter
+                : accessors.Getter;
+            if (!visited.Add(accessorHandle)
+                || visited.Count
+                    > MetadataSafetyPolicy
+                        .MaxRelationshipNodes)
+            {
+                return false;
+            }
+
+            MethodDefinition accessor =
+                reader.GetMethodDefinition(
+                    accessorHandle);
+            if (GetSameAssemblyOverrideSlot(
+                    reader,
+                    accessor.GetDeclaringType(),
+                    accessorHandle) is not { } slot
+                || !TryGetPropertyForAccessor(
+                    reader,
+                    slot.DeclaringType,
+                    slot.Method,
+                    out PropertyDefinition baseProperty))
+            {
+                if (!followedOverride)
+                    return false;
+
+                access = bestAccess;
+                return true;
+            }
+
+            followedOverride = true;
+            accessors =
+                baseProperty.GetAccessors();
+        }
     }
 
     static bool TryGetPropertyForAccessor(

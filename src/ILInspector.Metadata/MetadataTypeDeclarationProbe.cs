@@ -776,16 +776,12 @@ public static class MetadataTypeDeclarationProbe
             {
                 MethodDefinition method =
                     reader.GetMethodDefinition(handle);
-                const MethodAttributes constructorFlags =
-                    MethodAttributes.SpecialName
-                    | MethodAttributes.RTSpecialName;
-                if ((method.Attributes & MethodAttributes.Static) != 0
-                    || (method.Attributes & constructorFlags)
-                        != constructorFlags
-                    || reader.GetBlobReader(method.Name).Length != 5
-                    || !reader.StringComparer.Equals(
-                        method.Name,
-                        ".ctor"))
+                if (!MetadataDeclarationQuery
+                        .TryGetCliInstanceConstructorSignature(
+                            reader,
+                            type,
+                            method,
+                            out MethodSignature<string> signature))
                 {
                     continue;
                 }
@@ -801,25 +797,8 @@ public static class MetadataTypeDeclarationProbe
                     continue;
                 }
 
-                var signature =
-                    GuardedProviderDecode.MethodResult(
-                        reader,
-                        method,
-                        ILSignatureTypeProvider.Instance,
-                        (GenericContext?)null,
-                        "object");
-                MethodSignature<string> value = signature.Value;
-                if (!signature.IsDegraded
-                    && value.Header.Kind == SignatureKind.Method
-                    && value.Header.CallingConvention
-                        == SignatureCallingConvention.Default
-                    && value.Header.IsInstance
-                    && !value.Header.IsGeneric
-                    && !value.Header.HasExplicitThis
-                    && method.GetGenericParameters().Count == 0
-                    && value.ReturnType == "void"
-                    && value.RequiredParameterCount == 0
-                    && value.ParameterTypes.Length == 0)
+                if (signature.RequiredParameterCount == 0
+                    && signature.ParameterTypes.Length == 0)
                 {
                     return true;
                 }

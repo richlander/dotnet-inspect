@@ -858,6 +858,8 @@ internal class PassthroughTypeNode(TypeNode inner) : TypeNode
 /// <summary>Custom-modified types pass through for rendering while preserving declaration-site evidence.</summary>
 internal sealed class ModifiedTypeNode(TypeNode modifier, TypeNode inner, bool isRequired) : PassthroughTypeNode(inner)
 {
+    public TypeNode Modifier => modifier;
+    public bool IsRequired => isRequired;
     internal override bool HasStructuralPayload => true;
     public override bool IsDegraded => modifier.IsDegraded || base.IsDegraded;
 

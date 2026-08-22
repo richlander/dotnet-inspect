@@ -119,6 +119,20 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void PropertyDeclaration_DerivesPropertyAccessibilityAcrossAcyclicSetterOnlyOverrideChain()
+    {
+        var type = GetTypeDefinition(typeof(MetadataDeclarationQueryFixtures.SetterOnlyOverrideLeaf));
+        var property = GetProperty(type, "Value");
+
+        var declaration = MetadataDeclarationQuery.GetProperty(Reader, type, property);
+
+        Assert.Equal("public", declaration.Accessibility);
+        var setter = Assert.Single(declaration.Signature.Accessors);
+        Assert.Equal("set", setter.Kind);
+        Assert.Equal("protected", setter.Accessibility);
+    }
+
+    [Fact]
     public void SameAssemblyOverrideSlot_PreservesNonPublicSourceDeclarationFacts()
     {
         var derivedHandle = GetTypeDefinitionHandle(
@@ -413,6 +427,68 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void SameAssemblyOverrideSlot_AllowsExplicitClassConstrainedGenericArrayCovariance()
+    {
+        var derivedHandle = GetTypeDefinitionHandle(
+            typeof(MetadataDeclarationQueryFixtures.ExplicitConstraintArrayCovariantReturnDerived<>));
+        var derived = Reader.GetTypeDefinition(derivedHandle);
+        var methodHandle = GetMethodHandle(derived, "Values");
+
+        var slot = Assert.IsType<MetadataOverrideSlot>(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                Reader,
+                derivedHandle,
+                methodHandle));
+
+        Assert.Equal(
+            GetTypeDefinitionHandle(
+                typeof(MetadataDeclarationQueryFixtures.AnimalArrayCovariantReturnBase)),
+            slot.DeclaringType);
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_DeclinesInterfaceConstrainedGenericArrayCovariance()
+    {
+        using var stream = new MemoryStream(
+            BuildGenericParameterCovarianceImage(
+                referenceTypeConstraint: false,
+                explicitConstraint: GenericConstraintTarget.Interface,
+                baseReturnsDog: false,
+                wrapReturnInArray: true));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.Null(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_DeclinesArrayCovarianceWhenExplicitConstraintDoesNotReachReturn()
+    {
+        using var stream = new MemoryStream(
+            BuildGenericParameterCovarianceImage(
+                referenceTypeConstraint: false,
+                explicitConstraint: GenericConstraintTarget.Animal,
+                baseReturnsDog: true,
+                wrapReturnInArray: true));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.Null(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Fact]
     public void SameAssemblyOverrideSlot_AllowsCovariantConstructedConstraint()
     {
         using var stream = new MemoryStream(
@@ -546,6 +622,65 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void SameAssemblyOverrideSlot_AllowsModifierWrappedExactLocalGenericCovariance()
+    {
+        using var stream = new MemoryStream(
+            BuildNestedVarianceCollisionImage(
+                nestedIsCovariant: true,
+                wrapReturnsInOptionalModifier: true));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.NotNull(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_DeclinesModifierWrappedAmbiguousExactLocalGenericDefinition()
+    {
+        using var stream = new MemoryStream(
+            BuildNestedVarianceCollisionImage(
+                nestedIsCovariant: true,
+                duplicateExactDefinition: true,
+                wrapReturnsInOptionalModifier: true));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.Null(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_DeclinesPinnedWrappedAmbiguousExactLocalGenericDefinition()
+    {
+        using var stream = new MemoryStream(
+            BuildNestedVarianceCollisionImage(
+                nestedIsCovariant: true,
+                duplicateExactDefinition: true,
+                wrapReturnsPinned: true));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.Null(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Fact]
     public void SameAssemblyOverrideSlot_AllowsCompilerProducedExternalGenericCovariance()
     {
         var derivedHandle = GetTypeDefinitionHandle(
@@ -575,6 +710,39 @@ public sealed class MetadataDeclarationQueryTests
             GetSyntheticDerivedMethod(reader);
 
         Assert.NotNull(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_AllowsCompilerProducedExternalConstructedConstraintVariance()
+    {
+        var derivedHandle = GetTypeDefinitionHandle(
+            typeof(MetadataDeclarationQueryFixtures.ExternalConstructedConstraintCovariantReturnDerived<>));
+        var derived = Reader.GetTypeDefinition(derivedHandle);
+        var methodHandle = GetMethodHandle(derived, "Values");
+
+        Assert.NotNull(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                Reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_DeclinesExternalConstructedConstraintForNonGenericCandidate()
+    {
+        using var stream = new MemoryStream(
+            BuildExternalConstructedConstraintImage(
+                genericCandidate: false));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.Null(
             MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
                 reader,
                 derivedHandle,
@@ -615,6 +783,48 @@ public sealed class MetadataDeclarationQueryTests
 
         Assert.True(declaration.IsOverride);
         Assert.False(declaration.IsVirtual);
+    }
+
+    [Fact]
+    public void PropertyDeclaration_SelfBasePropertyCycleFailsClosed()
+    {
+        using var stream = new MemoryStream(
+            BuildPropertyOverrideCycleImage(
+                PropertyOverrideCycleKind.SelfBase));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = reader.TypeDefinitions.Single(handle =>
+            reader.GetString(reader.GetTypeDefinition(handle).Name) == "Loop");
+        var type = reader.GetTypeDefinition(typeHandle);
+        var property = GetProperty(type, "Value", reader);
+
+        var declaration = MetadataDeclarationQuery.GetProperty(
+            reader,
+            type,
+            property);
+
+        Assert.Equal("protected", declaration.Accessibility);
+    }
+
+    [Fact]
+    public void PropertyDeclaration_TwoTypePropertyCycleFailsClosed()
+    {
+        using var stream = new MemoryStream(
+            BuildPropertyOverrideCycleImage(
+                PropertyOverrideCycleKind.TwoTypeCycle));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = reader.TypeDefinitions.Single(handle =>
+            reader.GetString(reader.GetTypeDefinition(handle).Name) == "First");
+        var type = reader.GetTypeDefinition(typeHandle);
+        var property = GetProperty(type, "Value", reader);
+
+        var declaration = MetadataDeclarationQuery.GetProperty(
+            reader,
+            type,
+            property);
+
+        Assert.Equal("protected", declaration.Accessibility);
     }
 
     [Fact]
@@ -768,6 +978,42 @@ public sealed class MetadataDeclarationQueryTests
         {
             File.Delete(path);
         }
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_AllowsMultiDimensionalArrayCovarianceWhenShapeMatches()
+    {
+        using var stream = new MemoryStream(
+            BuildMultiDimensionalArrayCovarianceImage(
+                differentShape: false));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.NotNull(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_DeclinesDifferentMultiDimensionalArrayShape()
+    {
+        using var stream = new MemoryStream(
+            BuildMultiDimensionalArrayCovarianceImage(
+                differentShape: true));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.Null(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
     }
 
     [Fact]
@@ -1017,6 +1263,13 @@ public sealed class MetadataDeclarationQueryTests
         None,
         Animal,
         Dog,
+        Interface,
+    }
+
+    enum PropertyOverrideCycleKind
+    {
+        SelfBase,
+        TwoTypeCycle,
     }
 
     static (
@@ -1277,7 +1530,8 @@ public sealed class MetadataDeclarationQueryTests
     static byte[] BuildGenericParameterCovarianceImage(
         bool referenceTypeConstraint,
         GenericConstraintTarget explicitConstraint,
-        bool baseReturnsDog)
+        bool baseReturnsDog,
+        bool wrapReturnInArray = false)
     {
         MetadataBuilder metadata =
             CreateSyntheticMetadata(
@@ -1315,6 +1569,16 @@ public sealed class MetadataDeclarationQueryTests
                 animal,
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle markerInterface =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
+                default,
+                metadata.GetOrAddString("IConstraint"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
         TypeDefinitionHandle baseType =
             metadata.AddTypeDefinition(
                 TypeAttributes.Public,
@@ -1346,6 +1610,7 @@ public sealed class MetadataDeclarationQueryTests
             {
                 GenericConstraintTarget.Animal => animal,
                 GenericConstraintTarget.Dog => dog,
+                GenericConstraintTarget.Interface => markerInterface,
                 _ => default,
             };
         if (!explicitConstraintType.IsNil)
@@ -1364,9 +1629,13 @@ public sealed class MetadataDeclarationQueryTests
                 attributes,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString("Value"),
-                AddSyntheticMethodSignature(
-                    metadata,
-                    baseReturnsDog ? dog : animal),
+                wrapReturnInArray
+                    ? AddSyntheticArrayReturnSignature(
+                        metadata,
+                        baseReturnsDog ? dog : animal)
+                    : AddSyntheticMethodSignature(
+                        metadata,
+                        baseReturnsDog ? dog : animal),
                 bodyOffset: -1,
                 MetadataTokens.ParameterHandle(1));
         MethodDefinitionHandle derivedMethod =
@@ -1374,8 +1643,11 @@ public sealed class MetadataDeclarationQueryTests
                 attributes,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString("Value"),
-                AddSyntheticGenericParameterReturnSignature(
-                    metadata),
+                wrapReturnInArray
+                    ? AddSyntheticGenericParameterArrayReturnSignature(
+                        metadata)
+                    : AddSyntheticGenericParameterReturnSignature(
+                        metadata),
                 bodyOffset: -1,
                 MetadataTokens.ParameterHandle(1));
         metadata.AddMethodImplementation(
@@ -1388,7 +1660,9 @@ public sealed class MetadataDeclarationQueryTests
     static byte[] BuildNestedVarianceCollisionImage(
         bool nestedIsCovariant,
         bool duplicateExactDefinition = false,
-        bool wrapReturnsInArray = false)
+        bool wrapReturnsInArray = false,
+        bool wrapReturnsInOptionalModifier = false,
+        bool wrapReturnsPinned = false)
     {
         MetadataBuilder metadata =
             CreateSyntheticMetadata(
@@ -1402,6 +1676,11 @@ public sealed class MetadataDeclarationQueryTests
                 runtime,
                 metadata.GetOrAddString("System"),
                 metadata.GetOrAddString("Object"));
+        TypeReferenceHandle modifierType =
+            metadata.AddTypeReference(
+                runtime,
+                metadata.GetOrAddString("System.Runtime.CompilerServices"),
+                metadata.GetOrAddString("IsVolatile"));
 
         metadata.AddTypeDefinition(
             default,
@@ -1539,17 +1818,9 @@ public sealed class MetadataDeclarationQueryTests
                 attributes,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString("Value"),
-                wrapReturnsInArray
-                    ? AddSyntheticGenericArrayReturnSignature(
-                        metadata,
-                        nested,
-                        objectType,
-                        animal)
-                    : AddSyntheticGenericReturnSignature(
-                        metadata,
-                        nested,
-                        objectType,
-                        animal),
+                CreateNestedVarianceReturnSignature(
+                    objectType,
+                    animal),
                 bodyOffset: -1,
                 MetadataTokens.ParameterHandle(1));
         MethodDefinitionHandle derivedMethod =
@@ -1557,17 +1828,9 @@ public sealed class MetadataDeclarationQueryTests
                 attributes,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString("Value"),
-                wrapReturnsInArray
-                    ? AddSyntheticGenericArrayReturnSignature(
-                        metadata,
-                        nested,
-                        objectType,
-                        dog)
-                    : AddSyntheticGenericReturnSignature(
-                        metadata,
-                        nested,
-                        objectType,
-                        dog),
+                CreateNestedVarianceReturnSignature(
+                    objectType,
+                    dog),
                 bodyOffset: -1,
                 MetadataTokens.ParameterHandle(1));
         metadata.AddMethodImplementation(
@@ -1575,6 +1838,43 @@ public sealed class MetadataDeclarationQueryTests
             derivedMethod,
             baseMethod);
         return SerializeSyntheticMetadata(metadata);
+
+        BlobHandle CreateNestedVarianceReturnSignature(
+            EntityHandle outerArgument,
+            EntityHandle valueArgument)
+        {
+            if (wrapReturnsInOptionalModifier)
+            {
+                return AddSyntheticModifiedGenericReturnSignature(
+                    metadata,
+                    modifierType,
+                    isRequired: false,
+                    nested,
+                    outerArgument,
+                    valueArgument);
+            }
+
+            if (wrapReturnsPinned)
+            {
+                return AddSyntheticPinnedGenericReturnSignature(
+                    metadata,
+                    nested,
+                    outerArgument,
+                    valueArgument);
+            }
+
+            return wrapReturnsInArray
+                ? AddSyntheticGenericArrayReturnSignature(
+                    metadata,
+                    nested,
+                    outerArgument,
+                    valueArgument)
+                : AddSyntheticGenericReturnSignature(
+                    metadata,
+                    nested,
+                    outerArgument,
+                    valueArgument);
+        }
     }
 
     static byte[] BuildExternalGenericShadowImage(
@@ -1689,6 +1989,350 @@ public sealed class MetadataDeclarationQueryTests
             derivedType,
             derivedMethod,
             baseMethod);
+        return SerializeSyntheticMetadata(metadata);
+    }
+
+    static byte[] BuildExternalConstructedConstraintImage(
+        bool genericCandidate)
+    {
+        MetadataBuilder metadata =
+            CreateSyntheticMetadata(
+                "ExternalConstructedConstraint");
+        AssemblyReferenceHandle runtime =
+            AddSyntheticAssemblyReference(
+                metadata,
+                "System.Runtime");
+        TypeReferenceHandle objectType =
+            metadata.AddTypeReference(
+                runtime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+        TypeReferenceHandle enumerable =
+            metadata.AddTypeReference(
+                runtime,
+                metadata.GetOrAddString("System.Collections.Generic"),
+                metadata.GetOrAddString("IEnumerable`1"));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle animal =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Animal"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle dog =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Dog"),
+                animal,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle baseType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Base"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle derivedType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Derived"),
+                baseType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        GenericParameterHandle parameter =
+            metadata.AddGenericParameter(
+                derivedType,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+        metadata.AddGenericParameterConstraint(
+            parameter,
+            AddSyntheticGenericTypeSpecification(
+                metadata,
+                enumerable,
+                dog));
+
+        MethodAttributes attributes =
+            MethodAttributes.Public
+            | MethodAttributes.Virtual
+            | MethodAttributes.NewSlot;
+        MethodDefinitionHandle baseMethod =
+            metadata.AddMethodDefinition(
+                attributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Value"),
+                genericCandidate
+                    ? AddSyntheticGenericReturnSignature(
+                        metadata,
+                        enumerable,
+                        animal)
+                    : AddSyntheticMethodSignature(
+                        metadata,
+                        animal),
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle derivedMethod =
+            metadata.AddMethodDefinition(
+                attributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Value"),
+                AddSyntheticGenericParameterReturnSignature(
+                    metadata),
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodImplementation(
+            derivedType,
+            derivedMethod,
+            baseMethod);
+        return SerializeSyntheticMetadata(metadata);
+    }
+
+    static byte[] BuildMultiDimensionalArrayCovarianceImage(
+        bool differentShape)
+    {
+        MetadataBuilder metadata =
+            CreateSyntheticMetadata(
+                "MdArrayCovariance");
+        AssemblyReferenceHandle runtime =
+            AddSyntheticAssemblyReference(
+                metadata,
+                "System.Runtime");
+        TypeReferenceHandle objectType =
+            metadata.AddTypeReference(
+                runtime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle animal =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Animal"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle dog =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Dog"),
+                animal,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle baseType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Base"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle derivedType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Derived"),
+                baseType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        MethodAttributes attributes =
+            MethodAttributes.Public
+            | MethodAttributes.Virtual
+            | MethodAttributes.NewSlot;
+        MethodDefinitionHandle baseMethod =
+            metadata.AddMethodDefinition(
+                attributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Value"),
+                AddSyntheticMdArrayReturnSignature(
+                    metadata,
+                    animal,
+                    rank: 2,
+                    sizes: [4],
+                    lowerBounds: [1]),
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle derivedMethod =
+            metadata.AddMethodDefinition(
+                attributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Value"),
+                AddSyntheticMdArrayReturnSignature(
+                    metadata,
+                    dog,
+                    rank: 2,
+                    sizes: [4],
+                    lowerBounds: differentShape
+                        ? [0]
+                        : [1]),
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodImplementation(
+            derivedType,
+            derivedMethod,
+            baseMethod);
+        return SerializeSyntheticMetadata(metadata);
+    }
+
+    static byte[] BuildPropertyOverrideCycleImage(
+        PropertyOverrideCycleKind kind)
+    {
+        MetadataBuilder metadata =
+            CreateSyntheticMetadata(
+                $"PropertyOverrideCycle{kind}");
+        AssemblyReferenceHandle runtime =
+            AddSyntheticAssemblyReference(
+                metadata,
+                "System.Runtime");
+        TypeReferenceHandle objectType =
+            metadata.AddTypeReference(
+                runtime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        if (kind == PropertyOverrideCycleKind.SelfBase)
+        {
+            ParameterHandle valueParameter =
+                metadata.AddParameter(
+                    ParameterAttributes.None,
+                    metadata.GetOrAddString("value"),
+                    sequenceNumber: 1);
+            TypeDefinitionHandle loop =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    default,
+                    metadata.GetOrAddString("Loop"),
+                    MetadataTokens.TypeDefinitionHandle(2),
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+            MethodDefinitionHandle setter =
+                metadata.AddMethodDefinition(
+                    MethodAttributes.Family
+                        | MethodAttributes.Virtual
+                        | MethodAttributes.SpecialName
+                        | MethodAttributes.HideBySig,
+                    MethodImplAttributes.IL,
+                    metadata.GetOrAddString("set_Value"),
+                    AddSyntheticSetterSignature(
+                        metadata),
+                    bodyOffset: -1,
+                    valueParameter);
+            PropertyDefinitionHandle property =
+                metadata.AddProperty(
+                    PropertyAttributes.None,
+                    metadata.GetOrAddString("Value"),
+                    AddSyntheticPropertySignature(
+                        metadata));
+            metadata.AddPropertyMap(loop, property);
+            metadata.AddMethodSemantics(
+                property,
+                MethodSemanticsAttributes.Setter,
+                setter);
+            return SerializeSyntheticMetadata(metadata);
+        }
+
+        ParameterHandle firstParameter =
+            metadata.AddParameter(
+                ParameterAttributes.None,
+                metadata.GetOrAddString("value"),
+                sequenceNumber: 1);
+        ParameterHandle secondParameter =
+            metadata.AddParameter(
+                ParameterAttributes.None,
+                metadata.GetOrAddString("value"),
+                sequenceNumber: 1);
+        TypeDefinitionHandle first =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("First"),
+                MetadataTokens.TypeDefinitionHandle(3),
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle second =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Second"),
+                MetadataTokens.TypeDefinitionHandle(2),
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+        MethodDefinitionHandle firstSetter =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Family
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("set_Value"),
+                AddSyntheticSetterSignature(
+                    metadata),
+                bodyOffset: -1,
+                firstParameter);
+        MethodDefinitionHandle secondSetter =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Family
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("set_Value"),
+                AddSyntheticSetterSignature(
+                    metadata),
+                bodyOffset: -1,
+                secondParameter);
+        PropertyDefinitionHandle firstProperty =
+            metadata.AddProperty(
+                PropertyAttributes.None,
+                metadata.GetOrAddString("Value"),
+                AddSyntheticPropertySignature(
+                    metadata));
+        PropertyDefinitionHandle secondProperty =
+            metadata.AddProperty(
+                PropertyAttributes.None,
+                metadata.GetOrAddString("Value"),
+                AddSyntheticPropertySignature(
+                    metadata));
+        metadata.AddPropertyMap(first, firstProperty);
+        metadata.AddPropertyMap(second, secondProperty);
+        metadata.AddMethodSemantics(
+            firstProperty,
+            MethodSemanticsAttributes.Setter,
+            firstSetter);
+        metadata.AddMethodSemantics(
+            secondProperty,
+            MethodSemanticsAttributes.Setter,
+            secondSetter);
         return SerializeSyntheticMetadata(metadata);
     }
 
@@ -1841,6 +2485,142 @@ public sealed class MetadataDeclarationQueryTests
                 },
                 _ => { });
         return metadata.GetOrAddBlob(signature);
+    }
+
+    static BlobHandle AddSyntheticArrayReturnSignature(
+        MetadataBuilder metadata,
+        EntityHandle elementType)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x20);
+        signature.WriteCompressedInteger(0);
+        signature.WriteByte(0x1d);
+        WriteReferenceTypeSignature(signature, elementType);
+        return metadata.GetOrAddBlob(signature);
+    }
+
+    static BlobHandle AddSyntheticGenericParameterArrayReturnSignature(
+        MetadataBuilder metadata)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x20);
+        signature.WriteCompressedInteger(0);
+        signature.WriteByte(0x1d);
+        signature.WriteByte(0x13);
+        signature.WriteCompressedInteger(0);
+        return metadata.GetOrAddBlob(signature);
+    }
+
+    static BlobHandle AddSyntheticModifiedGenericReturnSignature(
+        MetadataBuilder metadata,
+        EntityHandle modifierType,
+        bool isRequired,
+        EntityHandle genericType,
+        params EntityHandle[] arguments)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x20);
+        signature.WriteCompressedInteger(0);
+        signature.WriteByte(isRequired ? (byte)0x1f : (byte)0x20);
+        WriteTypeDefOrRefEncoded(signature, modifierType);
+        WriteGenericInstantiation(signature, genericType, arguments);
+        return metadata.GetOrAddBlob(signature);
+    }
+
+    static BlobHandle AddSyntheticPinnedGenericReturnSignature(
+        MetadataBuilder metadata,
+        EntityHandle genericType,
+        params EntityHandle[] arguments)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x20);
+        signature.WriteCompressedInteger(0);
+        signature.WriteByte(0x45);
+        WriteGenericInstantiation(signature, genericType, arguments);
+        return metadata.GetOrAddBlob(signature);
+    }
+
+    static BlobHandle AddSyntheticMdArrayReturnSignature(
+        MetadataBuilder metadata,
+        EntityHandle elementType,
+        int rank,
+        int[]? sizes = null,
+        int[]? lowerBounds = null)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x20);
+        signature.WriteCompressedInteger(0);
+        signature.WriteByte(0x14);
+        WriteReferenceTypeSignature(signature, elementType);
+        signature.WriteCompressedInteger(rank);
+        sizes ??= [];
+        lowerBounds ??= [];
+        signature.WriteCompressedInteger(sizes.Length);
+        foreach (int size in sizes)
+            signature.WriteCompressedInteger(size);
+        signature.WriteCompressedInteger(lowerBounds.Length);
+        foreach (int lowerBound in lowerBounds)
+            signature.WriteCompressedSignedInteger(lowerBound);
+        return metadata.GetOrAddBlob(signature);
+    }
+
+    static BlobHandle AddSyntheticSetterSignature(
+        MetadataBuilder metadata)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x20);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x08);
+        return metadata.GetOrAddBlob(signature);
+    }
+
+    static BlobHandle AddSyntheticPropertySignature(
+        MetadataBuilder metadata)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x28);
+        signature.WriteCompressedInteger(0);
+        signature.WriteByte(0x08);
+        return metadata.GetOrAddBlob(signature);
+    }
+
+    static void WriteGenericInstantiation(
+        BlobBuilder signature,
+        EntityHandle genericType,
+        params EntityHandle[] arguments)
+    {
+        signature.WriteByte(0x15);
+        WriteReferenceTypeSignature(signature, genericType);
+        signature.WriteCompressedInteger(arguments.Length);
+        foreach (EntityHandle argument in arguments)
+            WriteReferenceTypeSignature(signature, argument);
+    }
+
+    static void WriteReferenceTypeSignature(
+        BlobBuilder signature,
+        EntityHandle type)
+    {
+        signature.WriteByte(0x12);
+        WriteTypeDefOrRefEncoded(signature, type);
+    }
+
+    static void WriteTypeDefOrRefEncoded(
+        BlobBuilder signature,
+        EntityHandle type)
+    {
+        int tag = type.Kind switch
+        {
+            HandleKind.TypeDefinition => 0,
+            HandleKind.TypeReference => 1,
+            HandleKind.TypeSpecification => 2,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(type),
+                $"Unsupported type handle kind '{type.Kind}'."),
+        };
+        signature.WriteCompressedInteger(
+            (MetadataTokens.GetRowNumber(type) << 2)
+            | tag);
     }
 
     static TypeSpecificationHandle AddSyntheticGenericTypeSpecification(
@@ -2288,11 +3068,17 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     static PropertyDefinition GetProperty(TypeDefinition type, string name)
+        => GetProperty(type, name, Reader);
+
+    static PropertyDefinition GetProperty(
+        TypeDefinition type,
+        string name,
+        MetadataReader reader)
     {
         foreach (var handle in type.GetProperties())
         {
-            var property = Reader.GetPropertyDefinition(handle);
-            if (Reader.GetString(property.Name) == name)
+            var property = reader.GetPropertyDefinition(handle);
+            if (reader.GetString(property.Name) == name)
                 return property;
         }
 
@@ -2435,6 +3221,16 @@ public class MetadataDeclarationQueryFixtures
         }
     }
 
+    public class SetterOnlyOverrideLeaf : SetterOnlyOverrideDerived
+    {
+        public override int Value
+        {
+            protected set
+            {
+            }
+        }
+    }
+
     public class CovariantAnimal
     {
     }
@@ -2484,6 +3280,19 @@ public class MetadataDeclarationQueryFixtures
         public override T Value() => default!;
     }
 
+    public class AnimalArrayCovariantReturnBase
+    {
+        public virtual CovariantAnimal[] Values() =>
+            Array.Empty<CovariantAnimal>();
+    }
+
+    public class ExplicitConstraintArrayCovariantReturnDerived<T>
+        : AnimalArrayCovariantReturnBase
+        where T : CovariantDog
+    {
+        public override T[] Values() => Array.Empty<T>();
+    }
+
     public class VariantOuter<TOuter>
     {
         public interface IProducer<out TValue>
@@ -2524,6 +3333,21 @@ public class MetadataDeclarationQueryFixtures
     {
         public override System.Collections.Generic
             .IEnumerable<CovariantDog> Values() => [];
+    }
+
+    public class ExternalConstructedConstraintCovariantReturnBase
+    {
+        public virtual System.Collections.Generic
+            .IEnumerable<CovariantAnimal> Values() => [];
+    }
+
+    public class ExternalConstructedConstraintCovariantReturnDerived<T>
+        : ExternalConstructedConstraintCovariantReturnBase
+        where T : System.Collections.Generic
+            .List<CovariantDog>
+    {
+        public override T Values() =>
+            throw new NotSupportedException();
     }
 
     public class CovariantPropertyBase

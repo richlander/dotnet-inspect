@@ -1107,8 +1107,12 @@ public static class CompileBackSourceComposer
         foreach (var methodHandle in typeDef.GetMethods())
         {
             var method = reader.GetMethodDefinition(methodHandle);
-            if (reader.GetString(method.Name) != ".ctor"
-                || method.Attributes.HasFlag(MethodAttributes.Static)
+            if (!MetadataDeclarationQuery
+                    .TryGetCliInstanceConstructorSignature(
+                        reader,
+                        typeDef,
+                        method,
+                        out MethodSignature<string> signature)
                 || !IsConstructorAccessibleFromDerived(
                     reader,
                     declaringTypeHandle,
@@ -1121,10 +1125,6 @@ public static class CompileBackSourceComposer
 
             try
             {
-                var signature = GuardedSignatureText.MethodText(
-                    reader,
-                    method,
-                    GenericContext.ForMethod(reader, typeDef, method));
                 if (signature.ParameterTypes.SequenceEqual(parameterTypes, StringComparer.Ordinal))
                     return methodHandle;
             }
@@ -6447,8 +6447,12 @@ public static class CompileBackSourceComposer
             foreach (var methodHandle in typeDef.GetMethods())
             {
                 var method = reader.GetMethodDefinition(methodHandle);
-                if (reader.GetString(method.Name) != ".ctor"
-                    || method.Attributes.HasFlag(MethodAttributes.Static)
+                if (!MetadataDeclarationQuery
+                        .TryGetCliInstanceConstructorSignature(
+                            reader,
+                            typeDef,
+                            method,
+                            out MethodSignature<string> signature)
                     || !IsConstructorAccessibleFromDerived(
                         reader,
                         declaringTypeHandle,
@@ -6461,10 +6465,6 @@ public static class CompileBackSourceComposer
 
                 try
                 {
-                    var signature = GuardedSignatureText.MethodText(
-                        reader,
-                        method,
-                        GenericContext.ForMethod(reader, typeDef, method));
                     if (signature.ParameterTypes.SequenceEqual(parameterTypes, StringComparer.Ordinal))
                         return methodHandle;
                 }
