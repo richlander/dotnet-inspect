@@ -226,8 +226,8 @@ public sealed class TsBindGenCommandTests
             Assert.Equal(string.Empty, output.ToString());
             Assert.False(File.Exists(emitJsPath));
             Assert.Contains(
-                "tsbindgen: ControlFieldPropertyNameFixture.Value [JsonPropertyName]: "
-                    + "control-character JSON property names are not supported.",
+                "member [JsonPropertyName]: control-character JSON property names "
+                    + "are not supported.",
                 error.ToString(),
                 StringComparison.Ordinal);
             Assert.DoesNotContain("field\nbreak", error.ToString(), StringComparison.Ordinal);

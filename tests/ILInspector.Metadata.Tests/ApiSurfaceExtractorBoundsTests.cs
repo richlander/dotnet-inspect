@@ -361,6 +361,22 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void GetterAccessibilityContributesItsRetainedText()
+    {
+        const string accessibility = "private";
+        var withoutAccessibility = new ApiMember();
+        var withAccessibility = new ApiMember
+        {
+            GetterAccessibility = accessibility,
+        };
+
+        Assert.Equal(
+            accessibility.Length,
+            ApiSurfaceExtractor.CountRetainedText(withAccessibility)
+                - ApiSurfaceExtractor.CountRetainedText(withoutAccessibility));
+    }
+
+    [Fact]
     public void RepeatedLongMemberName_StopsBeforeLargeAllocationAmplification()
     {
         byte[] image = BuildRepeatedLongMethodNameImage(

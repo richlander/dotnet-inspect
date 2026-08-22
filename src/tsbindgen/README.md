@@ -73,15 +73,31 @@ output.
 
 A DTO whose serializer contexts declare conflicting property-naming policies
 is emitted as `unknown`, without guessing a policy, and the diagnostic keeps
-generation red until the wire contract is corrected. A control character in
-`[JsonPropertyName]` is a harder boundary: generation stops without emitting
-declarations, and reports only the safe CLR type/member without echoing the
-unsafe wire name. This validation covers properties, fields, enum members, and
-field-targeted attributes on auto-properties, including members otherwise
-excluded from serialization. Duplicate or malformed `[JsonPropertyName]`
-metadata is rejected the same way. Generation also stops when nested types or
-multiple CLR types would produce an illegal or ambiguous TypeScript declaration
-name rather than inventing a disambiguation scheme.
+generation red until the wire contract is corrected. Duplicate or malformed
+context-options rows are also unsupported rather than resolved by metadata
+order. `JsonSourceGenerationOptionsAttributeTests` gates both duplicate-row
+orders, duplicate agreement, malformed rows, and the ordinary single-row case.
+
+A control character in `[JsonPropertyName]` is a harder boundary: generation
+stops without emitting declarations, and reports only a safe metadata location
+without echoing the unsafe wire name. This validation covers properties,
+fields, enum members, and field-targeted attributes on auto-properties,
+including members otherwise excluded from serialization. Duplicate or malformed
+`[JsonPropertyName]` metadata, control-bearing resolved member names, and
+colliding resolved JSON names are rejected the same way.
+`DtsEmitterTests.Emit_RefusesControlCharactersInResolvedMemberNames` and
+`DtsEmitterTests.Emit_RefusesDuplicateResolvedMemberNames` gate those resolved
+name boundaries.
+
+Generation also stops when nested types, TypeScript reserved words, or multiple
+CLR types would produce an illegal or ambiguous declaration name rather than
+inventing a disambiguation scheme. Valid Unicode TypeScript identifiers remain
+supported. Artifact-derived text in diagnostics is visually contained before
+it reaches stderr. `DtsEmitterTests.Emit_AcceptsUnicodeTypeScriptIdentifiers`,
+`DtsEmitterTests.Emit_RefusesReservedTypeDeclarationNames`,
+`DtsEmitterTests.Emit_DoesNotEchoRejectedTypeNames`, and
+`TsBindGenDiagnosticsTests.ReportUnmappedType_ContainsArtifactText` gate those
+identifier and diagnostic properties.
 
 ## Testing
 

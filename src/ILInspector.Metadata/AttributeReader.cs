@@ -430,6 +430,8 @@ public static partial class AttributeReader
         out JsonWireNamingPolicy? namingPolicy,
         Action<int>? beforeMaterialize = null)
     {
+        bool found = false;
+        namingPolicy = null;
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
@@ -437,12 +439,15 @@ public static partial class AttributeReader
             if (attrName != JsonSourceGenerationOptionsAttributeName)
                 continue;
 
-            namingPolicy = ReadJsonKnownNamingPolicy(reader, attr, beforeMaterialize);
-            return true;
+            JsonWireNamingPolicy current =
+                ReadJsonKnownNamingPolicy(reader, attr, beforeMaterialize);
+            namingPolicy = found
+                ? JsonWireNamingPolicy.Unsupported
+                : current;
+            found = true;
         }
 
-        namingPolicy = null;
-        return false;
+        return found;
     }
 
     /// <summary>

@@ -310,10 +310,14 @@ public sealed class DtsEmitterTests
 
         UnsupportedWireContractException exception = Assert.Throws<UnsupportedWireContractException>(
             () => DtsEmitter.Emit(surface));
+        ApiMember member = Assert.Single(
+            record.Members,
+            candidate => candidate.Name == "Value");
 
         Assert.Equal(
-            "ControlPropertyNameFixture.Value [JsonPropertyName]: "
-                + "control-character JSON property names are not supported.",
+            $"type 0x{record.MetadataToken:X8} member "
+                + "[JsonPropertyName]: control-character JSON property names "
+                + "are not supported.",
             exception.Message);
     }
 
@@ -352,8 +356,7 @@ public sealed class DtsEmitterTests
                 () => DtsEmitter.Emit(surface));
 
         Assert.Equal(
-            "BackingFieldControlPropertyNameFixture.Value "
-                + "[field: JsonPropertyName]: "
+            $"field 0x{fact.MetadataToken:X8} [field: JsonPropertyName]: "
                 + "control-character JSON property names are not supported.",
             exception.Message);
     }
@@ -370,6 +373,8 @@ public sealed class DtsEmitterTests
         ApiType record = Assert.Single(
             apiSurface.Types,
             type => type.Name == nameof(FilteredEventControlPropertyNameFixture));
+        FilteredJsonPropertyNameFact fact =
+            Assert.Single(record.FilteredJsonPropertyNameFacts);
         var surface = new ILInspector.JsExportSurface.JsExportSurface
         {
             Records = [record],
@@ -380,8 +385,7 @@ public sealed class DtsEmitterTests
                 () => DtsEmitter.Emit(surface));
 
         Assert.Equal(
-            "FilteredEventControlPropertyNameFixture.Changed "
-                + "[field: JsonPropertyName]: "
+            $"field 0x{fact.MetadataToken:X8} [field: JsonPropertyName]: "
                 + "control-character JSON property names are not supported.",
             exception.Message);
     }
@@ -517,6 +521,163 @@ public sealed class DtsEmitterTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("class")]
+    [InlineData("await")]
+    [InlineData("interface")]
+    public void Emit_RefusesReservedTypeDeclarationNames(string name)
+    {
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records = [new ApiType { Name = name }],
+        };
+
+        Assert.Throws<UnsupportedWireContractException>(
+            () => DtsEmitter.Emit(surface));
+    }
+
+    [Theory]
+    [InlineData("Größe")]
+    [InlineData("℘Value")]
+    [InlineData("A·B")]
+    public void Emit_AcceptsUnicodeTypeScriptIdentifiers(string name)
+    {
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records = [new ApiType { Name = name }],
+        };
+
+        string dts = DtsEmitter.Emit(surface);
+
+        Assert.Contains($"export interface {name} {{", dts, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_DoesNotEchoRejectedTypeNames()
+    {
+        const string unsafeName = "Bad\u001b[2J\u0007Name";
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records =
+            [
+                new ApiType
+                {
+                    Name = unsafeName,
+                    MetadataToken = 0x02000001,
+                },
+            ],
+        };
+
+        UnsupportedWireContractException exception =
+            Assert.Throws<UnsupportedWireContractException>(
+                () => DtsEmitter.Emit(surface));
+
+        Assert.StartsWith("type 0x02000001:", exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(unsafeName, exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain('\u001b', exception.Message);
+        Assert.DoesNotContain('\u0007', exception.Message);
+    }
+
+    [Fact]
+    public void Emit_RefusesControlCharactersInResolvedMemberNames()
+    {
+        const string unsafeName = "Value\n\u001b[31m";
+        var record = new ApiType
+        {
+            Name = "Dto",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = unsafeName,
+                    Kind = "property",
+                    ReturnType = "string",
+                    MetadataToken = 0x17000001,
+                },
+            ],
+        };
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records = [record],
+        };
+
+        UnsupportedWireContractException exception =
+            Assert.Throws<UnsupportedWireContractException>(
+                () => DtsEmitter.Emit(surface));
+
+        Assert.StartsWith("member 0x17000001:", exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(unsafeName, exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_RefusesDuplicateResolvedMemberNames()
+    {
+        var record = new ApiType
+        {
+            Name = "Dto",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Name",
+                    Kind = "property",
+                    ReturnType = "string",
+                },
+                new ApiMember
+                {
+                    Name = "Other",
+                    Kind = "property",
+                    ReturnType = "string",
+                    JsonPropertyName = "Name",
+                },
+            ],
+        };
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records = [record],
+        };
+
+        UnsupportedWireContractException exception =
+            Assert.Throws<UnsupportedWireContractException>(
+                () => DtsEmitter.Emit(surface));
+
+        Assert.Contains(
+            "multiple members resolve to the same JSON property name",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_EscapesRenderingHazardsInQuotedPropertyNames()
+    {
+        var record = new ApiType
+        {
+            Name = "Dto",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    ReturnType = "string",
+                    JsonPropertyName = "left\u202Eright",
+                },
+            ],
+        };
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records = [record],
+        };
+
+        string dts = DtsEmitter.Emit(surface);
+
+        Assert.Contains(
+            "\"left\\u202Eright\": string;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain('\u202E', dts);
+    }
+
     [Fact]
     public void Emit_RefusesControlCharacterJsonPropertyNamesOnEnumFields()
     {
@@ -538,8 +699,11 @@ public sealed class DtsEmitterTests
             Assert.Throws<UnsupportedWireContractException>(
                 () => DtsEmitter.Emit(surface));
 
+        ApiMember member = Assert.Single(
+            enumType.Members,
+            candidate => candidate.Name == "Value");
         Assert.Equal(
-            "ControlPropertyNameEnumFixture.Value [JsonPropertyName]: "
+            $"type 0x{enumType.MetadataToken:X8} member [JsonPropertyName]: "
                 + "control-character JSON property names are not supported.",
             exception.Message);
     }
@@ -729,10 +893,10 @@ public sealed class DtsEmitterTests
             Assert.Throws<UnsupportedWireContractException>(
                 () => DtsEmitter.Emit(surface));
 
-        Assert.Equal(
-            "NestedDto.Value [JsonPropertyName]: "
-                + "control-character JSON property names are not supported.",
-            exception.Message);
+        Assert.Contains(
+            "control-character JSON property names are not supported",
+            exception.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]

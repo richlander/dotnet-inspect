@@ -1,4 +1,6 @@
+using CSharpText;
+
 namespace tsbindgen;
 
 internal sealed class UnsupportedWireContractException(string location, string reason)
-    : Exception($"{location}: {reason}.");
+    : Exception($"{CSharpIdentifier.ContainRenderedText(location)}: {reason}.");

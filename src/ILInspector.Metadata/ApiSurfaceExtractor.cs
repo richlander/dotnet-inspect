@@ -4547,6 +4547,7 @@ public static class ApiSurfaceExtractor
         AddText(ref count, member.DeclaringTypeCanonicalName);
         AddText(ref count, member.EnumValueLiteral);
         AddText(ref count, member.JsonPropertyName);
+        AddText(ref count, member.GetterAccessibility);
         foreach (string? propertyName
             in member.JsonPropertyNameAttributeValues)
         {

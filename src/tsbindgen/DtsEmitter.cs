@@ -1,15 +1,12 @@
 using System.Text;
-using System.Text.RegularExpressions;
+using CSharpText;
 using ILInspector.JsExportSurface;
 using ILInspector.Metadata;
 
 namespace tsbindgen;
 
-static partial class DtsEmitter
+static class DtsEmitter
 {
-    [GeneratedRegex("^[A-Za-z_$][A-Za-z0-9_$]*$", RegexOptions.CultureInvariant)]
-    private static partial Regex TsIdentifierRegex();
-
     public static string Emit(
         ILInspector.JsExportSurface.JsExportSurface surface,
         TsBindGenDiagnostics? diagnostics = null)
@@ -17,7 +14,7 @@ static partial class DtsEmitter
         ApiType[] declarationTypes =
             [.. surface.Records, .. surface.Enums];
         ValidateTypeNames(declarationTypes);
-        ValidatePropertyNames(declarationTypes);
+        ValidateWireNames(declarationTypes);
 
         var knownTypeNames = new HashSet<string>(
             surface.Records.Select(r => r.Name).Concat(surface.Enums.Select(e => e.Name)),
@@ -55,7 +52,9 @@ static partial class DtsEmitter
         }
 
         IEnumerable<string> memberNames = enumType.Members.Where(m => m.Kind == "field" && m.IsConst).Select(m => m.Name);
-        string union = string.Join(" | ", memberNames.Select(n => $"\"{n}\""));
+        string union = string.Join(
+            " | ",
+            memberNames.Select(n => $"\"{EscapeString(n)}\""));
         sb.Append("export type ").Append(enumType.Name).Append(" = ").Append(union).Append(";\n\n");
     }
 
@@ -88,21 +87,25 @@ static partial class DtsEmitter
         {
             string tsName = FormatPropertyKey(resolvedName);
             string propertyType = member.SignatureModel?.ReturnType ?? member.ReturnType ?? "unknown";
-            string tsType = TsTypeMapper.MapParameterType(propertyType, knownTypeNames, diagnostics, $"{record.Name}.{member.Name}");
+            string tsType = TsTypeMapper.MapParameterType(
+                propertyType,
+                knownTypeNames,
+                diagnostics,
+                $"{record.Name}.{member.Name}");
             sb.Append("  ").Append(tsName).Append(": ").Append(tsType).Append(";\n");
         }
 
         sb.Append("}\n\n");
     }
 
-    static void ValidatePropertyNames(IEnumerable<ApiType> types)
+    static void ValidateWireNames(IEnumerable<ApiType> types)
     {
         foreach (ApiType type in types)
         {
             foreach (ApiMember member in type.Members)
             {
                 ValidatePropertyNameAttributes(
-                    $"{type.Name}.{member.Name} [JsonPropertyName]",
+                    $"{FormatMemberLocation(type, member)} [JsonPropertyName]",
                     member.JsonPropertyNameAttributeValues,
                     member.JsonPropertyName);
             }
@@ -111,9 +114,42 @@ static partial class DtsEmitter
                 in type.FilteredJsonPropertyNameFacts)
             {
                 ValidatePropertyNameAttributes(
-                    $"{type.Name}.{FormatFilteredPropertyNameLocation(fact)}",
+                    FormatFilteredPropertyNameLocation(fact),
                     fact.PropertyNames,
                     legacyPropertyName: null);
+            }
+
+            if (type.Kind == "enum")
+            {
+                foreach (ApiMember member in type.Members
+                    .Where(member => member.Kind == "field" && member.IsConst))
+                {
+                    ValidatePropertyName(
+                        FormatMemberLocation(type, member),
+                        member.Name);
+                }
+                continue;
+            }
+
+            if (type.JsonPropertyNamingPolicy == JsonWireNamingPolicy.Unsupported)
+                continue;
+
+            JsonWireNamingPolicy namingPolicy =
+                type.JsonPropertyNamingPolicy ?? JsonWireNamingPolicy.None;
+            var resolvedNames = new HashSet<string>(StringComparer.Ordinal);
+            foreach (ApiMember member in type.Members
+                .Where(JsonWireMemberRules.IsSerialized))
+            {
+                string resolvedName = member.JsonPropertyName
+                    ?? ApplyNamingPolicy(member.Name, namingPolicy);
+                string location = FormatMemberLocation(type, member);
+                ValidatePropertyName(location, resolvedName);
+                if (!resolvedNames.Add(resolvedName))
+                {
+                    throw new UnsupportedWireContractException(
+                        location,
+                        "multiple members resolve to the same JSON property name");
+                }
             }
         }
     }
@@ -123,17 +159,17 @@ static partial class DtsEmitter
         var names = new HashSet<string>(StringComparer.Ordinal);
         foreach (ApiType type in types)
         {
-            if (!TsIdentifierRegex().IsMatch(type.Name))
+            if (!TypeScriptIdentifier.IsIdentifier(type.Name))
             {
                 throw new UnsupportedWireContractException(
-                    $"{type.FullName} type",
+                    FormatTypeLocation(type),
                     "TypeScript declaration names must be identifiers");
             }
 
             if (!names.Add(type.Name))
             {
                 throw new UnsupportedWireContractException(
-                    $"{type.Name} type",
+                    FormatTypeLocation(type),
                     "multiple JSON types project to the same TypeScript declaration name");
             }
         }
@@ -177,12 +213,22 @@ static partial class DtsEmitter
         {
             FilteredJsonPropertyNameKind.AutoPropertyBackingField
                 or FilteredJsonPropertyNameKind.EventBackingField =>
-                $"{fact.AssociatedMemberName} [field: JsonPropertyName]",
+                $"field 0x{fact.MetadataToken:X8} [field: JsonPropertyName]",
             FilteredJsonPropertyNameKind.CompilerNamedField =>
                 $"field 0x{fact.MetadataToken:X8} [JsonPropertyName]",
             _ => throw new InvalidOperationException(
                 $"Unknown filtered JSON property-name kind '{fact.Kind}'."),
         };
+
+    static string FormatTypeLocation(ApiType type) =>
+        type.MetadataToken is { } token
+            ? $"type 0x{token:X8}"
+            : "JSON type";
+
+    static string FormatMemberLocation(ApiType type, ApiMember member) =>
+        member.MetadataToken is { } token
+            ? $"member 0x{token:X8}"
+            : $"{FormatTypeLocation(type)} member";
 
     static void EmitBlockedRecord(StringBuilder sb, ApiType record) =>
         sb.Append("export type ").Append(record.Name).Append(" = unknown;\n\n");
@@ -221,9 +267,55 @@ static partial class DtsEmitter
     };
 
     static string FormatPropertyKey(string name) =>
-        TsIdentifierRegex().IsMatch(name) ? name : $"\"{EscapeString(name)}\"";
+        TypeScriptIdentifier.IsIdentifier(name)
+            ? name
+            : $"\"{EscapeString(name)}\"";
 
-    static string EscapeString(string text) =>
-        text.Replace("\\", "\\\\", StringComparison.Ordinal)
-            .Replace("\"", "\\\"", StringComparison.Ordinal);
+    static string EscapeString(string text)
+    {
+        var builder = new StringBuilder(text.Length);
+        foreach (char ch in text)
+        {
+            switch (ch)
+            {
+                case '\\':
+                    builder.Append("\\\\");
+                    break;
+                case '"':
+                    builder.Append("\\\"");
+                    break;
+                case '\b':
+                    builder.Append("\\b");
+                    break;
+                case '\f':
+                    builder.Append("\\f");
+                    break;
+                case '\n':
+                    builder.Append("\\n");
+                    break;
+                case '\r':
+                    builder.Append("\\r");
+                    break;
+                case '\t':
+                    builder.Append("\\t");
+                    break;
+                default:
+                    if (char.IsControl(ch)
+                        || char.IsSurrogate(ch)
+                        || ch is '\u2028' or '\u2029'
+                        || CSharpIdentifier.IsRenderingHazard(ch))
+                    {
+                        builder.Append(
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            $"\\u{(int)ch:X4}");
+                    }
+                    else
+                    {
+                        builder.Append(ch);
+                    }
+                    break;
+            }
+        }
+        return builder.ToString();
+    }
 }
