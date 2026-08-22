@@ -45,7 +45,7 @@ test("the member tab hands annotated source off to the full-screen explorer", ()
 });
 
 test("the app routes the member tab into the TypeScript explorer", () => {
-  assert.match(appSource, /from "\/src\/annotated-source-explorer\.ts"/);
+  assert.match(appSource, /from "\.\/annotated-source-explorer\.ts"/);
   assert.match(appSource, /renderAnnotatedSourceEntry\(/);
   assert.match(appSource, /#open-annotated-explorer/);
   assert.match(appSource, /if \(state\.annotatedExplorer\)/);
@@ -207,7 +207,10 @@ test("all explorer renders preserve focus and scroll while home invalidates the 
   assert.match(appSource, /restoreAnnotatedSourceExplorerRenderState\(renderState\)/);
   assert.match(appSource, /code\.scrollTop = renderState\.codeScroll/);
   assert.match(appSource, /code\.scrollLeft = renderState\.codeScrollLeft/);
-  assert.match(appSource, /document\.querySelector\(renderState\.focusSelector\)\?\.focus/);
+  assert.match(
+    appSource,
+    /document\.querySelector<HTMLElement>\(renderState\.focusSelector\)\?\.focus/,
+  );
   assert.match(appSource, /!state\.annotatedExplorer \|\| state\.home/);
 });
 
