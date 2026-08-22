@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Text.Json.Serialization;
 using InertText.Encoding;
 
 namespace InertText;
@@ -70,6 +71,7 @@ namespace InertText;
 /// holds it back. Here the payload is already inert, and the wrapper only records that fact.
 /// Losing the wrapper loses provenance, not protection.
 /// </remarks>
+[JsonConverter(typeof(InertText.Json.InertStringJsonConverter))]
 public readonly struct InertString : IEquatable<InertString>
 {
     // A constructor is the only thing that assigns this, and both constructors assign encoder

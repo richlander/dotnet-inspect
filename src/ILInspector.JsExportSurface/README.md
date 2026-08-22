@@ -24,6 +24,9 @@ The object model likewise keeps typed DTO property signatures intact.
 `InertText.InertString` therefore reaches a target-language generator as that
 exact C# contract rather than being reduced to its JSON string representation.
 Whether a target preserves that distinction is the target generator's policy.
+JSON serializer call sites retain both display and namespace-qualified wire
+type spellings in `JsWireType`; target generators use the qualified identity
+when two C# types share a simple name.
 
 Run its test suite in Release:
 

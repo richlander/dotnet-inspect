@@ -33,13 +33,9 @@ namespace ILInspector.JsExportSurface;
 /// branches) has no principled way to pick "the" return DTO. Rather than silently guess the first
 /// one found, <see cref="Attach"/> leaves <see cref="JsExportFunction.ReturnWireType"/> unset
 /// whenever more than one distinct DTO is found for the return position. "Distinct" is judged by
-/// resolved display-string name (e.g. <c>"WidgetDto"</c>), not full type identity: two DTOs from
-/// different namespaces sharing a simple name would collapse into one entry and escape this
-/// ambiguity guard. This matches <see cref="JsExportSurfaceBuilder"/>'s own pre-existing record
-/// discovery, which is deliberately simple-name-keyed for the same reason (see its remarks) — the
-/// same erased-signature text is all either stage has to work with, so staying consistent with
-/// that existing boundary is correct rather than introducing a second, differently-scoped notion
-/// of type identity at this layer alone.
+/// namespace-qualified type spelling, so two DTOs from different namespaces do not collapse into
+/// one entry. <see cref="JsWireType"/> retains both that qualified identity and a concise display
+/// spelling for diagnostics.
 /// </para>
 /// </remarks>
 public static class JsonWireContractResolver
@@ -65,8 +61,8 @@ public static class JsonWireContractResolver
         // Kept as a list (not folded into a single "first wins" value) so ambiguity between
         // multiple distinct DTOs can be detected and left unresolved rather than guessed — see
         // remarks above.
-        var returnTypes = new List<string>();
-        var parameterTypes = new List<string>();
+        var returnTypes = new List<JsWireType>();
+        var parameterTypes = new List<JsWireType>();
 
         foreach (DirectCall call in bodyIndex.DirectCalls)
         {
@@ -77,7 +73,7 @@ public static class JsonWireContractResolver
                 continue;
             }
 
-            string? dto = ResolveJsonTypeInfoArgument(call.Callee);
+            JsWireType? dto = ResolveJsonTypeInfoArgument(call.Callee);
             if (dto is null)
             {
                 continue;
@@ -85,7 +81,8 @@ public static class JsonWireContractResolver
 
             if (call.Callee.Name == SerializeMethodName)
             {
-                if (!returnTypes.Contains(dto, StringComparer.Ordinal))
+                if (!returnTypes.Any(candidate =>
+                    candidate.QualifiedName.Equals(dto.QualifiedName, StringComparison.Ordinal)))
                 {
                     returnTypes.Add(dto);
                 }
@@ -107,7 +104,7 @@ public static class JsonWireContractResolver
         };
     }
 
-    static string? ResolveJsonTypeInfoArgument(MemberRef callee)
+    static JsWireType? ResolveJsonTypeInfoArgument(MemberRef callee)
     {
         foreach (TypeRef parameter in callee.ParameterTypes)
         {
@@ -117,18 +114,10 @@ public static class JsonWireContractResolver
                 && elementType.Namespace == JsonTypeInfoNamespace
                 && parameter.TypeArguments.Length == 1)
             {
-                // ToDisplayString (not .Name) so a container DTO — e.g. WidgetDto[] — renders as
-                // C#-syntax text rather than the empty string TypeRef.Name carries for
-                // non-Definition kinds (GenericInstance/SzArray/Array). TsTypeMapper's Map already
-                // parses this exact array ("[]") syntax for every other signature-derived type
-                // string in this pipeline, so an array-of-DTO return resolves to a correct TS
-                // array type instead of silently collapsing to "unknown". This does not extend
-                // support to arbitrary generic containers (List<T>, Dictionary<K,V>): Map has
-                // never parsed C# generic-argument syntax for any type in this pipeline (see its
-                // WidgetCatalog.OwnersByKey property, which already renders "unknown" for exactly
-                // this reason, independent of this resolver). Recovering the correct display text
-                // here does not change that pre-existing, system-wide boundary.
-                return parameter.TypeArguments[0].ToDisplayString();
+                TypeRef wireType = parameter.TypeArguments[0];
+                return new JsWireType(
+                    wireType.ToDisplayString(),
+                    wireType.ToQualifiedDisplayString());
             }
         }
 

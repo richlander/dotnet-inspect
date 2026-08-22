@@ -84,6 +84,64 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
+    public void Emit_DirectInertWireReturnAlsoDeclaresTheBrand()
+    {
+        string dts = EmitFixtureDtsWithWireContracts();
+
+        Assert.Contains(
+            "export type InertString = string & { readonly [inertStringBrand]: true };",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function getInertString(): InertString;",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_GlobalRecordNamedInertStringDoesNotEmitTheBrand()
+    {
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records =
+            [
+                new ApiType
+                {
+                    Name = "InertString",
+                    Members =
+                    [
+                        new ApiMember
+                        {
+                            Name = "Value",
+                            Kind = "property",
+                            ReturnType = "string",
+                        },
+                    ],
+                },
+                new ApiType
+                {
+                    Name = "Container",
+                    Members =
+                    [
+                        new ApiMember
+                        {
+                            Name = "Item",
+                            Kind = "property",
+                            ReturnType = "InertString",
+                        },
+                    ],
+                },
+            ],
+        };
+
+        string dts = DtsEmitter.Emit(surface);
+
+        Assert.DoesNotContain("inertStringBrand", dts, StringComparison.Ordinal);
+        Assert.Contains("export interface InertString {", dts, StringComparison.Ordinal);
+        Assert.Contains("  Item: InertString;", dts, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Emit_PreservesPascalCaseForNoPolicyContextProperties()
     {
         string dts = EmitFixtureDts(includeAll: true);
@@ -197,14 +255,18 @@ public sealed class DtsEmitterTests
                     DeclaringType = "FixtureExports",
                     Name = "Ping",
                     ReturnType = "void",
-                    ReturnWireType = "WidgetDto",
+                    ReturnWireType = new JsWireType(
+                        "WidgetDto",
+                        "ILInspector.JsExportSurface.Fixtures.WidgetDto"),
                 },
                 new()
                 {
                     DeclaringType = "FixtureExports",
                     Name = "QueryWidget",
                     ReturnType = "System.Threading.Tasks.Task<string>",
-                    ReturnWireType = "WidgetDto",
+                    ReturnWireType = new JsWireType(
+                        "WidgetDto",
+                        "ILInspector.JsExportSurface.Fixtures.WidgetDto"),
                 },
             ],
         };

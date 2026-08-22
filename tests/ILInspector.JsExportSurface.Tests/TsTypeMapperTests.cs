@@ -77,14 +77,14 @@ public sealed class TsTypeMapperTests
             TsTypeMapper.MapParameterType("ILInspector.JsExportSurface.Fixtures.WidgetDto", RecordNames));
     }
 
-    [Theory]
-    [InlineData("InertString")]
-    [InlineData("InertText.InertString")]
-    public void Map_InertStringMapsToBrandedType(string csharpType)
+    [Fact]
+    public void Map_QualifiedInertStringMapsToBrandedType()
     {
         Assert.Equal(
             "InertString",
-            TsTypeMapper.MapParameterType(csharpType, RecordNames));
+            TsTypeMapper.MapParameterType(
+                "InertText.InertString",
+                RecordNames));
     }
 
     [Fact]
@@ -94,8 +94,41 @@ public sealed class TsTypeMapperTests
         Assert.True(
             TsTypeMapper.ContainsInertString(
                 "IReadOnlyDictionary<string, InertText.InertString[]>"));
+        Assert.False(TsTypeMapper.ContainsInertString("InertString"));
         Assert.False(TsTypeMapper.ContainsInertString("string"));
         Assert.False(TsTypeMapper.ContainsInertString("WidgetDto"));
+    }
+
+    [Fact]
+    public void Map_GlobalRecordNamedInertStringRemainsARecord()
+    {
+        var recordNames = new HashSet<string>(StringComparer.Ordinal) { "InertString" };
+
+        Assert.Equal(
+            "InertString",
+            TsTypeMapper.MapParameterType("InertString", recordNames));
+    }
+
+    [Fact]
+    public void Map_QualifiedInertStringWithCollidingRecordReportsUnmapped()
+    {
+        var recordNames = new HashSet<string>(StringComparer.Ordinal) { "InertString" };
+        var diagnostics = new TsBindGenDiagnostics();
+
+        Assert.Equal(
+            "unknown",
+            TsTypeMapper.MapParameterType(
+                "InertText.InertString",
+                recordNames,
+                diagnostics,
+                "Container.Display"));
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic =>
+                diagnostic.Location == "Container.Display"
+                && diagnostic.CSharpType.Contains(
+                    "TypeScript name collides",
+                    StringComparison.Ordinal));
     }
 
     [Fact]

@@ -41,6 +41,9 @@ property remains `string`. The brand preserves the compiler-visible fact that
 the C# producer applied an inert-text policy without introducing a JavaScript
 runtime wrapper. JSON still carries the encoded value as a string, so normal
 JSON parsing and string-oriented browser APIs continue to work.
+The mapping uses namespace-qualified C# identity, not the display name
+`InertString`; an unrelated application type with that simple name remains an
+ordinary generated record.
 
 The brand deliberately does not name `Field` versus `Prose`: the C# currency
 type records that some policy was applied, not which one, because composition

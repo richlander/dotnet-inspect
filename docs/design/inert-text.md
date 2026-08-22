@@ -176,10 +176,12 @@ C# value itself does not retain its producing policy and composition may
 tighten one policy into another. The string-valued wire contract also
 intentionally erases `Forms`, `Concerns`, and `IsTruncated`; callers that need
 those facts must define an explicit envelope rather than inferring them from
-the brand. `DtsEmitterTests.Emit_MapsInertStringPropertyToOpaqueStringBrand`
-and
-`DtsEmitterTests.FixtureInertStringProperty_RemainsAJsonStringOnTheWire`
-gate this contract.
+the brand. Deserialization is rejected because the scalar wire value carries no
+policy with which to validate and restore an `InertString`.
+`InertStringJsonTests.Converter_IsAttachedToTheCurrencyType`,
+`DtsEmitterTests.Emit_MapsInertStringPropertyToOpaqueStringBrand`, and
+`DtsEmitterTests.Emit_DirectInertWireReturnAlsoDeclaresTheBrand` gate this
+contract.
 
 `TextConcern` retains why visual containment occurred: control, format/bidi,
 unpaired surrogate, line separator, or paragraph separator. The flags are

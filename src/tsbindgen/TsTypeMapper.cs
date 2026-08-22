@@ -11,7 +11,7 @@ namespace tsbindgen;
 /// </summary>
 static class TsTypeMapper
 {
-    private const string InertStringTypeName = "InertString";
+    public const string InertStringTypeName = "InertString";
     private const string QualifiedInertStringTypeName = "InertText.InertString";
 
     public static bool IsAsyncReturnType(string csharpType)
@@ -165,6 +165,14 @@ static class TsTypeMapper
 
         if (IsInertString(trimmed))
         {
+            if (recordNames.Contains(InertStringTypeName))
+            {
+                diagnostics?.ReportUnmappedType(
+                    location ?? trimmed,
+                    $"{trimmed} (TypeScript name collides with a serialized record)");
+                return "unknown";
+            }
+
             return InertStringTypeName;
         }
 
@@ -288,7 +296,7 @@ static class TsTypeMapper
     }
 
     static bool IsInertString(string typeName) =>
-        typeName is InertStringTypeName or QualifiedInertStringTypeName;
+        typeName == QualifiedInertStringTypeName;
 
     static bool TryUnwrapGeneric(string typeName, string genericBaseName, out string? argument)
     {

@@ -20,7 +20,8 @@ static partial class DtsEmitter
 
         var sb = new StringBuilder();
 
-        if (UsesInertString(surface.Records))
+        bool usesInertString = UsesInertString(surface);
+        if (usesInertString && !knownTypeNames.Contains(TsTypeMapper.InertStringTypeName))
         {
             sb.Append("declare const inertStringBrand: unique symbol;\n");
             sb.Append("export type InertString = string & { readonly [inertStringBrand]: true };\n\n");
@@ -41,8 +42,8 @@ static partial class DtsEmitter
         return sb.ToString();
     }
 
-    static bool UsesInertString(IEnumerable<ApiType> records) =>
-        records.SelectMany(record => record.Members).Any(member =>
+    static bool UsesInertString(ILInspector.JsExportSurface.JsExportSurface surface) =>
+        surface.Records.SelectMany(record => record.Members).Any(member =>
         {
             if (member.Kind != "property"
                 || member.IsCompilerGenerated
@@ -55,7 +56,13 @@ static partial class DtsEmitter
             string propertyType =
                 member.SignatureModel?.ReturnType ?? member.ReturnType ?? "unknown";
             return TsTypeMapper.ContainsInertString(propertyType);
-        });
+        })
+        || surface.Functions.Any(function =>
+            TsTypeMapper.ContainsInertString(function.ReturnType)
+            || (function.ReturnWireType is { } wireType
+                && TsTypeMapper.ContainsInertString(wireType.QualifiedName))
+            || function.Parameters.Any(parameter =>
+                TsTypeMapper.ContainsInertString(parameter.Type)));
 
     static void EmitEnum(StringBuilder sb, ApiType enumType)
     {
@@ -120,7 +127,12 @@ static partial class DtsEmitter
         TsBindGenDiagnostics? diagnostics)
     {
         string returnType = function.ReturnWireType is { } returnWireType
-            ? TsTypeMapper.MapReturnEnvelope(function.ReturnType, returnWireType, knownTypeNames, diagnostics, $"{function.Name} return")
+            ? TsTypeMapper.MapReturnEnvelope(
+                function.ReturnType,
+                returnWireType.QualifiedName,
+                knownTypeNames,
+                diagnostics,
+                $"{function.Name} return")
             : TsTypeMapper.MapReturnType(function.ReturnType, knownTypeNames, diagnostics, $"{function.Name} return");
 
         var parameters = function.Parameters.Select(p =>
