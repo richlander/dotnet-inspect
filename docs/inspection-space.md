@@ -771,7 +771,9 @@ query declares:
 | Inputs | Which typed content and prior results does it consume? |
 | Cost | Is the work bounded, network-bound, source-content-bound, or exhaustive? |
 | Capabilities | What must the caller authorize? |
+| Execution modes | May the producer render, run as an effectiveness probe, or both? |
 | Dependencies | Which producer results must exist first? |
+| Conditional successors | Which typed predecessor outcome selects each fallback path? |
 | Lifetimes | Which acquired images, catalogs, or other bound resources must remain alive? |
 | Correspondence | Which owner establishes relationships between the inputs? |
 | Result | Which typed value or failure does it return? |
@@ -795,15 +797,31 @@ workspace contracts.
 
 The registry executes synchronous and asynchronous queries in deterministic
 prerequisite order. It passes each query's maximum transitive cost into the host
-execution scope. SourceLink demonstrates the network boundary: a moderated
-document prerequisite may acquire one PDB, while availability and integrity
-declare unbounded work and accept host-owned HTTP clients and an optional cache.
+execution scope. A conditional successor is part of the closed graph before
+execution and is selected only by its predecessor's typed outcome. Preflight
+records authorization or denial for every successor; execution cannot add one.
+A denied optional successor does not prevent an earlier branch from succeeding,
+but selecting that successor produces its recorded typed denial. SourceLink
+demonstrates the network boundary: a local-PDB read may finish without
+acquisition, while a typed miss reaches a separately preflighted moderated PDB
+acquisition successor. Availability and integrity declare unbounded work and
+accept host-owned HTTP clients and an optional cache.
 
 ### Executor
 
 Sequential topological execution defines the baseline. It works in
 single-threaded Wasm, is easy to audit, and provides the reference ordering for
 every other policy.
+
+The host preflights common prerequisites, independent demand roots, and every
+conditional successor. Each executable closure carries its granted
+capabilities, execution mode, and probe policy; each unavailable closure
+carries a typed request, capability, cost, mode, or policy denial. Discovery
+can map an unavailable section root to a typed unknown while executing other
+roots. Explicit render demand reports that denial as non-success. Plan-level
+denial is reserved for mandatory common work that must complete before section
+roots can be classified; a denied section root remains section-scoped even
+when it is the sole demand.
 
 A later executor may schedule independent nodes concurrently. Concurrency must
 not alter:
@@ -926,6 +944,11 @@ and source policy before receiving a lease. It also reuses derived binding or
 correspondence results only when their authorization scope is compatible. The
 cache answers only after that decision; it does not introduce candidates or
 widen authorization.
+
+Fallback availability is a typed producer outcome, not authority. A local
+cache miss may select a PDB-acquisition successor only when preflight recorded
+that successor as authorized. A denied successor remains denied even if the
+content later becomes available through another operation.
 
 This is the acquisition analogue of other owner-issued safety currencies. The
 acquisition owner authorizes content, a catalog authorizes correspondence, and

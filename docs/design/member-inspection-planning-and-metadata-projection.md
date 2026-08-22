@@ -86,7 +86,7 @@ CLI gesture
   -> authorized target-resolution plan
   -> target and member resolution
   -> ResolvedMemberInspectionPlan
-  -> authorized typed producer query plan
+  -> preflighted typed producer query plan
   -> producer results and typed failures
   -> presentation projection
 
@@ -140,12 +140,13 @@ permission to reinterpret raw metadata semantics.
 
 | State | Meaning | May authorize work? |
 | --- | --- | --- |
-| Parsed intent | The user's gesture, selectors, requested projection, and output mode | No |
-| Structural selection | Names resolved against one stated catalog | No |
+| Parsed intent | The user's inspection surface, gesture, selectors, requested projection, and output mode | No |
+| Demand classification | Selector matches reduced to target-shape requirements only | No |
+| Structural selection | Names resolved against one final catalog, or labeled static alternatives | No |
 | Target-resolution plan | Minimal acquisition and Metadata inventory needed to resolve the address | Only after preflight |
 | Target resolution | The exact type plus a resolved inventory set or exact member target, or a typed diagnostic | No new work |
 | Producer plan | Typed producer queries, prerequisites, costs, capabilities, and probe/render mode | No |
-| Authorized plan | A target or producer plan accepted by host capability policy | Yes |
+| Preflighted plan | Authorized closures and typed denied alternatives fixed by host policy | Yes, for authorized closures only |
 | Presentation plan | Sections, shape, columns/fields, and format applied to completed results | No new work |
 
 No state is represented by mutating the preceding state. In particular,
@@ -159,7 +160,7 @@ The existing section and schema terms compose as follows:
 | Question | Owner | Answer | Executes section producers? |
 | --- | --- | --- | --- |
 | What names and fields exist? | Markout schema query | Structural schema | No |
-| Which sections did the gesture place in scope? | Section selection over one catalog | Candidate sections | No |
+| Which sections did the gesture place in scope? | Section selection over the final catalog | Candidate sections | No |
 | Which target/member does the address denote? | Authorized target-resolution plan and typed resolver | Resolved target or diagnostic | No |
 | Which candidates apply to this target? | Typed query probe plan | Effective sections or typed failures | Only declared probes |
 | Which producer results are required? | Typed query planner | Producer prerequisite closure | Not during planning |
@@ -172,10 +173,13 @@ terms less precisely.
 
 ### Parsed intent
 
-The CLI owns parsing and creates an immutable intent. Exact type names, dotted
-type-or-member spellings, explicit member filters, overload ordinals, digests,
-generic arity, section/category selectors, projection selectors, discovery
-mode, and format remain distinct fields.
+The CLI owns parsing and creates an immutable intent. The explicit or inferred
+inspection surface (`Type`, `Member`, or `Commandless`), exact type names,
+dotted type-or-member spellings, explicit member filters, overload ordinals,
+digests, generic arity, section/category selectors, projection selectors,
+discovery mode, and format remain distinct fields. A `type` surface with `-m`
+remains a type inspection with its existing type-view filtering semantics; the
+filter does not silently reroute it to the member surface.
 
 The intent records **capability-request provenance**, not pre-resolved
 capability bits. Existing capability-bearing gestures include:
@@ -197,6 +201,7 @@ Conceptually:
 
 ```text
 ParsedInspectionIntent
+  InspectionSurface
   AddressIntent
     SourceIntent
     TypeOrMemberIntent
@@ -213,8 +218,8 @@ shape, immutability, and ownership are the decision.
 
 ### Structural selection
 
-Structural selection resolves exact names, aliases, categories, and globs
-against one identified catalog. The result retains:
+Final structural selection resolves exact names, aliases, categories, and
+globs against one identified catalog. The result retains:
 
 - the catalog identity and version;
 - selector provenance;
@@ -236,6 +241,21 @@ explicitly provisional and cannot be used for:
 - producer demand;
 - capability authorization.
 
+Before final catalog selection, a typed **section-demand index** may classify
+the raw section selectors. The index is generated from catalog declarations,
+keyed by inspection surface and candidate catalog identity, and contains only
+stable section identity, aliases, category membership, selector visibility,
+and required target shape (`Type`, `MemberSet`, or `ExactMember`). It can
+answer whether an explicit exact name, category, or glob requests an exact
+member. It cannot validate output shape, choose columns or fields, establish
+producer demand, or authorize work. Bare/default selection and whole-catalog
+selectors such as `@All` do not request exact-member promotion.
+
+This preliminary classification is not structural selection against a union
+catalog. It produces only typed demand constraints. After the target and final
+catalog are known, the original selectors are resolved once against that
+catalog for final validation.
+
 ### Target and member resolution
 
 Except for static schema, the parsed source/address first lowers into a minimal
@@ -246,16 +266,18 @@ inventory needed for lookup. It cannot authorize PDB, source-content, or
 section-analysis augmentation.
 
 The resulting inventory is resolved through existing typed identity owners.
-Address resolution has three ordered phases:
+Address and selection resolution has four ordered phases:
 
 1. resolve the complete positional spelling, fallback peel, positional type,
    and every qualified selector to canonical type candidates, then require
    every candidate to agree;
-2. normalize each member gesture as either an inventory filter or an exact
+2. classify raw section selectors through the section-demand index without
+   performing final section or shape validation;
+3. normalize each member gesture as either an inventory filter or an exact
    target selector, then resolve it without consulting a section catalog;
-3. choose the catalog from the resolved selector kind plus explicit
-   detail-demand provenance, then resolve section selection and shape exactly
-   once against that catalog.
+4. choose the catalog from the inspection surface, resolved selector kind, and
+   classified exact-member demand, then resolve section selection and shape
+   exactly once against that catalog.
 
 The implied positional member gesture is a constraint on every explicit member
 gesture with the same canonical name. Each same-name pair is normalized:
@@ -266,22 +288,25 @@ each before duplicates coalesce. Separate explicit gestures remain separate,
 and distinct inventory filters form a set. If no explicit gesture shares the
 implied name, the implied gesture remains standalone.
 
-An **inventory filter** is set-valued: bare names, globs, and their unions
-resolve to a deduplicated `ResolvedMemberSet` and remain name-scoped even when
-the set contains one member. Generic arity or kind refinements that do not
-establish uniqueness remain inventory filters. An **exact target selector**
-carries the overload, digest, accessor, or other exact discriminator required
-by `MemberTargetSelector`; `MemberTargetResolver` returns one
-`ResolvedMemberTarget` or a typed diagnostic.
+An **inventory filter** is set-valued. Each logical bare-name or glob filter
+resolves independently to a `ResolvedInventoryFilter` carrying its provenance,
+matched identities, or typed no-match diagnostic and suggestions. Every
+logical filter must match before matched identities are deduplicated into a
+`ResolvedMemberSet`; one valid filter cannot hide a miss in another. Generic
+arity or kind refinements that do not establish uniqueness remain inventory
+filters. An **exact target selector** carries the overload, digest, accessor,
+or other exact discriminator required by `MemberTargetSelector`;
+`MemberTargetResolver` returns one `ResolvedMemberTarget` or a typed
+diagnostic.
 
-Explicit selection of a section whose declared contract requires one selected
-member carries exact-detail-demand provenance. That descriptor-owned trait may
-promote a name-scoped inventory only after the inventory resolves to one
-eligible member; a body or accessor requirement still applies its own typed
-selection diagnostic. The trait is read from the catalog declarations, not
-inferred by validating against their provisional union: the provenance only
-requests promotion, the resolved selector kind chooses the catalog, and final
-section/shape validation runs once against that catalog.
+Explicit selection classified as `ExactMember` demand may promote a member
+surface's name-scoped inventory only after every inventory filter matched and
+the deduplicated set contains one eligible member. A body or accessor
+requirement still applies its own typed selection diagnostic. Classification
+resolves exact names, aliases, categories, and globs through the demand index;
+overlapping matches coalesce by stable section identity. Promotion chooses the
+detail catalog, then the original selectors undergo final structural and shape
+validation exactly once against that catalog.
 
 Address resolution follows this matrix:
 
@@ -297,14 +322,17 @@ Address resolution follows this matrix:
 | Implied and explicit refinements have identical components | Coalesce them into one logical selector |
 | Implied and explicit refinements have complementary components | Merge the present components into one logical selector |
 | Implied and explicit refinements have different present overload, digest, or generic-arity components | Return a typed selector-conflict diagnostic |
-| No member gesture was supplied | Select the type/member-list catalog for the resolved type |
-| Bare-name or glob inventory filters are distinct | Resolve and deduplicate their union as `ResolvedMemberSet` |
-| The inventory-filter union resolves to no members | Return a typed no-match failure |
-| An inventory filter resolves to one or multiple members without explicit detail demand | Select the name-scoped overload-inventory catalog |
-| One exact target selector resolves successfully | Select the exact-member-detail catalog |
+| Explicit `type` surface, with or without `-m`/kind filters | Select the type/member-list catalog and preserve type-view filter semantics |
+| Explicit `member` surface with no member gesture | Select the type/member-list catalog |
+| Explicit `member` surface with bare-name or glob filters | Resolve every filter, then deduplicate their union as `ResolvedMemberSet` |
+| Any logical inventory filter resolves to no members | Return one typed aggregate retaining every missed filter and suggestion before union materialization |
+| Member inventory resolves to one or multiple members without exact-member demand | Select the name-scoped overload-inventory catalog |
+| Member surface with one exact target selector resolved successfully | Select the exact-member-detail catalog |
 | Exact targeting is combined with multiple logical selectors | Return a typed selector/cardinality diagnostic |
-| Explicit detail demand accompanies one eligible inventory member | Promote that member and select the exact-member-detail catalog |
-| Explicit detail demand accompanies zero, multiple, or ineligible inventory members | Return a typed no-match or cardinality diagnostic |
+| Exact-member demand accompanies one eligible member-surface inventory member | Promote that member and select the exact-member-detail catalog |
+| Exact-member demand accompanies zero, multiple, or ineligible member-surface inventory members | Return a typed no-match or cardinality diagnostic |
+| Commandless target resolution proves an exact type | Use the type/member-list catalog |
+| Commandless target resolution proves an inventory or exact member | Use the matching member catalog |
 | A requested section does not exist in the chosen catalog | Return a typed unresolved-section diagnostic |
 
 Selector-bearing suffixes are parsed before comparison. Display spelling is not
@@ -315,23 +343,32 @@ present values on carriers that refine the same logical selector.
 The resolution uses existing typed identity owners:
 
 - type lookup resolves the exact type or returns a typed diagnostic;
-- typed inventory filters resolve through a set-valued resolver to a
-  deduplicated `ResolvedMemberSet`;
+- typed inventory filters resolve independently through a set-valued resolver
+  before their successful matches form a deduplicated `ResolvedMemberSet`;
 - `MemberTargetSelector` remains the exact-member question;
 - `MemberTargetResolver` returns one `ResolvedMemberTarget` or a typed
   diagnostic;
-- the plan retains selector kind, exact target or inventory set, and explicit
-  detail-demand provenance before final structural selection.
+- the plan retains inspection surface, per-filter outcomes, selector kind,
+  exact target or inventory set, and classified target-shape demand before
+  final structural selection.
 
-Selector kind chooses the active section catalog; raw target count does not.
-A bare name that resolves to one overload remains an overload inventory unless
-explicit detail demand promotes it. Selection is then resolved once against the
-chosen catalog and shape validation runs once against the final section set.
+Inspection surface and selector kind choose the active section catalog; raw
+target count does not. A type gesture with `-m` stays on the type/member-list
+catalog. A member bare name that resolves to one overload remains an overload
+inventory unless classified exact-member demand promotes it. Final selection
+and shape validation run once against the chosen catalog.
 
 Static schema discovery is the intentional exception: it performs no target
-lookup, so a dotted spelling that could denote either an exact type or an
-implied member remains on the inventory catalog. Static schema must not pretend
-it learned which interpretation exists.
+lookup. An explicit `type` surface reports the type/member-list schema; an
+explicit `member` surface reports the overload-inventory or detail schema from
+its syntactic selector kind. A commandless dotted spelling that could denote
+either an exact type or an implied member returns labeled
+`StructuralCatalogAlternatives` for the type/member-list and member-inventory
+interpretations. The alternatives are not a union and cannot satisfy
+single-section, shape, producer, or authorization decisions. Each labeled
+alternative may carry its own selector resolution or diagnostic, but one
+alternative's success cannot be treated as a resolved answer for the other.
+Static schema must not pretend it learned which interpretation exists.
 
 There is no `MemberSelectionNeedsFinalization` Boolean in the target model.
 Code that requires resolved selection accepts only the resolved plan type.
@@ -344,16 +381,31 @@ declares:
 
 - typed inputs;
 - prerequisite producers;
+- conditional successors keyed by typed results;
 - cost;
-- allowed execution modes;
+- allowed execution modes and probe eligibility;
 - required capabilities;
 - retained-resource lifetime;
 - typed result and failure.
 
-The planner computes the transitive prerequisite closure before preflight. The
-closed plan's required-capability set is the union of every producer's declared
-requirements. Preflight authorizes that complete set once; an unauthorized
-prerequisite denies the plan, and execution cannot grant it later.
+The planner computes a closed producer graph before preflight. A producer may
+declare:
+
+- unconditional prerequisites required on every path; and
+- conditional successors keyed by a typed predecessor outcome.
+
+Conditional successors model fallback without execution-time authority
+expansion. For example, a bounded local-PDB producer may return
+`LocalPdbAvailable` or `LocalPdbMiss`; only the miss edge reaches the PDB
+acquisition producer. The graph contains both edges before execution.
+
+Required capabilities, costs, execution modes, and probe policies close over
+each possible path. They are not flattened into one mandatory union across
+mutually exclusive paths. Preflight grants or denies every conditional edge in
+advance and records that immutable disposition in the plan. A denied optional
+edge does not deny an otherwise executable predecessor; if execution later
+selects that edge, the recorded denial becomes the typed result and no new
+authority is requested.
 
 The host intersects producer requirements with the gesture's explicit
 capability-request provenance before any producer runs. L3 captures provenance;
@@ -369,34 +421,52 @@ Preflight(
     resolved typed query plan,
     execution mode,
     host capability policy)
-  -> AuthorizedInspectionPlan | CapabilityDenied
+  -> PreflightedInspectionPlan | PlanDenied(typed-reason)
+
+PreflightedInspectionPlan
+  section demand ->
+    Executable(AuthorizedProducerClosure)
+    | Unavailable(CapabilityNotRequested
+                  | CapabilityDenied
+                  | CostDenied
+                  | ExecutionModeDenied
+                  | ProbePolicyDenied)
+  conditional edge ->
+    AuthorizedSuccessor
+    | DeniedSuccessor(typed-reason)
 ```
 
-Only this preflight may mint an authorized plan, and the executor accepts only
-an authorized plan. L3 parses the user's capability-bearing gesture, producers
-declare requirements, and the host policy grants or denies them. Section
-names, `MemberOptions`, and presentation state are not authorization inputs
-after lowering to the typed plan. L2 contributes request provenance through a
-typed section/query binding; it does not grant the capability.
+Only this preflight may mint executable closures, and the executor accepts only
+the preflighted plan. A plan-level denial applies to mandatory target or common
+producer work. Independent section demands and conditional successors retain
+their own authorized or denied disposition. L3 parses the user's
+capability-bearing gesture, producers declare requirements, and the host policy
+grants or denies them. Section names, `MemberOptions`, and presentation state
+are not authorization inputs after lowering to the typed plan. L2 contributes
+request provenance through a typed section/query binding; it does not grant
+the capability.
 
 This gives local-symbol read, symbol acquisition, and source-content access one
 auditable rule:
 
 ```text
-authorized plan =
+executable closure or conditional successor =
     progressive-disclosure policy requests every capability
-        required by the closed producer plan
+        required by that closed path
         from the gesture provenance and resolved query binding
-    AND the execution mode permits every producer in the closure
+    AND the execution mode permits every producer on that path
     AND (the mode is not a probe
-         OR the probe policy permits every producer in the closure)
-    AND the host capability policy grants every required capability
+         OR the probe policy permits every producer on that path)
+    AND the host capability policy grants every capability on that path
 ```
 
 Cached or adjacent content does not bypass that rule. Availability is not
 authority. Artifact-owner admission and query leases revalidate the authorized
-plan's capabilities and source policy at content access; they are downstream
-enforcement of the same authority, not a second grant mechanism.
+closure's capabilities and source policy at content access; they are downstream
+enforcement of the same authority, not a second grant mechanism. A local PDB
+hit completes under `LocalPdbRead`; a miss may follow only a pre-authorized
+`PdbAcquire` edge. An unrequested or denied acquisition edge returns its
+recorded denial without network access.
 
 ### Discovery modes
 
@@ -424,6 +494,15 @@ ValidEmpty(stable-reason)
 Unknown(stable-reason, structural-schema)
 Failed(typed-producer-failure)
 ```
+
+Discovery preflights each selected section's producer closure independently.
+A missing request or capability, cost, execution-mode, or probe-policy denial
+makes that section `Unknown` with the typed stable reason; it does not deny
+unrelated eligible sections in the gesture. A producer failure after an
+authorized probe started makes that section `Failed`. For render, a denied
+demanded closure is a visible typed failure and the requested operation returns
+non-success. This keeps policy denial distinct from producer failure and from
+proven absence.
 
 `ValidEmpty` requires a completed authorized probe that proved absence.
 `Unknown` means the mode could not determine effectiveness, including when a
@@ -494,7 +573,8 @@ probe plan before the adapter is considered compliant.
 
 ### Planning invariants
 
-1. Selector resolution is deterministic for one catalog version.
+1. Selector resolution is deterministic for one inspection surface and catalog
+   version.
 2. Shape validation runs only on final resolved selection.
 3. Static schema performs no target or producer work.
 4. Effective discovery executes only probe-authorized producers.
@@ -503,6 +583,8 @@ probe plan before the adapter is considered compliant.
 6. Presentation cannot widen producer demand.
 7. Target, selection, producer, and presentation failures remain distinct.
 8. A typed diagnostic is not converted into an empty selected set.
+9. Conditional execution chooses only among branches whose authorization or
+   denial was fixed by preflight.
 
 ## Boundary two: validated metadata declaration projection
 
@@ -756,9 +838,10 @@ ResolvedMemberInspectionPlan
   target   -> Metadata declaration address/selector
   policy   -> inclusion and capability-request provenance
 
-AuthorizedInspectionPlan
+PreflightedInspectionPlan
   resolved plan + query requirements + mode + host policy
-  -> executable producer closure or typed denial
+  -> per-section executable/denied closures
+     + pre-authorized/denied conditional successors
 
 MetadataDeclarationSession
   address + inclusion policy + requested facts
@@ -819,6 +902,8 @@ path is absent from the matrix.
 Depends on: slice 1.
 
 - Parse type/member gestures into immutable intent.
+- Retain explicit/inferred inspection surface and classify section selectors
+  through the target-shape-only demand index.
 - Resolve the active catalog only after target/member resolution.
 - Move shape validation to the resolved plan.
 - Preserve current address precedence and diagnostics through a compatibility
@@ -843,16 +928,19 @@ Depends on: slice 2.
 
 Exit gate: `MIP006` covers the full matrix, including exact-type/member
 dual-success, complementary refinement, conflicting refinement, distinct
-inventory-filter union and deduplication, bare-name/glob zero-one-many results,
-selector-kind-driven three-catalog selection, explicit detail promotion, and
-conflicting positional/qualified and qualified/qualified types.
+inventory-filter per-filter outcomes and deduplication, bare-name/glob
+zero-one-many and partial-miss results, surface-and-selector-driven
+three-catalog selection, exact-section/alias/category/glob detail promotion,
+explicit `type -m` versus `member` compatibility, static-schema alternatives,
+and conflicting positional/qualified and qualified/qualified types.
 
 ### Slice 4: lower resolved selection to typed producer plans
 
 Depends on: slices 2 and 3.
 
 - Bind member sections to typed query definitions.
-- Preflight cost and capability authorization.
+- Preflight cost, capability, execution-mode, and probe-policy authorization
+  for common work, independent section closures, and conditional successors.
 - Remove source/PDB/analysis authorization inferred from `IncludeSections` or
   from the union of `Discover` selections into requested render sections.
 - Move every producer reached by render-manifest discovery into the declared
@@ -862,11 +950,13 @@ Depends on: slices 2 and 3.
   declared probe plan rather than render-manifest-owned producer execution.
 - Keep ordinary rendered output unchanged.
 
-Exit gate: the executor accepts only the authorized plan and the producer trace
+Exit gate: the executor accepts only the preflighted plan and the producer trace
 matches the resolved selection matrix; named/category source discovery neither
-acquires source capabilities nor becomes empty success, and no executable path
-retains another authorization mint. `MIP001`, `MIP002`, `MIP004`, `MIP005`,
-and `MIP007` through `MIP011` must pass before this slice lands.
+acquires source capabilities nor becomes empty success, denied discovery
+closures remain per-section unknowns, denied render closures remain failures,
+and no executable path retains another authorization mint. `MIP001`, `MIP002`,
+`MIP004`, `MIP005`, and `MIP007` through `MIP011` must pass before this slice
+lands.
 
 ### Slice 5: introduce Metadata declaration scaffolding
 
@@ -940,16 +1030,16 @@ test method name, but the PR must map each test to its gate ID.
 
 | Gate | Property | Required evidence |
 | --- | --- | --- |
-| `MIP001` | Static schema runs no acquisition/producers and non-schema discovery runs only mode-declared probes | Separate target-resolution and section-producer trace equality for every actual type/member discovery gesture |
+| `MIP001` | Static schema runs no acquisition/producers and non-schema discovery runs only mode-declared probes | Separate target-resolution and section-producer trace equality for every actual type/member discovery gesture; explicit type/member and commandless ambiguous-dotted static-schema cases prove deterministic catalogs or labeled structural alternatives without target work |
 | `MIP002` | Named/category type/member source discovery cannot read/acquire PDB/source content or confuse unknown with empty | Overload-qualified `-D "Source Locations"`, `-D "Original Source"`, `-D "Source Diff"`, and source-category cases proving no `LocalPdbRead`, `PdbAcquire`, or `SourceContent`; paired genuinely-empty and PDB-required fixtures produce distinct `ValidEmpty` and `Unknown(CapabilityNotRequested)`, while plain library discovery retains its bounded `LocalPdbRead` positive and close-negative gates |
-| `MIP003` | Provisional catalogs cannot satisfy shape validation | Close-negative tests for exact type, implied member, mixed filters, globs, and categories |
-| `MIP004` | Closed producer demand equals authorization | Declaration-derived gesture-provenance/query-requirement/host-policy matrix; transitive prerequisite capability union; transitive execution-mode and probe-policy closure including a probe-capable producer with a render-only prerequisite; prerequisite-only denials before execution; and artifact-owner lease revalidation |
+| `MIP003` | Demand classification, provisional catalogs, and static alternatives cannot satisfy final shape validation | Close-negative tests for exact type, implied member, mixed filters, aliases, globs, categories, `@All`, and commandless structural alternatives |
+| `MIP004` | Closed producer paths equal preflighted authorization | Declaration-derived gesture-provenance/query-requirement/host-policy matrix; unconditional prerequisite closure; conditional local-PDB hit, unrequested/denied miss, and authorized acquisition paths; transitive cost, execution-mode, and probe-policy closure; a probe-capable producer with a render-only prerequisite mapping to per-section `Unknown`; explicit-render denial; preflight-before-execution assertions; and artifact-owner lease revalidation |
 | `MIP005` | Presentation cannot widen work | A non-vacuity test that fails when render-manifest or ordinary rendering starts an undeclared producer |
-| `MIP006` | Address resolution is deterministic and conflict-bearing | Exact type, fallback peel, dual-success, qualified/positional conflict, same-type and conflicting qualified/qualified selectors, identical/complementary/conflicting implied-explicit refinement, bare-name/glob inventory union and deduplication, zero/one/multiple inventory results, exact selector success/failure, selector-kind-driven type-list/overload-inventory/detail catalogs, explicit detail promotion, unavailable detail sections, and overload/digest/arity cases |
+| `MIP006` | Address and catalog resolution are deterministic, diagnostic, and surface-preserving | Exact type, fallback peel, dual-success, qualified/positional conflict, same-type and conflicting qualified/qualified selectors, identical/complementary/conflicting implied-explicit refinement, per-filter bare-name/glob outcomes, partial misses, overlapping-filter deduplication, zero/one/multiple inventory results, exact selector success/failure, explicit `type -m` versus `member` catalog/output compatibility, surface-and-selector-driven type-list/overload-inventory/detail catalogs, exact-section/alias/category/glob detail promotion, commandless static alternatives, unavailable detail sections, and overload/digest/arity cases |
 | `MIP007` | L1 member execution remains content-shaped and owner-authorized | Architecture closure plus admission/query-lease tests proving no readable path or descriptor bypass |
 | `MIP008` | The plan executes sequentially without filesystem assumptions | Browser/Wasm host test over in-memory content with the same producer trace and failures |
 | `MIP009` | The path remains NativeAOT-friendly, SRM-only, Roslyn-free, and load-free | NativeAOT publish/run plus dependency and inspected-assembly-loading architecture gates |
-| `MIP010` | Typed planning, resolution, producer, and observation failures stay visible | Outcome and injected-failure tests for every stage, including exact/category network-free discovery-probe failure and authorized render/effective PDB/source producer failure, proving failures cannot become empty selection, `ValidEmpty`, empty results, or success exit |
+| `MIP010` | Typed planning, resolution, policy, producer, and observation failures stay visible | Outcome and injected-failure tests for every stage, including per-section request/capability/cost/mode/probe-policy `Unknown`, explicit-render policy denial, exact/category network-free discovery-probe failure, and authorized render/effective PDB/source producer failure, proving failures cannot become empty selection, `ValidEmpty`, empty results, or success exit |
 | `MIP011` | Host preflight is the only executable authorization mint at the slice-4 cutover | Declaration-driven architecture closure over every type/member entry point, descriptor, prerequisite, and executor call site; fail on another mint or an option value read as execution authority |
 | `MIP012` | No transitional dual-use planning/authorization state remains | Declaration-driven closure over option fields, compatibility adapters, descriptors, and executors after slice 8 |
 | `MDP001` | Full/summary/focused validity agrees | Set equality over accepted identities and typed rejection rule IDs |

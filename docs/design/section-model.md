@@ -305,6 +305,14 @@ members apply.
 Schema discovery is also structural. It describes the full section/category
 graph and field schemas without requiring applicability.
 
+Effective discovery evaluates each selected section's declared probe closure
+independently. A missing request or capability, cost, execution-mode, or
+probe-policy denial leaves that section structurally present with a typed
+unknown reason; it does not fail unrelated eligible sections. A producer
+failure after an authorized probe starts is distinct and remains a visible
+failure. Explicit render demand for a closure denied by policy is non-success
+rather than unknown or empty.
+
 ### Effective-discovery cache
 
 Cached effective discovery is only valid when all of these match:

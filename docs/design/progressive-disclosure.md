@@ -124,9 +124,16 @@ Capability-bearing gestures carry **request provenance**, not authority.
 Argument parsing retains the user's original verbosity, explicit
 section/category/glob selection, discovery mode, and explicit policy flags.
 After selection binds stable sections to typed queries, the planner closes
-their transitive prerequisites and the disclosure policy maps that provenance
-to requests for capabilities declared anywhere in the closed query plan. The
-host preflight grants or denies the complete request before execution.
+their transitive producer graph and the disclosure policy maps that provenance
+to requests for capabilities declared on unconditional and conditional paths.
+The host preflight grants or denies every path before execution.
+
+Conditional paths preserve fallback without granting authority late. A local
+symbol probe may run under `LocalPdbRead` and return a typed miss. A
+`PdbAcquire` successor is present in the closed graph and is independently
+granted or denied by preflight; the local probe may succeed even when that
+successor is denied. On a miss, execution follows only the recorded successor
+disposition and never requests new authority.
 
 Symbol policy distinguishes three capabilities:
 
@@ -135,18 +142,19 @@ Symbol policy distinguishes three capabilities:
 - `PdbAcquire`: acquiring a missing PDB from an authorized source;
 - `SourceContent`: fetching or reading authored source content.
 
-Exact render selection of a source-content section may request all three as its
-producer plan requires. Discovery selection retains the same provenance but
-requests only capabilities declared by its discovery mode and probe policy.
+Exact render selection of a source-content section may request all three on
+the paths its producer graph declares. Discovery selection retains the same
+provenance but requests only capabilities declared by its discovery mode and
+probe policy.
 For example, plain library discovery may request `LocalPdbRead` for its bounded
 SourceLink-door probe, while named/category type/member discovery requests none
 of the three. An explicit effective-discovery policy may request more.
 Detailed verbosity may request bounded local-PDB, PDB-acquisition, or
 source-audit work where the section contract permits it, but it does not
 request `SourceContent` merely because code promoted the effective verbosity.
-Section descriptors and query definitions declare requirements; they do not
-grant authority. Artifact admission/query leases revalidate the authorized
-plan at content access.
+Section descriptors and query definitions declare requirements and conditional
+successors; they do not grant authority. Artifact admission/query leases
+revalidate the authorized closure at content access.
 
 - A package may be downloaded to resolve the requested target.
 - Default gestures must not automatically acquire PDBs or access source
