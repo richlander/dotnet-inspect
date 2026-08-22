@@ -344,8 +344,8 @@ public class PdbContext : IDisposable
         => Open(assemblyPath, log, PEStreamOptions.Default);
 
     /// <summary>
-    /// Opens the PE image and reads its debug directory, including an embedded PDB when present,
-    /// without probing for an adjacent PDB.
+    /// Opens the PE image and reads its debug directory without loading an embedded or adjacent
+    /// PDB. Used by latency-bounded metadata discovery that does not need source documents.
     /// </summary>
     public static PdbContext OpenMetadataOnly(string assemblyPath, Action<string>? log = null)
         => Open(
@@ -449,8 +449,8 @@ public class PdbContext : IDisposable
     }
 
     /// <summary>
-    /// Opens descriptor-owned PE metadata, including an embedded PDB when present, without
-    /// probing for an adjacent PDB.
+    /// Opens descriptor-owned PE metadata without loading an embedded or
+    /// adjacent PDB.
     /// </summary>
     public static PdbContext OpenMetadataOnly(
         ResolvedAssemblyReference assembly,
