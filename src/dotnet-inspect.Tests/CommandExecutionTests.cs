@@ -10016,6 +10016,33 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("@Source")]
+    [InlineData("*")]
+    [InlineData("PDB Source")]
+    public async Task Member_DeferredLookup_PreservesExactSelectorProvenance(
+        string selector)
+    {
+        string[] commonArguments =
+        [
+            "--platform",
+            "System.Runtime",
+            "-S",
+            selector,
+            "--json",
+            "--offline",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(
+            ["member", "System.String", "Clone:1", .. commonArguments]);
+        var deferred = await RunAppAsync(
+            ["member", "System.String.Clone", .. commonArguments]);
+
+        Assert.Equal(direct, deferred);
+    }
+
+    [Theory]
     [InlineData(SectionNames.PdbSource, false, "lexical complexity limit")]
     [InlineData(SectionNames.SourceDiff, false, "lexical complexity limit")]
     [InlineData(SectionNames.PdbSource, true, "sequence-point coordinates")]

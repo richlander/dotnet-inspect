@@ -322,7 +322,11 @@ public class ApiCommand
             }
 
             resolved = selectResult.Sections != null
-                ? options with { IncludeSections = selectResult.Sections }
+                ? options with
+                {
+                    IncludeSections = selectResult.Sections,
+                    ExactIncludeSectionsOverride = selectResult.ExactSections,
+                }
                 : options;
         }
 
