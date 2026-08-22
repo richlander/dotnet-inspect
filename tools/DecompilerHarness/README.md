@@ -43,7 +43,8 @@ Decompiler-owned strict JSON contract, asks
 `CSharpBodyDiff.IssueCorrespondence` for trusted node correspondence, and
 renders complete Before and After C# documents with generated structural caret
 comments plus a compact rich-diff table from the resulting
-`CSharpStructuralComparison`.
+`CSharpStructuralComparison`. Each structural detail starts below its first
+caret while the `//` marker remains in the shared left gutter.
 
 The Markdown projection keeps `Change`, `Structure`, and `Region`, adding
 `Fidelity` only when a fidelity label is present. Absolute UTF-16 spans and

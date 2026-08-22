@@ -2,22 +2,73 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  captureMemberFocus,
-  createMemberFocusRestorer,
+  captureMemberFocus as captureMemberFocusImpl,
+  createMemberFocusRestorer as createMemberFocusRestorerImpl,
   resolveMemberFocusSnapshot,
-  restoreMemberFocus,
+  restoreMemberFocus as restoreMemberFocusImpl,
 } from "../src/member-focus.ts";
+import type { MemberFocusSnapshot } from "../src/member-focus.ts";
+
+interface MockElement {
+  id: string;
+  dataset: Record<string, string | undefined>;
+  isConnected: boolean;
+  scrollTop: number;
+  selectionStart?: number | null;
+  selectionEnd?: number | null;
+  selectionDirection?: "forward" | "backward" | "none" | null;
+  setSelectionRange?(start: number | null, end: number | null, direction?: string | null): void;
+  focus(): void;
+}
+
+// The library owns the real `Document`/`Element` contract; this harness models only the
+// mutable pieces member-focus.ts reads and writes, and the wrappers below present that shape
+// as `Document`/`Element` at the one boundary where the library calls through.
+interface MockDocument {
+  activeElement: MockElement | null;
+  body: MockElement;
+  querySelector(selector: string): MockElement | null;
+  querySelectorAll(selector: string): MockElement[];
+}
+
+function captureMemberFocus(document: MockDocument): MemberFocusSnapshot {
+  return captureMemberFocusImpl(document as unknown as Document);
+}
+
+function restoreMemberFocus(
+  document: MockDocument,
+  snapshot: MemberFocusSnapshot,
+  requestFrame: (callback: FrameRequestCallback) => number,
+  isCurrent?: () => boolean,
+): void {
+  restoreMemberFocusImpl(document as unknown as Document, snapshot, requestFrame, isCurrent);
+}
+
+function createMemberFocusRestorer() {
+  const restorer = createMemberFocusRestorerImpl();
+  return {
+    resolve: (current: MemberFocusSnapshot, fallback: MemberFocusSnapshot | null) =>
+      restorer.resolve(current, fallback),
+    schedule(
+      document: MockDocument,
+      snapshot: MemberFocusSnapshot,
+      requestFrame: (callback: FrameRequestCallback) => number,
+    ) {
+      restorer.schedule(document as unknown as Document, snapshot, requestFrame);
+    },
+  };
+}
 
 function createDocument() {
-  const body = { id: "", dataset: {}, isConnected: true };
-  const elements = new Map();
-  const document = {
+  const body: MockElement = { id: "", dataset: {}, isConnected: true, scrollTop: 0, focus() {} };
+  const elements = new Map<string, MockElement>();
+  const document: MockDocument = {
     activeElement: body,
     body,
-    querySelector(selector) {
+    querySelector(selector: string) {
       return elements.get(selector) ?? null;
     },
-    querySelectorAll(selector) {
+    querySelectorAll(selector: string) {
       const key = selector.match(/^\[data-([a-z-]+)\]$/)?.[1]
         ?.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
       return key
@@ -26,8 +77,8 @@ function createDocument() {
         : [];
     },
   };
-  const element = (selector, properties = {}) => {
-    const value = {
+  const element = (selector: string, properties: Partial<MockElement> = {}) => {
+    const value: MockElement = {
       id: "",
       dataset: {},
       isConnected: true,
@@ -86,7 +137,7 @@ test("navigation focus and scroll survive completion before loading focus restor
   );
   assert.equal(current.selector, "#unrelated");
   assert.equal(current.focusLost, false);
-  assert.equal(elements.get("#type-list").scrollTop, 87);
+  assert.equal(elements.get("#type-list")!.scrollTop, 87);
 });
 
 test("navigation scroll is not copied into a different list scope", () => {
@@ -217,7 +268,7 @@ test("stable workbench controls survive a replacement render", () => {
 });
 
 test("scope and lens controls survive a replacement render", () => {
-  const cases = [
+  const cases: [string, Record<string, string>][] = [
     ["[data-scope=\"member\"]", { scope: "member" }],
     ["[data-lens=\"metadata\"]", { lens: "metadata" }],
     ["[data-member-section=\"facts\"]", { memberSection: "facts" }],
@@ -242,7 +293,7 @@ test("scope and lens controls survive a replacement render", () => {
 });
 
 test("member and overload rows survive activation renders", () => {
-  const cases = [
+  const cases: [string, Record<string, string>][] = [
     ["[data-nav-member=\"method:Build\"]", { navMember: "method:Build" }],
     ["[data-nav-overload=\"1\"]", { navOverload: "1" }],
   ];
@@ -289,8 +340,8 @@ test("deferred restoration does not steal intentionally moved focus", () => {
   const { document, element } = createDocument();
   const initialInput = element("#member-filter", { id: "member-filter" });
   document.activeElement = initialInput;
-  const snapshot = captureMemberFocus(document, value => value);
-  const callbacks = [];
+  const snapshot = captureMemberFocus(document);
+  const callbacks: FrameRequestCallback[] = [];
   restoreMemberFocus(document, snapshot, callback => {
     callbacks.push(callback);
     return callbacks.length;
@@ -298,25 +349,25 @@ test("deferred restoration does not steal intentionally moved focus", () => {
 
   const unrelated = element("#unrelated", { id: "unrelated" });
   unrelated.focus();
-  callbacks.shift()(0);
+  callbacks.shift()!(0);
 
   assert.equal(document.activeElement, unrelated);
 });
 
 test("newer caret restoration invalidates older queued callbacks", () => {
   const { document, element } = createDocument();
-  let restoredSelection = null;
+  let restoredSelection: { start: number | null; end: number | null; direction: string | null } | null = null;
   const input = element("#member-filter", {
     id: "member-filter",
     selectionStart: 1,
     selectionEnd: 1,
     selectionDirection: "none",
     setSelectionRange(start, end, direction) {
-      restoredSelection = { start, end, direction };
+      restoredSelection = { start, end, direction: direction ?? null };
     },
   });
-  const callbacks = [];
-  const requestFrame = callback => {
+  const callbacks: FrameRequestCallback[] = [];
+  const requestFrame = (callback: FrameRequestCallback) => {
     callbacks.push(callback);
     return callbacks.length;
   };

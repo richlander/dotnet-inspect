@@ -2441,6 +2441,26 @@ public static class ApiOutputFormatter
                 opportunity.EvidenceMethodToken is { } evidenceMethod
                     ? MarkoutInline.Code($"0x{evidenceMethod:X8}")
                     : null,
+                opportunity.SupportingCallSite
+                    ?.SourceFinding,
+                opportunity.SupportingCallSite
+                    ?.Operation,
+                opportunity.SupportingCallSite
+                    ?.OperandToken is { } supportingToken
+                    ? MarkoutInline.Code(
+                        $"0x{supportingToken:X8}")
+                    : null,
+                opportunity.SupportingCallSite
+                    ?.EvidenceMethodToken is
+                        { } supportingMethod
+                    ? MarkoutInline.Code(
+                        $"0x{supportingMethod:X8}")
+                    : null,
+                opportunity.SupportingCallSite is
+                    { ILOffset: var supportingOffset }
+                    ? MarkoutInline.Code(
+                        $"IL_{supportingOffset:X4}")
+                    : null,
                 MarkoutInline.Code(opportunity.Evidence),
                 opportunity.SafeFixDirection,
                 LibraryMetadataService.TriagePriority(opportunity),
