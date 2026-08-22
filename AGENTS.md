@@ -45,8 +45,12 @@ formed before you stopped can describe a world that no longer exists.
   you were gone. Do not pull or rebase a pushed branch to "catch up"; reconcile
   it the way this file already requires.
 - **Re-check PR state** per [Canonical round flow](#canonical-round-flow).
-- **Name your window** so the session can be found from outside:
-  `tmux rename-window pr-<number>`, or the issue number when no PR exists yet.
+- **Name your window — not the session.** `tmux rename-window pr-<number>`, or
+  an equally short issue-scoped name when no PR exists yet, so the work can be
+  found from outside. A tmux session is shared by every window on that host, so
+  renaming it identifies nothing; `rename-window` is the same per-window name
+  `C-b ,` sets. Keep it short — the status bar truncates long names, and a
+  truncated name reads as a corrupted one.
 
 ### Then act on where you stopped
 
