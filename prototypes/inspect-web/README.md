@@ -615,6 +615,11 @@ either preserve sequencing or surface unexpected rejection visibly. The exact
 `node:test` `test` call is the only configured safe promise-returning call
 because the test runner owns and observes that returned promise.
 
+Closed workspace scopes, type and package lenses, member sections, and
+Spotlight scopes are literal unions derived from their UI catalogs. DOM and URL
+tokens are decoded before they reach typed state or actions; the scope-bar and
+workspace-navigation tests gate rejection of unknown values.
+
 Oxlint checks both checked-in tsbindgen outputs as consumer contracts:
 `src/inspect-web-engine.d.ts` receives the TypeScript rules, while
 `engine/wwwroot/inspect-web-engine.js` receives the JavaScript correctness and

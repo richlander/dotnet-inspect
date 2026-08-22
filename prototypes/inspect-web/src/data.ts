@@ -5,20 +5,68 @@
 // wiring; these functions are pure transforms over explicit inputs/outputs so they can be
 // unit-tested and reused (e.g. by `graph-mermaid.ts`) without the render/event-wiring layer.
 
-export const lenses: readonly (readonly [string, string])[] = [
+// Not exported: every consumer now goes through `typeLensesFor`, which applies the
+// runtime-pack filter. A direct export would be a way to skip it.
+const lenses = [
   ["api", "API"],
   ["metadata", "Metadata"],
   ["source", "Source"]
-];
+] as const;
 
-export const packageLenses: readonly (readonly [string, string])[] = [
+export type TypeLens = (typeof lenses)[number][0];
+
+export function isTypeLens(
+  value: string | null | undefined,
+): value is TypeLens {
+  return typeof value === "string"
+    && lenses.some(([id]) => id === value);
+}
+
+export const packageLenses = [
   ["overview", "Overview"],
   ["dependencies", "Dependencies"],
   ["integrations", "Integrations"],
   ["opportunities", "Opportunities"],
   ["analysis", "Analysis"],
   ["metadata", "Metadata"]
-];
+] as const;
+
+export type PackageLens = (typeof packageLenses)[number][0];
+
+export function isPackageLens(
+  value: string | null | undefined,
+): value is PackageLens {
+  return typeof value === "string"
+    && packageLenses.some(([id]) => id === value);
+}
+
+export const memberSectionDefinitions = [
+  ["overview", "Overview"],
+  ["call-graph", "Call graph"],
+  ["facts", "Facts"],
+  ["source", "Source"],
+  ["annotated", "Annotated source"],
+] as const;
+
+export type MemberSection = (typeof memberSectionDefinitions)[number][0];
+
+export function isMemberSection(
+  value: string | null | undefined,
+): value is MemberSection {
+  return typeof value === "string"
+    && memberSectionDefinitions.some(([id]) => id === value);
+}
+
+const workspaceScopes = ["package", "type", "member"] as const;
+
+export type WorkspaceScope = (typeof workspaceScopes)[number];
+
+export function isWorkspaceScope(
+  value: string | null | undefined,
+): value is WorkspaceScope {
+  return typeof value === "string"
+    && workspaceScopes.some(scope => scope === value);
+}
 
 export const MAX_WORKSPACE_PACKAGES = 12;
 export const MAX_SHARE_STATE_CHARACTERS = 65536;
@@ -1374,9 +1422,9 @@ export interface SourceWorkbenchState {
   package?: unknown;
   graphSourceOpen?: boolean;
   atPackageRoot?: boolean;
-  lens?: string;
+  lens?: TypeLens;
   selectedMemberKey?: string;
-  memberSection?: string;
+  memberSection?: MemberSection;
 }
 
 function sourceWorkbenchIsVisible(state: SourceWorkbenchState): boolean {
@@ -1493,7 +1541,7 @@ export function memberSectionIdsFor(
   member: SectionableMember | null | undefined,
   isRuntimePack = false,
   hasSelectedBody = false,
-): string[] {
+): MemberSection[] {
   if (["property", "field", "event", "constant"].includes(member?.kind ?? "")
     && !hasSelectedBody) {
     return ["overview"];
@@ -1509,7 +1557,7 @@ export function memberSectionIdsFor(
 
 export function typeLensesFor(
   pkg: { isRuntimePack?: boolean } | null | undefined,
-): readonly (readonly [string, string])[] {
+): readonly (readonly [TypeLens, string])[] {
   return pkg?.isRuntimePack
     ? lenses.filter(([id]) => id === "api")
     : lenses;

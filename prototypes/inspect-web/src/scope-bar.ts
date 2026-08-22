@@ -1,9 +1,18 @@
+import {
+  isMemberSection,
+  isPackageLens,
+  isTypeLens,
+  isWorkspaceScope,
+  type MemberSection,
+  type PackageLens,
+  type TypeLens,
+  type WorkspaceScope,
+} from "./data.ts";
+
 type LensDefinition = readonly [id: string, label: string];
 
-type Scope = "package" | "type" | "member";
-
 export interface RenderScopeBarOptions {
-  scope: Scope;
+  scope: WorkspaceScope;
   strip: readonly LensDefinition[];
   activeStripId: string | null;
   stripAttribute: string;
@@ -13,10 +22,10 @@ export interface RenderScopeBarOptions {
 }
 
 export interface ScopeBarBindingActions {
-  onMemberSectionSelect: (section: string | undefined) => void;
-  onPackageLensSelect: (lens: string) => void;
-  onScopeSelect: (scope: string | undefined) => void;
-  onTypeLensSelect: (lens: string) => void;
+  onMemberSectionSelect: (section: MemberSection) => void;
+  onPackageLensSelect: (lens: PackageLens) => void;
+  onScopeSelect: (scope: WorkspaceScope) => void;
+  onTypeLensSelect: (lens: TypeLens) => void;
 }
 
 export function bindScopeBar(
@@ -24,22 +33,25 @@ export function bindScopeBar(
   actions: ScopeBarBindingActions,
 ) {
   root.querySelectorAll<HTMLElement>("[data-scope]").forEach(button =>
-    button.addEventListener(
-      "click",
-      () => actions.onScopeSelect(button.dataset.scope)));
+    button.addEventListener("click", () => {
+      const scope = button.dataset.scope;
+      if (isWorkspaceScope(scope)) actions.onScopeSelect(scope);
+    }));
   root.querySelectorAll<HTMLElement>("[data-package-lens]").forEach(button =>
-    button.addEventListener(
-      "click",
-      () => actions.onPackageLensSelect(
-        button.dataset.packageLens ?? "overview")));
+    button.addEventListener("click", () => {
+      const lens = button.dataset.packageLens;
+      if (isPackageLens(lens)) actions.onPackageLensSelect(lens);
+    }));
   root.querySelectorAll<HTMLElement>("[data-lens]").forEach(button =>
-    button.addEventListener(
-      "click",
-      () => actions.onTypeLensSelect(button.dataset.lens ?? "api")));
+    button.addEventListener("click", () => {
+      const lens = button.dataset.lens;
+      if (isTypeLens(lens)) actions.onTypeLensSelect(lens);
+    }));
   root.querySelectorAll<HTMLElement>("[data-member-section]").forEach(button =>
-    button.addEventListener(
-      "click",
-      () => actions.onMemberSectionSelect(button.dataset.memberSection)));
+    button.addEventListener("click", () => {
+      const section = button.dataset.memberSection;
+      if (isMemberSection(section)) actions.onMemberSectionSelect(section);
+    }));
 }
 
 function lensButton(

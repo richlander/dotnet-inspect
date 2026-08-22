@@ -21,6 +21,8 @@ import {
   MARKDOWN_SANITIZE_OPTIONS,
   MAX_WORKSPACE_PACKAGES,
   memberRequestKey,
+  isMemberSection,
+  memberSectionDefinitions,
   memberSectionIdsFor,
   packageCoordinateMatchesLocation,
   packageForView,
@@ -56,6 +58,12 @@ import {
   type WorkspaceTab,
   uniqueTypeByQueryId,
   workspaceCoordinatesMatch
+} from "./data.ts";
+import type {
+  MemberSection,
+  PackageLens,
+  TypeLens,
+  WorkspaceScope,
 } from "./data.ts";
 import type { CommandPaletteResult } from "./command-bar.ts";
 import {
@@ -231,6 +239,7 @@ import {
   createSpotlight,
   type SpotlightPackageHit,
   type SpotlightResult,
+  type SpotlightScope,
   visibleSpotlightPackageHits,
 } from "./spotlight.ts";
 import { createSpotlightPackageSearch } from "./spotlight-package-search.ts";
@@ -513,12 +522,6 @@ interface Diagnostics {
   assets: number;
 }
 
-type MemberSection = "overview" | "source" | "annotated" | "call-graph" | "facts";
-
-function isMemberSection(value: string): value is MemberSection {
-  return memberSections.some(section => section === value);
-}
-
 function isAnnotatedMedium(value: string): value is (typeof MEDIA)[number] {
   return MEDIA.some(medium => medium === value);
 }
@@ -617,8 +620,8 @@ const initialState = {
   memberDocumentationLoading: false,
   memberDocumentationError: "",
   memberDocumentationKey: "",
-  lens: "api",
-  packageLens: "overview",
+  lens: "api" as const,
+  packageLens: "overview" as const,
   atPackageRoot: false,
   typeFilter: "",
   namespaceFilter: "",
@@ -630,7 +633,7 @@ const initialState = {
   spotlightOpen: false,
   spotlightQuery: "",
   spotlightIndex: 0,
-  spotlightScope: "all",
+  spotlightScope: "all" as const,
   spotlightFocus: "input" as const,
   spotlightChipIndex: 0,
   spotlightPkgHits: [],
@@ -710,7 +713,10 @@ interface StateOverrides {
   accessibilityFilter: Set<string>;
   spotlightPkgHits: SpotlightPackageHit[];
   spotlightFocus: "input" | "chips";
+  spotlightScope: SpotlightScope;
   memberSection: MemberSection;
+  lens: TypeLens;
+  packageLens: PackageLens;
   packageVersions: Record<string, string[]>;
   packageVersionsLoading: Record<string, boolean>;
   platformRecent: PlatformRecent[];
@@ -995,9 +1001,7 @@ function applyView(view: WorkspaceView) {
   state.memberTraitFilter = memberHistory.memberTraitFilter;
   state.memberTextFilter = memberHistory.memberTextFilter;
   state.selectedOverloadIndex = memberHistory.selectedOverloadIndex;
-  state.memberSection = isMemberSection(memberHistory.memberSection)
-    ? memberHistory.memberSection
-    : "overview";
+  state.memberSection = memberHistory.memberSection;
   state.atPackageRoot = view.atPackageRoot ?? false;
   state.packageLens = view.packageLens ?? "overview";
   state.memberSource = null;
@@ -1097,20 +1101,6 @@ function navForward() {
   navigationHistory.forward();
 }
 
-const memberSections: readonly MemberSection[] =
-  ["overview", "source", "annotated", "call-graph", "facts"];
-
-// Member-mode strip: the sections shown for an open member, in display order. Lives at
-// module scope because both the scope/lens strip (in render) and the member detail view
-// read it. Order here is the visual left-to-right order in the strip.
-const memberSectionDefs = [
-  ["overview", "Overview"],
-  ["call-graph", "Call graph"],
-  ["facts", "Facts"],
-  ["source", "Source"],
-  ["annotated", "Annotated source"]
-] as const;
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -1121,7 +1111,7 @@ function memberSectionsFor(member: AppMemberGroup) {
       member,
       state.package?.isRuntimePack,
       memberHasSelectedBody(member)));
-  return memberSectionDefs.filter(([id]) => allowed.has(id));
+  return memberSectionDefinitions.filter(([id]) => allowed.has(id));
 }
 
 function memberHasSelectedBody(member: AppMemberGroup) {
@@ -1326,7 +1316,7 @@ function focusTypeList(generation = spotlightFocusGeneration) {
   });
 }
 
-function openSpotlight(seed = "", spotlightScope = "all") {
+function openSpotlight(seed = "", spotlightScope: SpotlightScope = "all") {
   if (state.loading || state.error) return;
   state.tasteOpen = false;
   beginSpotlightNavigation();
@@ -1934,7 +1924,7 @@ function selectedMember(type: BrowserTypeSurface | null | undefined) {
 // Selection sits on a scope ladder: package (a whole NuGet package / its assemblies),
 // type (one public type), or member (a member + its overloads under the API lens). The
 // lens strip, detail pane, and arrow keys all react to the active scope.
-function scope() {
+function scope(): WorkspaceScope {
   if (state.atPackageRoot) return "package";
   return memberScopeIsActive(state, selectedType()?.id) ? "member" : "type";
 }
@@ -1957,16 +1947,6 @@ function scopedPlatformLibrary() {
   if (state.libraryScope && state.libraryScope.size === 1)
     return state.libraryScope.values().next().value ?? null;
   return null;
-}
-
-function activeLenses() {
-  const sc = scope();
-  if (sc === "package") return packageLensesFor(state.package);
-  if (sc === "member") {
-    const member = selectedMember(selectedType());
-    return member ? memberSectionsFor(member) : [];
-  }
-  return typeLensesFor(state.package);
 }
 
 // The nav pane reacts to context: types at the top level, or the current type's
@@ -2593,7 +2573,7 @@ function packageHeading() {
   </header>`;
 }
 
-function packageLensPlaceholder(lensId: string) {
+function packageLensPlaceholder(lensId: PackageLens) {
   const copy = ({
     dependencies: ["⌘", "Dependencies", "Package NuGet dependencies and assembly references. Wiring the engine export in a follow-up pass."]
   } as Record<string, string[]>)[lensId]
@@ -4455,7 +4435,7 @@ function bindTypePanelEvents() {
 function bindScopeBarEvents() {
   bindScopeBar(document, {
     onMemberSectionSelect: section => {
-      if (section && isMemberSection(section)) applyMemberSection(section);
+      applyMemberSection(section);
     },
     onPackageLensSelect: lens => {
       state.packageLens = lens;
@@ -8928,16 +8908,24 @@ keybindings.register({
     && !event.metaKey
     && !event.ctrlKey,
   run: event => {
-    const set = activeLenses();
     const index = Number(event.key) - 1;
-    const selected = set[index];
-    if (selected) {
-      const [id] = selected;
-      const sc = scope();
-      if (sc === "package") { state.packageLens = id; render(); }
-      else if (sc === "member" && isMemberSection(id))
-        applyMemberSection(id);
-      else { state.lens = id; render(); }
+    const sc = scope();
+    if (sc === "package") {
+      const selected = packageLensesFor(state.package)[index];
+      if (selected) {
+        state.packageLens = selected[0];
+        render();
+      }
+    } else if (sc === "member") {
+      const member = selectedMember(selectedType());
+      const selected = member ? memberSectionsFor(member)[index] : undefined;
+      if (selected) applyMemberSection(selected[0]);
+    } else {
+      const selected = typeLensesFor(state.package)[index];
+      if (selected) {
+        state.lens = selected[0];
+        render();
+      }
     }
     return true;
   },

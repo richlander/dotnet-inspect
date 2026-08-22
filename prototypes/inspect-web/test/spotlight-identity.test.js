@@ -1282,13 +1282,7 @@ test("typed scope bar owns its rendered control bindings", () => {
   const memberSection = callbackProperty(actions, "onMemberSectionSelect");
   assert.deepEqual(
     statementSignatures(memberSection.body.body),
-    [
-      {
-        if: "section && isMemberSection(section)",
-        whenTrue: ["call:applyMemberSection(section)"],
-        whenFalse: [],
-      },
-    ]);
+    ["call:applyMemberSection(section)"]);
 
   const packageLens = callbackProperty(actions, "onPackageLensSelect");
   assert.deepEqual(
@@ -1857,7 +1851,7 @@ test("global workbench shortcuts respect the topmost modal", () => {
     /id: "taste\.dismiss"[\s\S]*priority: WORKBENCH_KEYBINDING_PRIORITY\.popover[\s\S]*state\.tasteOpen = false/);
   assert.match(
     appSource,
-    /function openSpotlight\(seed = "", spotlightScope = "all"\) \{\s*if \(state\.loading \|\| state\.error\) return;\s*state\.tasteOpen = false;/);
+    /function openSpotlight\(seed = "", spotlightScope: SpotlightScope = "all"\) \{\s*if \(state\.loading \|\| state\.error\) return;\s*state\.tasteOpen = false;/);
   assert.match(
     spotlightSource,
     /function bind\(root: ParentNode, mode: "modal" \| "inline"\)[\s\S]*if \(mode === "modal"\)[\s\S]*focus\(\);/);
@@ -2373,7 +2367,7 @@ test("history validates saved type and member identity before restoring Member s
     /state\.selectedTypeId = type\?\.id \?\? pkg\.types\[0\]\?\.id \?\? "";[\s\S]*state\.selectedMemberKey = memberHistory\.selectedMemberKey;[\s\S]*state\.memberBrowseTypeId = memberHistory\.memberBrowseTypeId;[\s\S]*state\.memberKindFilter = memberHistory\.memberKindFilter;[\s\S]*state\.memberAccessibilityFilter = memberHistory\.memberAccessibilityFilter;[\s\S]*state\.memberTraitFilter = memberHistory\.memberTraitFilter;[\s\S]*state\.memberTextFilter = memberHistory\.memberTextFilter/);
   assert.match(
     applyView,
-    /state\.selectedOverloadIndex = memberHistory\.selectedOverloadIndex;[\s\S]*state\.memberSection = isMemberSection\(memberHistory\.memberSection\)[\s\S]*\? memberHistory\.memberSection[\s\S]*state\.selectedBodyTarget = memberHistory\.selectedBodyTarget/);
+    /state\.selectedOverloadIndex = memberHistory\.selectedOverloadIndex;[\s\S]*state\.memberSection = memberHistory\.memberSection;[\s\S]*state\.selectedBodyTarget = memberHistory\.selectedBodyTarget/);
   assert.match(
     applyView,
     /navigationHistory\.normalizeCurrent\(\);[\s\S]*loadSelectedMemberSource\(\)[\s\S]*else \{\s*render\(\)/);

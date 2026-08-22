@@ -7,7 +7,11 @@ import {
   nextSpotlightSelection,
   visibleSpotlightPackageHits,
 } from "../src/spotlight.ts";
-import type { SpotlightResult, SpotlightState } from "../src/spotlight.ts";
+import type {
+  SpotlightResult,
+  SpotlightScope,
+  SpotlightState,
+} from "../src/spotlight.ts";
 import type { CommandContext } from "../src/command-bar.ts";
 import { KeybindingRegistry } from "../src/keybinding-registry.ts";
 import { fakeDom } from "./fake-dom.ts";
@@ -21,7 +25,7 @@ function escapeHtml(value: unknown) {
 }
 
 interface HarnessOptions {
-  scope?: string;
+  scope?: SpotlightScope;
   query?: string;
   commandContext?: CommandContext | null;
   focusAfterDismiss?: () => void;
