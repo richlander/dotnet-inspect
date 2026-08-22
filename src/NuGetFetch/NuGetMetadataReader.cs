@@ -161,6 +161,7 @@ internal static class NuGetMetadataReader
         exception is IOException
             and not NuGetMetadataResponseTooLargeException
             and not NuGetRedirectLimitExceededException
+            and not NuGetRegistrationResourceLimitExceededException
             or HttpRequestException
             or ObjectDisposedException;
 

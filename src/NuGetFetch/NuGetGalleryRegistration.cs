@@ -15,13 +15,8 @@ internal sealed class NuGetGalleryRegistrationBudget
     internal const int MinimumLeafCount = 4_096;
     private const int LeafCountMultiplier = 4;
 
-    private readonly object _byteGate = new();
-    private readonly long _maximumBytes;
+    private readonly NuGetGalleryRegistrationByteBudget _aggregateBytes;
     private readonly int _maximumLeafCount;
-    private long _availableBytes;
-    private long _outstandingBytes;
-    private TaskCompletionSource _reservationCompleted =
-        NewReservationCompletion();
     private int _observedLeafCount;
 
     internal NuGetGalleryRegistrationBudget(
@@ -30,8 +25,8 @@ internal sealed class NuGetGalleryRegistrationBudget
     {
         ArgumentOutOfRangeException.ThrowIfNegative(candidateCount);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumBytes);
-        _maximumBytes = maximumBytes;
-        _availableBytes = maximumBytes;
+        _aggregateBytes =
+            new NuGetGalleryRegistrationByteBudget(maximumBytes);
         long scaledCount = (long)candidateCount * LeafCountMultiplier;
         _maximumLeafCount = (int)Math.Min(
             int.MaxValue,
@@ -42,26 +37,61 @@ internal sealed class NuGetGalleryRegistrationBudget
     {
         if (pageCount > MaximumPageCount)
         {
-            throw Invalid(
+            throw new NuGetRegistrationResourceLimitExceededException(
                 $"NuGet Gallery registration exceeded {MaximumPageCount} pages.");
         }
     }
 
     internal Stream LimitBytes(Stream stream) =>
-        new BudgetedReadStream(stream, this);
+        _aggregateBytes.LimitBytes(stream);
 
     internal void ObserveLeaf()
     {
         if (Interlocked.Increment(ref _observedLeafCount)
             > _maximumLeafCount)
         {
-            throw Invalid(
+            throw new NuGetRegistrationResourceLimitExceededException(
                 $"NuGet Gallery registration exceeded {_maximumLeafCount} leaves.");
         }
     }
+}
 
-    private static JsonException Invalid(string message) =>
-        new(message);
+internal sealed class NuGetGalleryRegistrationByteBudget
+{
+    private readonly object _byteGate = new();
+    private readonly long _maximumBytes;
+    private long _availableBytes;
+    private long _outstandingBytes;
+    private TaskCompletionSource _reservationCompleted =
+        NewReservationCompletion();
+
+    internal NuGetGalleryRegistrationByteBudget(long maximumBytes)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumBytes);
+        _maximumBytes = maximumBytes;
+        _availableBytes = maximumBytes;
+    }
+
+    internal Stream LimitBytes(Stream stream) =>
+        new BudgetedReadStream(
+            stream,
+            this,
+            returnDeliveredBytesOnDispose: false);
+
+    internal async Task CopyWithRollbackAsync(
+        Stream source,
+        Stream destination,
+        CancellationToken cancellationToken)
+    {
+        using var limited = new BudgetedReadStream(
+            source,
+            this,
+            returnDeliveredBytesOnDispose: true);
+        await limited.CopyToAsync(
+            destination,
+            cancellationToken).ConfigureAwait(false);
+        limited.Commit();
+    }
 
     private int ReserveBytes(int requested)
     {
@@ -118,16 +148,36 @@ internal sealed class NuGetGalleryRegistrationBudget
         reservationCompleted.TrySetResult();
     }
 
+    private void ReturnDeliveredBytes(long delivered)
+    {
+        TaskCompletionSource reservationCompleted;
+        lock (_byteGate)
+        {
+            _availableBytes += delivered;
+            reservationCompleted = _reservationCompleted;
+            _reservationCompleted = NewReservationCompletion();
+            Monitor.PulseAll(_byteGate);
+        }
+
+        reservationCompleted.TrySetResult();
+    }
+
     private void ThrowByteLimitExceeded() =>
-        throw new NuGetMetadataResponseTooLargeException(_maximumBytes);
+        throw new NuGetRegistrationResourceLimitExceededException(
+            $"NuGet Gallery registration exceeded the {_maximumBytes}-byte limit.");
 
     private static TaskCompletionSource NewReservationCompletion() =>
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private sealed class BudgetedReadStream(
         Stream inner,
-        NuGetGalleryRegistrationBudget budget) : Stream
+        NuGetGalleryRegistrationByteBudget budget,
+        bool returnDeliveredBytesOnDispose) : Stream
     {
+        private long _deliveredBytes;
+        private bool _committed;
+        private bool _disposed;
+
         public override bool CanRead => inner.CanRead;
         public override bool CanSeek => false;
         public override bool CanWrite => false;
@@ -159,6 +209,7 @@ internal sealed class NuGetGalleryRegistrationBudget
             {
                 int read = inner.Read(buffer[..reserved]);
                 budget.CompleteReservation(reserved, read);
+                _deliveredBytes += read;
                 return read;
             }
             catch
@@ -185,6 +236,8 @@ internal sealed class NuGetGalleryRegistrationBudget
                 budget.CompleteReservation(
                     reserved,
                     delivered: value < 0 ? 0 : 1);
+                if (value >= 0)
+                    _deliveredBytes++;
                 return value;
             }
             catch
@@ -230,6 +283,7 @@ internal sealed class NuGetGalleryRegistrationBudget
                     buffer[..reserved],
                     cancellationToken).ConfigureAwait(false);
                 budget.CompleteReservation(reserved, read);
+                _deliveredBytes += read;
                 return read;
             }
             catch
@@ -249,6 +303,20 @@ internal sealed class NuGetGalleryRegistrationBudget
             int offset,
             int count) =>
             throw new NotSupportedException();
+
+        internal void Commit() => _committed = true;
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && !_disposed)
+            {
+                _disposed = true;
+                if (returnDeliveredBytesOnDispose && !_committed)
+                    budget.ReturnDeliveredBytes(_deliveredBytes);
+            }
+
+            base.Dispose(disposing);
+        }
     }
 }
 

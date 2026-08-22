@@ -631,13 +631,21 @@ SemVer2 registration index. Inline pages are consumed in place. External page
 IDs are accepted only as validated HTTPS package-page identities and are
 rebased to the Gallery CDN; their advertised host is never dereferenced.
 Registration pages are fetched in bounded concurrent batches under the same
-operation deadline. The index and all pages share one aggregate byte-admission
-budget equal to the configured per-response metadata limit, so concurrent JSON
-materialization cannot multiply that limit by the page-batch size. A reader
-waits when all remaining capacity is only temporarily held by in-flight reads;
-the overflow probe runs only after committed bytes have permanently exhausted
-the budget. The index admits at most 128 pages, and leaf work is capped at the
-greater of 4,096 observations or four times the flat-container candidate count.
+operation deadline. Each response remains bounded by the configured metadata
+response limit, 16 MiB by default. Every external-page batch has a separate
+concurrent materialization limit, 64 MiB by default; failed attempts return
+their batch capacity before retry. Separately, the index, all pages, and retry
+traffic share an aggregate registration-work limit, also 64 MiB by default. A
+reader waits when all remaining capacity is only temporarily held by in-flight
+reads; the overflow probe runs only after committed bytes have permanently
+exhausted the applicable budget. The index admits at most 128 pages, and leaf
+work is capped at the greater of 4,096 observations or four times the
+flat-container candidate count. The aggregate default is pinned above the
+measured 18,163,736-byte, 25-page MassTransit registration canary, and the batch
+default is pinned above eight responses whose combined size exceeds the
+per-response limit. Page, leaf, batch, and aggregate exhaustion are resource
+rejection rather than malformed JSON, while Gallery enumeration still projects
+each case as typed partial.
 Parsing validates every leaf inside those budgets but retains listing state only
 for normalized flat-container candidates, so unrelated registration versions
 cannot grow retained registration state. A complete join reports authoritative
@@ -684,9 +692,14 @@ The local-folder descriptor remains modeled without a runtime client.
 `GalleryExternalPagesUseBoundedConcurrency`,
 `GalleryRegistrationParserRetainsOnlyFlatCandidates`,
 `GalleryRegistrationAggregateByteLimitIsTypedPartialEnumeration`,
+`GalleryRegistrationDefaultAggregateCoversMeasuredMassTransitCanary`,
+`GalleryRegistrationDefaultBatchExceedsPerResponseLimit`,
 `GalleryRegistrationReservationWaitsForReturnedCapacity`,
+`GalleryRegistrationMaterializationBudgetReturnsFailedAttemptCapacity`,
+`GalleryRegistrationAggregateCountsFailedAttemptBytes`,
 `GalleryRegistrationLeafLimitIsTypedPartialEnumeration`,
 `GalleryRegistrationPageLimitIsTypedPartialEnumeration`,
+`RegistrationResourceLimitsMapToResponseRejected`,
 `GalleryRejectsIneligibleExternalRegistrationPage`,
 `GalleryMalformedRegistrationIsTypedPartialEnumeration`,
 `GalleryCorruptEncodedVersionMetadataIsInvalidResponse`,

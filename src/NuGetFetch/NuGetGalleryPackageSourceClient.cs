@@ -183,16 +183,21 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
             var budget =
                 new NuGetGalleryRegistrationBudget(
                     candidateVersions.Count,
-                    _options.MaxMetadataResponseBytes);
+                    _options.MaxRegistrationMetadataBytes);
             NuGetGalleryRegistrationIndex? index =
                 await ReadRegistrationDocumentAsync(
                     indexUrl,
-                    (json, cancellationToken) =>
-                        NuGetGalleryRegistration.DeserializeIndexAsync(
-                            budget.LimitBytes(json),
-                            candidateVersions,
-                            budget,
-                            cancellationToken),
+                    async (json, cancellationToken) =>
+                    {
+                        using Stream limitedJson =
+                            budget.LimitBytes(json);
+                        return await NuGetGalleryRegistration
+                            .DeserializeIndexAsync(
+                                limitedJson,
+                                candidateVersions,
+                                budget,
+                                cancellationToken).ConfigureAwait(false);
+                    },
                     operation).ConfigureAwait(false);
             if (index is null)
                 return null;
@@ -224,6 +229,9 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                  offset < externalPages.Count;
                  offset += RegistrationPageBatchSize)
             {
+                var materializationBudget =
+                    new NuGetGalleryRegistrationByteBudget(
+                        _options.MaxRegistrationPageBatchBytes);
                 Task<MemoryStream?>[] requests =
                 [
                     .. externalPages
@@ -233,6 +241,7 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                             ReadRegistrationPageAsync(
                                 pageUrl,
                                 budget,
+                                materializationBudget,
                                 operation)),
                 ];
                 MemoryStream?[] pages;
@@ -405,7 +414,8 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
 
     private async Task<MemoryStream?> ReadRegistrationPageAsync(
         string url,
-        NuGetGalleryRegistrationBudget budget,
+        NuGetGalleryRegistrationBudget aggregateBudget,
+        NuGetGalleryRegistrationByteBudget materializationBudget,
         NuGetOperationDeadline operation)
     {
         return await NuGetHttpRetry.RunRequestAsync(
@@ -433,9 +443,13 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                         var page = new MemoryStream();
                         try
                         {
-                            await budget.LimitBytes(json).CopyToAsync(
-                                page,
-                                cancellationToken).ConfigureAwait(false);
+                            using Stream aggregateLimitedJson =
+                                aggregateBudget.LimitBytes(json);
+                            await materializationBudget
+                                .CopyWithRollbackAsync(
+                                    aggregateLimitedJson,
+                                    page,
+                                    cancellationToken).ConfigureAwait(false);
                             page.Position = 0;
                             return page;
                         }

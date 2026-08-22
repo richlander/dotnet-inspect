@@ -1433,6 +1433,9 @@ public sealed class PackageSourceClientTests
             Encoding.UTF8.GetByteCount(registration)
             + (2 * Encoding.UTF8.GetByteCount(page))
             > maximumBytes);
+        Assert.True(
+            2 * Encoding.UTF8.GetByteCount(page)
+            < 1_024);
         var handler = new RecordingHandler
         {
             [GalleryVersions] = """{"versions":["1.0.0"]}""",
@@ -1445,7 +1448,8 @@ public sealed class PackageSourceClientTests
                 handler,
                 new NuGetFetchOptions
                 {
-                    MaxMetadataResponseBytes = maximumBytes,
+                    MaxMetadataResponseBytes = 1_024,
+                    MaxRegistrationMetadataBytes = maximumBytes,
                 });
 
         PackageVersionResult result = Succeeded(
@@ -1465,6 +1469,126 @@ public sealed class PackageSourceClientTests
                 secondPage,
             ],
             handler.Requested);
+    }
+
+    [Fact]
+    public async Task
+        GalleryRegistrationDefaultAggregateCoversMeasuredMassTransitCanary()
+    {
+        const int pageCount = 25;
+        const int measuredMassTransitBytes = 18_163_736;
+        string padding = new('a', 740_000);
+        string page = $$"""
+            {
+              "items": [
+                {
+                  "catalogEntry": {
+                    "version": "1.0.0",
+                    "padding": "{{padding}}"
+                  }
+                }
+              ]
+            }
+            """;
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] = """{"versions":["1.0.0"]}""",
+        };
+        var indexPages = new string[pageCount];
+        for (int i = 0; i < pageCount; i++)
+        {
+            string version = $"1.0.{i}";
+            string path =
+                "/v3/registration5-gz-semver2/contoso/page/"
+                + $"{version}/{version}.json";
+            indexPages[i] =
+                $$"""{"@id":"https://api.nuget.org{{path}}"}""";
+            handler[$"https://globalcdn.nuget.org{path}"] = page;
+        }
+
+        string registration =
+            $$"""{"items":[{{string.Join(",", indexPages)}}]}""";
+        long registrationBytes =
+            Encoding.UTF8.GetByteCount(registration)
+            + ((long)pageCount * Encoding.UTF8.GetByteCount(page));
+        Assert.True(
+            registrationBytes
+            > NuGetFetchOptions.DefaultMaxMetadataResponseBytes);
+        Assert.True(registrationBytes >= measuredMassTransitBytes);
+        Assert.True(
+            registrationBytes
+            < NuGetFetchOptions.DefaultMaxRegistrationMetadataBytes);
+        handler[GalleryRegistration] = registration;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        PackageVersionResult result = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.True(result.HasAuthoritativeListingState);
+        Assert.Equal(
+            PackageListingState.Listed,
+            Assert.Single(result.Candidates).ListingState);
+    }
+
+    [Fact]
+    public async Task
+        GalleryRegistrationDefaultBatchExceedsPerResponseLimit()
+    {
+        const int pageCount = 8;
+        string padding = new('a', 2_100_000);
+        string page = $$"""
+            {
+              "items": [
+                {
+                  "catalogEntry": {
+                    "version": "1.0.0",
+                    "padding": "{{padding}}"
+                  }
+                }
+              ]
+            }
+            """;
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] = """{"versions":["1.0.0"]}""",
+        };
+        var indexPages = new string[pageCount];
+        for (int i = 0; i < pageCount; i++)
+        {
+            string version = $"1.0.{i}";
+            string path =
+                "/v3/registration5-gz-semver2/contoso/page/"
+                + $"{version}/{version}.json";
+            indexPages[i] =
+                $$"""{"@id":"https://api.nuget.org{{path}}"}""";
+            handler[$"https://globalcdn.nuget.org{path}"] = page;
+        }
+
+        int pageBytes = Encoding.UTF8.GetByteCount(page);
+        long batchBytes = (long)pageCount * pageBytes;
+        Assert.True(
+            pageBytes
+            < NuGetFetchOptions.DefaultMaxMetadataResponseBytes);
+        Assert.True(
+            batchBytes
+            > NuGetFetchOptions.DefaultMaxMetadataResponseBytes);
+        Assert.True(
+            batchBytes
+            < NuGetFetchOptions.DefaultMaxRegistrationPageBatchBytes);
+        handler[GalleryRegistration] =
+            $$"""{"items":[{{string.Join(",", indexPages)}}]}""";
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        PackageVersionResult result = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.True(result.HasAuthoritativeListingState);
     }
 
     [Fact]
@@ -1499,6 +1623,59 @@ public sealed class PackageSourceClientTests
 
         Assert.Equal(0, await eofRead);
         Assert.Equal(1, await finalRead);
+    }
+
+    [Fact]
+    public async Task
+        GalleryRegistrationMaterializationBudgetReturnsFailedAttemptCapacity()
+    {
+        var budget = new NuGetGalleryRegistrationByteBudget(
+            maximumBytes: 2);
+
+        await Assert.ThrowsAsync<IOException>(
+            () => budget.CopyWithRollbackAsync(
+                new ReadThenFailureStream([(byte)'a', (byte)'b']),
+                new MemoryStream(),
+                TestContext.Current.CancellationToken));
+
+        using var destination = new MemoryStream();
+        await budget.CopyWithRollbackAsync(
+            new MemoryStream([(byte)'c', (byte)'d']),
+            destination,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("cd", Encoding.UTF8.GetString(destination.ToArray()));
+
+        await Assert.ThrowsAsync<
+            NuGetRegistrationResourceLimitExceededException>(
+            () => budget.CopyWithRollbackAsync(
+                new MemoryStream([(byte)'e']),
+                new MemoryStream(),
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task GalleryRegistrationAggregateCountsFailedAttemptBytes()
+    {
+        var budget = new NuGetGalleryRegistrationByteBudget(
+            maximumBytes: 2);
+
+        using (Stream failedAttempt = budget.LimitBytes(
+            new ReadThenFailureStream([(byte)'a'])))
+        {
+            await Assert.ThrowsAsync<IOException>(
+                () => failedAttempt.CopyToAsync(
+                    new MemoryStream(),
+                    TestContext.Current.CancellationToken));
+        }
+
+        using Stream retry = budget.LimitBytes(
+            new MemoryStream([(byte)'b', (byte)'c']));
+        await Assert.ThrowsAsync<
+            NuGetRegistrationResourceLimitExceededException>(
+            () => retry.CopyToAsync(
+                new MemoryStream(),
+                TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -1546,6 +1723,51 @@ public sealed class PackageSourceClientTests
         Assert.Equal(
             [GalleryVersions, GalleryRegistration],
             handler.Requested);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task RegistrationResourceLimitsMapToResponseRejected(
+        bool pageLimit)
+    {
+        PackageSourceDescriptor descriptor =
+            PackageSourceDescriptor.NuGetGallery;
+        var budget = new NuGetGalleryRegistrationBudget(
+            candidateCount: 1,
+            maximumBytes: 1);
+
+        PackageSourceFailure failure = Failed(
+            await PackageSourceOperation.CaptureAsync(
+                descriptor.Identity,
+                descriptor.Kind,
+                PackageSourceCapabilities.VersionEnumeration,
+                () =>
+                {
+                    if (pageLimit)
+                    {
+                        budget.EnsurePageCount(
+                            NuGetGalleryRegistrationBudget.MaximumPageCount
+                            + 1);
+                    }
+                    else
+                    {
+                        for (int i = 0;
+                             i <= NuGetGalleryRegistrationBudget
+                                 .MinimumLeafCount;
+                             i++)
+                        {
+                            budget.ObserveLeaf();
+                        }
+                    }
+
+                    return Task.FromResult(0);
+                },
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageSourceFailureKind.ResponseRejected,
+            failure.Kind);
     }
 
     [Fact]
@@ -2952,6 +3174,80 @@ public sealed class PackageSourceClientTests
             Memory<byte> buffer,
             CancellationToken cancellationToken = default) =>
             ValueTask.FromException<int>(failure);
+
+        public override void Flush() =>
+            throw new NotSupportedException();
+
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class ReadThenFailureStream(byte[] content) : Stream
+    {
+        private int _position;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            if (_position < content.Length)
+            {
+                int copied = Math.Min(count, content.Length - _position);
+                content.AsSpan(_position, copied).CopyTo(
+                    buffer.AsSpan(offset, copied));
+                _position += copied;
+                return copied;
+            }
+
+            throw new IOException("The response body ended.");
+        }
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                return ValueTask.FromResult(
+                    Read(buffer.Span));
+            }
+            catch (Exception exception)
+            {
+                return ValueTask.FromException<int>(exception);
+            }
+        }
+
+        public override int Read(Span<byte> buffer)
+        {
+            if (_position < content.Length)
+            {
+                int copied = Math.Min(
+                    buffer.Length,
+                    content.Length - _position);
+                content.AsSpan(_position, copied).CopyTo(buffer);
+                _position += copied;
+                return copied;
+            }
+
+            throw new IOException("The response body ended.");
+        }
 
         public override void Flush() =>
             throw new NotSupportedException();
