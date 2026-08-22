@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+
+import { parseSync, visitorKeys } from "oxc-parser";
 
 import {
   activeSourceOperationKind,
   assemblyDescriptorForType,
+  pdbSourceLimitationHtml,
   beginSourceRequestState,
   cancelSourceRequestState,
   callGraphAssemblyIdentityMatches,
@@ -159,6 +163,121 @@ test("normalizing a history entry keeps its consumed position and later entries"
 });
 
 const appSource = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.url), "utf8");
+const parsedAppSource = parseSync("dotnet-inspect.ts", appSource);
+const appSyntax = parsedAppSource.program;
+
+function walkSyntax(node, visit) {
+  if (!node) return;
+  visit(node);
+  for (const key of visitorKeys[node.type] ?? []) {
+    const child = node[key];
+    if (Array.isArray(child)) {
+      for (const item of child) walkSyntax(item, visit);
+    } else if (child) {
+      walkSyntax(child, visit);
+    }
+  }
+}
+
+function syntaxNodes(root, predicate) {
+  const matches = [];
+  walkSyntax(root, node => {
+    if (predicate(node)) matches.push(node);
+  });
+  return matches;
+}
+
+function onlySyntaxNode(nodes, description) {
+  assert.equal(nodes.length, 1, description);
+  return nodes[0];
+}
+
+function functionDeclaration(name) {
+  return onlySyntaxNode(
+    appSyntax.body.filter(
+      node => node.type === "FunctionDeclaration" && node.id?.name === name),
+    `${name} declaration`);
+}
+
+function callExpressionsNamed(root, name) {
+  return syntaxNodes(
+    root,
+    node => node.type === "CallExpression"
+      && node.callee?.type === "Identifier"
+      && node.callee.name === name);
+}
+
+function sourceText(node) {
+  return appSource.slice(node.start, node.end).replace(/\s+/g, " ");
+}
+
+function callbackProperty(actions, name) {
+  const property = onlySyntaxNode(
+    actions.properties.filter(
+      item => item.type === "Property"
+        && item.key.type === "Identifier"
+        && item.key.name === name),
+    `${name} callback`);
+  assert.equal(property.value.type, "ArrowFunctionExpression");
+  assert.equal(property.value.body.type, "BlockStatement");
+  return property.value;
+}
+
+function directCallExpression(statement, name) {
+  if (statement.type !== "ExpressionStatement") return null;
+  const expression = statement.expression;
+  return expression.type === "CallExpression"
+    && expression.callee?.type === "Identifier"
+    && expression.callee.name === name
+    ? expression
+    : null;
+}
+
+function statementSignatures(statements) {
+  return statements.map(statementSignature);
+}
+
+function branchSignatures(branch) {
+  return branch.type === "BlockStatement"
+    ? statementSignatures(branch.body)
+    : [statementSignature(branch)];
+}
+
+function statementSignature(statement) {
+  if (statement.type === "ExpressionStatement") {
+    const expression = statement.expression;
+    if (expression.type === "AssignmentExpression") {
+      return `assign:${sourceText(expression.left)} ${expression.operator} ${sourceText(expression.right)}`;
+    }
+    if (expression.type === "CallExpression" && expression.callee?.type === "Identifier") {
+      return `call:${expression.callee.name}(${expression.arguments.map(sourceText).join(", ")})`;
+    }
+    return `expression:${sourceText(expression)}`;
+  }
+  if (statement.type === "IfStatement") {
+    return {
+      if: sourceText(statement.test),
+      whenTrue: branchSignatures(statement.consequent),
+      whenFalse: statement.alternate ? branchSignatures(statement.alternate) : [],
+    };
+  }
+  if (statement.type === "VariableDeclaration"
+      && statement.declarations.length === 1) {
+    const declaration = statement.declarations[0];
+    if (declaration.id.type === "Identifier" && declaration.init) {
+      return `declare:${statement.kind} ${declaration.id.name} = ${sourceText(declaration.init)}`;
+    }
+  }
+  return `statement:${statement.type}:${sourceText(statement)}`;
+}
+
+const sourceRoot = fileURLToPath(new URL("../src/", import.meta.url));
+const productionTypeScriptSources = readdirSync(sourceRoot, { recursive: true })
+  .filter(path => path.endsWith(".ts"))
+  .map(path => ({
+    path,
+    source: readFileSync(join(sourceRoot, path), "utf8"),
+  }));
 const workspaceNavigationSource = readFileSync(
   new URL("../src/workspace-navigation.ts", import.meta.url),
   "utf8");
@@ -167,6 +286,18 @@ const packageAcquisitionSource = readFileSync(
   "utf8");
 const packageInspectionSource = readFileSync(
   new URL("../src/package-inspection.ts", import.meta.url),
+  "utf8");
+const packageViewSource = readFileSync(
+  new URL("../src/package-view.ts", import.meta.url),
+  "utf8");
+const libraryControlsSource = readFileSync(
+  new URL("../src/library-controls.ts", import.meta.url),
+  "utf8");
+const shellControlsSource = readFileSync(
+  new URL("../src/shell-controls.ts", import.meta.url),
+  "utf8");
+const graphInteractionsSource = readFileSync(
+  new URL("../src/graph-interactions.ts", import.meta.url),
   "utf8");
 const sourceInspectionSource = readFileSync(
   new URL("../src/source-inspection.ts", import.meta.url),
@@ -195,14 +326,32 @@ const memberFocusSource = readFileSync(
 const graphSource = readFileSync(
   new URL("../src/graph-mermaid.ts", import.meta.url),
   "utf8");
+const graphSourceViewerSource = readFileSync(
+  new URL("../src/graph-source.ts", import.meta.url),
+  "utf8");
+const docViewerSource = readFileSync(
+  new URL("../src/doc-viewer.ts", import.meta.url),
+  "utf8");
+const annotatedSourceModule = readFileSync(
+  new URL("../src/annotated-source.ts", import.meta.url),
+  "utf8");
 const typePanelSource = readFileSync(
   new URL("../src/type-panel.ts", import.meta.url),
+  "utf8");
+const scopeBarSource = readFileSync(
+  new URL("../src/scope-bar.ts", import.meta.url),
+  "utf8");
+const settingsPanelSource = readFileSync(
+  new URL("../src/settings-panel.ts", import.meta.url),
   "utf8");
 const packageBarSource = readFileSync(
   new URL("../src/package-bar.ts", import.meta.url),
   "utf8");
 const metadataViewerSource = readFileSync(
   new URL("../src/metadata-viewer.ts", import.meta.url),
+  "utf8");
+const packageOpportunitiesSource = readFileSync(
+  new URL("../src/package-opportunities.ts", import.meta.url),
   "utf8");
 const applicationSources =
   `${appSource}\n${graphSource}\n${packageBarSource}\n${metadataViewerSource}`;
@@ -258,6 +407,59 @@ test("workspace data bar receives package acquisition provenance", () => {
   assert.match(statusBarSource, /Source: \$\{escapeHtml\(packageSourceLabel\(model\.source\)\)\}/);
 });
 
+test("typed status bar owns its rendered toggle binding", () => {
+  const binding =
+    appSource.match(/function bindStatusBarEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
+    ?? "";
+  assert.match(
+    binding,
+    /bindStatusBar\(document, \{\s*onToggle: \(\) => \{[\s\S]*state\.statusBarExpanded = !state\.statusBarExpanded;[\s\S]*render\(\);[\s\S]*\},\s*\}\)/);
+  assert.equal(binding.match(/\bdocument\b/g)?.length, 1);
+  assert.match(
+    statusBarSource,
+    /export function bindStatusBar\([\s\S]*\[data-status-bar-toggle-button\][\s\S]*actions\.onToggle/);
+  assert.doesNotMatch(appSource, /\[data-status-bar-toggle-button\]/);
+  assert.match(
+    appSource,
+    /function bindEvents\(\) \{\s*bindStatusBarEvents\(\);/);
+  assert.match(
+    appSource,
+    /function bindHomeEvents\(\) \{\s*bindStatusBarEvents\(\);/);
+  assert.equal(
+    appSource.match(/\bbindStatusBarEvents\(\)/g)?.length,
+    3);
+});
+
+test("typed package bar owns package framework and version selection bindings", () => {
+  const packageBarCreation =
+    appSource.match(/const packageBar = createPackageBar\(\{[\s\S]*?\n}\);/)?.[0]
+    ?? "";
+  const packageBarBinding =
+    packageBarSource.match(/  function bind\(root: ParentNode\): void \{[\s\S]*?\n  }(?=\n\n  return)/)?.[0]
+    ?? "";
+  const workspaceBinding =
+    appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
+    ?? "";
+  assert.match(
+    packageBarCreation,
+    /selectFramework: framework =>\s*observeAsync\(\s*switchPackageFramework\(framework\),\s*"Switching the package framework"\),[\s\S]*selectVersion: version => \{[\s\S]*state\.package\?\.isRuntimePack[\s\S]*observeAsync\(\s*switchPlatformVersion\(version\),\s*"Switching the platform version"\);[\s\S]*else\s*observeAsync\(\s*switchPackageVersion\(version\),\s*"Switching the package version"\)/);
+  assert.match(
+    packageBarSource,
+    /export function bindPackageSelections\([\s\S]*\[data-framework-chip\][\s\S]*#framework[\s\S]*#package-version/);
+  assert.match(
+    packageBarBinding,
+    /bindPackageSelections\(root, \{\s*onFrameworkSelect: selectFramework,\s*onVersionSelect: selectVersion,\s*\}\)/);
+  assert.equal(
+    workspaceBinding.match(/\bpackageBar\.bind\(document\)/g)?.length,
+    1);
+  assert.doesNotMatch(
+    workspaceBinding,
+    /document\.querySelectorAll(?:<HTMLElement>)?\("\[data-framework-chip\]"\)/);
+  assert.doesNotMatch(
+    workspaceBinding,
+    /document\.querySelector(?:<HTMLSelectElement>)?\("#(?:framework|package-version)"\)/);
+});
+
 test("typed package inspection owns package-root request coordination", () => {
   const dependenciesLoader =
     appSource.match(/async function loadPackageDependencies\(\) \{[\s\S]*?\n}/)?.[0]
@@ -303,6 +505,299 @@ test("typed package inspection owns package-root request coordination", () => {
     packageInspectionSource,
     /async loadDependencies\(packageModel, signature\)[\s\S]*state\.packageDependenciesKey/);
   assert.doesNotMatch(dependenciesLoader, /state\.packageDependenciesKey/);
+});
+
+test("typed package view owns package navigation bindings", () => {
+  const binding =
+    appSource.match(/const packageViewActions: PackageViewBindingActions = \{[\s\S]*?\n};/)?.[0]
+    ?? "";
+  const workspaceBinding =
+    appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
+    ?? "";
+  const packageViewBinding =
+    appSource.match(/function bindPackageViewEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction bindPackageDependencyListEvents)/)?.[0]
+    ?? "";
+  const dependencyListBinding =
+    appSource.match(/function bindPackageDependencyListEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction bindStatusBarEvents)/)?.[0]
+    ?? "";
+  const dependencyPatch =
+    appSource.match(/function patchDependenciesGroup\(\) \{[\s\S]*?\n}/)?.[0]
+    ?? "";
+  const actionSource = name =>
+    binding.match(
+      new RegExp(`  ${name}: [\\s\\S]*?(?=\\n  on[A-Z])`))?.[0]
+      ?? "";
+  assert.match(
+    packageViewSource,
+    /export function bindPackageView\([\s\S]*\[data-dep-group\][\s\S]*\[data-kind-jump\][\s\S]*\[data-namespace-jump\][\s\S]*\[data-lib-scope\][\s\S]*\[data-graph-type\][\s\S]*\[data-perf-token\]/);
+  assert.match(
+    packageViewSource,
+    /export function bindPackageDependencyList\([\s\S]*\[data-dep-open\][\s\S]*\[data-dep-load\]/);
+  assert.equal(
+    workspaceBinding.match(/\bbindPackageViewEvents\(\)/g)?.length,
+    1);
+  assert.match(
+    packageViewBinding,
+    /bindPackageView\(document, packageViewActions\)/);
+  assert.doesNotMatch(
+    packageViewBinding,
+    /\bquerySelector(?:All)?\b|\baddEventListener\b/);
+  assert.match(
+    dependencyListBinding,
+    /bindPackageDependencyList\(document, packageViewActions\)/);
+  assert.doesNotMatch(
+    dependencyListBinding,
+    /\bquerySelector(?:All)?\b|\baddEventListener\b/);
+  assert.match(
+    dependencyPatch,
+    /listSection\.outerHTML = dependencyListSectionHtml[\s\S]*bindPackageDependencyListEvents\(\);[\s\S]*renderDependencyGraph\(\)/);
+  assert.match(
+    binding,
+    /onDependencyGroupSelect: index => \{[\s\S]*state\.dependenciesGroupIndex === index[\s\S]*state\.dependenciesGroupIndex = index;[\s\S]*patchDependenciesGroup\(\)/);
+  assert.match(
+    binding,
+    /onDependencyLoad: \(id, version\) =>\s*observeAsync\(\s*openDependencyPackage\(id, version\),\s*"Opening a dependency package"\),\s*onDependencyOpen: switchToPackageForDependencies,\s*onGraphTypeSelect: navigateToTypeByName/);
+  const kindJump = actionSource("onKindJump");
+  const libraryJump = actionSource("onLibraryScopeSelect");
+  const namespaceJump = actionSource("onNamespaceJump");
+  assert.match(
+    kindJump,
+    /state\.atPackageRoot = false;[\s\S]*state\.kindFilter = kind;[\s\S]*state\.namespaceFilter = ""/);
+  assert.match(
+    libraryJump,
+    /state\.atPackageRoot = false;[\s\S]*if \(!library\) return;[\s\S]*state\.libraryScope = new Set\(\[library\]\);[\s\S]*state\.package\?\.isRuntimePack[\s\S]*recordPlatformRecent\(library, platformPackForAssembly\(library\)\);[\s\S]*state\.kindFilter = kind;[\s\S]*state\.namespaceFilter = ""/);
+  assert.match(
+    namespaceJump,
+    /state\.atPackageRoot = false;[\s\S]*state\.namespaceFilter = namespace;[\s\S]*state\.kindFilter = ""/);
+  for (const source of [kindJump, libraryJump, namespaceJump]) {
+    assert.match(
+      source,
+      /state\.typeFilter = "";[\s\S]*state\.selectedMemberKey = "";[\s\S]*state\.memberBrowseTypeId = "";[\s\S]*resetMemberFilters\(\);[\s\S]*state\.typeCursor = 0;[\s\S]*const first = filteredTypes\(\)\[0\];[\s\S]*if \(first\) state\.selectedTypeId = first\.id;[\s\S]*render\(\)/);
+    assert.equal(source.match(/\brender\(\)/g)?.length, 1);
+  }
+  assert.match(
+    binding,
+    /onPerformanceMemberSelect: target => \{[\s\S]*drillToPerfMember\(\s*target\.metadataToken,\s*target\.assembly,\s*target\.typeId\)/);
+  assert.doesNotMatch(
+    appSource,
+    /document\.querySelectorAll<HTMLElement>\("\[data-(?:dep-group|dep-open|dep-load|kind-jump|namespace-jump|lib-scope|graph-type|perf-token)\]"\)/);
+  assert.doesNotMatch(
+    workspaceBinding,
+    /\[data-(?:dep-group|dep-open|dep-load|kind-jump|namespace-jump|lib-scope|graph-type|perf-token)\]/);
+  assert.doesNotMatch(appSource, /function bindDependencyListHandlers\(/);
+});
+
+test("typed library controls own library and Platform picker bindings", () => {
+  const binding =
+    appSource.match(/const libraryControlActions: LibraryControlBindingActions = \{[\s\S]*?\n};/)?.[0]
+    ?? "";
+  const wrapper =
+    appSource.match(/function bindLibraryControlsEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction bindTypePanelEvents)/)?.[0]
+    ?? "";
+  const workspaceBinding =
+    appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
+    ?? "";
+  assert.match(
+    libraryControlsSource,
+    /export function bindLibraryControls\([\s\S]*\[data-library-chip\][\s\S]*\[data-access-chip\][\s\S]*#library-jump[\s\S]*\[data-platform-library-select\]/);
+  for (const lens of [
+    "integrations",
+    "opportunities",
+    "analysis",
+    "metadata",
+  ]) {
+    assert.match(
+      libraryControlsSource,
+      new RegExp(`\\[data-platform-${lens}-library\\]`));
+  }
+  assert.equal(
+    workspaceBinding.match(/\bbindLibraryControlsEvents\(\)/g)?.length,
+    1);
+  assert.match(
+    wrapper,
+    /bindLibraryControls\(document, libraryControlActions\)/);
+  assert.doesNotMatch(
+    wrapper,
+    /\bquerySelector(?:All)?\b|\baddEventListener\b/);
+  assert.match(
+    binding,
+    /onAccessibilityChipSelect: accessibility => \{[\s\S]*toggleAccessibilityChip\(accessibility\);[\s\S]*afterLibraryScopeChange\(\)/);
+  assert.match(
+    binding,
+    /onLibraryChipSelect: library => \{[\s\S]*toggleLibraryChip\(library\);[\s\S]*afterLibraryScopeChange\(\)/);
+  assert.match(
+    binding,
+    /onLibraryJump: library => \{[\s\S]*state\.libraryScope = library \? new Set\(\[library\]\) : null;[\s\S]*afterLibraryScopeChange\(\)/);
+  assert.match(
+    binding,
+    /onPlatformLibrarySelect: \(name, pack\) =>\s*observeAsync\(\s*openPlatformLibrary\(name, pack\),\s*"Opening a platform library"\)/);
+  assert.match(
+    binding,
+    /onPlatformLensLibrarySelect: \(lens, name, pack\) =>\s*observeAsync\(\s*openPlatformLensLibrary\(lens, name, pack\),\s*"Opening a platform library"\)/);
+  assert.doesNotMatch(
+    workspaceBinding,
+    /\[data-(?:library-chip|access-chip|platform-(?:library-select|integrations-library|opportunities-library|analysis-library|metadata-library))\]|#library-jump/);
+  assert.doesNotMatch(
+    appSource,
+    /\[data-(?:library-chip|access-chip|platform-(?:library-select|integrations-library|opportunities-library|analysis-library|metadata-library))\]|#library-jump/);
+  assert.doesNotMatch(appSource, /bindPlatformLensPicker/);
+});
+
+test("typed shell controls own workbench, home, and load-error bindings", () => {
+  const workbenchActions =
+    appSource.match(/const workbenchShellActions: WorkbenchShellBindingActions = \{[\s\S]*?\n};/)?.[0]
+    ?? "";
+  const homeActions =
+    appSource.match(/const homeShellActions: HomeShellBindingActions = \{[\s\S]*?\n};/)?.[0]
+    ?? "";
+  const loadErrorActions =
+    appSource.match(/const loadErrorShellActions: LoadErrorShellBindingActions = \{[\s\S]*?\n};/)?.[0]
+    ?? "";
+  const workspaceBinding =
+    appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
+    ?? "";
+  const homeBinding =
+    appSource.match(/function bindHomeEvents\(\) \{[\s\S]*?\n}(?=\n\n\/\/ The two package demos)/)?.[0]
+    ?? "";
+  const loadingBinding =
+    appSource.match(/function renderLoading\(\) \{[\s\S]*?\n}(?=\n\nasync function loadSelectedMemberDocumentation)/)?.[0]
+    ?? "";
+  assert.match(
+    shellControlsSource,
+    /export function bindWorkbenchShell\([\s\S]*#share[\s\S]*#dismiss-notice[\s\S]*#retry-notice[\s\S]*#dismiss-package-notice[\s\S]*#nav-back[\s\S]*#nav-forward[\s\S]*#go-home[\s\S]*#theme-toggle[\s\S]*#help/);
+  assert.match(
+    shellControlsSource,
+    /export function bindHomeShell\([\s\S]*#home-theme[\s\S]*#dismiss-notice[\s\S]*\[data-home-demo\]/);
+  assert.match(
+    shellControlsSource,
+    /export function bindLoadErrorShell\([\s\S]*#retry-load[\s\S]*#error-package-query[\s\S]*#error-package-input[\s\S]*#toggle-error-detail[\s\S]*\.load-error-detail/);
+  assert.match(
+    shellControlsSource,
+    /import \{ parsePackageQuery \} from "\.\/package-bar\.ts"/);
+  assert.equal(
+    workspaceBinding.match(/\bbindWorkbenchShell\(\b/g)?.length,
+    1);
+  assert.match(
+    workspaceBinding,
+    /bindWorkbenchShell\(document, workbenchShellActions\)/);
+  assert.match(
+    homeBinding,
+    /bindHomeShell\(document, homeShellActions\)[\s\S]*spotlight\.bind\(document, "inline"\)[\s\S]*#spotlight-input/);
+  assert.match(
+    loadingBinding,
+    /app\.innerHTML = `[\s\S]*bindLoadErrorShell\(document, loadErrorShellActions\)/);
+  assert.match(
+    workbenchActions,
+    /onDismissNotice: \(\) => \{[\s\S]*state\.queryNotice = "";[\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*render\(\);\s*\},\n  onDismissPackageNotice:/);
+  assert.match(
+    workbenchActions,
+    /onDismissPackageNotice: \(\) => \{[\s\S]*currentPackage\(\)\.inspectionError = "";[\s\S]*render\(\);\s*\},\n  onGoHome:/);
+  assert.match(
+    workbenchActions,
+    /onGoHome: goHome,[\s\S]*onHelp: \(\) => showToast\([\s\S]*onNavigateBack: navBack,[\s\S]*onNavigateForward: navForward,[\s\S]*onRetryNotice: \(\) => \{[\s\S]*state\.queryNoticeRetryAction;[\s\S]*if \(retryAction\) observeAction\(retryAction, "Retrying the inspection"\);[\s\S]*onShare: \(\) => void share\(\),[\s\S]*onToggleTheme: toggleTheme/);
+  assert.match(
+    homeActions,
+    /onDemo: runHomeDemo,\s*onDismissNotice: \(\) => \{[\s\S]*state\.queryNotice = "";[\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*render\(\);\s*\},\n  onToggleTheme: toggleTheme/);
+  assert.match(
+    loadErrorActions,
+    /onOpenPackage: openPackageFromError,\s*onRetry: \(\) =>\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\)/);
+  assert.doesNotMatch(
+    appSource,
+    /\bquerySelector(?:All)?(?:<[^>]+>)?\("(?:#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|go-home|theme-toggle|help|home-theme|retry-load|error-package-query|error-package-input|toggle-error-detail)|\[data-home-demo\]|\.load-error-detail)"\)/);
+  assert.doesNotMatch(
+    workspaceBinding,
+    /#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|go-home|theme-toggle|help)/);
+  assert.doesNotMatch(homeBinding, /#(?:home-theme|dismiss-notice)|\[data-home-demo\]/);
+  assert.doesNotMatch(
+    loadingBinding,
+    /#(?:retry-load|error-package-query|error-package-input|toggle-error-detail)|"\.load-error-detail"/);
+});
+
+test("typed graph interactions own graph controls and Mermaid node bindings", () => {
+  const workspaceBinding =
+    appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
+    ?? "";
+  const typeGraph =
+    appSource.match(/async function renderTypeGraph\(\) \{[\s\S]*?\n}(?=\n\nfunction navigateToTypeByName)/)?.[0]
+    ?? "";
+  const dependencyGraph =
+    appSource.match(/async function renderDependencyGraph\(\) \{[\s\S]*?\n}(?=\n\nfunction switchToPackageForDependencies)/)?.[0]
+    ?? "";
+  const callGraph =
+    appSource.match(/async function renderMermaidCallGraph\(\) \{[\s\S]*?\n}(?=\n\nfunction callGraphNodeBinding)/)?.[0]
+    ?? "";
+  const callGraphBinding =
+    appSource.match(/function callGraphNodeBinding\([\s\S]*?\n}(?=\n\nfunction currentCallGraph)/)?.[0]
+    ?? "";
+  const dependencyNodeBinding =
+    graphInteractionsSource.match(/export function bindDependencyGraphNodes\([\s\S]*?\n}(?=\n\nexport function bindGraphPanZoom)/)?.[0]
+    ?? "";
+  assert.match(
+    graphInteractionsSource,
+    /export function bindGraphBack\([\s\S]*\[data-graph-back\]/);
+  assert.match(
+    graphInteractionsSource,
+    /function mermaidNodeId\([\s\S]*data-id[\s\S]*flowchart-/);
+  assert.match(
+    graphInteractionsSource,
+    /export function bindGraphPanZoom\([\s\S]*"wheel"[\s\S]*"pointerdown"[\s\S]*"pointermove"[\s\S]*"pointerup"[\s\S]*"pointercancel"[\s\S]*\.graph-controls button[\s\S]*"keydown"[\s\S]*resolveCallGraphNode/);
+  assert.match(
+    graphInteractionsSource,
+    /export function bindTypeGraphNodes\([\s\S]*"t"[\s\S]*nav-node[\s\S]*non-nav[\s\S]*createElementNS/);
+  assert.match(
+    dependencyNodeBinding,
+    /mermaidNodeId\(node, "d"\)[\s\S]*classList\.add\("nav-node"\)[\s\S]*style\.cursor = "pointer"[\s\S]*addEventListener\("click", binding\.onSelect\)/);
+  assert.match(
+    appSource,
+    /const graphBackActions: GraphBackBindingActions = \{\s*onBack: popPlatformDrill,\s*};/);
+  assert.match(
+    workspaceBinding,
+    /bindGraphBack\(document, graphBackActions\)/);
+  assert.match(
+    typeGraph,
+    /bindGraphPanZoom\(container, viewport\);[\s\S]*bindTypeGraphNodes\(viewport, nodeId => \{[\s\S]*graphNodeOf\.get\(nodeId\)[\s\S]*onSelect: \(\) => navigateToType\(target\)[\s\S]*unavailableLabel/);
+  assert.match(
+    typeGraph,
+    /const target = graphNode\.role === "self"\s*\? selectedType\(\)\s*: uniqueTypeByQueryId\(pkg\.types, fullName\)/);
+  assert.match(
+    dependencyGraph,
+    /bindGraphPanZoom\(container, viewport\);[\s\S]*bindDependencyGraphNodes\(viewport, nodeId => \{[\s\S]*built\.nodeInfoById\.get\(nodeId\)[\s\S]*switchToPackageForDependencies\(info\.packageKey\)[\s\S]*openDependencyPackage\(info\.id, info\.versionRange\)/);
+  assert.match(
+    dependencyGraph,
+    /const info = nodeId \? built\.nodeInfoById\.get\(nodeId\) : null;\s*if \(!info \|\| info\.kind === "self"\) return null/);
+  assert.match(
+    callGraph,
+    /bindGraphPanZoom\(container, viewport, \{[\s\S]*resolveCallGraphNode: nodeId =>[\s\S]*callGraphNodeBinding\(active, nodeId\)/);
+  assert.match(
+    callGraphBinding,
+    /callGraph\.targets\?\.find\(candidate => candidate\.id === nodeId\)[\s\S]*const drilled =\s*state\.platformStack\.length > 0 \|\| Boolean\(state\.package\?\.isRuntimePack\);\s*if \(drilled\) \{\s*if \(target\.id === "n0" \|\| !target\.assembly \|\| !typeId\) return null;[\s\S]*navigateOrDrillPlatform\(target\)[\s\S]*resolveLoadedGraphTargetCandidate[\s\S]*graphTargetNavigationDisposition[\s\S]*if \(disposition === "blocked" \|\| disposition === "none"\) return null;[\s\S]*navigateToMember\([\s\S]*openGraphSource\([\s\S]*navigateOrDrillPlatform\(target\)/);
+  assert.match(
+    callGraphBinding,
+    /if \(drilled\) \{[\s\S]*return \{\s*platform: true,\s*onSelect: \(\) =>\s*observeAsync\(\s*navigateOrDrillPlatform\(target\),\s*"Opening a platform call-graph target"\)/);
+  assert.match(
+    callGraphBinding,
+    /const loaded = disposition === "loaded" && candidate\.status === "unique"\s*\? resolveLoadedGraphTarget\(target, candidate\)\s*: null/);
+  assert.match(
+    callGraphBinding,
+    /const platform = disposition === "platform";\s*return \{\s*platform,\s*onSelect:/);
+  assert.match(
+    callGraphBinding,
+    /if \(loaded\?\.group\) \{\s*navigateToMember\([\s\S]*\} else if \(loaded\) \{\s*observeAsync\(\s*openGraphSource\(loaded\.request, loaded\.title\),\s*"Loading graph source"\);\s*\} else if \(platform\) \{\s*observeAsync\(\s*navigateOrDrillPlatform\(target\),\s*"Opening a platform call-graph target"\);\s*\}/);
+  assert.equal(appSource.match(/\bbindGraphBack\(/g)?.length, 1);
+  assert.equal(appSource.match(/\bbindGraphPanZoom\(/g)?.length, 3);
+  assert.equal(appSource.match(/\bbindTypeGraphNodes\(/g)?.length, 1);
+  assert.equal(appSource.match(/\bbindDependencyGraphNodes\(/g)?.length, 1);
+  assert.equal(appSource.match(/\bcallGraphNodeBinding\(/g)?.length, 2);
+  assert.doesNotMatch(
+    `${typeGraph}\n${dependencyGraph}\n${callGraph}`,
+    /\.addEventListener\(|querySelectorAll<SVGGElement>\("g\.node"\)/);
+  assert.doesNotMatch(
+    appSource,
+    /function (?:attachGraphPanZoom|graphTargetForSvgNode)\(/);
+  assert.doesNotMatch(
+    appSource,
+    /document\.querySelector\("\[data-graph-back\]"\)/);
+  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 4);
 });
 
 test("typed document inspection owns package document request coordination", () => {
@@ -358,6 +853,678 @@ test("typed catalog requests own release and package-version coordination", () =
     /\bfetch\(|\bdocument\b|inspectPackageVersions/);
 });
 
+test("typed type panel owns its rendered control bindings", () => {
+  const binding =
+    appSource.match(/function bindTypePanelEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
+    ?? "";
+  const rootEventBinder =
+    appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
+    ?? "";
+  assert.match(
+    binding,
+    /bindTypePanel\(document, \{/);
+  assert.match(
+    binding,
+    /onTypeFilterChange: value => \{[\s\S]*?render\(\);\s*focusFilter\(\{ immediate: true \}\);\s*},\s*onTypeFilterEscape:/);
+  assert.match(
+    binding,
+    /onTypeFilterEscape: \(\) => \{\s*state\.typeFilter = "";\s*render\(\);\s*focusFilter\(\{ immediate: true \}\);\s*},/);
+  assert.equal(
+    appSource.match(/\bbindTypePanelEvents\b/g)?.length,
+    2);
+  assert.equal(
+    rootEventBinder.match(/\bbindTypePanelEvents\(\)/g)?.length,
+    1);
+  assert.equal(
+    rootEventBinder.match(/^\s*bindTypePanelEvents\(\);$/gm)?.length,
+    1);
+  assert.match(
+    appSource,
+    /function bindEvents\(\) \{\s*bindStatusBarEvents\(\);\s*packageBar\.bind\(document\);\s*bindTypePanelEvents\(\);/);
+  assert.match(
+    typePanelSource,
+    /export function bindTypePanel\([\s\S]*\[data-type\][\s\S]*\[data-namespace\][\s\S]*\[data-kind-filter\][\s\S]*\[data-nav-member\][\s\S]*\[data-nav-overload\][\s\S]*#nav-to-types[\s\S]*#clear-filter[\s\S]*#namespace-jump[\s\S]*#type-list[\s\S]*#type-filter/);
+  assert.match(
+    typePanelSource,
+    /\[data-member-kind-filter\][\s\S]*\[data-member-access-filter\][\s\S]*\[data-member-trait-filter\][\s\S]*#clear-member-filter[\s\S]*#member-filter/);
+  assert.match(
+    typePanelSource,
+    /\[data-member-jump-kind\][\s\S]*\[data-member-jump-access\][\s\S]*\[data-member-jump-trait\][\s\S]*\[data-member\][\s\S]*\[data-overload\][\s\S]*#member-back[\s\S]*#copy-name[\s\S]*#copy-signature[\s\S]*\[data-copy-anchor\][\s\S]*#copy-source[\s\S]*#copy-type-source/);
+  assert.doesNotMatch(
+    appSource,
+    /document\.querySelectorAll<HTMLElement>\("\[data-member-(?:kind|access|trait)-filter\]"\)/);
+  assert.doesNotMatch(
+    appSource,
+    /document\.querySelector(?:<HTMLInputElement>)?\("#(?:member-filter|clear-member-filter)"\)/);
+  assert.doesNotMatch(
+    appSource,
+    /document\.querySelectorAll<HTMLElement>\("\[data-(?:member-jump-(?:kind|access|trait)|member|overload|copy-anchor)\]"\)/);
+  assert.doesNotMatch(
+    appSource,
+    /document\.querySelector\("#(?:member-back|copy-name|copy-signature|copy-source|copy-type-source)"\)/);
+  assert.match(
+    binding,
+    /const enterMemberNavigation = \(action: \(\) => void\) => \{[\s\S]*beginSpotlightNavigation\(\);[\s\S]*action\(\);[\s\S]*focusTypeList\(focusGeneration\)/);
+  const callbackSource = name =>
+    binding.match(
+      new RegExp(`    ${name}: [\\s\\S]*?(?=\\n    on[A-Z])`))?.[0]
+      ?? "";
+  for (const [name, stateField] of [
+    ["onMemberCompositionAccessibilitySelect", "memberAccessibilityFilter"],
+    ["onMemberCompositionKindSelect", "memberKindFilter"],
+    ["onMemberCompositionTraitSelect", "memberTraitFilter"],
+  ]) {
+    const source = callbackSource(name);
+    assert.match(
+      source,
+      new RegExp(
+        `enterMemberNavigation\\(\\(\\) => \\{[\\s\\S]*resetMemberFilters\\(\\);`
+        + `[\\s\\S]*state\\.${stateField} = value;`
+        + "[\\s\\S]*enterMemberScope\\(\\);[\\s\\S]*render\\(\\)"));
+    assert.equal(source.match(/\brender\(\)/g)?.length, 1);
+  }
+  assert.match(
+    binding,
+    /onMemberGroupOpen: memberKey => \{\s*enterMemberNavigation\(\(\) => openMemberGroup\(memberKey\)\)/);
+  assert.match(
+    binding,
+    /onMemberBack: drillOut[\s\S]*onMemberOverloadOpen: openOverload/);
+  assert.match(
+    binding,
+    /onCopyName: \(\) => \{[\s\S]*const fullName = member \? `\$\{typeName\}\.\$\{member\.name\}` : typeName;[\s\S]*void copyText\(fullName, "name copied"\)/);
+  assert.match(
+    binding,
+    /onCopySignature: \(\) => \{[\s\S]*void copyText\(overload\.signature, "signature copied"\)/);
+  assert.match(
+    binding,
+    /onCopyAnchor: anchor => \{[\s\S]*selector: overload\?\.stableSelector,[\s\S]*digest: overload\?\.anchorDigest,[\s\S]*canonical: overload\?\.canonicalSignature[\s\S]*void copyText\(value, `\$\{anchor\} copied`\)/);
+  assert.match(
+    binding,
+    /onCopyMemberSource: \(\) => \{[\s\S]*void copyText\(state\.memberSource\.text, "source copied"\)[\s\S]*onCopyTypeSource: \(\) => \{[\s\S]*void copyText\(state\.typeSource\.text, "source copied"\)/);
+  assert.match(
+    binding,
+    /onMemberFilterClear: \(\) => \{[\s\S]*resetMemberFilters\(\);[\s\S]*renderMemberFilterAndRestoreFocus\("#clear-member-filter"\)/);
+  assert.match(
+    binding,
+    /onMemberFilterKeyDown: \(event, value\) => \{\s*if \(event\.key === "Escape"\) \{\s*if \(navMode\(\) !== "member" && value === ""\) return;\s*event\.preventDefault\(\);[\s\S]*navMode\(\) === "member"[\s\S]*exitMemberScope\(\)[\s\S]*state\.memberTextFilter = ""[\s\S]*event\.key !== "ArrowUp" && event\.key !== "ArrowDown"[\s\S]*event\.preventDefault\(\);\s*stepMemberNav\(event\.key === "ArrowDown" \? 1 : -1, true\)/);
+  const selectorCount = selector =>
+    appSource.split(selector).length - 1;
+  assert.deepEqual(
+    Object.fromEntries([
+      "[data-type]",
+      "[data-namespace]",
+      "[data-kind-filter]",
+      "[data-nav-member]",
+      "[data-nav-overload]",
+      "#nav-to-types",
+      "#clear-filter",
+      "#namespace-jump",
+    ].map(selector => [selector, selectorCount(selector)])),
+    {
+      "[data-type]": 0,
+      "[data-namespace]": 0,
+      "[data-kind-filter]": 0,
+      "[data-nav-member]": 0,
+      "[data-nav-overload]": 0,
+      "#nav-to-types": 0,
+      "#clear-filter": 0,
+      "#namespace-jump": 0,
+    });
+  assert.equal(selectorCount("#type-filter"), 1);
+  assert.equal(selectorCount("#type-list"), 5);
+});
+
+test("typed scope bar owns its rendered control bindings", () => {
+  assert.deepEqual(parsedAppSource.errors, []);
+  const rootEventBinder = functionDeclaration("bindEvents");
+  const scopeEventBinder = functionDeclaration("bindScopeBarEvents");
+  const rootScopeCalls = callExpressionsNamed(appSyntax, "bindScopeBarEvents");
+  const innerScopeCalls = callExpressionsNamed(appSyntax, "bindScopeBar");
+  assert.equal(rootScopeCalls.length, 1);
+  assert.equal(rootScopeCalls[0].arguments.length, 0);
+  assert.equal(innerScopeCalls.length, 1);
+  const innerScopeCall = innerScopeCalls[0];
+  assert.equal(innerScopeCall.arguments.length, 2);
+  assert.equal(innerScopeCall.arguments[0].type, "Identifier");
+  assert.equal(innerScopeCall.arguments[0].name, "document");
+  assert.equal(innerScopeCall.arguments[1].type, "ObjectExpression");
+  assert.equal(
+    callExpressionsNamed(scopeEventBinder, "bindScopeBar").length,
+    1);
+  assert.equal(scopeEventBinder.body.body.length, 1);
+  assert.equal(
+    directCallExpression(scopeEventBinder.body.body[0], "bindScopeBar"),
+    innerScopeCall);
+  assert.equal(
+    callExpressionsNamed(rootEventBinder, "bindScopeBarEvents").length,
+    1);
+  const directCallName = statement =>
+    statement.type === "ExpressionStatement"
+      && statement.expression.type === "CallExpression"
+      && statement.expression.callee?.type === "Identifier"
+      ? statement.expression.callee.name
+      : null;
+  const directRootCalls = rootEventBinder.body.body.map(directCallName);
+  const typePanelIndex = directRootCalls.indexOf("bindTypePanelEvents");
+  assert.notEqual(typePanelIndex, -1);
+  assert.equal(directRootCalls[typePanelIndex + 1], "bindScopeBarEvents");
+
+  const actions = innerScopeCall.arguments[1];
+  const memberSection = callbackProperty(actions, "onMemberSectionSelect");
+  assert.deepEqual(
+    statementSignatures(memberSection.body.body),
+    [
+      {
+        if: "section && isMemberSection(section)",
+        whenTrue: ["call:applyMemberSection(section)"],
+        whenFalse: [],
+      },
+    ]);
+
+  const packageLens = callbackProperty(actions, "onPackageLensSelect");
+  assert.deepEqual(
+    statementSignatures(packageLens.body.body),
+    [
+      "assign:state.packageLens = lens",
+      "call:render()",
+    ]);
+
+  const scope = callbackProperty(actions, "onScopeSelect");
+  assert.deepEqual(
+    statementSignatures(scope.body.body),
+    [
+      {
+        if: 'target === "package"',
+        whenTrue: ["assign:state.atPackageRoot = true"],
+        whenFalse: [
+          {
+            if: 'target === "type"',
+            whenTrue: [
+              "assign:state.atPackageRoot = false",
+              {
+                if: "!state.selectedTypeId",
+                whenTrue: [
+                  "declare:const first = filteredTypes()[0]",
+                  {
+                    if: "first",
+                    whenTrue: ["assign:state.selectedTypeId = first.id"],
+                    whenFalse: [],
+                  },
+                ],
+                whenFalse: [],
+              },
+              'assign:state.selectedMemberKey = ""',
+              'assign:state.memberBrowseTypeId = ""',
+              "assign:state.selectedOverloadIndex = null",
+            ],
+            whenFalse: [
+              {
+                if: 'target === "member"',
+                whenTrue: ["call:enterMemberScope()"],
+                whenFalse: [],
+              },
+            ],
+          },
+        ],
+      },
+      "call:render()",
+    ]);
+
+  const typeLens = callbackProperty(actions, "onTypeLensSelect");
+  assert.deepEqual(
+    statementSignatures(typeLens.body.body),
+    [
+      "assign:state.lens = lens",
+      'assign:state.selectedMemberKey = ""',
+      'assign:state.memberBrowseTypeId = ""',
+      "call:render()",
+    ]);
+  assert.match(
+    scopeBarSource,
+    /export function bindScopeBar\([\s\S]*\[data-scope\][\s\S]*\[data-package-lens\][\s\S]*\[data-lens\][\s\S]*\[data-member-section\]/);
+  for (const selector of [
+    "[data-scope]",
+    "[data-package-lens]",
+    "[data-lens]",
+    "[data-member-section]",
+  ]) {
+    assert.equal(appSource.split(selector).length - 1, 0, selector);
+  }
+});
+
+test("typed settings panel owns its rendered control bindings", () => {
+  assert.deepEqual(parsedAppSource.errors, []);
+  const bindEvents = functionDeclaration("bindEvents");
+  const bindHomeEvents = functionDeclaration("bindHomeEvents");
+  const renderSettings = functionDeclaration("renderSettingsViewHtml");
+  const settingsEventBinder = functionDeclaration("bindSettingsPanelEvents");
+  const settingsPanelImport = onlySyntaxNode(
+    appSyntax.body.filter(
+      node => node.type === "ImportDeclaration"
+        && node.source.value === "./settings-panel.ts"),
+    "settings panel import");
+  assert.equal(
+    settingsPanelImport.specifiers.filter(
+      specifier => specifier.type === "ImportSpecifier"
+        && specifier.imported.type === "Identifier"
+        && specifier.imported.name === "bindSettingsPanel"
+        && specifier.local.name === "bindSettingsPanel").length,
+    1);
+  assert.equal(
+    syntaxNodes(
+      appSyntax,
+      node => node.type === "Identifier"
+        && node.name === "bindSettingsPanel").length,
+    3);
+  const eventBinderCalls = callExpressionsNamed(appSyntax, "bindSettingsPanelEvents");
+  assert.equal(eventBinderCalls.length, 3);
+  assert.equal(
+    syntaxNodes(
+      appSyntax,
+      node => node.type === "Identifier"
+        && node.name === "bindSettingsPanelEvents").length,
+    4);
+  for (const [owner, description, predecessor] of [
+    [bindEvents, "workbench settings binder", "bindScopeBarEvents"],
+    [bindHomeEvents, "home settings binder", "bindStatusBarEvents"],
+    [renderSettings, "settings view binder", null],
+  ]) {
+    assert.equal(
+      callExpressionsNamed(owner, "bindSettingsPanelEvents").length,
+      1,
+      description);
+    assert.equal(
+      owner.body.body
+        .map(statement => directCallExpression(statement, "bindSettingsPanelEvents"))
+        .filter(Boolean)
+        .length,
+      1,
+      `${description} direct call`);
+    if (predecessor) {
+      const directCallNames = owner.body.body.map(statement => {
+        if (statement.type !== "ExpressionStatement") return null;
+        const expression = statement.expression;
+        return expression.type === "CallExpression"
+          && expression.callee?.type === "Identifier"
+          ? expression.callee.name
+          : null;
+      });
+      assert.equal(
+        directCallNames.indexOf("bindSettingsPanelEvents"),
+        directCallNames.indexOf(predecessor) + 1,
+        `${description} order`);
+    }
+  }
+  const directWorkbenchCalls = bindEvents.body.body.map(statement => {
+    if (statement.type !== "ExpressionStatement") return null;
+    const expression = statement.expression;
+    return expression.type === "CallExpression"
+      && expression.callee?.type === "Identifier"
+      ? expression.callee.name
+      : null;
+  });
+  assert.equal(
+    directWorkbenchCalls.indexOf("bindSettingsPanelEvents"),
+    directWorkbenchCalls.indexOf("bindScopeBarEvents") + 1);
+  assert.equal(renderSettings.body.body.length, 2);
+  const renderStatement = renderSettings.body.body[0];
+  assert.equal(renderStatement.type, "ExpressionStatement");
+  assert.equal(renderStatement.expression.type, "AssignmentExpression");
+  assert.equal(renderStatement.expression.operator, "=");
+  assert.equal(sourceText(renderStatement.expression.left), "app.innerHTML");
+  assert.equal(renderStatement.expression.right.type, "CallExpression");
+  assert.equal(renderStatement.expression.right.callee.type, "Identifier");
+  assert.equal(renderStatement.expression.right.callee.name, "renderSettingsView");
+  assert.ok(
+    directCallExpression(
+      renderSettings.body.body[1],
+      "bindSettingsPanelEvents"));
+
+  const innerSettingsCalls = callExpressionsNamed(appSyntax, "bindSettingsPanel");
+  assert.equal(innerSettingsCalls.length, 1);
+  const innerSettingsCall = innerSettingsCalls[0];
+  assert.equal(settingsEventBinder.body.body.length, 1);
+  assert.equal(
+    directCallExpression(settingsEventBinder.body.body[0], "bindSettingsPanel"),
+    innerSettingsCall);
+  assert.equal(innerSettingsCall.arguments.length, 2);
+  assert.equal(innerSettingsCall.arguments[0].type, "Identifier");
+  assert.equal(innerSettingsCall.arguments[0].name, "document");
+  const actions = innerSettingsCall.arguments[1];
+  assert.equal(actions.type, "ObjectExpression");
+  assert.equal(actions.properties.length, 6);
+  for (const [name, value] of [
+    ["onClose", "closeSettings"],
+    ["onOpen", "openSettings"],
+    ["onTasteClear", "clearTaste"],
+    ["onTasteToggle", "toggleTaste"],
+    ["onThemeSelect", "setTheme"],
+  ]) {
+    const property = onlySyntaxNode(
+      actions.properties.filter(
+        item => item.type === "Property"
+          && item.key.type === "Identifier"
+          && item.key.name === name),
+      `${name} settings action`);
+    assert.equal(property.value.type, "Identifier");
+    assert.equal(property.value.name, value);
+  }
+  const tasteOpenToggle = callbackProperty(actions, "onTasteOpenToggle");
+  assert.deepEqual(
+    statementSignatures(tasteOpenToggle.body.body),
+    [
+      "assign:state.tasteOpen = !state.tasteOpen",
+      "call:render()",
+    ]);
+  assert.match(
+    appSource,
+    /import \{(?=[^}]*\bbindSettingsPanel,)[^}]*} from "\.\/settings-panel\.ts";/);
+  assert.doesNotMatch(
+    sourceText(settingsEventBinder),
+    /\bquerySelector(?:All)?\b|\baddEventListener\b/);
+  assert.match(
+    settingsPanelSource,
+    /export function bindSettingsPanel\([\s\S]*#settings-close[\s\S]*#home-settings[\s\S]*#open-settings[\s\S]*#taste-btn[\s\S]*stopPropagation\(\)[\s\S]*\.settings-seg\[data-theme\][\s\S]*\.settings-taste \[data-taste\][\s\S]*#settings-taste-clear[\s\S]*#taste-popover \[data-taste\][\s\S]*#taste-clear/);
+  const nonSettingsPanelSource = productionTypeScriptSources
+    .filter(({ path }) => path.replaceAll("\\", "/") !== "settings-panel.ts")
+    .map(({ source }) => source)
+    .join("\n");
+  const entrySelectorAccess =
+    /(?:querySelector(?:All)?\s*(?:<[^>\n]+>)?|getElementById)\s*\(\s*(["'`])#?(?:home-settings|open-settings|taste-btn)\1\s*\)/g;
+  assert.equal(nonSettingsPanelSource.match(entrySelectorAccess)?.length ?? 0, 0);
+  assert.equal(settingsPanelSource.match(entrySelectorAccess)?.length, 3);
+  for (const selector of ["#home-settings", "#open-settings"]) {
+    const selectorToken = new RegExp(`${selector}(?![-\\w])`, "g");
+    assert.equal(
+      nonSettingsPanelSource.match(selectorToken)?.length ?? 0,
+      0,
+      selector);
+    assert.equal(
+      settingsPanelSource.match(selectorToken)?.length,
+      1,
+      selector);
+  }
+  assert.equal(
+    nonSettingsPanelSource.match(/#taste-btn(?![-\w])/g)?.length,
+    1);
+  assert.equal(
+    nonSettingsPanelSource.match(
+      /\.closest\(\s*(["'`])#taste-btn\1\s*\)/g)?.length,
+    1);
+  assert.equal(
+    settingsPanelSource.match(/#taste-btn(?![-\w])/g)?.length,
+    1);
+  for (const selector of [
+    "#settings-close",
+    ".settings-seg[data-theme]",
+    ".settings-taste [data-taste]",
+    "#settings-taste-clear",
+    "#taste-popover [data-taste]",
+    "#taste-clear",
+  ]) {
+    assert.equal(appSource.split(selector).length - 1, 0, selector);
+  }
+});
+
+test("metadata viewer owns its rendered explorer control bindings", () => {
+  assert.deepEqual(parsedAppSource.errors, []);
+  const bindEvents = functionDeclaration("bindEvents");
+  const renderMetadata = functionDeclaration("renderMetadataExplorer");
+  const metadataEventBinder = functionDeclaration("bindMetadataViewerEvents");
+  const outerCalls = callExpressionsNamed(appSyntax, "bindMetadataViewerEvents");
+  assert.equal(outerCalls.length, 2);
+  assert.equal(
+    syntaxNodes(
+      appSyntax,
+      node => node.type === "Identifier"
+        && node.name === "bindMetadataViewerEvents").length,
+    3);
+  for (const [owner, description] of [
+    [bindEvents, "workbench metadata binder"],
+    [renderMetadata, "metadata explorer binder"],
+  ]) {
+    assert.equal(
+      callExpressionsNamed(owner, "bindMetadataViewerEvents").length,
+      1,
+      description);
+    assert.equal(
+      owner.body.body
+        .map(statement => directCallExpression(statement, "bindMetadataViewerEvents"))
+        .filter(Boolean)
+        .length,
+      1,
+      `${description} direct call`);
+  }
+  const directWorkbenchCalls = bindEvents.body.body.map(statement => {
+    if (statement.type !== "ExpressionStatement") return null;
+    const expression = statement.expression;
+    return expression.type === "CallExpression"
+      && expression.callee?.type === "Identifier"
+      ? expression.callee.name
+      : null;
+  });
+  assert.equal(
+    directWorkbenchCalls.indexOf("bindMetadataViewerEvents"),
+    directWorkbenchCalls.indexOf("bindSettingsPanelEvents") + 1);
+  const metadataRenderStatements = renderMetadata.body.body;
+  const replacementIndex = metadataRenderStatements.findIndex(
+    statement => statement.type === "ExpressionStatement"
+      && statement.expression.type === "AssignmentExpression"
+      && statement.expression.operator === "="
+      && sourceText(statement.expression.left) === "app.innerHTML");
+  const binderIndex = metadataRenderStatements.findIndex(
+    statement => directCallExpression(statement, "bindMetadataViewerEvents"));
+  assert.notEqual(replacementIndex, -1);
+  assert.equal(binderIndex, replacementIndex + 1);
+
+  const innerCalls = callExpressionsNamed(appSyntax, "bindMetadataExplorer");
+  assert.equal(innerCalls.length, 1);
+  const innerCall = innerCalls[0];
+  assert.equal(
+    metadataEventBinder.body.body
+      .map(statement => directCallExpression(statement, "bindMetadataExplorer"))
+      .filter(Boolean)
+      .length,
+    1);
+  assert.deepEqual(
+    statementSignatures(metadataEventBinder.body.body.slice(0, 1)),
+    ["declare:const ex = state.explorer"]);
+  assert.equal(
+    directCallExpression(metadataEventBinder.body.body[1], "bindMetadataExplorer"),
+    innerCall);
+  assert.deepEqual(
+    statementSignatures(metadataEventBinder.body.body.slice(2, 3)),
+    [
+      {
+        if: "!ex",
+        whenTrue: ["statement:ReturnStatement:return;"],
+        whenFalse: [],
+      },
+    ]);
+  assert.equal(innerCall.arguments.length, 3);
+  assert.equal(innerCall.arguments[0].type, "Identifier");
+  assert.equal(innerCall.arguments[0].name, "document");
+  assert.equal(innerCall.arguments[1].type, "Identifier");
+  assert.equal(innerCall.arguments[1].name, "ex");
+  const actions = innerCall.arguments[2];
+  assert.equal(actions.type, "ObjectExpression");
+  assert.equal(actions.properties.length, 11);
+  const rowFocus = callbackProperty(actions, "onRowFocus");
+  assert.deepEqual(
+    statementSignatures(rowFocus.body.body),
+    [
+      {
+        if: "!ex",
+        whenTrue: ["statement:ReturnStatement:return;"],
+        whenFalse: [],
+      },
+      "declare:const already = ex.detail && ex.detail.index === index && ex.detail.rowId === rowId",
+      "assign:ex.detail = already ? null : { index, rowId }",
+      "assign:ex.highlight = already ? null : { index, rowId }",
+      "declare:const current = ex.history[ex.historyPos]",
+      {
+        if: "current && current.index === index",
+        whenTrue: ["assign:current.rowId = already ? 0 : rowId"],
+        whenFalse: [],
+      },
+      "call:render()",
+    ]);
+
+  const binding = sourceText(innerCall);
+  assert.match(
+    binding,
+    /bindMetadataExplorer\s*\(document, ex, \{[\s\S]*onClose: closeExplorer,[\s\S]*onHistoryBack: explorerHistoryBack,[\s\S]*onHistoryForward: explorerHistoryForward,[\s\S]*onHeapFocus: heap => pushExplorerFocus\(\{ heap \}\),[\s\S]*onJump: explorerJump,[\s\S]*onOpenHeap: openExplorerHeap,[\s\S]*onOpenTable: openExplorer,[\s\S]*onPage: \(index, startRowId\) =>\s*observeAsync\(\s*loadExplorerWindow\(index, startRowId\),\s*"Loading metadata table rows"\),[\s\S]*onRowFocus: \(index, rowId\) => \{[\s\S]*ex\.detail = already \? null : \{ index, rowId \};[\s\S]*ex\.highlight = already \? null : \{ index, rowId \};[\s\S]*onShowOverview: explorerShowOverview,[\s\S]*onTableFocus: \(index, rowId\) => pushExplorerFocus\(\{ index, rowId \}\),/);
+  assert.doesNotMatch(
+    binding,
+    /\b(?:getElementById|querySelector|querySelectorAll)\s*\(|\.addEventListener\s*\(/);
+  assert.match(
+    metadataViewerSource,
+    /export function bindMetadataExplorer\([\s\S]*#mde-exit[\s\S]*#mde-hist-back[\s\S]*#mde-hist-fwd[\s\S]*\[data-mde-open\][\s\S]*\[data-mde-open-heap\][\s\S]*\[data-mde-chip\][\s\S]*\[data-mde-jump\][\s\S]*\[data-mde-overview\][\s\S]*\[data-mde-page\][\s\S]*\[data-mde-heap-chip\][\s\S]*\.mde-wall \.mde-card\[data-mde-index\] \.mde-card-head[\s\S]*\.mde-wall \.mde-heap-card\[data-mde-heap\] \.mde-card-head[\s\S]*\.mde-wall \.mde-row\[data-mde-row\][\s\S]*#mde-canvas[\s\S]*\.mde-focus \.mde-row\[data-mde-row\]/);
+  for (const selector of [
+    "#mde-exit",
+    "#mde-hist-back",
+    "#mde-hist-fwd",
+    "[data-mde-open]",
+    "[data-mde-open-heap]",
+    "[data-mde-chip]",
+    "[data-mde-jump]",
+    "[data-mde-overview]",
+    "[data-mde-page]",
+    "[data-mde-heap-chip]",
+    ".mde-wall .mde-card[data-mde-index] .mde-card-head",
+    ".mde-wall .mde-heap-card[data-mde-heap] .mde-card-head",
+    ".mde-wall .mde-row[data-mde-row]",
+    ".mde-focus .mde-row[data-mde-row]",
+  ]) {
+    assert.equal(appSource.split(selector).length - 1, 0, selector);
+  }
+  assert.equal(appSource.split("#mde-canvas").length - 1, 1);
+});
+
+test("package opportunities owns its rendered control bindings", () => {
+  const binding =
+    appSource.match(/function bindPackageOpportunitiesEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
+    ?? "";
+  const bindEvents =
+    appSource.match(
+      /function bindEvents\(\) \{[\s\S]*?\n}\n\n(?=(?:async )?function )/)?.[0]
+    ?? "";
+  assert.match(
+    binding,
+    /bindPackageOpportunities\(document, \{\s*onLookForSelect: openSpotlight,\s*onPackageSelect: packageId =>\s*observeAsync\(\s*openDependencyPackage\(packageId, ""\),\s*"Opening an opportunity package"\),\s*onTypeSelect: typeId => \{[\s\S]*currentPackage\(\)\.types\.find\(item => item\.id === typeId\);\s*if \(!target\) \{[\s\S]*openSpotlight\(shortTypeName\(typeId\)\);\s*return;\s*\}[\s\S]*state\.atPackageRoot = false;[\s\S]*navigateToTypeByName\(typeId\)/);
+  assert.match(
+    bindEvents,
+    /^\s*bindPackageOpportunitiesEvents\(\);\s*$/m);
+  const compositionPrefix =
+    bindEvents.slice(0, bindEvents.indexOf("bindPackageOpportunitiesEvents();"));
+  assert.equal(compositionPrefix.match(/\{/g)?.length, 1);
+  assert.equal(compositionPrefix.match(/\}/g)?.length ?? 0, 0);
+  assert.equal(
+    appSource.match(/\bbindPackageOpportunitiesEvents\b/g)?.length,
+    2);
+  assert.equal(
+    appSource.match(/\bbindPackageOpportunities\b/g)?.length,
+    2);
+  assert.doesNotMatch(
+    binding,
+    /\b(?:getElementById|querySelector|querySelectorAll)\s*\(|\.addEventListener\s*\(/);
+  assert.equal(binding.match(/\bdocument\b/g)?.length, 1);
+  assert.match(
+    packageOpportunitiesSource,
+    /export function bindPackageOpportunities\([\s\S]*\[data-opp-type\][\s\S]*\[data-opp-package\][\s\S]*\[data-opp-lookfor\]/);
+  for (const selector of [
+    "[data-opp-type]",
+    "[data-opp-package]",
+    "[data-opp-lookfor]",
+  ]) {
+    assert.equal(appSource.split(selector).length - 1, 0, selector);
+  }
+});
+
+test("modal viewers own their rendered close bindings", () => {
+  const graphBinding =
+    appSource.match(/function bindGraphSourceEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
+    ?? "";
+  const docBinding =
+    appSource.match(/function bindDocViewerEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
+    ?? "";
+  assert.match(
+    graphBinding,
+    /bindGraphSource\(document, \{\s*onClose: closeGraphSource,\s*\}\)/);
+  assert.match(
+    docBinding,
+    /bindDocViewer\(document, \{\s*onClose: closeDocViewer,\s*onOpenDocument: path =>\s*observeAsync\(openPackageDocument\(path\), "Opening a package document"\),\s*\}\)/);
+  assert.equal(
+    graphBinding.match(/\bbindGraphSource\(document\b/g)?.length,
+    1);
+  assert.equal(
+    docBinding.match(/\bbindDocViewer\(document\b/g)?.length,
+    1);
+  assert.match(
+    graphSourceViewerSource,
+    /export function bindGraphSource\([\s\S]*#graph-source-backdrop[\s\S]*event\.target === backdrop[\s\S]*#graph-source-close/);
+  assert.match(
+    docViewerSource,
+    /export function bindDocViewer\([\s\S]*#doc-viewer-backdrop[\s\S]*event\.target === backdrop[\s\S]*#doc-viewer-close[\s\S]*\[data-doc-path\]/);
+  for (const [identifier, count] of [
+    ["bindGraphSourceEvents", 2],
+    ["bindDocViewerEvents", 2],
+    ["bindGraphSource", 2],
+    ["bindDocViewer", 2],
+  ]) {
+    assert.equal(
+      appSource.match(new RegExp(`\\b${identifier}\\b`, "g"))?.length,
+      count,
+      identifier);
+  }
+  for (const selector of [
+    "#graph-source-backdrop",
+    "#graph-source-close",
+    "#doc-viewer-backdrop",
+    "#doc-viewer-close",
+    "[data-doc-path]",
+  ]) {
+    assert.equal(appSource.split(selector).length - 1, 0, selector);
+  }
+});
+
+test("annotated source owns its rendered control bindings", () => {
+  const binding =
+    appSource.match(/function bindAnnotatedSourceEvents\(\) \{[\s\S]*?\n}(?=\n\nconst workbenchShellActions)/)?.[0]
+    ?? "";
+  assert.match(
+    binding,
+    /bindAnnotatedSource\(document, \{[\s\S]*onClearSelection: \(\) => \{[\s\S]*memberAnnotatedFactId = null;[\s\S]*memberAnnotatedNodeIds = \[\];[\s\S]*onCopy: \(\) => \{[\s\S]*void copyText\([\s\S]*memberAnnotated\.document\.text[\s\S]*onFactSelect: factId => \{[\s\S]*memberAnnotatedFactId === factId \? null : factId[\s\S]*onMediumToggle: medium => \{[\s\S]*isAnnotatedMedium\(medium\)[\s\S]*MEDIA\.some\(candidate => next\[candidate\]\)[\s\S]*onOffsetSelect: offset => \{[\s\S]*nodeAtOffset\(state\.memberAnnotated\.document, offset\)[\s\S]*factsForNode/);
+  assert.match(
+    binding,
+    /\[typedMedium\]: !state\.memberAnnotatedMedia\[typedMedium\],[\s\S]*if \(!MEDIA\.some\(candidate => next\[candidate\]\)\) return;/);
+  assert.doesNotMatch(
+    binding,
+    /\b(?:getElementById|querySelector|querySelectorAll)\s*\(|\.addEventListener\s*\(/);
+  assert.equal(binding.match(/(?<!\.)\bdocument\b/g)?.length, 1);
+  assert.match(
+    annotatedSourceModule,
+    /export function bindAnnotatedSource\([\s\S]*#copy-annotated[\s\S]*\[data-annotated-medium\][\s\S]*\[data-annotated-fact\][\s\S]*\[data-annotated-offset\][\s\S]*#annotated-clear/);
+  for (const [identifier, count] of [
+    ["bindAnnotatedSourceEvents", 2],
+    ["bindAnnotatedSource", 2],
+  ]) {
+    assert.equal(
+      appSource.match(new RegExp(`\\b${identifier}\\b`, "g"))?.length,
+      count,
+      identifier);
+  }
+  for (const selector of [
+    "#copy-annotated",
+    "[data-annotated-medium]",
+    "[data-annotated-fact]",
+    "[data-annotated-offset]",
+    "#annotated-clear",
+  ]) {
+    assert.equal(appSource.split(selector).length - 1, 0, selector);
+  }
+});
+
 test("leaving package search clears its pending loading state", () => {
   assert.match(
     spotlightPackageSearchSource,
@@ -407,7 +1574,10 @@ test("global workbench shortcuts respect the topmost modal", () => {
     /state\.spotlightOpen[\s\S]*event\.key === "Escape"[\s\S]*closeSpotlight\(\)/);
   assert.match(
     appSource,
-    /function openSpotlight\(seed = "", scope = "all"\) \{\s*if \(state\.loading \|\| state\.error\) return;\s*state\.tasteOpen = false;/);
+    /event\.key === "Escape" && !event\.defaultPrevented && state\.tasteOpen/);
+  assert.match(
+    appSource,
+    /function openSpotlight\(seed = "", spotlightScope = "all"\) \{\s*if \(state\.loading \|\| state\.error\) return;\s*state\.tasteOpen = false;/);
   assert.match(
     spotlightSource,
     /function bind\(root: ParentNode, mode: "modal" \| "inline"\)[\s\S]*if \(mode === "modal"\)[\s\S]*focus\(\);/);
@@ -425,7 +1595,7 @@ test("global workbench shortcuts respect the topmost modal", () => {
     /if \(state\.loading \|\| state\.error\) \{\s*if \(isContainedBrowserShortcut\(event\) \|\| event\.key === "\/"\)[\s\S]*event\.preventDefault\(\);[\s\S]*return;/);
   assert.match(
     appSource,
-    /function focusFilter\(\) \{[\s\S]*const input = document\.querySelector<HTMLInputElement>\([\s\S]*"#member-filter, #type-filter"\);\s*if \(!input\) return;/);
+    /function focusFilter\([\s\S]*\{ immediate = false \}: \{ immediate\?: boolean \} = \{\},[\s\S]*const focus = \(\) => \{[\s\S]*"#member-filter, #type-filter"[\s\S]*if \(immediate\) \{\s*focus\(\);\s*return;\s*}\s*requestAnimationFrame\(focus\);/);
 });
 
 test("Spotlight navigation waits for selection data before restoring focus", () => {
@@ -448,7 +1618,7 @@ test("Spotlight navigation waits for selection data before restoring focus", () 
     /let spotlightFocusGeneration = 0[\s\S]*function focusTypeList\(generation = spotlightFocusGeneration\)[\s\S]*generation !== spotlightFocusGeneration[\s\S]*isTextEntry\(\)/);
   assert.match(
     spotlightSource,
-    /const generation = interactionGeneration;[\s\S]*Promise\.resolve\(execution\)\.then\(\(\) => \{\s*if \(generation === interactionGeneration\)/);
+    /const generation = interactionGeneration;[\s\S]*const focusAfterExecution = \(\) => \{[\s\S]*generation === interactionGeneration[\s\S]*Promise\.resolve\(execution\)\.then\(\s*focusAfterExecution,\s*\(error: unknown\) => \{\s*options\.reportCommandError\(error\);\s*focusAfterExecution\(\)/);
 });
 
 test("dependency graph render identity includes truncation and navigation", () => {
@@ -508,7 +1678,7 @@ test("bare home paints before wasm engine download", () => {
   const homePaintWait =
     appSource.match(/function waitForHomePaint\(\)[\s\S]*?\n}\n\nfunction loadStoredTaste/)?.[0] ?? "";
   const errorPackageRecovery =
-    appSource.match(/function openPackageFromError[\s\S]*?\n}\n\nfunction renderLoading/)?.[0] ?? "";
+    appSource.match(/function openPackageFromError[\s\S]*?\n}\n\nconst loadErrorShellActions/)?.[0] ?? "";
   const loadingView =
     appSource.match(/function renderLoading\(\)[\s\S]*?\n}\n\nasync function loadSelectedMemberDocumentation/)?.[0] ?? "";
   assert.doesNotMatch(appSource, /from "\/engine\.js"/);
@@ -536,13 +1706,13 @@ test("bare home paints before wasm engine download", () => {
     /state\.retryAction = \(\) => window\.location\.reload\(\)/);
   assert.match(
     errorPackageRecovery,
-    /if \(!state\.engineReady\) \{[\s\S]*window\.location\.assign\(url\);[\s\S]*return;[\s\S]*\}\s*loadPackage\(packageId, version, ""\)/);
+    /if \(!state\.engineReady\) \{[\s\S]*window\.location\.assign\(url\);[\s\S]*return;[\s\S]*\}\s*observeAsync\(loadPackage\(packageId, version, ""\)/);
   assert.match(
     loadingView,
-    /#error-package-query[\s\S]*openPackageFromError\(packageId, version\)/);
+    /id="error-package-query"[\s\S]*bindLoadErrorShell\(document, loadErrorShellActions\)/);
   assert.doesNotMatch(
     loadingView,
-    /#error-package-query[\s\S]*loadPackage\(packageId, version/);
+    /id="error-package-query"[\s\S]*(?:openPackageFromError|loadPackage)\(/);
 });
 
 test("Spotlight uses local type matches until the engine is ready", () => {
@@ -563,6 +1733,9 @@ test("loading brand links back to the site root", () => {
 });
 
 test("member filters retain accessible controls and focus across rerenders", () => {
+  const binding =
+    appSource.match(/function bindTypePanelEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
+    ?? "";
   assert.match(
     appSource,
     /id="clear-member-filter"[^>]*aria-label="Clear member filters"/);
@@ -573,17 +1746,23 @@ test("member filters retain accessible controls and focus across rerenders", () 
     stylesSource,
     /\.type-browser:not\(\.member-nav\) \.namespace-chips, \.pane-footer \{ display: none; \}/);
   assert.match(
-    appSource,
-    /memberFilter\?\.addEventListener\("input"[\s\S]*renderPreservingMemberFocus\(\)/);
+    typePanelSource,
+    /memberFilter\?\.addEventListener\(\s*"input",\s*\(\) => actions\.onMemberFilterChange\(memberFilter\.value\)\)/);
   assert.match(
-    appSource,
-    /memberFilter\?\.addEventListener\("keydown"[\s\S]*event\.key === "Escape"[\s\S]*if \(navMode\(\) === "member"\)[\s\S]*exitMemberScope\(\)[\s\S]*state\.memberTextFilter = ""[\s\S]*renderMemberFilterAndRestoreFocus\("#member-filter"\)[\s\S]*stepMemberNav/);
+    binding,
+    /onMemberFilterChange: value => \{[\s\S]*state\.memberTextFilter = value;[\s\S]*renderPreservingMemberFocus\(\)/);
+  assert.match(
+    typePanelSource,
+    /memberFilter\?\.addEventListener\(\s*"keydown",\s*event => actions\.onMemberFilterKeyDown\(event, memberFilter\.value\)\)/);
+  assert.match(
+    binding,
+    /onMemberFilterKeyDown: \(event, value\) => \{[\s\S]*event\.key === "Escape"[\s\S]*if \(navMode\(\) !== "member" && value === ""\) return;[\s\S]*if \(navMode\(\) === "member"\)[\s\S]*exitMemberScope\(\)[\s\S]*state\.memberTextFilter = ""[\s\S]*renderMemberFilterAndRestoreFocus\("#member-filter"\)[\s\S]*stepMemberNav/);
   assert.match(
     appSource,
     /event\.key === "Escape" && !event\.defaultPrevented && !typing[\s\S]*if \(navMode\(\) === "member"\) exitMemberScope\(\)/);
   assert.match(
     appSource,
-    /#nav-to-types"\)\?\.addEventListener\("click", \(\) => \{\s*exitMemberScope\(\)/);
+    /onShowTypes: exitMemberScope/);
   assert.match(
     appSource,
     /const renderMemberFilterAndRestoreFocus = \(selector = ""\) => \{[\s\S]*renderWithMemberFocus\(preserved\)/);
@@ -631,7 +1810,9 @@ test("shared member views retain scope and filter state", () => {
   assert.match(encoder, /packet\.k = state\.memberKindFilter/);
   assert.match(encoder, /packet\.e = state\.memberAccessibilityFilter/);
   assert.match(encoder, /packet\.r = state\.memberTraitFilter/);
-  assert.match(encoder, /packet\.d = encodeBodyTarget\(state\.selectedBodyTarget\)/);
+  assert.match(
+    encoder,
+    /const encodedBodyTarget = encodeBodyTarget\(state\.selectedBodyTarget\);[\s\S]*if \(encodedBodyTarget\) packet\.d = encodedBodyTarget/);
   assert.match(decoder, /memberBrowse: raw\.b === 1/);
   assert.match(decoder, /bodyTarget: decodeBodyTarget\(raw\.d\)/);
   assert.match(capture, /selectedBodyTarget: state\.selectedBodyTarget/);
@@ -654,14 +1835,14 @@ test("shared member views retain scope and filter state", () => {
 
 test("member entry controls move focus into the resulting member navigation", () => {
   const bindings =
-    appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
+    appSource.match(/function bindTypePanelEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
     ?? "";
   assert.match(
     bindings,
     /const enterMemberNavigation = \(action: \(\) => void\) => \{\s*const focusGeneration = beginSpotlightNavigation\(\);\s*action\(\);\s*focusTypeList\(focusGeneration\);/);
   assert.match(
     bindings,
-    /data-member-jump-kind[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*enterMemberScope\(\);[\s\S]*data-member-jump-access[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*data-member-jump-trait[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*data-member\]"\)\.forEach[\s\S]*enterMemberNavigation\(\(\) => openMemberGroup/);
+    /onMemberCompositionAccessibilitySelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*enterMemberScope\(\);[\s\S]*onMemberCompositionKindSelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*onMemberCompositionTraitSelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*onMemberGroupOpen: memberKey => \{[\s\S]*enterMemberNavigation\(\(\) => openMemberGroup/);
 });
 
 test("package tab selection resets type-specific member filters", () => {
@@ -698,7 +1879,7 @@ test("home demos restore the complete parsed location", () => {
   assert.match(runHomeDemo, /restoreWorkspaceFromLocation\(loc, loc\)/);
   assert.doesNotMatch(runHomeDemo, /type: loc\.type/);
   const restoreWorkspace =
-    appSource.match(/async function restoreWorkspaceFromLocation\([\s\S]*?\n}\n\n\/\/ Restores the full open-tab/)?.[0]
+    appSource.match(/async function restoreWorkspaceFromLocation\([\s\S]*?\n}\n\nfunction applyLocationView/)?.[0]
     ?? "";
   assert.match(
     restoreWorkspace,
@@ -719,7 +1900,7 @@ test("home demos restore the complete parsed location", () => {
     platformHistory,
     /await applyPlatformLibraryScope\([\s\S]*applyLocationView\(loc\);\s*applyDeepLink\(loc\)/);
   const runtimeHistory =
-    appSource.match(/async function restoreRuntimePackFromHistory\([\s\S]*?\n}\n\nbootstrap\(\);/)?.[0]
+    appSource.match(/async function restoreRuntimePackFromHistory\([\s\S]*?\n}\n\nobserveAsync\(bootstrap\(\)/)?.[0]
     ?? "";
   assert.match(
     runtimeHistory,
@@ -737,11 +1918,11 @@ test("opening an already-resident Platform resets type-specific member filters",
 
 test("lens-scoped Platform library changes reset type-specific member state", () => {
   const picker =
-    appSource.match(/const bindPlatformLensPicker = [\s\S]*?bindPlatformLensPicker\("data-platform-integrations-library"/)?.[0]
+    appSource.match(/async function openPlatformLensLibrary\([\s\S]*?\n}/)?.[0]
     ?? "";
   assert.match(
     picker,
-    /const openLibrary = async \([\s\S]*originPackage: AppPackage = currentPackage\(\),[\s\S]*noticeRetryState: NoticeRetryState \| null = null[\s\S]*if \(!state\.packages\.includes\(originPackage\)[\s\S]*!packageIdentityEquals\(state\.package, originPackage\)[\s\S]*state\.queryNoticeRetryAction === noticeRetryState\.action[\s\S]*state\.queryNotice = removeAppendedNotice\([\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*const runtimeResult = await loadRuntimePackAssembly\([\s\S]*\(\) => state\.packages\.includes\(originPackage\)\);[\s\S]*const loaded = runtimeResult\.packageModel;[\s\S]*previous: state\.queryNotice[\s\S]*const retryAction = \(\) =>\s*openLibrary\(name, pack, originPackage, noticeState\);[\s\S]*runtimeResult\.failureMessage[\s\S]*noticeState\.appended = state\.queryNotice;[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*state\.libraryScope = new Set\(\[key\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*loader\(\)/);
+    /originPackage: AppPackage = currentPackage\(\),[\s\S]*noticeRetryState: NoticeRetryState \| null = null[\s\S]*if \(!state\.packages\.includes\(originPackage\)[\s\S]*!packageIdentityEquals\(state\.package, originPackage\)[\s\S]*state\.queryNoticeRetryAction === noticeRetryState\.action[\s\S]*state\.queryNotice = removeAppendedNotice\([\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*const pack = selectedPack \|\| platformPackForAssembly\(key\);[\s\S]*const runtimeResult = await loadRuntimePackAssembly\([\s\S]*\(\) => state\.packages\.includes\(originPackage\)\);[\s\S]*const loaded = runtimeResult\.packageModel;[\s\S]*previous: state\.queryNotice[\s\S]*const retryAction = \(\) =>\s*openPlatformLensLibrary\([\s\S]*noticeState\);[\s\S]*runtimeResult\.failureMessage[\s\S]*noticeState\.appended = state\.queryNotice;[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*state\.libraryScope = new Set\(\[key\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*lens === "integrations"[\s\S]*loadPackageIntegrations\(\)[\s\S]*lens === "opportunities"[\s\S]*loadPackageOpportunities\(\)[\s\S]*lens === "analysis"[\s\S]*loadPackagePerformance\(\)[\s\S]*loadPackageMetadata\(\)/);
   assert.doesNotMatch(picker, /select\.isConnected/);
   assert.match(
     appSource,
@@ -764,7 +1945,7 @@ test("authoritative location restore clears filters and applies aggregate Platfo
     ?? "";
   assert.match(popstate, /if \(bareHome\)[\s\S]*resetLocationFilters\(\);\s*const deep = loc/);
   const runtimeHistory =
-    appSource.match(/async function restoreRuntimePackFromHistory\([\s\S]*?\n}\n\nbootstrap\(\);/)?.[0]
+    appSource.match(/async function restoreRuntimePackFromHistory\([\s\S]*?\n}\n\nobserveAsync\(bootstrap\(\)/)?.[0]
     ?? "";
   assert.match(
     runtimeHistory,
@@ -1017,10 +2198,13 @@ test("stale dependency graph cleanup preserves a replacement with the same signa
 test("dependency graph binds navigation to generated node identities", () => {
   assert.match(
     graphSource,
-    /const nodeInfoById = new Map\(\s+keys\.map\(key => \[idOf\.get\(key\), nodeInfo\.get\(key\)\]\)\)/);
+    /const nodeInfoById = new Map<string, DependencyGraphNodeInfo>\(\);[\s\S]*for \(const key of keys\)[\s\S]*if \(id && info\) nodeInfoById\.set\(id, info\)/);
+  assert.match(
+    graphInteractionsSource,
+    /const dataId = node\.getAttribute\("data-id"\);[\s\S]*return dataId \|\| idMatch\?\.\[1\] \|\| ""/);
   assert.match(
     appSource,
-    /const nodeId = dataId \|\| idMatch\?\.\[1\];\s*const info = nodeId \? built\.nodeInfoById\.get\(nodeId\) : null/);
+    /bindDependencyGraphNodes\(viewport, nodeId => \{[\s\S]*built\.nodeInfoById\.get\(nodeId\)/);
   assert.doesNotMatch(appSource, /nodeInfoByLabel/);
   assert.match(
     appSource,
@@ -1454,6 +2638,18 @@ test("call graph source identity prefers the structured type definition", () => 
   assert.equal(callGraphTargetMatchesType(target, literal), true);
 });
 
+test("decompiled source discloses the PDB-source limitation", () => {
+  const html = pdbSourceLimitationHtml({
+    pdbSourceLimitation: "<img src=x onerror=alert(1)>"
+  });
+  assert.match(html, /PDB source unavailable:/);
+  assert.doesNotMatch(html, /<img/);
+  assert.match(html, /&lt;img/);
+  assert.match(
+    appSource,
+    /pdbSourceLimitationHtml\(state\.memberSource\)/);
+});
+
 test("history never applies a selection to another coordinate", () => {
   const oldPackage = packageAt("1.0.0", "net8.0");
   const newVersion = packageAt("2.0.0", "net8.0");
@@ -1822,8 +3018,11 @@ test("closing a package removes its coordinate and selects the adjacent tab", ()
 
 test("workspace UI routes replacements and restore notices through bounded paths", () => {
   assert.match(
+    packageBarSource,
+    /onFrameworkSelect\(button\.dataset\.frameworkChip \?\? ""\)/);
+  assert.match(
     appSource,
-    /switchPackageFramework\(button\.dataset\.frameworkChip \?\? ""\)/);
+    /selectFramework: framework =>\s*observeAsync\(\s*switchPackageFramework\(framework\),\s*"Switching the package framework"\)/);
   assert.match(appSource, /switchPackageFramework\(argument\)/);
   assert.doesNotMatch(
     appSource,
@@ -1836,7 +3035,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /clearWorkspacePackages\(\);\s+render\(\);/);
   assert.match(
     appSource,
-    /if \(loc\.tabs\?\.length && !workspaceCoordinatesMatch\(state\.packages, loc\.tabs\)\) \{\s+restoreWorkspaceFromLocation/);
+    /if \(loc\.tabs\?\.length && !workspaceCoordinatesMatch\(state\.packages, loc\.tabs\)\) \{\s+observeAsync\(\s*restoreWorkspaceFromLocation/);
   assert.match(
     appSource,
     /for \(const packageModel of discarded\)\s+releasePackageModelCaches\(packageModel\);/);
@@ -1851,7 +3050,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /state\.error = "";\s+state\.errorTitle = "";\s+state\.errorDetail = "";\s+state\.retryAction = null;\s+state\.home = true;/);
   assert.match(
     appSource,
-    /\(\) => \(state\.retryAction \?\? bootstrap\)\(\)/);
+    /\(\) =>\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\)/);
   assert.match(
     appSource,
     /state\.retryAction = openRuntimePackFromHome/);

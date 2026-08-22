@@ -24,8 +24,8 @@ export interface DocumentInspectionDependencies {
   state: DocumentInspectionState;
   queryDocument:
     (request: PackageDocumentRequest) => Promise<BrowserPackageDocumentContent>;
-  renderMarkdown: (text: unknown) => Promise<string>;
-  renderMarkdownInline: (text: unknown) => Promise<string>;
+  renderMarkdown: (text: string) => Promise<string>;
+  renderMarkdownInline: (text: string) => Promise<string>;
   describeError: (error: unknown) => string;
   render: () => void;
 }
@@ -39,8 +39,8 @@ interface DocumentFrontmatter {
 
 // Skill files carry YAML frontmatter whose folded/literal descriptions need
 // projecting separately before the remaining body is rendered as Markdown.
-function splitFrontmatter(text: unknown) {
-  const source = String(text ?? "");
+function splitFrontmatter(text: string) {
+  const source = text;
   const match = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(source);
   if (!match) return { meta: null, body: source };
   const meta: DocumentFrontmatter = {};
@@ -81,6 +81,8 @@ export function createDocumentInspectionCoordinator(
       try {
         const content = await dependencies.queryDocument(request);
         if (sequence !== state.docViewerSeq) return;
+        if (typeof content.text !== "string")
+          throw new TypeError("The document content did not contain text.");
         const { meta, body } = splitFrontmatter(content.text);
         const html = await dependencies.renderMarkdown(body);
         if (sequence !== state.docViewerSeq) return;
@@ -101,9 +103,10 @@ export function createDocumentInspectionCoordinator(
         if (sequence !== state.docViewerSeq) return;
         state.docViewerError = dependencies.describeError(error);
       } finally {
-        if (sequence !== state.docViewerSeq) return;
-        state.docViewerLoading = false;
-        dependencies.render();
+        if (sequence === state.docViewerSeq) {
+          state.docViewerLoading = false;
+          dependencies.render();
+        }
       }
     },
 

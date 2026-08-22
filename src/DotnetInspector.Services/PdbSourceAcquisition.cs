@@ -19,7 +19,7 @@ public enum SourceChecksumVerification
     Mismatch,
 }
 
-public sealed record AuthoredMemberSourceInspection(
+public sealed record PdbMemberSourceInspection(
     FindingInspection<string> Lines,
     string? Text,
     MemberSourceObservation? Mapping,
@@ -29,7 +29,7 @@ public sealed record AuthoredMemberSourceInspection(
     public bool IsComplete => Lines.Value is FindingInspection<string>.Complete;
 }
 
-public sealed record AuthoredTypeSourceInspection(
+public sealed record PdbTypeSourceInspection(
     FindingInspection<string> Lines,
     string? Text,
     SourceLinkResolver.TypeSourceInfo? Mapping,
@@ -46,14 +46,14 @@ public sealed record VerifiedSourceTextResult(string? Text, string? Failure)
 }
 
 /// <summary>
-/// Acquires one authored member from SourceLink and verifies the portable-PDB checksum before
-/// exposing its text as evidence.
+/// Acquires one PDB-mapped member source and verifies the portable-PDB checksum before exposing
+/// its text as evidence.
 /// </summary>
-public static class AuthoredSourceAcquisition
+public static class PdbSourceAcquisition
 {
-    internal const int MaxAuthoredSourceLineCount = 500_000;
+    internal const int MaxPdbSourceLineCount = 500_000;
 
-    public static AuthoredMemberSourceInspection MemberPdbAcquisitionFailed(
+    public static PdbMemberSourceInspection MemberPdbAcquisitionFailed(
         FindingSubject subject,
         Exception error)
     {
@@ -64,7 +64,7 @@ public static class AuthoredSourceAcquisition
             $"Portable PDB acquisition failed: {error.Message}");
     }
 
-    public static AuthoredTypeSourceInspection TypePdbAcquisitionFailed(
+    public static PdbTypeSourceInspection TypePdbAcquisitionFailed(
         FindingSubject subject,
         Exception error)
     {
@@ -76,10 +76,10 @@ public static class AuthoredSourceAcquisition
     }
 
     /// <summary>
-    /// Acquires the primary authored source document for one exact metadata
+    /// Acquires the primary PDB source document for one exact metadata
     /// type and verifies its portable-PDB checksum before exposing text.
     /// </summary>
-    public static async Task<AuthoredTypeSourceInspection> AcquireTypeAsync(
+    public static async Task<PdbTypeSourceInspection> AcquireTypeAsync(
         SourceLinkService source,
         MetadataTypeDefinitionName type,
         FindingSubject subject,
@@ -119,7 +119,7 @@ public static class AuthoredSourceAcquisition
         {
             return TypeAbsent(
                 absent.Detail
-                    ?? "Authored source document is unavailable.",
+                    ?? "PDB source document is unavailable.",
                 mapping);
         }
         if (documentInspection.Value
@@ -179,7 +179,7 @@ public static class AuthoredSourceAcquisition
         {
             return TypeAbsent(
                 document.Storage == SourceDocumentStorage.Embedded
-                    ? "Embedded authored-source retrieval is not available."
+                    ? "Embedded PDB-source retrieval is not available."
                     : "The selected source document has no fetchable SourceLink URL.",
                 mapping,
                 document,
@@ -205,10 +205,10 @@ public static class AuthoredSourceAcquisition
                     SourceFetchFailureKind.AttributedOriginUnverified =>
                         "Could not verify the final SourceLink response origin.",
                     SourceFetchFailureKind.ValidationFailed =>
-                        "Fetched authored source does not match the portable-PDB checksum.",
+                        "Fetched PDB source does not match the portable-PDB checksum.",
                     SourceFetchFailureKind.StorageFailed =>
                         "The source-content store failed.",
-                    _ => "Could not fetch authored source.",
+                    _ => "Could not fetch PDB source.",
                 },
                 mapping,
                 document,
@@ -224,7 +224,7 @@ public static class AuthoredSourceAcquisition
             subject);
     }
 
-    public static async Task<AuthoredMemberSourceInspection> AcquireMemberAsync(
+    public static async Task<PdbMemberSourceInspection> AcquireMemberAsync(
         SourceLinkService source,
         int metadataToken,
         string methodName,
@@ -244,7 +244,7 @@ public static class AuthoredSourceAcquisition
             subject,
             new MemberSourceQuery(new HashSet<int> { metadataToken }));
         if (memberInspection.Value is FindingInspection<MemberSourceObservation>.Absent absent)
-            return Absent(absent.Detail ?? "Authored source mapping is unavailable.");
+            return Absent(absent.Detail ?? "PDB source mapping is unavailable.");
         if (memberInspection.Value is FindingInspection<MemberSourceObservation>.Failed failed)
             return Failed(failed.Error);
 
@@ -263,7 +263,7 @@ public static class AuthoredSourceAcquisition
             subject,
             new SourceDocumentQuery(mapping.CanonicalPath));
         if (documentInspection.Value is FindingInspection<SourceDocumentObservation>.Absent documentAbsent)
-            return Absent(documentAbsent.Detail ?? "Authored source document is unavailable.");
+            return Absent(documentAbsent.Detail ?? "PDB source document is unavailable.");
         if (documentInspection.Value is FindingInspection<SourceDocumentObservation>.Failed documentFailed)
             return Failed(documentFailed.Error);
 
@@ -308,7 +308,7 @@ public static class AuthoredSourceAcquisition
         if (document.ResolvedUrl is not { Length: > 0 } url)
         {
             return Absent(document.Storage == SourceDocumentStorage.Embedded
-                ? "Embedded authored-source retrieval is not available."
+                ? "Embedded PDB-source retrieval is not available."
                 : "The selected source document has no fetchable SourceLink URL.");
         }
 
@@ -324,7 +324,7 @@ public static class AuthoredSourceAcquisition
             {
                 return Failed(
                     subject,
-                    "Fetched authored source does not match the portable-PDB checksum.",
+                    "Fetched PDB source does not match the portable-PDB checksum.",
                     mapping,
                     document,
                     SourceChecksumVerification.Mismatch);
@@ -340,7 +340,7 @@ public static class AuthoredSourceAcquisition
                         "Could not verify the final SourceLink response origin.",
                     SourceFetchFailureKind.StorageFailed =>
                         "The source-content store failed.",
-                    _ => "Could not fetch authored source.",
+                    _ => "Could not fetch PDB source.",
                 });
         }
 
@@ -451,7 +451,7 @@ public static class AuthoredSourceAcquisition
         return new VerifiedSourceTextResult(DecodeSourceText(fetch.Bytes), null);
     }
 
-    public static AuthoredMemberSourceInspection FromContent(
+    public static PdbMemberSourceInspection FromContent(
         MemberSourceObservation mapping,
         SourceDocumentObservation document,
         byte[] content,
@@ -482,7 +482,7 @@ public static class AuthoredSourceAcquisition
                 {
                     SourceChecksumVerification.Unsupported =>
                         $"The source checksum algorithm '{document.ChecksumAlgorithm}' is unsupported.",
-                    _ => "Fetched authored source does not match the portable-PDB checksum.",
+                    _ => "Fetched PDB source does not match the portable-PDB checksum.",
                 },
                 mapping,
                 document,
@@ -504,14 +504,14 @@ public static class AuthoredSourceAcquisition
                 // Absent is the honest answer; a type header, initializer, or guessed span is
                 // not a substitute.
                 return Absent(
-                    "The selected member's source range does not identify one authored declaration that can be shown.",
+                    "The selected member's PDB source range does not identify one declaration that can be shown.",
                     mapping,
                     document,
                     verification);
             }
 
             var lines = TextFindings.Inspect(memberText, subject).ToImmutableArray();
-            return new AuthoredMemberSourceInspection(
+            return new PdbMemberSourceInspection(
                 new FindingInspection<string>.Complete(lines),
                 memberText,
                 mapping,
@@ -524,14 +524,14 @@ public static class AuthoredSourceAcquisition
         {
             return Failed(
                 subject,
-                $"Could not extract the authored member source: {ex.Message}",
+                $"Could not extract the PDB member source: {ex.Message}",
                 mapping,
                 document,
                 verification);
         }
     }
 
-    public static AuthoredTypeSourceInspection FromTypeContent(
+    public static PdbTypeSourceInspection FromTypeContent(
         SourceLinkResolver.TypeSourceInfo mapping,
         SourceDocumentObservation document,
         byte[] content,
@@ -559,7 +559,7 @@ public static class AuthoredSourceAcquisition
                 subject,
                 verification == SourceChecksumVerification.Unsupported
                     ? $"The source checksum algorithm '{document.ChecksumAlgorithm}' is unsupported."
-                    : "Fetched authored source does not match the portable-PDB checksum.",
+                    : "Fetched PDB source does not match the portable-PDB checksum.",
                 mapping,
                 document,
                 verification);
@@ -568,12 +568,12 @@ public static class AuthoredSourceAcquisition
         try
         {
             string text = DecodeSourceText(content);
-            return new AuthoredTypeSourceInspection(
+            return new PdbTypeSourceInspection(
                 new FindingInspection<string>.Complete(
                     TextFindings.Inspect(
                             text,
                             subject,
-                            MaxAuthoredSourceLineCount)
+                            MaxPdbSourceLineCount)
                         .ToImmutableArray()),
                 text,
                 mapping,
@@ -585,7 +585,7 @@ public static class AuthoredSourceAcquisition
         {
             return TypeFailed(
                 subject,
-                $"Could not decode the authored type source: {ex.Message}",
+                $"Could not decode the PDB type source: {ex.Message}",
                 mapping,
                 document,
                 verification);
@@ -640,7 +640,7 @@ public static class AuthoredSourceAcquisition
     }
 
     /// <summary>
-    /// Reads authored source from a local file, but only when its bytes authenticate against the
+    /// Reads PDB source from a local file, but only when its bytes authenticate against the
     /// portable-PDB document checksum. The document path originates in an untrusted PDB, so the
     /// checksum — not the path — authorizes the read: an attacker cannot precompute a matching hash
     /// for an unknown local file, so a mismatched or absent checksum yields null. Returns null (the
@@ -723,7 +723,7 @@ public static class AuthoredSourceAcquisition
             || path.EndsWith(".vb", StringComparison.OrdinalIgnoreCase)
             || path.EndsWith(".fs", StringComparison.OrdinalIgnoreCase);
 
-    // Upper bound on a local source file we are willing to read. Authored source files are small;
+    // Upper bound on a local source file we are willing to read. PDB source files are small;
     // this only guards against an attacker-directed path pointing at a pathologically large file.
     const long MaxLocalSourceBytes = 64L * 1024 * 1024;
 
@@ -791,7 +791,7 @@ public static class AuthoredSourceAcquisition
         return reader.ReadToEnd();
     }
 
-    static AuthoredMemberSourceInspection Absent(string detail)
+    static PdbMemberSourceInspection Absent(string detail)
         => new(
             new FindingInspection<string>.Absent(detail),
             Text: null,
@@ -799,7 +799,7 @@ public static class AuthoredSourceAcquisition
             Document: null,
             ChecksumVerification: null);
 
-    static AuthoredMemberSourceInspection Absent(
+    static PdbMemberSourceInspection Absent(
         string detail,
         MemberSourceObservation mapping,
         SourceDocumentObservation document,
@@ -811,7 +811,7 @@ public static class AuthoredSourceAcquisition
             document,
             verification);
 
-    static AuthoredMemberSourceInspection Failed(
+    static PdbMemberSourceInspection Failed(
         InspectionError error)
         => new(
             new FindingInspection<string>.Failed(error),
@@ -820,7 +820,7 @@ public static class AuthoredSourceAcquisition
             Document: null,
             ChecksumVerification: null);
 
-    static AuthoredMemberSourceInspection Failed(
+    static PdbMemberSourceInspection Failed(
         FindingSubject subject,
         string reason,
         MemberSourceObservation? mapping = null,
@@ -834,7 +834,7 @@ public static class AuthoredSourceAcquisition
             document,
             verification);
 
-    static AuthoredTypeSourceInspection TypeAbsent(
+    static PdbTypeSourceInspection TypeAbsent(
         string detail,
         SourceLinkResolver.TypeSourceInfo? mapping = null,
         SourceDocumentObservation? document = null,
@@ -846,7 +846,7 @@ public static class AuthoredSourceAcquisition
             document,
             verification);
 
-    static AuthoredTypeSourceInspection TypeFailed(
+    static PdbTypeSourceInspection TypeFailed(
         InspectionError error,
         SourceLinkResolver.TypeSourceInfo? mapping = null)
         => new(
@@ -856,7 +856,7 @@ public static class AuthoredSourceAcquisition
             Document: null,
             ChecksumVerification: null);
 
-    static AuthoredTypeSourceInspection TypeFailed(
+    static PdbTypeSourceInspection TypeFailed(
         FindingSubject subject,
         string reason,
         SourceLinkResolver.TypeSourceInfo? mapping = null,

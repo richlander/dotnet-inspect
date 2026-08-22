@@ -25,6 +25,165 @@ Keep the peer-checkout `ProjectReference` edits local and unpushed. After
 Markout lands and releases, restore `PackageReference` and only then raise the
 dotnet-inspect PR.
 
+## Session resume
+
+Your process can be replaced without your work being finished — a machine
+reboot, a lost terminal, a session resumed from disk. This section covers that.
+It is distinct from a round restart, which
+[Canonical round flow](#canonical-round-flow) governs.
+
+Your transcript comes back intact, and no conversation was missed: nothing
+happened between your last turn and this one, so there is nothing to catch up on
+and no new direction waiting to be found. What may have moved is machine state
+outside your process — CI runs asynchronously and other work merges — so a plan
+formed before you stopped can describe a world that no longer exists.
+
+### First, re-establish the world
+
+- **Position comes from git, not from the transcript.** Confirm the worktree,
+  branch, and head. Fetch, and determine whether the effective base moved while
+  you were gone. Do not pull or rebase a pushed branch to "catch up"; reconcile
+  it the way this file already requires.
+- **Re-check PR state** per [Canonical round flow](#canonical-round-flow).
+- **Re-announce yourself.** A resumed window has lost whatever it had on
+  screen, so nothing identifies it. Rename it and restate your PR per
+  [Making your work findable](#making-your-work-findable).
+
+### Then act on where you stopped
+
+Exactly one of these applies. Say which, in one line, before doing anything
+else.
+
+- **Mid-stream — continue.** Pick the work back up. The re-check above takes
+  precedence: a conflict, a failed gate, or a moved base supersedes your
+  restored plan and is handled first. Conflict recovery remains the first
+  priority. If nothing changed, do not re-litigate decisions already made in
+  the transcript; carry on from them.
+- **Waiting on the user — restate the request.** Never assume the question was
+  seen or answered while you were gone. Restate it in full, including the
+  context needed to answer it and the options you were choosing between; a
+  pointer to an earlier message is not a restatement, because the user may be
+  looking at a fresh window with none of that history on screen. Then wait.
+- **Task complete — report and propose.** State what landed and what proves it.
+  Then either propose the next piece of work, with a reason it is the right
+  next thing, or ask for a task. Propose; do not start. Inventing scope after a
+  resume is how a finished PR grows changes nobody asked for.
+
+If you cannot tell which of the three applies, that is the fourth case: say so,
+summarize what the transcript claims and what git shows, and wait rather than
+guessing.
+
+## Making your work findable
+
+Work runs in many concurrent agent windows across several machines. Whoever is
+watching must be able to tell, without attaching to any of them, which PR each
+window is on and which one needs a person. Three conventions carry that. Use
+them.
+
+### Name the window for identity
+
+```sh
+tmux rename-window -t "$TMUX_PANE" pr<number>
+```
+
+**The `-t "$TMUX_PANE"` is required, not decoration.** Bare `tmux rename-window`
+resolves to the session's *current* window, not the window you are running in —
+so without it you rename whichever window the operator happens to be viewing,
+and every agent overwrites every other agent's name. Verified: a rename issued
+from window 2 renamed window 0.
+
+Rename the window, never the session. A session is shared by every window on
+that host, so renaming it identifies nothing. Without a PR yet, use the issue:
+`i<number>`.
+
+Keep the name short and stable. The status bar truncates, and a truncated name
+reads as a corrupted one. Do not encode changing state in it — your terminal
+title already carries that, updates itself, and costs nothing.
+
+The one exception is a state a person must act on. Append a single token then,
+and remove it when it clears:
+
+| suffix | means |
+| --- | --- |
+| `-blocked` | waiting on a human decision |
+| `-conflict` | in conflict recovery |
+
+`pr4405-conflict` is worth the eight characters. `pr4405-round-6-of-adversarial-review` is not.
+
+### Announce PR identity in your output
+
+State which PR you are on, in your visible output, in a form a reader and a
+script can both parse. Either pattern below is sufficient and both is fine; what
+matters is that the literal token `PR #<number>` or `PR <number>` appears, and
+the branch name where it is relevant.
+
+Beginning or continuing work:
+
+> Continue PR #4405 readiness for frozen expected head `595e5d4b…` on branch
+> `browser-platform-workspace` after conflict recovery.
+
+Completing a round:
+
+> Round 6 is complete for PR 4463.
+> - Review models GPT-5.6 Sol and Claude Opus 5 were used for adversarial review.
+> - Review feedback is: converging.
+> - Round start / end / duration.
+>
+> Fix description: …
+
+Restate it after every resume and at the start of every round, not once at the
+beginning. A window that has scrolled past its only mention of the PR is a
+window nobody can identify.
+
+### Publish your state where tooling can read it
+
+Set a window-scoped tmux option whenever your state changes. The bar renders it
+for whoever is viewing that window, and tooling reads it directly instead of
+scraping your output:
+
+```sh
+tmux set -w -t "$TMUX_PANE" @agent "round 6 on pr4405, waiting on CI"
+tmux set -w -t "$TMUX_PANE" -u @agent          # clear when it no longer holds
+```
+
+`-w -t "$TMUX_PANE"` scopes it to **your** window. `status-right` is a session
+option; writing it directly would overwrite every other agent, the same way bare
+`rename-window` did.
+
+Omit your window number from the value — the bar already knows where it is.
+Update on real transitions, not on a timer.
+
+### Signal when you need a person
+
+Whenever you stop and wait on a human decision, raise a flag that persists and
+send one nudge that does not:
+
+```sh
+tmux set -w -t "$TMUX_PANE" @agent "HELP: rebase pr4405 onto main, or close it?"
+tmux display-message -d 10000 -t "$TMUX_PANE" \
+  "HELP pr4405 in w#{window_index}: rebase onto main, or close it?"
+```
+
+The `HELP` prefix marks your window with `!` in the window list, so you are
+visible from any window, not only your own. `display-message` expands
+`#{window_index}` against `-t`, so the nudge names both the PR and where to find
+you — a notification that says only "something needs a decision" makes the
+operator hunt.
+
+Send the nudge once, on becoming blocked — not on a timer, and not again for the
+same question. Clear `@agent` when you are unblocked; a stale `HELP` is worse
+than none, because it spends attention on a question already answered.
+
+**The nudge is best effort and will often go unseen.** Nobody may be attached;
+the person may be in another window, on another machine, or asleep. That is what
+the flag is for: it waits. Neither is a handoff — a raised flag is not a
+delivered question and never an answered one. Stop at your prompt and wait
+exactly as you would have without it, and restate the request in full when
+resumed.
+
+Flag only for being blocked. Progress and completion belong in `@agent` as
+ordinary state and in your output; resuming is not a signal at all.
+
 ## User-directed workflow adjustments
 
 The workflow gates in this file establish the default safe sequencing. A user

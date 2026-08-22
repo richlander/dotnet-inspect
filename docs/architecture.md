@@ -91,8 +91,8 @@ Extract public API surface using metadata:
 
 - `type` renders type shape, summaries, members, and `--shape` declarations
 - `member` renders member tables, docs, `Member Index` selectors,
-  decompiled/lowered C#, typed decompiler fidelity causes, SourceLink-backed
-  original source, and IL
+  decompiled/lowered C#, typed decompiler fidelity causes, PDB-mapped source,
+  and IL
 - Both support package/platform/library sources and section/field projection
 
 Guarded metadata signature rejection remains fail-closed (`object`/empty
@@ -144,7 +144,9 @@ Searches for types across packages, platform libraries, projects, and local asse
 
 ### relationships
 
-`depends`, `extensions`, and `implements` expose dependency graphs, extension methods/properties, implementors, and subclasses.
+`graph integrations` induces typed Integration relationships over an explicit
+package workspace. `depends`, `extensions`, and `implements` expose dependency
+graphs, extension methods/properties, implementors, and subclasses.
 
 ### source
 
