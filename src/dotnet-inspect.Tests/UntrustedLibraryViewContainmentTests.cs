@@ -1453,6 +1453,7 @@ public class LibraryViewShapeDerivedContainmentTests
         "ApiSignature.PublicAccessorsSummary (String): string with no setter",
         "ApiSurfaceInspectionFailure.OwningTypeDefinition (MetadataTypeDefinitionName): no public constructor",
         "ApiType.DefinitionName (MetadataTypeDefinitionName): no public constructor",
+        "ApiTypeReferenceIdentity.DefinitionName (MetadataTypeDefinitionName): no public constructor",
         "LibraryInspection.AI (List`1): computed projection still null after the walk",
         "LibraryInspection.AspNetCore (List`1): computed projection still null after the walk",
         "LibraryInspection.Aspire (List`1): computed projection still null after the walk",
