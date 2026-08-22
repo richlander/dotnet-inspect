@@ -11,6 +11,24 @@ export interface RenderGraphSourceOptions {
   highlightCSharp: (value: string) => string;
 }
 
+export interface GraphSourceBindingActions {
+  onClose: () => void;
+}
+
+export function bindGraphSource(
+  root: ParentNode,
+  actions: GraphSourceBindingActions,
+) {
+  const backdrop =
+    root.querySelector<HTMLElement>("#graph-source-backdrop");
+  backdrop?.addEventListener("mousedown", event => {
+    if (event.target === backdrop) actions.onClose();
+  });
+  root.querySelector("#graph-source-close")?.addEventListener(
+    "click",
+    actions.onClose);
+}
+
 export function renderGraphSource(options: RenderGraphSourceOptions): string {
   const { title, loading, source, error, escapeHtml, highlightCSharp } = options;
   const body = loading
