@@ -456,7 +456,7 @@ logical selection rule:
 | Project dependency | Paired project request, target-selection slot, dependency package id, asset role, and logical assembly entry | Package version, restore root, resolved asset path, digest |
 | Direct project output | Paired project request, target-selection slot, configuration, output role, and logical assembly entry | Build root, resolved TFM/RID, output path, digest |
 | Platform | Paired endpoint request, version-neutral framework slot, asset role, and logical assembly entry | Framework family/version, installed/remote locator, digest |
-| Embedded workspace | Workspace context id, canonical bundle-relative `ContentRef`, and declared assembly name | Provider handle and SHA-256 digest |
+| Embedded workspace | Host-issued paired workspace input/member id plus logical assembly entry | Workspace context id, canonical bundle-relative `ContentRef`, provider handle, and SHA-256 digest |
 | Designated/local | Explicit paired input id, or host-issued stable directory/member id, plus logical assembly entry | Absolute path, retained-snapshot id, digest |
 | Explicit cross-source | Host-issued paired endpoint/member id plus logical assembly entry | Both adapters' source-specific provenance and locators |
 | Direct live-member call | One invocation-scoped paired-input designation | Live reader/session and exact method addresses |
@@ -472,8 +472,11 @@ locators, not slots.
 Project dependencies retain package ownership and selected target-graph
 identity instead of collapsing into their enclosing direct-output slot. Direct
 project outputs retain project-input id, target-selection request,
-configuration, and output role. `ContentRef` is the embedded member's canonical
-bundle-relative logical slot; provider handles and digests remain side-local.
+configuration, and output role. An embedded comparison host explicitly pairs
+the before/after workspace inputs or members. `ContentRef` is the canonical
+bundle-relative locator inside one side's workspace context; it cannot pair two
+contexts and remains side-local with the context id, provider handle, and
+digest. The host-issued paired id is the cross-side slot.
 
 Endpoint source kinds and source identities need not match. An explicit
 package-to-local comparison is valid because the host owns that paired
@@ -490,9 +493,11 @@ and never become cross-side participant identity.
 The direct live-member call is the one non-adapter designation.
 `ImplementationDiff.DesignateMemberPair` explicitly authorizes exactly two
 already-open participants as a pair and returns a typed
-`DirectMemberPairingDesignation`. The designation retains an opaque id, exact
-live participant bindings, both MVIDs, and a lifetime bounded by the supplied
-sources. It contains no path, handle, token, or display identity.
+`DirectMemberPairingDesignation`. The designation wraps one direct-slot
+`ArtifactParticipantPairing` and retains that pairing's opaque id, exact live
+participant bindings, both MVIDs, and a lifetime bounded by the supplied
+sources. It does not create a parallel pairing identity and contains no path,
+handle, token, or display identity.
 `CompareMembers` separately validates its exact participant-scoped method
 addresses and relationship role against that designation. This convenience
 cannot feed an assembly-wide comparison or outlive either supplied source.
@@ -946,6 +951,7 @@ The target remains unverified until tests equivalent to these exist:
 - `ComparisonEndpointFailure_RemainsComparisonInputFailure`
 - `ComparisonParticipantPairing_DuplicateLogicalSlotIsAmbiguous`
 - `ComparisonParticipantPairing_IsStableAcrossInputReordering`
+- `EmbeddedWorkspacePairing_RequiresHostIssuedPairedDesignation`
 - `DirectMemberPairing_RequiresInvocationScopedDesignation`
 - `AssemblyContextGroup_CanBindParticipantsFromDifferentArtifactSources`
 - `RetainedWorkspace_CanAddASecondSealedContextGeneration`

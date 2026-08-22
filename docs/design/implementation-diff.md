@@ -195,14 +195,16 @@ BodyEvidenceParticipantBinding
   Mvid                   side-local module identity
 
 BodyEvidenceTargetRequest
-  Id                     opaque user/host request identity
-  Target                 Exact(MetadataMethodAddress) | Carried(MemberBodyTarget)
+  Id                     opaque side-local target-request identity
+  CorrelationId          opaque user/host selection identity
+  Participant            pairing id + side-local binding
+  Selection              Selected(Exact | Carried) | Failed(Diagnostics)
 
 BodyEvidenceTargetAttempt
   Id                     opaque plan identity
   RequestId              originating request
   Participant            pairing id + side-local binding
-  Target                 exact/carried target attempted in that participant
+  Selection              target attempted or typed selection failure
 
 BodyEvidenceCoordinate
   Participant            ArtifactParticipantPairing.Id
@@ -242,7 +244,7 @@ BodyEvidencePresentationMap
   Labels                  exactly one inert label/group per work-item id
 
 DirectMemberPairingDesignation
-  Id                      opaque invocation-scoped participant pairing
+  Pairing                 one direct-slot ArtifactParticipantPairing
   Before/After            exact live participant binding + MVID
   Lifetime                cannot outlive either supplied source
 
@@ -260,22 +262,38 @@ producer payloads, and the total presentation map.
 
 The host resolves user type/member selectors into
 `BodyEvidenceTargetRequest` values before plan construction. A target request
-is correlation for the user's question, not MethodDef identity.
+binds one independently selected exact/carried physical target to one
+participant side. `CorrelationId` groups the requests produced by one user's
+question but never acts as MethodDef identity. The selector owner seals the
+side-local request set after resolving each side's own API/metadata surface:
+one logical selector may produce requests for several participant pairs, while
+an added or removed member produces a request only on the side where it exists.
+A selector failure still produces a side-local request with `Failed`; the
+attempt maps directly to a `ResolutionFailed` work item rather than becoming an
+empty successful plan.
 
-For each request, the coordinator mints one target-attempt id for each selected
-side and paired participant before exact/carried body resolution. Explicit
-unscoped `All` enumeration mints one side-local attempt id as each live-reader
+The coordinator mints exactly one target-attempt id for each target request
+before exact/carried body resolution. A selection-failed attempt performs no
+body resolution and retains that failure. The coordinator never fans one
+request or one strict target across sides or participants. Explicit unscoped
+`All` enumeration mints one side-local request and attempt as each live-reader
 MethodDef is discovered. This granularity is deliberate:
 
 - corresponding before/after attempts whose version-neutral keys agree map to
   one two-sided work item;
 - signature drift produces separate one-sided remove/add work items with
-  separate attempt ids;
-- one selector spanning several participant pairs produces distinct attempts
-  and work items per pair;
+  separate side-local requests and attempt ids;
+- one selector spanning several participant pairs produces distinct requests,
+  attempts, and work items per pair;
 - overlapping selectors resolving the same participant, exact address, strict
   key, correspondence key, and role may alias one work item while retaining
   every attempt id.
+
+Each carried request resolves only inside its own selected artifact/version.
+Before and after requests therefore carry independently minted strict keys.
+Only after both resolve does `MemberBodyCorrespondenceKey` decide whether they
+share a work item. AssemblyRef-version-only drift reaches correspondence rather
+than failing because one side was asked to resolve the other's strict key.
 
 `BodyEvidenceWorkItemKey` is a closed union:
 
@@ -301,18 +319,26 @@ have similar diagnostics.
 The plan materializes an immutable `AttemptMap`. Every target-attempt id maps
 to exactly one work-item id, and every resolved or resolution-failed work item
 retains at least one target-attempt id. Participant-failed work items instead
-retain their endpoint/pairing failure identity. Request ids may name several
-attempts; that fan-out is expected and never authorizes cross-side matching.
-Set-equality validation among work-item keys, attempt aliases, and
-`AttemptMap` rejects orphaned attempts, multiply mapped attempts, unaliased
-work items, and duplicate keys.
+retain their endpoint/pairing failure identity. Every side-local request names
+exactly one attempt; correlation ids may name several side-local requests.
+Neither currency authorizes cross-side matching. Set-equality validation among
+request ids, target-attempt ids, work-item keys, attempt aliases, and
+`AttemptMap` rejects orphaned requests/attempts, multiply mapped attempts,
+unaliased work items, and duplicate keys.
 
-Index construction validates each exact address against its participant and
-each carried target through `MemberBodyTargetResolver`. It then keys resolved
-entries by participant pairing, `MemberBodyCorrespondenceKey`, and role.
+Index construction maps a selection-failed request directly to its
+per-attempt failure, validates each selected exact address against its
+participant, and resolves each selected carried target through
+`MemberBodyTargetResolver`. It then keys resolved entries by participant
+pairing, `MemberBodyCorrespondenceKey`, and role.
 Duplicate correspondence keys naming different strict targets, addresses, or
 roles are ambiguous only within that participant pair. Equal keys in different
 participant pairs remain distinct.
+
+A `MemberBodyResolution.Bodyless` arm is a resolved entry, not a resolution
+failure. It retains its address, keys, and role in the coordinate population.
+Body-producing mechanisms return `Absent` for that work item according to
+their native semantics.
 
 The resolved index exposes no enumerable population. The internal plan forms
 the union of resolved coordinates, target-resolution failures, non-realized
@@ -325,8 +351,10 @@ first-class work item; it cannot become empty successful output.
 `ImplementationEvidenceMechanismCatalog` is the closed source of mechanism ids,
 owners, sync/async execution kind, local-implementation eligibility, and
 dependencies. The session selects its complete mechanism set from that catalog
-and materializes the dependency graph before projection. Unknown ids reject;
-hosts cannot synthesize descriptors or an "all available" set.
+and materializes the dependency graph before projection. The requested set must
+be non-empty and dependency-closed. Unknown ids, an empty set, and a known
+mechanism whose required catalog dependency is absent all reject before plan
+projection; hosts cannot synthesize descriptors or an "all available" set.
 
 `Project` and `ProjectAsync` privately walk all work items and require one
 `Compared`, `Absent`, or `Failed` disposition per work-item id. A callback sees
@@ -339,9 +367,13 @@ producer. For healthy items, each producer retains its native payload and
 outcome semantics. Internal construction rejects missing, extra, or duplicate
 dispositions.
 
-The catalog derives Source's prerequisites as **every requested descriptor
-marked local implementation evidence**; today those are C# and IL. Once all
-those ledgers validate for an item:
+The catalog marks Source as requiring local implementation evidence. Session
+validation therefore requires a Source request to include at least one
+descriptor marked local implementation evidence and derives its prerequisites
+as **every requested descriptor with that mark**; today those descriptors are
+C# and IL. `{Source}` alone rejects rather than completing as all
+`Absent(NotEligible)`. Once all derived prerequisite ledgers validate for an
+item:
 
 - any prerequisite `Failed` yields `Failed(PrerequisiteFailed)` without PDB,
   SourceLink, document, or network work;
@@ -350,10 +382,11 @@ those ledgers validate for an item:
 - if no prerequisite reports a local change, Source yields
   `Absent(NotEligible)` without I/O.
 
-This is the union of declared local mechanisms, not a caller-selected subset
-after the fact. C#-only and IL-only changes are both eligible. Presentation
-filters, changed-only windows, subject groups, and row limits cannot affect
-eligibility.
+This is the non-empty union of requested local mechanisms, validated when the
+mechanism set is sealed rather than caller-selected after projection. C#-only
+and IL-only requests are valid and changes from either are eligible.
+Presentation filters, changed-only windows, subject groups, and row limits
+cannot affect eligibility.
 
 The Research-owned synchronous default is explicitly API, Body Signals, IL,
 and C#. `ResearchChangeMechanism.AllAvailable` is retired because availability
@@ -385,7 +418,10 @@ work, and returns no partial comparison or failure-shaped substitute.
 The lifetime requires no threads or blocking synchronization. A
 single-threaded Browser/Wasm executor may await each operation sequentially;
 a native executor may run independent I/O concurrently within the same budget.
-Ordering, dispositions, and budget-exhaustion results are identical.
+Ordering may change observed charge totals and earlier diagnostics, but every
+eligible work item has the same final success/failure disposition kind. No
+executor may publish a partial successful Source population after aggregate
+exhaustion.
 
 ### Authored-source evidence budget
 
@@ -399,17 +435,20 @@ producer defaults are:
 | Eligible work items | 1,024 | Healthy work items made eligible by local prerequisite ledgers |
 | Unique Portable PDBs | 64 | One validated PDB identity per participant; embedded and external both count |
 | Unique source documents | 4,096 | Canonical PDB document identity per validated PDB |
-| Outbound attempts | 4,096 | Every HTTP transmission, including retries and redirected follow-up requests |
+| Outbound operations | 4,096 | Every query-issued HTTP operation, including retries; a platform-managed redirect chain belongs to one operation |
 | Transferred bytes | 512 MiB | Symbol packages, PDBs, and source response bodies actually read from transport |
 | Retained evidence bytes | 256 MiB | PDB/source bytes and decoded text retained or staged for this query |
 | Concurrent operations | 4 | Active PDB/source I/O operations; a sequential executor uses one |
 
-Hosts may lower any limit. Raising a default requires explicit
-`InspectionCost.Unbounded` authorization in addition to SourceContent and any
-required Network capability. Per-artifact protections such as symbol-package
-limits, PDB expansion limits, SourceLink map limits, and the 16 MB
-per-document source download limit remain active and do not substitute for the
-aggregate query budget.
+Hosts may lower any limit. Raising a default requires an invocation-scoped
+`AuthoredSourceBudgetOverrideCapability` minted by the composition root only
+from an explicit user/host gesture, in addition to SourceContent and any
+required Network capability. The query's static
+`InspectionCost.Unbounded` classification controls automatic disclosure and
+does not grant a budget override. Per-artifact protections such as
+symbol-package limits, PDB expansion limits, SourceLink map limits, transport
+redirect-chain limits, and the 16 MB per-document source download limit remain
+active and do not substitute for the aggregate query budget.
 
 The ledger is the sole aggregate accounting authority. Query-time PDB,
 SourceLink, source-fetch, cache-materialization, and retry paths receive a
@@ -420,36 +459,40 @@ substitute a second ledger. Its operations are:
 RegisterEligibleSet(count)
 ReservePortablePdb(participant, identity)
 ReserveDocument(pdbIdentity, canonicalDocumentIdentity)
-BeginOutboundAttempt(transportCoordinate)
-ChargeTransferredBytes(attemptLease, count)
+BeginOutboundOperation(transportCoordinate)
+ChargeTransferredBytes(operationLease, count)
 ChargeRetainedBytes(contentIdentity, exactByteCount)
 EnterOperation()
 ```
 
-`BeginOutboundAttempt` returns the only stream/read authority for that
-transmission. Redirect and retry helpers must request a new attempt lease for
-each transmission; response reads charge the same lease before bytes become
-visible to PDB/source parsers. Cache reads skip outbound and transfer charges
-but charge retained bytes before materialization. Retained binary bytes charge
-their exact length; decoded text additionally charges checked UTF-16 storage
-(`Length * sizeof(char)`). Entry/document caps bound the remaining per-object
-overhead.
+`BeginOutboundOperation` returns the only stream/read authority for one
+query-visible send. A retry requests a new operation lease. A redirect chain
+performed inside the platform transport remains one operation because Browser
+Fetch does not expose every physical hop; native transports use the same
+logical accounting and a separately bounded redirect policy. Helpers that
+manually issue a follow-up request start another operation. Response reads
+charge the operation lease before bytes become visible to PDB/source parsers.
+Cache reads skip outbound and transfer charges but charge retained bytes before
+materialization. Retained binary bytes charge their exact length; decoded text
+additionally charges checked UTF-16 storage (`Length * sizeof(char)`).
+Entry/document caps bound the remaining per-object overhead.
 
-`InspectionCost` remains coarse host authorization. Per-request
-`SourceFetcher`, symbol-package, PDB expansion, and SourceLink limits remain
-local defenses. None can authorize, replenish, or bypass the query ledger.
+`InspectionCost` remains a coarse execution/disclosure classification.
+Per-request `SourceFetcher`, symbol-package, PDB expansion, and SourceLink
+limits remain local defenses. None can authorize, replenish, or bypass the
+query ledger.
 
 The query computes the complete eligible work-item set before Source I/O.
 Participant-coalesced PDB setup runs once per participant. Document identity,
 cache lookup, and acquisition are shared across eligible members. A cache hit
-uses no outbound-attempt or transferred-byte budget, but bytes retained by this
-query still count.
+uses no outbound-operation or transferred-byte budget, but bytes retained by
+this query still count.
 
 Preflight rejects an already-known dimension above its limit before I/O.
 Unknown dimensions reserve and charge atomically as they are discovered.
-Transport charges attempts before sending and bytes while reading; reading
-stops before the aggregate cap is exceeded. No retry, redirect, cache
-materialization, or decoded string bypasses accounting.
+Transport charges operations before sending and bytes while reading; reading
+stops before the aggregate cap is exceeded. No retry, manually issued redirect
+follow-up, cache materialization, or decoded string bypasses accounting.
 
 Source dispositions are staged until the entire mechanism succeeds. If any
 aggregate dimension is exhausted, the query cancels and drains owned Source
@@ -458,8 +501,9 @@ work, discards all staged eligible Source results, and records
 retains dimension, limit, observed/requested charge, and any earlier per-item
 diagnostic. Ineligible items remain `Absent(NotEligible)` and pre-existing
 target/participant failures remain their original failures. Thus executor
-ordering may change how early work stops, but never which eligible items appear
-successful.
+ordering may change the reported exhausted dimension, observed/requested
+charge, earlier diagnostic, and how early work stops, but never which eligible
+items appear successful or failed.
 
 ### Completion and result boundary
 
@@ -618,21 +662,26 @@ stays producer-owned presentation on either side of the join.
 
 Use `ImplementationComparisonQuery` for assembly-, package-, project-,
 platform-, directory-, or workspace-scoped implementation comparison. The host
-supplies endpoint outcomes/pairings, per-participant exact or carried target
-requests, the mechanism set, capabilities, and budget. The query returns one
-completed `ImplementationDiffResult`; no enrichment step exists.
+supplies endpoint outcomes/pairings, independently selected per-side and
+per-participant exact or carried target requests, the mechanism set,
+capabilities, and budget. The query returns one completed
+`ImplementationDiffResult`; no enrichment step exists.
 
 Use `ImplementationDiff.DesignateMemberPair` when the caller already owns two
 live `MetadataSource` values. The factory validates version-neutral assembly
 identity and captures exact live participant bindings plus MVIDs in a
-`DirectMemberPairingDesignation`. It accepts no paths, handles, tokens, or
-display identity. The designation cannot outlive either source.
+`DirectMemberPairingDesignation`. The designation privately wraps one
+direct-slot `ArtifactParticipantPairing` using the same pairing id/bindings as
+the planned lifecycle; it is not a second participant currency. It accepts no
+paths, handles, tokens, or display identity. The designation cannot outlive
+either source.
 
 `ImplementationDiff.CompareMembers` accepts only
 `DirectMemberComparisonInput`: that designation, exact old/new
 `MetadataMethodAddress` values, and relationship role. It validates both
 addresses against the designated participant bindings, completes one
-synchronous work-item session, and returns
+synchronous work-item session by lowering the wrapped pairing into a one-item
+plan, and returns
 `ImplementationMemberDiffResult` before either source can expire. It accepts
 only Research-owned synchronous mechanisms and cannot feed an assembly-wide
 Implementation Diff. The current handle-only overload is removed.
@@ -702,13 +751,18 @@ not invoke or reconstruct the C# and IL producers independently.
 | `AssemblySetResolver` endpoint-to-flat-list comparison input | Typed endpoint outcome with sealed 1:N participant manifest; pairing validates the before/after manifest union |
 | `AssemblyResolutionProvenance` pattern matching in Research | Opaque adapter-/host-issued `ArtifactParticipantPairing.Id` plus side-local binding |
 | Package/project/directory occurrence index | Logical participant slots; duplicate slots fail ambiguous |
-| `ResearchDiffOptions.TypeFilters` / `MemberTargetIdentities` | Per-participant `BodyEvidenceTargetRequest` values resolved before plan construction |
+| `ResearchDiffOptions.TypeFilters` / `MemberTargetIdentities` | Independently selected per-side/per-participant `BodyEvidenceTargetRequest` values resolved before plan construction |
 | `CSharpBodyDiff` raw-key/occurrence index | Participant pairing plus `MemberBodyCorrespondenceKey` and role |
 | Independent C#, IL, body-signal, Finding, and Source populations | One internal work-item plan projected to complete mechanism ledgers |
 | Public `ResearchComparison` constructors and standalone C#/IL adapters | `UnscopedResearchComparison`; cannot feed Implementation Diff |
 | `ResearchChangeMechanism.AllAvailable` default | Explicit API + Body Signals + IL + C# synchronous default |
 | `ResearchComparison.Combine` | `CombineUnscoped`; planned inputs reject |
 | `ImplementationDiff.FromResearchComparison(ResearchComparison)` | Accept only `BodyEvidenceResearchComparison` |
+| `ImplementationDiff.CompareAssemblies` | Remove; assembly-scoped callers construct typed endpoints and execute `ImplementationComparisonQuery` |
+| `ImplementationDiff.Compare(ResearchDiffInput, ResearchDiffInput, ...)` | Remove; the query/session owner forms one planned Research comparison |
+| `ImplementationDiff.Compare(IReadOnlyList<ImplementationAssemblyInput>, ...)` | Remove with `ImplementationAssemblyInput`; typed endpoint outcomes and participant bindings replace reader-opening inputs |
+| `ImplementationDiffOptions` | Split mechanism selection into catalog ids on the query/session input, target selection into side-local target requests before planning, and changed/window options into presentation-only values |
+| `ImplementationDiffMechanism` / `AllAvailable` | Retire in favor of the closed mechanism catalog; no context-free host-owned mechanism set |
 | `ImplementationDiff.CompareMembers` handle-only pairing | `DesignateMemberPair` plus `DirectMemberComparisonInput`; exact-address invocation-scoped pairing only |
 | `CompareMembersWithAuthoredSource` | Remove; async acquisition belongs to `ImplementationComparisonQuery` |
 | `WithAuthoredSourceComparisons` | Remove; finalized results accept no new ledger |
@@ -721,22 +775,25 @@ The target lifecycle is unverified until these gates exist:
 
 | Gate | Surface | Fails if |
 | --- | --- | --- |
-| Endpoint-manifest totality | Artifact adapters + Queries over package `Preferred`, explicit/all TFM/RID, project outputs/dependencies, platform, directory, embedded workspace, cross-source, and failed endpoints | One endpoint is forced to one participant; a realized endpoint has an empty/unsealed manifest; a non-realized endpoint disappears; a real selected inventory differs from its manifest; or pairing differs from the manifest union |
-| Participant correspondence | Adapter + Queries repeated/equal-identity and reordered-input fixtures | Research interprets provenance; path/version/TFM/RID/digest/MVID/registration or occurrence becomes pairing identity; duplicate logical slots select one; or adding a participant renumbers another |
-| Body-target attempt totality | Research + Queries over signature drift, multi-participant selectors, overlapping selectors, resolution failure, and participant failure | A request lacks a per-side/per-participant attempt; one attempt maps to zero/multiple work items; a work item lacks attempts or failure identity; `AttemptMap`, aliases, and discriminated keys differ; remove/add shares one key/attempt; or aliases weaken exact/strict/correspondence validation |
+| Endpoint-manifest totality | Artifact adapters + Queries over package `Preferred`, explicit/all TFM/RID, project outputs/dependencies, platform, directory, two-bundle embedded workspace, cross-source, and failed endpoints | One endpoint is forced to one participant; a realized endpoint has an empty/unsealed manifest; a non-realized endpoint disappears; a real selected inventory differs from its manifest; an embedded pair lacks a host-issued paired designation or uses workspace context/`ContentRef` as cross-side identity; or pairing differs from the manifest union |
+| Participant correspondence | Adapter + Queries repeated/equal-identity and reordered-input fixtures | Research interprets provenance; path/version/TFM/RID/`ContentRef`/digest/MVID/registration or occurrence becomes pairing identity; duplicate logical slots select one; or adding a participant renumbers another |
+| Body-target attempt totality | Research + Queries over AssemblyRef-version-only drift, signature drift, multi-participant selectors, overlapping selectors, selection/resolution failure, bodyless methods, and participant failure | A target request is not already side/participant scoped; one strict target is fanned across versions/participants; a selection failure becomes empty success or invokes body resolution; one request lacks exactly one attempt; one attempt maps to zero/multiple work items; a work item lacks attempts or failure identity; correlation ids authorize matching; `AttemptMap`, aliases, and discriminated keys differ; remove/add shares one request/key/attempt; bodyless becomes a resolution failure; or aliases weaken exact/strict/correspondence validation |
 | Planned population ownership | Source-architecture + non-vacuity mutations | A plan/session/projector escapes Research/Queries; a producer enumerates or filters its own population; a completed result retains a callback/plan; or removing, adding, or duplicating one disposition does not reject completion |
-| Mechanism dependency totality | Research + Queries with C#-only change, IL-only change, both exact, one failed, and presentation-filter mutations | Source omits a declared local prerequisite; a failed prerequisite performs I/O; either one-sided change becomes `NotEligible`; no-change performs I/O; or presentation affects eligibility |
-| Synchronous mechanism ownership | Research API and harness tests | The default includes a host mechanism; synchronous `Compare` accepts/ignores Source, ReturnToSender, or unknown flags; or a host runner does not declare its complete set |
+| Mechanism dependency totality | Research + Queries with empty selection, Source-only selection, C#-only change, IL-only change, both exact, one failed, and presentation-filter mutations | An empty set or Source without a requested local mechanism is accepted; a known required dependency is absent; Source omits a requested local prerequisite; a failed prerequisite performs I/O; either one-sided change becomes `NotEligible`; no-change performs I/O; or presentation affects eligibility |
+| Synchronous mechanism ownership | Research API and harness tests over `ResearchChangeMechanism` and `ImplementationDiffMechanism` | Either default/context-free `AllAvailable` includes a host mechanism; synchronous `Compare` accepts/ignores Source, ReturnToSender, or unknown flags; a retired assembly overload remains; or a host runner does not declare its complete set |
 | Async query lifetime | Queries + CLI with revoked authorization, borrowed sessions, primary-plus-cleanup failure, cancellation, and single-threaded awaited reentrancy | Begin/project/complete escape one current lease; CLI opens a reader/session; a borrowed session is disposed; an owned lease leaks; cleanup replaces a primary failure; cancellation returns a partial/failure-shaped result; or Browser/Wasm requires threads/blocking |
-| Authored-source budget | Queries boundary tests at one below/equal/one above every default, cached/uncached, retry/redirect, embedded/external PDB, shared documents, and varied scheduling | Any query-time PDB/source path lacks the same non-optional ledger lease; any attempt/byte/decoded-text/retention/concurrency path bypasses accounting; a host raises a default without Unbounded authorization; per-item limits replace the aggregate; exhaustion publishes a partial/order-dependent Source ledger; or failure omits dimension/limit/charge |
-| Direct-member pairing authority | Research exact-address tests with same path/different MVID, same token/different module, version-only assembly drift, invalid assembly identity, and designation lifetime expiry | `CompareMembers` accepts raw sources/handles instead of `DirectMemberComparisonInput`; designation derives pairing from path, occurrence, display, token, or reader equality; outlives a source; feeds assembly-wide comparison; or bypasses address/role validation |
-| Result and exit totality | Research + CLI text/Markdown/table/TSV/JSON/JSONL with hidden/windowed target, participant, mechanism, budget, and cleanup failures plus `Absent` controls | A failure disappears from retained ledgers; `HasFailures` depends on rendered rows; selected Implementation Diff exits zero for a failure; or `Absent` exits nonzero |
+| Authored-source budget | Queries boundary tests at one below/equal/one above every default, cached/uncached, retry/redirect, embedded/external PDB, shared documents, native/Browser transport-visible operations, varied scheduling, and raised-limit authorization | Any query-time PDB/source path lacks the same non-optional ledger lease; any operation/byte/decoded-text/retention/concurrency path bypasses accounting; a host raises a default without an invocation-scoped `AuthoredSourceBudgetOverrideCapability`; static `InspectionCost` is accepted as that grant; per-item/redirect limits replace the aggregate; exhaustion publishes any eligible success or scheduling changes an eligible item's disposition kind; or failure omits dimension/limit/charge |
+| Direct-member pairing authority | Research exact-address tests with same path/different MVID, same token/different module, version-only assembly drift, invalid assembly identity, and designation lifetime expiry | `CompareMembers` accepts raw sources/handles instead of `DirectMemberComparisonInput`; designation creates a parallel pairing id rather than wrapping one direct-slot `ArtifactParticipantPairing`; cannot lower to a one-item plan; derives pairing from path, occurrence, display, token, or reader equality; outlives a source; feeds assembly-wide comparison; or bypasses address/role validation |
+| Result and exit totality | Research + CLI text/Markdown/table/TSV/JSON/JSONL with empty-mechanism rejection, bodyless `Absent`, hidden/windowed target, participant, mechanism, budget, and cleanup failures plus other `Absent` controls | A planned empty mechanism set completes; bodyless becomes failure/nonzero; a failure disappears from retained ledgers; `HasFailures` depends on rendered rows; selected Implementation Diff exits zero for a failure; or `Absent` exits nonzero |
 
 ## Current mismatches
 
 - `ResearchDiffOptions` defaults to `ResearchChangeMechanism.AllAvailable`,
   which includes host-owned Source and ReturnToSender while synchronous
   `ResearchDiff.Compare` implements only Research-owned mechanisms.
+- `ImplementationDiffMechanism.AllAvailable` likewise includes host-owned
+  Source, and the public assembly `CompareAssemblies`/`Compare` overloads plus
+  harness callers bypass the target query/session ownership.
 - `ResearchComparison` is publicly constructible and combines body projections
   that did not share one complete population.
 - `ImplementationDiff.CompareMembers` receives two live readers and handles but
@@ -750,7 +807,8 @@ The target lifecycle is unverified until these gates exist:
 - The CLI derives authored-source targets from already-rendered changed members
   and owns the async acquisition loop outside one Queries-owned operation.
 - Source acquisition has per-item protections but no aggregate eligible-item,
-  PDB, document, request, transferred-byte, retained-byte, or concurrency
+  PDB, document, outbound-operation, transferred-byte, retained-byte, or
+  concurrency
   budget.
 - Implementation failures do not currently contribute to CLI exit status;
   only API-surface inspection failures do.

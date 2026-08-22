@@ -43,7 +43,9 @@ Member identity has two related vocabularies:
 - **Body addressing** is owned by Metadata and MetadataPrimitives.
   `MetadataMethodAddress` names one validated MethodDef in one MVID;
   `MemberBodyTarget` carries a versioned structural key and relationship role
-  when another participant must re-resolve the selected physical member.
+  when one comparison side must reopen/reacquire the selected version or map
+  its reference/API member to that side's implementation participant after the
+  originating MVID lifetime ends.
   Research may project a `ResearchSubjectKey` for grouping after resolution,
   but that presentation identity never authorizes body selection.
 
@@ -104,9 +106,13 @@ MemberBodyResolution
 
 `Exact` is authoritative only in the MVID it carries. `Carried` revalidates an
 optional preferred address, then resolves by `MemberBodyKey` and relationship
-role inside the selected participant. A stale or cross-reader address is a
-hint failure, not permission to fall back to name, display ordinal,
-`MemberAnchor`, or token equality.
+role inside its side-local selected participant. It is same-artifact
+reacquisition or same-side reference-to-implementation currency, not a target
+for the opposite comparison version.
+Comparison selection mints an independent exact/carried target binding from
+each side's own API/metadata surface before body resolution. A stale or
+cross-reader address is a hint failure, not permission to fall back to name,
+display ordinal, `MemberAnchor`, or token equality.
 
 `MemberBodyKey` is a versioned `MethodStructuralSignature` projection. It
 retains declaring type, method kind/name, calling convention, generic arity and
@@ -125,8 +131,10 @@ unavailable or ambiguous; none guesses by presentation.
 ## Cross-version body correspondence
 
 `MemberBodyCorrespondenceKey` is a separate, comparison-scoped projection. It
-answers whether two already-resolved physical methods are candidates for the
-same logical body across versions. It never enters persisted API inventory,
+answers whether two independently selected and resolved physical methods are
+candidates for the same logical body across versions. Each side first resolves
+its own strict target; neither side attempts to resolve the other side's strict
+key. The correspondence key never enters persisted API inventory,
 same-version target resolution, or user selection.
 
 `body-correspondence-v1` starts from the exact `MethodStructuralSignature` used
@@ -147,6 +155,11 @@ function-pointer, by-ref, assembly-name/culture/token, or any other flag drift
 remains remove/add. A normalized-key collision within one participant is typed
 ambiguity; occurrence or metadata order cannot select a winner.
 
+`Bodyless` still names a successfully resolved MethodDef. It retains the exact
+address, relationship role, strict key, and correspondence key needed to enter
+the comparison coordinate population; body-producing mechanisms decide
+`Absent` for that work item. It is never a target-resolution failure.
+
 Request ids, endpoint ids, participant ids, and presentation anchors are not
 part of either body key. The comparison query attaches its own
 side/participant/target-attempt identity after selection so overlapping user
@@ -163,6 +176,8 @@ The target architecture remains unverified until these gates exist:
 | `BodyTargetResolutionNeverUsesPresentation` | A carried target falls back to name, ordinal, anchor, display signature, path, or raw token; legacy/unknown keys guess; or duplicate candidates select one |
 | `BodyCorrespondenceNormalizationIsExact` | Strict keys erase AssemblyRef version/raw representation; correspondence retains version or `PublicKey`; clears another flag; drops name/culture/token or non-scope structure; or the two policies use different builders/budgets |
 | `BodyCorrespondenceCollisionIsAmbiguous` | Two normalized candidates in one participant pair by occurrence/order, or equal keys in different paired participants collide |
+| `BodyCorrespondence_UsesIndependentSideLocalTargets` | One side's strict target is fanned into the other side; AssemblyRef-version-only drift fails before correspondence; or remove/add shares a target request |
+| `BodylessResolution_RetainsComparisonCoordinate` | A validated bodyless MethodDef becomes a target failure, loses its strict/correspondence identity, or cannot produce a mechanism-level `Absent` disposition |
 
 ## Body identity migration
 
