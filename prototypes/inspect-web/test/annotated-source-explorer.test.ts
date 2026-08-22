@@ -20,6 +20,9 @@ import { fakeDom } from "./fake-dom.ts";
 validateAnnotatedSourceDocument(sampleDocumentFixture);
 const sampleDocument: AnnotatedSourceDocument = sampleDocumentFixture;
 const appSource = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.url), "utf8");
+const explorerSource = readFileSync(
+  new URL("../src/annotated-source-explorer.ts", import.meta.url),
+  "utf8");
 const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 
 const result: AnnotatedSourceResult = {
@@ -238,12 +241,12 @@ test("addressable source uses one tab stop and roving keyboard navigation", () =
     styles,
     /\.annotated-span\.addressable\s*\{[^}]*user-select:\s*text;/,
   );
-  assert.match(appSource, /case "ArrowRight":/);
+  assert.match(explorerSource, /case "ArrowRight":/);
   assert.match(
-    appSource,
+    explorerSource,
     /if \(event\.altKey \|\| event\.ctrlKey \|\| event\.metaKey \|\| event\.shiftKey\) return;/,
   );
-  assert.match(appSource, /spans\[nextIndex\]\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(explorerSource, /spans\[nextIndex\]\.focus\(\{ preventScroll: true \}\)/);
 });
 
 test("all explorer renders preserve focus and scroll while home invalidates the context", () => {

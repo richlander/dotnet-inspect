@@ -331,8 +331,8 @@ const graphSourceViewerSource = readFileSync(
 const docViewerSource = readFileSync(
   new URL("../src/doc-viewer.ts", import.meta.url),
   "utf8");
-const annotatedSourceModule = readFileSync(
-  new URL("../src/annotated-source.ts", import.meta.url),
+const annotatedSourceExplorerModule = readFileSync(
+  new URL("../src/annotated-source-explorer.ts", import.meta.url),
   "utf8");
 const typePanelSource = readFileSync(
   new URL("../src/type-panel.ts", import.meta.url),
@@ -1487,39 +1487,35 @@ test("modal viewers own their rendered close bindings", () => {
   }
 });
 
-test("annotated source owns its rendered control bindings", () => {
+test("annotated source entry owns its rendered control bindings", () => {
   const binding =
-    appSource.match(/function bindAnnotatedSourceEvents\(\) \{[\s\S]*?\n}(?=\n\nconst workbenchShellActions)/)?.[0]
+    appSource.match(/function bindAnnotatedSourceEntryEvents\(\) \{[\s\S]*?\n}(?=\n\nconst workbenchShellActions)/)?.[0]
     ?? "";
   assert.match(
     binding,
-    /bindAnnotatedSource\(document, \{[\s\S]*onClearSelection: \(\) => \{[\s\S]*memberAnnotatedFactId = null;[\s\S]*memberAnnotatedNodeIds = \[\];[\s\S]*onCopy: \(\) => \{[\s\S]*void copyText\([\s\S]*memberAnnotated\.document\.text[\s\S]*onFactSelect: factId => \{[\s\S]*memberAnnotatedFactId === factId \? null : factId[\s\S]*onMediumToggle: medium => \{[\s\S]*isAnnotatedMedium\(medium\)[\s\S]*MEDIA\.some\(candidate => next\[candidate\]\)[\s\S]*onOffsetSelect: offset => \{[\s\S]*nodeAtOffset\(state\.memberAnnotated\.document, offset\)[\s\S]*factsForNode/);
-  assert.match(
-    binding,
-    /\[typedMedium\]: !state\.memberAnnotatedMedia\[typedMedium\],[\s\S]*if \(!MEDIA\.some\(candidate => next\[candidate\]\)\) return;/);
+    /bindAnnotatedSourceEntry\(document, \{[\s\S]*onCopy: \(\) => \{[\s\S]*void copyText\([\s\S]*memberAnnotated\.document\.text[\s\S]*onOpen: openAnnotatedSourceExplorer/);
   assert.doesNotMatch(
     binding,
     /\b(?:getElementById|querySelector|querySelectorAll)\s*\(|\.addEventListener\s*\(/);
   assert.equal(binding.match(/(?<!\.)\bdocument\b/g)?.length, 1);
   assert.match(
-    annotatedSourceModule,
-    /export function bindAnnotatedSource\([\s\S]*#copy-annotated[\s\S]*\[data-annotated-medium\][\s\S]*\[data-annotated-fact\][\s\S]*\[data-annotated-offset\][\s\S]*#annotated-clear/);
+    annotatedSourceExplorerModule,
+    /export function bindAnnotatedSourceEntry\([\s\S]*#copy-annotated[\s\S]*#open-annotated-explorer/);
+  assert.match(
+    annotatedSourceExplorerModule,
+    /export function bindAnnotatedSourceExplorer\([\s\S]*#ase-exit[\s\S]*#ase-copy[\s\S]*\[data-ase-medium\][\s\S]*#ase-node-kind[\s\S]*\[data-ase-fact\][\s\S]*\[data-ase-node\][\s\S]*\[data-ase-offset\][\s\S]*#ase-clear[\s\S]*\.ase-code-scroll/);
   for (const [identifier, count] of [
-    ["bindAnnotatedSourceEvents", 2],
-    ["bindAnnotatedSource", 2],
+    ["bindAnnotatedSourceEntryEvents", 2],
+    ["bindAnnotatedSourceEntry", 2],
+    ["bindAnnotatedSourceExplorerEvents", 2],
+    ["bindAnnotatedSourceExplorer", 2],
   ]) {
     assert.equal(
       appSource.match(new RegExp(`\\b${identifier}\\b`, "g"))?.length,
       count,
       identifier);
   }
-  for (const selector of [
-    "#copy-annotated",
-    "[data-annotated-medium]",
-    "[data-annotated-fact]",
-    "[data-annotated-offset]",
-    "#annotated-clear",
-  ]) {
+  for (const selector of ["#copy-annotated"]) {
     assert.equal(appSource.split(selector).length - 1, 0, selector);
   }
 });

@@ -53,6 +53,17 @@ export interface AnnotatedSourceEntryBindingActions {
   onOpen: () => void;
 }
 
+export interface AnnotatedSourceExplorerBindingActions {
+  onClearSelection: () => void;
+  onCopy: () => void;
+  onExit: () => void;
+  onFactSelect: (factId: number) => void;
+  onMediumToggle: (medium: SourceMedium) => void;
+  onNodeKindSelect: (kind: string) => void;
+  onNodeSelect: (nodeId: number) => void;
+  onOffsetSelect: (offset: number) => void;
+}
+
 export interface AnnotatedSourceExplorerOptions extends AnnotatedSourceEntryOptions {
   state: AnnotatedSourceExplorerState;
   title: string;
@@ -68,6 +79,66 @@ export function bindAnnotatedSourceEntry(
 ): void {
   root.querySelector("#copy-annotated")?.addEventListener("click", actions.onCopy);
   root.querySelector("#open-annotated-explorer")?.addEventListener("click", actions.onOpen);
+}
+
+export function bindAnnotatedSourceExplorer(
+  root: ParentNode,
+  actions: AnnotatedSourceExplorerBindingActions,
+): void {
+  root.querySelector("#ase-exit")?.addEventListener("click", actions.onExit);
+  root.querySelector("#ase-copy")?.addEventListener("click", actions.onCopy);
+  root.querySelectorAll<HTMLElement>("[data-ase-medium]").forEach(button =>
+    button.addEventListener("click", () => {
+      const medium = button.dataset.aseMedium;
+      if (medium === "CSharp" || medium === "Il") actions.onMediumToggle(medium);
+    }));
+  const nodeKind = root.querySelector<HTMLSelectElement>("#ase-node-kind");
+  nodeKind?.addEventListener("change", () => actions.onNodeKindSelect(nodeKind.value));
+  root.querySelectorAll<HTMLElement>("[data-ase-fact]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onFactSelect(Number(button.dataset.aseFact))));
+  root.querySelectorAll<HTMLElement>("[data-ase-node]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onNodeSelect(Number(button.dataset.aseNode))));
+  root.querySelectorAll<HTMLElement>("[data-ase-offset]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onOffsetSelect(Number(button.dataset.aseOffset))));
+  root.querySelector("#ase-clear")?.addEventListener("click", actions.onClearSelection);
+
+  const code = root.querySelector<HTMLElement>(".ase-code-scroll");
+  code?.addEventListener("keydown", event => {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    const spans = [...code.querySelectorAll<HTMLElement>("[data-ase-offset]")];
+    if (spans.length === 0) return;
+    const currentIndex = code.ownerDocument.activeElement instanceof HTMLElement
+      ? spans.indexOf(code.ownerDocument.activeElement)
+      : -1;
+    let nextIndex: number;
+    switch (event.key) {
+      case "ArrowRight":
+      case "ArrowDown":
+        nextIndex = currentIndex < 0 ? 0 : Math.min(currentIndex + 1, spans.length - 1);
+        break;
+      case "ArrowLeft":
+      case "ArrowUp":
+        nextIndex = currentIndex < 0 ? spans.length - 1 : Math.max(currentIndex - 1, 0);
+        break;
+      case "Home":
+        nextIndex = 0;
+        break;
+      case "End":
+        nextIndex = spans.length - 1;
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    spans[nextIndex].focus({ preventScroll: true });
+    spans[nextIndex].scrollIntoView({ block: "nearest", inline: "nearest" });
+  });
 }
 
 export class AnnotatedSourceExplorerRenderCoordinator {

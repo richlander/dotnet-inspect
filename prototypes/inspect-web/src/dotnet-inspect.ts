@@ -115,6 +115,7 @@ import {
 import {
   AnnotatedSourceExplorerRenderCoordinator,
   bindAnnotatedSourceEntry,
+  bindAnnotatedSourceExplorer,
   createAnnotatedSourceExplorerState,
   reduceAnnotatedSourceExplorerState,
   renderAnnotatedSourceEntry,
@@ -3657,78 +3658,49 @@ function updateAnnotatedSourceExplorer(
 }
 
 function bindAnnotatedSourceExplorerEvents() {
-  document.querySelector("#ase-exit")?.addEventListener("click", closeAnnotatedSourceExplorer);
-  document.querySelector("#ase-copy")?.addEventListener("click", () => {
-    if (state.memberAnnotated) {
-      void copyText(state.memberAnnotated.document.text, "annotated source copied");
-    }
-  });
-  document.querySelectorAll<HTMLElement>("[data-ase-medium]").forEach(button => button.addEventListener("click", () => {
-    const medium = button.dataset.aseMedium;
-    if (medium !== "CSharp" && medium !== "Il") return;
-    updateAnnotatedSourceExplorer({
-      type: "toggle-medium",
-      medium,
-    }, false, `[data-ase-medium="${medium}"]`);
-  }));
-  const nodeKind = document.querySelector<HTMLSelectElement>("#ase-node-kind");
-  nodeKind?.addEventListener("change", () => {
-    updateAnnotatedSourceExplorer({
-      type: "select-kind",
-      kind: nodeKind.value,
-    }, Boolean(nodeKind.value), "#ase-node-kind");
-  });
-  document.querySelectorAll<HTMLElement>("[data-ase-fact]").forEach(button => button.addEventListener("click", () => {
-    updateAnnotatedSourceExplorer({
-      type: "select-fact",
-      factId: Number(button.dataset.aseFact),
-    }, true, `[data-ase-fact="${button.dataset.aseFact}"]`);
-  }));
-  document.querySelectorAll<HTMLElement>("[data-ase-node]").forEach(button => button.addEventListener("click", () => {
-    updateAnnotatedSourceExplorer({
-      type: "select-node",
-      nodeId: Number(button.dataset.aseNode),
-    }, true, `[data-ase-node="${button.dataset.aseNode}"]`);
-  }));
-  document.querySelectorAll<HTMLElement>("[data-ase-offset]").forEach(span => span.addEventListener("click", () => {
-    updateAnnotatedSourceExplorer({
-      type: "select-offset",
-      offset: Number(span.dataset.aseOffset),
-    }, false, `[data-ase-offset="${span.dataset.aseOffset}"]`);
-  }));
-  document.querySelector("#ase-clear")?.addEventListener("click", () => {
-    updateAnnotatedSourceExplorer({ type: "clear-selection" }, false, "#ase-node-kind");
-  });
-  const code = document.querySelector<HTMLElement>(".ase-code-scroll");
-  code?.addEventListener("keydown", event => {
-    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-    const spans = [...code.querySelectorAll<HTMLElement>("[data-ase-offset]")];
-    if (spans.length === 0) return;
-    const currentIndex = document.activeElement instanceof HTMLElement
-      ? spans.indexOf(document.activeElement)
-      : -1;
-    let nextIndex: number;
-    switch (event.key) {
-      case "ArrowRight":
-      case "ArrowDown":
-        nextIndex = currentIndex < 0 ? 0 : Math.min(currentIndex + 1, spans.length - 1);
-        break;
-      case "ArrowLeft":
-      case "ArrowUp":
-        nextIndex = currentIndex < 0 ? spans.length - 1 : Math.max(currentIndex - 1, 0);
-        break;
-      case "Home":
-        nextIndex = 0;
-        break;
-      case "End":
-        nextIndex = spans.length - 1;
-        break;
-      default:
-        return;
-    }
-    event.preventDefault();
-    spans[nextIndex].focus({ preventScroll: true });
-    spans[nextIndex].scrollIntoView({ block: "nearest", inline: "nearest" });
+  bindAnnotatedSourceExplorer(document, {
+    onClearSelection: () => {
+      updateAnnotatedSourceExplorer(
+        { type: "clear-selection" },
+        false,
+        "#ase-node-kind");
+    },
+    onCopy: () => {
+      if (state.memberAnnotated) {
+        void copyText(state.memberAnnotated.document.text, "annotated source copied");
+      }
+    },
+    onExit: closeAnnotatedSourceExplorer,
+    onFactSelect: factId => {
+      updateAnnotatedSourceExplorer({
+        type: "select-fact",
+        factId,
+      }, true, `[data-ase-fact="${factId}"]`);
+    },
+    onMediumToggle: medium => {
+      updateAnnotatedSourceExplorer({
+        type: "toggle-medium",
+        medium,
+      }, false, `[data-ase-medium="${medium}"]`);
+    },
+    onNodeKindSelect: kind => {
+      updateAnnotatedSourceExplorer({
+        type: "select-kind",
+        kind,
+      }, Boolean(kind), "#ase-node-kind");
+    },
+    onNodeSelect: nodeId => {
+      updateAnnotatedSourceExplorer({
+        type: "select-node",
+        nodeId,
+      }, true, `[data-ase-node="${nodeId}"]`);
+    },
+    onOffsetSelect: offset => {
+      updateAnnotatedSourceExplorer({
+        type: "select-offset",
+        offset,
+      }, false, `[data-ase-offset="${offset}"]`);
+    },
   });
 }
 
@@ -4408,7 +4380,7 @@ function bindDocViewerEvents() {
   });
 }
 
-function bindAnnotatedSourceEvents() {
+function bindAnnotatedSourceEntryEvents() {
   bindAnnotatedSourceEntry(document, {
     onCopy: () => {
       if (state.memberAnnotated) {
@@ -4460,7 +4432,7 @@ function bindEvents() {
   bindPackageOpportunitiesEvents();
   bindGraphSourceEvents();
   bindDocViewerEvents();
-  bindAnnotatedSourceEvents();
+  bindAnnotatedSourceEntryEvents();
   bindPackageViewEvents();
   bindLibraryControlsEvents();
   bindWorkbenchShell(document, workbenchShellActions);
