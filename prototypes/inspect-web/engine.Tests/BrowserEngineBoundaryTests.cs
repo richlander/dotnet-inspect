@@ -21,6 +21,8 @@ public sealed class BrowserEngineBoundaryTests
 {
     const int MiB = 1024 * 1024;
 
+    public static object PerformanceBoxingProbe(int value) => value;
+
     [Fact]
     public void MemberProjection_CarriesFilterFactsWithoutSignatureParsing()
     {
@@ -1143,12 +1145,53 @@ public sealed class BrowserEngineBoundaryTests
             culture.ValueKind is JsonValueKind.Null or JsonValueKind.String);
         Assert.False(string.IsNullOrWhiteSpace(
             reference.GetProperty("publicKeyToken").GetString()));
+    }
+
+    [Fact]
+    public async Task PackagePerformance_UsesProductRankedWorkspaceAnalysis()
+    {
+        const string PackageId = "Browser.Performance.Root";
+        byte[] image = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageWorkspace.RegisterAcquiredPackage(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                Package(
+                    image,
+                    $"lib/net11.0/{PackageId}.dll"),
+                fromCache: false));
+
+        string json = await InspectionEngine.QueryPackagePerformance(
+            PackageId,
+            "1.0.0",
+            "net11.0");
+
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement root = document.RootElement;
+        Assert.True(
+            root.GetProperty("totalOpportunities").GetInt32() > 0);
+        JsonElement member = Assert.Single(
+            root.GetProperty("members").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("memberName").GetString()
+                == nameof(PerformanceBoxingProbe));
         Assert.Equal(
-            JsonValueKind.Null,
-            root.GetProperty("dependencyGroupError").ValueKind);
+            typeof(BrowserEngineBoundaryTests).FullName,
+            member.GetProperty("typeId").GetString());
         Assert.Equal(
-            JsonValueKind.Null,
-            root.GetProperty("assemblyReferenceError").ValueKind);
+            typeof(BrowserEngineBoundaryTests)
+                .GetMethod(nameof(PerformanceBoxingProbe))!
+                .MetadataToken,
+            member.GetProperty("metadataToken").GetInt32());
+        Assert.Contains(
+            member.GetProperty("shapes").EnumerateArray(),
+            shape => shape.GetString() == "box-value-type");
+        Assert.True(
+            member.GetProperty("opportunityCount").GetInt32()
+            > 0);
+        Assert.False(root.TryGetProperty("dependencyGroupError", out _));
+        Assert.False(root.TryGetProperty("assemblyReferenceError", out _));
     }
 
     [Fact]

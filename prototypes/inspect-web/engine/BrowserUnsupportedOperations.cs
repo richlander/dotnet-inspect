@@ -51,15 +51,6 @@ public static partial class InspectionEngine
         throw Unavailable("Platform opportunities", NoPlatformWorkspace);
 
     [JSExport]
-    public static Task<string> QueryPackagePerformance(
-        string packageId,
-        string version,
-        string targetFramework) =>
-        throw Unavailable(
-            "Package performance",
-            "no group-scoped query ranks assembly-wide Analysis evidence");
-
-    [JSExport]
     public static Task<string> QueryPlatformPerformance(
         string targetFramework,
         string assemblyFileName,

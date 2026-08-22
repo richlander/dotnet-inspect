@@ -2728,7 +2728,7 @@ function renderPackagePerformance() {
   const summary = `
     <section class="document-section">
       <div class="section-title"><h2>Allocation &amp; performance triage</h2><span>${members.length} public member${members.length === 1 ? "" : "s"} · ${data.totalOpportunities} opportunit${data.totalOpportunities === 1 ? "y" : "ies"}${nonPublicNote} · ${scanScope}</span></div>
-      <p class="lens-note">Ranked by in-loop opportunities, then count. Static IL classification — confirm impact with a benchmark or profiler. Select a member to open its Facts lens.</p>
+      <p class="lens-note">Ranked by product triage policy. Static IL classification — confirm impact with a benchmark or profiler. Select a member to open its Facts lens.</p>
     </section>`;
 
   return `${picker}${warning}${summary}<section class="document-section"><div class="perf-list">${rows}</div></section>`;

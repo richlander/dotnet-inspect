@@ -198,11 +198,13 @@ case gate those boundaries.
 Each retained scope has an explicit compile role and implementation role. The
 compile group uses the selector's reference-preferred assets for API and type
 views; the implementation group uses matching `lib/` assets for bodies,
-Integrations, and call graphs. Opportunities use the compile group because they
-classify the package's reference-preferred public surface. Packages without
-`ref/` assets share one group for both roles. When both roles exist and differ, they split the scope's 64 MB retained image
-budget rather than doubling it. A reference-only package has one group and uses
-the full budget.
+Integrations, call graphs, and whole-assembly performance analysis.
+Opportunities use the compile group because they classify the package's
+reference-preferred public surface. Packages without `ref/` assets share one
+group for both roles. When both roles exist and differ, they split the scope's
+64 MB retained image budget rather than doubling it. A reference-only package
+has one group and uses the full budget; performance analysis falls back to that
+surface group when no implementation participant exists.
 
 ## Supported
 
@@ -215,6 +217,7 @@ the full budget.
 | `QueryPackageDependencies` | one package/version/framework | `PackageDependencyGroupsQuery.ExecuteAsync(content, ...)` and `AssemblyContextReferencesQuery.ExecuteParticipant(...)` |
 | `QueryPackageIntegrations` | one package/version/framework | `AssemblyContextIntegrationsQuery.Execute(group)` |
 | `QueryPackageOpportunities` | one package/version/framework | `AssemblyContextIntegrationOpportunitiesQuery.Execute(group, prerequisites)` |
+| `QueryPackagePerformance` | one package/version/framework, implementation group | `AssemblyContextOptimizationOpportunitiesQuery.Execute(group)` |
 | `QueryMemberCallGraph` | every open package coordinate, implementation group | `MemberCallGraphSession` |
 
 `QueryPackage` is the site's default path. It runs against the product-selected
@@ -354,6 +357,16 @@ surface group. The product owns opportunity classification, existing-integration
 suppression, and participant failures. The browser only deduplicates identical
 rows and groups them by the returned integration name.
 
+`QueryPackagePerformance` runs the product's group-scoped optimization query
+over implementation participants, falling back to the surface group only for a
+reference-only package. Analysis owns opportunity priority, semantic loop
+classification, member aggregation, and deterministic order. The query owns
+body-index lifetime, binding-contained sibling resolution, public API
+attribution, and typed failures. The browser preserves the returned public-member
+order while adapting it to the existing wire contract; non-public opportunities
+remain visible in the aggregate count, and the presentation retains its
+200-member display bound.
+
 `QueryPackageDependencies` asks the package-content query for every dependency
 group in manifest order and an exact-framework selection outcome. A missing
 exact group remains visible while the UI permits inspecting the groups that were
@@ -407,8 +420,7 @@ rather than fixture results or success-shaped empty output.
 | --- | --- |
 | `QueryMemberFacts` | method-scoped Analysis evidence over a group participant |
 | `QueryPackageMetadata`, `QueryPackageMetadataTable`, `QueryPackageHeapEntries` | metadata image, table, and heap projections over a group (`MetadataImageQuery` binds to a host-opened session today) |
-| `QueryPackagePerformance` | assembly-wide Analysis ranking over a group |
-| every `QueryPlatform*`, `ExpandPlatformCallGraph`, `LoadRuntimePack`, `LoadRuntimePackAssembly` | `WorkspaceContextLoader` now produces runtime-pack participants from content; the Browser host still needs platform scope caching, typed-result adaptation, and the missing group-scoped metadata/performance queries named above |
+| every `QueryPlatform*`, `ExpandPlatformCallGraph`, `LoadRuntimePack`, `LoadRuntimePackAssembly` | `WorkspaceContextLoader` now produces runtime-pack participants from content; the Browser host still needs platform scope caching, typed-result adaptation, and the missing group-scoped metadata queries named above |
 
 `ResolvedAssemblyReference.CreateFromStreamIfManaged` owns pathless identity
 decoding, so Browser acquisition does not reconstruct assembly identity.

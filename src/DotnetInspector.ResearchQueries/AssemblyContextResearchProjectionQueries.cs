@@ -254,12 +254,12 @@ internal static class AssemblyContextResearchSource
     /// a participant acquired from content has no path.
     /// </summary>
     internal static string Name(AssemblyContextSubject subject)
-        => subject.Identity.Name;
+        => AssemblyContextAnalysisSource.Name(subject);
 
     internal static IAssemblyReferenceResolver Resolver(
         AssemblyContextGroup group,
         AssemblyContextSubject subject)
-        => new BindingPolicyResolver(group, Participant(group, subject));
+        => AssemblyContextAnalysisSource.Resolver(group, subject);
 
     static AssemblyContextParticipant Participant(
         AssemblyContextGroup group,
@@ -268,43 +268,4 @@ internal static class AssemblyContextResearchSource
             candidate => ReferenceEquals(
                 candidate.Assembly.Registration,
                 subject.Registration));
-
-    /// <summary>
-    /// Answers reference resolution from the participant's binding policy — the same
-    /// source-relative snapshot the group is consistent with — rather than by matching simple
-    /// names. Only a selected sibling participant is returned, as a snapshot-backed descriptor,
-    /// so resolution cannot acquire content outside the group's ownership and byte budget.
-    /// </summary>
-    sealed class BindingPolicyResolver(
-        AssemblyContextGroup group,
-        AssemblyContextParticipant participant)
-        : IAssemblyReferenceResolver
-    {
-        public ResolvedAssemblyReference? Resolve(
-            AssemblyReferenceIdentity identity,
-            AssemblyResolutionScope scope)
-        {
-            ArgumentNullException.ThrowIfNull(identity);
-            AssemblyBindingSelection selection = participant.BindingPolicy.Select(
-                new AssemblyBindingRequest(
-                    AssemblyBindingTarget.Reference(identity),
-                    AssemblyBindingOrigin.FromAssembly(participant.Assembly),
-                    scope));
-            if (selection is not AssemblyBindingSelection.Selected selected)
-                return null;
-
-            ImmutableArray<AssemblyContextParticipant> participants = group.Participants;
-            bool isParticipant = participants.Any(
-                candidate => ReferenceEquals(
-                    candidate.Assembly.Registration,
-                    selected.Assembly.Registration));
-            if (!isParticipant)
-                return null;
-
-            return group.RetainAssemblyReference(selected.Assembly)
-                is AssemblyImageAccessResult<ResolvedAssemblyReference>.Available retained
-                ? retained.Value
-                : null;
-        }
-    }
 }

@@ -1694,52 +1694,15 @@ internal static class LibraryMetadataService
     // are medium priority; ordinary one-shot candidates are low. Confidence then ranks the
     // certainty of the evidence/rewrite within that tier, followed by weight and call-graph reach.
     internal static IEnumerable<Analysis.OptimizationOpportunity> OrderByTriagePriority(IEnumerable<Analysis.OptimizationOpportunity> opportunities)
-        => opportunities
-            .OrderByDescending(TriagePriorityRank)
-            .ThenByDescending(opportunity => ConfidenceRank(opportunity.Confidence))
-            .ThenByDescending(opportunity => WeightSortRank(opportunity.Weight))
-            .ThenByDescending(opportunity => opportunity.RootReach)
-            .ThenBy(opportunity => opportunity.Method.DeclaringType.ToQualifiedDisplayString(), StringComparer.Ordinal)
-            .ThenBy(opportunity => opportunity.Method.Name, StringComparer.Ordinal)
-            .ThenBy(opportunity => opportunity.ILOffset ?? -1)
-            .ThenBy(opportunity => opportunity.Shape, StringComparer.Ordinal);
+        => Analysis.OptimizationOpportunityRanking.Order(opportunities);
 
     internal static string TriagePriority(Analysis.OptimizationOpportunity opportunity)
-        => TriagePriorityRank(opportunity) switch
+        => Analysis.OptimizationOpportunityRanking.Priority(opportunity) switch
         {
-            2 => "high",
-            1 => "medium",
+            Analysis.OptimizationOpportunityPriority.High => "high",
+            Analysis.OptimizationOpportunityPriority.Medium => "medium",
             _ => "low",
         };
-
-    static int TriagePriorityRank(Analysis.OptimizationOpportunity opportunity)
-    {
-        if (opportunity.ColdPath)
-            return 0;
-
-        if (opportunity.Shape is
-                "allocation-hotspot"
-                or "cache-lookup-factory-delegate"
-                or "linq-scan-in-loop"
-                or "materialize-in-loop"
-                or "scan-method-in-loop-call"
-                or "string-build-in-loop"
-            || (opportunity.Weight == "high"
-                && opportunity.Shape != "small-array"))
-        {
-            return 2;
-        }
-
-        if (opportunity.Shape == "generic-parameter-object-box")
-            return IteratesInLoop(opportunity)
-                    ? 2
-                    : 1;
-
-        return IteratesInLoop(opportunity)
-            || opportunity.Weight == "medium"
-                ? 1
-                : 0;
-    }
 
     // Whether an allocation opportunity actually iterates as a hot loop, per the
     // semantic per-invocation multiplicity (#2127). A structural in-loop offset that
@@ -1748,8 +1711,8 @@ internal static class LibraryMetadataService
     // unknown. This is the single source of truth for the Loop column, triage sort,
     // and the --loop filter.
     internal static bool IteratesInLoop(Analysis.OptimizationOpportunity opportunity)
-        => opportunity.Multiplicity == "loop"
-            || (opportunity.Multiplicity is null && opportunity.InLoop);
+        => Analysis.OptimizationOpportunityRanking.IteratesInLoop(
+            opportunity);
 
     // Triage ordering weight for a confidence label (high allocations are the surest pay-dirt).
     static int ConfidenceRank(string confidence)
@@ -1862,7 +1825,10 @@ internal static class LibraryMetadataService
             int expected = ConfidenceRank(predicate.Value);
             if (expected == 0 && !predicate.Value.Equals("low", StringComparison.OrdinalIgnoreCase))
                 return false;
-            int compare = TriagePriorityRank(opportunity).CompareTo(expected);
+            int compare = Analysis.OptimizationOpportunityRanking
+                .Priority(opportunity)
+                .CompareTo(
+                    (Analysis.OptimizationOpportunityPriority)expected);
             return MatchCompare(compare, predicate.Operator);
         }
 
@@ -1944,7 +1910,11 @@ internal static class LibraryMetadataService
             return leftNumber.CompareTo(rightNumber);
         }
         if (field == "Priority")
-            return TriagePriorityRank(left).CompareTo(TriagePriorityRank(right));
+            return Analysis.OptimizationOpportunityRanking
+                .Priority(left)
+                .CompareTo(
+                    Analysis.OptimizationOpportunityRanking.Priority(
+                        right));
         if (field == "Confidence")
             return ConfidenceRank(left.Confidence).CompareTo(ConfidenceRank(right.Confidence));
         if (field == "Weight")

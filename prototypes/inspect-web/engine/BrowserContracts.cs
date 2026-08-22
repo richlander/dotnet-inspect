@@ -389,6 +389,22 @@ public sealed record BrowserOpportunityItem(
     string IntegrationType,
     string LookFor);
 
+public sealed record BrowserPackagePerformance(
+    BrowserPerformanceMember[] Members,
+    string? InspectionError,
+    int NonPublicOpportunities,
+    int TotalOpportunities);
+
+public sealed record BrowserPerformanceMember(
+    string Assembly,
+    string TypeId,
+    string MemberName,
+    int MetadataToken,
+    int OpportunityCount,
+    int InLoopCount,
+    string[] Shapes,
+    string Confidence);
+
 /// <summary>
 /// One progressively acquired member call graph, projected through
 /// <c>ILInspector.CallGraph.CallGraphProjection</c>. Graph identity, direction, cycles,
@@ -468,6 +484,7 @@ public sealed record BrowserWorkspacePackage(
 [JsonSerializable(typeof(BrowserDependencyCoordinateMatch))]
 [JsonSerializable(typeof(BrowserPackageIntegrations))]
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
+[JsonSerializable(typeof(BrowserPackagePerformance))]
 [JsonSerializable(typeof(BrowserTypeMetadata))]
 [JsonSerializable(typeof(BrowserAnnotatedSource))]
 [JsonSerializable(typeof(BrowserSource))]

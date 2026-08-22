@@ -1,0 +1,277 @@
+using System.Collections.Immutable;
+
+using ILInspector.Analysis;
+using ILInspector.Metadata;
+
+namespace DotnetInspector.Queries;
+
+public sealed record OptimizationOpportunityPublicMember(
+    string Type,
+    string Member,
+    int MetadataToken);
+
+public sealed record AssemblyOptimizationOpportunityMember(
+    OptimizationOpportunityMemberRanking Ranking,
+    OptimizationOpportunityPublicMember? PublicMember);
+
+public sealed record AssemblyOptimizationOpportunityRanking(
+    ImmutableArray<AssemblyOptimizationOpportunityMember> Members,
+    ImmutableHashSet<TypeRef> GeneratedFrameworkTypes,
+    ImmutableArray<AnalysisDiagnostic> Diagnostics,
+    ImmutableArray<ApiSurfaceInspectionFailure>
+        ApiSurfaceInspectionFailures)
+{
+    public int TotalOpportunities =>
+        Members.Sum(member => member.Ranking.Opportunities.Length);
+
+    public int NonPublicOpportunities =>
+        Members
+            .Where(member => member.PublicMember is null)
+            .Sum(member => member.Ranking.Opportunities.Length);
+}
+
+public sealed record AssemblyContextOptimizationOpportunityMember(
+    AssemblyContextSubject Subject,
+    AssemblyOptimizationOpportunityMember Member);
+
+/// <summary>
+/// Ranked Analysis opportunities for one binding-consistent assembly context group.
+/// </summary>
+/// <remarks>
+/// The query owns every whole-assembly Analysis index, joins method bodies to the
+/// public API surface through product body selectors, and retains participant
+/// rejection or failure beside healthy rankings. Ordering, public-member
+/// attribution, and sequential execution are gated by
+/// <c>AssemblyContextOptimizationOpportunitiesQueryTests</c>.
+/// </remarks>
+public sealed record AssemblyContextOptimizationOpportunitiesResult(
+    AssemblyContextResult<AssemblyOptimizationOpportunityRanking> Assemblies,
+    ImmutableArray<AssemblyContextOptimizationOpportunityMember>
+        RankedMembers)
+{
+    public bool IsComplete => Assemblies.IsComplete;
+
+    public int TotalOpportunities =>
+        Assemblies.Assemblies
+            .OfType<
+                AssemblyContextEntry<
+                    AssemblyOptimizationOpportunityRanking>.Available>()
+            .Sum(entry => entry.Value.TotalOpportunities);
+
+    public int NonPublicOpportunities =>
+        Assemblies.Assemblies
+            .OfType<
+                AssemblyContextEntry<
+                    AssemblyOptimizationOpportunityRanking>.Available>()
+            .Sum(entry => entry.Value.NonPublicOpportunities);
+}
+
+public static class AssemblyContextOptimizationOpportunitiesQuery
+{
+    public static InspectionQuery<
+        AssemblyContextOptimizationOpportunitiesResult> Definition { get; } =
+        new(
+            "Assembly context optimization opportunities",
+            InspectionCost.Unbounded);
+
+    public static AssemblyContextOptimizationOpportunitiesResult Execute(
+        AssemblyContextGroup group)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+        AssemblyContextResult<AssemblyOptimizationPublicMembers>
+            publicMembers = AssemblyContextQueryExecutor.Execute(
+                group,
+                ProjectPublicMembers);
+        return Execute(group, publicMembers);
+    }
+
+    internal static AssemblyContextOptimizationOpportunitiesResult Execute(
+        AssemblyContextGroup group,
+        AssemblyContextResult<AssemblyOptimizationPublicMembers>
+            publicMembers)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+        ArgumentNullException.ThrowIfNull(publicMembers);
+        if (publicMembers.Assemblies.Length
+            != group.Participants.Length)
+        {
+            throw new InspectionQueryException(
+                "Assembly context public members did not produce one result per participant.");
+        }
+
+        var entries =
+            ImmutableArray.CreateBuilder<
+                AssemblyContextEntry<
+                    AssemblyOptimizationOpportunityRanking>>(
+                        group.Participants.Length);
+        for (int index = 0;
+            index < group.Participants.Length;
+            index++)
+        {
+            AssemblyContextParticipant participant =
+                group.Participants[index];
+            AssemblyContextEntry<AssemblyOptimizationPublicMembers>
+                projectedPublicMembers =
+                    publicMembers.Assemblies[index];
+            EnsureSameParticipant(
+                participant,
+                projectedPublicMembers.Subject);
+            entries.Add(
+                projectedPublicMembers switch
+                {
+                    AssemblyContextEntry<
+                        AssemblyOptimizationPublicMembers>.Rejected
+                        rejected =>
+                        new AssemblyContextEntry<
+                            AssemblyOptimizationOpportunityRanking>.Rejected(
+                                rejected.Subject,
+                                rejected.Failure),
+                    AssemblyContextEntry<
+                        AssemblyOptimizationPublicMembers>.Failed failed =>
+                        new AssemblyContextEntry<
+                            AssemblyOptimizationOpportunityRanking>.Failed(
+                                failed.Subject,
+                                failed.Error),
+                    AssemblyContextEntry<
+                        AssemblyOptimizationPublicMembers>.Available
+                        available =>
+                        AssemblyContextQueryExecutor
+                            .ExecuteParticipantOverSnapshot(
+                                group,
+                                participant,
+                                (subject, snapshot) => Analyze(
+                                    group,
+                                    subject,
+                                    snapshot,
+                                    available.Value)),
+                    _ => throw new InvalidOperationException(
+                        $"Unknown public-member entry '{projectedPublicMembers.GetType().Name}'."),
+                });
+        }
+
+        var assemblies =
+            new AssemblyContextResult<
+                AssemblyOptimizationOpportunityRanking>(
+                    entries.MoveToImmutable());
+        return new AssemblyContextOptimizationOpportunitiesResult(
+            assemblies,
+            RankAcrossGroup(assemblies));
+    }
+
+    static AssemblyOptimizationOpportunityRanking Analyze(
+        AssemblyContextGroup group,
+        AssemblyContextSubject subject,
+        AssemblyImageSnapshot snapshot,
+        AssemblyOptimizationPublicMembers publicMembers)
+    {
+        LibraryBodyIndex? index = null;
+        try
+        {
+            index = LibraryBodyIndex.OpenFromPrefetchedImage(
+                AssemblyContextAnalysisSource.Name(subject),
+                snapshot.Content,
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+                AssemblyContextAnalysisSource.Resolver(
+                    group,
+                    subject));
+
+            ImmutableArray<
+                OptimizationOpportunityMemberRanking> rankings =
+                OptimizationOpportunityRanking.RankMembers(
+                    index.OptimizationOpportunities);
+            return new AssemblyOptimizationOpportunityRanking(
+                [
+                    .. rankings.Select(
+                        ranking =>
+                            new AssemblyOptimizationOpportunityMember(
+                                ranking,
+                                publicMembers.Members.GetValueOrDefault(
+                                    ranking.Method.MetadataToken))),
+                ],
+                index.GeneratedFrameworkTypes.ToImmutableHashSet(),
+                index.Diagnostics,
+                publicMembers.InspectionFailures);
+        }
+        finally
+        {
+            index?.ReleaseCallGraphCaches();
+        }
+    }
+
+    static AssemblyOptimizationPublicMembers ProjectPublicMembers(
+        AssemblyInspectionSession session)
+    {
+        ApiSurface surface =
+            session.ApiSurface(ApiSurfaceExtractionScope.Public);
+        var members =
+            new Dictionary<
+                int,
+                OptimizationOpportunityPublicMember>();
+        foreach (ApiType type in surface.Types)
+        {
+            foreach (ApiMember member in type.Members)
+            {
+                foreach (CallGraphMemberBodySelector selector
+                    in CallGraphMemberResolver.CreateBodySelectors(
+                        type,
+                        member))
+                {
+                    members.TryAdd(
+                        selector.BodyToken,
+                        new OptimizationOpportunityPublicMember(
+                            type.FullName,
+                            member.Name,
+                            member.MetadataToken
+                                ?? selector.BodyToken));
+                }
+            }
+        }
+
+        return new AssemblyOptimizationPublicMembers(
+            members,
+            [.. surface.InspectionFailures]);
+    }
+
+    static ImmutableArray<
+        AssemblyContextOptimizationOpportunityMember>
+        RankAcrossGroup(
+            AssemblyContextResult<
+                AssemblyOptimizationOpportunityRanking> assemblies)
+        =>
+        [
+            .. assemblies.Assemblies
+                .OfType<
+                    AssemblyContextEntry<
+                        AssemblyOptimizationOpportunityRanking>.Available>()
+                .SelectMany(
+                    entry => entry.Value.Members.Select(
+                        member =>
+                            new AssemblyContextOptimizationOpportunityMember(
+                                entry.Subject,
+                                member)))
+                .OrderBy(
+                    member => member.Member.Ranking,
+                    OptimizationOpportunityRanking.MemberComparer),
+        ];
+
+    static void EnsureSameParticipant(
+        AssemblyContextParticipant participant,
+        AssemblyContextSubject subject)
+    {
+        if (!ReferenceEquals(
+                participant.Assembly.Registration,
+                subject.Registration))
+        {
+            throw new InspectionQueryException(
+                "Assembly context API surface result order does not match the group participants.");
+        }
+    }
+
+    internal sealed record AssemblyOptimizationPublicMembers(
+        IReadOnlyDictionary<
+            int,
+            OptimizationOpportunityPublicMember> Members,
+        ImmutableArray<ApiSurfaceInspectionFailure>
+            InspectionFailures);
+}
