@@ -34,6 +34,31 @@ public class RetainedMergeStructuringTests
     }
 
     [Fact]
+    public void RetainedAuditRecordsOnlyInstalledReplacement()
+    {
+        var successStepper = new Stepper(enabled: true);
+        var (_, successDiagnostics) = Structure(
+            SequentialRetainedMerges(),
+            stepper: successStepper);
+
+        Assert.Equal(2, successDiagnostics.RetainedRegions);
+        Assert.Single(
+            successStepper.Steps,
+            step => step.Description.Contains("2 retained-merge region(s)", StringComparison.Ordinal));
+
+        var declineStepper = new Stepper(enabled: true);
+        var (declined, declineDiagnostics) = Structure(
+            RetainedBodyMergeNestedBelowGotoBlocks(),
+            stepper: declineStepper);
+
+        Assert.Equal(0, declineDiagnostics.RetainedRegions);
+        Assert.Empty(declined.Descendants.OfType<WhileLoop>());
+        Assert.DoesNotContain(
+            declineStepper.Steps,
+            step => step.Description.Contains("retained-merge region", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void CrossingForwardRegionsStayFlat()
     {
         var blocks = new[]
@@ -722,7 +747,8 @@ public class RetainedMergeStructuringTests
     static (IrFunction Function, StructuringDiagnostics Diagnostics) Structure(
         Block[] blocks,
         Parameter[]? parameters = null,
-        bool usesUpdatedMemorySafetyRules = false)
+        bool usesUpdatedMemorySafetyRules = false,
+        Stepper? stepper = null)
     {
         var container = new BlockContainer();
         foreach (var block in blocks)
@@ -740,7 +766,7 @@ public class RetainedMergeStructuringTests
 
         new StructuringPass().Run(
             function,
-            new PassContext(new Stepper(enabled: false), diagnostics));
+            new PassContext(stepper ?? new Stepper(enabled: false), diagnostics));
         function.CheckInvariant();
         return (function, diagnostics);
     }

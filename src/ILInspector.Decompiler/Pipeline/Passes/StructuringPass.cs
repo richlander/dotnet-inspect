@@ -489,10 +489,6 @@ public sealed class StructuringPass : IIrPass
                 range.AllowRetainedMergeWithinLoop))
             .ToList();
 
-        context.Stepper.StepOver(
-            $"structure {ranges.Count} retained-merge region(s) in container at IL_{sourceCtx.Blocks[0].StartOffset:X4}",
-            container);
-
         var replacement = new BlockContainer
         {
             ContainsRetainedBranches = true,
@@ -534,14 +530,19 @@ public sealed class StructuringPass : IIrPass
             }
             replacement.Add(built);
             cursor = range.Stop;
-            context.StructuringDiagnostics?.RecordRetainedRegion();
         }
 
         while (cursor < clonedBlocks.Count)
             replacement.Add(clonedBlocks[cursor++]);
 
-        context.StructuringDiagnostics?.RecordStructured();
+        context.Stepper.StepOver(
+            $"structure {ranges.Count} retained-merge region(s) in container at IL_{sourceCtx.Blocks[0].StartOffset:X4}",
+            container);
+
         container.ReplaceWith(replacement);
+        context.StructuringDiagnostics?.RecordStructured();
+        foreach (var _ in ranges)
+            context.StructuringDiagnostics?.RecordRetainedRegion();
         return true;
     }
 
