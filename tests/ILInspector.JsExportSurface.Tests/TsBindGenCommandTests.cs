@@ -268,7 +268,11 @@ public sealed class TsBindGenCommandTests
             Assert.Equal(string.Empty, output.ToString());
             Assert.False(File.Exists(emitJsPath));
             Assert.Contains(
-                "member [JsonPropertyName]: control-character JSON property names "
+                "member 0x",
+                error.ToString(),
+                StringComparison.Ordinal);
+            Assert.Contains(
+                " [JsonPropertyName]: control-character JSON property names "
                     + "are not supported.",
                 error.ToString(),
                 StringComparison.Ordinal);
