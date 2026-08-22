@@ -32,9 +32,9 @@ reboot, a lost terminal, a session resumed from disk. This section covers that.
 It is distinct from a round restart, which
 [Canonical round flow](#canonical-round-flow) governs.
 
-A resume restores your transcript and nothing else. Time has passed: the base
-has moved, CI has run, reviewers or the user may have posted, and your restored
-plan may describe a state that no longer exists. Treat the transcript as
+A resume restores your transcript and nothing else. Time has passed: the base may
+have moved and CI has run, so your restored plan may describe a state that no
+longer exists. Treat the transcript as
 history, not as current fact.
 
 ### First, re-establish the world
@@ -43,8 +43,6 @@ history, not as current fact.
   branch, and head. Fetch, and determine whether the effective base moved while
   you were gone. Do not pull or rebase a pushed branch to "catch up"; reconcile
   it the way this file already requires.
-- **Re-read the PR conversation** from where you stopped. Anything posted while
-  you were gone is current and outranks your restored plan.
 - **Re-check PR state** per [Canonical round flow](#canonical-round-flow).
 - **Name your window** so the session can be found from outside:
   `tmux rename-window pr-<number>`, or the issue number when no PR exists yet.
