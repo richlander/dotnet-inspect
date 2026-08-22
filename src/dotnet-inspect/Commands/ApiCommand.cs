@@ -50,6 +50,7 @@ public class ApiCommand
             MemberFilter = options.MemberFilter,
             KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
             IncludeSections = options.IncludeSections,
+            ExactIncludeSectionsOverride = options.ExactIncludeSectionsOverride,
             Print = options.Print, PrintRow = options.PrintRow,
             Value = options.Value, Urls = options.Urls, Paths = options.Paths,
             Select = options.Select, SelectDefault = options.SelectDefault,
@@ -106,7 +107,12 @@ public class ApiCommand
             return null;
 
         var listingOptions = selectResult.Sections != null
-            ? options with { IncludeSections = selectResult.Sections, SelectDeferredToListing = false }
+            ? options with
+            {
+                IncludeSections = selectResult.Sections,
+                ExactIncludeSectionsOverride = selectResult.ExactSections,
+                SelectDeferredToListing = false
+            }
             : options with { SelectDeferredToListing = false };
 
         // The preamble skips the selection-arity checks for a deferred select because it cannot yet
@@ -312,7 +318,13 @@ public class ApiCommand
                 return (null!, 1);
             }
             if (selectResult.Sections != null)
-                options = options with { IncludeSections = selectResult.Sections };
+            {
+                options = options with
+                {
+                    IncludeSections = selectResult.Sections,
+                    ExactIncludeSectionsOverride = selectResult.ExactSections,
+                };
+            }
         }
         if (options is
             {
@@ -1463,9 +1475,9 @@ public class ApiCommand
     /// True when the member carries no IL body, so <paramref name="Source"/> is absent because
     /// there is nothing to show rather than because resolution failed (issue #3299).
     /// </param>
-    /// <param name="MemberHasNoAuthoredDeclaration">
-    /// True when the member has a body but its source range does not identify one vouched
-    /// authored declaration to isolate.
+    /// <param name="MemberHasNoPdbDeclaration">
+    /// True when the member has a body but its PDB source range does not identify one declaration
+    /// to isolate.
     /// </param>
     /// <param name="MemberSourceTooComplex">
     /// True when verified source exceeded the bounded lexical-complexity limit.
@@ -1473,13 +1485,17 @@ public class ApiCommand
     /// <param name="MemberSourceCoordinatesInvalid">
     /// True when portable-PDB sequence-point coordinates cannot address the verified source.
     /// </param>
+    /// <param name="PdbSourceUnavailableReason">
+    /// Visible explanation when PDB source acquisition failed for another reason.
+    /// </param>
     internal sealed record ResolvedMethodSource(
         MethodSourceContext? Source,
         string? PdbPath,
         bool MemberHasNoBody = false,
-        bool MemberHasNoAuthoredDeclaration = false,
+        bool MemberHasNoPdbDeclaration = false,
         bool MemberSourceTooComplex = false,
-        bool MemberSourceCoordinatesInvalid = false);
+        bool MemberSourceCoordinatesInvalid = false,
+        string? PdbSourceUnavailableReason = null);
 
     internal static async Task<ResolvedMethodSource> ResolveMethodSourceAsync(
         string dllPath, string typeName, string methodName, int overloadIndex,
@@ -1508,31 +1524,45 @@ public class ApiCommand
             // names even when SourceLink/source resolution below fails (PDB available, source not).
             string? pdbPath = context.PortablePdbPath;
 
-            // A member with no IL body has no authored source to resolve, whatever the PDB and
+            // A member with no IL body has no PDB source to resolve, whatever the PDB and
             // SourceLink situation is. Ask metadata for that fact before the resolution attempt,
             // so an empty result can say why instead of looking like a silent failure
             // (issue #3299). Only a definite "no" counts; an unreadable token stays unknown.
             bool memberHasNoBody = metadataToken != 0 && context.MethodHasBody(metadataToken) == false;
 
-            if (!fetchSource || !service.HasPdb || !service.HasSourceLink)
+            if (!fetchSource)
                 return new ResolvedMethodSource(null, pdbPath, memberHasNoBody);
+            if (!service.HasPdb)
+            {
+                return new ResolvedMethodSource(
+                    null,
+                    pdbPath,
+                    memberHasNoBody,
+                    PdbSourceUnavailableReason: NoPortablePdbReason);
+            }
 
             var methodInfo = service.ResolveMethodSource(typeName, methodName, overloadIndex, publicOnly, metadataToken);
             if (methodInfo == null)
-                return new ResolvedMethodSource(null, pdbPath, memberHasNoBody);
+            {
+                return new ResolvedMethodSource(
+                    null,
+                    pdbPath,
+                    memberHasNoBody,
+                    PdbSourceUnavailableReason: NoPdbSourceMappingReason);
+            }
 
             // Honor the source the portable PDB records when it is present locally: a non-reproducible
             // (local dev) build keeps a real local path whose exact compiled bytes may exist only here,
             // so the remote SourceLink URL would 404 or differ. The checksum authenticates the on-disk
             // bytes against the portable PDB; remote SourceLink is the fallback for reproducible builds.
             string? content = null;
-            var localBytes = DotnetInspector.Services.AuthoredSourceAcquisition.TryReadVerifiedLocalSource(
+            var localBytes = DotnetInspector.Services.PdbSourceAcquisition.TryReadVerifiedLocalSource(
                 methodInfo.FilePath, methodInfo.ChecksumAlgorithm, methodInfo.Checksum);
             byte[]? repoBytes;
             if (localBytes != null)
             {
-                content = NormalizeAuthoredSourceLineEndings(
-                    DotnetInspector.Services.AuthoredSourceAcquisition.DecodeSourceText(localBytes));
+                content = NormalizePdbSourceLineEndings(
+                    DotnetInspector.Services.PdbSourceAcquisition.DecodeSourceText(localBytes));
             }
             // Opt-in (--repo): read the committed blob at the SourceLink commit from a local clone,
             // authenticated by the same PDB checksum, before touching the network. Useful for a
@@ -1542,26 +1572,32 @@ public class ApiCommand
                     methodInfo.SourceUrl, methodInfo.ChecksumAlgorithm, methodInfo.Checksum,
                     options.SourceRepositories)) != null)
             {
-                content = NormalizeAuthoredSourceLineEndings(
-                    DotnetInspector.Services.AuthoredSourceAcquisition.DecodeSourceText(repoBytes));
+                content = NormalizePdbSourceLineEndings(
+                    DotnetInspector.Services.PdbSourceAcquisition.DecodeSourceText(repoBytes));
             }
             else if (methodInfo.SourceUrl != null)
             {
                 var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
-                var fetch = await AuthoredSourceAcquisition.FetchVerifiedSourceTextAsync(
+                var fetch = await PdbSourceAcquisition.FetchVerifiedSourceTextAsync(
                     fetcher,
                     methodInfo.SourceUrl,
                     methodInfo.ChecksumAlgorithm,
                     methodInfo.Checksum);
                 content = fetch.Text is null
                     ? null
-                    : NormalizeAuthoredSourceLineEndings(fetch.Text);
+                    : NormalizePdbSourceLineEndings(fetch.Text);
                 if (fetch.Failure is not null)
                     logger.LogWarning(fetch.Failure);
             }
 
             if (content == null)
-                return new ResolvedMethodSource(null, pdbPath, memberHasNoBody);
+            {
+                return new ResolvedMethodSource(
+                    null,
+                    pdbPath,
+                    memberHasNoBody,
+                    PdbSourceUnavailableReason: NoMatchingPdbSourceReason);
+            }
 
             return SliceResolvedMethodSource(
                 content,
@@ -1577,11 +1613,14 @@ public class ApiCommand
         catch (Exception ex)
         {
             logger.LogWarning($"Failed to resolve method source for {typeName}.{methodName}: {ex.Message}");
-            return new ResolvedMethodSource(null, null);
+            return new ResolvedMethodSource(
+                null,
+                null,
+                PdbSourceUnavailableReason: PdbSourceInspectionFailedReason);
         }
     }
 
-    internal static string NormalizeAuthoredSourceLineEndings(string content)
+    internal static string NormalizePdbSourceLineEndings(string content)
         // Normalize only CR/LF forms. Other characters recognized by string.ReplaceLineEndings,
         // including form feed, are not C# physical line breaks and must not shift PDB coordinates.
         => content.Replace("\r\n", "\n").Replace('\r', '\n');
@@ -1606,13 +1645,13 @@ public class ApiCommand
                 methodName,
                 visibleSequencePointStartLines);
 
-            // The range does not identify one authored declaration: report no source rather than
+            // The PDB range does not identify one declaration: report no source rather than
             // a type header, initializer, or structurally unknown span.
             return sourceCode is null
                 ? new ResolvedMethodSource(
                     null,
                     pdbPath,
-                    MemberHasNoAuthoredDeclaration: true)
+                    MemberHasNoPdbDeclaration: true)
                 : new ResolvedMethodSource(
                     new MethodSourceContext(
                         sourceCode,
@@ -1704,16 +1743,23 @@ public class ApiCommand
         bool sourceDocumentJson = IsAnnotatedSourceDocumentJson(options);
         bool barePayloadRenderer =
             options.Bare && !options.Count && !options.JsonOutput;
+        bool sourceSectionExplicitlySelected =
+            options.ExactIncludeSections?
+                .Overlaps([SectionNames.PdbSource, SectionNames.SourceDiff]) == true;
         if (options is MemberOptions memberOptions
+            && !memberOptions.MemberHasNoBody
             && (memberOptions.MemberSourceTooComplex
-                || memberOptions.MemberSourceCoordinatesInvalid)
+                || memberOptions.MemberSourceCoordinatesInvalid
+                || (sourceSectionExplicitlySelected
+                    && !memberOptions.MemberHasNoPdbDeclaration
+                    && memberOptions.PdbSourceUnavailableReason is { Length: > 0 }))
             && !IsProjectionRequested(options)
             && !barePayloadRenderer
             && (options.Count
                 || options.Tabular
                 || options.JsonOutput)
             && GetRequestedMemberSections(type, options)
-                .Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
+                .Overlaps([SectionNames.PdbSource, SectionNames.SourceDiff]))
         {
             string format = options.Count
                 ? "--count"
@@ -1725,13 +1771,15 @@ public class ApiCommand
                             ? "--table"
                             : "Document --json";
             string guidance = options.Count
-                ? "Remove --count to render the section failure."
+                ? "Use Markdown/plaintext without --count, or replace --count with --print."
                 : "Use Markdown/plaintext output, or add --print to project the section payload.";
             string failure = memberOptions.MemberSourceTooComplex
-                ? "Authored source extraction stopped because the source exceeds the lexical "
+                ? "PDB source extraction stopped because the source exceeds the lexical "
                     + "complexity limit."
-                : "Authored source extraction stopped because the portable-PDB sequence-point "
-                    + "coordinates cannot address the verified source.";
+                : memberOptions.MemberSourceCoordinatesInvalid
+                    ? "PDB source extraction stopped because the portable-PDB sequence-point "
+                        + "coordinates cannot address the verified source."
+                    : memberOptions.PdbSourceUnavailableReason!;
             CommandError.Write(
                 failure + $" {format} cannot represent this code-section "
                 + "failure. " + guidance);
@@ -1931,18 +1979,18 @@ public class ApiCommand
 
             // Source code (already resolved in command layer)
             if (options is MemberOptions mo5
-                && GetRequestedMemberSections(type, mo5).Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
+                && GetRequestedMemberSections(type, mo5).Overlaps([SectionNames.PdbSource, SectionNames.SourceDiff]))
             {
                 if (mo5.MethodSource is { } resolvedSource)
                 {
                     view.MemberCode ??= new MemberCodeView();
-                    view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", resolvedSource.SourceCode);
+                    view.MemberCode.PdbSourceCode = new Markout.CodeSection("csharp", resolvedSource.SourceCode);
                 }
-                else if (OriginalSourceUnavailableNote(mo5) is { } note)
+                else if (PdbSourceUnavailableNote(mo5) is { } note)
                 {
                     view.MemberCode ??= new MemberCodeView();
-                    view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", note);
-                    view.MemberCode.OriginalSourceUnavailable = true;
+                    view.MemberCode.PdbSourceCode = new Markout.CodeSection("csharp", note);
+                    view.MemberCode.PdbSourceUnavailable = true;
                 }
             }
 
@@ -2180,7 +2228,7 @@ public class ApiCommand
 
         var documents = section switch
         {
-            SectionNames.OriginalSource => CodeSectionDocument(section, "Original Source", (options as MemberOptions)?.MethodSource?.SourceUrl, view.MemberCode?.OriginalSourceCode.Content),
+            SectionNames.PdbSource => CodeSectionDocument(section, SectionNames.PdbSource, (options as MemberOptions)?.MethodSource?.SourceUrl, view.MemberCode?.PdbSourceCode.Content),
             SectionNames.DecompiledSource => CodeSectionDocument(section, "Decompiled Source", null, view.MemberCode?.DecompiledSourceCode.Content),
             SectionNames.AnnotatedSource => CodeSectionDocument(section, "Annotated Source", null, view.MemberCode?.AnnotatedSourceCode.Content),
             SectionNames.SourceDiff => CodeSectionDocument(section, "Source Diff", (options as MemberOptions)?.MethodSource?.SourceUrl, view.MemberCode?.SourceDiffCode.Content),
@@ -2189,7 +2237,7 @@ public class ApiCommand
         };
 
         if (documents.Count == 0
-            && section is not (SectionNames.SourceFiles or SectionNames.SourceLocations or SectionNames.OriginalSource
+            && section is not (SectionNames.SourceFiles or SectionNames.SourceLocations or SectionNames.PdbSource
                 or SectionNames.DecompiledSource or SectionNames.AnnotatedSource or SectionNames.SourceDiff or SectionNames.IL))
         {
             CommandError.Write($"section '{section}' is not printable.");
@@ -2387,7 +2435,7 @@ public class ApiCommand
         var rawUrl = GitHubUrlResolver.ConvertBlobToRawUrl(selectedRow.Url!);
         var selectedSource = materialized.Single(row => row.Row == selectedRow.Row);
         var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
-        var fetch = await AuthoredSourceAcquisition.FetchVerifiedSourceTextAsync(
+        var fetch = await PdbSourceAcquisition.FetchVerifiedSourceTextAsync(
             fetcher,
             rawUrl,
             selectedSource.ChecksumAlgorithm,
@@ -2437,7 +2485,7 @@ public class ApiCommand
             SectionNames.AnnotatedSource => view.MemberCode?.AnnotatedSourceCode.Content ?? "",
             SectionNames.CostOverlay => view.MemberCode?.CostOverlayCode.Content ?? "",
             SectionNames.SemanticsOverlay => view.MemberCode?.SemanticsOverlayCode.Content ?? "",
-            SectionNames.OriginalSource => view.MemberCode?.OriginalSourceCode.Content ?? "",
+            SectionNames.PdbSource => view.MemberCode?.PdbSourceCode.Content ?? "",
             SectionNames.SourceDiff => view.MemberCode?.SourceDiffCode.Content ?? "",
             SectionNames.IL => view.MemberCode?.ILCode.Content ?? "",
             SectionNames.SourceFiles => BareUrlColumn(view.SourceFileRows?.Select(row => row.Url), SectionNames.SourceFiles, out error),
@@ -2748,18 +2796,18 @@ public class ApiCommand
                         memberOptions.IncludeSections, memberOptions);
                 }
 
-                if (requestedSections.Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
+                if (requestedSections.Overlaps([SectionNames.PdbSource, SectionNames.SourceDiff]))
                 {
                     if (memberOptions.MethodSource is { } resolvedSource)
                     {
                         view.MemberCode ??= new MemberCodeView();
-                        view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", resolvedSource.SourceCode);
+                        view.MemberCode.PdbSourceCode = new Markout.CodeSection("csharp", resolvedSource.SourceCode);
                     }
-                    else if (OriginalSourceUnavailableNote(memberOptions) is { } note)
+                    else if (PdbSourceUnavailableNote(memberOptions) is { } note)
                     {
                         view.MemberCode ??= new MemberCodeView();
-                        view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", note);
-                        view.MemberCode.OriginalSourceUnavailable = true;
+                        view.MemberCode.PdbSourceCode = new Markout.CodeSection("csharp", note);
+                        view.MemberCode.PdbSourceUnavailable = true;
                     }
                 }
                 PopulateSourceDiff(
@@ -2871,41 +2919,55 @@ public class ApiCommand
     }
 
     /// <summary>
-    /// Stands in for Original Source when the selected member carries no IL body. A C# comment
+    /// Stands in for PDB Source when the selected member carries no IL body. A C# comment
     /// so it reads naturally inside the section's <c>csharp</c> fence, mirroring how
     /// <see cref="SourceTextDiffRenderer"/> reports an unavailable diff input (issue #3299).
     /// </summary>
     internal const string BodylessMemberNote =
-        "// This member has no IL body, so it has no authored source to show.";
+        "// This member has no IL body, so it has no PDB source to show.";
 
     /// <summary>
-    /// Stands in for Original Source when the selected member has an IL body but its source range
-    /// does not identify one authored declaration that can be shown. Generated members may map to
+    /// Stands in for PDB Source when the selected member has an IL body but its source range
+    /// does not identify one declaration that can be shown. Generated members may map to
     /// a type header or initializer, and structurally unknown ranges are deliberately not guessed;
     /// saying so beats rendering unrelated or truncated source (issue #3299's principle, applied
     /// to a second cause).
     /// </summary>
-    internal const string NoAuthoredDeclarationNote =
-        "// This member's source range does not identify one authored declaration that can be shown.\n"
+    internal const string NoPdbDeclarationNote =
+        "// This member's PDB source range does not identify one declaration that can be shown.\n"
         + "// Generated members and ambiguous or structurally unknown source ranges can have this shape.";
 
     internal const string SourceTooComplexNote =
-        "// Authored source extraction stopped because the source exceeds the lexical complexity limit.";
+        "// PDB source extraction stopped because the source exceeds the lexical complexity limit.";
 
     internal const string SourceCoordinatesInvalidNote =
-        "// Authored source extraction stopped because the portable-PDB sequence-point coordinates "
+        "// PDB source extraction stopped because the portable-PDB sequence-point coordinates "
         + "cannot address the verified source.";
 
-    internal static string? OriginalSourceUnavailableNote(MemberOptions options) =>
+    internal const string NoPortablePdbReason =
+        "No portable PDB is available for the selected member.";
+
+    internal const string NoPdbSourceMappingReason =
+        "The selected member has no portable-PDB source mapping.";
+
+    internal const string NoMatchingPdbSourceReason =
+        "No checksum-matching PDB source could be acquired locally or through SourceLink.";
+
+    internal const string PdbSourceInspectionFailedReason =
+        "PDB source inspection failed.";
+
+    internal static string? PdbSourceUnavailableNote(MemberOptions options) =>
         options.MemberHasNoBody
             ? BodylessMemberNote
             : options.MemberSourceTooComplex
                 ? SourceTooComplexNote
                 : options.MemberSourceCoordinatesInvalid
                     ? SourceCoordinatesInvalidNote
-                    : options.MemberHasNoAuthoredDeclaration
-                        ? NoAuthoredDeclarationNote
-                        : null;
+                    : options.MemberHasNoPdbDeclaration
+                        ? NoPdbDeclarationNote
+                        : options.PdbSourceUnavailableReason is { Length: > 0 } reason
+                            ? $"// {reason}"
+                            : null;
 
     private static void PopulateSourceDiff(
         TypeView view,
@@ -2923,7 +2985,7 @@ public class ApiCommand
         {
             view.MemberCode.SourceDiffCode = new Markout.CodeSection(
                 "diff",
-                "# Original Source unavailable because authored source extraction exceeded "
+                "# PDB Source unavailable because PDB source extraction exceeded "
                 + "the lexical complexity limit.");
             return;
         }
@@ -2931,17 +2993,17 @@ public class ApiCommand
         {
             view.MemberCode.SourceDiffCode = new Markout.CodeSection(
                 "diff",
-                "# Original Source unavailable because portable-PDB sequence-point coordinates "
+                "# PDB Source unavailable because portable-PDB sequence-point coordinates "
                 + "cannot address the verified source.");
             return;
         }
 
         string diff = SourceTextDiffRenderer.CreateUnifiedDiff(
-                // The bodyless note is an explanation, not source text: leave the diff's
+                // The unavailable note is an explanation, not source text: leave the diff's
                 // "before" side unavailable so it reports that rather than diffing the note.
-                view.MemberCode.OriginalSourceUnavailable ? null : view.MemberCode.OriginalSourceCode.Content,
+                view.MemberCode.PdbSourceUnavailable ? null : view.MemberCode.PdbSourceCode.Content,
                 view.MemberCode.DecompiledSourceCode.Content,
-                "Original Source",
+                SectionNames.PdbSource,
                 "Decompiled Source",
                 reviewerSized);
         if (source is { HasChecksumEvidence: true })
@@ -2952,8 +3014,8 @@ public class ApiCommand
                 source.ChecksumAlgorithm!);
             string checksum = CSharpText.CSharpIdentifier.ContainRenderedText(
                 source.Checksum!);
-            diff = $"# Authored source: {location}\n"
-                + $"# Integrity: verified against portable-PDB {algorithm} checksum {checksum}.\n"
+            diff = $"# PDB source: {location}\n"
+                + $"# Integrity: content matches portable-PDB {algorithm} checksum {checksum}.\n"
                 + diff;
         }
 

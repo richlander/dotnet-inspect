@@ -4,8 +4,8 @@
 > point for choosing a type, member, or API identity shape. This document owns
 > the details below.
 
-`ImplementationDiff` is the product-side decompiled C# + IL/body + authored
-Source diff projection in
+`ImplementationDiff` is the product-side decompiled C# + IL/body + PDB Source
+diff projection in
 `ILInspector.Research`. It is the reusable implementation-diff component for
 the CLI, ReturnToSender, harnesses, and other consumers that need one
 member-centric change model instead of separate C# and IL renderers.
@@ -22,14 +22,14 @@ family.
 - `ILInspector.ILDiff` owns IL/body diff production and display rows
   through `IlBodyDiff`, `IlAssemblyDiff`, and `IlDiffPrinter`.
 - `ILInspector.Research` owns the join. `ImplementationDiff` compares assemblies
-  with decompiled C# and IL/body mechanisms, accepts checksum-gated authored
+  with decompiled C# and IL/body mechanisms, accepts checksum-gated PDB-source
   line inspections from Services, groups changes by `ResearchSubjectKey`, and
   exposes typed display rows and unified lines without reformatting producer
   wording.
 - `ResearchComparison.RetainedComparisons` keeps the native
   `FindingComparison<CSharpCanonicalLine>` and
-  `FindingComparison<CanonicalIlOperation>` envelopes when requested. Authored
-  Source comparisons retain `FindingComparison<string>` with the `text.line`
+  `FindingComparison<CanonicalIlOperation>` envelopes when requested. PDB Source
+  comparisons retain `FindingComparison<string>` with the `text.line`
   descriptor. Research
   cross-checks their exactness against the richer semantic projections for
   members present on both sides. A disagreement is retained as a per-member
@@ -161,41 +161,45 @@ alignment; `AnnotationGestureTests.
 AlignedDetailContinuationsShareTheFirstCaretColumn` gates continuation
 alignment in the reusable renderer.
 
-### Authored-source convergence
+### PDB-source convergence
 
-`member -S "Source Diff"` is the Original → After reviewer lens. It compares
-the checksum-verified authored declaration with the candidate decompiled
-member as line-oriented text. It does not reuse structural correspondence:
-authored C# has no product-issued IL-origin node identity, so this lens reports
-text convergence and never claims that authored syntax nodes correspond to
-decompiler nodes.
+`member -S "Source Diff"` is the PDB Source → After reviewer lens. It compares
+the Portable-PDB-selected, checksum-matching declaration with the candidate
+decompiled member as line-oriented text. It does not reuse structural
+correspondence: PDB-mapped C# has no product-issued IL-origin node identity, so
+this lens reports text convergence and never claims that source syntax nodes
+correspond to decompiler nodes. Checksum agreement proves that the bytes match
+the Portable PDB declaration, not that they were the physical syntax tree that
+produced the MethodDef.
 
 Normal verbosity renders standard unified hunks with three context lines,
 retains at most five hunk examples and 80 lines per hunk, and reports
 `Partial` with the omitted counts when either bound is crossed. Detailed
 verbosity (`-v:d`) retains the complete line stream. Both forms identify the
-authored source location and portable-PDB checksum used to verify it.
+PDB source location and portable-PDB checksum matched by the content.
 `SourceTextDiffRendererTests.
 ReviewerSizedDiff_OmitsDistantUnchangedLinesButRetainsEveryChange` and
 `ReviewerSizedDiff_BoundsHunksAndLargeHunksWithVisibleDisclosure`, plus
 `ReviewerSizedDiff_BoundsTheNumberOfHunkExamples`, gate the bounded projection.
 `CommandExecutionTests.
 Member_SourceDiff_DetailedVerbosityPreservesCompleteLineEvidence` gates the
-normal/detailed boundary, while
-`Member_SelectedOverload_SelectSourceDiff_RendersOriginalVsDecompiledDiff`
-gates visible source identity and checksum evidence. The acquisition side is
-gated by
+normal/detailed boundary, and
+`Member_SourceDiff_UsesRequestedVerbosityBeforeSectionPromotion` gates the real
+CLI path after explicit section selection promotes effective verbosity.
+`Member_SelectedOverload_SelectSourceDiff_RendersPdbSourceVsDecompiledDiff`
+gates visible PDB source identity and checksum evidence. The acquisition side
+is gated by
 `VerifiedLocalSourceReadTests.ReturnsBytes_WhenChecksumMatches`,
 `VerifiedLocalSourceReadTests.ReturnsNull_WhenChecksumMismatches`, and
-`AuthoredSourceAcquisitionTests.
+`PdbSourceAcquisitionTests.
 FromContent_MismatchedChecksumProducesFailedInspection`; a source context is
-published only after one of the verified local, repository, or fetched paths
-accepts the portable-PDB checksum.
+published only after one of the local, repository, or fetched paths accepts the
+content against the portable-PDB checksum.
 
 This lens does not infer validity, behavior, or compile-back fidelity from
 text. Decompiler raise reviews place the independently measured compile-back
 status beside it and keep the structural Before → After lens available when
-authored source is unavailable.
+PDB source is unavailable.
 
 ## Research comparison model
 
@@ -214,9 +218,10 @@ old/new Finding censuses yet, so the cross-mechanism `ResearchChange` projection
 must not manufacture Finding atoms or misuse `PairKind`. `ResearchChange` is a Research-owned migration projection, not the seed of a
 parallel generic `EvidenceRow` spine. C# and IL now have native comparisons;
 their semantic rows remain because they carry richer producer-owned evidence,
-while retained comparisons expose the exact census transitions. `Source` never
-replaces or changes the meaning of `CSharp`: one describes checksum-verified
-authored text and the other describes product-decompiled text.
+while retained comparisons expose the exact census transitions. The `Source`
+mechanism never replaces or changes the meaning of `CSharp`: one describes
+checksum-verified PDB-mapped text and the other describes product-decompiled
+text.
 
 ### Deliberate dual-representation decision
 
@@ -324,9 +329,9 @@ member result keeps the typed C# diff, typed IL diff, joined implementation
 changes, and a single `ResearchSubjectKey`; exact members return an empty
 change list with `IsExact` set.
 
-Use `CompareMembersWithAuthoredSource` when the caller also has old/new
+Use `CompareMembersWithPdbSource` when the caller also has old/new
 `FindingInspection<string>` envelopes from Services. Use
-`WithAuthoredSourceComparisons` to enrich an assembly comparison. These APIs
+`WithPdbSourceComparisons` to enrich an assembly comparison. These APIs
 preserve `Complete`, `Absent`, and `Failed` independently and retain the native
 line comparison. Research does not fetch source.
 
@@ -374,10 +379,10 @@ assembly descriptors, reference resolvers, and body indexes. The query opens
 those descriptors for the offline C# and IL producers and returns
 `ImplementationDiffResult`; the CLI adapter's current path-backed descriptors
 are an acquisition boundary, not part of the query contract.
-With `--authored-source`, it acquires each changed implementation member's
+With `--pdb-source`, it acquires each changed implementation member's
 endpoint PDB and
 SourceLink body, verifies the document checksum, and adds a separately labeled
-`Source` lane. Missing mappings and acquisition failures remain visible rather
+`PDB Source` lane. Missing mappings and acquisition failures remain visible rather
 than falling back to decompiled C#.
 The authored A→IL lane reuses the final RTS shell/request but compiles with
 portable-PDB-recorded options when available; the decompiled B→IL lane uses the

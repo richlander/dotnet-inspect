@@ -40,10 +40,13 @@ Acquire each code block and diff from `dotnet-inspect` rather than paraphrasing
 or hand-transcribing, so every render in the PR is verbatim product output for
 the same `{Type} {MethodSelector} {scope}`:
 
-- Original → After: `-S "Source Diff"` at the PR head. This SourceLink-backed
-  lens identifies its checksum-verified authored source and compares it with
-  the candidate decompilation. Normal output is reviewer-sized; use `-v:d` when
-  it reports a partial presentation.
+- PDB Source → After: `-S "Source Diff"` at the PR head. This lens compares
+  Portable-PDB-selected, checksum-matching C# acquired locally or through
+  SourceLink with the candidate decompilation. Its checksum proves agreement
+  with the Portable PDB declaration, not independent build provenance. Normal
+  output is reviewer-sized; use `-v:d` when it reports a partial presentation.
+  When no matching C# is available, retain the generated unavailable result and
+  use raw `IL` as the authoritative compiled-body evidence.
 - Before: `-S "Decompiled Source"` at the base commit (the pre-change output).
 - After: `-S "Decompiled Source"` at this PR's head (the post-change output).
 - Applied Taste: `-S "Applied Taste"` at the same commit as each render, to
@@ -54,9 +57,10 @@ current render.
 
 dnx dotnet-inspect -y -- member {Type} {MethodSelector} {scope} -S "Source Diff"
 
-Keep the generated Original → After lens beside Before → After. If authored
-source is unavailable, retain the generated unavailable result rather than
-deleting the lens; Before → After remains usable on its own.
+Keep the generated PDB Source → After lens beside Before → After. It supplies
+the PDB source reference as part of the diff, so do not duplicate that code
+block. If PDB source is unavailable, retain the generated unavailable result
+rather than deleting the lens; Before → After and raw IL remain usable.
 
 Adversarial review evidence belongs in a separate PR comment, not this
 description. Before marking the PR ready, post a comment that names each
@@ -136,11 +140,12 @@ selected text, labels, and display order never establish correspondence.
 Fidelity and retained IL notes are independent evidence, not claims inferred
 from the C# transition.
 
-The Source Diff is Original → After text convergence, not structural
-correspondence. Its comments name the checksum-verified authored source. If its
-normal projection reports `Partial`, either retain that explicit limit or rerun
-with `-v:d` for complete line evidence. Record compile-back status beside it as
-an independent oracle; do not infer fidelity from textual similarity.
+The Source Diff is PDB Source → After text convergence, not structural
+correspondence. Its comments name the PDB-selected document and checksum
+agreement without claiming independent build provenance. If its normal
+projection reports `Partial`, either retain that explicit limit or rerun with
+`-v:d` for complete line evidence. Record compile-back status beside it as an
+independent oracle; do not infer fidelity from textual similarity.
 
 If the generated review reports `Partial`, explicitly determine whether the
 claimed changed structure has a unique matched row. Incidental matched rows do
@@ -165,16 +170,16 @@ Structural review status: {generated artifact / Not generated — unsupported or
 
 {paste generated structural review}
 
-#### Original → After: source convergence
+#### PDB Source → After: source convergence
 
-Source convergence status: {Different / Identical / Original Source unavailable}
+Source convergence status: {Different / Identical / PDB Source unavailable}
 
 ```diff
 {paste the generated Source Diff}
 ```
 
-- Authored source: {commit-specific location from the generated diff}
-- Integrity: {portable-PDB checksum verdict from the generated diff}
+- PDB source: {document location from the generated diff}
+- Integrity: {portable-PDB checksum agreement from the generated diff}
 - Source correspondence: {Different / Identical / Unavailable}
 - Compile-back status: {independent After compile-back result / not currently checkable}
 
@@ -204,9 +209,9 @@ dotnet-inspect member {Type} {MethodSelector} {scope} -S "Decompiled Source"
 
 <!--
 Acquire with `dotnet-inspect -S "Decompiled Source"` at the base commit, rather
-than hand-transcribing. Include the method signature line, matching Original
-source's shape, not just the body — a bare body is harder to line up against
-Original source.
+than hand-transcribing. Include the method signature line, matching the PDB
+source reference's shape, not just the body — a bare body is harder to line up
+against that reference.
 -->
 
 ```csharp

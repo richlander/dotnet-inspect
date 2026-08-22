@@ -32,7 +32,8 @@ public static class DiffOptionsParser
         Option<bool> AdditiveOption,
         Option<bool> ChangedOption,
         Option<bool> AllocRegressionsOption,
-        Option<bool> AuthoredSourceOption,
+        Option<bool> PdbSourceOption,
+        Option<bool> LegacyAuthoredSourceOption,
         Option<string?> FindingOption,
         Option<bool> LegendOption,
         Option<string[]> RepoOption);
@@ -129,7 +130,8 @@ public static class DiffOptionsParser
             Additive = parseResult.GetValue(args.AdditiveOption),
             ChangedOnly = parseResult.GetValue(args.ChangedOption),
             AllocRegressionsOnly = parseResult.GetValue(args.AllocRegressionsOption),
-            IncludeAuthoredSource = parseResult.GetValue(args.AuthoredSourceOption),
+            IncludePdbSource = parseResult.GetValue(args.PdbSourceOption)
+                || parseResult.GetValue(args.LegacyAuthoredSourceOption),
             Finding = parseResult.GetValue(args.FindingOption),
             Legend = parseResult.GetValue(args.LegendOption),
             SourceRepositories = parseResult.GetValue(args.RepoOption) ?? [],

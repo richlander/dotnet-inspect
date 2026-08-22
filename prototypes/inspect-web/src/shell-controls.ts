@@ -1,0 +1,89 @@
+import { parsePackageQuery } from "./package-bar.ts";
+
+export type HomeDemo = "stj" | "runtime" | "callgraph";
+
+export interface WorkbenchShellBindingActions {
+  onDismissNotice: () => void;
+  onDismissPackageNotice: () => void;
+  onGoHome: () => void;
+  onHelp: () => void;
+  onNavigateBack: () => void;
+  onNavigateForward: () => void;
+  onRetryNotice: () => void;
+  onShare: () => void;
+  onToggleTheme: () => void;
+}
+
+export interface HomeShellBindingActions {
+  onDemo: (demo: HomeDemo) => void;
+  onDismissNotice: () => void;
+  onToggleTheme: () => void;
+}
+
+export interface LoadErrorShellBindingActions {
+  onOpenPackage: (packageId: string, version: string) => void;
+  onRetry: () => void;
+}
+
+export function bindWorkbenchShell(
+  root: ParentNode,
+  actions: WorkbenchShellBindingActions,
+) {
+  root.querySelector("#share")
+    ?.addEventListener("click", actions.onShare);
+  root.querySelector("#dismiss-notice")
+    ?.addEventListener("click", actions.onDismissNotice);
+  root.querySelector("#retry-notice")
+    ?.addEventListener("click", actions.onRetryNotice);
+  root.querySelector("#dismiss-package-notice")
+    ?.addEventListener("click", actions.onDismissPackageNotice);
+  root.querySelector("#nav-back")
+    ?.addEventListener("click", actions.onNavigateBack);
+  root.querySelector("#nav-forward")
+    ?.addEventListener("click", actions.onNavigateForward);
+  root.querySelector("#go-home")
+    ?.addEventListener("click", actions.onGoHome);
+  root.querySelector("#theme-toggle")
+    ?.addEventListener("click", actions.onToggleTheme);
+  root.querySelector("#help")
+    ?.addEventListener("click", actions.onHelp);
+}
+
+export function bindHomeShell(
+  root: ParentNode,
+  actions: HomeShellBindingActions,
+) {
+  root.querySelector("#home-theme")
+    ?.addEventListener("click", actions.onToggleTheme);
+  root.querySelector("#dismiss-notice")
+    ?.addEventListener("click", actions.onDismissNotice);
+  root.querySelectorAll<HTMLElement>("[data-home-demo]").forEach(button =>
+    button.addEventListener("click", () => {
+      const demo = button.dataset.homeDemo;
+      if (demo === "stj" || demo === "runtime" || demo === "callgraph") {
+        actions.onDemo(demo);
+      }
+    }));
+}
+
+export function bindLoadErrorShell(
+  root: ParentNode,
+  actions: LoadErrorShellBindingActions,
+) {
+  root.querySelector("#retry-load")
+    ?.addEventListener("click", actions.onRetry);
+  root.querySelector("#error-package-query")
+    ?.addEventListener("submit", event => {
+      event.preventDefault();
+      const input =
+        root.querySelector<HTMLInputElement>("#error-package-input");
+      const parsed = parsePackageQuery(input?.value ?? "");
+      if (parsed) actions.onOpenPackage(parsed.packageId, parsed.version);
+    });
+  root.querySelector("#toggle-error-detail")
+    ?.addEventListener("click", () => {
+      const detail =
+        root.querySelector<HTMLElement>(".load-error-detail");
+      if (detail) detail.hidden = !detail.hidden;
+    });
+}

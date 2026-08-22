@@ -139,7 +139,7 @@ public class PackageVersionTests
             "member", "Serilog.Core.Logger", "Write:1",
             "--package", "Serilog@4.0.0..4.2.0",
             "--at", "4.2.0",
-            "-S", "Original Source",
+            "-S", "PDB Source",
             "--print",
         };
 
