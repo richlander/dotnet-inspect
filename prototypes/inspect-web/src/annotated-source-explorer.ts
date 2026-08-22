@@ -12,12 +12,11 @@ import {
   type SourceMedium,
   validateAnnotatedSourceDocument,
 } from "./annotated-source-view.ts";
+import type { BrowserAnnotatedSource } from "./inspect-web-engine.d.ts";
 
-export interface AnnotatedSourceResult {
+export type AnnotatedSourceResult = Omit<BrowserAnnotatedSource, "document"> & {
   document: AnnotatedSourceDocument;
-  provenance: string;
-  contextLimitation?: string | null;
-}
+};
 
 export interface AnnotatedSourceExplorerState {
   prepared: PreparedAnnotatedView;

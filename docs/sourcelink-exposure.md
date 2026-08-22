@@ -43,6 +43,16 @@ selection controls rendering.
 | `SourceLink: Missing Files` | compiler source paths that are neither reachable nor embedded | opt-in; derived from availability pass |
 | `SourceLink: Integrity` | downloads source bodies and checks PDB checksums | opt-in; slowest and exits non-zero on mismatch |
 
+Plain `library -D` may open an embedded PDB because it is already part of the
+named carrier, but it caps decompression at 64 MiB and does not probe an
+adjacent PDB or acquire symbols. This lets discovery advertise the
+`@SourceLink` door for embedded maps without performing network work.
+`LibraryCommand_Discover_AdvertisesEmbeddedSourceLinkDoor` gates the positive
+carrier case, `LibraryCommand_Discover_BoundsEmbeddedPdbExpansion` gates the
+decompression bound, and
+`LibraryPipeline_SourceLinkFamily_NotDiscoverableWithoutSourceLink` gates the
+close negative.
+
 ### Package
 
 `package` owns package-level aggregation. It should not force users to pivot to
@@ -51,6 +61,7 @@ another command merely to continue a package inspection.
 | Section | Purpose |
 | --- | --- |
 | `Signals` | package and dependency evidence, plus binary/source provenance summaries |
+| `Audit: Findings` | network-free findings from decoded SourceLink map text and text-bearing package files |
 | `SourceLink: Files` | SourceLink URL rows aggregated from package libraries, with library provenance |
 | `SourceLink: Availability` | aggregate reachability and embedded-source coverage across selected package libraries |
 | `SourceLink: Missing Files` | unreachable source paths plus unavailable/failed library rows, with package-library provenance |
@@ -70,6 +81,20 @@ the file listing. `type` still spells its equivalent `Source Files`.
 
 Effective discovery never executes the unbounded availability or integrity
 queries merely to list these package sections.
+
+`Audit: Findings` opens only package-local portable PDBs and embedded PDBs from
+package-managed `.dll` and `.exe` files. It consumes the SourceLink owner's
+decoded mapping inventory, so JSON escape sequences are audited as their
+semantic Unicode values without creating a second map parser. A standalone PDB
+is inspected as authored package content without claiming assembly identity;
+identity remains mandatory for method/document correspondence. The audit also
+emits a review-oriented finding for every literal `../` in a decoded document
+key or URL. That finding is intentionally suspiciousness, not a maliciousness
+verdict. Embedded-PDB inflation and SourceLink map byte/mapping materialization
+are caller-bounded before allocation, including a shared decompression budget
+across package carriers. Query hosts likewise apply their symbol-acquisition
+per-PDB and aggregate expansion limits before a query-owned embedded PDB is
+opened. The audit does not acquire PDBs or contact SourceLink URLs.
 
 ### Type and member
 

@@ -167,19 +167,27 @@ needed. `--top` and `--order-by` do not compose with Body Shapes; use `--rows`
 to limit rendered syntax matches.
 
 Aggregate rows such as `allocation-hotspot` use `Provenance=aggregate` and have
-a `pt~` candidate id but no exact source Finding, operation, or token.
+a `pt~` candidate id but no exact source Finding, operation, or token. A
+composite repeated-scan judgment can separately retain the exact local call
+that supports it in `SupportingFinding`, `SupportingOperation`,
+`SupportingToken`, `SupportingEvidenceMethod`, and `SupportingIL`. Those fields
+are a runtime correspondence coordinate, not the aggregate row's source
+Finding or candidate identity.
 `Provenance=unmatched` flags an instruction-level row that did not join to the
 expected producer census.
 
 ## Correlate triage with an allocation trace
 
-Export nested JSON, whose deep rows carry the declaring method coordinate, then
-pass it to `runfaster` with a trace captured from the same assembly build:
+Export nested JSON, whose deep rows carry the declaring method coordinate. The
+`runfaster` prototype is available only in the dotnet-inspect repository and is
+not included in the published packages. From a source checkout, pass it that
+document and a trace captured from the same assembly build:
 
 ```bash
 dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
   --where "Priority>=high" --json > triage.json
-runfaster correlate --triage triage.json --trace workload.nettrace
+dotnet run --project src/runfaster -- \
+  correlate --triage triage.json --trace workload.nettrace
 ```
 
 Compact `Performance:* --jsonl` rows omit deep provenance and cannot support an
@@ -195,6 +203,21 @@ represented assembly; it does not walk past an unexported in-assembly callee
 and credit an outer caller. If `--library` and `--triage` name the same physical
 candidate, the shape-compatible triage row carries the runtime evidence.
 The raw library row is marked `superseded-by-triage`, not workload-cold.
+For a repeated-scan aggregate with a supporting call site, `runfaster` promotes
+an allocation observation only when the same build has a raw library allocation
+at that coordinate and exactly one aggregate support in that build claims it.
+Each build resolves independently before cross-build ambiguity attribution.
+The raw site is the attribution anchor; sampled allocation types can differ
+because GC allocation ticks resolve to the nearest preceding IL allocation
+site. RunFaster resolves the nearest raw allocation first, then attaches support
+at that exact coordinate; a later non-allocation scan-call support therefore
+cannot hide the raw site. When an exact triage row and one aggregate support
+both project the same raw site, the aggregate carries the evidence and the
+exact row is superseded rather than splitting bytes. An exact row at another
+offset or from another build remains independent. Method-name and CPU samples
+can mark the aggregate method hot, but only an accepted allocation-coordinate
+join supersedes its raw allocation anchor. Otherwise the aggregate remains cold
+for the workload and the raw row keeps the evidence.
 Type-level ambiguity and its site cap count the shared coordinate once unless
 several library MVIDs make an older MVID-less triage row's module version
 ambiguous.

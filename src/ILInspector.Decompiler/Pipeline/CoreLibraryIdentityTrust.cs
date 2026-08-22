@@ -43,7 +43,19 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <para>
 /// Gated by <c>PlantedCoreLibraryIdentityTests</c>, which tamper-verifies both
 /// halves — the grant and the check — and covers the resolved, designated,
-/// raw-path, and unclassified open paths.
+/// raw-path, and unclassified open paths, and by
+/// <c>ReaderConstructionSiteTests</c>, which pins every method in this assembly
+/// whose IL obtains a <c>MetadataReader</c> or reaches the trust table, so a new
+/// way to obtain a reader cannot be added without saying which half it is on.
+/// Identity is exactly membership in <c>s_trusted</c>, and every method able to
+/// reach that field in IL is pinned by signature — so a grant cannot hide behind
+/// a name, a nested helper, a static constructor, or an overload of a member
+/// that does not grant. That pin covers reader creation and direct grants, not
+/// provenance, not receipt, and not the consumer side: whether a grant is
+/// deserved, and whether the check is honoured at all, remain
+/// <c>PlantedCoreLibraryIdentityTests</c>'s property, and a reader arriving by
+/// delegate or reflection is simply unclassified, which is the fail-closed
+/// answer.
 /// </para>
 /// </summary>
 static class CoreLibraryIdentityTrust

@@ -7,6 +7,8 @@ export interface RenderScopeBarOptions {
   strip: readonly LensDefinition[];
   activeStripId: string | null;
   stripAttribute: string;
+  showMemberScope?: boolean;
+  emptyStripLabel?: string;
   escapeHtml: (value: unknown) => string;
 }
 
@@ -32,16 +34,26 @@ function scopeSegment(id: string, label: string, active: boolean): string {
 // Keeping all three families of buttons on one strip means the member modes (Overview,
 // Call graph, …) live here too instead of inside the detail pane.
 export function renderScopeBar(options: RenderScopeBarOptions): string {
-  const { scope, strip, activeStripId, stripAttribute, escapeHtml } = options;
+  const {
+    scope,
+    strip,
+    activeStripId,
+    stripAttribute,
+    showMemberScope = scope === "member",
+    emptyStripLabel = "",
+    escapeHtml,
+  } = options;
   const stripHtml = strip
     .map(([id, label], i) => lensButton(id, label, activeStripId === id, stripAttribute, i, escapeHtml))
-    .join("");
+    .join("") || (emptyStripLabel
+      ? `<span class="lens-context">${escapeHtml(emptyStripLabel)}</span>`
+      : "");
   return `
     <nav class="lensbar" aria-label="Scope and lenses">
       <div class="scope-switch" role="tablist" aria-label="Scope">
         ${scopeSegment("package", "Package", scope === "package")}
         ${scopeSegment("type", "Types", scope === "type")}
-        ${scope === "member" ? scopeSegment("member", "Member", true) : ""}
+        ${showMemberScope ? scopeSegment("member", "Member", scope === "member") : ""}
       </div>
       <span class="lens-separator"></span>
       ${stripHtml}

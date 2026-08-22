@@ -22,6 +22,77 @@ public sealed class BrowserEngineBoundaryTests
     const int MiB = 1024 * 1024;
 
     [Fact]
+    public void MemberProjection_CarriesFilterFactsWithoutSignatureParsing()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Example",
+            Name = "Widget",
+            Kind = "class",
+        };
+        var member = new ApiMember
+        {
+            Name = "BuildAsync",
+            Kind = "method",
+            Signature = "protected static async Task BuildAsync()",
+            Accessibility = "protected",
+            IsStatic = true,
+            IsUnsafe = true,
+            IsVirtual = true,
+            IsAbstract = true,
+            IsOverride = true,
+            IsExtension = true,
+            IsObsolete = true,
+        };
+
+        BrowserMemberSurface projected = BrowserSurfaceProjection.Member(type, member);
+
+        Assert.Equal("protected", projected.Accessibility);
+        Assert.True(projected.IsStatic);
+        Assert.True(projected.IsUnsafe);
+        Assert.True(projected.IsVirtual);
+        Assert.True(projected.IsAbstract);
+        Assert.True(projected.IsOverride);
+        Assert.True(projected.IsExtension);
+        Assert.True(projected.IsObsolete);
+
+        BrowserMemberSurface ordinary = BrowserSurfaceProjection.Member(
+            type,
+            new ApiMember
+            {
+                Name = "Name",
+                Kind = "property",
+                Signature = "string Name { get; }",
+            });
+
+        Assert.Equal("public", ordinary.Accessibility);
+        Assert.False(ordinary.IsStatic);
+        Assert.False(ordinary.IsObsolete);
+
+        BrowserMemberSurface explicitImplementation = BrowserSurfaceProjection.Member(
+            type,
+            new ApiMember
+            {
+                Name = "IDisposable.Dispose",
+                Kind = "explicit-interface-implementation",
+                Signature = "void IDisposable.Dispose()",
+            });
+
+        Assert.Equal("private", explicitImplementation.Accessibility);
+
+        BrowserMemberSurface finalizer = BrowserSurfaceProjection.Member(
+            type,
+            new ApiMember
+            {
+                Name = "Finalize",
+                Kind = "finalizer",
+                Signature = "~Widget()",
+            });
+
+        Assert.Equal("protected", finalizer.Accessibility);
+    }
+
+    [Fact]
     public async Task MsdlProxy_RewritesExactSymbolRequestToCurrentSwaApi()
     {
         var inner = new RequestRecordingHandler();
@@ -71,7 +142,6 @@ public sealed class BrowserEngineBoundaryTests
         using var handler =
             new BrowserMsdlProxyHandler(
                 new RequestRecordingHandler());
-
         Assert.Throws<ArgumentException>(() => handler.Configure(origin));
     }
 
@@ -79,9 +149,9 @@ public sealed class BrowserEngineBoundaryTests
     public void SourceContexts_UseFreshMemoryOnlyPdbStores()
     {
         AssemblyContextSourceQueryContext first =
-            BrowserInspectionEngine.CreateSourceContext();
+            InspectionEngine.CreateSourceContext();
         AssemblyContextSourceQueryContext second =
-            BrowserInspectionEngine.CreateSourceContext();
+            InspectionEngine.CreateSourceContext();
 
         var firstStore =
             Assert.IsType<InMemoryPdbStore>(first.PdbStore);
@@ -248,7 +318,7 @@ public sealed class BrowserEngineBoundaryTests
             cause);
 
         InvalidOperationException adapted =
-            BrowserInspectionEngine.SourceUnavailable(failure);
+            InspectionEngine.SourceUnavailable(failure);
 
         Assert.Contains(
             nameof(AssemblySourceFailureKind.InspectionFailed),
@@ -261,7 +331,7 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Same(cause, adapted.InnerException);
 
         InvalidOperationException withAuthoredFailure =
-            BrowserInspectionEngine.SourceUnavailable(
+            InspectionEngine.SourceUnavailable(
                 failure,
                 "The host does not authorize this SourceLink destination.");
         Assert.Contains(
@@ -625,7 +695,7 @@ public sealed class BrowserEngineBoundaryTests
     [Fact]
     public void CallGraphDiagnostics_PreserveIncompleteProductEvidence()
     {
-        BrowserCallGraphDiagnostics diagnostics = BrowserInspectionEngine.Diagnostics(
+        BrowserCallGraphDiagnostics diagnostics = InspectionEngine.Diagnostics(
             new CatalogCallGraphDiagnostics(2, 3, 4),
             hasUnexploredTraversalBoundary: true,
             hasAnalysisFailureBoundary: true);
@@ -858,7 +928,7 @@ public sealed class BrowserEngineBoundaryTests
             packageId,
             Package(image, $"lib/net11.0/{packageId}.dll"));
 
-        string json = await BrowserInspectionEngine.QueryPackage(
+        string json = await InspectionEngine.QueryPackage(
             packageId,
             "1.0.0",
             "net11.0");
@@ -1044,7 +1114,7 @@ public sealed class BrowserEngineBoundaryTests
                 nupkg,
                 fromCache: false));
 
-        string json = await BrowserInspectionEngine.QueryPackageDependencies(
+        string json = await InspectionEngine.QueryPackageDependencies(
             packageId,
             "1.0.0",
             "net11.0",
@@ -1084,7 +1154,7 @@ public sealed class BrowserEngineBoundaryTests
     [Fact]
     public void MermaidLabel_ContainsGrammarSignificantArtifactText()
     {
-        string encoded = BrowserInspectionEngine.MermaidLabel(
+        string encoded = InspectionEngine.MermaidLabel(
             "A\"B\n<x>&\\\u2028\u202E\u200D\uD800X\uDC00\U000E0001-Caf\u00E9\U0001F600");
 
         Assert.Equal(
@@ -1125,7 +1195,7 @@ public sealed class BrowserEngineBoundaryTests
             Children: []);
         CallGraphProjection projection = CallGraphProjection.FromCallees(tree);
 
-        string mermaid = BrowserInspectionEngine.Mermaid(projection);
+        string mermaid = InspectionEngine.Mermaid(projection);
 
         Assert.Contains(
             "&#92;u202E&#92;uD800-Caf\u00E9\U0001F600",
@@ -1174,7 +1244,7 @@ public sealed class BrowserEngineBoundaryTests
             [calleeNode, nonLoopNode],
             new CallTreePerf(0, 0, 1, false));
 
-        string mermaid = BrowserInspectionEngine.Mermaid(
+        string mermaid = InspectionEngine.Mermaid(
             CallGraphProjection.FromCallees(root));
 
         Assert.Contains("n0 -- loop --> n1", mermaid);
@@ -1232,7 +1302,7 @@ public sealed class BrowserEngineBoundaryTests
                 CallGraphNodeKind.Normal),
         ];
 
-        BrowserCallGraphTarget[] targets = BrowserInspectionEngine.Targets(
+        BrowserCallGraphTarget[] targets = InspectionEngine.Targets(
             nodes,
             [new AssemblyReferenceIdentity(
                 "Example",
@@ -1593,7 +1663,7 @@ public sealed class BrowserEngineBoundaryTests
         string candidatesJson = JsonSerializer.Serialize(
             candidates,
             BrowserJsonContext.Default.BrowserDependencyCoordinateCandidateArray);
-        string resultJson = BrowserInspectionEngine.MatchPackageDependencyCoordinate(
+        string resultJson = InspectionEngine.MatchPackageDependencyCoordinate(
             packageId,
             declaredRange,
             candidatesJson);
@@ -1702,7 +1772,7 @@ public sealed class BrowserEngineBoundaryTests
                 CallGraphNodeKind.Normal),
         ];
 
-        BrowserCallGraphTarget[] targets = BrowserInspectionEngine.Targets(nodes);
+        BrowserCallGraphTarget[] targets = InspectionEngine.Targets(nodes);
 
         // Both declaring types flatten to the same metadata spelling. That spelling genuinely
         // names the nested type, so it is still published for it; for the literal-plus type it
@@ -1767,7 +1837,7 @@ public sealed class BrowserEngineBoundaryTests
                 CallGraphNodeKind.Normal),
         ];
 
-        BrowserCallGraphTarget[] targets = BrowserInspectionEngine.Targets(nodes);
+        BrowserCallGraphTarget[] targets = InspectionEngine.Targets(nodes);
 
         Assert.Equal("Example.Outer`1+Widget`1", targets[0].TypeMetadataId);
         Assert.Equal("Example.Outer`1+Widget`1", targets[0].TypeDefinitionId);

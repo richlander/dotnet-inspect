@@ -33,6 +33,7 @@ internal sealed record AllocationAnalysisResult(
 internal sealed record OptimizationAnalysisResult(
     ImmutableArray<OptimizationOpportunity> Opportunities,
     IReadOnlySet<int> SuppressedMethodTokens,
+    IReadOnlySet<int> ScopeExcludedMethodTokens,
     IReadOnlySet<string> ExceptionTypeNames);
 
 internal sealed record ResourceLifecycleAnalysisResult(
