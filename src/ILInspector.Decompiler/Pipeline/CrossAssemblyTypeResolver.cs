@@ -943,6 +943,11 @@ internal sealed class CrossAssemblyTypeResolver
                         resolved.Assembly == TypeRef.CoreLibrary
                             ? expected.ResolutionAssembly
                             : resolved.ResolutionAssembly;
+                    if (referencedIdentity is null
+                        && resolved.Assembly == resolvedLocalAssembly)
+                    {
+                        referencedIdentity = resolvedLocalAssemblyIdentity;
+                    }
                     return referencedIdentity is { } identity
                         && PlatformKeys.IsPlatform(identity.PublicKeyToken);
                 }

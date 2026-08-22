@@ -128,6 +128,69 @@ public class CrossAssemblyMethodFactsTests
     }
 
     [Fact]
+    public void CoreLibraryAlias_RequiresTrustedPlatformLocalDefinition()
+    {
+        var platformIdentity = new AssemblyReferenceIdentity(
+            "System.Private.CoreLib",
+            new Version(11, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: "7cec85d7bea7798e");
+        var aliasIdentity = new AssemblyReferenceIdentity(
+            "netstandard",
+            new Version(2, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: "cc7b13ffcd2ddd51");
+        var definitionName = MetadataTypeDefinitionName.Create(
+            "System",
+            ["Func`1"]) switch
+        {
+            MetadataTypeDefinitionNameResult.Valid valid => valid.Name,
+            _ => throw new InvalidOperationException(
+                "Func metadata name is invalid"),
+        };
+        var resolved = TypeRef.GenericInstance(
+            TypeRef.DefinitionWithResolution(
+                "System.Private.CoreLib",
+                "System",
+                "Func`1",
+                ValueTypeHint.ReferenceType,
+                MetadataFactState.No,
+                enclosingType: null,
+                definitionName,
+                resolutionAssembly: null),
+            [TypeRef.MethodGenericParameter(0, "T")]);
+        var expected = TypeRef.GenericInstance(
+            TypeRef.DefinitionWithResolution(
+                TypeRef.CoreLibrary,
+                "System",
+                "Func`1",
+                ValueTypeHint.ReferenceType,
+                MetadataFactState.No,
+                enclosingType: null,
+                definitionName,
+                aliasIdentity),
+            [TypeRef.MethodGenericParameter(0)]);
+
+        Assert.True(CrossAssemblyTypeResolver.SameSignatureType(
+            resolved,
+            expected,
+            allowCoreLibraryAliases: true,
+            resolvedLocalAssembly: "System.Private.CoreLib",
+            resolvedLocalAssemblyIdentity: platformIdentity,
+            coreLibraryAliasIdentity: aliasIdentity));
+        Assert.False(CrossAssemblyTypeResolver.SameSignatureType(
+            resolved,
+            expected,
+            allowCoreLibraryAliases: true,
+            resolvedLocalAssembly: "System.Private.CoreLib",
+            resolvedLocalAssemblyIdentity: platformIdentity with
+            {
+                PublicKeyToken = null,
+            },
+            coreLibraryAliasIdentity: aliasIdentity));
+    }
+
+    [Fact]
     public void CustomModifierSignatureCollision_UsesExactModifiers()
     {
         using var fixture = MethodCollisionFixture.Create();
@@ -354,6 +417,45 @@ public class CrossAssemblyMethodFactsTests
             kind => Assert.Equal(ArgumentRefKind.Value, kind),
             kind => Assert.Equal(ArgumentRefKind.Value, kind),
             kind => Assert.Equal(ArgumentRefKind.Out, kind));
+    }
+
+    [Fact]
+    public void PlatformGenericByRefMemberRef_RecoversParameterRefKinds()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(
+            fixture.ConsumerPath,
+            null,
+            TestAssemblyReferenceResolvers.TrustedPlatformAssemblies());
+
+        var call = SingleCall(
+            source,
+            nameof(CrossAssemblyFixtureMethods.UseLazyInitializer),
+            "EnsureInitialized");
+
+        Assert.Equal(
+            ParameterRefKindFacts.Known,
+            call.Callee.ParameterRefKindsFacts);
+        Assert.Equal(
+            ArgumentRefKind.Ref,
+            call.Callee.ParameterRefKinds[0]);
+    }
+
+    [Fact]
+    public void PlatformOperatorMemberRef_RecoversOperatorFact()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(
+            fixture.ConsumerPath,
+            null,
+            TestAssemblyReferenceResolvers.TrustedPlatformAssemblies());
+
+        var call = SingleCall(
+            source,
+            nameof(CrossAssemblyFixtureMethods.UseDateTimeOffsetEquality),
+            "op_Equality");
+
+        Assert.Equal(MetadataFactState.Yes, call.Callee.IsOperator);
     }
 
     [Fact]
@@ -1605,6 +1707,14 @@ public class CrossAssemblyMethodFactsTests
                         public static bool UseUri(string value)
                             => System.Uri.TryCreate(value, System.UriKind.Absolute, out var uri) && uri is not null;
 
+                        public static object UseLazyInitializer(ref object value)
+                            => System.Threading.LazyInitializer.EnsureInitialized(ref value, () => new object());
+
+                        public static bool UseDateTimeOffsetEquality(
+                            System.DateTimeOffset left,
+                            System.DateTimeOffset right)
+                            => left == right;
+
                         public static int UseExternalInlineArray(ExternalInline4 buffer, int index)
                         {
                             System.Span<int> span = buffer;
@@ -1744,6 +1854,8 @@ public class CrossAssemblyMethodFactsTests
         public const string UseGenericByRefDynamicProperty = nameof(UseGenericByRefDynamicProperty);
         public const string UseExternalNewObject = nameof(UseExternalNewObject);
         public const string UseUri = nameof(UseUri);
+        public const string UseLazyInitializer = nameof(UseLazyInitializer);
+        public const string UseDateTimeOffsetEquality = nameof(UseDateTimeOffsetEquality);
         public const string UseExternalInlineArray = nameof(UseExternalInlineArray);
     }
 }

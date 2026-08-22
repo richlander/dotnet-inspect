@@ -673,7 +673,7 @@ public static class OperatorMetadata
                 (TypeDefinitionHandle)type.Identity,
                 CoreLibraryRootAuthentication
                     .DeclaresUniqueTopLevelCoreLibraryRoot(reader));
-        return kind switch
+        TypeRelationship relationship = kind switch
         {
             MetadataTypeDefinitionKind.ValueType =>
                 TypeRelationship.Yes,
@@ -682,6 +682,10 @@ public static class OperatorMetadata
                 TypeRelationship.No,
             _ => TypeRelationship.Unknown,
         };
+        return relationship == TypeRelationship.Unknown
+            && relationshipResolver is not null
+                ? relationshipResolver.ValueTypeRelationship(reader, type)
+                : relationship;
     }
 
     static bool IsTrustedSystemType(
