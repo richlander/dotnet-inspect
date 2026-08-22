@@ -126,24 +126,28 @@ Restate it after every resume and at the start of every round, not once at the
 beginning. A window that has scrolled past its only mention of the PR is a
 window nobody can identify.
 
-### Asking for help is best effort
+### Signal when you need a person
 
-When you are blocked on a person, you may send one transient notification:
+Whenever you stop and wait on a human decision, say so out of band as well as on
+screen. This is the standing convention during normal work, not an option:
 
 ```sh
 tmux display-message -d 10000 'PR #4405 needs a decision'
 ```
 
-**It is best effort and probably will not be seen.** Nobody may be attached; the
-person may be in another window, on another machine, or asleep. The message is
-transient and takes over the status line while it shows, so keep it rare and
-short.
+Send it once, when you become blocked — not on a timer, and not again while
+waiting on the same question. Keep it to one short line naming the PR and what
+is needed; the message takes over the status line for as long as it shows.
 
-It is a nudge, never a handoff. A sent notification is not a delivered
-question and never an answered one. You must still stop at your prompt and
-wait, and restate the request in full when resumed. Do not use it for progress,
-for completion, or to announce a resume — only for something you are blocked
-on. One per block, not one per reminder.
+**It is best effort and will often go unseen.** Nobody may be attached; the
+person may be in another window, on another machine, or asleep. So it is a
+nudge, never a handoff: a sent notification is not a delivered question and
+never an answered one. Stop at your prompt and wait exactly as you would have
+without it, and restate the request in full when resumed.
+
+Signal only for being blocked. Progress, completion, and resuming are not
+signals — they belong in your output, where they can be read whenever someone
+looks.
 
 ## User-directed workflow adjustments
 
