@@ -141,7 +141,7 @@ permission to reinterpret raw metadata semantics.
 | State | Meaning | May authorize work? |
 | --- | --- | --- |
 | Parsed intent | The user's inspection surface, gesture, selectors, requested projection, and output mode | No |
-| Demand classification | Selector matches reduced to target-shape requirements only | No |
+| Demand classification | Selector matches reduced to canonical semantic-section target requirements only | No |
 | Structural selection | Names resolved against one final catalog, or labeled static alternatives | No |
 | Target-resolution plan | Minimal acquisition and Metadata inventory needed to resolve the address | Only after preflight |
 | Target resolution | The exact type plus a resolved inventory set or exact member target, or a typed diagnostic | No new work |
@@ -231,9 +231,17 @@ globs against one identified catalog. The result retains:
 Structural selection does not inspect a target and does not decide whether a
 section has data.
 
-The type/member-list, name-scoped overload-inventory, and exact-member-detail
-catalogs are different catalogs. A result from their temporary union is
-explicitly provisional and cannot be used for:
+The inspection routes use four different catalogs:
+
+| Catalog | Realized owner and model | Route states |
+| --- | --- | --- |
+| Assembly type list | `ApiTypeSectionDescriptors` over `ApiSurface` | No exact type supplied, type glob, failed exact lookup promoted to prefix browse, or platform prefix browse |
+| Type/member list | `ApiMemberSectionDescriptors` over one `ApiType` | Resolved exact type, including the type surface with `-m` filters |
+| Name-scoped overload inventory | `ApiMemberOverloadSectionDescriptors` over a resolved member set | Member filters without exact-target demand |
+| Exact-member detail | `ApiMemberDetailSectionDescriptors` over one resolved member target | Exact selector or valid exact-target promotion |
+
+A result from their temporary union is explicitly provisional and cannot be
+used for:
 
 - single-section validation;
 - table, count, value, path, URL, print, or document-shape validation;
@@ -242,14 +250,30 @@ explicitly provisional and cannot be used for:
 - capability authorization.
 
 Before final catalog selection, a typed **section-demand index** may classify
-the raw section selectors. The index is generated from catalog declarations,
-keyed by inspection surface and candidate catalog identity, and contains only
-stable section identity, aliases, category membership, selector visibility,
-and required target shape (`Type`, `MemberSet`, or `ExactMember`). It can
-answer whether an explicit exact name, category, or glob requests an exact
-member. It cannot validate output shape, choose columns or fields, establish
-producer demand, or authorize work. Bare/default selection and whole-catalog
-selectors such as `@All` do not request exact-member promotion.
+the raw section selectors. The index is generated from canonical semantic
+section declarations, not inferred from catalog membership, descriptor
+`CanRender`, or the current number of matches. It is keyed by inspection
+surface and stable section identity and contains only aliases, category
+membership, selector visibility, and required target shape (`Type`,
+`MemberSet`, or `ExactMember`).
+
+One stable identity has one canonical target requirement on an inspection
+surface even when view adapters register it in multiple catalogs. A section
+that can represent a member group, such as `Source Locations`, declares
+`MemberSet`; selecting it does not promote a singleton group. A section that
+semantically requires one member, such as a selected signature or source body,
+declares `ExactMember` even if an inventory adapter can expose it after a
+single-body-member predicate. Catalog declarations reference that canonical
+semantic declaration. Conflicting target requirements for the same stable
+identity are a catalog-construction failure; genuinely different semantics
+must use different stable identities.
+
+The index can answer whether an explicit exact name, category, or glob requests
+an exact member. Overlapping matches coalesce by stable identity before their
+requirements are joined in the `Type < MemberSet < ExactMember` lattice. It
+cannot validate output shape, choose columns or fields, establish producer
+demand, or authorize work. Bare/default selection and whole-catalog selectors
+such as `@All` do not request exact-member promotion.
 
 This preliminary classification is not structural selection against a union
 catalog. It produces only typed demand constraints. After the target and final
@@ -275,9 +299,9 @@ Address and selection resolution has four ordered phases:
    performing final section or shape validation;
 3. normalize each member gesture as either an inventory filter or an exact
    target selector, then resolve it without consulting a section catalog;
-4. choose the catalog from the inspection surface, resolved selector kind, and
-   classified exact-member demand, then resolve section selection and shape
-   exactly once against that catalog.
+4. choose the catalog from the inspection surface, resolved route kind,
+   selector kind, and classified exact-member demand, then resolve section
+   selection and shape exactly once against that catalog.
 
 The implied positional member gesture is a constraint on every explicit member
 gesture with the same canonical name. Each same-name pair is normalized:
@@ -322,7 +346,8 @@ Address resolution follows this matrix:
 | Implied and explicit refinements have identical components | Coalesce them into one logical selector |
 | Implied and explicit refinements have complementary components | Merge the present components into one logical selector |
 | Implied and explicit refinements have different present overload, digest, or generic-arity components | Return a typed selector-conflict diagnostic |
-| Explicit `type` surface, with or without `-m`/kind filters | Select the type/member-list catalog and preserve type-view filter semantics |
+| Explicit `type` surface with no exact type, a type glob, or a prefix-browse result | Select the assembly-type-list catalog |
+| Explicit `type` surface with a resolved exact type, with or without `-m`/kind filters | Select the type/member-list catalog and preserve type-view filter semantics |
 | Explicit `member` surface with no member gesture | Select the type/member-list catalog |
 | Explicit `member` surface with bare-name or glob filters | Resolve every filter, then deduplicate their union as `ResolvedMemberSet` |
 | Any logical inventory filter resolves to no members | Return one typed aggregate retaining every missed filter and suggestion before union materialization |
@@ -331,6 +356,7 @@ Address resolution follows this matrix:
 | Exact targeting is combined with multiple logical selectors | Return a typed selector/cardinality diagnostic |
 | Exact-member demand accompanies one eligible member-surface inventory member | Promote that member and select the exact-member-detail catalog |
 | Exact-member demand accompanies zero, multiple, or ineligible member-surface inventory members | Return a typed no-match or cardinality diagnostic |
+| Commandless target resolution proves a targetless, glob, or prefix-browse type route | Use the assembly-type-list catalog |
 | Commandless target resolution proves an exact type | Use the type/member-list catalog |
 | Commandless target resolution proves an inventory or exact member | Use the matching member catalog |
 | A requested section does not exist in the chosen catalog | Return a typed unresolved-section diagnostic |
@@ -352,23 +378,36 @@ The resolution uses existing typed identity owners:
   exact target or inventory set, and classified target-shape demand before
   final structural selection.
 
-Inspection surface and selector kind choose the active section catalog; raw
-target count does not. A type gesture with `-m` stays on the type/member-list
-catalog. A member bare name that resolves to one overload remains an overload
-inventory unless classified exact-member demand promotes it. Final selection
-and shape validation run once against the chosen catalog.
+Inspection surface, resolved route kind, and selector kind choose the active
+section catalog; raw target count does not. A type gesture with `-m` stays on
+the type/member-list catalog. A member bare name that resolves to one overload
+remains an overload inventory unless canonical exact-member demand promotes
+it. A type glob or prefix browse stays on the assembly-type-list catalog even
+when it produces one row. Final selection and shape validation run once
+against the chosen catalog.
 
 Static schema discovery is the intentional exception: it performs no target
-lookup. An explicit `type` surface reports the type/member-list schema; an
-explicit `member` surface reports the overload-inventory or detail schema from
-its syntactic selector kind. A commandless dotted spelling that could denote
-either an exact type or an implied member returns labeled
+lookup. An explicit `type` surface with no exact address or with list syntax
+reports the assembly-type-list schema; one with syntactic exact-type intent
+reports the type/member-list schema without attempting a lookup-based prefix
+fallback. An explicit `member` surface reports the overload-inventory or
+detail schema from its syntactic selector kind. A commandless dotted spelling
+that could denote either an exact type or an implied member returns labeled
 `StructuralCatalogAlternatives` for the type/member-list and member-inventory
 interpretations. The alternatives are not a union and cannot satisfy
 single-section, shape, producer, or authorization decisions. Each labeled
 alternative may carry its own selector resolution or diagnostic, but one
 alternative's success cannot be treated as a resolved answer for the other.
 Static schema must not pretend it learned which interpretation exists.
+
+Commandless structural intent is classified before hidden-router target
+resolution. `ArgumentPreprocessor` may preserve the syntactic rewrite to
+`router`, but it must retain the structural gesture. `RouterCommandDefinition`
+must dispatch that typed structural intent directly to the static catalog
+classifier before `RouterTokenRewriter` can perform platform resolution,
+all-framework searches, package acquisition, or type/member lookup. The
+resulting deterministic catalog or labeled alternatives follow the same
+no-producer rule as explicit-command static schema.
 
 There is no `MemberSelectionNeedsFinalization` Boolean in the target model.
 Code that requires resolved selection accepts only the resolved plan type.
@@ -689,6 +728,17 @@ owner:
 | Explicit implementation | Proven target identity and aggregate membership, not member-name inference |
 | Safety accounting | Consumed work and retained text charged through the operation context |
 
+The Metadata owner exposes a closed shared-fact declaration catalog. Each
+entry has a stable fact identity, typed result or rejection, prerequisite fact
+identities, charged safety dimensions, and any permitted post-validation
+erasure. Projection entry points submit typed fact-request sets; the catalog
+derives which projections request each fact rather than trusting a manually
+maintained consumer list. A fact requested by more than one projection is
+computed by the same owner and compared by declaration identity. Set equality
+between registered projection requests and actual fact consumption fails on
+an undeclared request or stale registration; projection adapters cannot
+substitute display text, raw flags, or a reduced fact model.
+
 Raw Boolean combinations such as `Virtual && !NewSlot` remain metadata facts,
 but consumers do not infer semantic slot ownership from them. Metadata issues
 the relationship classification after validating the declaring type and
@@ -707,13 +757,16 @@ For the same input and inclusion policy:
   another;
 - summary counts derive from the same accepted declaration identities as the
   full surface;
+- every shared fact requested by more than one projection has the same typed
+  value or typed rejection for that declaration identity;
 - focused queries may choose a whole-query exception boundary, but the
   underlying rejection kind and rule are the same;
 - reducing output fields does not skip validation needed for identity,
   inclusion, or count correctness.
 
-Summary is allowed to avoid materializing rich display fields. It is not
-allowed to own a reduced validity model.
+Summary is allowed to avoid requesting rich display-only facts and to erase a
+declared shared fact after parity has been established. It is not allowed to
+own a reduced validity model or compute an alternate value for a shared fact.
 
 Focused queries are allowed to inspect non-public declarations when requested.
 They are not allowed to accept context-invalid metadata because it is
@@ -750,6 +803,18 @@ Unavailable(metadata-declaration-failure)
 
 Complete declarations may become `Representable` or `FallbackRequired`.
 `FallbackRequired` requires complete contained identity and signature facts.
+A contained fallback identifies the declaring type, member kind, canonical
+member identity, generic arity, return or value type, parameter types and
+modifiers, and accessor identities and accessibility where applicable. It
+retains enough signature information to distinguish overloads and indexers;
+dropping parameters or collapsing accessor identity is not a fallback.
+
+Fallback rendering treats every artifact-authored name and signature fragment
+as inert data. It escapes or removes controls and other active terminal or
+markup syntax while retaining safe identifying text; strict diagnostics do
+not echo the artifact payload. `MDP015` is the gate for contained fallback
+identity, signature discrimination, and inert rendering.
+
 A Metadata declaration retained with `SignatureDecodeStatus.Degraded` becomes
 `Degraded`; CSharp may preserve its bounded diagnostic evidence but cannot
 render the placeholder shape as authoritative C# or metadata fallback.
@@ -867,6 +932,7 @@ the design authority.
 | Local selector finalization flags and provisional option mutation | Replace with parsed and resolved plan types |
 | Local source/PDB authorization checks derived from `IncludeSections` or the union of `Discover` selections into requested sections | Replace with producer-plan authorization |
 | Render-manifest effective discovery | Retain for post-producer field/column/empty observation; move every producer call into a declared probe plan |
+| `ArgumentPreprocessor` and `RouterCommandDefinition` commandless target resolution | Retain syntactic routing, but move structural-gesture classification before `RouterTokenRewriter` acquisition in slice 2 |
 | Shared Metadata validators already used by every projection | Retain |
 | Validators duplicated across full, summary, focused, or C# paths | Move to the Metadata declaration owner |
 | C# fixes based on Metadata-owned typed semantics | Retain |
@@ -890,6 +956,9 @@ Depends on: none.
 
 - Add a single matrix test that records discovery mode, active catalog,
   producer demand, and capability authorization.
+- Enumerate every realized assembly-type-list, type/member-list,
+  overload-inventory, exact-member-detail, and hidden-router route in that
+  matrix.
 - Add parity fixtures that run the same declarations through full, summary,
   and focused projections.
 - Make no behavior change.
@@ -903,7 +972,10 @@ Depends on: slice 1.
 
 - Parse type/member gestures into immutable intent.
 - Retain explicit/inferred inspection surface and classify section selectors
-  through the target-shape-only demand index.
+  through the canonical semantic-section demand index.
+- Move commandless structural classification ahead of
+  `RouterTokenRewriter`; static schema must complete before any platform,
+  package, all-framework, type, or member resolution.
 - Resolve the active catalog only after target/member resolution.
 - Move shape validation to the resolved plan.
 - Preserve current address precedence and diagnostics through a compatibility
@@ -912,8 +984,10 @@ Depends on: slice 1.
   byte-for-byte stable.
 
 Exit gate: every type/member gesture produces one resolved plan or typed
-diagnostic before command execution, and provisional catalog state cannot
-satisfy final shape validation. `MIP003` must pass before this slice lands.
+diagnostic before command execution, commandless static schema reaches the
+structural classifier without target work, and provisional catalog state
+cannot satisfy final shape validation. `MIP003` must pass before this slice
+lands.
 
 ### Slice 3: enforce the address-resolution contract
 
@@ -929,10 +1003,11 @@ Depends on: slice 2.
 Exit gate: `MIP006` covers the full matrix, including exact-type/member
 dual-success, complementary refinement, conflicting refinement, distinct
 inventory-filter per-filter outcomes and deduplication, bare-name/glob
-zero-one-many and partial-miss results, surface-and-selector-driven
-three-catalog selection, exact-section/alias/category/glob detail promotion,
-explicit `type -m` versus `member` compatibility, static-schema alternatives,
-and conflicting positional/qualified and qualified/qualified types.
+zero-one-many and partial-miss results, surface/route/selector-driven
+four-catalog selection, cross-catalog canonical target requirements,
+exact-section/alias/category/glob detail promotion, explicit `type -m` versus
+`member` compatibility, static-schema alternatives, and conflicting
+positional/qualified and qualified/qualified types.
 
 ### Slice 4: lower resolved selection to typed producer plans
 
@@ -984,11 +1059,11 @@ Depends on: slice 5.
   policy and failure boundary.
 - Delete path-local validity checks after parity gates pass.
 
-Exit gate: accepted identity and rejection-rule sets agree across full,
-summary, and focused projections for equivalent inclusion policies, and none of
-those entry points retains a parallel admission owner. `MDP001` through
-`MDP004`, `MDP006` through `MDP009`, and `MDP011` must pass before this
-semantic cutover lands.
+Exit gate: accepted identity, rejection-rule, and shared-fact result sets agree
+across full, summary, and focused projections for equivalent inclusion
+policies, and none of those entry points retains a parallel admission owner.
+`MDP001` through `MDP004`, `MDP006` through `MDP009`, and `MDP011` must pass
+before this semantic cutover lands.
 
 ### Slice 7: migrate C# representability
 
@@ -996,12 +1071,13 @@ Depends on: slice 6.
 
 - Carry typed accessor and slot semantics into the API/C# boundary.
 - Remove inference from raw flag combinations.
-- Preserve valid metadata fallback, degraded-signature non-success, and strict
-  failure containment.
+- Make the `FallbackRequired` payload preserve complete discriminating member
+  and signature identity and render artifact-authored text inertly.
+- Preserve degraded-signature non-success and strict failure containment.
 
 Exit gate: CSharp consumes the typed representability outcome and contains no
 raw-metadata or raw-flag relationship reconstruction. `MDP005`, `MDP010`,
-`MDP012`, and `MDP014` must pass.
+`MDP012`, `MDP014`, and `MDP015` must pass.
 
 ### Slice 8: remove transitional state
 
@@ -1030,19 +1106,19 @@ test method name, but the PR must map each test to its gate ID.
 
 | Gate | Property | Required evidence |
 | --- | --- | --- |
-| `MIP001` | Static schema runs no acquisition/producers and non-schema discovery runs only mode-declared probes | Separate target-resolution and section-producer trace equality for every actual type/member discovery gesture; explicit type/member and commandless ambiguous-dotted static-schema cases prove deterministic catalogs or labeled structural alternatives without target work |
+| `MIP001` | Static schema runs no acquisition/producers and non-schema discovery runs only mode-declared probes | Separate target-resolution and section-producer trace equality for every actual type/member discovery gesture; explicit type/member and commandless ambiguous-dotted static-schema cases prove deterministic catalogs or labeled structural alternatives without target work, including a commandless router close-negative that fails if platform, package, all-framework, type, or member resolution begins |
 | `MIP002` | Named/category type/member source discovery cannot read/acquire PDB/source content or confuse unknown with empty | Overload-qualified `-D "Source Locations"`, `-D "Original Source"`, `-D "Source Diff"`, and source-category cases proving no `LocalPdbRead`, `PdbAcquire`, or `SourceContent`; paired genuinely-empty and PDB-required fixtures produce distinct `ValidEmpty` and `Unknown(CapabilityNotRequested)`, while plain library discovery retains its bounded `LocalPdbRead` positive and close-negative gates |
-| `MIP003` | Demand classification, provisional catalogs, and static alternatives cannot satisfy final shape validation | Close-negative tests for exact type, implied member, mixed filters, aliases, globs, categories, `@All`, and commandless structural alternatives |
+| `MIP003` | Demand classification, provisional catalogs, and static alternatives cannot satisfy final shape validation | Close-negative tests for exact type, implied member, mixed filters, aliases, globs, categories, `@All`, and commandless structural alternatives; declaration-derived set equality requires one canonical target requirement for every stable identity registered in multiple catalogs and rejects conflicting declarations |
 | `MIP004` | Closed producer paths equal preflighted authorization | Declaration-derived gesture-provenance/query-requirement/host-policy matrix; unconditional prerequisite closure; conditional local-PDB hit, unrequested/denied miss, and authorized acquisition paths; transitive cost, execution-mode, and probe-policy closure; a probe-capable producer with a render-only prerequisite mapping to per-section `Unknown`; explicit-render denial; preflight-before-execution assertions; and artifact-owner lease revalidation |
 | `MIP005` | Presentation cannot widen work | A non-vacuity test that fails when render-manifest or ordinary rendering starts an undeclared producer |
-| `MIP006` | Address and catalog resolution are deterministic, diagnostic, and surface-preserving | Exact type, fallback peel, dual-success, qualified/positional conflict, same-type and conflicting qualified/qualified selectors, identical/complementary/conflicting implied-explicit refinement, per-filter bare-name/glob outcomes, partial misses, overlapping-filter deduplication, zero/one/multiple inventory results, exact selector success/failure, explicit `type -m` versus `member` catalog/output compatibility, surface-and-selector-driven type-list/overload-inventory/detail catalogs, exact-section/alias/category/glob detail promotion, commandless static alternatives, unavailable detail sections, and overload/digest/arity cases |
+| `MIP006` | Address and catalog resolution are deterministic, diagnostic, and surface-preserving | Set equality between the catalog/route registry and the four realized pipeline owners plus every entry route; exact type, fallback peel, dual-success, qualified/positional conflict, same-type and conflicting qualified/qualified selectors, identical/complementary/conflicting implied-explicit refinement, per-filter bare-name/glob outcomes, partial misses, overlapping-filter deduplication, zero/one/multiple inventory results, exact selector success/failure, explicit `type -m` versus `member` catalog/output compatibility, surface/route/selector-driven assembly-type-list/type-member-list/overload-inventory/detail catalogs, targetless/glob/failed-exact/platform-prefix list routes, cross-catalog `MemberSet` and `ExactMember` identities, exact-section/alias/category/glob detail promotion, commandless static alternatives, unavailable detail sections, and overload/digest/arity cases |
 | `MIP007` | L1 member execution remains content-shaped and owner-authorized | Architecture closure plus admission/query-lease tests proving no readable path or descriptor bypass |
 | `MIP008` | The plan executes sequentially without filesystem assumptions | Browser/Wasm host test over in-memory content with the same producer trace and failures |
 | `MIP009` | The path remains NativeAOT-friendly, SRM-only, Roslyn-free, and load-free | NativeAOT publish/run plus dependency and inspected-assembly-loading architecture gates |
 | `MIP010` | Typed planning, resolution, policy, producer, and observation failures stay visible | Outcome and injected-failure tests for every stage, including per-section request/capability/cost/mode/probe-policy `Unknown`, explicit-render policy denial, exact/category network-free discovery-probe failure, and authorized render/effective PDB/source producer failure, proving failures cannot become empty selection, `ValidEmpty`, empty results, or success exit |
 | `MIP011` | Host preflight is the only executable authorization mint at the slice-4 cutover | Declaration-driven architecture closure over every type/member entry point, descriptor, prerequisite, and executor call site; fail on another mint or an option value read as execution authority |
 | `MIP012` | No transitional dual-use planning/authorization state remains | Declaration-driven closure over option fields, compatibility adapters, descriptors, and executors after slice 8 |
-| `MDP001` | Full/summary/focused validity agrees | Set equality over accepted identities and typed rejection rule IDs |
+| `MDP001` | Full/summary/focused validity and shared semantic facts agree | Set equality over accepted identities and typed rejection rule IDs; set equality between typed projection fact requests and registered consumers; declaration-derived equality of typed values or typed rejections for every shared fact requested by multiple projections; declared summary erasure is checked only after parity |
 | `MDP002` | Declaration admission order is preserved | Direct-invalid, charged name/attribute exclusion, excluded-hostile, public/non-public accessor dependency, retained-rejected, aggregate-rejected, and valid-empty fixtures |
 | `MDP003` | Cheap filtering precedes hostile MethodImpl projection | Large excluded-row fixture with bounded allocation/work evidence |
 | `MDP004` | Accessor validity is shared | Property/event fixtures covering accessibility, staticness, abstraction, virtuality, slot, and body close negatives |
@@ -1056,6 +1132,7 @@ test method name, but the PR must map each test to its gate ID.
 | `MDP012` | CSharp representability consumes only Metadata-owned semantic facts at the slice-7 cutover | Closure derived from the semantic fact types and every CSharp representability entry point; fail on direct `MetadataReader`/handle reconstruction or relationship decisions from raw accessibility, virtuality, new-slot, `MethodImpl`, or equivalent Boolean combinations |
 | `MDP013` | No transitional declaration-validity or CSharp reconstruction state remains | Declaration-driven closure over compatibility adapters, validators, raw semantic fields, and consumers after slice 8 |
 | `MDP014` | CSharp failure text contains no artifact data | Hostile control-character names through every CSharp representability failure path |
+| `MDP015` | `FallbackRequired` preserves contained identity and renders artifact text inertly | Methods, properties, events, accessors, overloads, and indexers retain discriminating declaring-type/member/signature facts; paired indexers with different parameter types remain distinct; hostile names and signature fragments retain safe identifying text without terminal controls, active markup, or uncontained diagnostic payloads |
 
 Contract tests should derive their cases from the declaration or section
 catalog where practical, so a new mode or validator cannot silently avoid the
@@ -1072,9 +1149,9 @@ matrix.
 | Target/member execution preserves content, lease, host, and platform boundaries | Query/acquisition integration | `MIP007`, `MIP008`, `MIP009` |
 | Planning and address failures cannot become ordinary absence | Planning/resolution boundary | `MIP006`, `MIP010` |
 | No dual-use option or alternate authorization mint survives migration | Planning/execution architecture | `MIP011`, `MIP012` |
-| One declaration admission decision governs all API projections | Metadata | `MDP001`, `MDP002`, `MDP011`, `MDP013` |
+| One declaration admission decision and one shared semantic-fact owner govern all API projections | Metadata | `MDP001`, `MDP002`, `MDP011`, `MDP013` |
 | Excluded hostile rows cannot amplify expensive projection | Metadata | `MDP003`, `MDP006` |
-| Valid metadata and C# fallback remain distinct from degraded or invalid input | Metadata/CSharp boundary | `MDP004`, `MDP005`, `MDP010`, `MDP012`, `MDP014` |
+| Valid metadata and complete, contained C# fallback remain distinct from degraded or invalid input | Metadata/CSharp boundary | `MDP004`, `MDP005`, `MDP010`, `MDP012`, `MDP014`, `MDP015` |
 | Cache reuse cannot bypass context or operation budgets | Metadata declaration session | `MDP009` |
 | No duplicate validity owner or CSharp raw-metadata/raw-flag reconstruction survives migration | Metadata/CSharp architecture | `MDP011`, `MDP012`, `MDP013` |
 
@@ -1108,10 +1185,10 @@ state and continues to let rendering fields authorize work.
 
 ### Resolve every selector against a union catalog
 
-Rejected. The type/member-list, name-scoped overload-inventory, and
-exact-member-detail pipelines expose different contracts. A union is useful
-only as provisional syntax recognition; it cannot answer final shape, cost,
-capability, or effectiveness questions.
+Rejected. The assembly-type-list, type/member-list, name-scoped
+overload-inventory, and exact-member-detail pipelines expose different
+contracts. A union is useful only as provisional syntax recognition; it cannot
+answer final shape, cost, capability, or effectiveness questions.
 
 ### Validate and project every metadata row before filtering
 
