@@ -15,6 +15,7 @@ import type {
   TypePanelBindingActions,
   TypeSummary,
 } from "../src/type-panel.ts";
+import { fakeDom } from "./fake-dom.ts";
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
@@ -32,7 +33,7 @@ class FakeElement {
     this.listeners.set(type, listeners);
   }
 
-  dispatch(type: string, event: Event = {} as Event) {
+  dispatch(type: string, event: Event = fakeDom.event()) {
     for (const listener of this.listeners.get(type) ?? []) {
       listener(event);
     }
@@ -68,12 +69,12 @@ class FakeRoot {
 
 function keyboardEvent(key: string) {
   const state = { prevented: false };
-  const event = {
+  const event = fakeDom.keyboardEvent({
     key,
     preventDefault: () => {
       state.prevented = true;
     },
-  } as unknown as KeyboardEvent;
+  });
   return { event, state };
 }
 
@@ -174,7 +175,7 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
     event.preventDefault();
     calls.push(`list:${event.key}`);
   };
-  bindTypePanel(root as unknown as ParentNode, actions);
+  bindTypePanel(fakeDom.parentNode(root), actions);
   namespaceJump.value = "System.Text";
   filter.value = "json";
 
@@ -218,7 +219,7 @@ test("type panel bindings dispatch the rendered member navigation controls", () 
   const typeList = root.add("#type-list", new FakeElement());
   const calls: string[] = [];
   bindTypePanel(
-    root as unknown as ParentNode,
+    fakeDom.parentNode(root),
     recordingActions(calls));
 
   member.dispatch("click");
@@ -244,7 +245,7 @@ test("type filter keys preserve list focus and Escape behavior", () => {
   const typeList = root.add("#type-list", new FakeElement());
   let escapes = 0;
   let listKeys = 0;
-  bindTypePanel(root as unknown as ParentNode, {
+  bindTypePanel(fakeDom.parentNode(root), {
     ...recordingActions([]),
     onListKeyDown: () => {
       listKeys++;
@@ -280,7 +281,7 @@ test("type filter keys preserve list focus and Escape behavior", () => {
 test("type panel binding tolerates controls from the inactive nav being absent", () => {
   const root = new FakeRoot();
   assert.doesNotThrow(() => bindTypePanel(
-    root as unknown as ParentNode,
+    fakeDom.parentNode(root),
     recordingActions([])));
 });
 
