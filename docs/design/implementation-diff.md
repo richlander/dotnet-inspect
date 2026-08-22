@@ -12,8 +12,8 @@ target boundaries and guarantees are **unverified** until the named gates
 exist. Existing APIs that do not satisfy the target are listed under
 [Current mismatches](#current-mismatches).
 
-`ImplementationDiff` is the product-side decompiled C# + IL/body + authored
-Source diff projection in
+`ImplementationDiff` is the product-side decompiled C# + IL/body + PDB Source
+diff projection in
 `ILInspector.Research`. It is the reusable implementation-diff component for
 the CLI, ReturnToSender, harnesses, and other consumers that need one
 member-centric change model instead of separate C# and IL renderers.
@@ -30,14 +30,14 @@ family.
 - `ILInspector.ILDiff` owns IL/body diff production and display rows
   through `IlBodyDiff`, `IlAssemblyDiff`, and `IlDiffPrinter`.
 - `ILInspector.Research` owns the join. `ImplementationDiff` compares assemblies
-  with decompiled C# and IL/body mechanisms, accepts checksum-gated authored
+  with decompiled C# and IL/body mechanisms, accepts checksum-gated PDB-source
   line inspections from Services, groups changes by `ResearchSubjectKey`, and
   exposes typed display rows and unified lines without reformatting producer
   wording.
 - `ResearchComparison.RetainedComparisons` keeps the native
   `FindingComparison<CSharpCanonicalLine>` and
-  `FindingComparison<CanonicalIlOperation>` envelopes when requested. Authored
-  Source comparisons retain `FindingComparison<string>` with the `text.line`
+  `FindingComparison<CanonicalIlOperation>` envelopes when requested. PDB Source
+  comparisons retain `FindingComparison<string>` with the `text.line`
   descriptor. Research
   cross-checks their exactness against the richer semantic projections for
   members present on both sides. A disagreement is retained as a per-member
@@ -561,9 +561,10 @@ old/new Finding censuses yet, so the cross-mechanism `ResearchChange` projection
 must not manufacture Finding atoms or misuse `PairKind`. `ResearchChange` is a Research-owned migration projection, not the seed of a
 parallel generic `EvidenceRow` spine. C# and IL now have native comparisons;
 their semantic rows remain because they carry richer producer-owned evidence,
-while retained comparisons expose the exact census transitions. `Source` never
-replaces or changes the meaning of `CSharp`: one describes checksum-verified
-authored text and the other describes product-decompiled text.
+while retained comparisons expose the exact census transitions. The `Source`
+mechanism never replaces or changes the meaning of `CSharp`: one describes
+checksum-verified PDB-mapped text and the other describes product-decompiled
+text.
 
 ### Deliberate dual-representation decision
 
@@ -730,11 +731,15 @@ unified line with `Member`, `Mechanism`, `Difference`, `Change`, and `Evidence`
 columns. `Difference` contains the IL body outcome for IL rows and is empty for
 C# rows, keeping mechanism, result, edit kind, and evidence as separate
 dimensions.
-The section binds `ImplementationComparisonQuery`. With `--authored-source`,
-the query acquires eligible members' endpoint PDB and SourceLink bodies,
-verifies document checksums, and adds a separately labeled Source ledger.
-Missing mappings, acquisition failures, and budget exhaustion remain visible
-rather than falling back to decompiled C#.
+The section binds `ImplementationComparisonQuery`, whose input carries retained
+assembly descriptors, reference resolvers, and body indexes. The query opens
+those descriptors for the offline C# and IL producers and returns
+`ImplementationDiffResult`; the CLI adapter's current path-backed descriptors
+are an acquisition boundary, not part of the query contract.
+With `--pdb-source`, the query acquires eligible members' endpoint PDB and
+SourceLink bodies, verifies document checksums, and adds a separately labeled
+`PDB Source` ledger. Missing mappings, acquisition failures, and budget
+exhaustion remain visible rather than falling back to decompiled C#.
 The authored A→IL lane reuses the final RTS shell/request but compiles with
 portable-PDB-recorded options when available; the decompiled B→IL lane uses the
 RTS compile context. `BuildContext` and determinism verdicts therefore remain
@@ -764,9 +769,9 @@ not invoke or reconstruct the C# and IL producers independently.
 | `ImplementationDiffOptions` | Split mechanism selection into catalog ids on the query/session input, target selection into side-local target requests before planning, and changed/window options into presentation-only values |
 | `ImplementationDiffMechanism` / `AllAvailable` | Retire in favor of the closed mechanism catalog; no context-free host-owned mechanism set |
 | `ImplementationDiff.CompareMembers` handle-only pairing | `DesignateMemberPair` plus `DirectMemberComparisonInput`; exact-address invocation-scoped pairing only |
-| `CompareMembersWithAuthoredSource` | Remove; async acquisition belongs to `ImplementationComparisonQuery` |
-| `WithAuthoredSourceComparisons` | Remove; finalized results accept no new ledger |
-| CLI changed-row authored-source enrichment | Dependency-gated Source projection inside one query lifetime |
+| `CompareMembersWithPdbSource` | Remove; async acquisition belongs to `ImplementationComparisonQuery` |
+| `WithPdbSourceComparisons` | Remove; finalized results accept no new ledger |
+| CLI changed-row PDB-source enrichment | Dependency-gated Source projection inside one query lifetime |
 | CLI API-only failure exit | Include `ImplementationDiffResult.HasFailures` in every selected output path |
 
 ## Gates
@@ -798,8 +803,8 @@ The target lifecycle is unverified until these gates exist:
   that did not share one complete population.
 - `ImplementationDiff.CompareMembers` receives two live readers and handles but
   has no typed pairing designation or exact MVID-scoped address contract.
-- `CompareMembersWithAuthoredSource` and
-  `WithAuthoredSourceComparisons` attach Source after comparison rather than as
+- `CompareMembersWithPdbSource` and
+  `WithPdbSourceComparisons` attach Source after comparison rather than as
   one declared mechanism.
 - Assembly comparison filters and joins C#, IL, body-signal, retained Finding,
   and Source evidence through presentation-shaped subject identities and

@@ -18,7 +18,7 @@ optimization-opportunity,
 switch, SourceLink, Integrations, implementation relationships, type/member search,
 extension reachability, API-comparison, Analysis body-signal comparison, and
 Implementation comparison inspection, plus group-scoped
-authored-or-decompiled type/member source. The `diff` Changes, Analysis Diff,
+PDB-mapped-or-decompiled type/member source. The `diff` Changes, Analysis Diff,
 and Implementation Diff sections consume producer-owned comparison results
 over host-resolved surfaces, body indexes, and retained assembly content.
 The library CLI, package `--all-libraries`, `extensions`, `implements`, and
