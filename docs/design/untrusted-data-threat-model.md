@@ -618,8 +618,10 @@ hostile four-byte count cannot become a gigabyte-scale argument array or a
 swallowed OOM. The same walk covers each named argument's
 `FieldOrPropType`, name, and value — a named SZArray count or a nested
 named array type is not left for `DecodeValue` to allocate or recurse
-on. Boxed and nested SZArray encodings are depth-bounded before
-decode so a chain of tags cannot overflow the native stack. Enum-typed
+on. Boxed and nested SZArray encodings are walked on a heap work-stack
+and depth-bounded before decode, so a chain of tags cannot overflow the
+native stack even if the policy cap moves. The small-stack gate is
+`CustomAttributeValueGuardTests.BoxedNestingAtLimit_OnSmallNativeStack_IsSafe`. Enum-typed
 fixed and named arguments use one shared underlying-width oracle, so a
 TypeRef that resolves to a local non-`int32` enum, or an over-deep
 `value__` field signature, cannot desynchronize later count reads.
@@ -696,6 +698,8 @@ pre-decoding rejection.
 `TypeRefEnumWidthDesync_StopsBeforeLargeAllocationAmplification`,
 `OverDeepEnumFieldModifiers_StopsBeforeLargeAllocationAmplification`,
 `CustomAttributeValueGuardTests.HugeNamedArgumentArrayCount_IsUnsafe`,
+`CustomAttributeValueGuardTests.BoxedNestingAtLimit_OnSmallNativeStack_IsSafe`,
+`CustomAttributeValueGuardTests.WideInt32Array_IsSafe`,
 `CustomAttributeValueGuardTests.NamedArrayNestingJustOverLimit_IsUnsafe`,
 `CustomAttributeValueGuardTests.TypeRefEnumMatchingLocalInt64_SeesFollowingArrayCount`,
 `CustomAttributeValueGuardTests.OverDeepEnumFieldModifiers_UseInt32WidthAndSeeFollowingArrayCount`,

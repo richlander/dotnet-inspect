@@ -62,6 +62,24 @@ public sealed class CustomAttributeValueGuardTests
     }
 
     [Fact]
+    public void WideInt32Array_IsSafe()
+    {
+        int[] elements = new int[4096];
+        for (int index = 0; index < elements.Length; index++)
+            elements[index] = index;
+        using var image = Open(BuildInt32ArrayImage(elements));
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        Assert.True(
+            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
+        var decoded = AttributeDecoder.TryDecode(image.Reader, attribute);
+        Assert.NotNull(decoded);
+        var values = Assert.IsAssignableFrom<ImmutableArray<CustomAttributeTypedArgument<string>>>(
+            decoded.Value.FixedArguments[0].Value);
+        Assert.Equal(4096, values.Length);
+        Assert.Equal(4095, values[4095].Value);
+    }
+
+    [Fact]
     public void BoxedNestingAtLimit_IsSafe()
     {
         using var image = Open(
@@ -79,6 +97,44 @@ public sealed class CustomAttributeValueGuardTests
         CustomAttribute attribute = FirstAttribute(image.Reader);
         Assert.False(
             CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
+    }
+
+    /// <summary>
+    /// Non-vacuity gate that the value walk is iterative. A recursive skip of
+    /// <see cref="CustomAttributeValueGuard.MaxSerializedDepth"/> boxed tags
+    /// overflows a 256 KiB native stack; the heap work-stack must not.
+    /// </summary>
+    [Fact]
+    public void BoxedNestingAtLimit_OnSmallNativeStack_IsSafe()
+    {
+        byte[] bytes = BuildBoxedNestingImage(
+            CustomAttributeValueGuard.MaxSerializedDepth - 1);
+        Exception? failure = null;
+        var thread = new Thread(
+            () =>
+            {
+                try
+                {
+                    using var isolated = Open(bytes);
+                    CustomAttribute attribute = FirstAttribute(isolated.Reader);
+                    if (!CustomAttributeValueGuard.IsSafeToDecode(
+                            isolated.Reader,
+                            attribute))
+                    {
+                        failure = new InvalidOperationException(
+                            "Expected the depth-limit blob to be safe.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failure = ex;
+                }
+            },
+            maxStackSize: 256 * 1024);
+        thread.IsBackground = true;
+        thread.Start();
+        thread.Join();
+        Assert.Null(failure);
     }
 
     [Fact]
