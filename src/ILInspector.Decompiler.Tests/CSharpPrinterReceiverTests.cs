@@ -499,6 +499,51 @@ public sealed class CSharpPrinterReceiverTests
     }
 
     [Fact]
+    public void ConstrainedStructReceiver_InstanceAssignmentPreservesTheByRefPlace()
+    {
+        string body = PrintFixture(
+            nameof(InstanceAssignmentFixtures.ConstrainedStructReceiver));
+        var value = default(ConstrainedAssignmentCounter);
+
+        Assert.Equal(
+            1,
+            InstanceAssignmentFixtures.ConstrainedStructReceiver(
+                ref value));
+        Assert.DoesNotContain("__receiver", body);
+        Assert.Contains("value += 1;", body);
+        AssertCompiles(
+            "public static int M<T>(ref T value) where T : IConstrainedAssignmentCounter<T>",
+            Indent(body),
+            """
+            public interface IConstrainedAssignmentCounter<T>
+                where T : IConstrainedAssignmentCounter<T>
+            {
+                int Value { get; }
+                void operator +=(int value);
+            }
+            """);
+    }
+
+    [Fact]
+    public void MaterializedReceiver_AvoidsMethodGenericParameterName()
+    {
+        string body = PrintFixture(
+            nameof(InstanceAssignmentFixtures
+                .InlinedReceiverWithGenericParameter));
+
+        Assert.DoesNotContain(
+            "InstanceAssignmentBox __receiver =",
+            body);
+        Assert.Contains(
+            "InstanceAssignmentBox __receiver0 =",
+            body);
+        AssertCompiles(
+            "public static void M<__receiver>()",
+            Indent(body),
+            InstanceAssignmentDeclarations);
+    }
+
+    [Fact]
     public void AssignableReceiver_InstanceAssignment_IsUnchanged()
     {
         string body = PrintFixture(nameof(InstanceAssignmentFixtures.AssignableReceiver));
@@ -854,6 +899,36 @@ public static class InstanceAssignmentFixtures
         box += 1;
         box += 2;
     }
+
+    public static int ConstrainedStructReceiver<T>(ref T value)
+        where T : IConstrainedAssignmentCounter<T>
+    {
+        value += 1;
+        return value.Value;
+    }
+
+    public static void InlinedReceiverWithGenericParameter<__receiver>()
+    {
+        InstanceAssignmentBox box =
+            InstanceAssignmentBoxFactory.Create();
+        box += 1;
+    }
+}
+
+public interface IConstrainedAssignmentCounter<T>
+    where T : IConstrainedAssignmentCounter<T>
+{
+    int Value { get; }
+
+    void operator +=(int value);
+}
+
+public struct ConstrainedAssignmentCounter
+    : IConstrainedAssignmentCounter<ConstrainedAssignmentCounter>
+{
+    public int Value { get; private set; }
+
+    public void operator +=(int value) => Value += value;
 }
 
 public class BaseInstanceAssignmentBox

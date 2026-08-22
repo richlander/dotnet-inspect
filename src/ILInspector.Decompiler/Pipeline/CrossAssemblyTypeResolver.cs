@@ -67,9 +67,13 @@ internal sealed class CrossAssemblyTypeResolver
         => OperatorMetadata.ClassifyCSharpOperatorDeclaration(
             reader,
             method,
-            new OperatorRelationshipResolver(
-                this,
-                originAssembly ?? _selfAssembly));
+            CreateOperatorRelationshipResolver(originAssembly));
+
+    internal IOperatorTypeRelationshipResolver CreateOperatorRelationshipResolver(
+        ResolvedAssemblyReference? originAssembly = null)
+        => new OperatorRelationshipResolver(
+            this,
+            originAssembly ?? _selfAssembly);
 
     /// <summary>
     /// Returns <paramref name="type"/> with cross-assembly type facts stamped
@@ -1420,8 +1424,6 @@ internal sealed class CrossAssemblyTypeResolver
         TypeRef right,
         ResolvedAssemblyReference rightOrigin)
     {
-        if (left.Equals(right))
-            return true;
         if (left.Kind != right.Kind)
             return false;
         if (left.Kind == TypeRefKind.GenericInstance)

@@ -369,7 +369,7 @@ public sealed partial class CSharpPrinter
                 .. _explicitOperatorInvocations.Select(
                     call => new DecompilerDiagnostic(
                         DiagnosticIds.UnrepresentableMetadataName,
-                        $"method '{call.Callee.Name}' is a confirmed C# operator but rendered as an explicit invocation, which has no C# spelling")),
+                        $"metadata operator '{call.Callee.Name}' rendered as an explicit invocation, which C# forbids")),
             ])
         {
             ConstructorChain = _constructorChain,
@@ -4679,11 +4679,7 @@ public sealed partial class CSharpPrinter
 
     string FreshSyntheticLocalName(string baseName)
     {
-        var used = new HashSet<string>(
-            _function.Signature.Parameters.Select(p => p.Name)
-                .Concat(_function.LocalNames.Where(name => !string.IsNullOrWhiteSpace(name)).Select(name => name!))
-                .Concat(_syntheticLocalNames),
-            StringComparer.Ordinal);
+        IReadOnlySet<string> used = CurrentScopeNames();
         string chosen = baseName;
         if (used.Contains(baseName))
         {
@@ -5692,6 +5688,12 @@ public sealed partial class CSharpPrinter
         TypeRef? receiverType = EffectiveType(receiver);
         if (receiverType?.Kind == TypeRefKind.ByRef)
             receiverType = receiverType.ElementType;
+        if (receiverType?.Kind is
+            TypeRefKind.GenericParameter
+            or TypeRefKind.MethodGenericParameter)
+        {
+            return false;
+        }
         return receiverType is not null
             && (receiver is LoadArgument
                 {

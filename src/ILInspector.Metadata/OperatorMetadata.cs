@@ -879,8 +879,22 @@ public static class OperatorMetadata
         internal static OperatorSignatureType Opaque => new(false, false, false, false, -1, default, false, false, null, null, false, false, []);
         static OperatorSignatureType NonNamed(
             string name,
-            bool hasRequiredModifier = false)
-            => new(false, false, false, false, -1, default, false, false, null, name, false, false, [])
+            bool hasRequiredModifier = false,
+            ImmutableArray<OperatorSignatureType> components = default)
+            => new(
+                false,
+                false,
+                false,
+                false,
+                -1,
+                default,
+                false,
+                false,
+                null,
+                name,
+                false,
+                false,
+                components.IsDefault ? [] : components)
             {
                 HasRequiredModifier = hasRequiredModifier,
             };
@@ -946,12 +960,14 @@ public static class OperatorMetadata
         public OperatorSignatureType GetSZArrayType(OperatorSignatureType elementType)
             => NonNamed(
                 "#array",
-                elementType.HasRequiredModifier);
+                elementType.HasRequiredModifier,
+                [elementType]);
 
         public OperatorSignatureType GetArrayType(OperatorSignatureType elementType, ArrayShape shape)
             => NonNamed(
                 "#array",
-                elementType.HasRequiredModifier);
+                elementType.HasRequiredModifier,
+                [elementType]);
 
         public OperatorSignatureType GetByReferenceType(OperatorSignatureType elementType)
             => new(false, true, false, false, -1, default, false, false, null, null, false, false, [elementType])
@@ -962,7 +978,8 @@ public static class OperatorMetadata
         public OperatorSignatureType GetPointerType(OperatorSignatureType elementType)
             => NonNamed(
                 "#pointer",
-                elementType.HasRequiredModifier);
+                elementType.HasRequiredModifier,
+                [elementType]);
 
         public OperatorSignatureType GetGenericInstantiation(
             OperatorSignatureType genericType,
@@ -1007,7 +1024,11 @@ public static class OperatorMetadata
                 "#function-pointer",
                 signature.ReturnType.HasRequiredModifier
                 || signature.ParameterTypes.Any(
-                    parameter => parameter.HasRequiredModifier));
+                    parameter => parameter.HasRequiredModifier),
+                [
+                    signature.ReturnType,
+                    .. signature.ParameterTypes,
+                ]);
 
         public OperatorSignatureType GetTypeFromSerializedName(string name) => Opaque;
 

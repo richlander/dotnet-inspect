@@ -73,7 +73,7 @@ public sealed record MemberTargetSelector(
                         ? $":{accessorIndex}"
                         : "")
                 : OverloadIndex is { } index ? $":{index}" : "";
-            return $"{kindPrefix}{Name}{suffix}";
+            return $"{kindPrefix}{FilterName}{suffix}";
         }
     }
 

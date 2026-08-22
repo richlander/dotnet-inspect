@@ -138,10 +138,20 @@ public class IrImporterTests
         var signature = new MethodSignature(intType, [], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
-        string output = CSharpPrinter.Print(function).Output!.Trim();
+        DecompilerResult result = CSharpPrinter.Print(function);
+        string output = result.Output!.Trim();
 
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
         Assert.Contains("op_Addition(1, 2)", output);
         Assert.DoesNotContain("1 + 2", output);
+        Assert.Contains(
+            result.Diagnostics,
+            diagnostic =>
+                diagnostic.Id
+                    == DiagnosticIds.UnrepresentableMetadataName
+                && diagnostic.Message.Contains(
+                    "C# forbids",
+                    StringComparison.Ordinal));
     }
 
     [Fact]

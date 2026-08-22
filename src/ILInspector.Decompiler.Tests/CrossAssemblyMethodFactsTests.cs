@@ -1,8 +1,10 @@
 using System.Collections.Immutable;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Runtime.Loader;
 
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
@@ -188,6 +190,30 @@ public class CrossAssemblyMethodFactsTests
                 PublicKeyToken = null,
             },
             coreLibraryAliasIdentity: aliasIdentity));
+    }
+
+    [Fact]
+    public void OperatorRelationship_DistinguishesSameNamedTypesFromAssemblyVersions()
+    {
+        using var fixture = OperatorAssemblyCollisionFixture.Create();
+        using var context = new MetadataContext(fixture);
+        using var source = MetadataSource.OpenWithoutSymbols(
+            fixture.SubjectPath,
+            fixture,
+            context);
+        MethodDefinition method = source.Reader.MethodDefinitions
+            .Select(source.Reader.GetMethodDefinition)
+            .Single(candidate =>
+                source.Reader.GetString(candidate.Name) == "op_Increment");
+
+        OperatorMetadata.DeclarationClassification classification =
+            source.CrossAssembly.ClassifyCSharpOperatorDeclaration(
+                source.Reader,
+                method);
+
+        Assert.Equal(
+            OperatorMetadata.DeclarationClassification.No,
+            classification);
     }
 
     [Fact]
@@ -988,6 +1014,106 @@ public class CrossAssemblyMethodFactsTests
         Assert.NotNull(function);
         function.CheckInvariant();
         return function!;
+    }
+
+    sealed class OperatorAssemblyCollisionFixture
+        : IAssemblyReferenceResolver, IDisposable
+    {
+        readonly string _directory;
+        readonly string _dependencyPath;
+        readonly IAssemblyReferenceResolver _runtime =
+            TestAssemblyReferenceResolvers.RuntimeAssemblies();
+
+        OperatorAssemblyCollisionFixture(
+            string directory,
+            string dependencyPath,
+            string subjectPath)
+        {
+            _directory = directory;
+            _dependencyPath = dependencyPath;
+            SubjectPath = subjectPath;
+        }
+
+        public string SubjectPath { get; }
+
+        public static OperatorAssemblyCollisionFixture Create()
+        {
+            string directory = Directory.CreateTempSubdirectory(
+                "dotnet-inspect-operator-collision-").FullName;
+            string dependencyPath = Path.Combine(directory, "dependency.dll");
+            string subjectPath = Path.Combine(directory, "subject.dll");
+            var dependency = new PersistedAssemblyBuilder(
+                new AssemblyName("Collision")
+                {
+                    Version = new Version(2, 0, 0, 0),
+                },
+                typeof(object).Assembly);
+            ModuleBuilder dependencyModule =
+                dependency.DefineDynamicModule("Collision");
+            dependencyModule.DefineType(
+                    "N.Counter",
+                    TypeAttributes.Public | TypeAttributes.Class,
+                    typeof(object))
+                .CreateType();
+            dependency.Save(dependencyPath);
+
+            var loadContext = new AssemblyLoadContext(
+                "operator-collision",
+                isCollectible: true);
+            try
+            {
+                Type externalCounter = loadContext
+                    .LoadFromAssemblyPath(dependencyPath)
+                    .GetType("N.Counter", throwOnError: true)!;
+                var subject = new PersistedAssemblyBuilder(
+                    new AssemblyName("Collision")
+                    {
+                        Version = new Version(1, 0, 0, 0),
+                    },
+                    typeof(object).Assembly);
+                ModuleBuilder subjectModule =
+                    subject.DefineDynamicModule("Collision");
+                TypeBuilder localCounter = subjectModule.DefineType(
+                    "N.Counter",
+                    TypeAttributes.Public | TypeAttributes.Class,
+                    typeof(object));
+                MethodBuilder increment = localCounter.DefineMethod(
+                    "op_Increment",
+                    MethodAttributes.Public
+                        | MethodAttributes.Static
+                        | MethodAttributes.SpecialName,
+                    externalCounter,
+                    [localCounter]);
+                ILGenerator il = increment.GetILGenerator();
+                il.Emit(OpCodes.Ldnull);
+                il.Emit(OpCodes.Ret);
+                localCounter.CreateType();
+                subject.Save(subjectPath);
+            }
+            finally
+            {
+                loadContext.Unload();
+            }
+
+            return new OperatorAssemblyCollisionFixture(
+                directory,
+                dependencyPath,
+                subjectPath);
+        }
+
+        public ResolvedAssemblyReference? Resolve(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope)
+            => identity.Name == "Collision"
+                && identity.Version == new Version(2, 0, 0, 0)
+                    ? ResolvedAssemblyReference.CreateFromPath(
+                        _dependencyPath,
+                        AssemblyResolutionProvenance.Local(
+                            nameof(OperatorAssemblyCollisionFixture)))
+                    : _runtime.Resolve(identity, scope);
+
+        public void Dispose()
+            => Directory.Delete(_directory, recursive: true);
     }
 
     sealed class MethodCollisionFixture : IAssemblyReferenceResolver, IDisposable

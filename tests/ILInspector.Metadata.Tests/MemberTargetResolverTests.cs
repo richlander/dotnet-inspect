@@ -88,6 +88,12 @@ public class MemberTargetResolverTests
         Assert.Equal(
             ["op_Increment", "op_IncrementAssignment"],
             selector.ExactNameFamily);
+        Assert.Equal("++", selector.NormalizedSelector);
+        Assert.Equal(
+            selector.ExactNameFamily,
+            MemberTargetSelector
+                .Parse(selector.NormalizedSelector)
+                .ExactNameFamily);
         Assert.Equal(
             ["op_Increment", "op_IncrementAssignment"],
             candidates.Select(

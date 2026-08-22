@@ -3504,6 +3504,50 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_ResolvesClosureOperatorWithExternalEndpointType()
+    {
+        var assemblyPath = CompileFixture("""
+            using System.Text;
+
+            public sealed class Value
+            {
+                public static bool operator ==(Value left, StringBuilder right)
+                    => false;
+                public static bool operator !=(Value left, StringBuilder right)
+                    => true;
+                public override bool Equals(object? other) => false;
+                public override int GetHashCode() => 0;
+            }
+
+            public sealed class Holder
+            {
+                public bool Prop => new Value() == new StringBuilder();
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Holder",
+                    "get_Prop",
+                    0)]));
+
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.Exact,
+                result.Status);
+            Assert.Contains(
+                "operator ==(Value left, StringBuilder right)",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_ClosurePairsOperatorsWithDifferentRefKinds()
     {
         var assemblyPath = CompileFixture("""

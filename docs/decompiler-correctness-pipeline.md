@@ -76,7 +76,10 @@ tri-state operator result. The target path resolves external endpoint facts
 through the compilation closure before choosing operator syntax; any remaining
 `Unknown` fails planning visibly instead of silently becoming an ordinary
 method. `CompileBackTargets_PreservesOperatorWithExternalEndpointType` is the
-compiler-produced gate for this boundary.
+compiler-produced target gate for this boundary.
+`CompileBackTargets_ResolvesClosureOperatorWithExternalEndpointType` requires
+the same resolver to reach closure member-surface planning; target
+classification alone is not sufficient.
 
 An assembly-bound Portable PDB does not supply the missing attribution identity.
 When present and recognized, its checksum can authenticate a mapped document's
@@ -550,7 +553,7 @@ starts each ID exactly once. The delayed-enumeration negative canary remains
 nineteen tests, with one ID starting eighteen times. The checker rejects that
 shape as `NON-ENUMERATED OR REPEATED CASES`.
 
-`SkeletonEmitTests` now contributes its eight cases to `pre-merge` (#3872).
+`SkeletonEmitTests` now contributes its nine cases to `pre-merge` (#3872).
 Its focused `FidelityCheck.Evaluate` calls select a typed
 `(Type, Method, Overload)` identity before method import, rendering,
 disassembly, and compile-back, reducing the class from 374.25 seconds to 13.31
@@ -650,6 +653,42 @@ an explicit invocation of a confirmed operator lowers the result to `Partial`,
 while `op_True`/`op_False` consumed by condition rendering remain `Full`.
 `KnownOperatorWithoutValueSpelling_DegradesRenderedInvocation` and the
 compiler-produced condition cases in `InOperatorOperandTests` gate both sides.
+`StaticOperatorFactRequiresCSharpRepresentableMetadata` additionally requires a
+recognized `SpecialName` metadata operator that remains an explicit invocation
+to become `Partial`, while
+`CrossAssemblyOperatorNameLookalike_RendersMethodCall` keeps name-inferred
+ordinary methods at `Full`.
+
+Receiver temporaries must preserve both the receiver's storage semantics and
+the current C# name scope.
+`ConstrainedStructReceiver_InstanceAssignmentPreservesTheByRefPlace` executes a
+compiler-produced constrained generic struct receiver and requires its mutation
+to survive; `MaterializedReceiver_AvoidsMethodGenericParameterName` prevents a
+synthetic receiver local from colliding with a method type parameter.
+
+Cross-assembly operator relationships compare resolved type definitions and
+assembly identities, not display-level `TypeRef` equality.
+`OperatorRelationship_DistinguishesSameNamedTypesFromAssemblyVersions` is the
+same-name, different-version gate.
+
+Operator signature encoding consistency is recursive through arrays, pointers,
+and function pointers.
+`CSharpOperatorDeclaration_RejectsNestedContradictoryTypeEncoding` supplies
+well-formed and contradictory close pairs for all three wrappers.
+`ResolutionAwareSurface_RejectsExternalRelationshipConversions` also requires
+an externally resolved base chain to reject conversion to `System.Object`; the
+primitive spelling is accepted as that named type only with trusted
+core-library provenance.
+
+ReturnToSender's fidelity skeleton must not promote a non-public
+assignment-shaped `SpecialName` method into a public C# operator declaration.
+`SkeletonPreservesProtectedAssignmentShapedMetadataMethod` is the whole-module
+compile-back gate.
+
+Exact increment and decrement selectors remain exact across normalization and
+reparse. `GetCandidates_IncrementTokenIncludesStaticAndInstanceShapes` requires
+`++` to retain only the increment and increment-assignment family rather than
+becoming the broader `op_Increment*` selector.
 
 Cross-assembly method and field matching may treat core-library facades as
 aliases only when the non-core side carries trusted platform provenance. The

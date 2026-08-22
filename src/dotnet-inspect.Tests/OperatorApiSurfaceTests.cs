@@ -22,6 +22,13 @@ namespace DotnetInspector.Tests;
 /// </summary>
 public sealed class OperatorApiSurfaceTests
 {
+    enum NestedSignatureWrapper
+    {
+        Array,
+        Pointer,
+        FunctionPointer,
+    }
+
     // name, isSpecialName, isStatic, genericArity, expectedKind, expectedCSharpDeclaration
     public static TheoryData<string, bool, bool, int, string, bool?> Classification => new()
     {
@@ -237,6 +244,29 @@ public sealed class OperatorApiSurfaceTests
             wellFormed.IsCSharpOperatorDeclaration("op_Addition"));
         Assert.False(
             malformed.IsCSharpOperatorDeclaration("op_Addition"));
+    }
+
+    [Fact]
+    public void CSharpOperatorDeclaration_RejectsNestedContradictoryTypeEncoding()
+    {
+        foreach (NestedSignatureWrapper wrapper in Enum.GetValues<NestedSignatureWrapper>())
+        {
+            using var wellFormed =
+                OperatorImage.BuildObjectParameterEncoding(
+                    (byte)SignatureTypeKind.Class,
+                    wrapper: wrapper);
+            using var malformed =
+                OperatorImage.BuildObjectParameterEncoding(
+                    (byte)SignatureTypeKind.ValueType,
+                    wrapper: wrapper);
+
+            Assert.True(
+                wellFormed.IsCSharpOperatorDeclaration("op_Addition"),
+                wrapper.ToString());
+            Assert.False(
+                malformed.IsCSharpOperatorDeclaration("op_Addition"),
+                wrapper.ToString());
+        }
     }
 
     [Fact]
@@ -858,16 +888,27 @@ public sealed class OperatorApiSurfaceTests
         using var baseImage = OperatorImage.Build(
             builder =>
             {
-                var method = builder.DefineMethod(
+                var streamMethod = builder.DefineMethod(
                     "op_Implicit",
                     MethodAttributes.Public
                         | MethodAttributes.Static
                         | MethodAttributes.SpecialName,
                     typeof(Stream),
                     [builder]);
-                var il = method.GetILGenerator();
-                il.Emit(OpCodes.Ldnull);
-                il.Emit(OpCodes.Ret);
+                var streamIl = streamMethod.GetILGenerator();
+                streamIl.Emit(OpCodes.Ldnull);
+                streamIl.Emit(OpCodes.Ret);
+
+                var objectMethod = builder.DefineMethod(
+                    "op_Explicit",
+                    MethodAttributes.Public
+                        | MethodAttributes.Static
+                        | MethodAttributes.SpecialName,
+                    typeof(object),
+                    [builder]);
+                var objectIl = objectMethod.GetILGenerator();
+                objectIl.Emit(OpCodes.Ldnull);
+                objectIl.Emit(OpCodes.Ret);
             },
             parent: typeof(MemoryStream));
 
@@ -881,6 +922,7 @@ public sealed class OperatorApiSurfaceTests
             member => Assert.False(
                 member.CSharpOperatorDeclaration,
                 member.Signature));
+        Assert.Equal(2, ResolvedOperators(baseImage).Length);
 
         static ApiMember[] ResolvedOperators(OperatorImage image)
         {
@@ -1290,7 +1332,8 @@ public sealed class OperatorApiSurfaceTests
                 | MethodAttributes.Static
                 | MethodAttributes.SpecialName
                 | MethodAttributes.HideBySig,
-            byte signatureHeader = 0x00)
+            byte signatureHeader = 0x00,
+            NestedSignatureWrapper? wrapper = null)
         {
             string path = System.IO.Path.Combine(
                 System.IO.Path.GetTempPath(),
@@ -1368,24 +1411,39 @@ public sealed class OperatorApiSurfaceTests
                 bodyEncoder.AddMethodBody(
                     instructions,
                     maxStack: 1);
-            byte[] signature =
-            [
+            byte encodedParameterType = checked((byte)(
+                (MetadataTokens.GetRowNumber(parameterType) << 2)
+                | 0x01));
+            var signature = new List<byte>
+            {
                 signatureHeader,
                 0x02,
                 (byte)SignatureTypeKind.Class,
                 0x08,
                 (byte)SignatureTypeKind.Class,
                 0x08,
-                objectKind,
-                checked((byte)(
-                    (MetadataTokens.GetRowNumber(parameterType) << 2)
-                    | 0x01)),
-            ];
+            };
+            switch (wrapper)
+            {
+                case NestedSignatureWrapper.Array:
+                    signature.Add((byte)SignatureTypeCode.SZArray);
+                    break;
+                case NestedSignatureWrapper.Pointer:
+                    signature.Add((byte)SignatureTypeCode.Pointer);
+                    break;
+                case NestedSignatureWrapper.FunctionPointer:
+                    signature.Add((byte)SignatureTypeCode.FunctionPointer);
+                    signature.Add(0x00);
+                    signature.Add(0x00);
+                    break;
+            }
+            signature.Add(objectKind);
+            signature.Add(encodedParameterType);
             metadata.AddMethodDefinition(
                 methodAttributes,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString("op_Addition"),
-                metadata.GetOrAddBlob(signature),
+                metadata.GetOrAddBlob(signature.ToArray()),
                 bodyOffset,
                 MetadataTokens.ParameterHandle(1));
 

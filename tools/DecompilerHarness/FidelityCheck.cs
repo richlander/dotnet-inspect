@@ -4271,6 +4271,8 @@ static class FidelityCheck
                 returnType,
                 parameters,
                 isStatic,
+                (method.Attributes & MethodAttributes.MemberAccessMask)
+                    == MethodAttributes.Public,
                 sig.ParameterTypes.Length,
                 HasRefOrOutParameter(reader, method, sig)) is { } operatorDeclaration)
         {
@@ -4328,6 +4330,7 @@ static class FidelityCheck
         string returnType,
         string parameters,
         bool isStatic,
+        bool isPublic,
         int parameterCount,
         bool hasRefOrOutParameter)
     {
@@ -4335,7 +4338,7 @@ static class FidelityCheck
             && !OperatorNames.IsCSharpInstanceAssignmentOperator(
                 name,
                 isStatic,
-                isPublic: true,
+                isPublic,
                 returnType,
                 parameterCount,
                 hasRefOrOutParameter))

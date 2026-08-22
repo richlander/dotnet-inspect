@@ -4893,10 +4893,16 @@ public static class ApiSurfaceExtractor
                 {
                     return OperatorMetadata.TypeRelationship.Unknown;
                 }
-                return left.Identity.IsNil
-                    && right.Identity.IsNil
-                    && left.Namespace == right.Namespace
-                    && left.Name == right.Name
+                if (left.Namespace != right.Namespace
+                    || left.Name != right.Name)
+                {
+                    return OperatorMetadata.TypeRelationship.No;
+                }
+                if (left.Identity.IsNil && right.Identity.IsNil)
+                    return OperatorMetadata.TypeRelationship.Yes;
+                OperatorMetadata.OperatorSignatureType named =
+                    left.Identity.IsNil ? right : left;
+                return named.IsTrustedCoreLibraryType
                     ? OperatorMetadata.TypeRelationship.Yes
                     : OperatorMetadata.TypeRelationship.No;
             }

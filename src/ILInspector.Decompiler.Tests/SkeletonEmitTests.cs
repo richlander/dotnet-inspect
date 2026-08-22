@@ -1,3 +1,6 @@
+using System.Reflection;
+using System.Reflection.Emit;
+
 using ILInspector.DecompilerHarness;
 
 namespace ILInspector.Decompiler.Tests;
@@ -148,6 +151,65 @@ public class SkeletonEmitTests
         Assert.False(result.Status is FidelityCheck.CompileBackStatus.RecompileFail
             or FidelityCheck.CompileBackStatus.ContextFail,
             $"Skeleton dropped the generic constraint on {method}: {result.Status} / {result.Detail}");
+    }
+
+    [Fact]
+    public void SkeletonPreservesProtectedAssignmentShapedMetadataMethod()
+    {
+        string path = CreateAssemblyWithProtectedAssignmentMethod();
+        try
+        {
+            var result = Assert.Single(FidelityCheck.Evaluate(
+                path,
+                type => type == "ProtectedAssignmentBox",
+                method => method.Method == "Invoke"));
+
+            Assert.False(
+                result.Status is FidelityCheck.CompileBackStatus.RecompileFail
+                    or FidelityCheck.CompileBackStatus.ContextFail,
+                $"{result.Status} / {result.Detail}");
+            Assert.DoesNotContain("CS0571", result.Detail);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    static string CreateAssemblyWithProtectedAssignmentMethod()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-check-protected-assignment-{Guid.NewGuid():N}.dll");
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName("ProtectedAssignment"),
+            typeof(object).Assembly);
+        ModuleBuilder module =
+            assembly.DefineDynamicModule("ProtectedAssignment");
+        TypeBuilder type = module.DefineType(
+            "ProtectedAssignmentBox",
+            TypeAttributes.Public | TypeAttributes.Class);
+        MethodBuilder assignment = type.DefineMethod(
+            "op_AdditionAssignment",
+            MethodAttributes.Family
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            typeof(void),
+            [typeof(int)]);
+        assignment.GetILGenerator().Emit(OpCodes.Ret);
+        MethodBuilder invoke = type.DefineMethod(
+            "Invoke",
+            MethodAttributes.Public | MethodAttributes.HideBySig,
+            typeof(void),
+            [typeof(int)]);
+        ILGenerator il = invoke.GetILGenerator();
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldarg_1);
+        il.Emit(OpCodes.Call, assignment);
+        il.Emit(OpCodes.Ret);
+        type.CreateType();
+        assembly.Save(path);
+        return path;
     }
 
     static string CreateAssemblyWithDuplicateUnrelatedType()
