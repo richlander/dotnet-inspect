@@ -623,6 +623,23 @@ export function graphTargetNavigationDisposition(
     : "none";
 }
 
+export interface PdbSourceLimitationSource {
+  pdbSourceLimitation?: string | null;
+}
+
+export function pdbSourceLimitationHtml(
+  source: PdbSourceLimitationSource | null | undefined,
+): string {
+  if (!source?.pdbSourceLimitation) return "";
+  const escaped = source.pdbSourceLimitation
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+  return `<span class="graph-source-status">PDB source unavailable: ${escaped}</span>`;
+}
+
 export interface CallGraphDiagnostics {
   incompleteNodes?: number;
   incompleteEdges?: number;

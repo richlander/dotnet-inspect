@@ -70,7 +70,13 @@ test("loading state shows a status scoped to the title, not stale source or erro
   const html = renderGraphSource({
     title: "Widget.Render()",
     loading: true,
-    source: { provider: "original", provenance: "unused while loading", url: "", text: "unused" },
+    source: {
+      provider: "pdb",
+      provenance: "unused while loading",
+      url: "",
+      pdbSourceLimitation: null,
+      text: "unused",
+    },
     error: "unused while loading",
     escapeHtml,
     highlightCSharp,
@@ -80,14 +86,15 @@ test("loading state shows a status scoped to the title, not stale source or erro
   assert.doesNotMatch(html, /unused/);
 });
 
-test("loaded original source renders provenance, an open-source link, and highlighted text", () => {
+test("loaded PDB source renders provenance, an open-source link, and highlighted text", () => {
   const html = renderGraphSource({
     title: "Widget.Render()",
     loading: false,
     source: {
-      provider: "original",
+      provider: "pdb",
       provenance: "github.com/example/widget",
       url: "https://github.com/example/widget/blob/main/Widget.cs",
+      pdbSourceLimitation: null,
       text: "void Render() {}",
     },
     error: "",
@@ -95,7 +102,7 @@ test("loaded original source renders provenance, an open-source link, and highli
     highlightCSharp,
   });
 
-  assert.match(html, /<strong>Original source<\/strong>/);
+  assert.match(html, /<strong>PDB Source<\/strong>/);
   assert.match(html, /<span>github\.com\/example\/widget<\/span>/);
   assert.match(html, /<a href="https:\/\/github\.com\/example\/widget\/blob\/main\/Widget\.cs" target="_blank" rel="noreferrer">open source ↗<\/a>/);
   assert.match(html, /<mark>void Render\(\) \{\}<\/mark>/);
@@ -105,7 +112,13 @@ test("loaded decompiled source labels the provenance as decompiled and omits the
   const html = renderGraphSource({
     title: "Widget.Render()",
     loading: false,
-    source: { provider: "decompiled", provenance: "decompiled from IL", url: null, text: "void Render() {}" },
+    source: {
+      provider: "decompiled",
+      provenance: "decompiled from IL",
+      url: null,
+      pdbSourceLimitation: "<checksum mismatch>",
+      text: "void Render() {}",
+    },
     error: "",
     escapeHtml,
     highlightCSharp,
@@ -113,6 +126,7 @@ test("loaded decompiled source labels the provenance as decompiled and omits the
 
   assert.match(html, /<strong>Decompiled source<\/strong>/);
   assert.doesNotMatch(html, /open source/);
+  assert.match(html, /PDB source unavailable: &lt;checksum mismatch&gt;/);
 });
 
 test("error state without a source shows the error message, falling back to a default", () => {
@@ -146,9 +160,10 @@ test("provenance and url are escaped", () => {
     title: "Widget.Render()",
     loading: false,
     source: {
-      provider: "original",
+      provider: "pdb",
       provenance: '<b>"evil"</b>',
       url: 'https://example.com/"><script>alert(1)</script>',
+      pdbSourceLimitation: null,
       text: "void Render() {}",
     },
     error: "",
