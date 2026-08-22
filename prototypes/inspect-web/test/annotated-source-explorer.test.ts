@@ -195,6 +195,10 @@ test("addressable source uses one tab stop and roving keyboard navigation", () =
 
   assert.match(html, /class="ase-code-scroll" tabindex="0"/);
   assert.match(html, /<button type="button" tabindex="-1" class="annotated-span addressable"/);
+  assert.match(
+    styles,
+    /\.annotated-span\.addressable\s*\{[^}]*user-select:\s*text;/,
+  );
   assert.match(appSource, /case "ArrowRight":/);
   assert.match(
     appSource,
