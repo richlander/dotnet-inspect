@@ -1499,12 +1499,53 @@ public class ApiCommand
     internal static async Task<ResolvedMethodSource> ResolveMethodSourceAsync(
         string dllPath, string typeName, string methodName, int overloadIndex,
         ApiOptions options, HttpClient httpClient, VerboseLogger logger, bool fetchSource = true,
-        bool publicOnly = true, int metadataToken = 0)
+        bool publicOnly = true, int sourceMetadataToken = 0,
+        string? memberMetadataAssemblyPath = null, int memberMetadataToken = 0)
     {
         try
         {
             using var service = SourceLinkService.Open(dllPath, logger.Log);
             var context = service.Context;
+
+            // A member with no IL body has no PDB source to resolve, whatever the PDB and
+            // SourceLink situation is. The selected MethodDef token belongs to the assembly that
+            // supplied the API member, which may differ from the runtime facade opened for PDB
+            // lookup. Preserve that identity instead of applying the token to the wrong image;
+            // when it is unavailable, use the same name/overload fallback as source lookup
+            // (issue #3299).
+            bool? memberHasBody = null;
+            if (memberMetadataToken != 0
+                && memberMetadataAssemblyPath is { Length: > 0 })
+            {
+                if (LibraryMetadataService
+                    .ReferenceTreePathComparer(OperatingSystem.IsWindows())
+                    .Equals(
+                        Path.GetFullPath(dllPath),
+                        Path.GetFullPath(memberMetadataAssemblyPath)))
+                {
+                    memberHasBody = context.MethodHasBody(memberMetadataToken);
+                }
+                else
+                {
+                    using var memberContext = PdbContext.Open(memberMetadataAssemblyPath);
+                    memberHasBody = memberContext.MethodHasBody(memberMetadataToken);
+                }
+            }
+
+            memberHasBody ??= context.MethodHasBody(
+                typeName,
+                methodName,
+                overloadIndex,
+                publicOnly,
+                sourceMetadataToken);
+            bool memberHasNoBody = memberHasBody == false;
+            if (memberHasNoBody)
+            {
+                return new ResolvedMethodSource(
+                    null,
+                    context.PortablePdbPath,
+                    MemberHasNoBody: true);
+            }
 
             // Acquire PDB if needed (same flow as SourceEnricher)
             if (context.NeedsPdb)
@@ -1523,30 +1564,27 @@ public class ApiCommand
             // names even when SourceLink/source resolution below fails (PDB available, source not).
             string? pdbPath = context.PortablePdbPath;
 
-            // A member with no IL body has no PDB source to resolve, whatever the PDB and
-            // SourceLink situation is. Ask metadata for that fact before the resolution attempt,
-            // so an empty result can say why instead of looking like a silent failure
-            // (issue #3299). Only a definite "no" counts; an unreadable token stays unknown.
-            bool memberHasNoBody = metadataToken != 0 && context.MethodHasBody(metadataToken) == false;
-
             if (!fetchSource)
-                return new ResolvedMethodSource(null, pdbPath, memberHasNoBody);
+                return new ResolvedMethodSource(null, pdbPath);
             if (!service.HasPdb)
             {
                 return new ResolvedMethodSource(
                     null,
                     pdbPath,
-                    memberHasNoBody,
                     PdbSourceUnavailableReason: NoPortablePdbReason);
             }
 
-            var methodInfo = service.ResolveMethodSource(typeName, methodName, overloadIndex, publicOnly, metadataToken);
+            var methodInfo = service.ResolveMethodSource(
+                typeName,
+                methodName,
+                overloadIndex,
+                publicOnly,
+                sourceMetadataToken);
             if (methodInfo == null)
             {
                 return new ResolvedMethodSource(
                     null,
                     pdbPath,
-                    memberHasNoBody,
                     PdbSourceUnavailableReason: NoPdbSourceMappingReason);
             }
 
@@ -1594,7 +1632,6 @@ public class ApiCommand
                 return new ResolvedMethodSource(
                     null,
                     pdbPath,
-                    memberHasNoBody,
                     PdbSourceUnavailableReason: NoMatchingPdbSourceReason);
             }
 
