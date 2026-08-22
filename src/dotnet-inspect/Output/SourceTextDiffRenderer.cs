@@ -50,7 +50,8 @@ internal static class SourceTextDiffRenderer
         {
             $"--- {beforeLabel}",
             $"+++ {afterLabel}",
-            $"@@ -1,{comparison.OldAtoms.Length} +1,{comparison.NewAtoms.Length} @@"
+            $"@@ -{RangeStart(comparison.OldAtoms.Length)},{comparison.OldAtoms.Length} "
+            + $"+{RangeStart(comparison.NewAtoms.Length)},{comparison.NewAtoms.Length} @@"
         };
         output.AddRange(diff.Select(item => $"{item.Prefix}{item.Text}"));
         return string.Join("\n", output);
@@ -171,8 +172,14 @@ internal static class SourceTextDiffRenderer
             if (diff[index].Prefix != '-')
                 newCount++;
         }
+        if (oldCount == 0)
+            oldStart--;
+        if (newCount == 0)
+            newStart--;
         return (oldStart, oldCount, newStart, newCount);
     }
+
+    static int RangeStart(int count) => count == 0 ? 0 : 1;
 
     static void AddHunk(
         List<string> output,

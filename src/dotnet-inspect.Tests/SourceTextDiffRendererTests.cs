@@ -135,8 +135,25 @@ public class SourceTextDiffRendererTests
         Assert.Contains("-before-1", actual);
         Assert.Contains("+after-160", actual);
         Assert.DoesNotContain("-before-80", actual);
-        Assert.Contains("@@ -1,40 +1,0 @@", actual);
-        Assert.Contains("@@ -161,0 +121,40 @@", actual);
+        Assert.Contains("@@ -1,40 +0,0 @@", actual);
+        Assert.Contains("@@ -160,0 +121,40 @@", actual);
+    }
+
+    [Theory]
+    [InlineData("", "added", "@@ -0,0 +1,1 @@")]
+    [InlineData("removed", "", "@@ -1,1 +0,0 @@")]
+    public void CompleteDiff_AnchorsEmptyRangesAtThePrecedingLine(
+        string before,
+        string after,
+        string expectedHeader)
+    {
+        string actual = SourceTextDiffRenderer.CreateUnifiedDiff(
+            before,
+            after,
+            "Original",
+            "After");
+
+        Assert.Contains(expectedHeader, actual);
     }
 
     [Fact]

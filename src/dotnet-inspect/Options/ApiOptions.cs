@@ -116,6 +116,16 @@ public partial record ApiOptions : IProjectionOptions
 
     // Shared output
     public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
+
+    /// <summary>
+    /// The user's requested verbosity before internal section-selection promotion.
+    /// Defaults to <see cref="Verbosity"/> for callers that bypass command setup.
+    /// </summary>
+    public Verbosity? UserVerbosityOverride { get; init; }
+
+    /// <summary>Effective user verbosity before internal promotion.</summary>
+    public Verbosity UserVerbosity => UserVerbosityOverride ?? Verbosity;
+
     public bool JsonOutput { get; init; }
     public bool CompactJson { get; init; }
     public bool Tabular { get; init; }

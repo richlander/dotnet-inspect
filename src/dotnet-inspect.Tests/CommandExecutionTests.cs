@@ -10435,6 +10435,40 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SourceDiff_UsesRequestedVerbosityBeforeSectionPromotion()
+    {
+        string productAssemblyPath = typeof(ApiCommand).Assembly.Location;
+        string[] arguments =
+        [
+            "member",
+            "DotnetInspector.Output.SourceTextDiffRenderer",
+            "--library", productAssemblyPath,
+            "RenderReviewerDiff",
+            "--all",
+            "-S", "Source Diff",
+            "--tips", "q",
+        ];
+
+        var (normalExit, normalOutput, normalError) = await RunAppAsync(
+            [.. arguments, "-v:n"]);
+        var (detailedExit, detailedOutput, detailedError) = await RunAppAsync(
+            [.. arguments, "-v:d"]);
+
+        Assert.Equal(0, normalExit);
+        Assert.Empty(normalError);
+        Assert.Single(
+            normalOutput.Split('\n'),
+            line => line.StartsWith("# Source diff status: Partial", StringComparison.Ordinal));
+
+        Assert.Equal(0, detailedExit);
+        Assert.Empty(detailedError);
+        Assert.DoesNotContain(
+            detailedOutput.Split('\n'),
+            line => line.StartsWith("# Source diff status: Partial", StringComparison.Ordinal));
+        Assert.NotEqual(normalOutput, detailedOutput);
+    }
+
+    [Fact]
     public async Task Member_SingleOverload_SourceCategory_IncludesSourceDiff()
     {
         var (exit, output, error) = await RunAppAsync(

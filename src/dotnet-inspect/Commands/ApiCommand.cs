@@ -206,6 +206,7 @@ public class ApiCommand
 
     internal static (PreambleResult Result, int? Error) RunPreamble(ApiOptions options)
     {
+        options = options with { UserVerbosityOverride = options.UserVerbosity };
         var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
         var memberPipeline = ApiMemberSectionPipelines.Create(options);
         bool hasTypeName = !string.IsNullOrWhiteSpace(options.TypeName);
@@ -1951,7 +1952,7 @@ public class ApiCommand
                 options is MemberOptions { MemberSourceTooComplex: true },
                 options is MemberOptions { MemberSourceCoordinatesInvalid: true },
                 (options as MemberOptions)?.MethodSource,
-                options.Verbosity < Verbosity.Detailed);
+                options.UserVerbosity < Verbosity.Detailed);
 
         }
 
@@ -2767,7 +2768,7 @@ public class ApiCommand
                     memberOptions.MemberSourceTooComplex,
                     memberOptions.MemberSourceCoordinatesInvalid,
                     memberOptions.MethodSource,
-                    memberOptions.Verbosity < Verbosity.Detailed);
+                    memberOptions.UserVerbosity < Verbosity.Detailed);
             }
 
             if (renderOptions is TypeOptions
