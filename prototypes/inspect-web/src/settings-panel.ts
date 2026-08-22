@@ -1,7 +1,7 @@
 // The Settings page (a persistent preferences panel) and the decompiler "taste" popover it
-// shares its style catalog with. Both are pure, dependency-injected render functions: `dotnet-inspect.ts`
-// owns `state`, localStorage persistence, and event wiring (`setTheme`, `toggleTaste`,
-// `clearTaste`, `bindSettingsEvents`), and passes each computed slice in explicitly.
+// shares its style catalog with. Both are dependency-injected render functions with their
+// rendered control bindings; `dotnet-inspect.ts` owns `state`, localStorage persistence, and
+// the theme/taste effects, and passes each computed slice and action in explicitly.
 
 export interface StyleTier {
   id: string;
@@ -27,6 +27,44 @@ export interface StyleCatalogState {
 }
 
 type EscapeHtml = (value: unknown) => string;
+
+export interface SettingsPanelBindingActions {
+  onClose: () => void;
+  onTasteClear: () => void;
+  onTasteToggle: (taste: string) => void;
+  onThemeSelect: (theme: "dark" | "light") => void;
+}
+
+export function bindSettingsPanel(
+  root: ParentNode,
+  actions: SettingsPanelBindingActions,
+) {
+  root.querySelector("#settings-close")?.addEventListener(
+    "click",
+    actions.onClose);
+  root.querySelectorAll<HTMLElement>(".settings-seg[data-theme]")
+    .forEach(button => button.addEventListener("click", () => {
+      const theme = button.dataset.theme;
+      if (theme === "dark" || theme === "light") {
+        actions.onThemeSelect(theme);
+      }
+    }));
+  root.querySelectorAll<HTMLElement>(".settings-taste [data-taste]")
+    .forEach(checkbox => checkbox.addEventListener("change", () => {
+      const taste = checkbox.dataset.taste;
+      if (taste) actions.onTasteToggle(taste);
+    }));
+  root.querySelector("#settings-taste-clear")?.addEventListener(
+    "click",
+    actions.onTasteClear);
+  root.querySelectorAll<HTMLElement>("#taste-popover [data-taste]")
+    .forEach(checkbox => checkbox.addEventListener(
+      "change",
+      () => actions.onTasteToggle(checkbox.dataset.taste ?? "")));
+  root.querySelector("#taste-clear")?.addEventListener(
+    "click",
+    actions.onTasteClear);
+}
 
 // The decompiler style ("taste") catalog, grouped by tier, as checkbox rows. Shared by the
 // detail-view taste popover and the Settings page so both stay in lockstep with the engine's

@@ -311,6 +311,9 @@ const typePanelSource = readFileSync(
 const scopeBarSource = readFileSync(
   new URL("../src/scope-bar.ts", import.meta.url),
   "utf8");
+const settingsPanelSource = readFileSync(
+  new URL("../src/settings-panel.ts", import.meta.url),
+  "utf8");
 const packageBarSource = readFileSync(
   new URL("../src/package-bar.ts", import.meta.url),
   "utf8");
@@ -636,6 +639,121 @@ test("typed scope bar owns its rendered control bindings", () => {
     "[data-package-lens]",
     "[data-lens]",
     "[data-member-section]",
+  ]) {
+    assert.equal(appSource.split(selector).length - 1, 0, selector);
+  }
+});
+
+test("typed settings panel owns its rendered control bindings", () => {
+  assert.deepEqual(parsedAppSource.errors, []);
+  const bindEvents = functionDeclaration("bindEvents");
+  const renderSettings = functionDeclaration("renderSettingsViewHtml");
+  const settingsEventBinder = functionDeclaration("bindSettingsPanelEvents");
+  const settingsPanelImport = onlySyntaxNode(
+    appSyntax.body.filter(
+      node => node.type === "ImportDeclaration"
+        && node.source.value === "./settings-panel.ts"),
+    "settings panel import");
+  assert.equal(
+    settingsPanelImport.specifiers.filter(
+      specifier => specifier.type === "ImportSpecifier"
+        && specifier.imported.type === "Identifier"
+        && specifier.imported.name === "bindSettingsPanel"
+        && specifier.local.name === "bindSettingsPanel").length,
+    1);
+  assert.equal(
+    syntaxNodes(
+      appSyntax,
+      node => node.type === "Identifier"
+        && node.name === "bindSettingsPanel").length,
+    3);
+  const eventBinderCalls = callExpressionsNamed(appSyntax, "bindSettingsPanelEvents");
+  assert.equal(eventBinderCalls.length, 2);
+  assert.equal(
+    syntaxNodes(
+      appSyntax,
+      node => node.type === "Identifier"
+        && node.name === "bindSettingsPanelEvents").length,
+    3);
+  for (const [owner, description] of [
+    [bindEvents, "workbench settings binder"],
+    [renderSettings, "settings view binder"],
+  ]) {
+    assert.equal(
+      callExpressionsNamed(owner, "bindSettingsPanelEvents").length,
+      1,
+      description);
+    assert.equal(
+      owner.body.body
+        .map(statement => directCallExpression(statement, "bindSettingsPanelEvents"))
+        .filter(Boolean)
+        .length,
+      1,
+      `${description} direct call`);
+  }
+  const directWorkbenchCalls = bindEvents.body.body.map(statement => {
+    if (statement.type !== "ExpressionStatement") return null;
+    const expression = statement.expression;
+    return expression.type === "CallExpression"
+      && expression.callee?.type === "Identifier"
+      ? expression.callee.name
+      : null;
+  });
+  assert.equal(
+    directWorkbenchCalls.indexOf("bindSettingsPanelEvents"),
+    directWorkbenchCalls.indexOf("bindScopeBarEvents") + 1);
+  assert.equal(renderSettings.body.body.length, 2);
+  const renderStatement = renderSettings.body.body[0];
+  assert.equal(renderStatement.type, "ExpressionStatement");
+  assert.equal(renderStatement.expression.type, "AssignmentExpression");
+  assert.equal(renderStatement.expression.operator, "=");
+  assert.equal(sourceText(renderStatement.expression.left), "app.innerHTML");
+  assert.equal(renderStatement.expression.right.type, "CallExpression");
+  assert.equal(renderStatement.expression.right.callee.type, "Identifier");
+  assert.equal(renderStatement.expression.right.callee.name, "renderSettingsView");
+  assert.ok(
+    directCallExpression(
+      renderSettings.body.body[1],
+      "bindSettingsPanelEvents"));
+
+  const innerSettingsCalls = callExpressionsNamed(appSyntax, "bindSettingsPanel");
+  assert.equal(innerSettingsCalls.length, 1);
+  const innerSettingsCall = innerSettingsCalls[0];
+  assert.equal(settingsEventBinder.body.body.length, 1);
+  assert.equal(
+    directCallExpression(settingsEventBinder.body.body[0], "bindSettingsPanel"),
+    innerSettingsCall);
+  assert.equal(innerSettingsCall.arguments.length, 2);
+  assert.equal(innerSettingsCall.arguments[0].type, "Identifier");
+  assert.equal(innerSettingsCall.arguments[0].name, "document");
+  const actions = innerSettingsCall.arguments[1];
+  assert.equal(actions.type, "ObjectExpression");
+  assert.equal(actions.properties.length, 4);
+  for (const [name, value] of [
+    ["onClose", "closeSettings"],
+    ["onTasteClear", "clearTaste"],
+    ["onTasteToggle", "toggleTaste"],
+    ["onThemeSelect", "setTheme"],
+  ]) {
+    const property = onlySyntaxNode(
+      actions.properties.filter(
+        item => item.type === "Property"
+          && item.key.type === "Identifier"
+          && item.key.name === name),
+      `${name} settings action`);
+    assert.equal(property.value.type, "Identifier");
+    assert.equal(property.value.name, value);
+  }
+  assert.match(
+    settingsPanelSource,
+    /export function bindSettingsPanel\([\s\S]*#settings-close[\s\S]*\.settings-seg\[data-theme\][\s\S]*\.settings-taste \[data-taste\][\s\S]*#settings-taste-clear[\s\S]*#taste-popover \[data-taste\][\s\S]*#taste-clear/);
+  for (const selector of [
+    "#settings-close",
+    ".settings-seg[data-theme]",
+    ".settings-taste [data-taste]",
+    "#settings-taste-clear",
+    "#taste-popover [data-taste]",
+    "#taste-clear",
   ]) {
     assert.equal(appSource.split(selector).length - 1, 0, selector);
   }
