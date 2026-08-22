@@ -77,6 +77,27 @@ public sealed class TsTypeMapperTests
             TsTypeMapper.MapParameterType("ILInspector.JsExportSurface.Fixtures.WidgetDto", RecordNames));
     }
 
+    [Theory]
+    [InlineData("InertString")]
+    [InlineData("InertText.InertString")]
+    public void Map_InertStringMapsToBrandedType(string csharpType)
+    {
+        Assert.Equal(
+            "InertString",
+            TsTypeMapper.MapParameterType(csharpType, RecordNames));
+    }
+
+    [Fact]
+    public void ContainsInertString_FindsDirectAndContainerUsesButNotOrdinaryStrings()
+    {
+        Assert.True(TsTypeMapper.ContainsInertString("InertText.InertString"));
+        Assert.True(
+            TsTypeMapper.ContainsInertString(
+                "IReadOnlyDictionary<string, InertText.InertString[]>"));
+        Assert.False(TsTypeMapper.ContainsInertString("string"));
+        Assert.False(TsTypeMapper.ContainsInertString("WidgetDto"));
+    }
+
     [Fact]
     public void Map_UnknownTypeMapsToUnknownAndReportsDiagnostic()
     {

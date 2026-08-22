@@ -20,6 +20,12 @@ static partial class DtsEmitter
 
         var sb = new StringBuilder();
 
+        if (UsesInertString(surface.Records))
+        {
+            sb.Append("declare const inertStringBrand: unique symbol;\n");
+            sb.Append("export type InertString = string & { readonly [inertStringBrand]: true };\n\n");
+        }
+
         foreach (ApiType enumType in surface.Enums.OrderBy(e => e.Name, StringComparer.Ordinal))
             EmitEnum(sb, enumType);
 
@@ -34,6 +40,22 @@ static partial class DtsEmitter
 
         return sb.ToString();
     }
+
+    static bool UsesInertString(IEnumerable<ApiType> records) =>
+        records.SelectMany(record => record.Members).Any(member =>
+        {
+            if (member.Kind != "property"
+                || member.IsCompilerGenerated
+                || member.HasJsonIgnore
+                || (member.Accessibility is not null && !member.HasJsonInclude))
+            {
+                return false;
+            }
+
+            string propertyType =
+                member.SignatureModel?.ReturnType ?? member.ReturnType ?? "unknown";
+            return TsTypeMapper.ContainsInertString(propertyType);
+        });
 
     static void EmitEnum(StringBuilder sb, ApiType enumType)
     {

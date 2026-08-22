@@ -2,6 +2,7 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using InertText;
 
 namespace ILInspector.JsExportSurface.Fixtures;
 
@@ -65,6 +66,14 @@ public static partial class FixtureExports
             FixtureJsonContext.Default.WidgetSummary);
 
     [JSExport]
+    public static string GetInertWidgetSummary() =>
+        JsonSerializer.Serialize(
+            new InertWidgetSummary(
+                "widget",
+                new InertString(TextPolicy.Field, "contained")),
+            FixtureJsonContext.Default.InertWidgetSummary);
+
+    [JSExport]
     public static string GetWidgetPermissionSummary() =>
         JsonSerializer.Serialize(
             new WidgetPermissionSummary("widget", WidgetPermission.Read | WidgetPermission.Write),
@@ -101,6 +110,26 @@ public enum WidgetStatus
 }
 
 public sealed record WidgetSummary(string Name, WidgetStatus Status);
+
+public sealed record InertWidgetSummary(
+    string Name,
+    [property: JsonConverter(typeof(FixtureInertStringJsonConverter))]
+    InertString Display);
+
+public sealed class FixtureInertStringJsonConverter : JsonConverter<InertString>
+{
+    public override InertString Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options) =>
+        throw new NotSupportedException("The fixture's inert-text contract is output-only.");
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        InertString value,
+        JsonSerializerOptions options) =>
+        writer.WriteStringValue(value.ToString());
+}
 
 [Flags]
 [JsonConverter(typeof(JsonStringEnumConverter<WidgetPermission>))]
@@ -172,6 +201,7 @@ public static partial class InternalContextFixtureExports
 [JsonSerializable(typeof(WidgetDto[]))]
 [JsonSerializable(typeof(WidgetCatalog))]
 [JsonSerializable(typeof(WidgetSummary))]
+[JsonSerializable(typeof(InertWidgetSummary))]
 [JsonSerializable(typeof(WidgetPermissionSummary))]
 [JsonSerializable(typeof(WidgetPrioritySummary))]
 [JsonSerializable(typeof(WidgetAudit))]

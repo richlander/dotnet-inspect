@@ -1,4 +1,6 @@
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
+using InertText;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.Metadata;
@@ -45,6 +47,40 @@ public sealed class DtsEmitterTests
         Assert.Contains("  name: string;", dts, StringComparison.Ordinal);
         Assert.Contains("  count: number;", dts, StringComparison.Ordinal);
         Assert.Contains("  displayName: string;", dts, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_MapsInertStringPropertyToOpaqueStringBrand()
+    {
+        string dts = EmitFixtureDts();
+
+        Assert.Contains(
+            "declare const inertStringBrand: unique symbol;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export type InertString = string & { readonly [inertStringBrand]: true };",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains("export interface InertWidgetSummary {", dts, StringComparison.Ordinal);
+        Assert.Contains("  name: string;", dts, StringComparison.Ordinal);
+        Assert.Contains("  display: InertString;", dts, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FixtureInertStringProperty_RemainsAJsonStringOnTheWire()
+    {
+        var summary = new InertWidgetSummary(
+            "widget",
+            new InertString(TextPolicy.Field, "line\u202Egpj"));
+
+        string json = JsonSerializer.Serialize(
+            summary,
+            FixtureJsonContext.Default.InertWidgetSummary);
+
+        Assert.Equal(
+            """{"name":"widget","display":"line\\u202Egpj"}""",
+            json);
     }
 
     [Fact]

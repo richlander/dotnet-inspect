@@ -20,6 +20,11 @@ This library intentionally stays free of any target-language opinion (naming
 policy, `Promise` unwrapping, `.d.ts` syntax); that "personality" belongs to a
 consumer such as [`tsbindgen`](../tsbindgen).
 
+The object model likewise keeps typed DTO property signatures intact.
+`InertText.InertString` therefore reaches a target-language generator as that
+exact C# contract rather than being reduced to its JSON string representation.
+Whether a target preserves that distinction is the target generator's policy.
+
 Run its test suite in Release:
 
 ```bash
