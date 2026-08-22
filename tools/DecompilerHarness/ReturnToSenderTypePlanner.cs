@@ -5524,7 +5524,10 @@ public static class CompileBackSourceComposer
             bool hasOperatorIdentity = !isConstructor
                 && IsMetadataOperator(reader, method);
             bool operatorIsRepresentable = hasOperatorIdentity
-                && IsOperatorMethod(reader, method);
+                && IsOperatorMethod(
+                    reader,
+                    method,
+                    relationshipResolver);
 
             string identifierName = MemberIdentifierName(name, isConstructor);
             IReadOnlyList<CompileBackFact> sourceFacts =

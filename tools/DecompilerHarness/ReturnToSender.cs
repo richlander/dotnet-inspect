@@ -460,14 +460,13 @@ static class ReturnToSender
         using var metadata = CorpusMetadata.Create([assemblyPath]);
         using var source = MetadataSource.Open(assemblyPath, context: metadata);
         var sourceIndex = ReturnToSenderSourceIndex.TryCreate(assemblyPath);
-        var memberSurface = ApiSurfaceExtractor.Extract(
-            reader,
-            includeAll: true,
-            includeCompilerGenerated: true);
-        var memberSurfaceIndex = CompileBackSourceComposer.CreateMemberSurfaceIndex(memberSurface);
-        var memberAnchors = MemberAnchorsByMethodToken(memberSurface);
         CompilationClosure compilationClosure =
             CreateCompilationClosure(assemblyPath);
+        var memberSurface = ExtractMemberSurface(
+            reader,
+            compilationClosure);
+        var memberSurfaceIndex = CompileBackSourceComposer.CreateMemberSurfaceIndex(memberSurface);
+        var memberAnchors = MemberAnchorsByMethodToken(memberSurface);
 
         foreach (var typeHandle in reader.TypeDefinitions)
         {
@@ -768,14 +767,13 @@ static class ReturnToSender
         var reader = pe.GetMetadataReader();
         using var metadata = CorpusMetadata.Create([assemblyPath]);
         using var source = MetadataSource.Open(assemblyPath, context: metadata);
-        var memberSurface = ApiSurfaceExtractor.Extract(
-            reader,
-            includeAll: true,
-            includeCompilerGenerated: true);
-        var memberSurfaceIndex = CompileBackSourceComposer.CreateMemberSurfaceIndex(memberSurface);
-        var memberAnchors = MemberAnchorsByMethodToken(memberSurface);
         compilationClosure ??=
             CreateCompilationClosure(assemblyPath);
+        var memberSurface = ExtractMemberSurface(
+            reader,
+            compilationClosure);
+        var memberSurfaceIndex = CompileBackSourceComposer.CreateMemberSurfaceIndex(memberSurface);
+        var memberAnchors = MemberAnchorsByMethodToken(memberSurface);
         var typeHandles = reader.TypeDefinitions
             .Select(handle => (Handle: handle, Definition: reader.GetTypeDefinition(handle)))
             .Where(item => reader.GetFullTypeName(item.Definition) is { } fullName
@@ -2370,6 +2368,24 @@ static class ReturnToSender
             resolver,
             targetAssembly,
             CompilationReferences(resolver).ToArray());
+    }
+
+    static ApiSurface ExtractMemberSurface(
+        MetadataReader reader,
+        CompilationClosure compilationClosure)
+    {
+        using var metadataContext = new MetadataContext(
+            (IAssemblyReferenceResolver)compilationClosure.Resolver);
+        var typeResolver = new CrossAssemblyTypeResolver(
+            reader,
+            compilationClosure.TargetAssembly,
+            metadataContext);
+        return ApiSurfaceExtractor.Extract(
+            reader,
+            includeAll: true,
+            includeCompilerGenerated: true,
+            operatorRelationshipResolver:
+                typeResolver.CreateOperatorRelationshipResolver());
     }
 
     static IEnumerable<MetadataReference> CompilationReferences(
