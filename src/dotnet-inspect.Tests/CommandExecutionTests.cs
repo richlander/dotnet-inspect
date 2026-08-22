@@ -7114,10 +7114,10 @@ public partial class CommandExecutionTests
         Assert.Contains("## PDB Source", interfaceOutput);
         Assert.Contains("has no IL body", interfaceOutput);
 
-        // Platform inspection reads API shape from System.Runtime's reference assembly but
-        // resolves PDB evidence against System.Private.CoreLib. The reference token cannot
-        // address that runtime image, so the name/overload fallback must preserve the same
-        // bodyless fact. Exercise the legacy selector too: it still renders the canonical name.
+        // Platform inspection can read API shape from a different image than the runtime
+        // facade used for PDB lookup. The selected member's token cannot address that facade,
+        // so its owning image must preserve the bodyless fact. Exercise the legacy selector
+        // too: it still renders the canonical name.
         var (forwardedExit, forwardedOutput, forwardedError) = await RunAppAsync(
             "member", "System.Collections.IEnumerator", "--framework", "runtime",
             "MoveNext", "-S", "Original Source", "--tips", "q");

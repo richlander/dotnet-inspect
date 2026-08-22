@@ -818,7 +818,7 @@ public class PdbContext : IDisposable
     /// </summary>
     /// <remarks>
     /// The fallback keeps the fact available when API shape came from a reference assembly but
-    /// source lookup uses its runtime implementation. A reference assembly alone remains
+    /// source lookup uses a different runtime image. A reference assembly alone remains
     /// insufficient evidence. <c>MethodHasBodyTests.MethodResolvedByName_ReportsBodyState</c>
     /// and
     /// <c>CommandExecutionTests.Member_PdbSource_BodylessMember_ExplainsWhyThereIsNoSource</c>
