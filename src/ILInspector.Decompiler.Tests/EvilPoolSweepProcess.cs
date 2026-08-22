@@ -72,7 +72,7 @@ internal static class EvilPoolSweepProcess
 
     internal static IDisposable AcquireRunLock(TimeSpan timeout)
     {
-        if (IsFileLockingDisabled())
+        if (!OperatingSystem.IsWindows() && IsFileLockingDisabled())
         {
             throw new InvalidOperationException(
                 "The package-sweep launcher requires cross-process file locking, "

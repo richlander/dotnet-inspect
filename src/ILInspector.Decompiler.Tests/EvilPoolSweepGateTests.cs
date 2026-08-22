@@ -252,7 +252,7 @@ public class EvilPoolSweepGateTests
                 + $"stdout:\n{appContextDisabled.Output}\n"
                 + $"stderr:\n{appContextDisabled.Error}");
             Assert.Equal(
-                "disabled",
+                OperatingSystem.IsWindows() ? "acquired" : "disabled",
                 File.ReadAllText(appContextDisabledResult));
 
             SweepHostResult environmentOverride =
