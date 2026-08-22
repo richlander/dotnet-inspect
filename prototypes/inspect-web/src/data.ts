@@ -631,7 +631,7 @@ export function pdbSourceLimitationHtml(
   source: PdbSourceLimitationSource | null | undefined,
 ): string {
   if (!source?.pdbSourceLimitation) return "";
-  const escaped = String(source.pdbSourceLimitation)
+  const escaped = source.pdbSourceLimitation
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
