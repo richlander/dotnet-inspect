@@ -15,6 +15,27 @@ namespace DotnetInspector.Tests;
 /// </summary>
 public class MethodBodyInspectionSessionTests
 {
+    readonly unsafe struct FunctionPointerConversionFixture
+    {
+        public static explicit operator
+            delegate* unmanaged[Cdecl]<int, int>(
+                FunctionPointerConversionFixture value) =>
+            null;
+
+        public static explicit operator
+            delegate* unmanaged[Stdcall]<int, int>(
+                FunctionPointerConversionFixture value) =>
+            null;
+
+        public static delegate* unmanaged[Cdecl]<int, int> CallCdecl(
+            FunctionPointerConversionFixture value) =>
+            (delegate* unmanaged[Cdecl]<int, int>)value;
+
+        public static delegate* unmanaged[Stdcall]<int, int> CallStdcall(
+            FunctionPointerConversionFixture value) =>
+            (delegate* unmanaged[Stdcall]<int, int>)value;
+    }
+
     static string ProductPath => typeof(MethodBodyInspectionSession).Assembly.Location;
     static string TestPath => typeof(MethodBodyInspectionSessionTests).Assembly.Location;
     static readonly ImmutableArray<MetadataReference> PlatformReferences =
@@ -128,6 +149,42 @@ public class MethodBodyInspectionSessionTests
             edge => Assert.Equal(
                 target.ReturnType,
                 edge.Call.Callee.OpenSignatureReturn));
+    }
+
+    [Fact]
+    public void CallerEdges_ConversionSelectionRetainsFunctionPointerShape()
+    {
+        var session = MethodBodyInspectionSession.Open(TestPath);
+        Analysis.DirectCall cdeclCall =
+            session.BodyIndex.DirectCalls.Single(call =>
+                call.Caller.Name
+                    == nameof(
+                        FunctionPointerConversionFixture.CallCdecl)
+                && call.Callee.Name == "op_Explicit");
+        Analysis.DirectCall stdcallCall =
+            session.BodyIndex.DirectCalls.Single(call =>
+                call.Caller.Name
+                    == nameof(
+                        FunctionPointerConversionFixture.CallStdcall)
+                && call.Callee.Name == "op_Explicit");
+        Analysis.MethodIdentity cdecl =
+            session.BodyIndex.DeclaredMethods.Single(method =>
+                method.MetadataToken
+                    == cdeclCall.CalleeDefinitionToken);
+        Analysis.MethodIdentity stdcall =
+            session.BodyIndex.DeclaredMethods.Single(method =>
+                method.MetadataToken
+                    == stdcallCall.CalleeDefinitionToken);
+
+        ImmutableArray<CallerEdge> actual =
+            session.CallerEdges(cdecl.MetadataToken);
+
+        Assert.Contains(
+            actual,
+            edge => edge.Call == cdeclCall);
+        Assert.DoesNotContain(
+            actual,
+            edge => edge.Call == stdcallCall);
     }
 
     [Fact]

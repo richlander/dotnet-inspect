@@ -351,6 +351,12 @@ public static class CallGraphMemberResolver
     static void Append(StringBuilder builder, string value)
         => builder.Append(value.Length).Append(':').Append(value);
 
+    internal static string StructuralTypeKey(TypeRef type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        return TypeIdentity(type, structural: true);
+    }
+
     static string TypeIdentity(TypeRef type, bool structural) => type.Kind switch
     {
         TypeRefKind.GenericParameter => $"T{type.GenericParameterIndex}",

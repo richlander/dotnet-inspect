@@ -166,6 +166,69 @@ public class MemberIdentityValueEqualityTests
     }
 
     [Fact]
+    public void MethodDefinitionMap_ConversionFallbackUsesReturnType()
+    {
+        TypeRef owner =
+            TypeRef.Definition("Sample", "Sample", "Value");
+        TypeRef integer = TypeRef.CoreLib("System", "Int32");
+        TypeRef longInteger = TypeRef.CoreLib("System", "Int64");
+        var toInteger = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "op_Explicit",
+            [owner],
+            integer,
+            0x06000001,
+            true);
+        var toLong = toInteger with
+        {
+            ReturnType = longInteger,
+            MetadataToken = 0x06000002,
+        };
+        var caller = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Call",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000003,
+            true);
+        var integerCall = new DirectCall(
+            caller,
+            new MemberRef(
+                owner,
+                "op_Explicit",
+                [owner],
+                integer,
+                MemberKind.Method),
+            0,
+            0x0A000001,
+            0x0A000001,
+            CallKind.Call);
+        var longCall = integerCall with
+        {
+            Callee = integerCall.Callee with
+            {
+                ReturnType = longInteger,
+            },
+            ILOffset = 1,
+            OperandToken = 0x0A000002,
+            CalleeDefinitionToken = 0x0A000002,
+        };
+        MethodDefinitionMap map =
+            MethodDefinitionMap.Create([toInteger, toLong, caller]);
+
+        Assert.Equal(
+            toInteger.MetadataToken,
+            map.Resolve(integerCall));
+        Assert.Equal(
+            toLong.MetadataToken,
+            map.Resolve(longCall));
+    }
+
+    [Fact]
     public void GenericMemberKey_DistinguishesLiteralArraySyntaxFromArrayShape()
     {
         static TypeRef Exact(string name)

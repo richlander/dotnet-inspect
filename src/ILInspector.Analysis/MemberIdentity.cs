@@ -360,7 +360,7 @@ public sealed class MemberPattern
 {
     readonly TypeRef? _declaringType;
     readonly string? _declaringTypeName;
-    readonly TypeRef? _returnType;
+    readonly string? _returnTypeKey;
     readonly bool _eraseGenericSignature;
 
     MemberPattern(
@@ -373,7 +373,9 @@ public sealed class MemberPattern
     {
         _declaringType = declaringType;
         _declaringTypeName = declaringTypeName;
-        _returnType = returnType;
+        _returnTypeKey = returnType is null
+            ? null
+            : CallGraphMemberResolver.StructuralTypeKey(returnType);
         Name = name;
         ParameterTypes = parameterTypes;
         MatchParameterTypes = matchParameterTypes;
@@ -427,8 +429,12 @@ public sealed class MemberPattern
         }
         return (!MatchParameterTypes
                 || member.ParameterTypes.SequenceEqual(ParameterTypes))
-            && (_returnType is null
-                || member.OpenSignatureReturn.Equals(_returnType));
+            && (_returnTypeKey is null
+                || string.Equals(
+                    CallGraphMemberResolver.StructuralTypeKey(
+                        member.OpenSignatureReturn),
+                    _returnTypeKey,
+                    StringComparison.Ordinal));
     }
 
 }
