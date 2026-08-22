@@ -14,6 +14,11 @@ namespace ILInspector.Decompiler.Tests;
 /// </remarks>
 internal static class EvilPoolSweepProcess
 {
+    internal const string DisableFileLockingEnvironmentVariable =
+        "DOTNET_SYSTEM_IO_DISABLEFILELOCKING";
+    internal const string DisableFileLockingSwitch =
+        "System.IO.DisableFileLocking";
+
     internal static readonly TimeSpan RunLockTimeout =
         TimeSpan.FromMinutes(6);
 
@@ -67,15 +72,11 @@ internal static class EvilPoolSweepProcess
 
     internal static IDisposable AcquireRunLock(TimeSpan timeout)
     {
-        string? disabled = Environment.GetEnvironmentVariable(
-            "DOTNET_SYSTEM_IO_DISABLEFILELOCKING");
-        if (disabled is "1"
-            || bool.TryParse(disabled, out bool disableFileLocking)
-                && disableFileLocking)
+        if (IsFileLockingDisabled())
         {
             throw new InvalidOperationException(
                 "The package-sweep launcher requires cross-process file locking, "
-                + "but DOTNET_SYSTEM_IO_DISABLEFILELOCKING disables it.");
+                + "but the runtime configuration disables it.");
         }
 
         string directory = Path.Combine(
@@ -126,6 +127,34 @@ internal static class EvilPoolSweepProcess
                     ex);
             }
         }
+    }
+
+    private static bool IsFileLockingDisabled()
+    {
+        string? environmentValue = Environment.GetEnvironmentVariable(
+            DisableFileLockingEnvironmentVariable);
+        if (environmentValue == "1"
+            || string.Equals(
+                environmentValue,
+                bool.TrueString,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (environmentValue == "0"
+            || string.Equals(
+                environmentValue,
+                bool.FalseString,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return AppContext.TryGetSwitch(
+            DisableFileLockingSwitch,
+            out bool appContextValue)
+            && appContextValue;
     }
 }
 

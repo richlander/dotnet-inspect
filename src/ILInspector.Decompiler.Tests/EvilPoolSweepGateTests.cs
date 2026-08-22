@@ -202,6 +202,12 @@ public class EvilPoolSweepGateTests
         string childTimeoutResult = Path.Combine(
             Path.GetTempPath(),
             $"evil-sweep-run-lock-child-timeout-{Guid.NewGuid():N}");
+        string appContextDisabledResult = Path.Combine(
+            Path.GetTempPath(),
+            $"evil-sweep-run-lock-app-context-{Guid.NewGuid():N}");
+        string environmentOverrideResult = Path.Combine(
+            Path.GetTempPath(),
+            $"evil-sweep-run-lock-environment-override-{Guid.NewGuid():N}");
         try
         {
             SweepHostResult blocked;
@@ -234,12 +240,42 @@ public class EvilPoolSweepGateTests
                 "did not exit within one second",
                 childTimeout.Output + childTimeout.Error);
             Assert.False(File.Exists(childTimeoutResult));
+
+            SweepHostResult appContextDisabled =
+                RunLockWorkerHost(
+                    "app-context-disabled",
+                    appContextDisabledResult);
+            Assert.True(
+                appContextDisabled.ExitCode == 0,
+                $"AppContext lock-disable worker failed at exit "
+                + $"{appContextDisabled.ExitCode}.\n"
+                + $"stdout:\n{appContextDisabled.Output}\n"
+                + $"stderr:\n{appContextDisabled.Error}");
+            Assert.Equal(
+                "disabled",
+                File.ReadAllText(appContextDisabledResult));
+
+            SweepHostResult environmentOverride =
+                RunLockWorkerHost(
+                    "environment-override",
+                    environmentOverrideResult);
+            Assert.True(
+                environmentOverride.ExitCode == 0,
+                $"Environment override worker failed at exit "
+                + $"{environmentOverride.ExitCode}.\n"
+                + $"stdout:\n{environmentOverride.Output}\n"
+                + $"stderr:\n{environmentOverride.Error}");
+            Assert.Equal(
+                "acquired",
+                File.ReadAllText(environmentOverrideResult));
         }
         finally
         {
             File.Delete(blockedResult);
             File.Delete(acquiredResult);
             File.Delete(childTimeoutResult);
+            File.Delete(appContextDisabledResult);
+            File.Delete(environmentOverrideResult);
         }
     }
 
@@ -1396,12 +1432,23 @@ public class EvilPoolSweepGateTests
             Thread.Sleep(Timeout.Infinite);
             return;
         }
+        if (mode is "app-context-disabled" or "environment-override")
+        {
+            AppContext.SetSwitch(
+                EvilPoolSweepProcess.DisableFileLockingSwitch,
+                true);
+            Environment.SetEnvironmentVariable(
+                EvilPoolSweepProcess.DisableFileLockingEnvironmentVariable,
+                mode == "environment-override" ? "0" : null);
+        }
 
         TimeSpan timeout = mode switch
         {
             "probe" => TimeSpan.Zero,
             "acquire" => EvilPoolSweepProcess.RunLockTimeout,
             "child-timeout" => EvilPoolSweepProcess.RunLockTimeout,
+            "app-context-disabled" => EvilPoolSweepProcess.RunLockTimeout,
+            "environment-override" => EvilPoolSweepProcess.RunLockTimeout,
             _ => throw new InvalidOperationException(
                 $"Unknown sweep run-lock worker mode '{mode}'."),
         };
@@ -1429,6 +1476,15 @@ public class EvilPoolSweepGateTests
         catch (TimeoutException) when (mode == "probe")
         {
             File.WriteAllText(resultPath, "blocked");
+            return;
+        }
+        catch (InvalidOperationException ex)
+            when (mode == "app-context-disabled")
+        {
+            Assert.Contains(
+                "runtime configuration disables it",
+                ex.Message);
+            File.WriteAllText(resultPath, "disabled");
             return;
         }
 
