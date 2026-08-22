@@ -1,6 +1,8 @@
 using System.Runtime.CompilerServices;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
+using System.Xml.Linq;
 using DotnetInspector.AssemblyOnlyHost.Fixture;
 using ILInspector.Analysis;
 using ILInspector.Instructions;
@@ -41,6 +43,9 @@ public sealed class LayeringTests
         Assert.Contains(
             closure,
             path => Path.GetFileNameWithoutExtension(path) == "ILInspector.Metadata");
+        Assert.Contains(
+            closure.SelectMany(CommandErrorOwnershipTests.ProjectPackageDependencies),
+            package => package == "Microsoft.CodeAnalysis.BannedApiAnalyzers");
         AssertNoForbiddenImplementations(root, closure, PackageImplementationProjects);
     }
 
@@ -57,7 +62,60 @@ public sealed class LayeringTests
         HashSet<string> closure = CommandErrorOwnershipTests.ProjectClosure(project);
 
         Assert.Contains(Path.GetFullPath(project), closure);
+        Assert.Contains(
+            closure,
+            path => Path.GetFileNameWithoutExtension(path) == "ILInspector.MetadataPrimitives");
         AssertNoForbiddenImplementations(root, closure, PackageOrStorageImplementationProjects);
+    }
+
+    [Fact]
+    public void PackageClosureReader_IncludesConditionHiddenImportsAndResolvedTransitivePackages()
+    {
+        string root = CommandErrorOwnershipTests.RepositoryRoot();
+        XDocument preprocessed = new(
+            new XElement(
+                "Project",
+                new XComment(
+                    $"{Environment.NewLine}===={Environment.NewLine}"
+                        + $"{Path.Combine(root, "Directory.Build.targets")}"
+                        + $"{Environment.NewLine}===={Environment.NewLine}"),
+                new XElement(
+                    "ItemGroup",
+                    new XAttribute("Condition", "'$(Configuration)' == 'Debug'"),
+                    new XElement(
+                        "PackageReference",
+                        new XAttribute("Include", "NuGet.Versioning"))),
+                new XComment(
+                    $"{Environment.NewLine}===={Environment.NewLine}"
+                        + $"{Path.Combine(Path.GetTempPath(), "Sdk.targets")}"
+                        + $"{Environment.NewLine}===={Environment.NewLine}"),
+                new XElement(
+                    "ItemGroup",
+                    new XElement(
+                        "PackageReference",
+                        new XAttribute("Include", "NuGet.Protocol")))));
+        using JsonDocument assets = JsonDocument.Parse(
+            """
+            {
+              "libraries": {
+                "Local.Transitive.Wrapper/1.0.0": { "type": "package" },
+                "NuGet.Protocol/7.3.0": { "type": "package" },
+                "Local.Project/1.0.0": { "type": "project" }
+              }
+            }
+            """);
+
+        Assert.Equal(
+            ["NuGet.Versioning"],
+            CommandErrorOwnershipTests.PackageReferencesFromPreprocessedProject(
+                Path.Combine(root, "fixture.csproj"),
+                root,
+                preprocessed)
+                .Order(StringComparer.Ordinal));
+        Assert.Equal(
+            ["Local.Transitive.Wrapper", "NuGet.Protocol"],
+            CommandErrorOwnershipTests.PackageDependenciesFromAssets(assets.RootElement)
+                .Order(StringComparer.Ordinal));
     }
 
     [Fact]
@@ -301,7 +359,7 @@ public sealed class LayeringTests
             .Order(StringComparer.Ordinal)
             .ToArray();
         string[] packages = closure
-            .SelectMany(CommandErrorOwnershipTests.ProjectPackageReferences)
+            .SelectMany(CommandErrorOwnershipTests.ProjectPackageDependencies)
             .Where(IsNuGetImplementationPackage)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Order(StringComparer.OrdinalIgnoreCase)

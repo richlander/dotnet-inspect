@@ -748,14 +748,103 @@ public class CommandErrorOwnershipTests
         }
     }
 
-    internal static HashSet<string> ProjectPackageReferences(string projectPath)
+    internal static HashSet<string> ProjectPackageDependencies(string projectPath)
+    {
+        HashSet<string> dependencies = PreprocessedPackageReferences(projectPath);
+
+        foreach (Dictionary<string, string> package in EvaluatedItems(projectPath, "PackageReference"))
+        {
+            if (package.GetValueOrDefault("Identity") is { Length: > 0 } identity)
+            {
+                dependencies.Add(identity);
+            }
+        }
+
+        string assetsPath = EvaluatedProperty(projectPath, "ProjectAssetsFile");
+        if (!File.Exists(assetsPath))
+        {
+            throw new FileNotFoundException(
+                $"Could not inspect the resolved package closure for {projectPath}. "
+                    + "Build or restore the project in Release before running this rule.",
+                assetsPath);
+        }
+
+        using JsonDocument assets = JsonDocument.Parse(File.ReadAllText(assetsPath));
+        dependencies.UnionWith(PackageDependenciesFromAssets(assets.RootElement));
+        return dependencies;
+    }
+
+    private static HashSet<string> PreprocessedPackageReferences(string projectPath)
+    {
+        string preprocessedPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-{Guid.NewGuid():N}.xml");
+
+        try
+        {
+            using Process process = new()
+            {
+                StartInfo = new ProcessStartInfo("dotnet")
+                {
+                    ArgumentList =
+                    {
+                        "msbuild",
+                        projectPath,
+                        "-p:Configuration=Release",
+                        $"-preprocess:{preprocessedPath}",
+                        "-nologo",
+                    },
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                },
+            };
+
+            process.Start();
+            string output = process.StandardOutput.ReadToEnd();
+            string error = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+
+            if (process.ExitCode != 0)
+            {
+                throw new InvalidOperationException(
+                    $"Could not preprocess {projectPath} for its PackageReference declarations."
+                        + $"{Environment.NewLine}{output}{Environment.NewLine}{error}");
+            }
+
+            XDocument preprocessed = XDocument.Load(preprocessedPath);
+            return PackageReferencesFromPreprocessedProject(
+                projectPath,
+                RepositoryRoot(),
+                preprocessed);
+        }
+        finally
+        {
+            File.Delete(preprocessedPath);
+        }
+    }
+
+    internal static HashSet<string> PackageReferencesFromPreprocessedProject(
+        string projectPath,
+        string repositoryRoot,
+        XDocument preprocessed)
     {
         HashSet<string> references = new(StringComparer.OrdinalIgnoreCase);
-        XDocument document = XDocument.Load(projectPath);
+        string source = Path.GetFullPath(projectPath);
 
-        foreach (XElement element in document.Descendants())
+        foreach (XNode node in preprocessed.DescendantNodes())
         {
-            if (element.Name.LocalName.Equals("PackageReference", StringComparison.OrdinalIgnoreCase)
+            if (node is XComment comment
+                && PreprocessedSourcePath(comment) is { } sourcePath)
+            {
+                source = sourcePath;
+                continue;
+            }
+
+            if (node is XElement element
+                && IsRepositoryPath(repositoryRoot, source)
+                && element.Name.LocalName.Equals(
+                    "PackageReference",
+                    StringComparison.OrdinalIgnoreCase)
                 && element.Attributes().FirstOrDefault(
                     attribute => attribute.Name.LocalName.Equals(
                         "Include",
@@ -766,15 +855,46 @@ public class CommandErrorOwnershipTests
             }
         }
 
-        foreach (Dictionary<string, string> package in EvaluatedItems(projectPath, "PackageReference"))
+        return references;
+    }
+
+    internal static HashSet<string> PackageDependenciesFromAssets(JsonElement assets)
+    {
+        HashSet<string> dependencies = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (JsonProperty library in assets.GetProperty("libraries").EnumerateObject())
         {
-            if (package.GetValueOrDefault("Identity") is { Length: > 0 } identity)
+            if (library.Value.GetProperty("type").GetString() == "package")
             {
-                references.Add(identity);
+                int versionSeparator = library.Name.LastIndexOf('/');
+                dependencies.Add(versionSeparator >= 0
+                    ? library.Name[..versionSeparator]
+                    : library.Name);
             }
         }
 
-        return references;
+        return dependencies;
+    }
+
+    private static string? PreprocessedSourcePath(XComment comment)
+    {
+        string[] lines = comment.Value
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        if (!lines.Any(line => line.Length > 0 && line.All(character => character == '=')))
+        {
+            return null;
+        }
+
+        return lines.FirstOrDefault(Path.IsPathFullyQualified);
+    }
+
+    private static bool IsRepositoryPath(string repositoryRoot, string path)
+    {
+        string relative = Path.GetRelativePath(repositoryRoot, path);
+        return relative != ".."
+            && !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+            && !Path.IsPathRooted(relative);
     }
 
     private static readonly ConcurrentDictionary<string, HashSet<string>> Closures = new(StringComparer.Ordinal);
@@ -956,7 +1076,8 @@ public class CommandErrorOwnershipTests
     /// <summary>
     /// The properties this class asks for.
     /// </summary>
-    private static readonly string[] Properties = ["OwnsItsOwnStderr", "WarningsAsErrors", "NoWarn", "TargetPath"];
+    private static readonly string[] Properties =
+        ["OwnsItsOwnStderr", "WarningsAsErrors", "NoWarn", "TargetPath", "ProjectAssetsFile"];
 
     private static readonly ConcurrentDictionary<string, Dictionary<string, string>> PropertyEvaluations =
         new(StringComparer.Ordinal);
