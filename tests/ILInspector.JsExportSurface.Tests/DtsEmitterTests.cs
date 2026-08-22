@@ -55,11 +55,7 @@ public sealed class DtsEmitterTests
         string dts = EmitFixtureDts();
 
         Assert.Contains(
-            "declare const inertStringBrand: unique symbol;",
-            dts,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "export type InertString = string & { readonly [inertStringBrand]: true };",
+            "export type InertString = string & { readonly __inertStringBrand: unique symbol };",
             dts,
             StringComparison.Ordinal);
         Assert.Contains("export interface InertWidgetSummary {", dts, StringComparison.Ordinal);
@@ -89,11 +85,30 @@ public sealed class DtsEmitterTests
         string dts = EmitFixtureDtsWithWireContracts();
 
         Assert.Contains(
-            "export type InertString = string & { readonly [inertStringBrand]: true };",
+            "export type InertString = string & { readonly __inertStringBrand: unique symbol };",
             dts,
             StringComparison.Ordinal);
         Assert.Contains(
             "export declare function getInertString(): InertString;",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_InertStringBrandExportDoesNotCollideWithBrandType()
+    {
+        string dts = EmitFixtureDts();
+
+        Assert.Contains(
+            "export type InertString = string & { readonly __inertStringBrand: unique symbol };",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function inertStringBrand(): string;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "declare const inertStringBrand",
             dts,
             StringComparison.Ordinal);
     }

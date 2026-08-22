@@ -20,7 +20,7 @@ public sealed class JsExportSurfaceBuilderTests
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
         var names = surface.Functions.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(16, surface.Functions.Count);
+        Assert.Equal(17, surface.Functions.Count);
         Assert.Contains("GetWidget", names);
         Assert.Contains("GetWidgetAsync", names);
         Assert.Contains("Ping", names);
@@ -30,6 +30,7 @@ public sealed class JsExportSurfaceBuilderTests
         Assert.Contains("GetWidgetSummary", names);
         Assert.Contains("GetInertWidgetSummary", names);
         Assert.Contains("GetInertString", names);
+        Assert.Contains("InertStringBrand", names);
         Assert.Contains("GetWidgetPermissionSummary", names);
         Assert.Contains("GetWidgetPrioritySummary", names);
         Assert.Contains("GetWidgetAudit", names);

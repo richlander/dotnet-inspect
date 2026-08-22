@@ -80,6 +80,9 @@ public static partial class FixtureExports
             FixtureJsonContext.Default.InertString);
 
     [JSExport]
+    public static string InertStringBrand() => "fixture";
+
+    [JSExport]
     public static string GetWidgetPermissionSummary() =>
         JsonSerializer.Serialize(
             new WidgetPermissionSummary("widget", WidgetPermission.Read | WidgetPermission.Write),

@@ -23,8 +23,7 @@ static partial class DtsEmitter
         bool usesInertString = UsesInertString(surface);
         if (usesInertString && !knownTypeNames.Contains(TsTypeMapper.InertStringTypeName))
         {
-            sb.Append("declare const inertStringBrand: unique symbol;\n");
-            sb.Append("export type InertString = string & { readonly [inertStringBrand]: true };\n\n");
+            sb.Append("export type InertString = string & { readonly __inertStringBrand: unique symbol };\n\n");
         }
 
         foreach (ApiType enumType in surface.Enums.OrderBy(e => e.Name, StringComparer.Ordinal))
