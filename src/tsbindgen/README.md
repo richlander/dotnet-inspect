@@ -58,6 +58,9 @@ framework-signed `JsonSerializerContext`-derived type: each
 The property is accepted as a root only when its `T` identity matches an
 authenticated `[JsonSerializable]` row; an unrelated handwritten
 `JsonTypeInfo<T>` property on the same partial context is not a registration.
+Intrinsic `string` roots have no API type-reference entry, so their exact
+`string`/`string[]` signature spelling is admitted only when the matching
+`System.String` root has a platform-signed, top-level identity.
 These checks use assembly-scoped, structured metadata identity rather than
 matching flattened names as text; a nested type cannot alias an expected
 top-level System.Text.Json definition.
@@ -65,7 +68,10 @@ top-level System.Text.Json definition.
 gates registration correspondence, while
 `Build_DoesNotTrustNestedSerializerContextIdentity` and
 `Extract_CapturesStructuredSerializerContextBaseIdentity` gate the structured
-authentication and extraction path. This list is not a heuristic — System.Text.Json's fast (non-reflection)
+authentication and extraction path.
+`JsonWireContractResolverTests.Build_ResolvesRegisteredStringArrayAfterAwait`
+gates the compiler-produced intrinsic-array path. This list is not a heuristic
+— System.Text.Json's fast (non-reflection)
 serialization path requires every (de)serialized type to be registered there,
 so it is exactly the set of shapes that can flow across the `[JSExport]`
 boundary via this pattern.

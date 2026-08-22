@@ -333,6 +333,58 @@ public sealed class JsonWireContractResolverTests
     }
 
     [Fact]
+    public void Build_ResolvesRegisteredStringArrayAfterAwait()
+    {
+        var bodyIndex = LibraryBodyIndex.Open(
+            typeof(FixtureExports).Assembly.Location);
+        MethodIdentity export = Assert.Single(
+            bodyIndex.DeclaredMethods,
+            method => method.Name == "GetStringArrayAsyncAfterAwait");
+        DirectCall serializer = Assert.Single(
+            bodyIndex.DirectCalls,
+            call => call.Caller == export
+                && call.Callee.Name == "Serialize");
+        Assert.Equal(
+            "string[]",
+            JsonWireContractResolver.ResolveSerializeDto(
+                serializer.Callee)?.ToQualifiedDisplayString());
+        CallArgumentSource typeInfoArgument = Assert.Single(
+            serializer.ArgumentSources,
+            source => source.ArgumentIndex == 1);
+        Assert.True(typeInfoArgument.IsComplete);
+        int typeInfoGetterOffset = Assert.Single(
+            typeInfoArgument.SourceCallOffsets);
+        DirectCall typeInfoGetter = Assert.Single(
+            bodyIndex.DirectCalls,
+            call => call.EvidenceMethod == serializer.EvidenceMethod
+                && call.ILOffset == typeInfoGetterOffset);
+        Assert.Equal("get_StringArray", typeInfoGetter.Callee.Name);
+
+        MethodResultSink resultSink = Assert.Single(
+            bodyIndex.ResultSinks,
+            sink => sink.Caller == export
+                && sink.Kind == MethodResultSinkKind.SingleArgumentCall
+                && sink.SourceCallOffsets.Contains(serializer.ILOffset));
+        Assert.True(resultSink.IsComplete);
+        Assert.Equal("MoveNext", resultSink.EvidenceMethod.Name);
+        Assert.NotEqual(resultSink.Caller, resultSink.EvidenceMethod);
+        Assert.Equal(export, resultSink.AsyncStateMachineSource);
+        Assert.Equal(
+            export,
+            bodyIndex.ResolveDeclaredMethod(resultSink.EvidenceMethod));
+
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildFixtureSurfaceWithWireContracts();
+
+        JsExportFunction function = Assert.Single(
+            surface.Functions,
+            candidate =>
+                candidate.Name == "GetStringArrayAsyncAfterAwait");
+
+        Assert.Equal("string[]", function.ReturnWireType);
+    }
+
+    [Fact]
     public void Build_ResolvesParameterWireTypeForDeserializeCall()
     {
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurfaceWithWireContracts();

@@ -199,7 +199,13 @@ public static class JsExportSurfaceBuilder
                                 "[]",
                                 StringComparison.Ordinal))))
                     {
-                        continue;
+                        if (propertyRoots.Length != 0
+                            || !HasRegisteredIntrinsicStringRoot(
+                                rootTypeName,
+                                registeredRoots))
+                        {
+                            continue;
+                        }
                     }
 
                     if (member.GetterToken is { } getterToken)
@@ -431,6 +437,31 @@ public static class JsExportSurfaceBuilder
             reference.DefinitionName,
             fullName)
         && reference.Assembly.Name == SystemTextJsonAssemblyName
+        && PlatformKeys.IsPlatform(
+            reference.Assembly.PublicKeyToken);
+
+    static bool HasRegisteredIntrinsicStringRoot(
+        string rootTypeName,
+        IReadOnlySet<ApiJsonSerializableRoot> registeredRoots)
+    {
+        bool isArray = rootTypeName.EndsWith(
+            "[]",
+            StringComparison.Ordinal);
+        string elementTypeName = isArray
+            ? rootTypeName[..^2]
+            : rootTypeName;
+        return elementTypeName == "string"
+            && registeredRoots.Any(root =>
+                root.IsArray == isArray
+                && IsTrustedSystemString(root.ElementType));
+    }
+
+    static bool IsTrustedSystemString(
+        ApiTypeReferenceIdentity reference) =>
+        reference.FullName == "System.String"
+        && HasTopLevelDefinitionName(
+            reference.DefinitionName,
+            "System.String")
         && PlatformKeys.IsPlatform(
             reference.Assembly.PublicKeyToken);
 

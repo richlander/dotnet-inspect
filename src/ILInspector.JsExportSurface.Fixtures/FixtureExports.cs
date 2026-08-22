@@ -35,6 +35,18 @@ public static partial class FixtureExports
     }
 
     [JSExport]
+    public static async Task<string> GetStringArrayAsyncAfterAwait(string value) =>
+        JsonSerializer.Serialize(
+            await GetStringArrayAsync(value),
+            FixtureJsonContext.Default.StringArray);
+
+    static async Task<string[]> GetStringArrayAsync(string value)
+    {
+        await Task.Yield();
+        return [value];
+    }
+
+    [JSExport]
     public static async Task Ping()
     {
         await Task.Yield();
@@ -280,6 +292,7 @@ public static partial class InternalContextFixtureExports
 
 [JsonSerializable(typeof(WidgetDto))]
 [JsonSerializable(typeof(WidgetDto[]))]
+[JsonSerializable(typeof(string[]))]
 [JsonSerializable(typeof(WidgetCatalog))]
 [JsonSerializable(typeof(WidgetSummary))]
 [JsonSerializable(typeof(WidgetPermissionSummary))]
