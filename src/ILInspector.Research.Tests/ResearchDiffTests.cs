@@ -2097,7 +2097,7 @@ public class ResearchDiffTests
     }
 
     [Fact]
-    public void ImplementationDiff_AuthoredSourceIsIndependentPeerMechanism()
+    public void ImplementationDiff_PdbSourceIsIndependentPeerMechanism()
     {
         using var source = DecompilerMetadataSource.OpenWithoutSymbols(FixtureCatalog.DiffPair.OldAssemblyPath());
         var stable = FindMethodHandle(FixtureCatalog.DiffPair.OldAssemblyPath(), "DiffFixtureSample.DiffSample", "Stable");
@@ -2105,7 +2105,7 @@ public class ResearchDiffTests
             [.. TextFindings.Inspect("return 1;", new FindingSubject("old", "old"))]);
         var newInspection = new FindingInspection<string>.Complete(
             [.. TextFindings.Inspect("return 2;", new FindingSubject("new", "new"))]);
-        var result = ImplementationDiff.CompareMembersWithAuthoredSource(
+        var result = ImplementationDiff.CompareMembersWithPdbSource(
             source,
             stable,
             source,
@@ -2129,7 +2129,7 @@ public class ResearchDiffTests
     }
 
     [Fact]
-    public void ImplementationDiff_AuthoredSourcePreservesAbsentStateWithoutChangingCSharp()
+    public void ImplementationDiff_PdbSourcePreservesAbsentStateWithoutChangingCSharp()
     {
         var subject = new ResearchSubjectKey(
             ResearchSubjectKind.Member,
@@ -2137,12 +2137,12 @@ public class ResearchDiffTests
             "Sample.M()",
             "Sample",
             "M");
-        var result = ImplementationDiff.WithAuthoredSourceComparisons(
+        var result = ImplementationDiff.WithPdbSourceComparisons(
             new ImplementationDiffResult(
                 [],
                 new ResearchComparison([])),
             [
-                new AuthoredSourceComparisonInput(
+                new PdbSourceComparisonInput(
                     subject,
                     new FindingInspection<string>.Absent("old source unavailable"),
                     new FindingInspection<string>.Absent("new source unavailable"))
@@ -2207,7 +2207,7 @@ public class ResearchDiffTests
     }
 
     [Fact]
-    public void ImplementationDiff_AuthoredSourceFailureIsNotSemanticChange()
+    public void ImplementationDiff_PdbSourceFailureIsNotSemanticChange()
     {
         var subject = new ResearchSubjectKey(
             ResearchSubjectKind.Member,

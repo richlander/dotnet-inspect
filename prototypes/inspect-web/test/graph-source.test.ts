@@ -1,6 +1,58 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { renderGraphSource } from "../src/graph-source.ts";
+import {
+  bindGraphSource,
+  renderGraphSource,
+} from "../src/graph-source.ts";
+import { fakeDom } from "./fake-dom.ts";
+
+class FakeElement {
+  private readonly listeners = new Map<string, EventListener[]>();
+
+  addEventListener(type: string, listener: EventListener) {
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  dispatch(type: string, target: EventTarget = fakeDom.eventTarget(this)) {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener(fakeDom.event({ target }));
+    }
+  }
+}
+
+class FakeRoot {
+  private readonly elements = new Map<string, FakeElement>();
+
+  add(selector: string, element: FakeElement) {
+    this.elements.set(selector, element);
+    return element;
+  }
+
+  querySelector(selector: string) {
+    return this.elements.get(selector) ?? null;
+  }
+}
+
+test("graph source bindings close from the button or bare backdrop only", () => {
+  const root = new FakeRoot();
+  const backdrop = root.add("#graph-source-backdrop", new FakeElement());
+  const close = root.add("#graph-source-close", new FakeElement());
+  const inner = new FakeElement();
+  const calls: string[] = [];
+  bindGraphSource(
+    fakeDom.parentNode(root),
+    { onClose: () => calls.push("close") });
+
+  assert.deepEqual(calls, []);
+  backdrop.dispatch("mousedown", fakeDom.eventTarget(inner));
+  assert.deepEqual(calls, []);
+  backdrop.dispatch("mousedown");
+  assert.deepEqual(calls, ["close"]);
+  close.dispatch("click");
+  assert.deepEqual(calls, ["close", "close"]);
+});
 
 function escapeHtml(value: unknown) {
   return String(value)
@@ -18,7 +70,13 @@ test("loading state shows a status scoped to the title, not stale source or erro
   const html = renderGraphSource({
     title: "Widget.Render()",
     loading: true,
-    source: { provider: "original", provenance: "unused while loading", url: "", text: "unused" },
+    source: {
+      provider: "pdb",
+      provenance: "unused while loading",
+      url: "",
+      pdbSourceLimitation: null,
+      text: "unused",
+    },
     error: "unused while loading",
     escapeHtml,
     highlightCSharp,
@@ -28,14 +86,15 @@ test("loading state shows a status scoped to the title, not stale source or erro
   assert.doesNotMatch(html, /unused/);
 });
 
-test("loaded original source renders provenance, an open-source link, and highlighted text", () => {
+test("loaded PDB source renders provenance, an open-source link, and highlighted text", () => {
   const html = renderGraphSource({
     title: "Widget.Render()",
     loading: false,
     source: {
-      provider: "original",
+      provider: "pdb",
       provenance: "github.com/example/widget",
       url: "https://github.com/example/widget/blob/main/Widget.cs",
+      pdbSourceLimitation: null,
       text: "void Render() {}",
     },
     error: "",
@@ -43,7 +102,7 @@ test("loaded original source renders provenance, an open-source link, and highli
     highlightCSharp,
   });
 
-  assert.match(html, /<strong>Original source<\/strong>/);
+  assert.match(html, /<strong>PDB Source<\/strong>/);
   assert.match(html, /<span>github\.com\/example\/widget<\/span>/);
   assert.match(html, /<a href="https:\/\/github\.com\/example\/widget\/blob\/main\/Widget\.cs" target="_blank" rel="noreferrer">open source ↗<\/a>/);
   assert.match(html, /<mark>void Render\(\) \{\}<\/mark>/);
@@ -53,7 +112,13 @@ test("loaded decompiled source labels the provenance as decompiled and omits the
   const html = renderGraphSource({
     title: "Widget.Render()",
     loading: false,
-    source: { provider: "decompiled", provenance: "decompiled from IL", url: null, text: "void Render() {}" },
+    source: {
+      provider: "decompiled",
+      provenance: "decompiled from IL",
+      url: null,
+      pdbSourceLimitation: "<checksum mismatch>",
+      text: "void Render() {}",
+    },
     error: "",
     escapeHtml,
     highlightCSharp,
@@ -61,6 +126,7 @@ test("loaded decompiled source labels the provenance as decompiled and omits the
 
   assert.match(html, /<strong>Decompiled source<\/strong>/);
   assert.doesNotMatch(html, /open source/);
+  assert.match(html, /PDB source unavailable: &lt;checksum mismatch&gt;/);
 });
 
 test("error state without a source shows the error message, falling back to a default", () => {
@@ -94,9 +160,10 @@ test("provenance and url are escaped", () => {
     title: "Widget.Render()",
     loading: false,
     source: {
-      provider: "original",
+      provider: "pdb",
       provenance: '<b>"evil"</b>',
       url: 'https://example.com/"><script>alert(1)</script>',
+      pdbSourceLimitation: null,
       text: "void Render() {}",
     },
     error: "",

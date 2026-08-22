@@ -143,7 +143,7 @@ public static class SourceIntegrityService
                     }
 
                     SourceChecksumVerification verification =
-                        AuthoredSourceAcquisition.VerifyChecksum(document, body);
+                        PdbSourceAcquisition.VerifyChecksum(document, body);
                     if (verification == SourceChecksumVerification.Exact)
                     {
                         Interlocked.Increment(ref verified);
