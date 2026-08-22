@@ -422,23 +422,26 @@ lists them.
 tests are the browser half of the [#3964] portable `AnnotatedSourceDocument`
 contract, and `QueryMemberAnnotatedSource` feeds them a real document.
 
-The viewer reuses the owner's module rather than copying it.
-`prototypes/annotated-source-viewer/src/document-model.js` owns validation,
-UTF-16 coordinates, line derivation, segmentation, and the fact → target → node →
-span walk. `src/document-model.ts` provides typed aliases over that owner for
-Vite and the Node tests; Vite bundles the shared implementation into the
-deployable browser artifact without copying its logic. On top of it the typed
-view module adds selection state. The member
-tab is a compact hand-off into a full-screen TypeScript explorer, following the
-Metadata explorer's full-bleed interaction model without creating a second
-site or URL. Opening it validates the document, indexes structural spans by
-canonical line, and prepares the projection once per result; selection changes
-and later reopens reuse that immutable projection rather than rescanning the
-complete document. The explorer renders canonical lines beside anchored and
-explicitly unanchored facts; supports C#/IL visibility, fact, exact-node, and
-node-kind selection; and follows pointer or keyboard activation to the tightest
-structural node. The source panel is one tab stop; arrow keys move among its
-structural spans, while Tab proceeds directly to the Findings inspector.
+The viewer shares the portable owner's validation, UTF-16 coordinate, canonical
+line-derivation, and point-lookup implementation from
+`prototypes/annotated-source-viewer/src/document-model.js`.
+`src/document-model.ts` provides typed aliases over that JavaScript module for
+Vite and the Node tests. To meet the explorer's interaction budget,
+`src/annotated-source-view.ts` owns an indexed projection that computes line
+media and segmentation and precomputes the fact → target → node walk without
+rescanning the complete document. The portable `lineMedium` and
+`segmentsForLine` aliases remain as the independent reference oracle for the
+`indexed preparation preserves the portable model's segmentation` parity gate.
+The member tab is a compact hand-off into a full-screen TypeScript explorer,
+following the Metadata explorer's full-bleed interaction model without creating
+a second site or URL. Opening it validates the document, indexes structural
+spans by canonical line, and prepares the projection once per result; selection
+changes and later reopens reuse that immutable projection. The explorer renders
+canonical lines beside anchored and explicitly unanchored facts; supports C#/IL
+visibility, fact, exact-node, and node-kind selection; and follows pointer or
+keyboard activation to the tightest structural node. The source panel is one
+tab stop; arrow keys move among its structural spans, while Tab proceeds
+directly to the Findings inspector.
 Selection highlights every targeted node across both media without selecting
 the text between one node's separated spans. Its copy action copies
 `document.text`, so the copied artifact is source and never annotations.

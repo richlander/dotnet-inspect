@@ -141,17 +141,49 @@ test("prepared documents preserve projection semantics across interactions", () 
 });
 
 test("indexed preparation preserves the portable model's segmentation", () => {
-  const prepared = prepareAnnotatedView(sampleDocument);
-  const sourceLines = buildLines(sampleDocument.text);
-  const expected = sourceLines.map(line => ({
-    number: line.number,
-    medium: lineMedium(sampleDocument, line),
-    start: line.start,
-    end: line.end,
-    segments: segmentsForLine(sampleDocument, line),
-  }));
+  const overlappingMixedDocument: AnnotatedSourceDocument = {
+    text: "ab\r\ncd\nef",
+    nodes: [
+      {
+        id: 0,
+        kind: "Block",
+        medium: "CSharp",
+        spans: [{ start: 0, length: 2 }, { start: 4, length: 2 }],
+        il_offset: null,
+      },
+      {
+        id: 1,
+        kind: "Block",
+        medium: "Il",
+        spans: [{ start: 1, length: 5 }],
+        il_offset: null,
+      },
+      {
+        id: 2,
+        kind: "Identifier",
+        medium: "CSharp",
+        spans: [{ start: 7, length: 2 }],
+        il_offset: null,
+      },
+    ],
+    regions: [],
+    facts: [],
+    targets: [],
+  };
 
-  assert.deepEqual(prepared.lines, expected);
+  for (const document of [sampleDocument, overlappingMixedDocument]) {
+    const prepared = prepareAnnotatedView(document);
+    const sourceLines = buildLines(document.text);
+    const expected = sourceLines.map(line => ({
+      number: line.number,
+      medium: lineMedium(document, line),
+      start: line.start,
+      end: line.end,
+      segments: segmentsForLine(document, line),
+    }));
+
+    assert.deepEqual(prepared.lines, expected);
+  }
 });
 
 test("indexed preparation preserves blank-line media for LF and CRLF text", () => {

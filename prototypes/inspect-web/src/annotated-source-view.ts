@@ -19,9 +19,8 @@ export type {
   SourceMedium,
 } from "./document-model.ts";
 
-// The document model owns validation, coordinates, line derivation, segmentation, and
-// fact/target/node resolution. This module owns only the selection state a browser section
-// carries on top of it, and returns a plain model the renderer walks.
+// The portable model owns validation, coordinates, canonical line derivation, and point lookup.
+// This module owns the indexed structural and fact projection needed for interactive rendering.
 
 export function validateAnnotatedSourceDocument(
   document: unknown,

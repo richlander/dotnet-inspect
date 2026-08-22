@@ -74,8 +74,8 @@ type SegmentsForLine = (
   selectedNodeIds?: readonly number[],
 ) => SourceSegment[];
 
-// The portable implementation remains owned by annotated-source-viewer. These typed aliases let
-// inspect-web consume that one implementation without copying its validation or projection logic.
+// The portable implementation remains owned by annotated-source-viewer. Production consumes its
+// validation, line derivation, and point lookup; projection aliases also serve as the test oracle.
 export const validateDocument: ValidateDocument = model.validateDocument;
 export const buildLines: (text: string) => SourceLine[] = model.buildLines;
 export const lineMedium: (
