@@ -43,6 +43,43 @@ declared row unit is a directed edge: `--count` counts relationships, and
 `--rows` selects the same ordered relationships whether the graph is rendered
 as a Markdown edge table, standalone tree, standalone Mermaid diagram, or
 tabular stream. Tree nodes are presentation context, not additional rows.
+`graph integrations` uses the same row contract: one row is one directed
+logical relationship. Its package groups and finer member/type nodes are
+presentation context, while `--count` and `--rows` count or select logical
+edges consistently across Markdown, tree, Mermaid, tabular, and structured
+output. Isolated explicit packages remain node/group context in graph and JSON
+views, but never become empty data rows in the default Markdown edge table.
+`OutputModes_UseTheSameWindowedLogicalEdges` gates the rendered Markdown table
+row count against the selected logical-edge count.
+
+The `graph integrations --json` failure array preserves both presentation and
+typed addressing: each failure carries its rendered target plus
+`target_kind`/`target_id`, and Integration failures retain structured producer,
+kind, assembly-reference, acquisition-failure, and exception fields. Opaque
+workspace registration handles are deliberately not stringified; the graph
+target and typed reference evidence remain the identities a consumer can
+interpret outside the owning workspace.
+Failure-targeted nodes and groups remain in the JSON document as diagnostic
+context even when they are not endpoints of the selected edge window; they are
+not additional relationship rows. Structured diagnostic text crosses the same
+lossless inert containment boundary as human-readable failures.
+`VisibleGraphFailure_PreservesOutputAndNonzeroExit` gates target
+resolvability, and `StructuredFailureText_IsInertAfterJsonParsing` gates
+containment after a JSON consumer decodes the value.
+
+Integration graph edge rows carry `source`, `source_assembly`, `source_group`,
+`relationship`, `target`, `target_assembly`, `target_group`, `occurrences`,
+and `evidence`. Assembly and group fields preserve endpoint identity within a
+multi-assembly package and package ownership across package contexts;
+plain-text and graph node labels carry the same context. JSON nodes also carry
+assembly identity, and failure target labels retain it. JSON and JSONL keep
+occurrence counts numeric and absent values null; JSON edges carry projected
+evidence rather than exposing
+document-local occurrence ids without the occurrence collection that owns
+them. `ProductionShapedEndpoints_RetainPackageOwnership`,
+`AcquiredEndpoints_RetainAssemblyWithinOnePackage`,
+`AcquiredFailureTargets_RetainAssemblyWithinOnePackage`, and
+`OutputModes_UseTheSameWindowedLogicalEdges` gate these contracts.
 
 ## Flag families
 

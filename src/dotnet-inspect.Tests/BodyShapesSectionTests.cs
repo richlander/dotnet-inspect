@@ -5,6 +5,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
@@ -210,6 +211,36 @@ public sealed class BodyShapesSectionTests
     }
 
     [Fact]
+    public async Task CheapDiscovery_DoesNotRunComposedPerformanceQuery()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "library",
+                    FixturePath,
+                    "-D",
+                    "--where",
+                    "Kind=ArrayCreationExpression",
+                    "--where",
+                    "Shape=small-array",
+                    "--trace",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain(
+            OptimizationOpportunitiesQuery.Definition.Name,
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Inspection Failures",
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task MemberEffectiveDiscovery_BodyShapeGlobRequiresKind()
     {
         var root = CommandLineBuilder.CreateRootCommand();
@@ -316,6 +347,7 @@ public sealed class BodyShapesSectionTests
                     "--where",
                     "Confidence>=low",
                     "--jsonl",
+                    "--trace",
                 ])
                 .InvokeAsync());
 
@@ -325,6 +357,71 @@ public sealed class BodyShapesSectionTests
             result.Output,
             StringComparison.Ordinal);
         Assert.DoesNotContain("Performance:", result.Output, StringComparison.Ordinal);
+        Assert.Contains(
+            OptimizationOpportunitiesQuery.Definition.Name,
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ComposedBodyShapesJson_OmitsUnselectedPerformanceProjection()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "library",
+                    FixturePath,
+                    "-S",
+                    SectionNames.BodyShapes,
+                    "--where",
+                    "Kind=ArrayCreationExpression",
+                    "--where",
+                    "Shape=small-array",
+                    "--json",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        using var document = JsonDocument.Parse(result.Output);
+        Assert.NotEmpty(
+            document.RootElement.GetProperty("body_shapes").EnumerateArray());
+        Assert.False(
+            document.RootElement.TryGetProperty("performance", out _));
+    }
+
+    [Fact]
+    public async Task ComposedBodyShapesJson_PreservesSelectedPerformanceProjection()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(CommandLineBuilder.PreprocessArgs(
+                [
+                    "library",
+                    FixturePath,
+                    "-S",
+                    SectionNames.BodyShapes,
+                    "-S",
+                    SectionNames.PerformanceArrays,
+                    "--where",
+                    "Kind=ArrayCreationExpression",
+                    "--where",
+                    "Shape=small-array",
+                    "--json",
+                ]))
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        using var document = JsonDocument.Parse(result.Output);
+        Assert.NotEmpty(
+            document.RootElement.GetProperty("body_shapes").EnumerateArray());
+        Assert.NotEmpty(
+            document.RootElement
+                .GetProperty("performance")
+                .GetProperty("arrays")
+                .EnumerateArray());
     }
 
     [Fact]

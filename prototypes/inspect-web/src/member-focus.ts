@@ -28,22 +28,32 @@ export interface MemberFocusRestorer {
   ): void;
 }
 
+function isHtmlElement(value: Element | null): value is HTMLElement {
+  return value !== null && "dataset" in value && "focus" in value;
+}
+
+function isTextInput(value: HTMLElement): value is HTMLInputElement {
+  return "selectionStart" in value && "setSelectionRange" in value;
+}
+
 export function captureMemberFocus(
   document: Document,
 ): MemberFocusSnapshot {
-  const active = document.activeElement as HTMLElement | null;
+  const active = isHtmlElement(document.activeElement) ? document.activeElement : null;
   const navigationList = document.querySelector<HTMLElement>("#type-list");
   let selector = "";
   let dataTarget: MemberFocusSnapshot["dataTarget"] = null;
   let selection: MemberFocusSnapshot["selection"] = null;
   if (active?.id === "member-filter" || active?.id === "type-filter") {
-    const input = active as HTMLInputElement;
+    const input = isTextInput(active) ? active : null;
     selector = `#${active.id}`;
-    selection = {
-      start: input.selectionStart,
-      end: input.selectionEnd,
-      direction: input.selectionDirection,
-    };
+    selection = input
+      ? {
+          start: input.selectionStart,
+          end: input.selectionEnd,
+          direction: input.selectionDirection,
+        }
+      : null;
   } else if (active?.id === "clear-member-filter") {
     selector = "#clear-member-filter";
   } else if (active?.dataset.memberKindFilter !== undefined) {
@@ -122,7 +132,7 @@ export function captureMemberFocus(
     focusLost:
       active === null
       || active === document.body
-      || active.isConnected === false,
+      || ! active.isConnected,
   };
 }
 
@@ -162,19 +172,18 @@ export function restoreMemberFocus(
       : snapshot.selector
         ? document.querySelector<HTMLElement>(snapshot.selector)
         : null;
-    const active = document.activeElement as HTMLElement | null;
+    const active = isHtmlElement(document.activeElement) ? document.activeElement : null;
     const canRestoreFocus =
       active === null
       || active === document.body
-      || active.isConnected === false
+      || ! active.isConnected
       || active === replacement;
     if (!replacement || !canRestoreFocus)
       return;
 
     replacement.focus();
-    const input = replacement as HTMLInputElement | null;
-    if (snapshot.selection && typeof input?.setSelectionRange === "function") {
-      input.setSelectionRange(
+    if (snapshot.selection && isTextInput(replacement)) {
+      replacement.setSelectionRange(
         snapshot.selection.start,
         snapshot.selection.end,
         snapshot.selection.direction ?? undefined,

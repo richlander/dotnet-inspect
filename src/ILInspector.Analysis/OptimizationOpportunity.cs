@@ -8,6 +8,19 @@ public enum PerformanceTriageProvenance
     Unmatched,
 }
 
+/// <summary>
+/// Exact call site that supports a composite Performance Triage judgment without
+/// becoming the judgment's own source Finding or candidate identity.
+/// </summary>
+public sealed record OptimizationSupportingCallSite(
+    int EvidenceMethodToken,
+    int ILOffset)
+{
+    public string? SourceFinding { get; init; }
+    public string? Operation { get; init; }
+    public int? OperandToken { get; init; }
+}
+
 public sealed record OptimizationOpportunity(
     MethodIdentity Method,
     string Shape,
@@ -62,6 +75,12 @@ public sealed record OptimizationOpportunity(
 
     /// <summary>Whether this row has exact, aggregate, or unresolved producer provenance.</summary>
     public PerformanceTriageProvenance Provenance { get; init; }
+
+    /// <summary>
+    /// Exact local call site supporting an aggregate judgment. This coordinate is correspondence
+    /// evidence for runtime joins; it does not replace the aggregate row's provenance or identity.
+    /// </summary>
+    public OptimizationSupportingCallSite? SupportingCallSite { get; init; }
 
     /// <summary>
     /// Source-authored method that owns a lifted local-function or lambda body.

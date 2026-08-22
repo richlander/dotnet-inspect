@@ -1,6 +1,6 @@
 type LensDefinition = readonly [id: string, label: string];
 
-export type Scope = "package" | "type" | "member";
+type Scope = "package" | "type" | "member";
 
 export interface RenderScopeBarOptions {
   scope: Scope;
