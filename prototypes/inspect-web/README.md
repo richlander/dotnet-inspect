@@ -1064,13 +1064,14 @@ rendered DOM bindings, opportunity-row API-name splitting, package-chip
 detection, and "look for" chip rendering. `dotnet-inspect.ts` still owns
 `state`, target resolution, navigation effects, and the platform library
 picker, `package-inspection.ts` owns the scan-scope-keyed async load lifecycle,
-and the root supplies behavior through typed callbacks. The Opportunities
+and the root supplies behavior through typed callbacks. Each package-lens
 request is one `AsyncResource` state: idle, loading, ready, or failed. Loading
 owns its request object, so a stale completion cannot publish into a newer
 state, and data/error fields exist only on their applicable variants.
 `test/package-inspection.test.ts` gates those transitions, same-request reuse,
-and stale-result suppression. A second caller of an in-flight request joins it
-rather than returning early, so it reports completion only once the request has
+and stale-result suppression for Dependencies, Integrations, Opportunities,
+Analysis, and Metadata. A second caller of an in-flight request joins it rather
+than returning early, so it reports completion only once the request has
 actually settled -- including when that request rejects.
 `test/async-resource-state.test.ts` derives the converted lenses from their
 declared type and fails if one regains a parallel `…Loading`/`…Error`/`…Key`

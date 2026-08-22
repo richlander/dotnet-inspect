@@ -1422,6 +1422,12 @@ export function asyncResourceKey<T>(
   return resource.status === "idle" ? null : resource.key;
 }
 
+export function asyncResourceData<T>(
+  resource: AsyncResource<T>,
+): T | null {
+  return resource.status === "ready" ? resource.data : null;
+}
+
 export function scopedRequestState(
   activeKey: string,
   requestKey: string,

@@ -767,8 +767,8 @@ test("typed package inspection owns package-root request coordination", () => {
   assert.match(appSource, /packageInspection\.loadMetadata\(/);
   assert.match(
     packageInspectionSource,
-    /async loadDependencies\(packageModel, signature\)[\s\S]*state\.packageDependenciesKey/);
-  assert.doesNotMatch(dependenciesLoader, /state\.packageDependenciesKey/);
+    /async loadDependencies\(packageModel, signature\)[\s\S]*state\.packageDependencies = pending/);
+  assert.doesNotMatch(dependenciesLoader, /state\.packageDependencies\s*=/);
 });
 
 test("typed package view owns package navigation bindings", () => {

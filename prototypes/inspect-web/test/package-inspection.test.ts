@@ -8,6 +8,7 @@ import {
   type PackageInspectionState,
   type PackagePerformance,
 } from "../src/package-inspection.ts";
+import type { AsyncResource } from "../src/data.ts";
 import type { AppPackage } from "../src/package-acquisition.ts";
 import type {
   BrowserPackageDependencies,
@@ -46,26 +47,14 @@ function inspectionState(
     packages: [],
     atPackageRoot: false,
     packageLens: "overview",
-    packageDependencies: null,
-    packageDependenciesLoading: false,
-    packageDependenciesError: "",
-    packageDependenciesKey: "",
+    packageDependencies: { status: "idle" },
     workspaceDependencies: {},
     workspaceDependencyErrors: {},
     workspaceDependencyLoads: new Set<string>(),
-    packageIntegrations: null,
-    packageIntegrationsLoading: false,
-    packageIntegrationsError: "",
-    packageIntegrationsKey: "",
+    packageIntegrations: { status: "idle" },
     packageOpportunities: { status: "idle" },
-    packagePerformance: null,
-    packagePerformanceLoading: false,
-    packagePerformanceError: "",
-    packagePerformanceKey: "",
-    packageMetadata: null,
-    packageMetadataLoading: false,
-    packageMetadataError: "",
-    packageMetadataKey: "",
+    packagePerformance: { status: "idle" },
+    packageMetadata: { status: "idle" },
     ...overrides,
   };
 }
@@ -177,11 +166,11 @@ interface PackageLensFixture<T> {
       PackageInspectionCoordinator;
   load: (coordinator: PackageInspectionCoordinator, signature: string) =>
     Promise<void>;
-  readResult: (state: PackageInspectionState) => T | null;
-  readLoading: (state: PackageInspectionState) => boolean;
-  readError: (state: PackageInspectionState) => string;
-  setKey: (state: PackageInspectionState, key: string) => void;
-  setError: (state: PackageInspectionState, error: string) => void;
+  read: (state: PackageInspectionState) => AsyncResource<T>;
+  write: (
+    state: PackageInspectionState,
+    resource: AsyncResource<T>,
+  ) => void;
 }
 
 async function verifyPackageLensLifecycle<T>(
@@ -191,8 +180,11 @@ async function verifyPackageLensLifecycle<T>(
     const query = deferred<T>();
     const events: string[] = [];
     const state = inspectionState();
-    fixture.setKey(state, "old");
-    fixture.setError(state, "old failure");
+    fixture.write(state, {
+      status: "failed",
+      key: "old",
+      error: "old failure",
+    });
     const coordinator = fixture.createCoordinator(
       state,
       async () => query.promise,
@@ -200,35 +192,20 @@ async function verifyPackageLensLifecycle<T>(
 
     const load = fixture.load(coordinator, "current");
 
-    assert.equal(
-      fixture.readResult(state),
-      null,
-      `${fixture.name} cleared result`);
-    assert.equal(
-      fixture.readLoading(state),
-      true,
-      `${fixture.name} started loading`);
-    assert.equal(
-      fixture.readError(state),
-      "",
-      `${fixture.name} cleared error`);
+    assert.deepEqual(fixture.read(state), {
+      status: "loading",
+      key: "current",
+    }, `${fixture.name} started loading`);
     assert.deepEqual(events, ["render"], `${fixture.name} start render`);
 
     query.resolve(fixture.result);
     await load;
 
-    assert.deepEqual(
-      fixture.readResult(state),
-      fixture.result,
-      `${fixture.name} current result`);
-    assert.equal(
-      fixture.readLoading(state),
-      false,
-      `${fixture.name} current loading`);
-    assert.equal(
-      fixture.readError(state),
-      "",
-      `${fixture.name} current error`);
+    assert.deepEqual(fixture.read(state), {
+      status: "ready",
+      key: "current",
+      data: fixture.result,
+    }, `${fixture.name} current result`);
     assert.deepEqual(
       events,
       ["render", "render"],
@@ -243,25 +220,22 @@ async function verifyPackageLensLifecycle<T>(
 
     await fixture.load(coordinator, "current");
 
-    assert.equal(
-      fixture.readResult(state),
-      null,
-      `${fixture.name} failed result`);
-    assert.equal(
-      fixture.readLoading(state),
-      false,
-      `${fixture.name} failed loading`);
-    assert.equal(
-      fixture.readError(state),
-      "current failure",
-      `${fixture.name} current failure`);
+    assert.deepEqual(fixture.read(state), {
+      status: "failed",
+      key: "current",
+      error: "current failure",
+    }, `${fixture.name} current failure`);
   }
 
   {
     let queries = 0;
     const state = inspectionState();
-    fixture.setKey(state, "cached");
-    fixture.setError(state, "cached failure");
+    const cached: AsyncResource<T> = {
+      status: "failed",
+      key: "cached",
+      error: "cached failure",
+    };
+    fixture.write(state, cached);
     const coordinator = fixture.createCoordinator(state, async () => {
       queries++;
       return fixture.result;
@@ -270,9 +244,9 @@ async function verifyPackageLensLifecycle<T>(
     await fixture.load(coordinator, "cached");
 
     assert.equal(queries, 0, `${fixture.name} cached query`);
-    assert.equal(
-      fixture.readError(state),
-      "cached failure",
+    assert.strictEqual(
+      fixture.read(state),
+      cached,
       `${fixture.name} cached failure`);
   }
 
@@ -284,19 +258,19 @@ async function verifyPackageLensLifecycle<T>(
       async () => query.promise);
 
     const load = fixture.load(coordinator, "first");
-    fixture.setKey(state, "second");
-    fixture.setError(state, "newer failure");
+    const newer: AsyncResource<T> = {
+      status: "failed",
+      key: "second",
+      error: "newer failure",
+    };
+    fixture.write(state, newer);
     query.reject(new Error("stale failure"));
     await load;
 
-    assert.equal(
-      fixture.readError(state),
-      "newer failure",
+    assert.strictEqual(
+      fixture.read(state),
+      newer,
       `${fixture.name} stale failure`);
-    assert.equal(
-      fixture.readLoading(state),
-      true,
-      `${fixture.name} stale loading`);
   }
 }
 
@@ -326,13 +300,21 @@ test("dependency results cache for a resident package after the foreground lens 
     }));
 
   const load = coordinator.loadDependencies(packageItem, "first");
-  assert.equal(state.packageDependenciesLoading, true);
-  state.packageDependenciesKey = "second";
+  assert.deepEqual(state.packageDependencies, {
+    status: "loading",
+    key: "first",
+  });
+  state.packageDependencies = {
+    status: "loading",
+    key: "second",
+  };
   request.resolve(dependencyResult(packageItem.id, "partial dependency data"));
   await load;
 
-  assert.equal(state.packageDependencies, null);
-  assert.equal(state.packageDependenciesLoading, true);
+  assert.deepEqual(state.packageDependencies, {
+    status: "loading",
+    key: "second",
+  });
   const key = workspaceDependencyKey(packageItem);
   const workspace = state.workspaceDependencies[key];
   assert.ok(workspace);
@@ -377,10 +359,16 @@ test("package lens loaders reuse cached results without querying or clearing the
       name: "dependencies",
       cached: dependencies,
       state: inspectionState({
-        packageDependenciesKey: "cached",
-        packageDependencies: dependencies,
+        packageDependencies: {
+          status: "ready",
+          key: "cached",
+          data: dependencies,
+        },
       }),
-      read: (state: PackageInspectionState) => state.packageDependencies,
+      read: (state: PackageInspectionState) =>
+        state.packageDependencies.status === "ready"
+          ? state.packageDependencies.data
+          : null,
       load: (coordinator: ReturnType<typeof createPackageInspectionCoordinator>) =>
         coordinator.loadDependencies(packageItem, "cached"),
     },
@@ -388,10 +376,16 @@ test("package lens loaders reuse cached results without querying or clearing the
       name: "integrations",
       cached: integrations,
       state: inspectionState({
-        packageIntegrationsKey: "cached",
-        packageIntegrations: integrations,
+        packageIntegrations: {
+          status: "ready",
+          key: "cached",
+          data: integrations,
+        },
       }),
-      read: (state: PackageInspectionState) => state.packageIntegrations,
+      read: (state: PackageInspectionState) =>
+        state.packageIntegrations.status === "ready"
+          ? state.packageIntegrations.data
+          : null,
       load: (coordinator: ReturnType<typeof createPackageInspectionCoordinator>) =>
         coordinator.loadIntegrations(packageItem, "cached", null),
     },
@@ -416,10 +410,16 @@ test("package lens loaders reuse cached results without querying or clearing the
       name: "performance",
       cached: performance,
       state: inspectionState({
-        packagePerformanceKey: "cached",
-        packagePerformance: performance,
+        packagePerformance: {
+          status: "ready",
+          key: "cached",
+          data: performance,
+        },
       }),
-      read: (state: PackageInspectionState) => state.packagePerformance,
+      read: (state: PackageInspectionState) =>
+        state.packagePerformance.status === "ready"
+          ? state.packagePerformance.data
+          : null,
       load: (coordinator: ReturnType<typeof createPackageInspectionCoordinator>) =>
         coordinator.loadPerformance(packageItem, "cached", null),
     },
@@ -427,10 +427,16 @@ test("package lens loaders reuse cached results without querying or clearing the
       name: "metadata",
       cached: metadata,
       state: inspectionState({
-        packageMetadataKey: "cached",
-        packageMetadata: metadata,
+        packageMetadata: {
+          status: "ready",
+          key: "cached",
+          data: metadata,
+        },
       }),
-      read: (state: PackageInspectionState) => state.packageMetadata,
+      read: (state: PackageInspectionState) =>
+        state.packageMetadata.status === "ready"
+          ? state.packageMetadata.data
+          : null,
       load: (coordinator: ReturnType<typeof createPackageInspectionCoordinator>) =>
         coordinator.loadMetadata(packageItem, "cached", null),
     },
@@ -477,8 +483,11 @@ test("package lens loaders reuse cached failures without querying", async () => 
   let queries = 0;
   let renders = 0;
   const state = inspectionState({
-    packagePerformanceKey: "cached",
-    packagePerformanceError: "cached failure",
+    packagePerformance: {
+      status: "failed",
+      key: "cached",
+      error: "cached failure",
+    },
   });
   const coordinator = createPackageInspectionCoordinator(
     inspectionDependencies(state, {
@@ -493,7 +502,11 @@ test("package lens loaders reuse cached failures without querying", async () => 
 
   assert.equal(queries, 0);
   assert.equal(renders, 1);
-  assert.equal(state.packagePerformanceError, "cached failure");
+  assert.deepEqual(state.packagePerformance, {
+    status: "failed",
+    key: "cached",
+    error: "cached failure",
+  });
 });
 
 test("every package lens preserves its complete request lifecycle", async () => {
@@ -510,11 +523,8 @@ test("every package lens preserves its complete request lifecycle", async () => 
         })),
     load: (coordinator, signature) =>
       coordinator.loadDependencies(packageItem, signature),
-    readResult: state => state.packageDependencies,
-    readLoading: state => state.packageDependenciesLoading,
-    readError: state => state.packageDependenciesError,
-    setKey: (state, key) => { state.packageDependenciesKey = key; },
-    setError: (state, error) => { state.packageDependenciesError = error; },
+    read: state => state.packageDependencies,
+    write: (state, resource) => { state.packageDependencies = resource; },
   });
   await verifyPackageLensLifecycle({
     name: "integrations",
@@ -527,11 +537,22 @@ test("every package lens preserves its complete request lifecycle", async () => 
         })),
     load: (coordinator, signature) =>
       coordinator.loadIntegrations(packageItem, signature, null),
-    readResult: state => state.packageIntegrations,
-    readLoading: state => state.packageIntegrationsLoading,
-    readError: state => state.packageIntegrationsError,
-    setKey: (state, key) => { state.packageIntegrationsKey = key; },
-    setError: (state, error) => { state.packageIntegrationsError = error; },
+    read: state => state.packageIntegrations,
+    write: (state, resource) => { state.packageIntegrations = resource; },
+  });
+  await verifyPackageLensLifecycle({
+    name: "opportunities",
+    result: opportunitiesResult(),
+    createCoordinator: (state, query, render = () => {}) =>
+      createPackageInspectionCoordinator(
+        inspectionDependencies(state, {
+          queryPackageOpportunities: async () => query(),
+          render,
+        })),
+    load: (coordinator, signature) =>
+      coordinator.loadOpportunities(packageItem, signature, null),
+    read: state => state.packageOpportunities,
+    write: (state, resource) => { state.packageOpportunities = resource; },
   });
   await verifyPackageLensLifecycle({
     name: "performance",
@@ -544,11 +565,8 @@ test("every package lens preserves its complete request lifecycle", async () => 
         })),
     load: (coordinator, signature) =>
       coordinator.loadPerformance(packageItem, signature, null),
-    readResult: state => state.packagePerformance,
-    readLoading: state => state.packagePerformanceLoading,
-    readError: state => state.packagePerformanceError,
-    setKey: (state, key) => { state.packagePerformanceKey = key; },
-    setError: (state, error) => { state.packagePerformanceError = error; },
+    read: state => state.packagePerformance,
+    write: (state, resource) => { state.packagePerformance = resource; },
   });
   await verifyPackageLensLifecycle({
     name: "metadata",
@@ -561,11 +579,8 @@ test("every package lens preserves its complete request lifecycle", async () => 
         })),
     load: (coordinator, signature) =>
       coordinator.loadMetadata(packageItem, signature, null),
-    readResult: state => state.packageMetadata,
-    readLoading: state => state.packageMetadataLoading,
-    readError: state => state.packageMetadataError,
-    setKey: (state, key) => { state.packageMetadataKey = key; },
-    setError: (state, error) => { state.packageMetadataError = error; },
+    read: state => state.packageMetadata,
+    write: (state, resource) => { state.packageMetadata = resource; },
   });
 });
 
@@ -789,25 +804,6 @@ test("a re-requested scope keeps the newest result when the abandoned one fails 
       data: { ...opportunitiesResult(), totalOpportunities: 99 },
     });
   });
-
-test("stale package lens rejection cannot overwrite newer state", async () => {
-  const packageItem = packageModel();
-  const request = deferred<PackagePerformance>();
-  const state = inspectionState();
-  const coordinator = createPackageInspectionCoordinator(
-    inspectionDependencies(state, {
-      queryPackagePerformance: async () => request.promise,
-    }));
-
-  const load = coordinator.loadPerformance(packageItem, "first", null);
-  state.packagePerformanceKey = "second";
-  state.packagePerformanceError = "newer failure";
-  request.reject(new Error("stale failure"));
-  await load;
-
-  assert.equal(state.packagePerformanceError, "newer failure");
-  assert.equal(state.packagePerformanceLoading, true);
-});
 
 test("workspace dependency loading records failures and ignores runtime packs", async () => {
   const good = packageModel({ id: "Example.Good" });
@@ -1101,7 +1097,10 @@ test("scoped package lenses route platform coordinates and suppress stale result
   await coordinator.loadPerformance(packageItem, "performance", null);
   const metadataLoad =
     coordinator.loadMetadata(packageItem, "metadata-first", null);
-  state.packageMetadataKey = "metadata-second";
+  state.packageMetadata = {
+    status: "loading",
+    key: "metadata-second",
+  };
   metadata.resolve(metadataResult());
   await metadataLoad;
 
@@ -1111,13 +1110,17 @@ test("scoped package lenses route platform coordinates and suppress stale result
     "performance:Example.Package",
     "metadata:Example.Package",
   ]);
-  assert.ok(state.packageIntegrations);
+  assert.equal(state.packageIntegrations.status, "ready");
   assert.equal(state.packageOpportunities.status, "ready");
-  assert.equal(state.packagePerformance, null);
-  assert.equal(state.packagePerformanceError, "analysis unavailable");
-  assert.equal(state.packagePerformanceLoading, false);
-  assert.equal(state.packageMetadata, null);
-  assert.equal(state.packageMetadataLoading, true);
+  assert.deepEqual(state.packagePerformance, {
+    status: "failed",
+    key: "performance",
+    error: "analysis unavailable",
+  });
+  assert.deepEqual(state.packageMetadata, {
+    status: "loading",
+    key: "metadata-second",
+  });
 });
 
 test("all scoped runtime package lenses route exact platform coordinates", async () => {
@@ -1167,16 +1170,21 @@ test("package lens results clear before a different request completes", async ()
   {
     const query = deferred<BrowserPackageDependencies>();
     const state = inspectionState({
-      packageDependenciesKey: "old",
-      packageDependencies: dependencyResult(),
+      packageDependencies: {
+        status: "ready",
+        key: "old",
+        data: dependencyResult(),
+      },
     });
     const coordinator = createPackageInspectionCoordinator(
       inspectionDependencies(state, {
         queryDependencies: async () => query.promise,
       }));
     const load = coordinator.loadDependencies(packageItem, "new");
-    assert.equal(state.packageDependencies, null);
-    assert.equal(state.packageDependenciesLoading, true);
+      assert.deepEqual(state.packageDependencies, {
+        status: "loading",
+        key: "new",
+      });
     query.resolve(dependencyResult());
     await load;
   }
@@ -1184,16 +1192,21 @@ test("package lens results clear before a different request completes", async ()
   {
     const query = deferred<BrowserPackageIntegrations>();
     const state = inspectionState({
-      packageIntegrationsKey: "old",
-      packageIntegrations: integrationsResult(),
+      packageIntegrations: {
+        status: "ready",
+        key: "old",
+        data: integrationsResult(),
+      },
     });
     const coordinator = createPackageInspectionCoordinator(
       inspectionDependencies(state, {
         queryPackageIntegrations: async () => query.promise,
       }));
     const load = coordinator.loadIntegrations(packageItem, "new", null);
-    assert.equal(state.packageIntegrations, null);
-    assert.equal(state.packageIntegrationsLoading, true);
+      assert.deepEqual(state.packageIntegrations, {
+        status: "loading",
+        key: "new",
+      });
     query.resolve(integrationsResult());
     await load;
   }
@@ -1223,16 +1236,21 @@ test("package lens results clear before a different request completes", async ()
   {
     const query = deferred<PackagePerformance>();
     const state = inspectionState({
-      packagePerformanceKey: "old",
-      packagePerformance: performanceResult(),
+      packagePerformance: {
+        status: "ready",
+        key: "old",
+        data: performanceResult(),
+      },
     });
     const coordinator = createPackageInspectionCoordinator(
       inspectionDependencies(state, {
         queryPackagePerformance: async () => query.promise,
       }));
     const load = coordinator.loadPerformance(packageItem, "new", null);
-    assert.equal(state.packagePerformance, null);
-    assert.equal(state.packagePerformanceLoading, true);
+      assert.deepEqual(state.packagePerformance, {
+        status: "loading",
+        key: "new",
+      });
     query.resolve(performanceResult());
     await load;
   }
@@ -1240,16 +1258,21 @@ test("package lens results clear before a different request completes", async ()
   {
     const query = deferred<PackageMetadata>();
     const state = inspectionState({
-      packageMetadataKey: "old",
-      packageMetadata: metadataResult(),
+      packageMetadata: {
+        status: "ready",
+        key: "old",
+        data: metadataResult(),
+      },
     });
     const coordinator = createPackageInspectionCoordinator(
       inspectionDependencies(state, {
         queryPackageMetadata: async () => query.promise,
       }));
     const load = coordinator.loadMetadata(packageItem, "new", null);
-    assert.equal(state.packageMetadata, null);
-    assert.equal(state.packageMetadataLoading, true);
+      assert.deepEqual(state.packageMetadata, {
+        status: "loading",
+        key: "new",
+      });
     query.resolve(metadataResult());
     await load;
   }
@@ -1266,11 +1289,16 @@ test("package lens results require their current request key", async () => {
         queryPackageIntegrations: async () => query.promise,
       }));
     const load = coordinator.loadIntegrations(packageItem, "first", null);
-    state.packageIntegrationsKey = "second";
+      state.packageIntegrations = {
+        status: "loading",
+        key: "second",
+      };
     query.resolve(integrationsResult());
     await load;
-    assert.equal(state.packageIntegrations, null);
-    assert.equal(state.packageIntegrationsLoading, true);
+    assert.deepEqual(state.packageIntegrations, {
+      status: "loading",
+      key: "second",
+    });
   }
 
   {
@@ -1301,11 +1329,16 @@ test("package lens results require their current request key", async () => {
         queryPackagePerformance: async () => query.promise,
       }));
     const load = coordinator.loadPerformance(packageItem, "first", null);
-    state.packagePerformanceKey = "second";
+      state.packagePerformance = {
+        status: "loading",
+        key: "second",
+      };
     query.resolve(performanceResult());
     await load;
-    assert.equal(state.packagePerformance, null);
-    assert.equal(state.packagePerformanceLoading, true);
+    assert.deepEqual(state.packagePerformance, {
+      status: "loading",
+      key: "second",
+    });
   }
 });
 
@@ -1346,8 +1379,8 @@ test("runtime package lenses wait for an explicit library scope", async () => {
 
   assert.equal(queries, 0);
   assert.equal(renders, 0);
-  assert.equal(state.packageIntegrationsKey, "");
+  assert.equal(state.packageIntegrations.status, "idle");
   assert.equal(state.packageOpportunities.status, "idle");
-  assert.equal(state.packagePerformanceKey, "");
-  assert.equal(state.packageMetadataKey, "");
+  assert.equal(state.packagePerformance.status, "idle");
+  assert.equal(state.packageMetadata.status, "idle");
 });

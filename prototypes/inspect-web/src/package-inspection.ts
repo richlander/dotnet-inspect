@@ -35,26 +35,14 @@ export interface PackageInspectionState {
   packages: AppPackage[];
   atPackageRoot: boolean;
   packageLens: PackageLens;
-  packageDependencies: BrowserPackageDependencies | null;
-  packageDependenciesLoading: boolean;
-  packageDependenciesError: string;
-  packageDependenciesKey: string;
+  packageDependencies: AsyncResource<BrowserPackageDependencies>;
   workspaceDependencies: Record<string, DependencyGroupData>;
   workspaceDependencyErrors: Record<string, string>;
   workspaceDependencyLoads: Set<string>;
-  packageIntegrations: BrowserPackageIntegrations | null;
-  packageIntegrationsLoading: boolean;
-  packageIntegrationsError: string;
-  packageIntegrationsKey: string;
+  packageIntegrations: AsyncResource<BrowserPackageIntegrations>;
   packageOpportunities: AsyncResource<BrowserPackageOpportunities>;
-  packagePerformance: PackagePerformance | null;
-  packagePerformanceLoading: boolean;
-  packagePerformanceError: string;
-  packagePerformanceKey: string;
-  packageMetadata: PackageMetadata | null;
-  packageMetadataLoading: boolean;
-  packageMetadataError: string;
-  packageMetadataKey: string;
+  packagePerformance: AsyncResource<PackagePerformance>;
+  packageMetadata: AsyncResource<PackageMetadata>;
 }
 
 export interface PackageInspectionDependencies {
@@ -251,15 +239,13 @@ export function createPackageInspectionCoordinator(
 
   return {
     async loadDependencies(packageModel, signature) {
-      if (state.packageDependenciesKey === signature
-        && (state.packageDependencies || state.packageDependenciesError)) {
+      if (state.packageDependencies.status !== "idle"
+        && state.packageDependencies.key === signature) {
         dependencies.render();
         return;
       }
-      state.packageDependenciesKey = signature;
-      state.packageDependencies = null;
-      state.packageDependenciesError = "";
-      state.packageDependenciesLoading = true;
+      const pending = { status: "loading", key: signature } as const;
+      state.packageDependencies = pending;
       dependencies.render();
       const packageRequest = {
         id: packageModel.id,
@@ -270,8 +256,12 @@ export function createPackageInspectionCoordinator(
       const workspaceKey = workspaceDependencyKey(packageRequest);
       try {
         const result = await dependencies.queryDependencies(packageRequest);
-        if (state.packageDependenciesKey === signature) {
-          state.packageDependencies = result;
+        if (state.packageDependencies === pending) {
+          state.packageDependencies = {
+            status: "ready",
+            key: signature,
+            data: result,
+          };
         }
         if (result?.dependencyGroups
           && packageIsResident(state.packages, packageRequest)) {
@@ -287,13 +277,14 @@ export function createPackageInspectionCoordinator(
           }
         }
       } catch (error) {
-        if (state.packageDependenciesKey === signature) {
-          state.packageDependenciesError = dependencies.describeError(error);
+        if (state.packageDependencies === pending) {
+          state.packageDependencies = {
+            status: "failed",
+            key: signature,
+            error: dependencies.describeError(error),
+          };
         }
       } finally {
-        if (state.packageDependenciesKey === signature) {
-          state.packageDependenciesLoading = false;
-        }
         dependencies.refreshPackageStats();
         dependencies.render();
         await ensureWorkspaceDependencies();
@@ -304,15 +295,13 @@ export function createPackageInspectionCoordinator(
 
     async loadIntegrations(packageModel, signature, scopedLibrary) {
       if (packageModel.isRuntimePack && !scopedLibrary) return;
-      if (state.packageIntegrationsKey === signature
-        && (state.packageIntegrations || state.packageIntegrationsError)) {
+      if (state.packageIntegrations.status !== "idle"
+        && state.packageIntegrations.key === signature) {
         dependencies.render();
         return;
       }
-      state.packageIntegrationsKey = signature;
-      state.packageIntegrations = null;
-      state.packageIntegrationsError = "";
-      state.packageIntegrationsLoading = true;
+      const pending = { status: "loading", key: signature } as const;
+      state.packageIntegrations = pending;
       dependencies.render();
       try {
         const coordinates = packageModel.isRuntimePack
@@ -324,17 +313,22 @@ export function createPackageInspectionCoordinator(
               coordinates.assemblyFileName,
               coordinates.pack)
           : await dependencies.queryPackageIntegrations(packageModel);
-        if (state.packageIntegrationsKey === signature) {
-          state.packageIntegrations = result;
+        if (state.packageIntegrations === pending) {
+          state.packageIntegrations = {
+            status: "ready",
+            key: signature,
+            data: result,
+          };
         }
       } catch (error) {
-        if (state.packageIntegrationsKey === signature) {
-          state.packageIntegrationsError = dependencies.describeError(error);
+        if (state.packageIntegrations === pending) {
+          state.packageIntegrations = {
+            status: "failed",
+            key: signature,
+            error: dependencies.describeError(error),
+          };
         }
       } finally {
-        if (state.packageIntegrationsKey === signature) {
-          state.packageIntegrationsLoading = false;
-        }
         dependencies.render();
       }
     },
@@ -369,15 +363,13 @@ export function createPackageInspectionCoordinator(
 
     async loadPerformance(packageModel, signature, scopedLibrary) {
       if (packageModel.isRuntimePack && !scopedLibrary) return;
-      if (state.packagePerformanceKey === signature
-        && (state.packagePerformance || state.packagePerformanceError)) {
+      if (state.packagePerformance.status !== "idle"
+        && state.packagePerformance.key === signature) {
         dependencies.render();
         return;
       }
-      state.packagePerformanceKey = signature;
-      state.packagePerformance = null;
-      state.packagePerformanceError = "";
-      state.packagePerformanceLoading = true;
+      const pending = { status: "loading", key: signature } as const;
+      state.packagePerformance = pending;
       dependencies.render();
       try {
         const coordinates = packageModel.isRuntimePack
@@ -389,32 +381,35 @@ export function createPackageInspectionCoordinator(
               coordinates.assemblyFileName,
               coordinates.pack)
           : await dependencies.queryPackagePerformance(packageModel);
-        if (state.packagePerformanceKey === signature) {
-          state.packagePerformance = result;
+        if (state.packagePerformance === pending) {
+          state.packagePerformance = {
+            status: "ready",
+            key: signature,
+            data: result,
+          };
         }
       } catch (error) {
-        if (state.packagePerformanceKey === signature) {
-          state.packagePerformanceError = dependencies.describeError(error);
+        if (state.packagePerformance === pending) {
+          state.packagePerformance = {
+            status: "failed",
+            key: signature,
+            error: dependencies.describeError(error),
+          };
         }
       } finally {
-        if (state.packagePerformanceKey === signature) {
-          state.packagePerformanceLoading = false;
-        }
         dependencies.render();
       }
     },
 
     async loadMetadata(packageModel, signature, scopedLibrary) {
       if (packageModel.isRuntimePack && !scopedLibrary) return;
-      if (state.packageMetadataKey === signature
-        && (state.packageMetadata || state.packageMetadataError)) {
+      if (state.packageMetadata.status !== "idle"
+        && state.packageMetadata.key === signature) {
         dependencies.render();
         return;
       }
-      state.packageMetadataKey = signature;
-      state.packageMetadata = null;
-      state.packageMetadataError = "";
-      state.packageMetadataLoading = true;
+      const pending = { status: "loading", key: signature } as const;
+      state.packageMetadata = pending;
       dependencies.render();
       try {
         const coordinates = packageModel.isRuntimePack
@@ -426,17 +421,22 @@ export function createPackageInspectionCoordinator(
               coordinates.assemblyFileName,
               coordinates.pack)
           : await dependencies.queryPackageMetadata(packageModel);
-        if (state.packageMetadataKey === signature) {
-          state.packageMetadata = result;
+        if (state.packageMetadata === pending) {
+          state.packageMetadata = {
+            status: "ready",
+            key: signature,
+            data: result,
+          };
         }
       } catch (error) {
-        if (state.packageMetadataKey === signature) {
-          state.packageMetadataError = dependencies.describeError(error);
+        if (state.packageMetadata === pending) {
+          state.packageMetadata = {
+            status: "failed",
+            key: signature,
+            error: dependencies.describeError(error),
+          };
         }
       } finally {
-        if (state.packageMetadataKey === signature) {
-          state.packageMetadataLoading = false;
-        }
         dependencies.render();
       }
     },

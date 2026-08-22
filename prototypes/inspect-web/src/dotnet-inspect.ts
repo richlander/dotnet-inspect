@@ -1,6 +1,7 @@
 import {
   accessibilityFilterIncludingType,
   activeSourceOperationKind,
+  asyncResourceData,
   asyncResourceKey,
   assemblyDescriptorForType,
   assertNever,
@@ -574,27 +575,15 @@ const initialState = {
   typeMetadataError: "",
   typeMetadataKey: "",
   typeMetadataGeneration: 0,
-  packageDependencies: null,
-  packageDependenciesLoading: false,
-  packageDependenciesError: "",
-  packageDependenciesKey: "",
+  packageDependencies: idleAsyncResource<BrowserPackageDependencies>(),
   dependenciesGroupIndex: null,
   workspaceDependencies: {},
   workspaceDependencyErrors: {},
   workspaceDependencyLoads: new Set<string>(),
-  packageIntegrations: null,
-  packageIntegrationsLoading: false,
-  packageIntegrationsError: "",
-  packageIntegrationsKey: "",
+  packageIntegrations: idleAsyncResource<BrowserPackageIntegrations>(),
   packageOpportunities: idleAsyncResource<BrowserPackageOpportunities>(),
-  packagePerformance: null,
-  packagePerformanceLoading: false,
-  packagePerformanceError: "",
-  packagePerformanceKey: "",
-  packageMetadata: null,
-  packageMetadataLoading: false,
-  packageMetadataError: "",
-  packageMetadataKey: "",
+  packagePerformance: idleAsyncResource<PackagePerformance>(),
+  packageMetadata: idleAsyncResource<PackageMetadata>(),
   explorer: null,
   memberCallGraph: null,
   memberCallGraphLoading: false,
@@ -692,14 +681,10 @@ interface StateOverrides {
   memberAnnotatedNodeIds: number[];
   typeSource: BrowserSource | null;
   typeMetadata: BrowserTypeMetadata | null;
-  packageDependencies: BrowserPackageDependencies | null;
   dependenciesGroupIndex: number | null;
   workspaceDependencies: Record<string, DependencyGroupData>;
   workspaceDependencyErrors: Record<string, string>;
   workspaceDependencyLoads: Set<string>;
-  packageIntegrations: BrowserPackageIntegrations | null;
-  packagePerformance: PackagePerformance | null;
-  packageMetadata: PackageMetadata | null;
   explorer: AppExplorerState | null;
   memberCallGraph: BrowserCallGraph | null;
   pendingGraphMemberDeepLink: PendingGraphMemberDeepLink | null;
@@ -2639,14 +2624,17 @@ function packageDependenciesSignature() {
 
 function renderPackageDependencies() {
   const current = packageDependenciesSignature();
-  const fresh = state.packageDependenciesKey === current;
-  if (state.packageDependenciesLoading && fresh) {
+  const resource = state.packageDependencies;
+  const fresh = resource.status !== "idle" && resource.key === current;
+  if (fresh && resource.status === "loading") {
     return `<section class="document-section source-progress"><span class="loader"></span><h2>Reading dependencies…</h2><p>Parsing the package manifest and assembly references.</p></section>`;
   }
-  if (fresh && state.packageDependenciesError) {
-    return `<section class="document-section empty-document"><span class="large-glyph">⌘</span><h2>Dependency query failed</h2><p>${escapeHtml(state.packageDependenciesError)}</p></section>`;
+  if (fresh && resource.status === "failed") {
+    return `<section class="document-section empty-document"><span class="large-glyph">⌘</span><h2>Dependency query failed</h2><p>${escapeHtml(resource.error)}</p></section>`;
   }
-  const data = fresh ? state.packageDependencies : null;
+  const data = fresh && resource.status === "ready"
+    ? resource.data
+    : null;
   if (!data) {
     return `<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
   }
@@ -2751,7 +2739,8 @@ function dependencyListSectionHtml(
 // toggle the active chip, swap the dependency list in place, and let renderDependencyGraph
 // swap the diagram (it keeps the old SVG until the new one is ready, so no loader flash).
 function patchDependenciesGroup() {
-  const groups = state.packageDependencies?.dependencyGroups || [];
+  const groups =
+    asyncResourceData(state.packageDependencies)?.dependencyGroups || [];
   const listSection = document.querySelector<HTMLElement>("#dep-list-section");
   if (!groups.length || !listSection) { render(); return; }
   const selectedGroupIndex = resolveDependenciesGroupIndex(groups);
@@ -2836,8 +2825,9 @@ async function loadPackageDependencies() {
 
 function maybeAutoLoadPackageDependencies() {
   if (!state.atPackageRoot || state.packageLens !== "dependencies") return;
-  if (state.packageDependenciesKey === packageDependenciesSignature()) {
-    if (state.packageDependencies) {
+  if (asyncResourceKey(state.packageDependencies)
+      === packageDependenciesSignature()) {
+    if (state.packageDependencies.status === "ready") {
       observeAsync(renderDependencyGraph(), "Rendering the dependency graph");
       observeAsync(ensureWorkspaceDependencies(), "Loading workspace dependencies");
     }
@@ -2890,14 +2880,17 @@ function renderPackageIntegrations() {
     ? `${scopedLib} · ${escapeHtml(pkg.activeFramework)}`
     : escapeHtml(pkg.activeFramework);
   const current = packageIntegrationsSignature();
-  const fresh = state.packageIntegrationsKey === current;
-  if (state.packageIntegrationsLoading && fresh) {
+  const resource = state.packageIntegrations;
+  const fresh = resource.status !== "idle" && resource.key === current;
+  if (fresh && resource.status === "loading") {
     return `${platformPicker}<section class="document-section source-progress"><span class="loader"></span><h2>Scanning integrations…</h2><p>Reading the public surface of ${isPlatform ? escapeHtml(scopedLib) : "each assembly"} for ecosystem signals.</p></section>`;
   }
-  if (fresh && state.packageIntegrationsError) {
-    return `${platformPicker}<section class="document-section empty-document"><span class="large-glyph">◈</span><h2>Integration scan failed</h2><p>${escapeHtml(state.packageIntegrationsError)}</p></section>`;
+  if (fresh && resource.status === "failed") {
+    return `${platformPicker}<section class="document-section empty-document"><span class="large-glyph">◈</span><h2>Integration scan failed</h2><p>${escapeHtml(resource.error)}</p></section>`;
   }
-  const data = fresh ? state.packageIntegrations : null;
+  const data = fresh && resource.status === "ready"
+    ? resource.data
+    : null;
   if (!data) {
     return `${platformPicker}<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
   }
@@ -2955,7 +2948,10 @@ async function loadPackageIntegrations() {
 
 function maybeAutoLoadPackageIntegrations() {
   if (!state.atPackageRoot || state.packageLens !== "integrations") return;
-  if (state.packageIntegrationsKey === packageIntegrationsSignature()) return;
+  if (asyncResourceKey(state.packageIntegrations)
+      === packageIntegrationsSignature()) {
+    return;
+  }
   observeAsync(loadPackageIntegrations(), "Loading package integrations");
 }
 
@@ -3020,14 +3016,17 @@ function renderPackagePerformance() {
     ? `${escapeHtml(scopedLib)} · ${escapeHtml(pkg.activeFramework)}`
     : escapeHtml(pkg.activeFramework);
   const current = packageScopeSignature();
-  const fresh = state.packagePerformanceKey === current;
-  if (state.packagePerformanceLoading && fresh) {
+  const resource = state.packagePerformance;
+  const fresh = resource.status !== "idle" && resource.key === current;
+  if (fresh && resource.status === "loading") {
     return `${picker}<section class="document-section source-progress"><span class="loader"></span><h2>Analyzing allocations…</h2><p>Classifying allocation and performance opportunities across every method body.</p></section>`;
   }
-  if (fresh && state.packagePerformanceError) {
-    return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Analysis failed</h2><p>${escapeHtml(state.packagePerformanceError)}</p></section>`;
+  if (fresh && resource.status === "failed") {
+    return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Analysis failed</h2><p>${escapeHtml(resource.error)}</p></section>`;
   }
-  const data = fresh ? state.packagePerformance : null;
+  const data = fresh && resource.status === "ready"
+    ? resource.data
+    : null;
   if (!data) {
     return `${picker}<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
   }
@@ -3077,7 +3076,9 @@ async function loadPackagePerformance() {
 function maybeAutoLoadPackagePerformance() {
   if (!state.atPackageRoot || state.packageLens !== "analysis") return;
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
-  if (state.packagePerformanceKey === packageScopeSignature()) return;
+  if (asyncResourceKey(state.packagePerformance) === packageScopeSignature()) {
+    return;
+  }
   observeAsync(loadPackagePerformance(), "Loading package analysis");
 }
 
@@ -3088,16 +3089,18 @@ function maybeAutoLoadPackagePerformance() {
 // NuGet package it describes every active-framework lib/ assembly.
 function renderPackageMetadata() {
   const isPlatform = state.package?.isRuntimePack === true;
-  const fresh = state.packageMetadataKey === packageScopeSignature();
+  const resource = state.packageMetadata;
+  const fresh = resource.status !== "idle"
+    && resource.key === packageScopeSignature();
   return renderPackageMetadataHtml({
     isPlatform,
     scopedLibrary: scopedPlatformLibrary() || "",
     activeFramework: state.package?.activeFramework || "",
     pickerHtml: isPlatform ? platformLensPicker("data-platform-metadata-library") : "",
     fresh,
-    loading: state.packageMetadataLoading,
-    error: state.packageMetadataError || "",
-    metadata: state.packageMetadata || null,
+    loading: fresh && resource.status === "loading",
+    error: fresh && resource.status === "failed" ? resource.error : "",
+    metadata: fresh && resource.status === "ready" ? resource.data : null,
     escapeHtml,
     fmtBytes,
   });
@@ -3115,7 +3118,9 @@ async function loadPackageMetadata() {
 function maybeAutoLoadPackageMetadata() {
   if (!state.atPackageRoot || state.packageLens !== "metadata") return;
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
-  if (state.packageMetadataKey === packageScopeSignature()) return;
+  if (asyncResourceKey(state.packageMetadata) === packageScopeSignature()) {
+    return;
+  }
   observeAsync(loadPackageMetadata(), "Loading package metadata");
 }
 
@@ -3156,7 +3161,7 @@ function openExplorerHeap(assemblyFileName: string, heapName: string) {
 // The common explorer state: the table + heap directories drawn from the loaded overview, plus
 // empty window caches. Focus is set by the caller (openExplorer / openExplorerHeap).
 function buildBaseExplorer(assemblyFileName: string): AppExplorerState | null {
-  const data = state.packageMetadata;
+  const data = asyncResourceData(state.packageMetadata);
   const asm = (data?.assemblies || []).find(a => a.assembly === assemblyFileName)
     || (data?.assemblies || [])[0];
   if (!asm) return null;
@@ -6746,7 +6751,8 @@ async function renderDependencyGraph() {
     document.querySelector<HTMLElement>("#dependency-graph-diagram");
   if (!container) return;
   const pending = createDependencyGraphPendingState(container.dataset);
-  const groups = state.packageDependencies?.dependencyGroups || [];
+  const dependencies = asyncResourceData(state.packageDependencies);
+  const groups = dependencies?.dependencyGroups || [];
   if (!groups.length) {
     depGraphRenderSequence.invalidate();
     pending.invalidate();
@@ -6760,8 +6766,8 @@ async function renderDependencyGraph() {
       packages: state.packages,
       dependenciesGroupIndex: state.dependenciesGroupIndex,
       workspaceDependencies: state.workspaceDependencies,
-      ...(state.packageDependencies
-        ? { packageDependencies: state.packageDependencies }
+      ...(dependencies
+        ? { packageDependencies: dependencies }
         : {}),
     },
     (_packages, packageId, versionRange) =>
