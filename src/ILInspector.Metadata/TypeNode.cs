@@ -402,6 +402,8 @@ internal sealed class GenericTypeNode(
     public ApiAssemblyIdentity? DefinitionAssemblyIdentity =>
         definitionAssemblyIdentity;
     public MetadataTypeNameParts? MetadataName => metadataName;
+    internal ScopedNamedTypeIdentity? ScopedIdentity
+        => scopedIdentity;
     public ImmutableArray<TypeNode> Arguments => arguments;
     public override bool IsReferenceType => isReferenceType;
     public override bool IsDegraded => degradedGenericType
@@ -715,6 +717,14 @@ internal sealed class GenericParameterNode(
     bool isMethodParameter,
     int index) : TypeNode
 {
+    internal bool HasValueTypeConstraint
+        => hasValueTypeConstraint;
+    internal bool HasReferenceTypeConstraint
+        => hasReferenceTypeConstraint;
+    internal bool IsMethodParameter
+        => isMethodParameter;
+    internal int Index
+        => index;
     public override bool IsReferenceType => hasReferenceTypeConstraint;
     public override long EstimatedRenderedLength => name.Length + 1L;
 

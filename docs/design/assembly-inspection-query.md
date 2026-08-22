@@ -454,19 +454,34 @@ its member set and therefore does not suppress synthesis; a non-public construct
 still prevents a duplicate signature. Nested types emitted inside the same enclosing requirement
 are checked before that requirement is excluded from direct self-derivation, so a nested type that
 derives from its enclosing type still receives the parameterless base support its implicit
-`base()` needs. A Full-body constructor retains an explicit `base(...)` initializer only when the
-printed shell retains a base list; record and other flattened shells drop the now-unbindable
-initializer rather than targeting the compiler-implied base.
+`base()` needs. Private base constructors are eligible for an explicit initializer only when the
+derived type's exact metadata identity is transitively nested within the constructor's declaring
+type; unrelated types and the reverse nesting direction remain inaccessible. A Full-body
+constructor retains an explicit `base(...)` initializer only when the printed shell retains a base
+list; record and other flattened shells drop the now-unbindable initializer rather than targeting
+the compiler-implied base.
 Same-assembly override closure also authenticates Roslyn's covariant-return encoding: a virtual
 `NewSlot` method or property/indexer accessor is still a source `override` when an unambiguous
 `MethodImpl` maps its body to a source-declarable virtual method on its base-class chain with
-compatible declaration shape. Locally resolved return types must prove covariance; when
-reference-type returns are external `TypeRef`s, the authenticated slot is preserved and the C#
-compiler validates the referenced hierarchy during compile-back rather than silently severing
-the slot. Local arrays and constructed generic returns are compared structurally, including array
-element covariance and the declared variance of local generic parameters. A generic return
-parameter whose metadata carries the reference-type constraint is reference-compatible; absence
-of that flag is not inferred to mean reference type. Full member-surface closure queues
+compatible declaration shape. Parameters and equal returns correspond through complete scoped
+`TypeNode` structural identities, including namespace and nesting boundaries, exact non-platform
+assembly or module scope, typed trusted-platform normalization, by-reference shape, custom
+modifiers, and function-pointer headers; rendered spelling never authenticates them. Locally
+resolved return types must prove covariance; when simple reference-type returns are external
+`TypeRef`s, the authenticated slot is preserved and the C# compiler validates the referenced
+hierarchy during compile-back rather than silently severing the slot. Local arrays and constructed
+generic returns are compared structurally, including array element covariance and the declared
+variance of the exact local generic definition. That lookup retains namespace, the root-to-leaf
+nested segment chain, scope, and trusted per-segment introduced arity; an external definition is
+never replaced by a same-spelled local type. Unavailable external variance remains unknown and
+preserves the authenticated slot for compiler validation, while unavailable or ambiguous exact
+current-image definition lookup fails closed. A generic return parameter accepts exact identity,
+conversion to `object` proved by its reference-type constraint, or a conversion established by a
+typed explicit base/interface constraint reachable in the local metadata. Constructed constraints
+require full typed identity or compatibility proved from the exact local generic definition's
+declared variance; definition-only equality never erases constructed arguments. The reference-type
+flag alone never authorizes conversion to an arbitrary reference type, and absence of that flag is
+not inferred to mean reference type. Full member-surface closure queues
 authenticated `NewSlot` class-MethodImpl members even when they are not the selected target, so an
 unrelated target cannot sever their rebuilt slots. Members discovered during that surface pass
 retain `override` when their authenticated slot declaration is present in the emitted surface.
@@ -572,12 +587,34 @@ structured-return rejection.
 overload retention and emitted-signature-safe synthesis.
 `CompileBackTargets_SelectedSynthesizesConstructorForOwnNestedDerivedType` gates the enclosing
 requirement's nested-derived scan, and
+`CompileBackTargets_PreservesPrivateEnclosingBaseConstructorForNestedDerived` and
+`CompileBackTargets_DropsUnrelatedPrivateBaseConstructorInitializer` gate private constructor
+accessibility in Selected and All/Full reconstruction, while
 `CompileBackTargets_RecordShellDropsExplicitBaseInitializerWithDroppedBaseList` gates Full-body
 initializer removal when the emitted shell has no base list.
 `SameAssemblyOverrideSlot_AllowsReferenceConstrainedGenericCovariantMethodImpl` and
 `CompileBackTargets_AllFullPreservesReferenceConstrainedGenericCovariantMethodImpl` gate
-reference-constrained generic covariance, while
+reference-constrained generic covariance to `object`;
+`SameAssemblyOverrideSlot_DeclinesReferenceConstrainedGenericToArbitraryClass`,
+`SameAssemblyOverrideSlot_AllowsExplicitGenericBaseConstraint`, and
+`SameAssemblyOverrideSlot_DeclinesExplicitConstraintThatDoesNotReachReturn` gate the exact
+generic-parameter conversion boundary. Constructed constraints preserve their arguments and use
+the exact generic definition's variance, gated by
+`SameAssemblyOverrideSlot_AllowsCovariantConstructedConstraint` and
+`SameAssemblyOverrideSlot_DeclinesInvariantConstructedConstraint`, while
 `SameAssemblyOverrideSlot_DeclinesIncompatibleCovariantReturn` remains its value-return negative.
+`SameAssemblyOverrideSlot_AuthenticatesCompilerProducedScopedParameterIdentity`,
+`SameAssemblyOverrideSlot_DeclinesSameFqnReturnFromDifferentAssemblies`, and
+`SameAssemblyOverrideSlot_DeclinesNestedVsNamespaceParameter` gate scoped structural signature
+authentication.
+`SameAssemblyOverrideSlot_AllowsCompilerProducedNestedGenericVariance`,
+`SameAssemblyOverrideSlot_UsesExactNestedGenericVarianceDefinition`, and
+`SameAssemblyOverrideSlot_DeclinesAmbiguousExactLocalGenericDefinition`,
+`SameAssemblyOverrideSlot_DeclinesArrayWrappedAmbiguousExactLocalGenericDefinition`,
+`SameAssemblyOverrideSlot_AllowsCompilerProducedExternalGenericCovariance`,
+`SameAssemblyOverrideSlot_DoesNotUseLocalVarianceForExternalGeneric`, and
+`CompileBackTargets_PreservesExternalGenericCovariantMethodImpl` gate exact local variance
+definition selection, external unknown preservation, and local-shadow isolation.
 `CompileBackTargets_AllFullDoesNotDuplicateTargetedOverrideSlot` gates metadata-token slot
 deduplication. `SkeletonEmitsExplicitInterfaceTargets` gates
 selected explicit methods and

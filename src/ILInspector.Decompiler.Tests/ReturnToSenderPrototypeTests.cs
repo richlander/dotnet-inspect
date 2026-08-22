@@ -10,6 +10,7 @@ using DotnetInspector.Services;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -162,6 +163,69 @@ public class ReturnToSenderPrototypeTests
 
             rebuiltPath = CompileFixture(result.Source);
             AssertCovariantMethodImpl(rebuiltPath);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            if (rebuiltPath is not null)
+                DeleteFixture(rebuiltPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesExternalGenericCovariantMethodImpl()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Animal
+            {
+            }
+
+            public class Dog : Animal
+            {
+            }
+
+            public class Base
+            {
+                public virtual System.Collections.Generic.IEnumerable<Animal>
+                    Values() => [];
+            }
+
+            public class Derived : Base
+            {
+                public override System.Collections.Generic.IEnumerable<Dog>
+                    Values() => [];
+            }
+            """);
+        string? rebuiltPath = null;
+        try
+        {
+            AssertCovariantMethodImpl(
+                assemblyPath,
+                "Values");
+
+            var result = Assert.Single(
+                ReturnToSender.CompileBackTargets(
+                    assemblyPath,
+                    [new ReturnToSender.RequestedTarget(
+                        "Derived",
+                        "Values",
+                        0)]));
+
+            Assert.Contains(
+                "override IEnumerable<Dog> Values()",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.True(
+                result.Status
+                    == FidelityCheck
+                        .CompileBackStatus
+                        .Exact,
+                $"{result.Source}{Environment.NewLine}{result.Detail}");
+
+            rebuiltPath = CompileFixture(result.Source);
+            AssertCovariantMethodImpl(
+                rebuiltPath,
+                "Values");
         }
         finally
         {
@@ -5677,6 +5741,103 @@ public class ReturnToSenderPrototypeTests
                 $"{result.Source}{Environment.NewLine}{result.Detail}");
             Assert.Contains("public Base()", result.Source, StringComparison.Ordinal);
             Assert.DoesNotContain("CS7036", result.Detail, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Theory]
+    [InlineData(
+        RoundTripScope.Cluster,
+        RoundTripBodyPolicy.Selected)]
+    [InlineData(
+        RoundTripScope.All,
+        RoundTripBodyPolicy.Full)]
+    public void CompileBackTargets_PreservesPrivateEnclosingBaseConstructorForNestedDerived(
+        RoundTripScope scope,
+        RoundTripBodyPolicy bodyPolicy)
+    {
+        var assemblyPath = CompileFixture("""
+            public class Outer
+            {
+                private Outer(int seed)
+                {
+                    Seed = seed;
+                }
+
+                public int Seed { get; }
+
+                public class Nested : Outer
+                {
+                    public Nested(int seed) : base(seed)
+                    {
+                    }
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(
+                ReturnToSender.CompileBackTargets(
+                    assemblyPath,
+                    [new ReturnToSender.RequestedTarget(
+                        "Outer.Nested",
+                        ".ctor",
+                        0)],
+                    scope,
+                    bodyPolicy));
+
+            Assert.False(
+                result.UsedCompileBackFloor,
+                $"{result.Source}{Environment.NewLine}{result.Detail}");
+            Assert.NotEqual(
+                FidelityCheck.CompileBackStatus.RecompileFail,
+                result.Status);
+            Assert.Contains(
+                ": base(seed)",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Theory]
+    [InlineData(
+        RoundTripScope.Cluster,
+        RoundTripBodyPolicy.Selected)]
+    [InlineData(
+        RoundTripScope.All,
+        RoundTripBodyPolicy.Full)]
+    public void CompileBackTargets_DropsUnrelatedPrivateBaseConstructorInitializer(
+        RoundTripScope scope,
+        RoundTripBodyPolicy bodyPolicy)
+    {
+        string assemblyPath =
+            EmitUnrelatedPrivateBaseConstructorCall();
+        try
+        {
+            var result = Assert.Single(
+                ReturnToSender.CompileBackTargets(
+                    assemblyPath,
+                    [new ReturnToSender.RequestedTarget(
+                        "Derived",
+                        ".ctor",
+                        0)],
+                    scope,
+                    bodyPolicy));
+
+            Assert.NotEqual(
+                FidelityCheck.CompileBackStatus.RecompileFail,
+                result.Status);
+            Assert.DoesNotContain(
+                ": base(seed)",
+                result.Source,
+                StringComparison.Ordinal);
         }
         finally
         {
@@ -11811,6 +11972,80 @@ public class ReturnToSenderPrototypeTests
             File.Exists(dllPath),
             $"ilasm did not produce an assembly:{Environment.NewLine}{stdout}{Environment.NewLine}{stderr}");
         return dllPath;
+    }
+
+    static string EmitUnrelatedPrivateBaseConstructorCall()
+    {
+        var assemblyName =
+            new AssemblyName(
+                "UnrelatedPrivateBaseConstructorCall");
+        var assembly =
+            new PersistedAssemblyBuilder(
+                assemblyName,
+                typeof(object).Assembly);
+        ModuleBuilder module =
+            assembly.DefineDynamicModule(
+                assemblyName.Name!);
+
+        TypeBuilder baseBuilder =
+            module.DefineType(
+                "Base",
+                TypeAttributes.Public);
+        ConstructorBuilder privateConstructor =
+            baseBuilder.DefineConstructor(
+                MethodAttributes.Private,
+                CallingConventions.Standard,
+                [typeof(int)]);
+        privateConstructor.GetILGenerator()
+            .Emit(OpCodes.Ret);
+        ConstructorBuilder publicConstructor =
+            baseBuilder.DefineConstructor(
+                MethodAttributes.Public,
+                CallingConventions.Standard,
+                Type.EmptyTypes);
+        ILGenerator publicIl =
+            publicConstructor.GetILGenerator();
+        publicIl.Emit(OpCodes.Ldarg_0);
+        publicIl.Emit(
+            OpCodes.Call,
+            typeof(object).GetConstructor(
+                Type.EmptyTypes)!);
+        publicIl.Emit(OpCodes.Ret);
+        Type baseType = baseBuilder.CreateType();
+
+        TypeBuilder derivedBuilder =
+            module.DefineType(
+                "Derived",
+                TypeAttributes.Public,
+                baseType);
+        ConstructorBuilder derivedConstructor =
+            derivedBuilder.DefineConstructor(
+                MethodAttributes.Public,
+                CallingConventions.Standard,
+                [typeof(int)]);
+        derivedConstructor.DefineParameter(
+            1,
+            ParameterAttributes.None,
+            "seed");
+        ILGenerator derivedIl =
+            derivedConstructor.GetILGenerator();
+        derivedIl.Emit(OpCodes.Ldarg_0);
+        derivedIl.Emit(OpCodes.Ldarg_1);
+        derivedIl.Emit(
+            OpCodes.Call,
+            privateConstructor);
+        derivedIl.Emit(OpCodes.Ret);
+        derivedBuilder.CreateType();
+
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"return-to-sender-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(
+            directory,
+            $"{assemblyName.Name}.dll");
+        assembly.Save(path);
+        return path;
     }
 
     static string CompileFixture(

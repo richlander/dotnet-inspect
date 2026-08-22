@@ -1098,16 +1098,23 @@ public static class CompileBackSourceComposer
 
     static MethodDefinitionHandle? FindAccessibleInstanceConstructor(
         MetadataReader reader,
-        TypeDefinitionHandle typeHandle,
+        TypeDefinitionHandle declaringTypeHandle,
+        TypeDefinitionHandle derivedTypeHandle,
         IReadOnlyList<string> parameterTypes)
     {
-        var typeDef = reader.GetTypeDefinition(typeHandle);
+        var typeDef =
+            reader.GetTypeDefinition(declaringTypeHandle);
         foreach (var methodHandle in typeDef.GetMethods())
         {
             var method = reader.GetMethodDefinition(methodHandle);
             if (reader.GetString(method.Name) != ".ctor"
                 || method.Attributes.HasFlag(MethodAttributes.Static)
-                || !IsConstructorAccessibleFromDerived(method.Attributes & MethodAttributes.MemberAccessMask))
+                || !IsConstructorAccessibleFromDerived(
+                    reader,
+                    declaringTypeHandle,
+                    derivedTypeHandle,
+                    method.Attributes
+                        & MethodAttributes.MemberAccessMask))
             {
                 continue;
             }
@@ -1130,9 +1137,46 @@ public static class CompileBackSourceComposer
         return null;
     }
 
-    static bool IsConstructorAccessibleFromDerived(MethodAttributes accessibility)
-        => accessibility is not MethodAttributes.Private
-            and not MethodAttributes.PrivateScope;
+    static bool IsConstructorAccessibleFromDerived(
+        MetadataReader reader,
+        TypeDefinitionHandle declaringTypeHandle,
+        TypeDefinitionHandle derivedTypeHandle,
+        MethodAttributes accessibility)
+    {
+        if (accessibility == MethodAttributes.PrivateScope)
+            return false;
+        if (accessibility != MethodAttributes.Private)
+            return true;
+
+        Span<TypeDefinitionHandle> declaringChain =
+            stackalloc TypeDefinitionHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal
+                .TryWalkTypeDefinitionDeclaringChain(
+                    reader,
+                    derivedTypeHandle,
+                    declaringChain,
+                    out int count,
+                    out EntityHandle terminal,
+                    out _)
+            || !terminal.IsNil)
+        {
+            return false;
+        }
+
+        for (int index = 0;
+            index < count - 1;
+            index++)
+        {
+            if (declaringChain[index]
+                == declaringTypeHandle)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     public static CompileBackSourceResult ComposePropertyGetter(
         string assemblyPath,
@@ -3187,7 +3231,12 @@ public static class CompileBackSourceComposer
             }
 
             var baseHandle = (TypeDefinitionHandle)targetTypeDef.BaseType;
-            if (FindAccessibleInstanceConstructor(reader, baseHandle, chainParameterTypes) is null)
+            if (FindAccessibleInstanceConstructor(
+                    reader,
+                    baseHandle,
+                    targetType,
+                    chainParameterTypes)
+                is null)
                 return false;
 
             effectiveClosureRoots.Add(TopLevelRootOf(reader, baseHandle));
@@ -6388,16 +6437,24 @@ public static class CompileBackSourceComposer
 
         static MethodDefinitionHandle? FindAccessibleInstanceConstructor(
             MetadataReader reader,
-            TypeDefinitionHandle typeHandle,
+            TypeDefinitionHandle declaringTypeHandle,
+            TypeDefinitionHandle derivedTypeHandle,
             IReadOnlyList<string> parameterTypes)
         {
-            var typeDef = reader.GetTypeDefinition(typeHandle);
+            var typeDef =
+                reader.GetTypeDefinition(
+                    declaringTypeHandle);
             foreach (var methodHandle in typeDef.GetMethods())
             {
                 var method = reader.GetMethodDefinition(methodHandle);
                 if (reader.GetString(method.Name) != ".ctor"
                     || method.Attributes.HasFlag(MethodAttributes.Static)
-                    || !IsConstructorAccessibleFromDerived(method.Attributes & MethodAttributes.MemberAccessMask))
+                    || !IsConstructorAccessibleFromDerived(
+                        reader,
+                        declaringTypeHandle,
+                        derivedTypeHandle,
+                        method.Attributes
+                            & MethodAttributes.MemberAccessMask))
                 {
                     continue;
                 }
@@ -6426,8 +6483,16 @@ public static class CompileBackSourceComposer
             return reader.GetMethodDefinition(handle).RelativeVirtualAddress != 0;
         }
 
-        static bool IsConstructorAccessibleFromDerived(MethodAttributes accessibility)
-            => accessibility is not MethodAttributes.Private
-                and not MethodAttributes.PrivateScope;
+        static bool IsConstructorAccessibleFromDerived(
+            MetadataReader reader,
+            TypeDefinitionHandle declaringTypeHandle,
+            TypeDefinitionHandle derivedTypeHandle,
+            MethodAttributes accessibility)
+            => CompileBackSourceComposer
+                .IsConstructorAccessibleFromDerived(
+                    reader,
+                    declaringTypeHandle,
+                    derivedTypeHandle,
+                    accessibility);
     }
 }
