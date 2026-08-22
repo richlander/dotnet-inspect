@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  bindTypePanel,
   renderMemberNav,
   renderTypeMetadata,
   renderTypeNav,
@@ -11,8 +12,71 @@ import {
 } from "../src/type-panel.ts";
 import type {
   MemberNavEntry,
+  TypePanelBindingActions,
   TypeSummary,
 } from "../src/type-panel.ts";
+import { fakeDom } from "./fake-dom.ts";
+
+class FakeElement {
+  readonly dataset: Record<string, string | undefined>;
+  value = "";
+  focused = false;
+  private readonly listeners = new Map<string, EventListener[]>();
+
+  constructor(dataset: Record<string, string | undefined> = {}) {
+    this.dataset = dataset;
+  }
+
+  addEventListener(type: string, listener: EventListener) {
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  dispatch(type: string, event: Event = fakeDom.event()) {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener(event);
+    }
+  }
+
+  focus() {
+    this.focused = true;
+  }
+}
+
+class FakeRoot {
+  private readonly single = new Map<string, FakeElement>();
+  private readonly multiple = new Map<string, FakeElement[]>();
+
+  add(selector: string, element: FakeElement) {
+    this.single.set(selector, element);
+    return element;
+  }
+
+  addAll(selector: string, ...elements: FakeElement[]) {
+    this.multiple.set(selector, elements);
+    return elements;
+  }
+
+  querySelector(selector: string) {
+    return this.single.get(selector) ?? null;
+  }
+
+  querySelectorAll(selector: string) {
+    return this.multiple.get(selector) ?? [];
+  }
+}
+
+function keyboardEvent(key: string) {
+  const state = { prevented: false };
+  const event = fakeDom.keyboardEvent({
+    key,
+    preventDefault: () => {
+      state.prevented = true;
+    },
+  });
+  return { event, state };
+}
 
 function escapeHtml(value: unknown) {
   return String(value)
@@ -72,6 +136,318 @@ const jsonDocument: TypeSummary = {
   assembly: "System.Text.Json.dll",
 };
 
+function recordingActions(calls: string[]): TypePanelBindingActions {
+  return {
+    onClearFilters: () => calls.push("clear"),
+    onCopyAnchor: value => {
+      calls.push(`copy-anchor:${value}`);
+    },
+    onCopyMemberSource: () => {
+      calls.push("copy-member-source");
+    },
+    onCopyName: () => {
+      calls.push("copy-name");
+    },
+    onCopySignature: () => {
+      calls.push("copy-signature");
+    },
+    onCopyTypeSource: () => {
+      calls.push("copy-type-source");
+    },
+    onKindSelect: value => calls.push(`kind:${value}`),
+    onListKeyDown: event => calls.push(`list:${event.key}`),
+    onMemberAccessibilityFilterSelect: value =>
+      calls.push(`member-access:${value}`),
+    onMemberBack: () => calls.push("member-back"),
+    onMemberCompositionAccessibilitySelect: value =>
+      calls.push(`member-jump-access:${value}`),
+    onMemberCompositionKindSelect: value =>
+      calls.push(`member-jump-kind:${value}`),
+    onMemberCompositionTraitSelect: value =>
+      calls.push(`member-jump-trait:${value}`),
+    onMemberFilterChange: value => calls.push(`member-filter:${value}`),
+    onMemberFilterClear: () => calls.push("member-filter-clear"),
+    onMemberFilterKeyDown: (event, value) =>
+      calls.push(`member-filter-key:${event.key}:${value}`),
+    onMemberGroupOpen: value => calls.push(`member-open:${value}`),
+    onMemberKindFilterSelect: value => calls.push(`member-kind:${value}`),
+    onMemberOverloadOpen: value => calls.push(`member-overload:${value}`),
+    onMemberSelect: value => calls.push(`member:${value}`),
+    onMemberTraitFilterSelect: value => calls.push(`member-trait:${value}`),
+    onNamespaceSelect: value => calls.push(`namespace:${value}`),
+    onOverloadSelect: value => calls.push(`overload:${value}`),
+    onShowTypes: () => calls.push("types"),
+    onTypeFilterChange: value => calls.push(`filter:${value}`),
+    onTypeFilterEscape: () => calls.push("escape"),
+    onTypeSelect: value => calls.push(`type:${value}`),
+  };
+}
+
+test("type panel bindings dispatch member filters without eager work", () => {
+  const root = new FakeRoot();
+  const allKinds = new FakeElement({ memberKindFilter: "all" });
+  const kind = new FakeElement({ memberKindFilter: "method" });
+  const allAccessibilities =
+    new FakeElement({ memberAccessFilter: "all" });
+  const accessibility =
+    new FakeElement({ memberAccessFilter: "protected" });
+  const allTraits = new FakeElement({ memberTraitFilter: "all" });
+  const trait = new FakeElement({ memberTraitFilter: "isStatic" });
+  root.addAll("[data-member-kind-filter]", allKinds, kind);
+  root.addAll(
+    "[data-member-access-filter]",
+    allAccessibilities,
+    accessibility);
+  root.addAll("[data-member-trait-filter]", allTraits, trait);
+  const filter = root.add("#member-filter", new FakeElement());
+  filter.value = "parse";
+  const clear = root.add("#clear-member-filter", new FakeElement());
+  const calls: string[] = [];
+
+  bindTypePanel(
+    fakeDom.parentNode(root),
+    recordingActions(calls));
+
+  assert.deepEqual(calls, []);
+  kind.dispatch("click");
+  assert.deepEqual(calls, ["member-kind:method"]);
+  accessibility.dispatch("click");
+  assert.deepEqual(calls, [
+    "member-kind:method",
+    "member-access:protected",
+  ]);
+  trait.dispatch("click");
+  assert.deepEqual(calls, [
+    "member-kind:method",
+    "member-access:protected",
+    "member-trait:isStatic",
+  ]);
+  filter.dispatch("input");
+  const arrow = keyboardEvent("ArrowDown");
+  filter.dispatch("keydown", arrow.event);
+  clear.dispatch("click");
+  assert.deepEqual(calls, [
+    "member-kind:method",
+    "member-access:protected",
+    "member-trait:isStatic",
+    "member-filter:parse",
+    "member-filter-key:ArrowDown:parse",
+    "member-filter-clear",
+  ]);
+});
+
+test("type panel bindings dispatch the rendered type navigation controls", () => {
+  const root = new FakeRoot();
+  const type = new FakeElement({ type: "System.String" });
+  const secondType = new FakeElement({ type: "System.Int32" });
+  const namespace = new FakeElement({ namespace: "System" });
+  const secondNamespace = new FakeElement({ namespace: "System.Collections" });
+  const kind = new FakeElement({ kindFilter: "class" });
+  const secondKind = new FakeElement({ kindFilter: "interface" });
+  root.addAll("[data-type]", type, secondType);
+  root.addAll("[data-namespace]", namespace, secondNamespace);
+  root.addAll("[data-kind-filter]", kind, secondKind);
+  const clear = root.add("#clear-filter", new FakeElement());
+  const namespaceJump = root.add("#namespace-jump", new FakeElement());
+  const filter = root.add("#type-filter", new FakeElement());
+  const typeList = root.add("#type-list", new FakeElement());
+
+  const calls: string[] = [];
+  let forwardedListEvent: KeyboardEvent | null = null;
+  const actions = recordingActions(calls);
+  actions.onListKeyDown = event => {
+    forwardedListEvent = event;
+    event.preventDefault();
+    calls.push(`list:${event.key}`);
+  };
+  bindTypePanel(fakeDom.parentNode(root), actions);
+  namespaceJump.value = "System.Text";
+  filter.value = "json";
+
+  type.dispatch("click");
+  secondType.dispatch("click");
+  namespace.dispatch("click");
+  secondNamespace.dispatch("click");
+  namespaceJump.dispatch("change");
+  kind.dispatch("click");
+  secondKind.dispatch("click");
+  clear.dispatch("click");
+  filter.dispatch("input");
+  const listKey = keyboardEvent("End");
+  typeList.dispatch("keydown", listKey.event);
+
+  assert.deepEqual(calls, [
+    "type:System.String",
+    "type:System.Int32",
+    "namespace:System",
+    "namespace:System.Collections",
+    "namespace:System.Text",
+    "kind:class",
+    "kind:interface",
+    "clear",
+    "filter:json",
+    "list:End",
+  ]);
+  assert.equal(forwardedListEvent, listKey.event);
+  assert.equal(listKey.state.prevented, true);
+});
+
+test("type panel bindings dispatch the rendered member navigation controls", () => {
+  const root = new FakeRoot();
+  const member = new FakeElement({ navMember: "M:Length" });
+  const secondMember = new FakeElement({ navMember: "M:Count" });
+  const overload = new FakeElement({ navOverload: "2" });
+  const secondOverload = new FakeElement({ navOverload: "0" });
+  root.addAll("[data-nav-member]", member, secondMember);
+  root.addAll("[data-nav-overload]", overload, secondOverload);
+  const showTypes = root.add("#nav-to-types", new FakeElement());
+  const typeList = root.add("#type-list", new FakeElement());
+  const calls: string[] = [];
+  bindTypePanel(
+    fakeDom.parentNode(root),
+    recordingActions(calls));
+
+  member.dispatch("click");
+  secondMember.dispatch("click");
+  overload.dispatch("click");
+  secondOverload.dispatch("click");
+  showTypes.dispatch("click");
+  typeList.dispatch("keydown", keyboardEvent("Home").event);
+
+  assert.deepEqual(calls, [
+    "member:M:Length",
+    "member:M:Count",
+    "overload:2",
+    "overload:0",
+    "types",
+    "list:Home",
+  ]);
+});
+
+test("type panel bindings dispatch member composition and detail controls", () => {
+  const root = new FakeRoot();
+  const jumpKind = new FakeElement({ memberJumpKind: "method" });
+  const defaultJumpKind = new FakeElement();
+  const jumpAccess = new FakeElement({ memberJumpAccess: "protected" });
+  const defaultJumpAccess = new FakeElement();
+  const jumpTrait = new FakeElement({ memberJumpTrait: "isStatic" });
+  const defaultJumpTrait = new FakeElement();
+  const member = new FakeElement({ member: "M:Parse" });
+  const defaultMember = new FakeElement();
+  const overload = new FakeElement({ overload: "2" });
+  const defaultOverload = new FakeElement();
+  const anchor = new FakeElement({ copyAnchor: "digest" });
+  const invalidAnchor = new FakeElement({ copyAnchor: "unknown" });
+  root.addAll("[data-member-jump-kind]", jumpKind, defaultJumpKind);
+  root.addAll("[data-member-jump-access]", jumpAccess, defaultJumpAccess);
+  root.addAll("[data-member-jump-trait]", jumpTrait, defaultJumpTrait);
+  root.addAll("[data-member]", member, defaultMember);
+  root.addAll("[data-overload]", overload, defaultOverload);
+  root.addAll("[data-copy-anchor]", anchor, invalidAnchor);
+  const back = root.add("#member-back", new FakeElement());
+  const copyName = root.add("#copy-name", new FakeElement());
+  const copySignature = root.add("#copy-signature", new FakeElement());
+  const copyMemberSource = root.add("#copy-source", new FakeElement());
+  const copyTypeSource = root.add("#copy-type-source", new FakeElement());
+  const calls: string[] = [];
+
+  bindTypePanel(
+    fakeDom.parentNode(root),
+    recordingActions(calls));
+
+  assert.deepEqual(calls, []);
+  jumpKind.dispatch("click");
+  defaultJumpKind.dispatch("click");
+  jumpAccess.dispatch("click");
+  defaultJumpAccess.dispatch("click");
+  jumpTrait.dispatch("click");
+  defaultJumpTrait.dispatch("click");
+  member.dispatch("click");
+  defaultMember.dispatch("click");
+  overload.dispatch("click");
+  defaultOverload.dispatch("click");
+  back.dispatch("click");
+  copyName.dispatch("click");
+  copySignature.dispatch("click");
+  anchor.dispatch("click");
+  invalidAnchor.dispatch("click");
+  copyMemberSource.dispatch("click");
+  copyTypeSource.dispatch("click");
+
+  assert.deepEqual(calls, [
+    "member-jump-kind:method",
+    "member-jump-kind:all",
+    "member-jump-access:protected",
+    "member-jump-access:all",
+    "member-jump-trait:isStatic",
+    "member-jump-trait:",
+    "member-open:M:Parse",
+    "member-open:",
+    "member-overload:2",
+    "member-overload:NaN",
+    "member-back",
+    "copy-name",
+    "copy-signature",
+    "copy-anchor:digest",
+    "copy-anchor:undefined",
+    "copy-member-source",
+    "copy-type-source",
+  ]);
+});
+
+test("type filter keys preserve list focus and Escape behavior", () => {
+  const root = new FakeRoot();
+  const filter = root.add("#type-filter", new FakeElement());
+  const typeList = root.add("#type-list", new FakeElement());
+  let escapes = 0;
+  let listKeys = 0;
+  bindTypePanel(fakeDom.parentNode(root), {
+    ...recordingActions([]),
+    onListKeyDown: () => {
+      listKeys++;
+    },
+    onTypeFilterEscape: () => {
+      escapes++;
+    },
+  });
+
+  const ignored = keyboardEvent("a");
+  filter.dispatch("keydown", ignored.event);
+  assert.equal(typeList.focused, false);
+  assert.equal(ignored.state.prevented, false);
+  assert.equal(escapes, 0);
+  assert.equal(listKeys, 0);
+
+  const down = keyboardEvent("ArrowDown");
+  filter.dispatch("keydown", down.event);
+  assert.equal(typeList.focused, true);
+  assert.equal(down.state.prevented, true);
+  assert.equal(escapes, 0);
+  assert.equal(listKeys, 0);
+
+  typeList.focused = false;
+  filter.value = "json";
+  const escape = keyboardEvent("Escape");
+  filter.dispatch("keydown", escape.event);
+  assert.equal(escapes, 1);
+  assert.equal(escape.state.prevented, true);
+  assert.equal(typeList.focused, false);
+  assert.equal(listKeys, 0);
+
+  filter.value = "";
+  const emptyEscape = keyboardEvent("Escape");
+  filter.dispatch("keydown", emptyEscape.event);
+  assert.equal(escapes, 1);
+  assert.equal(emptyEscape.state.prevented, false);
+});
+
+test("type panel binding tolerates controls from the inactive nav being absent", () => {
+  const root = new FakeRoot();
+  assert.doesNotThrow(() => bindTypePanel(
+    fakeDom.parentNode(root),
+    recordingActions([])));
+});
+
 test("the type nav lists namespace groups with the current type selected", () => {
   const html = renderTypeNav({
     current: jsonSerializer,
@@ -99,6 +475,10 @@ test("the type nav lists namespace groups with the current type selected", () =>
     html,
     /data-type="System\.Text\.Json\.JsonDocument" role="option" aria-selected="false"/);
   assert.match(html, /data-namespace="System\.Text\.Json"/);
+  assert.match(html, /id="clear-filter"/);
+  assert.match(html, /id="type-filter"/);
+  assert.match(html, /id="namespace-jump"/);
+  assert.match(html, /data-kind-filter="class"/);
   assert.match(html, /id="type-list" data-nav-scope="types"/);
   assert.match(html, /data-nav-selection="type:System\.Text\.Json\.JsonSerializer"/);
 });
@@ -185,6 +565,7 @@ test("the member nav marks the active group and its selected overload", () => {
   assert.match(
     html,
     /data-nav-overload="0" role="option" aria-selected="false"/);
+  assert.match(html, /id="nav-to-types"/);
   assert.match(
     html,
     /id="type-list" data-nav-scope="members:System\.Text\.Json\.JsonSerializer"/);
