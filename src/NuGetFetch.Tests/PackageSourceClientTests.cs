@@ -1553,6 +1553,7 @@ public sealed class PackageSourceClientTests
     [Theory]
     [InlineData("search")]
     [InlineData("versions")]
+    [InlineData("manifest")]
     [InlineData("package")]
     public async Task GalleryRetriesTransientFailuresWithinOneOperation(
         string operation)
@@ -1579,6 +1580,13 @@ public sealed class PackageSourceClientTests
                             "contoso",
                             TestContext.Current.CancellationToken))
                     .Candidates);
+                break;
+            case "manifest":
+                Succeeded(
+                    await runtime.GetManifestAsync(
+                        "contoso",
+                        "1.0.0",
+                        TestContext.Current.CancellationToken));
                 break;
             case "package":
                 PackageSourcePayload payload = Succeeded(
@@ -1938,7 +1946,9 @@ public sealed class PackageSourceClientTests
                 : url.Equals(GalleryVersions, StringComparison.Ordinal)
                     ? new StringContent(
                         """{"versions":["1.0.0"]}""")
-                    : new ByteArrayContent("package bytes"u8.ToArray());
+                    : url.Equals(GalleryManifest, StringComparison.Ordinal)
+                        ? new StringContent("<package />")
+                        : new ByteArrayContent("package bytes"u8.ToArray());
             return Task.FromResult(
                 new HttpResponseMessage(HttpStatusCode.OK)
                 {

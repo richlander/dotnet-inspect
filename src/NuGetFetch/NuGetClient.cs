@@ -274,7 +274,8 @@ public class NuGetClient(HttpClient client)
         PackageSourceCredential? endpointCredential =
             CredentialForEndpoint(sourceUrl, url, credential);
 
-        return await operation.RunRequestAsync(
+        return await NuGetHttpRetry.RunRequestAsync(
+            operation,
             async requestToken =>
             {
                 using HttpRequestMessage request =
