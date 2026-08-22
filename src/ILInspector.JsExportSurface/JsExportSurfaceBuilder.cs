@@ -40,13 +40,15 @@ public static class JsExportSurfaceBuilder
                     continue;
 
                 if (member.IsUnsafe)
-                    throw new InvalidOperationException(
-                        $"'{type.Name}.{member.Name}' is [JSExport] but reports IsUnsafe; this should be unreachable given JSExport's compile-time marshalability check.");
+                    throw new UnsupportedJsExportSurfaceException(
+                        FormatMemberLocation(type, member),
+                        "unsafe JS exports are not supported");
 
                 ApiSignature? signature = member.SignatureModel;
                 if (signature is null)
-                    throw new InvalidOperationException(
-                        $"'{type.Name}.{member.Name}' is [JSExport] but has no signature model; extraction must run with signature models populated.");
+                    throw new UnsupportedJsExportSurfaceException(
+                        FormatMemberLocation(type, member),
+                        "JS export signature metadata is unavailable");
 
                 var function = new JsExportFunction
                 {
@@ -136,6 +138,13 @@ public static class JsExportSurfaceBuilder
 
     static bool HasJsExportAttribute(ApiMember member) =>
         member.Attributes.Any(a => a == JsExportAttributeName || a.EndsWith(".JSExport", StringComparison.Ordinal));
+
+    static string FormatMemberLocation(ApiType type, ApiMember member) =>
+        member.MetadataToken is { } memberToken
+            ? $"member 0x{memberToken:X8}"
+            : type.MetadataToken is { } typeToken
+                ? $"type 0x{typeToken:X8} member"
+                : "JS export member";
 
     static IEnumerable<string> ExtractCandidateTypeNames(JsExportFunction function)
     {

@@ -1,3 +1,7 @@
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using ILInspector.JsExportSurface.Fixtures;
 using tsbindgen;
 
@@ -189,6 +193,44 @@ public sealed class TsBindGenCommandTests
     }
 
     [Fact]
+    public void Invoke_IncompleteExtractionFailsWithoutOutput()
+    {
+        string assemblyPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "tsbindgen-incomplete-surface.dll");
+        string emitJsPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "tsbindgen-incomplete-surface.js");
+        try
+        {
+            File.WriteAllBytes(assemblyPath, BuildIncompleteSurfaceImage());
+            File.Delete(emitJsPath);
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = TsBindGenCommand.Invoke(
+                [assemblyPath, "--emit-js", emitJsPath],
+                output,
+                error);
+
+            Assert.Equal(1, exitCode);
+            Assert.Equal(string.Empty, output.ToString());
+            Assert.False(File.Exists(emitJsPath));
+            Assert.Contains(
+                "metadata token 0x02000002: metadata extraction did not "
+                    + "produce a complete surface.",
+                error.ToString(),
+                StringComparison.Ordinal);
+            Assert.DoesNotContain("Rejected", error.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(assemblyPath);
+            File.Delete(emitJsPath);
+        }
+    }
+
+    [Fact]
     public void Invoke_PrintsDiagnosticsAndReturnsOneForUnmappedTypes()
     {
         var output = new StringWriter();
@@ -236,5 +278,54 @@ public sealed class TsBindGenCommandTests
         {
             File.Delete(emitJsPath);
         }
+    }
+
+    static byte[] BuildIncompleteSurfaceImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Synthetic.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Synthetic"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle rejected = metadata.AddTypeDefinition(
+            TypeAttributes.NestedPublic,
+            default,
+            metadata.GetOrAddString("Rejected"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddNestedType(rejected, rejected);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            default,
+            metadata.GetOrAddString("Sibling"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
     }
 }

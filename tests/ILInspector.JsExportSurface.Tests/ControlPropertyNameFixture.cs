@@ -56,6 +56,9 @@ internal sealed class GetterAccessibilityFixture
     [JsonInclude]
     public string IncludedPrivateGetter { private get; set; } = "";
 
+    [JsonInclude]
+    public string IncludedInternalGetter { internal get; set; } = "";
+
     public string PublicGetter { get; private set; } = "";
 
     [JsonInclude]
@@ -64,6 +67,25 @@ internal sealed class GetterAccessibilityFixture
         set => _setterOnly = value;
     }
 }
+
+#pragma warning disable CS0414
+#pragma warning disable SYSLIB1038
+internal sealed class SourceGeneratedJsonIncludeAccessibilityFixture
+{
+    [JsonInclude]
+    public string IncludedPrivateGetter { private get; set; } = "";
+
+    [JsonInclude]
+    public string IncludedInternalGetter { internal get; set; } = "";
+
+    [JsonInclude]
+    internal string IncludedInternalField = "internal-field";
+
+    [JsonInclude]
+    private string IncludedPrivateField = "private-field";
+}
+#pragma warning restore SYSLIB1038
+#pragma warning restore CS0414
 
 internal sealed class JsonIgnoreNeverFixture
 {
@@ -88,4 +110,5 @@ internal enum ControlPropertyNameEnumFixture
 }
 
 [JsonSerializable(typeof(ControlFieldPropertyNameFixture))]
+[JsonSerializable(typeof(SourceGeneratedJsonIncludeAccessibilityFixture))]
 internal sealed partial class ControlPropertyNameFixtureJsonContext : JsonSerializerContext;

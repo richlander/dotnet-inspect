@@ -54,6 +54,52 @@ public sealed class JsExportSurfaceBuilderTests
         Assert.Contains("Task", ping.ReturnType, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Build_InvalidExportUsesContainedFailure(bool isUnsafe)
+    {
+        const string hostileTypeName = "Bad\u001b[31mType";
+        const string hostileMemberName = "Bad\u202eMember";
+        var apiSurface = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType
+                {
+                    Name = hostileTypeName,
+                    MetadataToken = 0x02000002,
+                    Members =
+                    [
+                        new ApiMember
+                        {
+                            Name = hostileMemberName,
+                            Kind = "method",
+                            MetadataToken = 0x06000001,
+                            IsStatic = true,
+                            IsUnsafe = isUnsafe,
+                            SignatureModel = isUnsafe
+                                ? new ApiSignature()
+                                : null,
+                            Attributes =
+                            [
+                                "System.Runtime.InteropServices.JavaScript.JSExport",
+                            ],
+                        },
+                    ],
+                },
+            ],
+        };
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(apiSurface));
+
+        Assert.Contains("member 0x06000001", exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(hostileTypeName, exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(hostileMemberName, exception.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Build_DiscoversJsonSerializerContextRootsAndNestedRecords()
     {

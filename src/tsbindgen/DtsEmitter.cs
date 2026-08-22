@@ -185,13 +185,15 @@ static class DtsEmitter
 
     static void ValidateFunctionNames(IEnumerable<JsExportFunction> functions)
     {
-        var functionNames = new HashSet<string>(
-            ["initializeEngine"],
+        var moduleBindings = new HashSet<string>(
+            ["dotnet", "initializeEngine"],
             StringComparer.Ordinal);
         foreach (JsExportFunction function in functions)
         {
             string functionName = CamelCase.FromPascalCase(function.Name);
-            if (!TypeScriptIdentifier.IsBindingIdentifier(functionName)
+            string exportSlotName = functionName + "Export";
+            if (!TypeScriptIdentifier.IsStrictModeBindingIdentifier(functionName)
+                || !TypeScriptIdentifier.IsStrictModeBindingIdentifier(exportSlotName)
                 || !IsComposedIdentifierName(function.DeclaringType)
                 || !TypeScriptIdentifier.IsIdentifierName(function.Name))
             {
@@ -200,30 +202,35 @@ static class DtsEmitter
                     "export names must be TypeScript identifiers");
             }
 
-            if (!functionNames.Add(functionName))
+            if (!moduleBindings.Add(functionName)
+                || !moduleBindings.Add(exportSlotName))
             {
                 throw new UnsupportedWireContractException(
                     "JS-export function",
-                    "multiple exports resolve to the same TypeScript function name");
+                    "exports collide with generated JavaScript module bindings");
             }
 
             var parameterNames = new HashSet<string>(StringComparer.Ordinal);
+            bool reservesResult =
+                function.ReturnWireType is not null
+                && TsTypeMapper.IsJsonEnvelopeReturnType(function.ReturnType);
             foreach (ApiParameter parameter in function.Parameters)
             {
                 string parameterName =
                     CamelCase.FromPascalCase(parameter.Name);
-                if (!TypeScriptIdentifier.IsBindingIdentifier(parameterName))
+                if (!TypeScriptIdentifier.IsStrictModeBindingIdentifier(parameterName))
                 {
                     throw new UnsupportedWireContractException(
                         "JS-export parameter",
                         "parameter names must be TypeScript identifiers");
                 }
 
-                if (!parameterNames.Add(parameterName))
+                if (!parameterNames.Add(parameterName)
+                    || reservesResult && parameterName == "result")
                 {
                     throw new UnsupportedWireContractException(
                         "JS-export parameter",
-                        "multiple parameters resolve to the same TypeScript name");
+                        "parameters collide with generated JavaScript bindings");
                 }
             }
         }

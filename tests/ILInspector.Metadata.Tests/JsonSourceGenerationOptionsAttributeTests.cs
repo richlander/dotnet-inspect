@@ -98,6 +98,86 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
         Assert.Equal(JsonWireNamingPolicy.Unsupported, policy);
     }
 
+    [Theory]
+    [InlineData("IgnoreReadOnlyFields")]
+    [InlineData("IgnoreReadOnlyProperties")]
+    [InlineData("IncludeFields")]
+    [InlineData("UseStringEnumConverter")]
+    public void EnabledWireShapingBooleanOptionIsUnsupported(string name)
+    {
+        JsonWireNamingPolicy? policy = ReadPolicy(
+            BuildSingleRow(
+                metadata => BooleanValue(metadata, name, value: true)));
+
+        Assert.Equal(JsonWireNamingPolicy.Unsupported, policy);
+    }
+
+    [Fact]
+    public void DefaultWireShapingOptionRemainsSupported()
+    {
+        JsonWireNamingPolicy? policy = ReadPolicy(
+            BuildSingleRow(
+                metadata => BooleanValue(
+                    metadata,
+                    "IncludeFields",
+                    value: false)));
+
+        Assert.Equal(JsonWireNamingPolicy.None, policy);
+    }
+
+    [Fact]
+    public void FormattingOptionRemainsSupported()
+    {
+        JsonWireNamingPolicy? policy = ReadPolicy(
+            BuildSingleRow(
+                metadata => BooleanValue(
+                    metadata,
+                    "WriteIndented",
+                    value: true)));
+
+        Assert.Equal(JsonWireNamingPolicy.None, policy);
+    }
+
+    [Theory]
+    [InlineData(
+        "DefaultIgnoreCondition",
+        "System.Text.Json.Serialization.JsonIgnoreCondition")]
+    [InlineData(
+        "DictionaryKeyPolicy",
+        "System.Text.Json.Serialization.JsonKnownNamingPolicy")]
+    [InlineData(
+        "NumberHandling",
+        "System.Text.Json.Serialization.JsonNumberHandling")]
+    [InlineData(
+        "ReferenceHandler",
+        "System.Text.Json.Serialization.JsonKnownReferenceHandler")]
+    public void NonDefaultWireShapingEnumOptionIsUnsupported(
+        string name,
+        string type)
+    {
+        JsonWireNamingPolicy? policy = ReadPolicy(
+            BuildSingleRow(
+                metadata => EnumValue(
+                    metadata,
+                    name,
+                    type,
+                    value: 1)));
+
+        Assert.Equal(JsonWireNamingPolicy.Unsupported, policy);
+    }
+
+    [Theory]
+    [InlineData("Converters")]
+    [InlineData("TypeClassifiers")]
+    public void CustomWireShapingTypeListIsUnsupported(string name)
+    {
+        JsonWireNamingPolicy? policy = ReadPolicy(
+            BuildSingleRow(
+                metadata => EmptyTypeArrayValue(metadata, name)));
+
+        Assert.Equal(JsonWireNamingPolicy.Unsupported, policy);
+    }
+
     static JsonWireNamingPolicy? ReadPolicy(byte[] image)
     {
         using var stream = new MemoryStream(image, writable: false);
@@ -246,6 +326,53 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
             blob.WriteSerializedString(name);
             blob.WriteInt32(value);
         }
+        return metadata.GetOrAddBlob(blob);
+    }
+
+    static BlobHandle BooleanValue(
+        MetadataBuilder metadata,
+        string name,
+        bool value)
+    {
+        var blob = new BlobBuilder();
+        blob.WriteUInt16(1);
+        blob.WriteUInt16(1);
+        blob.WriteByte(0x54);
+        blob.WriteByte(0x02);
+        blob.WriteSerializedString(name);
+        blob.WriteByte(value ? (byte)1 : (byte)0);
+        return metadata.GetOrAddBlob(blob);
+    }
+
+    static BlobHandle EnumValue(
+        MetadataBuilder metadata,
+        string name,
+        string type,
+        int value)
+    {
+        var blob = new BlobBuilder();
+        blob.WriteUInt16(1);
+        blob.WriteUInt16(1);
+        blob.WriteByte(0x54);
+        blob.WriteByte(0x55);
+        blob.WriteSerializedString(type + ", System.Text.Json");
+        blob.WriteSerializedString(name);
+        blob.WriteInt32(value);
+        return metadata.GetOrAddBlob(blob);
+    }
+
+    static BlobHandle EmptyTypeArrayValue(
+        MetadataBuilder metadata,
+        string name)
+    {
+        var blob = new BlobBuilder();
+        blob.WriteUInt16(1);
+        blob.WriteUInt16(1);
+        blob.WriteByte(0x54);
+        blob.WriteByte(0x1D);
+        blob.WriteByte(0x50);
+        blob.WriteSerializedString(name);
+        blob.WriteUInt32(0);
         return metadata.GetOrAddBlob(blob);
     }
 }

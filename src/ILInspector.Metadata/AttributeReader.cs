@@ -557,21 +557,22 @@ public static partial class AttributeReader
         }
 
         CustomAttributeNamedArgument<string>? propertyNamingPolicy = null;
+        var optionNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (var named in decoded.NamedArguments)
         {
             string? expectedType =
                 ExpectedJsonSourceGenerationOptionType(named.Name);
             if (named.Kind != CustomAttributeNamedArgumentKind.Property
                 || expectedType is null
-                || named.Type != expectedType)
+                || named.Type != expectedType
+                || !optionNames.Add(named.Name!)
+                || HasUnsupportedWireEffect(named))
             {
                 return JsonWireNamingPolicy.Unsupported;
             }
 
             if (named.Name == "PropertyNamingPolicy")
             {
-                if (propertyNamingPolicy is not null)
-                    return JsonWireNamingPolicy.Unsupported;
                 propertyNamingPolicy = named;
             }
         }
@@ -593,6 +594,24 @@ public static partial class AttributeReader
             _ => JsonWireNamingPolicy.Unsupported,
         };
     }
+
+    static bool HasUnsupportedWireEffect(
+        CustomAttributeNamedArgument<string> option) =>
+        option.Name switch
+        {
+            "Converters" or "TypeClassifiers" => true,
+            "IgnoreReadOnlyFields"
+                or "IgnoreReadOnlyProperties"
+                or "IncludeFields"
+                or "UseStringEnumConverter" =>
+                option.Value is not false,
+            "DefaultIgnoreCondition"
+                or "DictionaryKeyPolicy"
+                or "NumberHandling"
+                or "ReferenceHandler" =>
+                !TryReadInt32(option.Value, out int value) || value != 0,
+            _ => false,
+        };
 
     static bool TryGetSingleStringFixedArgument(
         MetadataReader reader,

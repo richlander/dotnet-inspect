@@ -948,10 +948,9 @@ public class ApiMember
     public bool IsCompilerGenerated { get; set; }
 
     /// <summary>
-    /// True when the member carries <c>[JsonInclude]</c>, which makes STJ include an otherwise-non-public
-    /// property or field in serialization. A wire-shape emitter that otherwise filters non-public members
-    /// (e.g. to exclude a record's compiler-synthesized <c>EqualityContract</c>) must not use this attribute
-    /// as an exclusion signal.
+    /// True when the member carries <c>[JsonInclude]</c>. Source-generated STJ
+    /// can honor the opt-in only when the generated context can access the
+    /// member or relevant accessor.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool HasJsonInclude { get; set; }

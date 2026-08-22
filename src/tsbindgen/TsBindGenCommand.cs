@@ -82,6 +82,21 @@ public static class TsBindGenCommand
                 return 1;
             }
 
+            ApiSurfaceInspectionFailure? incompleteExtraction =
+                apiSurface.InspectionFailures.FirstOrDefault(
+                    static failure =>
+                        failure.Operation
+                            != ApiSurface.ConstraintResolutionOperation);
+            if (incompleteExtraction is not null)
+            {
+                string location = incompleteExtraction.SubjectToken == 0
+                    ? "assembly metadata"
+                    : $"metadata token 0x{incompleteExtraction.SubjectToken:X8}";
+                stderr.WriteLine(
+                    $"tsbindgen: {location}: metadata extraction did not produce a complete surface.");
+                return 1;
+            }
+
             global::ILInspector.JsExportSurface.JsExportSurface jsExportSurface;
             try
             {
@@ -91,6 +106,11 @@ public static class TsBindGenCommand
                 LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(
                     assemblyPath, LibraryBodyAnalysisFeatures.MethodEvidence);
                 jsExportSurface = JsExportSurfaceBuilder.Build(apiSurface, bodyIndex);
+            }
+            catch (UnsupportedJsExportSurfaceException ex)
+            {
+                stderr.WriteLine($"tsbindgen: {ex.Message}");
+                return 1;
             }
             catch (Exception ex) when (
                 ex is BadImageFormatException or IOException or UnauthorizedAccessException)

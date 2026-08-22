@@ -24,8 +24,15 @@ static class TypeScriptIdentifier
         ],
         StringComparer.Ordinal);
 
+    private static readonly HashSet<string> StrictModeBindingNames = new(
+        ["arguments", "eval"],
+        StringComparer.Ordinal);
+
     public static bool IsBindingIdentifier(string text) =>
         IsIdentifierName(text) && !ReservedWords.Contains(text);
+
+    public static bool IsStrictModeBindingIdentifier(string text) =>
+        IsBindingIdentifier(text) && !StrictModeBindingNames.Contains(text);
 
     public static bool IsTypeDeclarationIdentifier(string text) =>
         IsBindingIdentifier(text)

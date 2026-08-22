@@ -46,16 +46,20 @@ fast (non-reflection) serialization path requires every (de)serialized type to
 be registered there, so it is exactly the set of shapes that can flow across
 the `[JSExport]` boundary via this pattern.
 
-Generated interfaces include properties with an accessible getter, properties
-whose non-public getter is opted in with `[JsonInclude]`, and non-static
-`[JsonInclude]` fields. `[JsonIgnore(Condition = Never)]` keeps a member in the
-shape; other ignore conditions exclude it because callers cannot rely on its
-presence. Write-only properties remain excluded even when annotated. The same
-wire-member rule drives transitive DTO discovery and declaration emission so a
-discovered edge cannot become an orphaned or incomplete TypeScript shape;
+Generated interfaces include properties with an accessible getter and
+`[JsonInclude]` properties or fields accessible to the source-generated
+context. Private, private-protected, and protected members remain excluded,
+matching the source generator's `SYSLIB1038` boundary; internal, protected
+internal, and public members are accessible. `[JsonIgnore(Condition = Never)]`
+keeps a member in the shape; other ignore conditions exclude it because callers
+cannot rely on its presence. Write-only properties remain excluded even when
+annotated. The same wire-member rule drives transitive DTO discovery and
+declaration emission so a discovered edge cannot become an orphaned or
+incomplete TypeScript shape;
 `DtsEmitterTests.Emit_IncludesJsonIncludedFieldsInParentInterface` and
-`DtsEmitterTests.Emit_UsesGetterAccessibilityForCompiledProperties` gate that
-shared-rule invariant, while
+`DtsEmitterTests.SourceGeneratedJson_OmitsInaccessibleJsonIncludedMembers`
+plus `DtsEmitterTests.Emit_MatchesSourceGeneratedJsonIncludeAccessibility`
+gate that shared-rule invariant against the real source generator, while
 `DtsEmitterTests.Emit_IncludesPropertyWithJsonIgnoreNever` gates the explicit
 `Never` exception.
 
@@ -78,9 +82,12 @@ A DTO whose serializer contexts declare conflicting property-naming policies
 is emitted as `unknown`, without guessing a policy, and the diagnostic keeps
 generation red until the wire contract is corrected. Duplicate or malformed
 context-options rows are also unsupported rather than resolved by metadata
-order. `JsonSourceGenerationOptionsAttributeTests` gates both duplicate-row
-orders, duplicate agreement, duplicate or malformed arguments within one row,
-supported peer options, and the ordinary single-row case.
+order. Non-default context options that change serialized wire shape are
+unsupported until the object model projects their semantics; formatting and
+read-only options remain accepted. `JsonSourceGenerationOptionsAttributeTests`
+gates duplicate-row orders, duplicate agreement, duplicate or malformed
+arguments within one row, wire-shaping rejection, supported peer options, and
+the ordinary single-row case.
 
 A control character in `[JsonPropertyName]` is a harder boundary: generation
 stops without emitting declarations, and reports only a safe metadata location
@@ -100,17 +107,23 @@ names, tsbindgen's own `Promise`/`Record` vocabulary, or multiple CLR types
 would produce an illegal or ambiguous declaration name rather than inventing a
 disambiguation scheme. Export function, declaring-type, and parameter names are
 validated before either declarations or JavaScript wrappers are emitted, and
-post-camel-case collisions are fatal. Valid Unicode TypeScript identifiers
-remain supported, including TypeScript's measured continuation-only edge
-points. Property keys use the broader `IdentifierName` grammar, where reserved
-words remain valid and do not require quoting;
+strict-mode names and collisions with the wrapper's generated `dotnet`,
+`<name>Export`, and `result` bindings are fatal. Valid Unicode TypeScript
+identifiers remain supported, including TypeScript's measured
+continuation-only edge points. Property keys use the broader `IdentifierName`
+grammar, where reserved words remain valid and do not require quoting;
 `DtsEmitterTests.Emit_DoesNotQuoteReservedWordsUsedAsPropertyKeys` gates that
 distinction.
 `DtsEmitterTests.Emit_RefusesInvalidJsExportIdentifiers`,
 `DtsEmitterTests.Emit_RefusesJsExportNameCollisions`, and
-`DtsEmitterTests.Emit_RefusesJsExportParameterNameCollisions` gate the export
-path. Artifact-derived text in diagnostics is visually contained before it
-reaches stderr. `DtsEmitterTests.Emit_AcceptsUnicodeTypeScriptIdentifiers`,
+`DtsEmitterTests.Emit_RefusesGeneratedModuleBindingCollisions` gate the export
+path. Incomplete metadata extraction and unsafe or signature-less JS exports
+stop before declaration or file output and report only token-based locations;
+incomplete extraction is rejected before body analysis begins.
+`TsBindGenCommandTests.Invoke_IncompleteExtractionFailsWithoutOutput` and
+`JsExportSurfaceBuilderTests.Build_InvalidExportUsesContainedFailure` gate those
+boundaries. Artifact-derived text in diagnostics is visually contained before
+it reaches stderr. `DtsEmitterTests.Emit_AcceptsUnicodeTypeScriptIdentifiers`,
 `DtsEmitterTests.Emit_RefusesUnicodePatternSyntaxAsIdentifierStart`,
 `DtsEmitterTests.Emit_RefusesForbiddenTypeDeclarationNames`,
 `DtsEmitterTests.Emit_DoesNotEchoRejectedTypeNames`, and

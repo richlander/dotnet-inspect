@@ -1,4 +1,5 @@
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.Metadata;
@@ -842,6 +843,97 @@ public sealed class DtsEmitterTests
             () => DtsEmitter.Emit(surface));
     }
 
+    [Theory]
+    [InlineData("Eval", "Value")]
+    [InlineData("Go", "Arguments")]
+    public void Emit_RefusesStrictModeJsBindings(
+        string functionName,
+        string parameterName)
+    {
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Functions =
+            [
+                new JsExportFunction
+                {
+                    DeclaringType = "Ns.Exports",
+                    Name = functionName,
+                    ReturnType = "void",
+                    Parameters =
+                    [
+                        new ApiParameter
+                        {
+                            Name = parameterName,
+                            Type = "string",
+                        },
+                    ],
+                },
+            ],
+        };
+
+        Assert.Throws<UnsupportedWireContractException>(
+            () => DtsEmitter.Emit(surface));
+    }
+
+    [Theory]
+    [InlineData("Dotnet", "Other")]
+    [InlineData("Foo", "FooExport")]
+    public void Emit_RefusesGeneratedModuleBindingCollisions(
+        string firstName,
+        string secondName)
+    {
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Functions =
+            [
+                new JsExportFunction
+                {
+                    DeclaringType = "Ns.Exports",
+                    Name = firstName,
+                    ReturnType = "void",
+                },
+                new JsExportFunction
+                {
+                    DeclaringType = "Ns.Exports",
+                    Name = secondName,
+                    ReturnType = "void",
+                },
+            ],
+        };
+
+        Assert.Throws<UnsupportedWireContractException>(
+            () => DtsEmitter.Emit(surface));
+    }
+
+    [Fact]
+    public void Emit_RefusesJsonResultLocalParameterCollision()
+    {
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Functions =
+            [
+                new JsExportFunction
+                {
+                    DeclaringType = "Ns.Exports",
+                    Name = "Get",
+                    ReturnType = "string",
+                    ReturnWireType = "Widget",
+                    Parameters =
+                    [
+                        new ApiParameter
+                        {
+                            Name = "Result",
+                            Type = "string",
+                        },
+                    ],
+                },
+            ],
+        };
+
+        Assert.Throws<UnsupportedWireContractException>(
+            () => DtsEmitter.Emit(surface));
+    }
+
     [Fact]
     public void Emit_RefusesControlCharacterJsonPropertyNamesOnEnumFields()
     {
@@ -984,8 +1076,62 @@ public sealed class DtsEmitterTests
 
         Assert.DoesNotContain("SetterOnlyAtWire", dts, StringComparison.Ordinal);
         Assert.DoesNotContain("NoGetter", dts, StringComparison.Ordinal);
-        Assert.Contains("  IncludedPrivateGetter: string;", dts, StringComparison.Ordinal);
+        Assert.DoesNotContain("IncludedPrivateGetter", dts, StringComparison.Ordinal);
+        Assert.Contains("  IncludedInternalGetter: string;", dts, StringComparison.Ordinal);
         Assert.Contains("  PublicGetter: string;", dts, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SourceGeneratedJson_OmitsInaccessibleJsonIncludedMembers()
+    {
+        var value = new SourceGeneratedJsonIncludeAccessibilityFixture
+        {
+            IncludedPrivateGetter = "private-getter",
+            IncludedInternalGetter = "internal-getter",
+        };
+
+        string json = JsonSerializer.Serialize(
+            value,
+            ControlPropertyNameFixtureJsonContext.Default
+                .SourceGeneratedJsonIncludeAccessibilityFixture);
+
+        Assert.DoesNotContain("IncludedPrivateGetter", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("IncludedPrivateField", json, StringComparison.Ordinal);
+        Assert.Contains(
+            "\"IncludedInternalGetter\":\"internal-getter\"",
+            json,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"IncludedInternalField\":\"internal-field\"",
+            json,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_MatchesSourceGeneratedJsonIncludeAccessibility()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(SourceGeneratedJsonIncludeAccessibilityFixture)
+                .Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType record = Assert.Single(
+            apiSurface.Types,
+            type => type.Name
+                == nameof(SourceGeneratedJsonIncludeAccessibilityFixture));
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records = [record],
+        };
+
+        string dts = DtsEmitter.Emit(surface);
+
+        Assert.DoesNotContain("IncludedPrivateGetter", dts, StringComparison.Ordinal);
+        Assert.DoesNotContain("IncludedPrivateField", dts, StringComparison.Ordinal);
+        Assert.Contains("  IncludedInternalGetter: string;", dts, StringComparison.Ordinal);
+        Assert.Contains("  IncludedInternalField: string;", dts, StringComparison.Ordinal);
     }
 
     [Fact]
