@@ -196,6 +196,7 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                                 limitedJson,
                                 candidateVersions,
                                 budget,
+                                operation,
                                 cancellationToken).ConfigureAwait(false);
                     },
                     operation).ConfigureAwait(false);
@@ -276,6 +277,7 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                                             page,
                                             candidateVersions,
                                             budget,
+                                            operation,
                                             cancellationToken).AsTask())
                                 .ConfigureAwait(false);
                         AddRegistrationListings(

@@ -77,6 +77,8 @@ shortening the selected assembly set.
    `GalleryRegistrationAggregateCountsFailedAttemptBytes`,
    `GalleryRegistrationLeafLimitIsTypedPartialEnumeration`,
    `GalleryRegistrationPageLimitIsTypedPartialEnumeration`,
+   `GalleryRegistrationTraversalHonorsCallerCancellation`,
+   `GalleryRegistrationTraversalUsesMonotonicDeadline`,
    `RegistrationResourceLimitsMapToResponseRejected`,
    `GalleryMalformedRegistrationIsTypedPartialEnumeration`,
    `GalleryCorruptEncodedRegistrationIsTypedPartialEnumeration`,

@@ -365,6 +365,8 @@ internal sealed class NuGetGalleryRegistrationByteBudget
 
 internal static class NuGetGalleryRegistration
 {
+    private const int TraversalCheckpointInterval = 128;
+
     private static JsonDocumentOptions DocumentOptions =>
         new() { AllowDuplicateProperties = false };
 
@@ -373,6 +375,7 @@ internal static class NuGetGalleryRegistration
             Stream json,
             IReadOnlySet<string> candidateVersions,
             NuGetGalleryRegistrationBudget budget,
+            NuGetOperationDeadline operation,
             CancellationToken cancellationToken)
     {
         using JsonDocument document = await JsonDocument.ParseAsync(
@@ -386,6 +389,9 @@ internal static class NuGetGalleryRegistration
         budget.EnsurePageCount(pages.GetArrayLength());
         var result =
             new List<NuGetGalleryRegistrationPage>(pages.GetArrayLength());
+        await CheckTraversalAsync(
+            operation,
+            cancellationToken).ConfigureAwait(false);
         foreach (JsonElement page in pages.EnumerateArray())
         {
             if (page.ValueKind != JsonValueKind.Object)
@@ -393,13 +399,17 @@ internal static class NuGetGalleryRegistration
 
             if (page.TryGetProperty("items", out JsonElement inlineItems))
             {
+                IReadOnlyDictionary<string, PackageListingState> parsedItems =
+                    await ParseItems(
+                        inlineItems,
+                        candidateVersions,
+                        budget,
+                        operation,
+                        cancellationToken).ConfigureAwait(false);
                 result.Add(
                     new NuGetGalleryRegistrationPage(
                         ExternalId: null,
-                        ParseItems(
-                            inlineItems,
-                            candidateVersions,
-                            budget)));
+                        parsedItems));
                 continue;
             }
 
@@ -426,25 +436,31 @@ internal static class NuGetGalleryRegistration
             Stream json,
             IReadOnlySet<string> candidateVersions,
             NuGetGalleryRegistrationBudget budget,
+            NuGetOperationDeadline operation,
             CancellationToken cancellationToken)
     {
         using JsonDocument document = await JsonDocument.ParseAsync(
             json,
             DocumentOptions,
             cancellationToken: cancellationToken).ConfigureAwait(false);
-        return ParseItems(
+        return await ParseItems(
             GetRequiredArray(
                 document.RootElement,
                 "items",
                 "registration page"),
             candidateVersions,
-            budget);
+            budget,
+            operation,
+            cancellationToken).ConfigureAwait(false);
     }
 
-    private static IReadOnlyDictionary<string, PackageListingState> ParseItems(
+    private static async ValueTask<
+        IReadOnlyDictionary<string, PackageListingState>> ParseItems(
         JsonElement items,
         IReadOnlySet<string> candidateVersions,
-        NuGetGalleryRegistrationBudget budget)
+        NuGetGalleryRegistrationBudget budget,
+        NuGetOperationDeadline operation,
+        CancellationToken cancellationToken)
     {
         if (items.ValueKind != JsonValueKind.Array)
             throw Invalid("Registration items must be an array.");
@@ -452,6 +468,10 @@ internal static class NuGetGalleryRegistration
         var result =
             new Dictionary<string, PackageListingState>(
                 StringComparer.OrdinalIgnoreCase);
+        int observedLeaves = 0;
+        await CheckTraversalAsync(
+            operation,
+            cancellationToken).ConfigureAwait(false);
         foreach (JsonElement item in items.EnumerateArray())
         {
             budget.ObserveLeaf();
@@ -504,7 +524,17 @@ internal static class NuGetGalleryRegistration
                 };
             }
 
-            if (!candidateVersions.Contains(normalizedVersion))
+            bool isCandidate =
+                candidateVersions.Contains(normalizedVersion);
+            observedLeaves++;
+            if (observedLeaves % TraversalCheckpointInterval == 0)
+            {
+                await CheckTraversalAsync(
+                    operation,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            if (!isCandidate)
                 continue;
 
             if (result.TryGetValue(
@@ -519,7 +549,28 @@ internal static class NuGetGalleryRegistration
             result[normalizedVersion] = listingState;
         }
 
+        if (observedLeaves % TraversalCheckpointInterval != 0)
+        {
+            await CheckTraversalAsync(
+                operation,
+                cancellationToken).ConfigureAwait(false);
+        }
+
         return result;
+    }
+
+    private static async ValueTask CheckTraversalAsync(
+        NuGetOperationDeadline operation,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        operation.ThrowIfExpired();
+        if (!OperatingSystem.IsBrowser())
+            return;
+
+        await Task.Yield();
+        cancellationToken.ThrowIfCancellationRequested();
+        operation.ThrowIfExpired();
     }
 
     private static JsonElement GetRequiredArray(

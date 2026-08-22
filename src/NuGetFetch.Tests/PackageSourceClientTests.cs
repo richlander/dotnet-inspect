@@ -1320,18 +1320,90 @@ public sealed class PackageSourceClientTests
             new NuGetGalleryRegistrationBudget(
                 candidates.Count,
                 NuGetFetchOptions.DefaultMaxMetadataResponseBytes);
+        using var operation = CreateRegistrationParserOperation(
+            TestContext.Current.CancellationToken);
 
         IReadOnlyDictionary<string, PackageListingState> listings =
             await NuGetGalleryRegistration.DeserializePageAsync(
                 json,
                 candidates,
                 budget,
+                operation,
                 TestContext.Current.CancellationToken);
 
         KeyValuePair<string, PackageListingState> listing =
             Assert.Single(listings);
         Assert.Equal("1.0.0", listing.Key);
         Assert.Equal(PackageListingState.Unlisted, listing.Value);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GalleryRegistrationTraversalHonorsCallerCancellation(
+        bool inline)
+    {
+        const int itemCount = 512;
+        string items = RegistrationItems(itemCount);
+        using var cancellation = new CancellationTokenSource();
+        var candidates = new InterruptingReadOnlySet(
+            itemCount,
+            cancellation.Cancel);
+        var budget =
+            new NuGetGalleryRegistrationBudget(
+                candidates.Count,
+                NuGetFetchOptions.DefaultMaxMetadataResponseBytes);
+        using var operation =
+            CreateRegistrationParserOperation(cancellation.Token);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => DeserializeRegistrationItemsAsync(
+                items,
+                inline,
+                candidates,
+                budget,
+                operation,
+                cancellation.Token));
+
+        Assert.Equal(128, candidates.ContainsCalls);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GalleryRegistrationTraversalUsesMonotonicDeadline(
+        bool inline)
+    {
+        const int itemCount = 512;
+        string items = RegistrationItems(itemCount);
+        var candidates = new InterruptingReadOnlySet(
+            itemCount,
+            () => Thread.Sleep(TimeSpan.FromMilliseconds(250)));
+        var budget =
+            new NuGetGalleryRegistrationBudget(
+                candidates.Count,
+                NuGetFetchOptions.DefaultMaxMetadataResponseBytes);
+        using var operation = new NuGetOperationDeadline(
+            new NuGetFetchOptions
+            {
+                RequestTimeout = TimeSpan.FromSeconds(5),
+                OperationTimeout = TimeSpan.FromMilliseconds(100),
+            },
+            Timeout.InfiniteTimeSpan,
+            TestContext.Current.CancellationToken);
+
+        NuGetOperationTimeoutException error =
+            await Assert.ThrowsAsync<NuGetOperationTimeoutException>(
+                () => DeserializeRegistrationItemsAsync(
+                    items,
+                    inline,
+                    candidates,
+                    budget,
+                    operation,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(TimeSpan.FromMilliseconds(100), error.Timeout);
+        Assert.Equal(128, candidates.ContainsCalls);
     }
 
     [Fact]
@@ -2814,6 +2886,88 @@ public sealed class PackageSourceClientTests
         System.Collections.IEnumerator
             System.Collections.IEnumerable.GetEnumerator() =>
             GetEnumerator();
+    }
+
+    private static NuGetOperationDeadline CreateRegistrationParserOperation(
+        CancellationToken cancellationToken) =>
+        new(
+            new NuGetFetchOptions
+            {
+                RequestTimeout = TimeSpan.FromSeconds(5),
+                OperationTimeout = TimeSpan.FromSeconds(5),
+            },
+            Timeout.InfiniteTimeSpan,
+            cancellationToken);
+
+    private static string RegistrationItems(int count) =>
+        string.Join(
+            ",",
+            Enumerable.Range(1, count)
+                .Select(version =>
+                    $$"""
+                      {
+                        "catalogEntry": {
+                          "version": "{{version}}.0.0"
+                        }
+                      }
+                      """));
+
+    private static async Task DeserializeRegistrationItemsAsync(
+        string items,
+        bool inline,
+        IReadOnlySet<string> candidates,
+        NuGetGalleryRegistrationBudget budget,
+        NuGetOperationDeadline operation,
+        CancellationToken cancellationToken)
+    {
+        string json = inline
+            ? $$"""{"items":[{"items":[{{items}}]}]}"""
+            : $$"""{"items":[{{items}}]}""";
+        using var stream =
+            new MemoryStream(Encoding.UTF8.GetBytes(json));
+        if (inline)
+        {
+            await NuGetGalleryRegistration.DeserializeIndexAsync(
+                stream,
+                candidates,
+                budget,
+                operation,
+                cancellationToken);
+        }
+        else
+        {
+            await NuGetGalleryRegistration.DeserializePageAsync(
+                stream,
+                candidates,
+                budget,
+                operation,
+                cancellationToken);
+        }
+    }
+
+    private sealed class InterruptingReadOnlySet
+        : HashSet<string>, IReadOnlySet<string>
+    {
+        private readonly Action _interrupt;
+        private int _containsCalls;
+
+        public InterruptingReadOnlySet(int count, Action interrupt)
+            : base(
+                Enumerable.Range(1, count)
+                    .Select(version => $"{version}.0.0"),
+                StringComparer.OrdinalIgnoreCase)
+        {
+            _interrupt = interrupt;
+        }
+
+        public int ContainsCalls => _containsCalls;
+
+        bool IReadOnlySet<string>.Contains(string item)
+        {
+            if (Interlocked.Increment(ref _containsCalls) == 1)
+                _interrupt();
+            return Contains(item);
+        }
     }
 
     private sealed class RedirectRecordingHandler(
