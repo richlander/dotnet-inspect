@@ -374,7 +374,10 @@ export function renderMemberNav(options: MemberNavOptions): string {
           }
           const selected = entry.group.key === selectedMemberKey && selectedOverloadIndex === entry.index;
           const overload = entry.group.overloads[entry.index];
-          if (!overload) return "";
+          if (!overload) {
+            throw new Error(
+              `Member group '${entry.group.key}' has no overload ${entry.index}.`);
+          }
           return `<button class="type-row overload-nav-row ${selected ? "selected" : ""}" data-nav-overload="${entry.index}" role="option" aria-selected="${selected}">
             <span class="overload-branch">↳</span>
             <code>${highlight(overload.signature)}</code>

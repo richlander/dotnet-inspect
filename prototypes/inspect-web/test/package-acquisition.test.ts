@@ -108,7 +108,7 @@ function runtimeSurface(
 }
 
 function runtimeSurfaceWithInvalidAssemblyIds(
-  mode: "missing" | "empty",
+  mode: "missing" | "empty" | "whitespace",
 ): BrowserPackageSurface {
   const result =
     runtimeSurface("json", "System.Text.Json", "System.Text.Json.JsonDocument");
@@ -118,8 +118,11 @@ function runtimeSurfaceWithInvalidAssemblyIds(
     Reflect.deleteProperty(result, "defaultAssemblyId");
     Reflect.deleteProperty(selected, "id");
   } else {
-    result.defaultAssemblyId = "";
-    selected.id = "";
+    // A whitespace-only id is the case a length-only guard would accept: the
+    // descriptor would match itself and produce a model with a blank identity.
+    const blank = mode === "empty" ? "" : "   ";
+    result.defaultAssemblyId = blank;
+    selected.id = blank;
   }
   return result;
 }
@@ -207,8 +210,8 @@ test("runtime assembly acquisition reports a missing selected descriptor", async
   ]);
 });
 
-test("runtime models reject missing and empty selected assembly IDs", () => {
-  for (const mode of ["missing", "empty"] as const) {
+test("runtime models reject missing, empty, and whitespace selected assembly IDs", () => {
+  for (const mode of ["missing", "empty", "whitespace"] as const) {
     assert.throws(
       () => createRuntimePackageModel(
         runtimeSurfaceWithInvalidAssemblyIds(mode)),
@@ -270,8 +273,8 @@ test("resident runtime assembly acquisition reports a missing selected descripto
   assert.equal(resident.totalTypes, residentTotalTypes);
 });
 
-test("resident runtime assembly acquisition rejects missing and empty IDs before merging", async () => {
-  for (const mode of ["missing", "empty"] as const) {
+test("resident runtime assembly acquisition rejects missing, empty, and whitespace IDs before merging", async () => {
+  for (const mode of ["missing", "empty", "whitespace"] as const) {
     const resident = createRuntimePackageModel(
       runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"));
     const residentAssemblyNames =
