@@ -1062,8 +1062,11 @@ public class CrossAssemblyMethodFactsTests
                 isCollectible: true);
             try
             {
+                using var dependencyImage = new MemoryStream(
+                    File.ReadAllBytes(dependencyPath),
+                    writable: false);
                 Type externalCounter = loadContext
-                    .LoadFromAssemblyPath(dependencyPath)
+                    .LoadFromStream(dependencyImage)
                     .GetType("N.Counter", throwOnError: true)!;
                 var subject = new PersistedAssemblyBuilder(
                     new AssemblyName("Collision")
