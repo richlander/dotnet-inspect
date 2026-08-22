@@ -41,6 +41,11 @@ static class DtsEmitter
             EmitRecord(
                 sb,
                 record,
+                surface.WireDirections.TryGetValue(
+                    record,
+                    out JsonWireDirection recordDirections)
+                    ? recordDirections
+                    : JsonWireDirection.Both,
                 knownTypeNames,
                 knownTypeIdentities,
                 diagnostics);
@@ -92,7 +97,7 @@ static class DtsEmitter
 
         if (enumType.IsFlagsEnum)
         {
-            sb.Append("export type ").Append(enumType.Name).Append(" = string;\n\n");
+            sb.Append("export type ").Append(enumType.Name).Append(" = string | number;\n\n");
             return;
         }
 
@@ -103,12 +108,26 @@ static class DtsEmitter
         string union = string.Join(
             " | ",
             memberNames.Select(n => $"\"{EscapeString(n)}\""));
-        sb.Append("export type ").Append(enumType.Name).Append(" = ").Append(union).Append(";\n\n");
+        sb.Append("export type ").Append(enumType.Name).Append(" = ").Append(union)
+            .Append(" | number;\n\n");
     }
 
+    /// <summary>
+    /// Emits one record declaration for the <paramref name="directions"/> the
+    /// type was actually reached in.
+    /// </summary>
+    /// <remarks>
+    /// A type reached in both directions whose members disagree between them
+    /// cannot be described by a single interface. Rather than silently picking
+    /// one direction's shape, emission is blocked for that type: a
+    /// direction-split declaration is a design change, not something to guess.
+    /// Gated by
+    /// <c>DtsEmitterTests.Emit_BlocksBidirectionalTypeWithDirectionSensitiveMember</c>.
+    /// </remarks>
     static void EmitRecord(
         StringBuilder sb,
         ApiType record,
+        JsonWireDirection directions,
         IReadOnlySet<string> knownTypeNames,
         IReadOnlySet<ApiTypeReferenceIdentity> knownTypeIdentities,
         TsBindGenDiagnostics? diagnostics)
@@ -133,8 +152,18 @@ static class DtsEmitter
             return;
         }
 
+        if (directions == JsonWireDirection.Both
+            && record.Members.Any(JsonWireMemberRules.IsDirectionSensitive))
+        {
+            ReportDirectionSplitWireShape(record.Name, diagnostics);
+            EmitBlockedType(sb, record);
+            return;
+        }
+
         var members = record.Members
-            .Where(JsonWireMemberRules.IsSerialized)
+            .Where(member => JsonWireMemberRules.IsSerialized(
+                member,
+                directions))
             .Select(member => (
                 Member: member,
                 ResolvedName: member.JsonPropertyName ?? ApplyNamingPolicy(member.Name, namingPolicy)))
@@ -184,6 +213,9 @@ static class DtsEmitter
                     member.JsonPropertyNameAttributeValues,
                     member.JsonPropertyName,
                     validateName: !converterControlled);
+                ValidateWireMemberAttributes(
+                    FormatMemberLocation(type, member),
+                    member);
             }
 
             foreach (FilteredJsonPropertyNameFact fact
@@ -253,6 +285,42 @@ static class DtsEmitter
                         "multiple members resolve to the same JSON property name");
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// Refuses to generate from authentic <c>[JsonIgnore]</c> or
+    /// <c>[JsonInclude]</c> metadata that cannot be honored, using the same
+    /// malformed-row marker convention as <c>[JsonPropertyName]</c>.
+    /// </summary>
+    /// <remarks>
+    /// Validated even for converter-controlled types: the converter changes how
+    /// a value is written, not whether an unreadable attribute row can be
+    /// trusted. Gated by
+    /// <c>DtsEmitterTests.Emit_RefusesMalformedOrDuplicateJsonIgnoreRows</c> and
+    /// <c>DtsEmitterTests.Emit_RefusesMalformedJsonIncludeRows</c>.
+    /// </remarks>
+    static void ValidateWireMemberAttributes(
+        string location,
+        ApiMember member)
+    {
+        if (member.JsonIgnoreConditions.Contains(null))
+        {
+            throw new UnsupportedWireContractException(
+                location,
+                "[JsonIgnore] metadata could not be decoded");
+        }
+        if (member.JsonIgnoreConditions.Count > 1)
+        {
+            throw new UnsupportedWireContractException(
+                location,
+                "members must not declare multiple [JsonIgnore] attributes");
+        }
+        if (member.HasMalformedJsonInclude)
+        {
+            throw new UnsupportedWireContractException(
+                location,
+                "[JsonInclude] metadata could not be decoded");
         }
     }
 
@@ -455,6 +523,13 @@ static class DtsEmitter
         diagnostics?.ReportUnmappedType(
             $"{location} JSON wire shape",
             "unsupported wire-shaping attributes or inheritance");
+
+    static void ReportDirectionSplitWireShape(
+        string location,
+        TsBindGenDiagnostics? diagnostics) =>
+        diagnostics?.ReportUnmappedType(
+            $"{location} JSON wire shape",
+            "direction-sensitive [JsonIgnore] on a bidirectional type");
 
     static void ReportUnsupportedJsonConverter(
         string location,

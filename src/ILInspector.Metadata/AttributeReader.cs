@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
@@ -421,12 +422,62 @@ public static partial class AttributeReader
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
         Action<int>? beforeMaterialize = null)
-        => HasAuthenticatedMarkerAttribute(
+        => ReadJsonIncludeAttributes(
             reader,
             attributes,
-            JsonIncludeAttributeName,
-            SystemTextJsonAssemblyName,
-            beforeMaterialize);
+            beforeMaterialize) is { Count: > 0 };
+
+    /// <summary>
+    /// Reads the authentic <c>[JsonInclude]</c> rows on a member, separating
+    /// well-formed rows from authentic rows whose constructor or value blob
+    /// cannot be honored.
+    /// </summary>
+    /// <remarks>
+    /// A malformed authentic row is deliberately not folded into absence: the
+    /// member really did opt in, so a consumer that silently dropped the row
+    /// would emit a success-shaped contract from metadata it could not read.
+    /// Untrusted same-named attributes are still skipped outright, because they
+    /// never claimed the framework's meaning.
+    /// <c>JsonPropertyNameAttributeTests.MalformedAuthenticJsonIncludeIsUnsupportedEvidence</c>
+    /// is the gate.
+    /// </remarks>
+    public static JsonIncludeAttributeEvidence ReadJsonIncludeAttributes(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize = null)
+    {
+        int count = 0;
+        bool malformed = false;
+        foreach (CustomAttributeHandle attrHandle in attributes)
+        {
+            CustomAttribute attr = reader.GetCustomAttribute(attrHandle);
+            if (!IsFrameworkAttributeType(
+                    reader,
+                    attr.Constructor,
+                    JsonIncludeAttributeName,
+                    SystemTextJsonAssemblyName,
+                    beforeMaterialize))
+            {
+                continue;
+            }
+
+            if (HasExpectedConstructor(
+                    reader,
+                    attr.Constructor,
+                    FrameworkConstructorKind.Marker,
+                    beforeMaterialize)
+                && HasMarkerValueBlob(reader, attr))
+            {
+                count++;
+            }
+            else
+            {
+                malformed = true;
+            }
+        }
+
+        return new JsonIncludeAttributeEvidence(count, malformed);
+    }
 
     public static int CountJsonConverterAttributes(
         MetadataReader reader,
@@ -514,38 +565,32 @@ public static partial class AttributeReader
 
 
     /// <summary>
-    /// Checks if the member has the <c>[JsonIgnore]</c> attribute. For tsbindgen's static wire-shape
-    /// projection, conditional forms such as <c>WhenWritingDefault</c> and
-    /// <c>WhenWritingNull</c> mean callers cannot rely on the property being
-    /// present. <c>Never</c> is captured separately because it explicitly keeps
-    /// the member in the wire shape.
+    /// Reads one entry per authentic <c>[JsonIgnore]</c> row on a member, in
+    /// metadata order. A <see langword="null"/> entry marks an authentic row
+    /// whose constructor, fixed arguments, or <c>Condition</c> named argument
+    /// could not be honored; every other entry is the decoded condition, with a
+    /// bare <c>[JsonIgnore]</c> reported as
+    /// <see cref="JsonWireIgnoreCondition.Always"/> to match the attribute's own
+    /// property default.
     /// </summary>
-    public static bool HasJsonIgnoreAttribute(
+    /// <remarks>
+    /// The condition is preserved rather than collapsed to "present" because
+    /// <c>WhenWriting</c> and <c>WhenReading</c> are directional: the member
+    /// still appears in the other direction's contract. Malformed rows use the
+    /// same <see langword="null"/> marker convention as
+    /// <see cref="ReadJsonPropertyNames"/>, so a consumer cannot mistake
+    /// unreadable metadata for an absent attribute. Untrusted same-named
+    /// attributes are skipped outright. Gated by
+    /// <c>JsonPropertyNameAttributeTests.MalformedAuthenticJsonIgnoreIsUnsupportedEvidence</c>
+    /// and
+    /// <c>JsonPropertyNameAttributeTests.DirectionalJsonIgnoreConditionsAreDecodedFromCompiledMetadata</c>.
+    /// </remarks>
+    public static List<JsonWireIgnoreCondition?> ReadJsonIgnoreConditions(
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
         Action<int>? beforeMaterialize = null)
     {
-        foreach (CustomAttributeHandle attrHandle in attributes)
-        {
-            CustomAttribute attr = reader.GetCustomAttribute(attrHandle);
-            if (IsValidJsonIgnoreAttribute(
-                    reader,
-                    attr,
-                    beforeMaterialize,
-                    out _))
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    public static bool HasJsonIgnoreNeverAttribute(
-        MetadataReader reader,
-        CustomAttributeHandleCollection attributes,
-        Action<int>? beforeMaterialize = null)
-    {
-        bool found = false;
+        var conditions = new List<JsonWireIgnoreCondition?>();
         foreach (CustomAttributeHandle attrHandle in attributes)
         {
             CustomAttribute attr = reader.GetCustomAttribute(attrHandle);
@@ -554,23 +599,54 @@ public static partial class AttributeReader
                     attr.Constructor,
                     JsonIgnoreAttributeName,
                     SystemTextJsonAssemblyName,
-                    beforeMaterialize)
-                || !IsValidJsonIgnoreAttribute(
-                    reader,
-                    attr,
-                    beforeMaterialize,
-                    out int? condition))
+                    beforeMaterialize))
             {
                 continue;
             }
 
-            if (found || condition != 0)
-                return false;
-            found = true;
+            conditions.Add(
+                IsValidJsonIgnoreAttribute(
+                    reader,
+                    attr,
+                    beforeMaterialize,
+                    out int? condition)
+                    ? (JsonWireIgnoreCondition)(
+                        condition ?? (int)JsonWireIgnoreCondition.Always)
+                    : null);
         }
 
-        return found;
+        return conditions;
     }
+
+    /// <summary>
+    /// Checks if the member has the <c>[JsonIgnore]</c> attribute in any form,
+    /// including a malformed authentic row. Callers that need the directional
+    /// meaning of a conditional form must read
+    /// <see cref="ReadJsonIgnoreConditions"/> instead.
+    /// </summary>
+    public static bool HasJsonIgnoreAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize = null)
+        => ReadJsonIgnoreConditions(
+            reader,
+            attributes,
+            beforeMaterialize).Count > 0;
+
+    /// <summary>
+    /// Checks whether the member carries exactly one authentic
+    /// <c>[JsonIgnore]</c> row and that row explicitly keeps the member in the
+    /// wire shape with <c>Condition = Never</c>.
+    /// </summary>
+    public static bool HasJsonIgnoreNeverAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize = null)
+        => ReadJsonIgnoreConditions(
+                reader,
+                attributes,
+                beforeMaterialize)
+            is [JsonWireIgnoreCondition.Never];
 
     public static List<string?> ReadJsonPropertyNames(
         MetadataReader reader,
@@ -697,13 +773,13 @@ public static partial class AttributeReader
 
     /// <summary>
     /// Checks whether the enum carries <c>[JsonConverter(typeof(JsonStringEnumConverter&lt;...&gt;))]</c> (or
-    /// the non-generic <c>JsonStringEnumConverter</c>) — the marker that makes STJ serialize this enum's values
-    /// as their declared names rather than their numeric underlying value. The converter's <c>typeof()</c>
-    /// argument is a generic type reference, which <see cref="AttributeReader.Rendering"/>'s C#-spelling
-    /// renderer cannot render (it returns null for any argument whose serialized name contains a backtick,
-    /// which drops the whole attribute from the rendered <c>Attributes</c> list) — so this reads the
-    /// argument's raw serialized type name directly via <see cref="AttributeDecoder"/> instead of relying on
-    /// the rendered attribute text.
+    /// the non-generic <c>JsonStringEnumConverter</c>) — the marker that makes STJ serialize declared values
+    /// by name. Its default configuration can still serialize undefined values by their numeric underlying
+    /// value. The converter's <c>typeof()</c> argument is a generic type reference, which
+    /// <see cref="AttributeReader.Rendering"/>'s C#-spelling renderer cannot render (it returns null for any
+    /// argument whose serialized name contains a backtick, which drops the whole attribute from the rendered
+    /// <c>Attributes</c> list) — so this reads the argument's raw serialized type name directly via
+    /// <see cref="AttributeDecoder"/> instead of relying on the rendered attribute text.
     /// </summary>
     public static bool HasJsonStringEnumConverterAttribute(
         MetadataReader reader,
@@ -1113,6 +1189,137 @@ public static partial class AttributeReader
         }
     }
 
+    /// <summary>
+    /// Structured expected identities for the framework attributes this reader
+    /// authenticates, keyed by the repository-authored constant that names
+    /// them. The key is our own source text, not artifact-authored display
+    /// text: the artifact side of every comparison is read structurally.
+    /// </summary>
+    static readonly ConcurrentDictionary<string, MetadataTypeDefinitionName?>
+        ExpectedAttributeNames = new(StringComparer.Ordinal);
+
+    static MetadataTypeDefinitionName? ExpectedTopLevelName(
+        string fullTypeName)
+        => ExpectedAttributeNames.GetOrAdd(
+            fullTypeName,
+            static name =>
+            {
+                int separator = name.LastIndexOf('.');
+                string @namespace = separator < 0
+                    ? ""
+                    : name[..separator];
+                string simpleName = separator < 0
+                    ? name
+                    : name[(separator + 1)..];
+                return MetadataTypeDefinitionName.Create(
+                        @namespace,
+                        ImmutableArray.Create(simpleName))
+                    is MetadataTypeDefinitionNameResult.Valid valid
+                        ? valid.Name
+                        : null;
+            });
+
+    /// <summary>
+    /// Resolves the defining assembly of an attribute whose type is exactly the
+    /// top-level <paramref name="fullTypeName"/> definition, judged by
+    /// structured <see cref="MetadataTypeDefinitionName"/> identity rather than
+    /// by a flattened display spelling.
+    /// </summary>
+    /// <remarks>
+    /// The flattened spelling of a nested <c>TypeRef</c> chain joins its
+    /// segments with <c>.</c>, so a <c>System.Text.Json/Serialization</c> outer
+    /// reference with a nested <c>JsonIgnoreAttribute</c> leaf renders exactly
+    /// like the genuine top-level attribute — and its resolution scope still
+    /// terminates at the authentic framework <c>AssemblyRef</c>. Comparing
+    /// namespace and root-to-leaf segments separates the two.
+    /// <c>JsonPropertyNameAttributeTests.NestedAttributeIdentityCannotAliasTopLevelFrameworkAttribute</c>
+    /// is the gate.
+    /// </remarks>
+    static bool TryGetAuthenticAttributeAssembly(
+        MetadataReader reader,
+        EntityHandle constructor,
+        string fullTypeName,
+        Action<int>? beforeMaterialize,
+        [NotNullWhen(true)] out ApiAssemblyIdentity? identity)
+    {
+        identity = null;
+        if (ExpectedTopLevelName(fullTypeName) is not { } expected)
+            return false;
+
+        EntityHandle declaringType = constructor.Kind switch
+        {
+            HandleKind.MemberReference =>
+                reader.GetMemberReference(
+                    (MemberReferenceHandle)constructor).Parent,
+            HandleKind.MethodDefinition =>
+                reader.GetMethodDefinition(
+                    (MethodDefinitionHandle)constructor)
+                    .GetDeclaringType(),
+            _ => default,
+        };
+        if (declaringType.IsNil)
+            return false;
+
+        // Parity with the resolution this replaced: a TypeDef-defined attribute
+        // authenticates only through a MethodDef constructor, never through a
+        // MemberRef whose parent happens to be a TypeDef.
+        if (declaringType.Kind == HandleKind.TypeDefinition)
+        {
+            if (constructor.Kind != HandleKind.MethodDefinition
+                || !reader.IsAssembly
+                || MetadataTypeDefinitionNameReader.Read(
+                        reader,
+                        (TypeDefinitionHandle)declaringType,
+                        beforeMaterialize)
+                    is not MetadataTypeDefinitionNameReadResult.Read defined
+                || !defined.Name.Equals(expected))
+            {
+                return false;
+            }
+
+            identity = ApiAssemblyIdentity.FromDefinition(
+                reader,
+                beforeMaterialize);
+            return true;
+        }
+
+        if (declaringType.Kind != HandleKind.TypeReference)
+            return false;
+
+        var typeReference = (TypeReferenceHandle)declaringType;
+        if (MetadataTypeDefinitionNameReader.Read(
+                    reader,
+                    typeReference,
+                    beforeMaterialize)
+                is not MetadataTypeDefinitionNameReadResult.Read referenced
+            || !referenced.Name.Equals(expected))
+        {
+            return false;
+        }
+
+        Span<TypeReferenceHandle> chain =
+            stackalloc TypeReferenceHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal
+                .TryWalkTypeReferenceResolutionScope(
+                    reader,
+                    typeReference,
+                    chain,
+                    out _,
+                    out EntityHandle terminal,
+                    out _)
+            || terminal.Kind != HandleKind.AssemblyReference)
+        {
+            return false;
+        }
+
+        identity = ApiAssemblyIdentity.FromReference(
+            reader,
+            (AssemblyReferenceHandle)terminal,
+            beforeMaterialize);
+        return true;
+    }
+
     static bool IsFrameworkAttributeType(
         MetadataReader reader,
         EntityHandle constructor,
@@ -1122,39 +1329,13 @@ public static partial class AttributeReader
     {
         try
         {
-            ApiAssemblyIdentity identity;
-            if (constructor.Kind == HandleKind.MethodDefinition
-                && AttributeDecoder.GetAttributeTypeName(
-                    reader,
-                    constructor,
-                    beforeMaterialize)
-                    == fullTypeName)
-            {
-                if (!reader.IsAssembly)
-                    return false;
-                identity = ApiAssemblyIdentity.FromDefinition(
-                    reader,
-                    beforeMaterialize);
-            }
-            else if (AttributeDecoder
-                .TryGetAttributeTypeAssemblyReference(
+            return TryGetAuthenticAttributeAssembly(
                     reader,
                     constructor,
                     fullTypeName,
-                    out AssemblyReferenceHandle assemblyReference,
-                    beforeMaterialize))
-            {
-                identity = ApiAssemblyIdentity.FromReference(
-                    reader,
-                    assemblyReference,
-                    beforeMaterialize);
-            }
-            else
-            {
-                return false;
-            }
-
-            return identity.Name == assemblyName
+                    beforeMaterialize,
+                    out ApiAssemblyIdentity? identity)
+                && identity.Name == assemblyName
                 && PlatformKeys.IsPlatform(
                     identity.PublicKeyToken);
         }
@@ -1277,38 +1458,13 @@ public static partial class AttributeReader
     {
         try
         {
-            ApiAssemblyIdentity identity;
-            if (constructor.Kind == HandleKind.MethodDefinition
-                && AttributeDecoder.GetAttributeTypeName(
-                    reader,
-                    constructor,
-                    beforeMaterialize) == fullTypeName)
-            {
-                if (!reader.IsAssembly)
-                    return false;
-                identity = ApiAssemblyIdentity.FromDefinition(
-                    reader,
-                    beforeMaterialize);
-            }
-            else if (AttributeDecoder
-                .TryGetAttributeTypeAssemblyReference(
+            return TryGetAuthenticAttributeAssembly(
                     reader,
                     constructor,
                     fullTypeName,
-                    out AssemblyReferenceHandle assemblyReference,
-                    beforeMaterialize))
-            {
-                identity = ApiAssemblyIdentity.FromReference(
-                    reader,
-                    assemblyReference,
-                    beforeMaterialize);
-            }
-            else
-            {
-                return false;
-            }
-
-            return PlatformKeys.IsPlatform(identity.PublicKeyToken);
+                    beforeMaterialize,
+                    out ApiAssemblyIdentity? identity)
+                && PlatformKeys.IsPlatform(identity.PublicKeyToken);
         }
         catch (Exception ex) when (
             ex is BadImageFormatException

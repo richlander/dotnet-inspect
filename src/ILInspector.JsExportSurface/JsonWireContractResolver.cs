@@ -16,9 +16,11 @@ namespace ILInspector.JsExportSurface;
 /// registered shape" cannot distinguish them; this resolver reads the one fact that does:
 /// which type argument the export's own body actually instantiated
 /// <c>JsonSerializer.Serialize&lt;T&gt;</c>/<c>Deserialize&lt;T&gt;</c> with (surfaced as
-/// <c>TypeArguments[0]</c> on the call's <c>JsonTypeInfo&lt;T&gt;</c> parameter). This relies on
-/// <c>DirectCall.Caller</c> already being attributed to the declared method rather than a
-/// compiler-generated async state machine or lifted body (see repository issue #4459 / PR #4461).
+/// <c>TypeArguments[0]</c> on the call's <c>JsonTypeInfo&lt;T&gt;</c> parameter), and that actual
+/// argument is proven to come directly from the matching registered source-generated context
+/// property. This relies on <c>DirectCall.Caller</c> already being attributed to the declared
+/// method rather than a compiler-generated async state machine or lifted body (see repository
+/// issue #4459 / PR #4461).
 /// </para>
 /// <para>
 /// Only the DTO <em>type</em> is resolved this way. Which of the export's own parameters supplied
@@ -40,6 +42,15 @@ namespace ILInspector.JsExportSurface;
 /// by assembly-scoped structural identity, preventing an external type from aliasing an unrelated
 /// discovered local DTO that shares its qualified name.
 /// </para>
+/// <para>
+/// An async sink is authentic only when Analysis's declared-body mapping proves that its physical
+/// <c>MoveNext</c> body belongs to this export; a builder used by an ordinary method does not
+/// qualify. Serializer evidence likewise requires complete argument provenance to a registered
+/// context property's getter.
+/// <c>JsonWireContractResolverTests.Build_RejectsUnrelatedAsyncBuilderResultSink</c> and
+/// <c>JsonWireContractResolverTests.Build_RequiresRegisteredContextPropertyArgumentProvenance</c>
+/// gate these boundaries.
+/// </para>
 /// </remarks>
 public static class JsonWireContractResolver
 {
@@ -59,7 +70,8 @@ public static class JsonWireContractResolver
     public static JsExportFunction Attach(
         LibraryBodyIndex bodyIndex,
         JsExportFunction function,
-        int metadataToken)
+        int metadataToken,
+        IReadOnlySet<int> registeredJsonTypeInfoGetterTokens)
     {
         var parameterTypes = new List<TypeRef>();
 
@@ -77,7 +89,12 @@ public static class JsonWireContractResolver
                 continue;
             }
 
-            if (ResolveDeserializeDto(call.Callee) is { } dto)
+            if (ResolveDeserializeDto(call.Callee) is { } dto
+                && HasAuthenticatedJsonTypeInfoArgument(
+                    bodyIndex,
+                    call,
+                    dto,
+                    registeredJsonTypeInfoGetterTokens))
             {
                 parameterTypes.Add(dto);
             }
@@ -85,7 +102,8 @@ public static class JsonWireContractResolver
 
         TypeRef? returnType = ResolveCompleteReturnWireType(
             bodyIndex,
-            metadataToken);
+            metadataToken,
+            registeredJsonTypeInfoGetterTokens);
         return new JsExportFunction
         {
             DeclaringType = function.DeclaringType,
@@ -103,12 +121,17 @@ public static class JsonWireContractResolver
             ParameterWireTypes =
                 [.. parameterTypes.Select(
                     type => type.ToQualifiedDisplayString())],
+            ParameterWireTypeReferences =
+                [.. parameterTypes
+                    .SelectMany(ReferencedTypes)
+                    .Distinct()],
         };
     }
 
     static TypeRef? ResolveCompleteReturnWireType(
         LibraryBodyIndex bodyIndex,
-        int metadataToken)
+        int metadataToken,
+        IReadOnlySet<int> registeredJsonTypeInfoGetterTokens)
     {
         var sinks = new List<MethodResultSink>();
         foreach (MethodResultSink sink in bodyIndex.ResultSinks)
@@ -135,7 +158,11 @@ public static class JsonWireContractResolver
                 sink.EvidenceMethod,
                 sink.ILOffset);
             if (consumer is not null
-                && IsTrustedAsyncResultSink(consumer.Callee))
+                && IsTrustedAsyncResultSink(consumer.Callee)
+                && IsAuthenticAsyncResultSink(
+                    bodyIndex,
+                    sink,
+                    metadataToken))
             {
                 sinks.Add(sink);
             }
@@ -162,7 +189,13 @@ public static class JsonWireContractResolver
                 TypeRef? sourceDto = source is null
                     ? null
                     : ResolveSerializeDto(source.Callee);
-                if (sourceDto is null)
+                if (source is null
+                    || sourceDto is null
+                    || !HasAuthenticatedJsonTypeInfoArgument(
+                        bodyIndex,
+                        source,
+                        sourceDto,
+                        registeredJsonTypeInfoGetterTokens))
                     return null;
                 if (dto is null)
                 {
@@ -176,6 +209,54 @@ public static class JsonWireContractResolver
         }
 
         return dto;
+    }
+
+    static bool IsAuthenticAsyncResultSink(
+        LibraryBodyIndex bodyIndex,
+        MethodResultSink sink,
+        int exportMetadataToken)
+        => sink.Caller.MetadataToken == exportMetadataToken
+            && sink.Caller != sink.EvidenceMethod
+            && sink.EvidenceMethod.Name == "MoveNext"
+            && sink.AsyncStateMachineSource?.MetadataToken
+                == exportMetadataToken
+            && bodyIndex.ResolveDeclaredMethod(
+                sink.EvidenceMethod)
+                == sink.Caller;
+
+    static bool HasAuthenticatedJsonTypeInfoArgument(
+        LibraryBodyIndex bodyIndex,
+        DirectCall serializerCall,
+        TypeRef dto,
+        IReadOnlySet<int> registeredJsonTypeInfoGetterTokens)
+    {
+        CallArgumentSource? argument =
+            serializerCall.ArgumentSources.FirstOrDefault(
+                source => source.ArgumentIndex == 1);
+        if (argument is not { IsComplete: true }
+            || argument.SourceCallOffsets.IsDefaultOrEmpty)
+        {
+            return false;
+        }
+
+        foreach (int sourceOffset in argument.SourceCallOffsets)
+        {
+            DirectCall? source = CallAt(
+                bodyIndex,
+                serializerCall.EvidenceMethod,
+                sourceOffset);
+            if (source is null
+                || !registeredJsonTypeInfoGetterTokens.Contains(
+                    source.CalleeDefinitionToken)
+                || !IsTrustedJsonTypeInfoOf(
+                    source.Callee.ReturnType,
+                    dto))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     static bool IsTrustedAsyncResultSink(MemberRef callee)

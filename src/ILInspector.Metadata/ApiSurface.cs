@@ -730,10 +730,10 @@ public class ApiType
     public string? EnumUnderlyingType { get; set; }
 
     /// <summary>
-    /// For an enum (<see cref="Kind"/> == <c>"enum"</c>): whether it carries <c>[Flags]</c>. STJ serializes a
-    /// <c>[Flags]</c> combination as a comma-joined string of member names (e.g. <c>"Read, Write"</c>), which is
-    /// not representable as the closed single-member string-literal union used for a plain enum. Null for
-    /// non-enum types and for older serialized surfaces that predate this field.
+    /// For an enum (<see cref="Kind"/> == <c>"enum"</c>): whether it carries <c>[Flags]</c>. With the default
+    /// string-enum converter, STJ serializes named combinations as a comma-joined string of member names
+    /// (e.g. <c>"Read, Write"</c>) but can serialize unnamed combinations numerically. Null for non-enum types
+    /// and for older serialized surfaces that predate this field.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool IsFlagsEnum { get; set; }
@@ -741,10 +741,11 @@ public class ApiType
     /// <summary>
     /// For an enum (<see cref="Kind"/> == <c>"enum"</c>): whether it carries
     /// <c>[JsonConverter(typeof(JsonStringEnumConverter&lt;...&gt;))]</c> (or the non-generic form), which makes
-    /// STJ serialize its values by declared name rather than by numeric underlying value. This is captured here,
-    /// rather than derived from <see cref="Attributes"/>, because the converter's <c>typeof()</c> argument is a
-    /// generic type reference that the rendered <see cref="Attributes"/> text cannot represent (dropped whole by
-    /// the C#-spelling renderer). Null for non-enum types and for older serialized surfaces.
+    /// STJ serialize declared values by name while its default configuration can serialize undefined values
+    /// numerically. This is captured here, rather than derived from <see cref="Attributes"/>, because the
+    /// converter's <c>typeof()</c> argument is a generic type reference that the rendered
+    /// <see cref="Attributes"/> text cannot represent (dropped whole by the C#-spelling renderer). Null for
+    /// non-enum types and for older serialized surfaces.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool HasJsonStringEnumConverter { get; set; }
@@ -996,11 +997,30 @@ public class ApiMember
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool HasJsonInclude { get; set; }
 
+    /// <summary>
+    /// True when an authentic <c>[JsonInclude]</c> row carried a constructor or
+    /// value blob this reader cannot honor. The opt-in is real but unreadable,
+    /// so consumers must treat it as unsupported evidence rather than absence.
+    /// </summary>
+    [JsonIgnore]
+    public bool HasMalformedJsonInclude { get; set; }
+
+    /// <summary>
+    /// One entry per authentic <c>[JsonIgnore]</c> row, in metadata order, with
+    /// <see langword="null"/> marking a row whose metadata cannot be honored.
+    /// This is the authoritative directional fact; <see cref="HasJsonIgnore"/>
+    /// and <see cref="HasJsonIgnoreNever"/> are derived from it so the two
+    /// cannot drift apart.
+    /// </summary>
+    [JsonIgnore]
+    public List<JsonWireIgnoreCondition?> JsonIgnoreConditions { get; set; } = [];
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
-    public bool HasJsonIgnore { get; set; }
+    public bool HasJsonIgnore => JsonIgnoreConditions.Count > 0;
 
     [JsonIgnore]
-    public bool HasJsonIgnoreNever { get; set; }
+    public bool HasJsonIgnoreNever =>
+        JsonIgnoreConditions is [JsonWireIgnoreCondition.Never];
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? JsonPropertyName { get; set; }

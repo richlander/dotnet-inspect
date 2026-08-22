@@ -63,6 +63,7 @@ public static class JsExportSurfaceBuilder
         }
 
         var functions = new List<JsExportFunction>();
+        var functionTokens = new Dictionary<JsExportFunction, int>();
         foreach (ApiType type in surface.Types)
         {
             foreach (ApiMember member in type.Members)
@@ -106,7 +107,7 @@ public static class JsExportSurfaceBuilder
                             FormatMemberLocation(type, member),
                             "JS export body analysis is incomplete");
                     }
-                    function = JsonWireContractResolver.Attach(bodyIndex, function, token);
+                    functionTokens.Add(function, token);
                 }
 
                 functions.Add(function);
@@ -117,6 +118,7 @@ public static class JsExportSurfaceBuilder
         var enums = new List<ApiType>();
         var discovered = new HashSet<ApiType>();
         var policiesByType = new Dictionary<ApiType, HashSet<JsonWireNamingPolicy>>();
+        var registeredJsonTypeInfoGetterTokens = new HashSet<int>();
         var queue = new Queue<(
             string? Name,
             ApiTypeReferenceIdentity? Identity,
@@ -199,6 +201,9 @@ public static class JsExportSurfaceBuilder
                     {
                         continue;
                     }
+
+                    if (member.GetterToken is { } getterToken)
+                        registeredJsonTypeInfoGetterTokens.Add(getterToken);
                 }
 
                 if (references?.Count > 0)
@@ -296,13 +301,110 @@ public static class JsExportSurfaceBuilder
             }
         }
 
+        if (bodyIndex is not null)
+        {
+            for (int index = 0; index < functions.Count; index++)
+            {
+                JsExportFunction function = functions[index];
+                if (functionTokens.TryGetValue(function, out int token))
+                {
+                    functions[index] = JsonWireContractResolver.Attach(
+                        bodyIndex,
+                        function,
+                        token,
+                        registeredJsonTypeInfoGetterTokens);
+                }
+            }
+        }
+
         return new JsExportSurface
         {
             AssemblyIdentity = surface.AssemblyIdentity,
             Functions = functions,
             Records = records,
             Enums = enums,
+            WireDirections = ResolveWireDirections(
+                functions,
+                typesByScopedIdentity,
+                discovered),
         };
+    }
+
+    /// <summary>
+    /// Propagates the direction each declared type is reached in: a function's
+    /// resolved return wire type seeds <see cref="JsonWireDirection.Serialize"/>
+    /// and its resolved parameter wire types seed
+    /// <see cref="JsonWireDirection.Deserialize"/>, then both flow through the
+    /// members that participate in the contract.
+    /// </summary>
+    /// <remarks>
+    /// Propagation deliberately walks the direction-independent
+    /// <see cref="JsonWireMemberRules.IsSerialized(ApiMember)"/> union, which is
+    /// a superset of any single direction's member set. Emission can therefore
+    /// never reference a type this pass failed to reach, so a directional
+    /// declaration cannot orphan a type. Gated by
+    /// <c>DtsEmitterTests.Emit_DoesNotOrphanTypesReachedOnlyThroughDirectionalMembers</c>.
+    /// </remarks>
+    static Dictionary<ApiType, JsonWireDirection> ResolveWireDirections(
+        List<JsExportFunction> functions,
+        Dictionary<ApiTypeReferenceIdentity, ApiType> typesByScopedIdentity,
+        HashSet<ApiType> discovered)
+    {
+        var directions = new Dictionary<ApiType, JsonWireDirection>();
+        var queue = new Queue<(ApiType Type, JsonWireDirection Direction)>();
+
+        void Seed(
+            IReadOnlyList<ApiTypeReferenceIdentity> references,
+            JsonWireDirection direction)
+        {
+            foreach (ApiTypeReferenceIdentity reference in references)
+            {
+                if (typesByScopedIdentity.TryGetValue(
+                        reference,
+                        out ApiType? type)
+                    && discovered.Contains(type))
+                {
+                    queue.Enqueue((type, direction));
+                }
+            }
+        }
+
+        foreach (JsExportFunction function in functions)
+        {
+            Seed(
+                function.ReturnWireTypeReferences,
+                JsonWireDirection.Serialize);
+            Seed(
+                function.ParameterWireTypeReferences,
+                JsonWireDirection.Deserialize);
+        }
+
+        while (queue.Count > 0)
+        {
+            (ApiType type, JsonWireDirection direction) = queue.Dequeue();
+            directions.TryGetValue(type, out JsonWireDirection existing);
+            JsonWireDirection updated = existing | direction;
+            if (updated == existing)
+                continue;
+            directions[type] = updated;
+
+            if (type.Kind == "enum" || type.JsonConverterAttributeCount > 0)
+                continue;
+
+            foreach (ApiMember member in type.Members)
+            {
+                if (!JsonWireMemberRules.IsSerialized(member)
+                    || member.JsonConverterAttributeCount > 0
+                    || member.SignatureModel is null)
+                {
+                    continue;
+                }
+
+                Seed(member.SignatureModel.ReturnTypeReferences, direction);
+            }
+        }
+
+        return directions;
     }
 
     static bool HasJsExportAttribute(ApiMember member) =>

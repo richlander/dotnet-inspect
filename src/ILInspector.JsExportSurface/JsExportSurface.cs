@@ -23,11 +23,31 @@ public sealed class JsExportSurface
     /// <summary>
     /// Enum roots discovered the same way as <see cref="Records"/> (via the assembly's
     /// <c>JsonSerializerContext</c>-registered shapes and their transitive property references),
-    /// but kept separate: an <c>enum</c> has no properties to project as an interface, and STJ's
-    /// <c>JsonStringEnumConverter</c> serializes it as one of its member names, not an object —
-    /// the correct TS shape is a string-literal union, not <c>{}</c>.
+    /// but kept separate: an <c>enum</c> has no properties to project as an interface. STJ's
+    /// default <c>JsonStringEnumConverter</c> serializes declared values as member names, while
+    /// undefined values can remain numeric, so the TypeScript consumer projects a string/number
+    /// wire value rather than an object.
     /// </summary>
     public IReadOnlyList<ApiType> Enums { get; init; } = [];
+
+    /// <summary>
+    /// The wire directions each declared type was reached in, keyed by the
+    /// <see cref="ApiType"/> instances published in <see cref="Records"/> and
+    /// <see cref="Enums"/>.
+    /// </summary>
+    /// <remarks>
+    /// Directions are composed here rather than stored on <see cref="ApiType"/>
+    /// because they are a property of how an export uses a type, not a metadata
+    /// fact the type itself carries. A type absent from this map — a
+    /// hand-composed surface, or a registered shape no export references — is
+    /// treated as <see cref="JsonWireDirection.Both"/> by consumers, which is
+    /// the conservative reading. Gated by
+    /// <c>JsExportSurfaceBuilderTests.Build_RecordsSerializeOnlyDirectionForReturnOnlyDto</c>.
+    /// </remarks>
+    [JsonIgnore]
+    public IReadOnlyDictionary<ApiType, JsonWireDirection> WireDirections
+        { get; init; } =
+        new Dictionary<ApiType, JsonWireDirection>();
 }
 
 /// <summary>
@@ -68,4 +88,8 @@ public sealed class JsExportFunction
     /// position — see <see cref="JsonWireContractResolver"/> remarks for that residual gap.
     /// </summary>
     public IReadOnlyList<string> ParameterWireTypes { get; init; } = [];
+
+    [JsonIgnore]
+    public IReadOnlyList<ApiTypeReferenceIdentity> ParameterWireTypeReferences
+        { get; init; } = [];
 }

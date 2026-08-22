@@ -1,7 +1,9 @@
 using System.Runtime.InteropServices.JavaScript;
+using System.Runtime.CompilerServices;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 
 namespace ILInspector.JsExportSurface.Fixtures;
 
@@ -14,6 +16,9 @@ namespace ILInspector.JsExportSurface.Fixtures;
 [SupportedOSPlatform("browser")]
 public static partial class FixtureExports
 {
+    static JsonTypeInfo<WidgetDto> UnrelatedWidgetTypeInfo =>
+        FixtureJsonContext.Default.WidgetDto;
+
     [JSExport]
     public static string GetWidget(string name, int count) =>
         JsonSerializer.Serialize(
@@ -61,6 +66,30 @@ public static partial class FixtureExports
             : "ok";
 
     [JSExport]
+    public static string GetWidgetOrCached(string? cached) =>
+        cached ?? JsonSerializer.Serialize(
+            new WidgetDto("widget", 0, [], null),
+            FixtureJsonContext.Default.WidgetDto);
+
+    [JSExport]
+    public static string GetWidgetOrCachedViaLocal(string? cached)
+    {
+        string result;
+        if (cached is null)
+        {
+            result = JsonSerializer.Serialize(
+                new WidgetDto("widget", 0, [], null),
+                FixtureJsonContext.Default.WidgetDto);
+        }
+        else
+        {
+            result = cached;
+        }
+
+        return result;
+    }
+
+    [JSExport]
     public static string GetWidgetFromEitherJsonBranch(bool first) =>
         first
             ? JsonSerializer.Serialize(
@@ -94,6 +123,44 @@ public static partial class FixtureExports
             new WidgetDto("widget", 0, [], null),
             FixtureJsonContext.Default.WidgetDto);
         return "ok";
+    }
+
+    [JSExport]
+    public static Task<string> SetUnrelatedAsyncBuilder()
+    {
+        var builder = AsyncTaskMethodBuilder<string>.Create();
+        builder.SetResult(JsonSerializer.Serialize(
+            new WidgetDto("widget", 0, [], null),
+            FixtureJsonContext.Default.WidgetDto));
+        return Task.FromResult("ok");
+    }
+
+    [JSExport]
+    public static string RoundTripWidgetWithRuntimeTypeInfo(string widgetJson)
+    {
+        JsonTypeInfo<WidgetDto> typeInfo =
+            (JsonTypeInfo<WidgetDto>)new DefaultJsonTypeInfoResolver()
+                .GetTypeInfo(
+                    typeof(WidgetDto),
+                    new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+                    });
+        WidgetDto widget = JsonSerializer.Deserialize(
+            widgetJson,
+            typeInfo)!;
+        return JsonSerializer.Serialize(widget, typeInfo);
+    }
+
+    [JSExport]
+    public static string RoundTripWidgetWithUnrelatedTypeInfo(string widgetJson)
+    {
+        WidgetDto widget = JsonSerializer.Deserialize(
+            widgetJson,
+            UnrelatedWidgetTypeInfo)!;
+        return JsonSerializer.Serialize(
+            widget,
+            UnrelatedWidgetTypeInfo);
     }
 
     [JSExport]
@@ -187,6 +254,10 @@ public sealed record WidgetAudit(string Name)
     }
 }
 
+public sealed record ByteEnvelopeDto(byte[] Content, BytePayloadDto Payload);
+
+public sealed record BytePayloadDto(byte[] Content);
+
 public sealed record InternalContextPascalWidget(string Name, int Count);
 public sealed record InternalContextCamelWidget(string Name, int Count);
 public sealed record ConflictingPolicyWidget(string DisplayName);
@@ -214,6 +285,7 @@ public static partial class InternalContextFixtureExports
 [JsonSerializable(typeof(WidgetPermissionSummary))]
 [JsonSerializable(typeof(WidgetPrioritySummary))]
 [JsonSerializable(typeof(WidgetAudit))]
+[JsonSerializable(typeof(ByteEnvelopeDto))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 public sealed partial class FixtureJsonContext : JsonSerializerContext;
 
@@ -247,3 +319,90 @@ public static partial class NeedsUnmappedTypeFixtureExports
 [JsonSerializable(typeof(NeedsUnmappedTypeFixture))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 public sealed partial class NeedsUnmappedTypeFixtureJsonContext : JsonSerializerContext;
+
+/// <summary>
+/// Exports that reach their DTOs in exactly one wire direction, so that
+/// <c>[JsonIgnore(Condition = WhenReading)]</c> and <c>Condition = WhenWriting</c>
+/// can be observed as directional rather than as total exclusion. Compiled and
+/// source-generator-backed on purpose: the decoded condition has to be the one
+/// the real compiler and STJ generator emit.
+/// </summary>
+[SupportedOSPlatform("browser")]
+public static partial class DirectionalFixtureExports
+{
+    [JSExport]
+    public static string GetDirectionalOutput(string name) =>
+        JsonSerializer.Serialize(
+            new DirectionalOutputDto(name),
+            DirectionalFixtureJsonContext.Default.DirectionalOutputDto);
+
+    [JSExport]
+    public static string SetDirectionalInput(string payloadJson)
+    {
+        DirectionalInputDto payload = JsonSerializer.Deserialize(
+            payloadJson,
+            DirectionalFixtureJsonContext.Default.DirectionalInputDto)!;
+        return payload.Name;
+    }
+
+    [JSExport]
+    public static string RoundTripDirectional(string payloadJson)
+    {
+        DirectionalRoundTripDto payload = JsonSerializer.Deserialize(
+            payloadJson,
+            DirectionalFixtureJsonContext.Default.DirectionalRoundTripDto)!;
+        return JsonSerializer.Serialize(
+            payload,
+            DirectionalFixtureJsonContext.Default.DirectionalRoundTripDto);
+    }
+}
+
+/// <summary>Reached only through a <c>WhenReading</c>-ignored member.</summary>
+public sealed record DirectionalNote(string Text);
+
+public sealed record DirectionalOutputDto(string Name)
+{
+    /// <summary>Written but never read: survives the serialize declaration.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenReading)]
+    public DirectionalNote? ServerNote { get; init; }
+
+    /// <summary>Read but never written: absent from the serialize declaration.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
+    public string ClientSecret { get; init; } = "";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string AlwaysPresent { get; init; } = "";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int DefaultHidden { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? NullHidden { get; init; }
+
+    [JsonIgnore]
+    public string NeverOnWire { get; init; } = "";
+}
+
+public sealed record DirectionalInputDto(string Name)
+{
+    /// <summary>Read but never written: survives the deserialize declaration.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
+    public string ClientSecret { get; init; } = "";
+
+    /// <summary>Written but never read: absent from the deserialize declaration.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenReading)]
+    public string ServerNote { get; init; } = "";
+}
+
+/// <summary>Reached in both directions, so its split member has no single shape.</summary>
+public sealed record DirectionalRoundTripDto(string Name)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenReading)]
+    public string ServerNote { get; init; } = "";
+}
+
+[JsonSerializable(typeof(DirectionalOutputDto))]
+[JsonSerializable(typeof(DirectionalInputDto))]
+[JsonSerializable(typeof(DirectionalRoundTripDto))]
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+public sealed partial class DirectionalFixtureJsonContext : JsonSerializerContext;

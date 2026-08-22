@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using ILInspector.Analysis;
@@ -70,6 +71,42 @@ public sealed class DtsEmitterTests
 
         Assert.Contains("  tags: number[];", dts, StringComparison.Ordinal);
         Assert.Contains("  owner: WidgetOwner | null;", dts, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_MapsByteArrayPropertiesToBase64StringsInDirectAndNestedDtos()
+    {
+        string dts = EmitFixtureDts();
+
+        Assert.Contains(
+            """
+            export interface ByteEnvelopeDto {
+              content: string;
+              payload: BytePayloadDto;
+            }
+            """,
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface BytePayloadDto {
+              content: string;
+            }
+            """,
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SourceGeneratedJson_UsesBase64StringsForByteArrayProperties()
+    {
+        string json = JsonSerializer.Serialize(
+            new ByteEnvelopeDto([0, 1], new BytePayloadDto([2, 3])),
+            FixtureJsonContext.Default.ByteEnvelopeDto);
+
+        Assert.Equal(
+            """{"content":"AAE=","payload":{"content":"AgM="}}""",
+            json);
     }
 
     [Fact]
@@ -235,12 +272,12 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
-    public void Emit_ProjectsEnumAsStringLiteralUnionNotEmptyInterface()
+    public void Emit_ProjectsStringConvertedEnumAsStringLiteralAndNumberUnion()
     {
         string dts = EmitFixtureDts();
 
         Assert.Contains(
-            "export type WidgetStatus = \"Draft\" | \"Published\" | \"Archived\";",
+            "export type WidgetStatus = \"Draft\" | \"Published\" | \"Archived\" | number;",
             dts,
             StringComparison.Ordinal);
         Assert.DoesNotContain("export interface WidgetStatus", dts, StringComparison.Ordinal);
@@ -255,14 +292,28 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
-    public void Emit_ProjectsFlagsEnumAsStringNotClosedUnion()
+    public void Emit_ProjectsStringConvertedFlagsEnumAsStringAndNumber()
     {
         string dts = EmitFixtureDts();
 
         Assert.Contains(
-            "export type WidgetPermission = string;",
+            "export type WidgetPermission = string | number;",
             dts,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SourceGeneratedJson_StringEnumConverterAllowsUndefinedNumericValues()
+    {
+        string enumJson = JsonSerializer.Serialize(
+            new WidgetSummary("widget", (WidgetStatus)123),
+            FixtureJsonContext.Default.WidgetSummary);
+        string flagsJson = JsonSerializer.Serialize(
+            new WidgetPermissionSummary("widget", (WidgetPermission)8),
+            FixtureJsonContext.Default.WidgetPermissionSummary);
+
+        Assert.Equal("""{"name":"widget","status":123}""", enumJson);
+        Assert.Equal("""{"name":"widget","permissions":8}""", flagsJson);
     }
 
     [Fact]
@@ -412,7 +463,8 @@ public sealed class DtsEmitterTests
                     Name = "Ignored",
                     Kind = "property",
                     HasGetter = true,
-                    HasJsonIgnore = true,
+                    JsonIgnoreConditions =
+                        [JsonWireIgnoreCondition.Always],
                     ReturnType = "int",
                     JsonConverterAttributeCount = 1,
                 },
@@ -462,7 +514,7 @@ public sealed class DtsEmitterTests
             });
 
         Assert.Contains(
-            "export type Status = \"Ready\";",
+            "export type Status = \"Ready\" | number;",
             dts,
             StringComparison.Ordinal);
     }
@@ -1916,5 +1968,297 @@ public sealed class DtsEmitterTests
                 == "ConflictingPolicyWidget JsonSerializerContext options"
             && diagnostic.CSharpType
                 == "unsupported wire-shaping options");
+    }
+
+    [Fact]
+    public void Emit_PreservesWhenReadingMemberInSerializeOnlyDeclaration()
+    {
+        string dts = EmitFixtureDtsWithWireContracts();
+
+        Assert.Contains(
+            """
+            export interface DirectionalOutputDto {
+              name: string;
+              serverNote: DirectionalNote | null;
+              alwaysPresent: string;
+            }
+            """,
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_PreservesWhenWritingMemberInDeserializeOnlyDeclaration()
+    {
+        string dts = EmitFixtureDtsWithWireContracts();
+
+        Assert.Contains(
+            """
+            export interface DirectionalInputDto {
+              name: string;
+              clientSecret: string;
+            }
+            """,
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_BlocksBidirectionalTypeWithDirectionSensitiveMember()
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+        string path = typeof(FixtureExports).Assembly.Location;
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: false);
+        var bodyIndex = LibraryBodyIndex.Open(path);
+
+        string dts = DtsEmitter.Emit(
+            JsExportSurfaceBuilder.Build(apiSurface, bodyIndex),
+            diagnostics);
+
+        Assert.Contains(
+            "export type DirectionalRoundTripDto = unknown;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic =>
+                diagnostic.Location
+                    == "DirectionalRoundTripDto JSON wire shape"
+                && diagnostic.CSharpType
+                    == "direction-sensitive [JsonIgnore] on a bidirectional type");
+    }
+
+    /// <summary>
+    /// Without body evidence no direction can be attributed, so every type is
+    /// conservatively treated as bidirectional and a direction-sensitive shape
+    /// is blocked rather than guessed.
+    /// </summary>
+    [Fact]
+    public void Emit_BlocksDirectionSensitiveTypeWithoutBodyEvidence()
+    {
+        string dts = EmitFixtureDts();
+
+        Assert.Contains(
+            "export type DirectionalOutputDto = unknown;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export type DirectionalInputDto = unknown;",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Discovery walks the direction-independent member union, so a type
+    /// reachable only through a <c>WhenReading</c>-ignored member is still
+    /// declared and the directional declaration that references it resolves.
+    /// </summary>
+    [Fact]
+    public void Emit_DoesNotOrphanTypesReachedOnlyThroughDirectionalMembers()
+    {
+        string dts = EmitFixtureDtsWithWireContracts();
+
+        Assert.Contains(
+            """
+            export interface DirectionalNote {
+              text: string;
+            }
+            """,
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "serverNote: DirectionalNote | null;",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Emit_RefusesMalformedOrDuplicateJsonIgnoreRows(
+        bool malformed)
+    {
+        var record = new ApiType
+        {
+            Name = "Widget",
+            MetadataToken = 0x02000004,
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    HasGetter = true,
+                    ReturnType = "int",
+                    MetadataToken = 0x17000005,
+                    JsonIgnoreConditions = malformed
+                        ? [null]
+                        : [
+                            JsonWireIgnoreCondition.Never,
+                            JsonWireIgnoreCondition.Never,
+                        ],
+                },
+            ],
+        };
+
+        UnsupportedWireContractException exception =
+            Assert.Throws<UnsupportedWireContractException>(
+                () => DtsEmitter.Emit(
+                    new ILInspector.JsExportSurface.JsExportSurface
+                    {
+                        Records = [record],
+                    }));
+
+        Assert.Contains(
+            "member 0x17000005",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            malformed
+                ? "[JsonIgnore] metadata could not be decoded"
+                : "multiple [JsonIgnore] attributes",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_RefusesMalformedJsonIncludeRows()
+    {
+        var record = new ApiType
+        {
+            Name = "Widget",
+            MetadataToken = 0x02000004,
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    HasGetter = true,
+                    ReturnType = "int",
+                    MetadataToken = 0x17000006,
+                    HasMalformedJsonInclude = true,
+                },
+            ],
+        };
+
+        UnsupportedWireContractException exception =
+            Assert.Throws<UnsupportedWireContractException>(
+                () => DtsEmitter.Emit(
+                    new ILInspector.JsExportSurface.JsExportSurface
+                    {
+                        Records = [record],
+                    }));
+
+        Assert.Contains(
+            "member 0x17000006",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "[JsonInclude] metadata could not be decoded",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Malformed authentic <c>[JsonIgnore]</c> metadata in a real compiled
+    /// assembly stops generation instead of producing a success-shaped
+    /// declaration, and reports only a metadata token.
+    /// </summary>
+    [Fact]
+    public void Emit_StopsGenerationForPatchedMalformedJsonIgnoreAttribute()
+    {
+        byte[] image = PatchJsonIgnoreCondition(
+            nameof(DirectionalOutputDto),
+            nameof(DirectionalOutputDto.DefaultHidden),
+            outOfRangeValue: 9);
+
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: false);
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            JsExportSurfaceBuilder.Build(apiSurface);
+
+        ApiMember patched = Assert.Single(
+            Assert.Single(
+                surface.Records,
+                record => record.Name == nameof(DirectionalOutputDto))
+                .Members,
+            member => member.Name
+                == nameof(DirectionalOutputDto.DefaultHidden));
+        Assert.Equal([null], patched.JsonIgnoreConditions);
+
+        UnsupportedWireContractException exception =
+            Assert.Throws<UnsupportedWireContractException>(
+                () => DtsEmitter.Emit(surface));
+
+        Assert.Contains(
+            "[JsonIgnore] metadata could not be decoded",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "member 0x",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            nameof(DirectionalOutputDto.DefaultHidden),
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Rewrites the <c>Condition</c> value of one compiled
+    /// <c>[JsonIgnore]</c> attribute in place. The blob is located through
+    /// metadata and required to occur exactly once in the image, so a shared or
+    /// relocated blob fails loudly instead of patching the wrong row.
+    /// </summary>
+    static byte[] PatchJsonIgnoreCondition(
+        string typeName,
+        string propertyName,
+        int outOfRangeValue)
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(FixtureExports).Assembly.Location);
+        byte[] blob;
+        using (var stream = new MemoryStream(image, writable: false))
+        using (var peReader = new PEReader(stream))
+        {
+            MetadataReader reader = peReader.GetMetadataReader();
+            TypeDefinition type = reader.TypeDefinitions
+                .Select(reader.GetTypeDefinition)
+                .Single(candidate =>
+                    reader.GetString(candidate.Name) == typeName);
+            PropertyDefinition property = type.GetProperties()
+                .Select(reader.GetPropertyDefinition)
+                .Single(candidate =>
+                    reader.GetString(candidate.Name) == propertyName);
+            CustomAttribute attribute = property.GetCustomAttributes()
+                .Select(reader.GetCustomAttribute)
+                .Single(candidate =>
+                    candidate.Constructor.Kind == HandleKind.MemberReference
+                    && reader.GetTypeReference(
+                        (TypeReferenceHandle)reader.GetMemberReference(
+                            (MemberReferenceHandle)candidate.Constructor)
+                            .Parent) is var typeReference
+                    && reader.GetString(typeReference.Name)
+                        == "JsonIgnoreAttribute");
+            blob = reader.GetBlobBytes(attribute.Value);
+        }
+
+        int offset = image.AsSpan().IndexOf(blob);
+        Assert.NotEqual(-1, offset);
+        Assert.Equal(
+            -1,
+            image.AsSpan(offset + 1).IndexOf(blob));
+
+        BitConverter.GetBytes(outOfRangeValue)
+            .CopyTo(image.AsSpan(offset + blob.Length - 4));
+        return image;
     }
 }

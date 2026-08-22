@@ -183,6 +183,11 @@ static class TsTypeMapper
             return "unknown";
         }
 
+        // System.Text.Json encodes a byte[] value as one Base64 JSON string. This deliberately
+        // precedes the general array path so other byte-like arrays retain their element mapping.
+        if (trimmed is "byte[]" or "System.Byte[]")
+            return "string";
+
         if (trimmed.EndsWith("[]", StringComparison.Ordinal))
         {
             string element = trimmed[..^2];

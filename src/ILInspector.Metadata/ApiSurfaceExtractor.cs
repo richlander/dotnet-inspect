@@ -670,9 +670,10 @@ public static class ApiSurfaceExtractor
             }
 
             // Capture the wire-fidelity-relevant facts for an enum's JSON serialization: whether
-            // it is [Flags] (STJ serializes a combination as a comma-joined string, not a single
-            // declared name) and whether it carries a JsonStringEnumConverter (STJ serializes by
-            // declared name rather than by numeric value only when this converter is present).
+            // it is [Flags] (STJ serializes named combinations as comma-joined strings, while
+            // undefined combinations can remain numeric) and whether it carries a
+            // JsonStringEnumConverter (declared values serialize by name, while the default
+            // converter can still emit undefined values numerically).
             var jsonTypeAttributes = typeDef.GetCustomAttributes();
             apiType.JsonConverterAttributeCount =
                 AttributeReader.CountJsonConverterAttributes(
@@ -1032,6 +1033,16 @@ public static class ApiSurfaceExtractor
                         reader,
                         prop.GetCustomAttributes(),
                         observeDecodeWork);
+                JsonIncludeAttributeEvidence propertyJsonInclude =
+                    AttributeReader.ReadJsonIncludeAttributes(
+                        reader,
+                        prop.GetCustomAttributes(),
+                        observeDecodeWork);
+                List<JsonWireIgnoreCondition?> propertyJsonIgnoreConditions =
+                    AttributeReader.ReadJsonIgnoreConditions(
+                        reader,
+                        prop.GetCustomAttributes(),
+                        observeDecodeWork);
                 var member = new ApiMember
                 {
                     Name = DecodeString(
@@ -1060,19 +1071,10 @@ public static class ApiSurfaceExtractor
                         prop.GetCustomAttributes(),
                         KnownAttributeNames.CompilerGeneratedAttribute,
                         observeDecodeWork),
-                    HasJsonInclude = AttributeReader.HasJsonIncludeAttribute(
-                        reader,
-                        prop.GetCustomAttributes(),
-                        observeDecodeWork),
-                    HasJsonIgnore = AttributeReader.HasJsonIgnoreAttribute(
-                        reader,
-                        prop.GetCustomAttributes(),
-                        observeDecodeWork),
-                    HasJsonIgnoreNever =
-                        AttributeReader.HasJsonIgnoreNeverAttribute(
-                            reader,
-                            prop.GetCustomAttributes(),
-                            observeDecodeWork),
+                    HasJsonInclude = propertyJsonInclude.Count > 0,
+                    HasMalformedJsonInclude =
+                        propertyJsonInclude.HasMalformedRow,
+                    JsonIgnoreConditions = propertyJsonIgnoreConditions,
                     JsonPropertyName = jsonPropertyNames.Count == 1
                         ? jsonPropertyNames[0]
                         : null,
@@ -1242,6 +1244,16 @@ public static class ApiSurfaceExtractor
                         observeDecodeWork);
                 }
 
+                JsonIncludeAttributeEvidence fieldJsonInclude =
+                    AttributeReader.ReadJsonIncludeAttributes(
+                        reader,
+                        field.GetCustomAttributes(),
+                        observeDecodeWork);
+                List<JsonWireIgnoreCondition?> fieldJsonIgnoreConditions =
+                    AttributeReader.ReadJsonIgnoreConditions(
+                        reader,
+                        field.GetCustomAttributes(),
+                        observeDecodeWork);
                 var member = new ApiMember
                 {
                     Name = fieldName,
@@ -1269,19 +1281,10 @@ public static class ApiSurfaceExtractor
                         field.GetCustomAttributes(),
                         KnownAttributeNames.CompilerGeneratedAttribute,
                         observeDecodeWork),
-                    HasJsonInclude = AttributeReader.HasJsonIncludeAttribute(
-                        reader,
-                        field.GetCustomAttributes(),
-                        observeDecodeWork),
-                    HasJsonIgnore = AttributeReader.HasJsonIgnoreAttribute(
-                        reader,
-                        field.GetCustomAttributes(),
-                        observeDecodeWork),
-                    HasJsonIgnoreNever =
-                        AttributeReader.HasJsonIgnoreNeverAttribute(
-                            reader,
-                            field.GetCustomAttributes(),
-                            observeDecodeWork),
+                    HasJsonInclude = fieldJsonInclude.Count > 0,
+                    HasMalformedJsonInclude =
+                        fieldJsonInclude.HasMalformedRow,
+                    JsonIgnoreConditions = fieldJsonIgnoreConditions,
                     JsonPropertyName = jsonPropertyNames.Count == 1
                         ? jsonPropertyNames[0]
                         : null,

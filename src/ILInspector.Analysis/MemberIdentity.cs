@@ -349,6 +349,15 @@ public sealed record DirectCall(
     /// <see cref="ResultUse"/>.
     /// </summary>
     public int? ResultConsumerOffset { get; init; }
+    /// <summary>
+    /// Direct-call provenance for each declared argument when Analysis can
+    /// interpret the body evaluation stack. Unknown, raw, or merged values
+    /// have <see cref="CallArgumentSource.IsComplete"/> set to false.
+    /// <c>MethodCallAnalysisTests.RejectsMergedEvaluationStackResultSources</c>
+    /// gates the fail-closed boundary.
+    /// </summary>
+    public CallArgumentSources ArgumentSources { get; init; } =
+        CallArgumentSources.Empty;
 }
 
 /// <summary>Conservative disposition of a direct call's produced value.</summary>
@@ -358,6 +367,112 @@ public enum DirectCallResultUse
     MethodReturn,
     CallArgument,
     Discarded,
+}
+
+/// <summary>
+/// Conservative provenance for one declared direct-call argument.
+/// </summary>
+/// <param name="ArgumentIndex">Zero-based declared parameter position.</param>
+/// <param name="SourceCallOffsets">
+/// Physical IL offsets of every directly proven non-void call-result source.
+/// Empty is valid only when <paramref name="IsComplete"/> is false.
+/// </param>
+/// <param name="IsComplete">
+/// Whether every control-flow and evaluation-stack source of the argument was
+/// proven to be a direct non-void call result.
+/// </param>
+public sealed class CallArgumentSource :
+    IEquatable<CallArgumentSource>
+{
+    public CallArgumentSource(
+        int argumentIndex,
+        ImmutableArray<int> sourceCallOffsets,
+        bool isComplete)
+    {
+        ArgumentIndex = argumentIndex;
+        SourceCallOffsets =
+            ImmutableArrayValueEquality.RequireInitialized(
+                sourceCallOffsets,
+                nameof(sourceCallOffsets));
+        IsComplete = isComplete;
+    }
+
+    public int ArgumentIndex { get; }
+
+    public ImmutableArray<int> SourceCallOffsets { get; }
+
+    public bool IsComplete { get; }
+
+    public bool Equals(CallArgumentSource? other)
+        => other is not null
+            && ArgumentIndex == other.ArgumentIndex
+            && IsComplete == other.IsComplete
+            && ImmutableArrayValueEquality.SequenceEqual(
+                SourceCallOffsets,
+                other.SourceCallOffsets);
+
+    public override bool Equals(object? obj)
+        => obj is CallArgumentSource other && Equals(other);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(ArgumentIndex);
+        ImmutableArrayValueEquality.AddToHash(
+            ref hash,
+            SourceCallOffsets);
+        hash.Add(IsComplete);
+        return hash.ToHashCode();
+    }
+}
+
+/// <summary>
+/// Equality-stable collection of <see cref="CallArgumentSource"/> values.
+/// </summary>
+public sealed class CallArgumentSources :
+    IReadOnlyList<CallArgumentSource>,
+    IEquatable<CallArgumentSources>
+{
+    readonly ImmutableArray<CallArgumentSource> _sources;
+
+    public static CallArgumentSources Empty { get; } = new([]);
+
+    public CallArgumentSources(
+        ImmutableArray<CallArgumentSource> sources)
+    {
+        _sources = ImmutableArrayValueEquality.RequireInitialized(
+            sources,
+            nameof(sources));
+    }
+
+    public int Count => _sources.Length;
+
+    public CallArgumentSource this[int index] => _sources[index];
+
+    public IEnumerator<CallArgumentSource> GetEnumerator()
+        => ((IEnumerable<CallArgumentSource>)_sources).GetEnumerator();
+
+    System.Collections.IEnumerator
+        System.Collections.IEnumerable.GetEnumerator()
+        => GetEnumerator();
+
+    public bool Equals(CallArgumentSources? other)
+        => other is not null
+            && ImmutableArrayValueEquality.SequenceEqual(
+                _sources,
+                other._sources);
+
+    public override bool Equals(object? obj)
+        => obj is CallArgumentSources other && Equals(other);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        ImmutableArrayValueEquality.AddToHash(
+            ref hash,
+            _sources);
+        return hash.ToHashCode();
+    }
 }
 
 /// <summary>
@@ -388,8 +503,9 @@ public enum MethodResultSinkKind
 /// valid only when <paramref name="IsComplete"/> is false.
 /// </param>
 /// <param name="IsComplete">
-/// Whether every reaching definition of the sink value was proven to be a
-/// direct non-void call result. Unknown or non-call definitions remain false.
+/// Whether every reaching definition and evaluation-stack source of the sink
+/// value was proven to be a direct non-void call result. Unknown, raw, or
+/// merged stack values remain false.
 /// </param>
 public sealed record MethodResultSink(
     MethodIdentity Caller,
@@ -397,7 +513,17 @@ public sealed record MethodResultSink(
     int ILOffset,
     MethodResultSinkKind Kind,
     ImmutableArray<int> SourceCallOffsets,
-    bool IsComplete);
+    bool IsComplete)
+{
+    /// <summary>
+    /// Direct async source method authenticated by Analysis for this physical
+    /// state-machine body. Null when the body is not a proven async
+    /// state-machine execution body.
+    /// <c>JsonWireContractResolverTests.Build_RejectsUnrelatedAsyncBuilderResultSink</c>
+    /// gates the consumer boundary.
+    /// </summary>
+    public MethodIdentity? AsyncStateMachineSource { get; init; }
+}
 
 public sealed record CalledTypeSummary(
     TypeRef Type,

@@ -246,6 +246,17 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             methodDefinition,
             typeSourceGenerated);
 
+    MethodIdentity?
+        ILibraryMethodAnalysisInfrastructure
+            .ResolveAsyncStateMachineSource(
+                MethodIdentity method,
+                MethodDefinition methodDefinition,
+                bool typeSourceGenerated) =>
+        _asyncSourceResolver.ResolveDeclaredSourceMethod(
+            method,
+            methodDefinition,
+            typeSourceGenerated);
+
     ImmutableArray<OptimizationOpportunity>
         ILibraryMethodAnalysisInfrastructure
             .CollectAsyncSiblingOpportunities(

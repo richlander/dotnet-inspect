@@ -46,23 +46,31 @@ public sealed class JsExportSurfaceBuilderTests
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
         var names = surface.Functions.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(18, surface.Functions.Count);
+        Assert.Equal(26, surface.Functions.Count);
         Assert.Contains("GetWidget", names);
         Assert.Contains("GetWidgetAsync", names);
         Assert.Contains("Ping", names);
         Assert.Contains("RenameWidget", names);
         Assert.Contains("GetWidgetOrOwner", names);
         Assert.Contains("GetWidgetOrRawOk", names);
+        Assert.Contains("GetWidgetOrCached", names);
+        Assert.Contains("GetWidgetOrCachedViaLocal", names);
         Assert.Contains("GetWidgetFromEitherJsonBranch", names);
         Assert.Contains("GetWidgetArray", names);
         Assert.Contains("GetWidgetSummary", names);
         Assert.Contains("GetWidgetPermissionSummary", names);
         Assert.Contains("GetWidgetPrioritySummary", names);
         Assert.Contains("GetWidgetAudit", names);
+        Assert.Contains("SetUnrelatedAsyncBuilder", names);
+        Assert.Contains("RoundTripWidgetWithRuntimeTypeInfo", names);
+        Assert.Contains("RoundTripWidgetWithUnrelatedTypeInfo", names);
         Assert.Contains("QueryPackage", names);
         Assert.Contains("GetInternalContextWidget", names);
         Assert.Contains("GetInternalContextCamelWidget", names);
         Assert.Contains("GetNeedsUnmappedType", names);
+        Assert.Contains("GetDirectionalOutput", names);
+        Assert.Contains("SetDirectionalInput", names);
+        Assert.Contains("RoundTripDirectional", names);
     }
 
     [Fact]
@@ -350,7 +358,8 @@ public sealed class JsExportSurfaceBuilderTests
                     Name = "Ignored",
                     Kind = "property",
                     HasGetter = true,
-                    HasJsonIgnore = true,
+                    JsonIgnoreConditions =
+                        [JsonWireIgnoreCondition.Always],
                     SignatureDecodeStatus =
                         SignatureDecodeStatus.Degraded,
                     SignatureModel = new ApiSignature
@@ -377,7 +386,9 @@ public sealed class JsExportSurfaceBuilderTests
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
         var recordNames = surface.Records.Select(r => r.Name).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(9, surface.Records.Count);
+        Assert.Equal(15, surface.Records.Count);
+        Assert.Contains(nameof(ByteEnvelopeDto), recordNames);
+        Assert.Contains(nameof(BytePayloadDto), recordNames);
         Assert.Contains("WidgetDto", recordNames);
         Assert.Contains("WidgetOwner", recordNames);
         Assert.Contains("WidgetCatalog", recordNames);
@@ -387,6 +398,10 @@ public sealed class JsExportSurfaceBuilderTests
         Assert.Contains("WidgetAudit", recordNames);
         Assert.Contains("ConflictingPolicyWidget", recordNames);
         Assert.Contains("NeedsUnmappedTypeFixture", recordNames);
+        Assert.Contains("DirectionalOutputDto", recordNames);
+        Assert.Contains("DirectionalInputDto", recordNames);
+        Assert.Contains("DirectionalRoundTripDto", recordNames);
+        Assert.Contains("DirectionalNote", recordNames);
     }
 
     [Fact]
@@ -1357,4 +1372,79 @@ public sealed class JsExportSurfaceBuilderTests
             MetadataTypeDefinitionName.Create(
                 @namespace,
                 [name])).Name;
+
+    /// <summary>
+    /// Directions come from how exports use a type, so a DTO reached only
+    /// through a resolved return wire type is serialize-only, one reached only
+    /// through a resolved parameter wire type is deserialize-only, and one
+    /// reached both ways is bidirectional.
+    /// </summary>
+    [Theory]
+    [InlineData(
+        nameof(DirectionalOutputDto),
+        JsonWireDirection.Serialize)]
+    [InlineData(
+        nameof(DirectionalInputDto),
+        JsonWireDirection.Deserialize)]
+    [InlineData(
+        nameof(DirectionalRoundTripDto),
+        JsonWireDirection.Both)]
+    [InlineData(
+        nameof(DirectionalNote),
+        JsonWireDirection.Serialize)]
+    public void Build_RecordsSerializeOnlyDirectionForReturnOnlyDto(
+        string typeName,
+        JsonWireDirection expected)
+    {
+        string path = typeof(FixtureExports).Assembly.Location;
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: false);
+        var bodyIndex = LibraryBodyIndex.Open(path);
+
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            JsExportSurfaceBuilder.Build(apiSurface, bodyIndex);
+
+        ApiType record = Assert.Single(
+            surface.Records,
+            candidate => candidate.Name == typeName);
+        Assert.Equal(expected, surface.WireDirections[record]);
+    }
+
+    /// <summary>
+    /// Without body evidence there are no resolved wire types, so no direction
+    /// is recorded and consumers fall back to the conservative bidirectional
+    /// reading.
+    /// </summary>
+    [Fact]
+    public void Build_RecordsNoDirectionsWithoutBodyEvidence()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildFixtureSurface();
+
+        Assert.Empty(surface.WireDirections);
+    }
+
+    [Fact]
+    public void Build_ResolvesParameterWireTypeReferences()
+    {
+        string path = typeof(FixtureExports).Assembly.Location;
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: false);
+        var bodyIndex = LibraryBodyIndex.Open(path);
+
+        JsExportFunction function = Assert.Single(
+            JsExportSurfaceBuilder.Build(apiSurface, bodyIndex).Functions,
+            candidate => candidate.Name == "SetDirectionalInput");
+
+        Assert.Contains(
+            function.ParameterWireTypeReferences,
+            reference => reference.DefinitionName?.Segments
+                is [nameof(DirectionalInputDto)]);
+    }
 }

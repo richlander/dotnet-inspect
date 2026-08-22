@@ -396,6 +396,74 @@ public sealed class MethodCallAnalysisTests
         Assert.True(complete.IsComplete);
     }
 
+    [Fact]
+    public void RejectsMergedEvaluationStackResultSources()
+    {
+        byte[] directReturn =
+        [
+            0x28, 0x01, 0x00, 0x00, 0x0A,
+            0x2A,
+        ];
+        byte[] localReturn =
+        [
+            0x28, 0x01, 0x00, 0x00, 0x0A,
+            0x0A,
+            0x06,
+            0x2A,
+        ];
+        byte[] rawStackMerge =
+        [
+            0x02,
+            0x25,
+            0x2D, 0x06,
+            0x26,
+            0x28, 0x01, 0x00, 0x00, 0x0A,
+            0x2A,
+        ];
+        byte[] rawLocalStore =
+        [
+            0x02,
+            0x25,
+            0x2D, 0x06,
+            0x26,
+            0x28, 0x01, 0x00, 0x00, 0x0A,
+            0x0A,
+            0x06,
+            0x2A,
+        ];
+        byte[] addressTakenLocal =
+        [
+            0x28, 0x01, 0x00, 0x00, 0x0A,
+            0x0A,
+            0x12, 0x00,
+            0x26,
+            0x06,
+            0x2A,
+        ];
+
+        MethodResultSink direct = Assert.Single(
+            CollectResultSinks(directReturn));
+        MethodResultSink local = Assert.Single(
+            CollectResultSinks(localReturn));
+        MethodResultSink rawMerged = Assert.Single(
+            CollectResultSinks(rawStackMerge));
+        MethodResultSink rawStored = Assert.Single(
+            CollectResultSinks(rawLocalStore));
+        MethodResultSink addressTaken = Assert.Single(
+            CollectResultSinks(addressTakenLocal));
+
+        Assert.Equal([0], direct.SourceCallOffsets);
+        Assert.True(direct.IsComplete);
+        Assert.Equal([0], local.SourceCallOffsets);
+        Assert.True(local.IsComplete);
+        Assert.Empty(rawMerged.SourceCallOffsets);
+        Assert.False(rawMerged.IsComplete);
+        Assert.Empty(rawStored.SourceCallOffsets);
+        Assert.False(rawStored.IsComplete);
+        Assert.Empty(addressTaken.SourceCallOffsets);
+        Assert.False(addressTaken.IsComplete);
+    }
+
     static DirectCall CollectSingle(byte[] il)
     {
         var calls = ImmutableArray.CreateBuilder<DirectCall>();

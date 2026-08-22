@@ -66,6 +66,21 @@ public sealed class TsTypeMapperTests
         Assert.Equal("number[]", TsTypeMapper.MapParameterType("int[]", RecordNames));
     }
 
+    [Theory]
+    [InlineData("byte[]")]
+    [InlineData("System.Byte[]")]
+    public void Map_MapsExactByteArraysToBase64Strings(string csharpType)
+    {
+        Assert.Equal("string", TsTypeMapper.MapParameterType(csharpType, RecordNames));
+    }
+
+    [Fact]
+    public void Map_PreservesOrdinaryArrayMappingForOtherByteLikeTypes()
+    {
+        Assert.Equal("number[]", TsTypeMapper.MapParameterType("sbyte[]", RecordNames));
+        Assert.Equal("number[]", TsTypeMapper.MapParameterType("System.SByte[]", RecordNames));
+    }
+
     [Fact]
     public void Map_NullableTypeMapsToUnionWithNull()
     {

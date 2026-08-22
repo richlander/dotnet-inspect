@@ -11,6 +11,8 @@ public sealed class TsBindGenCommandTests
 {
     private static string FixtureAssemblyPath => typeof(FixtureExports).Assembly.Location;
 
+    private static string CleanAssemblyPath => typeof(TsBindGenCommand).Assembly.Location;
+
     [Fact]
     public void Invoke_WithoutDiffAgainst_PrintsGeneratedDtsAndReturnsOneForUnmappedTypes()
     {
@@ -121,6 +123,108 @@ public sealed class TsBindGenCommandTests
         finally
         {
             File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void Invoke_WithMissingDiffAgainst_DoesNotOverwriteExistingJavaScript()
+    {
+        string diffPath = Path.Combine(AppContext.BaseDirectory, "tsbindgen-missing-diff.d.ts");
+        string emitJsPath = Path.Combine(AppContext.BaseDirectory, "tsbindgen-missing-diff.js");
+        const string existingJavaScript = "// existing JavaScript wrapper";
+        try
+        {
+            File.Delete(diffPath);
+            File.WriteAllText(emitJsPath, existingJavaScript);
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = TsBindGenCommand.Invoke(
+                [CleanAssemblyPath, "--diff-against", diffPath, "--emit-js", emitJsPath],
+                output,
+                error);
+
+            Assert.Equal(1, exitCode);
+            Assert.Empty(output.ToString());
+            Assert.Contains("--diff-against file not found", error.ToString(), StringComparison.Ordinal);
+            Assert.Equal(existingJavaScript, File.ReadAllText(emitJsPath));
+        }
+        finally
+        {
+            File.Delete(diffPath);
+            File.Delete(emitJsPath);
+        }
+    }
+
+    [Fact]
+    public void Invoke_WithStaleDiffAgainst_DoesNotOverwriteExistingJavaScript()
+    {
+        string diffPath = Path.Combine(AppContext.BaseDirectory, "tsbindgen-stale-diff.d.ts");
+        string emitJsPath = Path.Combine(AppContext.BaseDirectory, "tsbindgen-stale-diff.js");
+        const string existingJavaScript = "// existing JavaScript wrapper";
+        try
+        {
+            File.WriteAllText(diffPath, "stale declarations");
+            File.WriteAllText(emitJsPath, existingJavaScript);
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = TsBindGenCommand.Invoke(
+                [CleanAssemblyPath, "--diff-against", diffPath, "--emit-js", emitJsPath],
+                output,
+                error);
+
+            Assert.Equal(1, exitCode);
+            Assert.Empty(output.ToString());
+            Assert.Contains("drift detected", error.ToString(), StringComparison.Ordinal);
+            Assert.Equal(existingJavaScript, File.ReadAllText(emitJsPath));
+        }
+        finally
+        {
+            File.Delete(diffPath);
+            File.Delete(emitJsPath);
+        }
+    }
+
+    [Fact]
+    public void Invoke_WithCoveredDiffAgainst_PublishesJavaScript()
+    {
+        var generatedOutput = new StringWriter();
+        var generatedError = new StringWriter();
+        Assert.Equal(
+            0,
+            TsBindGenCommand.Invoke(
+                [CleanAssemblyPath],
+                generatedOutput,
+                generatedError));
+        Assert.Empty(generatedError.ToString());
+
+        string diffPath = Path.Combine(AppContext.BaseDirectory, "tsbindgen-covered-diff.d.ts");
+        string emitJsPath = Path.Combine(AppContext.BaseDirectory, "tsbindgen-covered-diff.js");
+        try
+        {
+            File.WriteAllText(diffPath, generatedOutput.ToString());
+            File.Delete(emitJsPath);
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = TsBindGenCommand.Invoke(
+                [CleanAssemblyPath, "--diff-against", diffPath, "--emit-js", emitJsPath],
+                output,
+                error);
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("no drift detected", output.ToString(), StringComparison.Ordinal);
+            Assert.Empty(error.ToString());
+            Assert.Contains(
+                "export async function initializeEngine",
+                File.ReadAllText(emitJsPath),
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(diffPath);
+            File.Delete(emitJsPath);
         }
     }
 

@@ -71,6 +71,11 @@ internal interface ILibraryMethodAnalysisInfrastructure
         MethodDefinition methodDefinition,
         bool typeSourceGenerated);
 
+    MethodIdentity? ResolveAsyncStateMachineSource(
+        MethodIdentity method,
+        MethodDefinition methodDefinition,
+        bool typeSourceGenerated);
+
     ImmutableArray<OptimizationOpportunity>
         CollectAsyncSiblingOpportunities(
             MethodBodyAnalysisContext context,
@@ -279,6 +284,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                     return result;
             }
             MethodIdentity? opportunityDeclaredMethod = null;
+            MethodIdentity? asyncStateMachineSource = null;
             bool opportunityDeclaredMethodResolved =
                 bodyTypeScope is null;
             try
@@ -299,6 +305,11 @@ internal sealed class LibraryMethodAnalysisRunner(
                         requestedMethodScope,
                         directlySelectedBody);
                 result.DeclaredMethod = declaredMethod;
+                asyncStateMachineSource =
+                    _infrastructure.ResolveAsyncStateMachineSource(
+                        caller,
+                        methodDefinition,
+                        typeSourceGenerated);
                 MethodIdentity? ultimateOwner =
                     declaredMethod;
                 bool ultimateOwnerResolved =
@@ -542,6 +553,17 @@ internal sealed class LibraryMethodAnalysisRunner(
                     || hasUnsafeSignature
                     || hasUnsafeLocals,
                 resultSinks: resultSinks);
+            if (asyncStateMachineSource is not null)
+            {
+                for (int index = 0; index < resultSinks.Count; index++)
+                {
+                    resultSinks[index] = resultSinks[index] with
+                    {
+                        AsyncStateMachineSource =
+                            asyncStateMachineSource,
+                    };
+                }
+            }
             if (collectScopedOpportunities)
             {
                 MethodIdentity? asyncSource = null;

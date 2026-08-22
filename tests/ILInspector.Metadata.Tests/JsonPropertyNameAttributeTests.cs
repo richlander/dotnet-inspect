@@ -32,6 +32,364 @@ public sealed class JsonPropertyNameAttributeTests
         Assert.False(property.HasJsonIgnoreNever);
     }
 
+    /// <summary>
+    /// Pins <see cref="JsonWireIgnoreCondition"/> to System.Text.Json's own
+    /// <c>JsonIgnoreCondition</c>. The decoded value is that enum's underlying
+    /// constant, so a renumbering there would silently rename every condition
+    /// this repository reports.
+    /// </summary>
+    [Fact]
+    public void JsonIgnoreConditionValuesMatchSystemTextJson()
+    {
+        Assert.Equal(
+            (int)JsonIgnoreCondition.Never,
+            (int)JsonWireIgnoreCondition.Never);
+        Assert.Equal(
+            (int)JsonIgnoreCondition.Always,
+            (int)JsonWireIgnoreCondition.Always);
+        Assert.Equal(
+            (int)JsonIgnoreCondition.WhenWritingDefault,
+            (int)JsonWireIgnoreCondition.WhenWritingDefault);
+        Assert.Equal(
+            (int)JsonIgnoreCondition.WhenWritingNull,
+            (int)JsonWireIgnoreCondition.WhenWritingNull);
+        Assert.Equal(
+            (int)JsonIgnoreCondition.WhenWriting,
+            (int)JsonWireIgnoreCondition.WhenWriting);
+        Assert.Equal(
+            (int)JsonIgnoreCondition.WhenReading,
+            (int)JsonWireIgnoreCondition.WhenReading);
+        Assert.Equal(
+            Enum.GetValues<JsonIgnoreCondition>().Length,
+            Enum.GetValues<JsonWireIgnoreCondition>().Length);
+    }
+
+    [Theory]
+    [InlineData(
+        nameof(JsonIgnoreConditionProbe.WhenWriting),
+        JsonWireIgnoreCondition.WhenWriting)]
+    [InlineData(
+        nameof(JsonIgnoreConditionProbe.WhenReading),
+        JsonWireIgnoreCondition.WhenReading)]
+    [InlineData(
+        nameof(JsonIgnoreConditionProbe.Bare),
+        JsonWireIgnoreCondition.Always)]
+    [InlineData(
+        nameof(JsonIgnoreConditionProbe.Kept),
+        JsonWireIgnoreCondition.Never)]
+    [InlineData(
+        nameof(JsonIgnoreConditionProbe.WhenWritingDefault),
+        JsonWireIgnoreCondition.WhenWritingDefault)]
+    [InlineData(
+        nameof(JsonIgnoreConditionProbe.WhenWritingNull),
+        JsonWireIgnoreCondition.WhenWritingNull)]
+    public void DirectionalJsonIgnoreConditionsAreDecodedFromCompiledMetadata(
+        string propertyName,
+        JsonWireIgnoreCondition expected)
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(JsonIgnoreConditionProbe).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType probe = Assert.Single(
+            surface.Types,
+            type => type.Name == nameof(JsonIgnoreConditionProbe));
+        ApiMember property = Assert.Single(
+            probe.Members,
+            member => member.Name == propertyName);
+
+        Assert.Equal([expected], property.JsonIgnoreConditions);
+        Assert.True(property.HasJsonIgnore);
+        Assert.Equal(
+            expected == JsonWireIgnoreCondition.Never,
+            property.HasJsonIgnoreNever);
+    }
+
+    [Fact]
+    public void UnattributedMemberReportsNoJsonIgnoreEvidence()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(JsonIgnoreConditionProbe).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType probe = Assert.Single(
+            surface.Types,
+            type => type.Name == nameof(JsonIgnoreConditionProbe));
+        ApiMember property = Assert.Single(
+            probe.Members,
+            member => member.Name == nameof(JsonIgnoreConditionProbe.Plain));
+
+        Assert.Empty(property.JsonIgnoreConditions);
+        Assert.False(property.HasJsonIgnore);
+        Assert.False(property.HasJsonIgnoreNever);
+        Assert.False(property.HasMalformedJsonInclude);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MalformedAuthenticJsonIgnoreIsUnsupportedEvidence(
+        bool outOfRangeCondition)
+    {
+        using var stream = new MemoryStream(
+            BuildImage(
+                "JsonIgnoreAttribute",
+                markerConstructor: outOfRangeCondition,
+                ignoreCondition: outOfRangeCondition ? 9 : null),
+            writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition type = reader.GetTypeDefinition(
+            MetadataTokens.TypeDefinitionHandle(2));
+
+        List<JsonWireIgnoreCondition?> conditions =
+            AttributeReader.ReadJsonIgnoreConditions(
+                reader,
+                type.GetCustomAttributes());
+
+        Assert.Equal([null], conditions);
+        Assert.True(
+            AttributeReader.HasJsonIgnoreAttribute(
+                reader,
+                type.GetCustomAttributes()));
+        Assert.False(
+            AttributeReader.HasJsonIgnoreNeverAttribute(
+                reader,
+                type.GetCustomAttributes()));
+    }
+
+    [Fact]
+    public void AuthenticJsonIgnoreConditionIsDecodedFromSyntheticMetadata()
+    {
+        using var stream = new MemoryStream(
+            BuildImage(
+                "JsonIgnoreAttribute",
+                markerConstructor: true,
+                ignoreCondition: (int)JsonWireIgnoreCondition.WhenReading),
+            writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition type = reader.GetTypeDefinition(
+            MetadataTokens.TypeDefinitionHandle(2));
+
+        Assert.Equal(
+            [JsonWireIgnoreCondition.WhenReading],
+            AttributeReader.ReadJsonIgnoreConditions(
+                reader,
+                type.GetCustomAttributes()));
+    }
+
+    [Fact]
+    public void UntrustedJsonIgnoreAttributeIsIgnoredRatherThanMalformed()
+    {
+        using var stream = new MemoryStream(
+            BuildImage("JsonIgnoreAttribute", trustedAssembly: false),
+            writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition type = reader.GetTypeDefinition(
+            MetadataTokens.TypeDefinitionHandle(2));
+
+        Assert.Empty(
+            AttributeReader.ReadJsonIgnoreConditions(
+                reader,
+                type.GetCustomAttributes()));
+    }
+
+    [Fact]
+    public void MalformedAuthenticJsonIncludeIsUnsupportedEvidence()
+    {
+        using var stream = new MemoryStream(
+            BuildImage("JsonIncludeAttribute"),
+            writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition type = reader.GetTypeDefinition(
+            MetadataTokens.TypeDefinitionHandle(2));
+
+        JsonIncludeAttributeEvidence evidence =
+            AttributeReader.ReadJsonIncludeAttributes(
+                reader,
+                type.GetCustomAttributes());
+
+        Assert.Equal(
+            new JsonIncludeAttributeEvidence(0, HasMalformedRow: true),
+            evidence);
+        Assert.False(
+            AttributeReader.HasJsonIncludeAttribute(
+                reader,
+                type.GetCustomAttributes()));
+    }
+
+    [Fact]
+    public void WellFormedJsonIncludeIsSupportedEvidence()
+    {
+        using var stream = new MemoryStream(
+            BuildImage("JsonIncludeAttribute", markerConstructor: true),
+            writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition type = reader.GetTypeDefinition(
+            MetadataTokens.TypeDefinitionHandle(2));
+
+        Assert.Equal(
+            new JsonIncludeAttributeEvidence(1, HasMalformedRow: false),
+            AttributeReader.ReadJsonIncludeAttributes(
+                reader,
+                type.GetCustomAttributes()));
+    }
+
+    [Fact]
+    public void UntrustedJsonIncludeAttributeIsIgnoredRatherThanMalformed()
+    {
+        using var stream = new MemoryStream(
+            BuildImage("JsonIncludeAttribute", trustedAssembly: false),
+            writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition type = reader.GetTypeDefinition(
+            MetadataTokens.TypeDefinitionHandle(2));
+
+        Assert.Equal(
+            new JsonIncludeAttributeEvidence(0, HasMalformedRow: false),
+            AttributeReader.ReadJsonIncludeAttributes(
+                reader,
+                type.GetCustomAttributes()));
+    }
+
+    /// <summary>
+    /// A nested TypeRef chain whose flattened spelling equals a genuine
+    /// framework attribute, resolving through the authentic signed AssemblyRef,
+    /// must not authenticate: identity is compared structurally, so the
+    /// namespace and root-to-leaf segments differ even though the display text
+    /// does not.
+    /// </summary>
+    [Theory]
+    [InlineData("JsonIgnoreAttribute")]
+    [InlineData("JsonIncludeAttribute")]
+    [InlineData("JsonPropertyNameAttribute")]
+    public void NestedAttributeIdentityCannotAliasTopLevelFrameworkAttribute(
+        string attributeTypeName)
+    {
+        using var nested = new MemoryStream(
+            BuildImage(
+                attributeTypeName,
+                markerConstructor:
+                    attributeTypeName != "JsonPropertyNameAttribute",
+                nestedAttributeType: true),
+            writable: false);
+        using var nestedReader = new PEReader(nested);
+        MetadataReader reader = nestedReader.GetMetadataReader();
+        TypeDefinition type = reader.GetTypeDefinition(
+            MetadataTokens.TypeDefinitionHandle(2));
+
+        // Non-vacuity: the flattened display spelling really does alias the
+        // genuine framework attribute, so only structured identity separates
+        // them. If this stops being true the impostor is no longer a threat and
+        // the assertions below would pass for the wrong reason.
+        Assert.True(
+            AttributeReader.HasAttribute(
+                reader,
+                type.GetCustomAttributes(),
+                $"System.Text.Json.Serialization.{attributeTypeName}"));
+
+        Assert.Empty(
+            AttributeReader.ReadJsonIgnoreConditions(
+                reader,
+                type.GetCustomAttributes()));
+        Assert.Equal(
+            new JsonIncludeAttributeEvidence(0, HasMalformedRow: false),
+            AttributeReader.ReadJsonIncludeAttributes(
+                reader,
+                type.GetCustomAttributes()));
+        Assert.Empty(
+            AttributeReader.ReadJsonPropertyNames(
+                reader,
+                type.GetCustomAttributes()));
+    }
+
+    [Theory]
+    [InlineData("JsonIgnoreAttribute")]
+    [InlineData("JsonIncludeAttribute")]
+    [InlineData("JsonPropertyNameAttribute")]
+    public void TopLevelAttributeIdentityStillAuthenticates(
+        string attributeTypeName)
+    {
+        bool marker = attributeTypeName != "JsonPropertyNameAttribute";
+        using var stream = new MemoryStream(
+            BuildImage(attributeTypeName, markerConstructor: marker),
+            writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition type = reader.GetTypeDefinition(
+            MetadataTokens.TypeDefinitionHandle(2));
+
+        switch (attributeTypeName)
+        {
+            case "JsonIgnoreAttribute":
+                Assert.Equal(
+                    [JsonWireIgnoreCondition.Always],
+                    AttributeReader.ReadJsonIgnoreConditions(
+                        reader,
+                        type.GetCustomAttributes()));
+                break;
+            case "JsonIncludeAttribute":
+                Assert.Equal(
+                    new JsonIncludeAttributeEvidence(
+                        1,
+                        HasMalformedRow: false),
+                    AttributeReader.ReadJsonIncludeAttributes(
+                        reader,
+                        type.GetCustomAttributes()));
+                break;
+            default:
+                Assert.Equal(
+                    [null],
+                    AttributeReader.ReadJsonPropertyNames(
+                        reader,
+                        type.GetCustomAttributes()));
+                break;
+        }
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void NestedIdentityCannotAliasTopLevelJsExportAttribute(
+        bool nestedAttributeType,
+        bool expected)
+    {
+        const string jsNamespace =
+            "System.Runtime.InteropServices.JavaScript";
+        using var stream = new MemoryStream(
+            BuildImage(
+                "JSExportAttribute",
+                markerConstructor: true,
+                attributeNamespace: jsNamespace,
+                assemblyName: jsNamespace,
+                nestedAttributeType: nestedAttributeType),
+            writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition type = reader.GetTypeDefinition(
+            MetadataTokens.TypeDefinitionHandle(2));
+
+        Assert.True(
+            AttributeReader.HasAttribute(
+                reader,
+                type.GetCustomAttributes(),
+                $"{jsNamespace}.JSExportAttribute"));
+        Assert.Equal(
+            expected,
+            AttributeReader.HasRuntimeJsExportAttribute(
+                reader,
+                type.GetCustomAttributes()));
+    }
+
     [Fact]
     public void LocallyDefinedFrameworkNamedAttributeInModuleIsUnauthenticated()
     {
@@ -228,7 +586,9 @@ public sealed class JsonPropertyNameAttributeTests
         bool malformedStringConstructor = false,
         string attributeNamespace =
             "System.Text.Json.Serialization",
-        string assemblyName = "System.Text.Json")
+        string assemblyName = "System.Text.Json",
+        bool nestedAttributeType = false,
+        int? ignoreCondition = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -258,10 +618,33 @@ public sealed class JsonPropertyNameAttributeTests
                 : default,
             default,
             default);
-        TypeReferenceHandle attributeType = metadata.AddTypeReference(
-            systemTextJson,
-            metadata.GetOrAddString(attributeNamespace),
-            metadata.GetOrAddString(attributeTypeName));
+        TypeReferenceHandle attributeType;
+        if (nestedAttributeType)
+        {
+            // A nested chain whose flattened spelling is indistinguishable from
+            // the genuine top-level attribute, and whose resolution scope still
+            // terminates at the authentic framework AssemblyRef.
+            int lastDot = attributeNamespace.LastIndexOf('.');
+            TypeReferenceHandle outer = metadata.AddTypeReference(
+                systemTextJson,
+                metadata.GetOrAddString(
+                    lastDot < 0 ? "" : attributeNamespace[..lastDot]),
+                metadata.GetOrAddString(
+                    lastDot < 0
+                        ? attributeNamespace
+                        : attributeNamespace[(lastDot + 1)..]));
+            attributeType = metadata.AddTypeReference(
+                outer,
+                default,
+                metadata.GetOrAddString(attributeTypeName));
+        }
+        else
+        {
+            attributeType = metadata.AddTypeReference(
+                systemTextJson,
+                metadata.GetOrAddString(attributeNamespace),
+                metadata.GetOrAddString(attributeTypeName));
+        }
         var constructorSignature = new BlobBuilder();
         new BlobEncoder(constructorSignature).MethodSignature(
             SignatureCallingConvention.Default,
@@ -296,7 +679,20 @@ public sealed class JsonPropertyNameAttributeTests
         value.WriteUInt16(1);
         if (markerConstructor)
         {
-            value.WriteUInt16(0);
+            if (ignoreCondition is { } condition)
+            {
+                value.WriteUInt16(1);
+                value.WriteByte(0x54);
+                value.WriteByte(0x55);
+                value.WriteSerializedString(
+                    "System.Text.Json.Serialization.JsonIgnoreCondition");
+                value.WriteSerializedString("Condition");
+                value.WriteInt32(condition);
+            }
+            else
+            {
+                value.WriteUInt16(0);
+            }
         }
         else
         {
@@ -401,6 +797,20 @@ public sealed class JsonPropertyNameAttributeTests
 
 public sealed class JsonIgnoreConditionProbe
 {
+    public string Plain { get; set; } = "";
+
+    [JsonIgnore]
+    public string Bare { get; set; } = "";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string Kept { get; set; } = "";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public string WhenWritingDefault { get; set; } = "";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? WhenWritingNull { get; set; }
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
     public string WhenWriting { get; set; } = "";
 

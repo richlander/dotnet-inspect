@@ -15,6 +15,9 @@ tsbindgen <path-to-assembly.dll>
 
 # Compare generated output against a hand-written file; exits non-zero on drift.
 tsbindgen <path-to-assembly.dll> --diff-against <path-to-hand-written.d.ts>
+
+# Publish a JavaScript wrapper only after the checked-in declarations cover generated output.
+tsbindgen <path-to-assembly.dll> --diff-against <path-to-hand-written.d.ts> --emit-js <path-to-wrapper.js>
 ```
 
 ## Design
@@ -32,6 +35,16 @@ syntax, and `.d.ts` layout — lives entirely in this tool (`TsTypeMapper`,
 `CamelCase`, `DtsEmitter`). A future binding-generation target besides
 TypeScript would add its own "personality" layer here without needing to touch
 the OM.
+
+System.Text.Json serializes an exact CLR `byte[]` (`System.Byte[]`) as one
+Base64 JSON string, so those declarations map to TypeScript `string`. Other
+byte-like arrays continue through ordinary array mapping.
+`TsTypeMapperTests.Map_MapsExactByteArraysToBase64Strings`,
+`Map_PreservesOrdinaryArrayMappingForOtherByteLikeTypes`,
+`DtsEmitterTests.Emit_MapsByteArrayPropertiesToBase64StringsInDirectAndNestedDtos`,
+and `SourceGeneratedJson_UsesBase64StringsForByteArrayProperties` gate that
+wire contract against both generated declarations and the real source
+generator.
 
 ### Record shape discovery
 
@@ -61,20 +74,60 @@ Generated interfaces include properties with an accessible getter and
 `[JsonInclude]` properties or fields accessible to the source-generated
 context. Private, private-protected, and protected members remain excluded,
 matching the source generator's `SYSLIB1038` boundary; internal, protected
-internal, and public members are accessible. `[JsonIgnore(Condition = Never)]`
-keeps a member in the shape; other ignore conditions exclude it because callers
-cannot rely on its presence. Write-only properties remain excluded even when
-annotated. The same wire-member rule drives transitive DTO discovery and
-declaration emission so a discovered edge cannot become an orphaned or
-incomplete TypeScript shape;
+internal, and public members are accessible. Write-only properties remain
+excluded even when annotated. The same wire-member rule drives transitive DTO
+discovery and declaration emission so a discovered edge cannot become an
+orphaned or incomplete TypeScript shape;
 `DtsEmitterTests.Emit_IncludesJsonIncludedFieldsInParentInterface` and
 `DtsEmitterTests.SourceGeneratedJson_OmitsInaccessibleJsonIncludedMembers`
 plus `DtsEmitterTests.Emit_MatchesSourceGeneratedJsonIncludeAccessibility`
-gate that shared-rule invariant against the real source generator, while
-`DtsEmitterTests.Emit_IncludesPropertyWithJsonIgnoreNever` gates the explicit
-`Never` exception and
-`JsonPropertyNameAttributeTests.CurrentDirectionalJsonIgnoreConditionsArePreserved`
-gates the current `WhenWriting` and `WhenReading` values.
+gate that shared-rule invariant against the real source generator.
+
+### Directional `[JsonIgnore]`
+
+`[JsonIgnore]` is not one fact. `WhenWriting` removes a member from what is
+serialized while leaving it in what is deserialized, and `WhenReading` does the
+reverse, so collapsing every non-`Never` condition into total exclusion drops
+members that really are on the wire. Conditions are therefore preserved from
+metadata as `JsonWireIgnoreCondition` and applied per direction:
+
+| Condition | Serialize | Deserialize |
+| --- | --- | --- |
+| absent, `Never` | present | present |
+| `Always`, `WhenWritingDefault`, `WhenWritingNull` | absent | absent |
+| `WhenWriting` | absent | present |
+| `WhenReading` | present | absent |
+
+`WhenWritingDefault` and `WhenWritingNull` depend on the runtime value rather
+than the declaration, so a static projection still cannot promise the member in
+either direction and keeps them excluded.
+
+A declared type's directions come from how exports use it: a resolved return
+wire type marks a type serialize-only, a resolved parameter wire type marks it
+deserialize-only, and both mark it bidirectional. A bidirectional type with a
+direction-sensitive member has no single interface, so it is emitted as
+diagnosed `unknown` rather than guessing one direction's shape. Without body
+evidence no direction can be attributed and every type is read as
+bidirectional. Direction propagation deliberately walks the
+direction-independent member union, which is a superset of any one direction's
+members, so a directional declaration can never reference an undeclared type.
+
+`JsonPropertyNameAttributeTests.JsonIgnoreConditionValuesMatchSystemTextJson`
+pins the condition values to System.Text.Json's own enum and
+`DirectionalJsonIgnoreConditionsAreDecodedFromCompiledMetadata` gates decoding
+from compiled metadata.
+`JsonWireMemberRulesTests.DirectionalIgnoreConditionsSelectDirections` gates
+the table above,
+`JsExportSurfaceBuilderTests.Build_RecordsSerializeOnlyDirectionForReturnOnlyDto`
+gates direction attribution, and
+`DtsEmitterTests.Emit_PreservesWhenReadingMemberInSerializeOnlyDeclaration`,
+`Emit_PreservesWhenWritingMemberInDeserializeOnlyDeclaration`,
+`Emit_BlocksBidirectionalTypeWithDirectionSensitiveMember`,
+`Emit_BlocksDirectionSensitiveTypeWithoutBodyEvidence`, and
+`Emit_DoesNotOrphanTypesReachedOnlyThroughDirectionalMembers` gate emission
+against the compiled, source-generator-backed fixtures.
+`DtsEmitterTests.Emit_IncludesPropertyWithJsonIgnoreNever` continues to gate
+the explicit `Never` exception.
 
 Inherited class members and the wire semantics of `[JsonNumberHandling]`,
 `[JsonPolymorphic]`, `[JsonDerivedType]`, and `[JsonExtensionData]` are not yet
@@ -102,6 +155,14 @@ and unresolved flows do not contribute.
 ordered sequence of trimmed, non-blank lines. Reordered declarations, moved
 members, missing lines, and extra structure all count as drift; blank-line and
 indentation-only differences do not.
+
+When `--emit-js` and `--diff-against` are both present, tsbindgen validates the
+declaration input and drift before creating or overwriting the JavaScript
+destination. A missing or stale declaration file therefore leaves a prior
+wrapper untouched rather than publishing a success-shaped partial result.
+`TsBindGenCommandTests.Invoke_WithMissingDiffAgainst_DoesNotOverwriteExistingJavaScript`,
+`Invoke_WithStaleDiffAgainst_DoesNotOverwriteExistingJavaScript`, and
+`Invoke_WithCoveredDiffAgainst_PublishesJavaScript` gate that publication order.
 
 ### Unmapped types
 
@@ -149,6 +210,36 @@ and
 `JsonSourceGenerationOptionsAttributeTests.SameNameOptionsAttributeFromUntrustedAssemblyIsIgnored`
 gate the cross-assembly and manifest-less-module boundaries.
 
+Attribute identity is compared structurally, as a namespace plus root-to-leaf
+metadata name segments, never as flattened display text. A flattened nested
+`TypeRef` chain spells itself exactly like a genuine top-level framework
+attribute and can still resolve through the authentic signed `AssemblyRef`, so
+display text alone cannot separate an impostor from the real attribute. This
+applies to every authenticated framework attribute, including `[JSExport]` and
+the System.Text.Json attributes above.
+`JsonPropertyNameAttributeTests.NestedAttributeIdentityCannotAliasTopLevelFrameworkAttribute`
+and `NestedIdentityCannotAliasTopLevelJsExportAttribute` gate the impostor and
+the matching genuine positives; both first assert that the flattened spelling
+really does alias, so the gate cannot pass vacuously.
+`JsonPropertyNameAttributeTests.TopLevelAttributeIdentityStillAuthenticates`
+gates the genuine top-level case.
+
+Authentic but unreadable `[JsonIgnore]` and `[JsonInclude]` metadata is visible
+unsupported evidence, not absence. Such a row is preserved with the same
+malformed-row marker convention as `[JsonPropertyName]`, and generation stops
+with a token-only diagnostic rather than emitting a success-shaped declaration
+from metadata that could not be decoded. Duplicate `[JsonIgnore]` rows are
+equally fatal. A same-name attribute from an untrusted assembly is still
+ignored outright, because it never claimed the framework's meaning.
+`JsonPropertyNameAttributeTests.MalformedAuthenticJsonIgnoreIsUnsupportedEvidence`,
+`MalformedAuthenticJsonIncludeIsUnsupportedEvidence`,
+`UntrustedJsonIgnoreAttributeIsIgnoredRatherThanMalformed`, and
+`UntrustedJsonIncludeAttributeIsIgnoredRatherThanMalformed` gate the metadata
+side, while `DtsEmitterTests.Emit_RefusesMalformedOrDuplicateJsonIgnoreRows`,
+`Emit_RefusesMalformedJsonIncludeRows`, and
+`Emit_StopsGenerationForPatchedMalformedJsonIgnoreAttribute` gate end-to-end
+generation, the last against a patched real compiled assembly.
+
 Type- or member-level custom `[JsonConverter]` attributes can replace the
 entire inferred wire shape. Types using an unsupported converter are emitted
 as diagnosed `unknown`; individual serialized members using one have an
@@ -168,13 +259,20 @@ and `Extract_RejectsStringEnumConverterForAnotherEnum` gate these boundaries
 against both direct models and compiled metadata.
 
 For string-converted enums, `[JsonStringEnumMemberName]` supplies the emitted
-wire value. Arbitrary values are safely escaped, equal wire values are
-deduplicated in the TypeScript union, and duplicate or malformed attribute
-rows stop generation before output.
+string wire value. The current metadata model does not prove a converter was
+configured with `allowIntegerValues: false`, so declarations also admit the
+default System.Text.Json numeric fallback: regular enums are a string-literal
+union plus `number`, while flags enums are `string | number`. Arbitrary values
+are safely escaped, equal wire values are deduplicated in the TypeScript union,
+and duplicate or malformed attribute rows stop generation before output.
 `JsonPropertyNameAttributeTests.JsonStringEnumMemberName*` gates ordered
 metadata evidence, while
-`DtsEmitterTests.Emit_UsesEscapedDeduplicatedEnumWireNames` and
-`Emit_RefusesMalformedOrDuplicateEnumWireNames` gate emission.
+`DtsEmitterTests.Emit_ProjectsStringConvertedEnumAsStringLiteralAndNumberUnion`,
+`Emit_ProjectsStringConvertedFlagsEnumAsStringAndNumber`,
+`SourceGeneratedJson_StringEnumConverterAllowsUndefinedNumericValues`,
+`Emit_UsesEscapedDeduplicatedEnumWireNames`, and
+`Emit_RefusesMalformedOrDuplicateEnumWireNames` gate emission and the real STJ
+oracle.
 
 A control character in `[JsonPropertyName]` is a harder boundary: generation
 stops without emitting declarations, and reports only a safe metadata location

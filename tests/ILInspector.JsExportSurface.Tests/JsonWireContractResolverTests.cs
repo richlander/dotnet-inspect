@@ -376,6 +376,21 @@ public sealed class JsonWireContractResolverTests
     }
 
     [Fact]
+    public void Build_LeavesReturnWireTypeUnsetForRawEvaluationStackMerges()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildFixtureSurfaceWithWireContracts();
+
+        JsExportFunction[] functions = [.. surface.Functions.Where(function =>
+            function.Name is "GetWidgetOrCached"
+                or "GetWidgetOrCachedViaLocal")];
+        Assert.Equal(2, functions.Length);
+        Assert.All(
+            functions,
+            function => Assert.Null(function.ReturnWireType));
+    }
+
+    [Fact]
     public void Build_ResolvesReturnWireTypeForSameDtoSerializerBranches()
     {
         ILInspector.JsExportSurface.JsExportSurface surface =
@@ -430,6 +445,38 @@ public sealed class JsonWireContractResolverTests
                 function.Name == "IgnoreSerializedWidget");
 
         Assert.Null(fn.ReturnWireType);
+    }
+
+    [Fact]
+    public void Build_RejectsUnrelatedAsyncBuilderResultSink()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildFixtureSurfaceWithWireContracts();
+
+        JsExportFunction fn = Assert.Single(
+            surface.Functions,
+            function => function.Name == "SetUnrelatedAsyncBuilder");
+
+        Assert.Null(fn.ReturnWireType);
+    }
+
+    [Fact]
+    public void Build_RequiresRegisteredContextPropertyArgumentProvenance()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildFixtureSurfaceWithWireContracts();
+
+        JsExportFunction[] functions = [.. surface.Functions.Where(function =>
+            function.Name is "RoundTripWidgetWithRuntimeTypeInfo"
+                or "RoundTripWidgetWithUnrelatedTypeInfo")];
+        Assert.Equal(2, functions.Length);
+        Assert.All(
+            functions,
+            function =>
+            {
+                Assert.Null(function.ReturnWireType);
+                Assert.Empty(function.ParameterWireTypes);
+            });
     }
 
     [Fact]
@@ -504,9 +551,13 @@ public sealed class JsonWireContractResolverTests
             image[bodyOffset] = 0x01;
         }
 
+        string scratchDirectory = Path.Combine(
+            "artifacts",
+            $"tsbindgen-async-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(scratchDirectory);
         string corruptedPath = Path.Combine(
-            Path.GetTempPath(),
-            $"tsbindgen-async-{Guid.NewGuid():N}.dll");
+            scratchDirectory,
+            "fixture.dll");
         try
         {
             File.WriteAllBytes(corruptedPath, image);
@@ -531,6 +582,7 @@ public sealed class JsonWireContractResolverTests
         finally
         {
             File.Delete(corruptedPath);
+            Directory.Delete(scratchDirectory);
         }
     }
 
