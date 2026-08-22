@@ -1018,8 +1018,10 @@ notes, and the row inspector.
 `src/doc-viewer.ts` owns the package document modal (the Markdown reader
 opened from a package's documents list) and that list's markup, including its
 open, close, and bare-backdrop bindings. `src/document-inspection.ts` owns its
-sequence-guarded async load/close lifecycle, visible failure, and frontmatter
-projection.
+request-owned `closed`/`loading`/`ready`/`failed` state, visible failure, and
+frontmatter projection. The loading object is the request-ownership token, so a
+stale completion cannot publish into a newer open or closed state and result,
+metadata, and error fields exist only on their applicable variants.
 `dotnet-inspect.ts` validates the selected package document and supplies the
 engine, sanitized Markdown-rendering, state, and render ports.
 `test/doc-viewer.test.ts` gates the closed/no-document fallback, loading and

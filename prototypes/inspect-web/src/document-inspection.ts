@@ -5,13 +5,7 @@ import type {
 } from "./inspect-web-engine.d.ts";
 
 export interface DocumentInspectionState {
-  docViewerOpen: boolean;
-  docViewer: BrowserPackageDocument | null;
-  docViewerLoading: boolean;
-  docViewerError: string;
-  docViewerHtml: string;
-  docViewerMeta: DocViewerMeta | null;
-  docViewerSeq: number;
+  docViewer: DocumentViewerState;
 }
 
 export interface PackageDocumentRequest {
@@ -19,6 +13,21 @@ export interface PackageDocumentRequest {
   version: string;
   document: BrowserPackageDocument;
 }
+
+export type DocumentViewerState =
+  | { status: "closed" }
+  | { status: "loading"; request: PackageDocumentRequest }
+  | {
+      status: "ready";
+      request: PackageDocumentRequest;
+      html: string;
+      meta: DocViewerMeta | null;
+    }
+  | {
+      status: "failed";
+      request: PackageDocumentRequest;
+      error: string;
+    };
 
 export interface DocumentInspectionDependencies {
   state: DocumentInspectionState;
@@ -84,26 +93,21 @@ export function createDocumentInspectionCoordinator(
 
   return {
     async open(request: PackageDocumentRequest) {
-      const sequence = ++state.docViewerSeq;
-      state.docViewerOpen = true;
-      state.docViewer = request.document;
-      state.docViewerHtml = "";
-      state.docViewerMeta = null;
-      state.docViewerError = "";
-      state.docViewerLoading = true;
+      const pending = { status: "loading", request } as const;
+      state.docViewer = pending;
       dependencies.render();
       try {
         const content = await dependencies.queryDocument(request);
-        if (sequence !== state.docViewerSeq) return;
+        if (state.docViewer !== pending) return;
         if (typeof content.text !== "string")
           throw new TypeError("The document content did not contain text.");
         const { meta, body } = splitFrontmatter(content.text);
         const html = await dependencies.renderMarkdown(body);
-        if (sequence !== state.docViewerSeq) return;
+        if (state.docViewer !== pending) return;
         const descriptionHtml = meta?.description
           ? await dependencies.renderMarkdownInline(meta.description)
           : "";
-        if (sequence !== state.docViewerSeq) return;
+        if (state.docViewer !== pending) return;
         const projectedMeta = meta && (meta.name || meta.description)
           ? {
               name: meta.name || request.document.name,
@@ -111,27 +115,25 @@ export function createDocumentInspectionCoordinator(
               descriptionHtml,
             }
           : null;
-        state.docViewerHtml = html;
-        state.docViewerMeta = projectedMeta;
+        state.docViewer = {
+          status: "ready",
+          request,
+          html,
+          meta: projectedMeta,
+        };
       } catch (error) {
-        if (sequence !== state.docViewerSeq) return;
-        state.docViewerError = dependencies.describeError(error);
-      } finally {
-        if (sequence === state.docViewerSeq) {
-          state.docViewerLoading = false;
-          dependencies.render();
-        }
+        if (state.docViewer !== pending) return;
+        state.docViewer = {
+          status: "failed",
+          request,
+          error: dependencies.describeError(error),
+        };
       }
+      dependencies.render();
     },
 
     close() {
-      state.docViewerSeq++;
-      state.docViewerOpen = false;
-      state.docViewer = null;
-      state.docViewerHtml = "";
-      state.docViewerMeta = null;
-      state.docViewerError = "";
-      state.docViewerLoading = false;
+      state.docViewer = { status: "closed" };
       dependencies.render();
     },
   };

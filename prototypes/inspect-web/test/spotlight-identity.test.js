@@ -1112,11 +1112,15 @@ test("typed document inspection owns package document request coordination", () 
     documentLoader,
     /return documentInspection\.open\(\{\s*packageId: pkg\.id,\s*version: pkg\.version,\s*document: doc,\s*\}\)/);
   assert.match(documentCloser, /documentInspection\.close\(\)/);
-  assert.doesNotMatch(documentLoader, /state\.docViewer(?:Seq|Open|Loading)/);
-  assert.doesNotMatch(documentCloser, /state\.docViewer(?:Seq|Open|Loading)/);
+  assert.doesNotMatch(documentLoader, /state\.docViewer/);
+  assert.doesNotMatch(documentCloser, /state\.docViewer/);
   assert.match(
     documentInspectionSource,
-    /async open\(request: PackageDocumentRequest\)[\s\S]*state\.docViewerSeq/);
+    /type DocumentViewerState =[\s\S]*status: "closed"[\s\S]*status: "loading"[\s\S]*status: "ready"[\s\S]*status: "failed"/);
+  assert.match(
+    documentInspectionSource,
+    /async open\(request: PackageDocumentRequest\)[\s\S]*const pending = \{ status: "loading", request \} as const;[\s\S]*if \(state\.docViewer !== pending\) return;/);
+  assert.doesNotMatch(documentInspectionSource, /docViewerSeq/);
 });
 
 test("typed catalog requests own release and package-version coordination", () => {
@@ -1900,7 +1904,7 @@ test("global workbench shortcuts respect the topmost modal", () => {
     /const unavailableWorkspaceContext = \(\) =>[\s\S]*!state\.home && \(state\.loading \|\| Boolean\(state\.error\)\)[\s\S]*unavailable-workspace\.contain-browser-shortcut[\s\S]*unavailable-workspace\.contain-filter-shortcut/);
   assert.match(
     appSource,
-    /function workspaceKeyboardContextIsActive\(\)[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.settings[\s\S]*!state\.home[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!state\.graphSourceOpen[\s\S]*!state\.docViewerOpen[\s\S]*!state\.spotlightOpen/);
+    /function workspaceKeyboardContextIsActive\(\)[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.settings[\s\S]*!state\.home[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!state\.graphSourceOpen[\s\S]*state\.docViewer\.status === "closed"[\s\S]*!state\.spotlightOpen/);
   assert.equal(
     keybindingRegistrySource.match(/addEventListener\("keydown"/g)?.length,
     1);
@@ -2445,7 +2449,7 @@ test("Type Source completion settles behind workbench overlays", () => {
     ?? "";
   assert.match(
     appSource,
-    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\)\s*\|\| state\.tasteOpen;[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| state\.graphSourceOpen\s*\|\| state\.docViewerOpen;/);
+    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\)\s*\|\| state\.tasteOpen;[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| state\.graphSourceOpen\s*\|\| state\.docViewer\.status !== "closed";/);
   assert.match(
     appSource,
     /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*activeSourceOperationKind\(state\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);

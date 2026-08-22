@@ -5,6 +5,7 @@ import {
   createDocumentInspectionCoordinator,
   type DocumentInspectionDependencies,
   type DocumentInspectionState,
+  type DocumentViewerState,
 } from "../src/document-inspection.ts";
 import type {
   BrowserPackageDocument,
@@ -37,15 +38,48 @@ function inspectionState(
   overrides: Partial<DocumentInspectionState> = {},
 ): DocumentInspectionState {
   return {
-    docViewerOpen: false,
-    docViewer: null,
-    docViewerLoading: false,
-    docViewerError: "",
-    docViewerHtml: "",
-    docViewerMeta: null,
-    docViewerSeq: 0,
+    docViewer: { status: "closed" },
     ...overrides,
   };
+}
+
+function loadingViewer(
+  state: DocumentInspectionState,
+  expectedDocument: BrowserPackageDocument,
+): Extract<DocumentViewerState, { status: "loading" }> {
+  const viewer = state.docViewer;
+  assert.equal(viewer.status, "loading");
+  if (viewer.status !== "loading") assert.fail("Expected a loading document");
+  assert.equal(viewer.request.document, expectedDocument);
+  return viewer;
+}
+
+function readyViewer(
+  state: DocumentInspectionState,
+  expectedDocument: BrowserPackageDocument,
+  expectedHtml?: string,
+): Extract<DocumentViewerState, { status: "ready" }> {
+  const viewer = state.docViewer;
+  assert.equal(viewer.status, "ready");
+  if (viewer.status !== "ready") assert.fail("Expected a ready document");
+  assert.equal(viewer.request.document, expectedDocument);
+  if (expectedHtml !== undefined) assert.equal(viewer.html, expectedHtml);
+  return viewer;
+}
+
+function failedViewer(
+  state: DocumentInspectionState,
+  expectedError: string,
+): Extract<DocumentViewerState, { status: "failed" }> {
+  const viewer = state.docViewer;
+  assert.equal(viewer.status, "failed");
+  if (viewer.status !== "failed") assert.fail("Expected a failed document");
+  assert.equal(viewer.error, expectedError);
+  return viewer;
+}
+
+function assertViewerClosed(state: DocumentInspectionState) {
+  assert.equal(state.docViewer.status, "closed");
 }
 
 function inspectionDependencies(
@@ -103,12 +137,7 @@ test("document requests publish sanitized body HTML for exact coordinates", asyn
     document,
   });
 
-  assert.equal(state.docViewerOpen, true);
-  assert.equal(state.docViewer, document);
-  assert.equal(state.docViewerHtml, "<h1>Read me</h1>");
-  assert.equal(state.docViewerMeta, null);
-  assert.equal(state.docViewerLoading, false);
-  assert.equal(state.docViewerError, "");
+  assert.equal(readyViewer(state, document, "<h1>Read me</h1>").meta, null);
   assert.deepEqual(events, ["render", "query", "markdown", "render"]);
 });
 
@@ -141,12 +170,12 @@ test("document frontmatter projects folded descriptions and version", async () =
     document,
   });
 
-  assert.deepEqual(state.docViewerMeta, {
+  const viewer = readyViewer(state, document, "<h1>Body</h1>");
+  assert.deepEqual(viewer.meta, {
     name: "Package guide",
     version: "2.0",
     descriptionHtml: "<p>First line second line</p>",
   });
-  assert.equal(state.docViewerHtml, "<h1>Body</h1>");
 });
 
 test("frontmatter descriptions fall back to the document name", async () => {
@@ -173,7 +202,7 @@ test("frontmatter descriptions fall back to the document name", async () => {
     document,
   });
 
-  assert.deepEqual(state.docViewerMeta, {
+  assert.deepEqual(readyViewer(state, document).meta, {
     name: "README.md",
     version: "2.0",
     descriptionHtml: "<p>Description</p>",
@@ -193,7 +222,7 @@ test("frontmatter with only a version does not create a metadata card", async ()
     document,
   });
 
-  assert.equal(state.docViewerMeta, null);
+  assert.equal(readyViewer(state, document).meta, null);
 });
 
 test("closing during acquisition suppresses stale document publication", async () => {
@@ -222,9 +251,7 @@ test("closing during acquisition suppresses stale document publication", async (
 
   assert.equal(markdownRenders, 0);
   assert.equal(renders, 2);
-  assert.equal(state.docViewerOpen, false);
-  assert.equal(state.docViewer, null);
-  assert.equal(state.docViewerHtml, "");
+  assertViewerClosed(state);
 });
 
 test("a newer document remains published after an older request completes", async () => {
@@ -252,9 +279,7 @@ test("a newer document remains published after an older request completes", asyn
   first.resolve(content("stale"));
   await firstOpen;
 
-  assert.equal(state.docViewer, guideDocument);
-  assert.equal(state.docViewerHtml, "<p>current</p>");
-  assert.equal(state.docViewerLoading, false);
+  readyViewer(state, guideDocument, "<p>current</p>");
 });
 
 test("replacement during acquisition does not enter stale rendering", async () => {
@@ -286,15 +311,11 @@ test("replacement during acquisition does not enter stale rendering", async () =
   await firstOpen;
 
   assert.equal(staleBodyRenders, 0);
-  assert.equal(state.docViewer, guideDocument);
-  assert.equal(state.docViewerLoading, true);
-  assert.equal(state.docViewerError, "");
-  assert.equal(state.docViewerHtml, "");
-  assert.equal(state.docViewerMeta, null);
+  loadingViewer(state, guideDocument);
 
   second.resolve(content("current"));
   await secondOpen;
-  assert.equal(state.docViewerHtml, "<p>current</p>");
+  readyViewer(state, guideDocument, "<p>current</p>");
 });
 
 test("reopening the same document during acquisition rejects stale identity", async () => {
@@ -327,16 +348,11 @@ test("reopening the same document during acquisition rejects stale identity", as
   await firstOpen;
 
   assert.equal(staleBodyRenders, 0);
-  assert.equal(state.docViewer, document);
-  assert.equal(state.docViewerLoading, true);
-  assert.equal(state.docViewerError, "");
-  assert.equal(state.docViewerHtml, "");
-  assert.equal(state.docViewerMeta, null);
+  loadingViewer(state, document);
 
   second.resolve(content("current"));
   await secondOpen;
-  assert.equal(state.docViewerHtml, "<p>current</p>");
-  assert.equal(state.docViewerLoading, false);
+  readyViewer(state, document, "<p>current</p>");
 });
 
 test("replacement during body rendering suppresses stale description work", async () => {
@@ -379,15 +395,11 @@ test("replacement during body rendering suppresses stale description work", asyn
   await firstOpen;
 
   assert.equal(inlineRenders, 0);
-  assert.equal(state.docViewer, guideDocument);
-  assert.equal(state.docViewerLoading, true);
-  assert.equal(state.docViewerError, "");
-  assert.equal(state.docViewerHtml, "");
-  assert.equal(state.docViewerMeta, null);
+  loadingViewer(state, guideDocument);
 
   second.resolve(content("current"));
   await secondOpen;
-  assert.equal(state.docViewerHtml, "<p>current</p>");
+  readyViewer(state, guideDocument, "<p>current</p>");
 });
 
 test("reopening the same document during body rendering suppresses stale work", async () => {
@@ -431,10 +443,7 @@ test("reopening the same document during body rendering suppresses stale work", 
   await firstOpen;
 
   assert.equal(inlineRenders, 0);
-  assert.equal(state.docViewer, document);
-  assert.equal(state.docViewerLoading, true);
-  assert.equal(state.docViewerHtml, "");
-  assert.equal(state.docViewerMeta, null);
+  loadingViewer(state, document);
 
   second.resolve(content("current"));
   await secondOpen;
@@ -472,15 +481,11 @@ test("replacement during description rendering suppresses stale publication", as
   description.resolve("<p>stale description</p>");
   await firstOpen;
 
-  assert.equal(state.docViewer, guideDocument);
-  assert.equal(state.docViewerLoading, true);
-  assert.equal(state.docViewerError, "");
-  assert.equal(state.docViewerHtml, "");
-  assert.equal(state.docViewerMeta, null);
+  loadingViewer(state, guideDocument);
 
   second.resolve(content("current"));
   await secondOpen;
-  assert.equal(state.docViewerHtml, "<p>current</p>");
+  readyViewer(state, guideDocument, "<p>current</p>");
 });
 
 test("reopening the same document during description rendering suppresses stale publication", async () => {
@@ -516,10 +521,7 @@ test("reopening the same document during description rendering suppresses stale 
   description.resolve("<p>stale description</p>");
   await firstOpen;
 
-  assert.equal(state.docViewer, document);
-  assert.equal(state.docViewerLoading, true);
-  assert.equal(state.docViewerHtml, "");
-  assert.equal(state.docViewerMeta, null);
+  loadingViewer(state, document);
 
   second.resolve(content("current"));
   await secondOpen;
@@ -551,17 +553,12 @@ test("rejected replaced documents cannot settle the current request", async () =
   first.reject(new Error("stale failure"));
   await firstOpen;
 
-  assert.equal(state.docViewer, guideDocument);
-  assert.equal(state.docViewerLoading, true);
-  assert.equal(state.docViewerError, "");
-  assert.equal(state.docViewerHtml, "");
+  loadingViewer(state, guideDocument);
   assert.equal(renders, 2);
 
   second.resolve(content("current"));
   await secondOpen;
-  assert.equal(state.docViewerError, "");
-  assert.equal(state.docViewerHtml, "<p>current</p>");
-  assert.equal(state.docViewerLoading, false);
+  readyViewer(state, guideDocument, "<p>current</p>");
   assert.equal(renders, 3);
 });
 
@@ -590,14 +587,11 @@ test("reopening the same document suppresses a stale rejection", async () => {
   first.reject(new Error("stale failure"));
   await firstOpen;
 
-  assert.equal(state.docViewer, document);
-  assert.equal(state.docViewerLoading, true);
-  assert.equal(state.docViewerError, "");
+  loadingViewer(state, document);
 
   second.resolve(content("current"));
   await secondOpen;
-  assert.equal(state.docViewerError, "");
-  assert.equal(state.docViewerLoading, false);
+  readyViewer(state, document, "<p>current</p>");
 });
 
 test("closing during body rendering suppresses description and publication", async () => {
@@ -630,8 +624,7 @@ test("closing during body rendering suppresses description and publication", asy
   await open;
 
   assert.equal(inlineRenders, 0);
-  assert.equal(state.docViewerHtml, "");
-  assert.equal(state.docViewerMeta, null);
+  assertViewerClosed(state);
 });
 
 test("closing during description rendering suppresses all publication", async () => {
@@ -659,8 +652,7 @@ test("closing during description rendering suppresses all publication", async ()
   description.resolve("<p>stale description</p>");
   await open;
 
-  assert.equal(state.docViewerHtml, "");
-  assert.equal(state.docViewerMeta, null);
+  assertViewerClosed(state);
 });
 
 test("closing before a rejected request suppresses its stale failure", async () => {
@@ -687,8 +679,7 @@ test("closing before a rejected request suppresses its stale failure", async () 
   query.reject(new Error("stale failure"));
   await open;
 
-  assert.equal(state.docViewerError, "");
-  assert.equal(state.docViewerLoading, false);
+  assertViewerClosed(state);
   assert.equal(renders, 2);
 });
 
@@ -709,8 +700,7 @@ test("current document failures remain visible and settle loading", async () => 
     document,
   });
 
-  assert.equal(state.docViewerError, "Markdown renderer unavailable");
-  assert.equal(state.docViewerLoading, false);
+  failedViewer(state, "Markdown renderer unavailable");
   assert.equal(renders, 2);
 });
 
@@ -733,7 +723,7 @@ test("opening another document clears a prior visible failure", async () => {
     version: "1.2.3",
     document,
   });
-  assert.equal(state.docViewerError, "Document unavailable");
+  failedViewer(state, "Document unavailable");
 
   const open = coordinator.open({
     packageId: "Example.Package",
@@ -741,16 +731,11 @@ test("opening another document clears a prior visible failure", async () => {
     document: guideDocument,
   });
 
-  assert.equal(state.docViewer, guideDocument);
-  assert.equal(state.docViewerError, "");
-  assert.equal(state.docViewerLoading, true);
-  assert.equal(state.docViewerHtml, "");
-  assert.equal(state.docViewerMeta, null);
+  loadingViewer(state, guideDocument);
 
   replacement.resolve(content("current"));
   await open;
-  assert.equal(state.docViewerHtml, "<p>current</p>");
-  assert.equal(state.docViewerLoading, false);
+  readyViewer(state, guideDocument, "<p>current</p>");
 });
 
 test("opening another document clears prior published surfaces immediately", async () => {
@@ -770,8 +755,7 @@ test("opening another document clears prior published surfaces immediately", asy
     version: "1.2.3",
     document,
   });
-  assert.equal(state.docViewerHtml, "<p>old body</p>");
-  assert.notEqual(state.docViewerMeta, null);
+  assert.notEqual(readyViewer(state, document, "<p>old body</p>").meta, null);
 
   const open = coordinator.open({
     packageId: "Example.Package",
@@ -779,29 +763,30 @@ test("opening another document clears prior published surfaces immediately", asy
     document: guideDocument,
   });
 
-  assert.equal(state.docViewerLoading, true);
-  assert.equal(state.docViewerHtml, "");
-  assert.equal(state.docViewerMeta, null);
+  loadingViewer(state, guideDocument);
 
   replacement.resolve(content("current"));
   await open;
-  assert.equal(state.docViewerHtml, "<p>current</p>");
+  readyViewer(state, guideDocument, "<p>current</p>");
 });
 
-test("closing resets every document surface and invalidates its sequence", () => {
+test("closing replaces every document surface with a closed state", () => {
   let renders = 0;
   const state = inspectionState({
-    docViewerOpen: true,
-    docViewer: document,
-    docViewerLoading: true,
-    docViewerError: "old error",
-    docViewerHtml: "<p>old</p>",
-    docViewerMeta: {
-      name: "Old",
-      version: "1.0",
-      descriptionHtml: "<p>old</p>",
+    docViewer: {
+      status: "ready",
+      request: {
+        packageId: "Example.Package",
+        version: "1.2.3",
+        document,
+      },
+      html: "<p>old</p>",
+      meta: {
+        name: "Old",
+        version: "1.0",
+        descriptionHtml: "<p>old</p>",
+      },
     },
-    docViewerSeq: 4,
   });
   const coordinator = createDocumentInspectionCoordinator(
     inspectionDependencies(state, {
@@ -810,12 +795,6 @@ test("closing resets every document surface and invalidates its sequence", () =>
 
   coordinator.close();
 
-  assert.equal(state.docViewerSeq, 5);
-  assert.equal(state.docViewerOpen, false);
-  assert.equal(state.docViewer, null);
-  assert.equal(state.docViewerLoading, false);
-  assert.equal(state.docViewerError, "");
-  assert.equal(state.docViewerHtml, "");
-  assert.equal(state.docViewerMeta, null);
+  assertViewerClosed(state);
   assert.equal(renders, 1);
 });

@@ -153,7 +153,10 @@ import {
   createCallGraphInspectionCoordinator,
   type PlatformStackEntry,
 } from "./call-graph-inspection.ts";
-import { createDocumentInspectionCoordinator } from "./document-inspection.ts";
+import {
+  createDocumentInspectionCoordinator,
+  type DocumentViewerState,
+} from "./document-inspection.ts";
 import {
   captureMemberFocus,
   createMemberFocusRestorer,
@@ -186,7 +189,6 @@ import {
   bindDocViewer,
   renderDocViewer as renderDocViewerPure,
   renderPackageDocuments,
-  type DocViewerMeta,
 } from "./doc-viewer.ts";
 import {
   bindGraphSource,
@@ -270,7 +272,6 @@ import type {
   BrowserPackageCacheStats,
   BrowserPackageDependencies,
   BrowserPackageDependencyGroup,
-  BrowserPackageDocument,
   BrowserPackageIntegrations,
   BrowserPackageOpportunities,
   BrowserPackageSurface,
@@ -636,13 +637,7 @@ const initialState = {
   graphSource: null,
   graphSourceLoading: false,
   graphSourceError: "",
-  docViewerOpen: false,
-  docViewer: null,
-  docViewerLoading: false,
-  docViewerError: "",
-  docViewerHtml: "",
-  docViewerMeta: null,
-  docViewerSeq: 0,
+  docViewer: { status: "closed" } as const,
   graphSourceTitle: "",
   graphSourceRequest: null,
   graphSourceSeq: 0,
@@ -706,8 +701,7 @@ interface StateOverrides {
   recentPackages: RecentPackage[];
   selectedBodyTarget: BodyTarget | null;
   graphSource: BrowserSource | null;
-  docViewer: BrowserPackageDocument | null;
-  docViewerMeta: DocViewerMeta | null;
+  docViewer: DocumentViewerState;
   graphSourceRequest: { request: GraphSourceRequest; title: string } | null;
   styleTiers: StyleTier[] | null;
   styleOptions: StyleOption[] | null;
@@ -1292,11 +1286,13 @@ function isInteractiveElement(element: Element | null) {
 
 function focusTypeList(generation = spotlightFocusGeneration) {
   if (generation !== spotlightFocusGeneration
-      || state.spotlightOpen || state.graphSourceOpen || state.docViewerOpen
+      || state.spotlightOpen || state.graphSourceOpen
+      || state.docViewer.status !== "closed"
       || isTextEntry()) return;
   requestAnimationFrame(() => {
     if (generation !== spotlightFocusGeneration
-        || state.spotlightOpen || state.graphSourceOpen || state.docViewerOpen
+        || state.spotlightOpen || state.graphSourceOpen
+        || state.docViewer.status !== "closed"
         || isTextEntry()) return;
     document.querySelector<HTMLElement>("#type-list")?.focus();
   });
@@ -2402,7 +2398,7 @@ function render() {
       }, escapeHtml)}
       ${state.spotlightOpen ? spotlight.modalHtml() : ""}
       ${state.graphSourceOpen ? renderGraphSource() : ""}
-      ${state.docViewerOpen ? renderDocViewer() : ""}
+      ${state.docViewer.status !== "closed" ? renderDocViewer() : ""}
       ${state.tasteOpen ? renderTastePopoverHtml() : ""}
     </div>`;
 
@@ -5813,7 +5809,7 @@ function workbenchOverlayOwnsFocus() {
 function workbenchModalOwnsFocus() {
   return state.spotlightOpen
     || state.graphSourceOpen
-    || state.docViewerOpen;
+    || state.docViewer.status !== "closed";
 }
 
 function captureWorkspaceUrlState(): WorkspaceUrlState | null {
@@ -7840,12 +7836,14 @@ function closeDocViewer() {
 }
 
 function renderDocViewer() {
+  const viewer = state.docViewer;
+  if (viewer.status === "closed") return "";
   return renderDocViewerPure({
-    doc: state.docViewer,
-    meta: state.docViewerMeta,
-    loading: state.docViewerLoading,
-    error: state.docViewerError,
-    html: state.docViewerHtml,
+    doc: viewer.request.document,
+    meta: viewer.status === "ready" ? viewer.meta : null,
+    loading: viewer.status === "loading",
+    error: viewer.status === "failed" ? viewer.error : "",
+    html: viewer.status === "ready" ? viewer.html : "",
     escapeHtml,
   });
 }
@@ -8760,7 +8758,7 @@ function workspaceKeyboardContextIsActive(): boolean {
     && !state.loading
     && !state.error
     && !state.graphSourceOpen
-    && !state.docViewerOpen
+    && state.docViewer.status === "closed"
     && !state.spotlightOpen;
 }
 
@@ -8769,7 +8767,7 @@ const workspaceModalContextIsAvailable = () =>
 const graphSourceContextIsActive = () =>
   workspaceModalContextIsAvailable() && state.graphSourceOpen;
 const documentViewerContextIsActive = () =>
-  workspaceModalContextIsAvailable() && state.docViewerOpen;
+  workspaceModalContextIsAvailable() && state.docViewer.status !== "closed";
 const spotlightContextIsActive = () =>
   workspaceModalContextIsAvailable() && state.spotlightOpen;
 
