@@ -2421,8 +2421,8 @@ public class LibraryCommand
 
     // ── Effective sections cache ──
 
-    // Bumped to v25: negative unsafe presence cannot hide a degraded signature diagnostic.
-    private const string EffectiveCategory = "effective-v25";
+    // Bumped to v26: rejected unsafe signature candidates cannot reuse cached absence.
+    private const string EffectiveCategory = "effective-v26";
 
     static LibraryCommand()
     {
