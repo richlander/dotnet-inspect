@@ -77,7 +77,7 @@ public class MethodBodyInspectionSessionTests
         var index = Analysis.LibraryBodyIndex.Open(ProductPath);
         var targetToken = CalledToken(index);
         var identity = index.Methods.First(method => method.MetadataToken == targetToken);
-        var pattern = Analysis.MemberPattern.Method(identity.DeclaringType, identity.Name, identity.ParameterTypes);
+        var pattern = Analysis.MemberPattern.Method(identity);
         var expected = index.DirectCalls
             .Where(call => call.CalleeDefinitionToken == targetToken || pattern.Matches(call.Callee))
             .ToList();
@@ -91,6 +91,43 @@ public class MethodBodyInspectionSessionTests
         Assert.Equal(
             expected.Select(call => (call.Caller.MetadataToken, call.ILOffset)).OrderBy(value => value),
             actual.Select(edge => (edge.Call.Caller.MetadataToken, edge.Call.ILOffset)).OrderBy(value => value));
+    }
+
+    [Fact]
+    public void CallerEdges_ConversionSelectionExcludesSiblingReturnTypes()
+    {
+        var session = MethodBodyInspectionSession.Open(
+            typeof(object).Assembly.Location);
+        Analysis.TypeRef decimalType =
+            Analysis.TypeRef.CoreLib("System", "Decimal");
+        Analysis.TypeRef intType =
+            Analysis.TypeRef.CoreLib("System", "Int32");
+        Analysis.MethodIdentity target =
+            session.BodyIndex.DeclaredMethods.Single(method =>
+                method.DeclaringType.Equals(decimalType)
+                && method.Name == "op_Explicit"
+                && method.ParameterTypes.SequenceEqual([decimalType])
+                && method.ReturnType.Equals(intType));
+        Analysis.DirectCall sibling =
+            session.BodyIndex.DirectCalls.First(call =>
+                call.Callee.DeclaringType.Equals(decimalType)
+                && call.Callee.Name == target.Name
+                && call.Callee.ParameterTypes.SequenceEqual(
+                    target.ParameterTypes)
+                && !call.Callee.ReturnType.Equals(target.ReturnType));
+
+        ImmutableArray<CallerEdge> actual =
+            session.CallerEdges(target.MetadataToken);
+
+        Assert.NotEmpty(actual);
+        Assert.DoesNotContain(
+            actual,
+            edge => edge.Call == sibling);
+        Assert.All(
+            actual,
+            edge => Assert.Equal(
+                target.ReturnType,
+                edge.Call.Callee.OpenSignatureReturn));
     }
 
     [Fact]
