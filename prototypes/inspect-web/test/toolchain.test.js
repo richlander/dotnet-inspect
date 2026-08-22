@@ -10,7 +10,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { verifyAnalysisHost } from "../scripts/verify-analysis-host.js";
+import {
+  supportedAnalysisHosts,
+  verifyAnalysisHost,
+} from "../scripts/verify-analysis-host.js";
 import { verifySiteArtifact } from "../scripts/verify-site-artifact.js";
 
 const packageLock = JSON.parse(
@@ -49,24 +52,54 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
   );
 });
 
-test("the analysis host check matches the native analyzer packages", () => {
-  for (const platform of ["darwin", "linux", "win32"]) {
-    for (const architecture of ["arm64", "x64"]) {
-      assert.doesNotThrow(() => verifyAnalysisHost(platform, architecture));
+function optionalNativeHosts(packagePath, dependencyPrefix) {
+  const packageEntry = packageLock.packages[packagePath];
+  assert.ok(packageEntry);
+  const dependencies = Object.keys(packageEntry.optionalDependencies ?? {})
+    .filter(dependency => dependency.startsWith(dependencyPrefix));
+  assert.notEqual(dependencies.length, 0);
+
+  return new Set(dependencies.map(dependency => {
+    const nativeEntry = packageLock.packages[`node_modules/${dependency}`];
+    assert.ok(nativeEntry);
+    assert.equal(nativeEntry.os?.length, 1);
+    assert.equal(nativeEntry.cpu?.length, 1);
+    return `${nativeEntry.os[0]}-${nativeEntry.cpu[0]}`;
+  }));
+}
+
+test("the analysis host check matches locked native packages and lint wiring", () => {
+  const oxlintHosts = optionalNativeHosts(
+    "node_modules/oxlint",
+    "@oxlint/binding-",
+  );
+  const tsgolintHosts = optionalNativeHosts(
+    "node_modules/oxlint-tsgolint",
+    "@oxlint-tsgolint/",
+  );
+  const expectedHosts = new Set(
+    [...tsgolintHosts].filter(host => oxlintHosts.has(host)),
+  );
+
+  assert.deepEqual(
+    [...supportedAnalysisHosts].sort(),
+    [...expectedHosts].sort(),
+  );
+  for (const host of new Set([...oxlintHosts, ...tsgolintHosts])) {
+    const separator = host.indexOf("-");
+    const platform = host.slice(0, separator);
+    const architecture = host.slice(separator + 1);
+    const verify = () => verifyAnalysisHost(platform, architecture);
+    if (expectedHosts.has(host)) {
+      assert.doesNotThrow(verify);
+    } else {
+      assert.throws(verify, new RegExp(`current host is ${host}`));
     }
   }
 
-  assert.throws(
-    () => verifyAnalysisHost("linux", "ppc64"),
-    /current host is linux-ppc64/,
-  );
-  assert.throws(
-    () => verifyAnalysisHost("linux", "s390x"),
-    /current host is linux-s390x/,
-  );
-  assert.throws(
-    () => verifyAnalysisHost("freebsd", "x64"),
-    /current host is freebsd-x64/,
+  assert.equal(
+    packageJson.scripts.lint,
+    "node scripts/verify-analysis-host.js && oxlint src test scripts vite.config.js",
   );
 });
 
