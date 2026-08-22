@@ -102,10 +102,17 @@ internal static class EvilPoolSweepProcess
                 {
                     // FileShare.None may be advisory on Unix. Where supported,
                     // an explicit range lock makes unsupported locking fail
-                    // closed. macOS exclusion is exercised by the independent-
-                    // host gate because FileStream.Lock is unavailable there.
-                    if (!OperatingSystem.IsMacOS())
+                    // closed. Apple and FreeBSD exclusion is exercised by the
+                    // independent-host gate because FileStream.Lock is
+                    // unavailable there.
+                    if (!OperatingSystem.IsMacOS()
+                        && !OperatingSystem.IsIOS()
+                        && !OperatingSystem.IsTvOS()
+                        && !OperatingSystem.IsMacCatalyst()
+                        && !OperatingSystem.IsFreeBSD())
+                    {
                         stream.Lock(0, 1);
+                    }
 
                     return stream;
                 }
