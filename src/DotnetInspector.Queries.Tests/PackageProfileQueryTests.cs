@@ -168,6 +168,30 @@ public sealed class PackageProfileQueryTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_PreservesSourcePaginationTruncation()
+    {
+        var source = new FakePackageSource(
+            [],
+            new Dictionary<string, byte[]>())
+        {
+            SearchTruncationReason =
+                PackageSearchTruncationReason.SourcePageLimit,
+        };
+
+        List<PackageProfileEvent> events = await CollectAsync(
+            PackageProfileQuery.ExecuteAsync(
+                source,
+                new PackagePrefixProfileRequest("Contoso."),
+                TestContext.Current.CancellationToken));
+
+        PackageProfileSummary summary =
+            Assert.IsType<PackageProfileEvent.Completed>(events[^1]).Value;
+        Assert.Equal(
+            PackageSearchTruncationReason.SourcePageLimit,
+            summary.TruncationReason);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_RejectsOutOfPrefixSourceItemBeforeManifestFetch()
     {
         var source = new FakePackageSource(
@@ -259,7 +283,6 @@ public sealed class PackageProfileQueryTests
             new SearchResult(
                 packageId,
                 version,
-                Authors: ["Manifest Author"],
                 Owners: owners),
             new PackageCandidateObservation(
                 coordinate,
@@ -301,7 +324,22 @@ public sealed class PackageProfileQueryTests
         : IPackageSourceClient
     {
         public PackageSourceFailure? SearchFailure { get; init; }
-        public bool SearchTruncated { get; init; }
+        public bool SearchTruncated
+        {
+            init
+            {
+                if (value)
+                {
+                    SearchTruncationReason =
+                        PackageSearchTruncationReason.RequestedLimit;
+                }
+            }
+        }
+        public PackageSearchTruncationReason SearchTruncationReason
+        {
+            get;
+            init;
+        }
         public PackageSourceIdentity ManifestProducer { get; init; } =
             PackageSourceIdentity.NuGetOrg;
         public List<string> ManifestRequests { get; } = [];
@@ -326,7 +364,7 @@ public sealed class PackageProfileQueryTests
                         .Succeeded(
                             new PackageSearchResult(
                                 matches,
-                                SearchTruncated))
+                                SearchTruncationReason))
                     : new PackageSourceOperationResult<PackageSearchResult>
                         .Failed(SearchFailure);
             return Task.FromResult(result);

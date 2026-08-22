@@ -81,6 +81,56 @@ public class HttpClientFactoryTests : IDisposable
         Assert.Equal(TimeSpan.FromSeconds(5), client.Timeout);
     }
 
+    [Fact]
+    public void CreateCredentialFreeClient_HonorsTimeoutWithoutAuthentication()
+    {
+        bool authenticationAdopted = false;
+        DotnetInspector.Core.HttpClientFactory.Initialize(
+            new HttpClientFactoryOptions
+            {
+                DefaultTimeout = TimeSpan.FromSeconds(7),
+            });
+        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+            handler =>
+            {
+                authenticationAdopted = true;
+                return handler;
+            });
+        try
+        {
+            using HttpClient client = DotnetInspector.Core.HttpClientFactory
+                .CreateCredentialFreeClient();
+
+            Assert.Equal(TimeSpan.FromSeconds(7), client.Timeout);
+            Assert.False(authenticationAdopted);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory
+                .SetAuthenticationDecorator(null);
+        }
+    }
+
+    [Fact]
+    public async Task CreateCredentialFreeClient_HonorsOfflinePolicy()
+    {
+        DotnetInspector.Core.HttpClientFactory.Initialize(
+            new HttpClientFactoryOptions
+            {
+                Offline = true,
+            });
+        using HttpClient client = DotnetInspector.Core.HttpClientFactory
+            .CreateCredentialFreeClient();
+
+        Exception? failure = await Record.ExceptionAsync(
+            () => client.GetAsync(
+                "https://example.test/",
+                TestContext.Current.CancellationToken));
+
+        Assert.NotNull(failure);
+        Assert.NotNull(FindOffline(failure));
+    }
+
     [Fact(Timeout = 60_000)]
     public async Task CreateClient_CapturesOneOptionsSnapshot()
     {

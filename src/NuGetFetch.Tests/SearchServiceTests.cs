@@ -290,8 +290,32 @@ public class SearchServiceTests
                 take: 1,
                 cancellationToken: TestContext.Current.CancellationToken));
 
-        Assert.Contains("exceeded 100 pages", error.Message);
+        Assert.Contains(
+            "ended before the requested result count",
+            error.Message);
         Assert.Equal(100, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task SearchByPrefixWithStateAsync_ReportsSourceSkipLimit()
+    {
+        var handler = new EndlessPagingHandler();
+        using var client = new HttpClient(handler);
+        var service = new SearchService(client, SearchUrl);
+
+        PrefixSearchResult result =
+            await service.SearchByPrefixWithStateAsync(
+                "Contoso.",
+                take: 1,
+                maximumSkip: 100,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Empty(result.Matches);
+        Assert.Equal(
+            PrefixSearchCompletion.SourcePageLimitReached,
+            result.Completion);
+        Assert.True(result.Truncated);
+        Assert.Equal(2, handler.RequestCount);
     }
 
     private sealed class CapturingHandler(string body, HttpStatusCode status = HttpStatusCode.OK)

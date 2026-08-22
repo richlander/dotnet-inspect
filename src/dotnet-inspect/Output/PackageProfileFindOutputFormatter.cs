@@ -2,6 +2,7 @@ using System.Globalization;
 using DotnetInspector.Queries;
 using DotnetInspector.Views;
 using InertText;
+using NuGetFetch;
 
 namespace DotnetInspector.Output;
 
@@ -43,8 +44,7 @@ public static class PackageProfileFindOutputFormatter
                 downloads: "",
                 source: summary.Producer.Value,
                 status: "truncated",
-                error:
-                    $"The package profile reached its {summary.Candidates.ToString(CultureInfo.InvariantCulture)}-package limit."));
+                error: TruncationMessage(summary)));
         }
 
         return new PackageProfileFindView(
@@ -62,6 +62,14 @@ public static class PackageProfileFindOutputFormatter
             Results = rows.Count == 0 ? null : rows,
         };
     }
+
+    public static int CountRows(
+        PackageProfileFindView view,
+        RowWindow? rows) =>
+        RowWindow.Apply(
+            rows,
+            (IReadOnlyList<PackageProfileFindRow>?)view.Results
+                ?? []).Count;
 
     private static void AddMatchRows(
         List<PackageProfileFindRow> rows,
@@ -129,5 +137,19 @@ public static class PackageProfileFindOutputFormatter
             failure.Producer.Value,
             failure.Kind.ToString(),
             failure.Message);
+
+    private static string TruncationMessage(
+        PackageProfileSummary summary) =>
+        summary.TruncationReason switch
+        {
+            PackageSearchTruncationReason.RequestedLimit =>
+                $"The package profile reached its {summary.Candidates.ToString(CultureInfo.InvariantCulture)}-package limit.",
+            PackageSearchTruncationReason.SourcePageLimit =>
+                $"The package profile is incomplete after {summary.Candidates.ToString(CultureInfo.InvariantCulture)} packages because the source pagination limit was reached.",
+            PackageSearchTruncationReason.ClientPageLimit =>
+                $"The package profile is incomplete after {summary.Candidates.ToString(CultureInfo.InvariantCulture)} packages because the client pagination limit was reached.",
+            _ => throw new InvalidOperationException(
+                "A truncation row requires a truncation reason."),
+        };
 
 }

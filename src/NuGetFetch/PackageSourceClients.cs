@@ -401,13 +401,19 @@ public static class PackageSourceClientFactory
             },
             options ?? new NuGetFetchOptions());
 
-    internal static IPackageSourceClient CreateGallery(
-        HttpMessageHandler transport,
+    /// <summary>
+    /// Creates the built-in Gallery client over a caller-created,
+    /// credential-free transport owned by the returned client.
+    /// </summary>
+    public static IPackageSourceClient CreateGallery(
+        HttpMessageHandler ownedCredentialFreeTransport,
         NuGetFetchOptions? options = null)
     {
-        ArgumentNullException.ThrowIfNull(transport);
+        ArgumentNullException.ThrowIfNull(ownedCredentialFreeTransport);
         return new NuGetGalleryPackageSourceClient(
-            new HttpClient(transport, disposeHandler: true)
+            new HttpClient(
+                ownedCredentialFreeTransport,
+                disposeHandler: true)
             {
                 Timeout = Timeout.InfiniteTimeSpan,
             },

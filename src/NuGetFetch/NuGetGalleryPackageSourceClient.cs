@@ -4,6 +4,7 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
 {
     private const string SearchEndpoint =
         "https://azuresearch-usnc.nuget.org/query";
+    private const int MaximumSearchSkip = 3000;
     private const string FlatContainer =
         "https://globalcdn.nuget.org/v3-flatcontainer/";
     private const string PackageEndpoint =
@@ -65,6 +66,8 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                         .ConfigureAwait(false);
                 }
                 catch (InvalidOperationException exception)
+                    when (exception.GetType()
+                        == typeof(InvalidOperationException))
                 {
                     throw new NuGetSourceResponseException(
                         "The NuGet Gallery search response did not satisfy the search contract.",
@@ -75,7 +78,9 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                     results,
                     Identity,
                     operation,
-                    truncated: results.Count == take);
+                    results.Count == take
+                        ? PackageSearchTruncationReason.RequestedLimit
+                        : PackageSearchTruncationReason.None);
             },
             cancellationToken).ConfigureAwait(false);
     }
@@ -93,18 +98,21 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
             async () =>
             {
                 using var operation = CreateOperation(cancellationToken);
-                IReadOnlyList<SearchResult> results;
+                PrefixSearchResult result;
                 try
                 {
-                    results = await _search.SearchByPrefixAsync(
+                    result = await _search.SearchByPrefixWithStateAsync(
                             prefix,
                             take,
                             prerelease,
                             auth: null,
+                            maximumSkip: MaximumSearchSkip,
                             cancellationToken)
                         .ConfigureAwait(false);
                 }
                 catch (InvalidOperationException exception)
+                    when (exception.GetType()
+                        == typeof(InvalidOperationException))
                 {
                     throw new NuGetSourceResponseException(
                         "The NuGet Gallery prefix-search response did not satisfy the search contract.",
@@ -112,10 +120,22 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                 }
 
                 return PackageSourceProjection.ProjectSearch(
-                    results,
+                    result.Matches,
                     Identity,
                     operation,
-                    truncated: results.Count == take);
+                    result.Completion switch
+                    {
+                        PrefixSearchCompletion.Complete =>
+                            PackageSearchTruncationReason.None,
+                        PrefixSearchCompletion.TakeReached =>
+                            PackageSearchTruncationReason.RequestedLimit,
+                        PrefixSearchCompletion.SourcePageLimitReached =>
+                            PackageSearchTruncationReason.SourcePageLimit,
+                        PrefixSearchCompletion.ClientPageLimitReached =>
+                            PackageSearchTruncationReason.ClientPageLimit,
+                        _ => throw new InvalidOperationException(
+                            "Unknown prefix-search completion state."),
+                    });
             },
             cancellationToken).ConfigureAwait(false);
     }

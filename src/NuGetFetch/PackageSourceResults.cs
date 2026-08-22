@@ -85,12 +85,46 @@ public sealed record PackageSearchMatch(
     SearchResult Metadata,
     PackageCandidateObservation Candidate);
 
+/// <summary>Why a source-scoped package search is incomplete.</summary>
+public enum PackageSearchTruncationReason
+{
+    None,
+    RequestedLimit,
+    SourcePageLimit,
+    ClientPageLimit,
+}
+
 /// <summary>
 /// Typed result of one source-scoped package search.
 /// </summary>
-public sealed record PackageSearchResult(
-    IReadOnlyList<PackageSearchMatch> Matches,
-    bool Truncated = false);
+public sealed record PackageSearchResult
+{
+    public PackageSearchResult(
+        IReadOnlyList<PackageSearchMatch> matches,
+        PackageSearchTruncationReason truncationReason =
+            PackageSearchTruncationReason.None)
+    {
+        ArgumentNullException.ThrowIfNull(matches);
+        Matches = matches;
+        TruncationReason = truncationReason;
+    }
+
+    public PackageSearchResult(
+        IReadOnlyList<PackageSearchMatch> matches,
+        bool truncated)
+        : this(
+            matches,
+            truncated
+                ? PackageSearchTruncationReason.RequestedLimit
+                : PackageSearchTruncationReason.None)
+    {
+    }
+
+    public IReadOnlyList<PackageSearchMatch> Matches { get; }
+    public PackageSearchTruncationReason TruncationReason { get; }
+    public bool Truncated =>
+        TruncationReason != PackageSearchTruncationReason.None;
+}
 
 /// <summary>
 /// Typed result of one source-scoped version enumeration.
@@ -158,7 +192,8 @@ internal static class PackageSourceProjection
         IReadOnlyList<SearchResult> results,
         PackageSourceIdentity producer,
         NuGetOperationDeadline operation,
-        bool truncated = false)
+        PackageSearchTruncationReason truncationReason =
+            PackageSearchTruncationReason.None)
     {
         var matches = new PackageSearchMatch[results.Count];
         for (int i = 0; i < results.Count; i++)
@@ -177,7 +212,7 @@ internal static class PackageSourceProjection
         }
 
         operation.ThrowIfExpired();
-        return new PackageSearchResult(matches, truncated);
+        return new PackageSearchResult(matches, truncationReason);
     }
 }
 

@@ -37,7 +37,7 @@ public record SearchResult(
     long TotalDownloads = 0,
     bool Verified = false,
     IReadOnlyList<SearchVersion>? Versions = null,
-    IReadOnlyList<string>? Authors = null,
+    [property: JsonConverter(typeof(StringOrArrayJsonConverter))]
     IReadOnlyList<string>? Owners = null);
 
 public record SearchVersion(

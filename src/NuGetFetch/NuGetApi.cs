@@ -134,14 +134,12 @@ public static class NuGetApi
                 throw InvalidMetadata("search response", "data[].versions");
             }
 
-            if (result.Authors is not null
-                && result.Authors.Any(static author => author is null)
-                || result.Owners is not null
+            if (result.Owners is not null
                 && result.Owners.Any(static owner => owner is null))
             {
                 throw InvalidMetadata(
                     "search response",
-                    "data[].authors or data[].owners");
+                    "data[].owners");
             }
         }
 
@@ -152,6 +150,62 @@ public static class NuGetApi
         string document,
         string member) =>
         new($"NuGet {document} is missing required member '{member}'.");
+}
+
+internal sealed class StringOrArrayJsonConverter
+    : JsonConverter<IReadOnlyList<string>?>
+{
+    public override IReadOnlyList<string>? Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Null)
+            return null;
+
+        if (reader.TokenType == JsonTokenType.String)
+        {
+            return
+            [
+                reader.GetString()
+                    ?? throw new JsonException(
+                        "A NuGet string-or-array value cannot be null."),
+            ];
+        }
+
+        if (reader.TokenType != JsonTokenType.StartArray)
+        {
+            throw new JsonException(
+                "A NuGet string-or-array value must be a string or an array.");
+        }
+
+        List<string> values = [];
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+        {
+            if (reader.TokenType != JsonTokenType.String)
+            {
+                throw new JsonException(
+                    "A NuGet string-or-array value contains a non-string item.");
+            }
+
+            values.Add(
+                reader.GetString()
+                    ?? throw new JsonException(
+                        "A NuGet string-or-array value contains a null item."));
+        }
+
+        if (reader.TokenType != JsonTokenType.EndArray)
+            throw new JsonException("A NuGet string array was incomplete.");
+
+        return values;
+    }
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        IReadOnlyList<string>? value,
+        JsonSerializerOptions options) =>
+        throw new NotSupportedException(
+            "NuGet metadata models are read-only.");
 }
 
 // Feeds disagree about whether a JSON number is a number. Azure DevOps Artifacts

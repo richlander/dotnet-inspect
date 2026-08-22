@@ -55,7 +55,11 @@ public sealed record PackageProfileSummary(
     int Candidates,
     int Matches,
     int Failures,
-    bool Truncated);
+    PackageSearchTruncationReason TruncationReason)
+{
+    public bool Truncated =>
+        TruncationReason != PackageSearchTruncationReason.None;
+}
 
 /// <summary>
 /// One event from a package-profile stream.
@@ -117,7 +121,7 @@ public static class PackageProfileQuery
                     Candidates: 0,
                     Matches: 0,
                     Failures: 1,
-                    Truncated: false));
+                    PackageSearchTruncationReason.None));
             yield break;
         }
 
@@ -271,7 +275,7 @@ public static class PackageProfileQuery
                 candidates,
                 matches,
                 failures,
-                searchResult.Truncated));
+                searchResult.TruncationReason));
     }
 
     private static PackageProfileEvent.Failure Failure(

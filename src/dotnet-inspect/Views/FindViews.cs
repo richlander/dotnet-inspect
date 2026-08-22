@@ -203,7 +203,7 @@ public sealed class PackageProfileFindRow
     public string Error => ErrorText.ToString();
 
     private static InertString Contain(string value) =>
-        new(TextPolicy.Prose, value);
+        new(TextPolicy.Field, value);
 }
 
 [MarkoutContextOptions(SuppressTableWarnings = true)]

@@ -837,7 +837,6 @@ public sealed class PackageSourceClientTests
         Assert.Equal(
             PackageListingState.Listed,
             match.Candidate.ListingState);
-        Assert.Equal(["Contoso"], match.Metadata.Authors);
         Assert.Equal(["Contoso", "Partner"], match.Metadata.Owners);
         PackageSearchMatch prefixMatch = Assert.Single(
             Succeeded(

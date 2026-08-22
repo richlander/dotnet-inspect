@@ -144,6 +144,9 @@ manifest requests. Search metadata owns package owners, verification, and
 download counts; the `.nuspec` owns authors and declared dependency groups.
 The profile path does not request `.nupkg` payloads or open assemblies.
 Individual package selection may separately authorize those operations.
+NuGet.org's documented maximum search `skip` is 3,000. Reaching that boundary
+before the requested prefix result count marks the profile truncated rather
+than presenting the reachable prefix matches as complete.
 
 Registration indexes have two page shapes:
 

@@ -165,9 +165,50 @@ public static class HttpClientFactory
     /// In offline mode, all requests will throw <see cref="OfflineException"/>.
     /// When traffic logging is enabled (DEBUG startup), requests log their traffic kind and URL to stderr.
     /// </summary>
-    public static HttpClient CreateClient()
+    public static HttpClient CreateClient() =>
+        CreateClient(includeAuthentication: true);
+
+    /// <summary>
+    /// Creates a standard client that honors offline and timeout policy without
+    /// adopting package-source credentials.
+    /// </summary>
+    /// <remarks>
+    /// The caller owns the returned client. Use this for fixed public endpoints
+    /// such as the built-in NuGet Gallery transport, where an ambient credential
+    /// retry must never cross the transport boundary.
+    /// </remarks>
+    public static HttpClient CreateCredentialFreeClient() =>
+        CreateClient(includeAuthentication: false);
+
+    /// <summary>
+    /// Creates the owned handler chain for a standard credential-free client.
+    /// Offline, telemetry, and counting policy are retained.
+    /// </summary>
+    /// <remarks>The caller owns and must dispose the returned handler.</remarks>
+    public static HttpMessageHandler CreateCredentialFreeHandler()
     {
         HttpClientFactoryOptions options = _options;
+        return CreateClientHandler(
+            options,
+            includeAuthentication: false);
+    }
+
+    private static HttpClient CreateClient(bool includeAuthentication)
+    {
+        HttpClientFactoryOptions options = _options;
+        HttpMessageHandler handler = CreateClientHandler(
+            options,
+            includeAuthentication);
+        var client = new HttpClient(handler);
+        client.DefaultRequestHeaders.Add("User-Agent", UserAgent);
+        client.Timeout = options.DefaultTimeout;
+        return client;
+    }
+
+    private static HttpMessageHandler CreateClientHandler(
+        HttpClientFactoryOptions options,
+        bool includeAuthentication)
+    {
         HttpMessageHandler handler = new HttpClientHandler
         {
             AutomaticDecompression = DecompressionMethods.All
@@ -183,15 +224,12 @@ public static class HttpClientFactory
 
         // Outermost, so each replayed attempt is observed by the telemetry and counting
         // handlers below it. A 401 followed by an authenticated retry really is two requests.
-        if (_authenticationDecorator is not null)
+        if (includeAuthentication && _authenticationDecorator is not null)
         {
             handler = _authenticationDecorator(handler);
         }
 
-        var client = new HttpClient(handler);
-        client.DefaultRequestHeaders.Add("User-Agent", UserAgent);
-        client.Timeout = options.DefaultTimeout;
-        return client;
+        return handler;
     }
 
     /// <summary>

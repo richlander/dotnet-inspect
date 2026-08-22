@@ -293,7 +293,7 @@ public class FindCommandTests
                         Candidates: 1,
                         Matches: 1,
                         Failures: 0,
-                        Truncated: false)),
+                        PackageSearchTruncationReason.None)),
             ]);
 
         string tsv = RenderPackageProfileTable(
@@ -362,16 +362,142 @@ public class FindCommandTests
                         Candidates: 1,
                         Matches: 0,
                         Failures: 1,
-                        Truncated: true)),
+                        PackageSearchTruncationReason.SourcePageLimit)),
             ]);
 
         Assert.Equal(2, view.Results!.Count);
         Assert.Equal("InvalidManifest", view.Results[0].Status);
         Assert.Equal("The manifest was invalid.", view.Results[0].Error);
         Assert.Equal("truncated", view.Results[1].Status);
+        Assert.Contains(
+            "source pagination limit",
+            view.Results[1].Error);
         Assert.Equal(
             PackageSourceIdentity.NuGetOrg.Value,
             view.Results[1].Source);
+        Assert.Equal(
+            2,
+            PackageProfileFindOutputFormatter.CountRows(
+                view,
+                rows: null));
+        Assert.Equal(
+            1,
+            PackageProfileFindOutputFormatter.CountRows(
+                view,
+                RowWindow.Head(1)));
+    }
+
+    [Theory]
+    [InlineData(
+        0,
+        PackageSearchTruncationReason.None,
+        0)]
+    [InlineData(
+        0,
+        PackageSearchTruncationReason.RequestedLimit,
+        0)]
+    [InlineData(
+        0,
+        PackageSearchTruncationReason.SourcePageLimit,
+        1)]
+    [InlineData(
+        1,
+        PackageSearchTruncationReason.None,
+        1)]
+    public void PackageProfileExitCode_DistinguishesExpectedAndIncompleteLimits(
+        int failures,
+        PackageSearchTruncationReason truncationReason,
+        int expected)
+    {
+        var summary = new PackageProfileSummary(
+            "Contoso.",
+            PackageSourceIdentity.NuGetOrg,
+            Candidates: 1,
+            Matches: failures == 0 ? 1 : 0,
+            failures,
+            truncationReason);
+
+        Assert.Equal(
+            expected,
+            FindCommand.PackageProfileExitCode(summary));
+    }
+
+    [Fact]
+    public void PackageProfileFormatter_ContainsHostileCellsAcrossFormats()
+    {
+        const string hostileOwner = "Own\u202E\nINJECTEDOWNER";
+        const string hostileAuthor = "Auth\tINJECTEDAUTHOR";
+        PackageProfileFindView view = PackageProfileFindOutputFormatter.BuildView(
+            "Contoso.",
+            [
+                new PackageProfileEvent.Match(
+                    new PackageProfileMatch(
+                        "Contoso.Package",
+                        "1.0.0",
+                        hostileAuthor,
+                        [hostileOwner],
+                        0,
+                        false,
+                        PackageSourceIdentity.NuGetOrg,
+                        new PackageDependencyGroups(
+                            [],
+                            RequestedTargetFramework: null,
+                            SelectedTargetFramework: null,
+                            SelectedGroupIndex: null,
+                            PackageDependencyGroupSelectionStatus
+                                .NoDependencyGroups))),
+                new PackageProfileEvent.Completed(
+                    new PackageProfileSummary(
+                        "Contoso.",
+                        PackageSourceIdentity.NuGetOrg,
+                        Candidates: 1,
+                        Matches: 1,
+                        Failures: 0,
+                        PackageSearchTruncationReason.None)),
+            ]);
+
+        string markdown = MarkoutSerializer.Serialize(
+            view,
+            SearchViewContext.Default);
+        string tsv = RenderPackageProfileTable(
+            view,
+            tsv: true,
+            showHeader: false);
+        string jsonl = RenderPackageProfileTable(
+            view,
+            tsv: false,
+            showHeader: false,
+            jsonl: true);
+        string json = OutputFormatter.RenderProjectedJson(
+            columns: null,
+            fields: null,
+            (writer, formatter, writerOptions) =>
+                MarkoutSerializer.Serialize(
+                    view,
+                    writer,
+                    formatter,
+                    SearchViewContext.Default,
+                    writerOptions));
+
+        foreach ((string channel, string output) in new[]
+        {
+            ("package-profile-markdown", markdown),
+            ("package-profile-tsv", tsv),
+            ("package-profile-jsonl", jsonl),
+            ("package-profile-json", json),
+        })
+        {
+            HostileOutputAssert.MarkersRendered(
+                output,
+                channel,
+                "INJECTEDOWNER",
+                "INJECTEDAUTHOR");
+            HostileOutputAssert.NoRenderingHazard(output, channel);
+            HostileOutputAssert.NoLineSplit(
+                output,
+                "INJECTEDOWNER",
+                "INJECTEDAUTHOR");
+        }
     }
 
     private static string RenderFindTable(

@@ -59,6 +59,7 @@ public class FindCommand
             {
                 return await ExecutePackageProfileAsync(
                     options,
+                    context,
                     cancellationToken);
             }
 
@@ -128,6 +129,7 @@ public class FindCommand
 
     private static async Task<int> ExecutePackageProfileAsync(
         FindOptions options,
+        CommandContext context,
         CancellationToken cancellationToken)
     {
         if (options.Packages.Length > 0
@@ -155,7 +157,11 @@ public class FindCommand
         }
 
         using IPackageSourceClient source =
-            PackageSourceClientFactory.CreateGallery();
+            PackageSourceClientFactory.CreateGallery(
+                DotnetInspector.Core.HttpClientFactory
+                    .CreateCredentialFreeHandler(),
+                NuGetFetchOptions.FromRequestTimeout(
+                    context.HttpClient.Timeout));
         var request = new PackagePrefixProfileRequest(
             options.PackagePrefix!,
             options.Limit ?? 100);
@@ -178,7 +184,10 @@ public class FindCommand
             events);
         if (options.Count)
         {
-            CountOutput.WriteCount(summary.Matches);
+            CountOutput.WriteCount(
+                PackageProfileFindOutputFormatter.CountRows(
+                    view,
+                    options.Rows));
         }
         else if (options.JsonOutput)
         {
@@ -225,8 +234,36 @@ public class FindCommand
                     writerOptions));
         }
 
-        return summary.Failures == 0 ? 0 : 1;
+        foreach (PackageProfileEvent.Failure failure
+            in events.OfType<PackageProfileEvent.Failure>())
+        {
+            string subject = failure.Value.PackageId is { Length: > 0 } id
+                ? $"{id}: "
+                : "";
+            CommandError.WriteWarning(
+                $"{subject}{failure.Value.Message}");
+        }
+
+        if (summary.Truncated)
+        {
+            CommandError.WriteWarning(
+                summary.TruncationReason
+                    == PackageSearchTruncationReason.RequestedLimit
+                        ? "Package discovery reached the requested package limit."
+                        : "Package discovery was truncated by a pagination limit; narrow the prefix.");
+        }
+
+        return PackageProfileExitCode(summary);
     }
+
+    internal static int PackageProfileExitCode(
+        PackageProfileSummary summary) =>
+        summary.Failures == 0
+        && summary.TruncationReason
+            is PackageSearchTruncationReason.None
+                or PackageSearchTruncationReason.RequestedLimit
+            ? 0
+            : 1;
 
     private static async Task<int> ExecuteMemberSearchAsync(
         FindOptions options,

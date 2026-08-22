@@ -211,6 +211,40 @@ public partial class SearchService
         AuthenticationHeaderValue? auth = null,
         CancellationToken cancellationToken = default)
     {
+        PrefixSearchResult result = await SearchByPrefixWithStateAsync(
+            prefix,
+            take,
+            prerelease,
+            auth,
+            maximumSkip: null,
+            cancellationToken).ConfigureAwait(false);
+        if (result.Completion
+            is PrefixSearchCompletion.SourcePageLimitReached
+                or PrefixSearchCompletion.ClientPageLimitReached
+            && result.Matches.Count < take)
+        {
+            throw new InvalidOperationException(
+                "NuGet prefix-search pagination ended before the requested result count could be established.");
+        }
+
+        return result.Matches;
+    }
+
+    /// <summary>
+    /// Searches by package-ID prefix while retaining whether a source or client
+    /// pagination boundary prevented an exhaustive answer.
+    /// </summary>
+    public async Task<PrefixSearchResult> SearchByPrefixWithStateAsync(
+        string prefix,
+        int take = 100,
+        bool prerelease = false,
+        AuthenticationHeaderValue? auth = null,
+        int? maximumSkip = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (maximumSkip < 0)
+            throw new ArgumentOutOfRangeException(nameof(maximumSkip));
+
         List<SearchResult> matches = [];
         var matchedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var observedResults = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -224,6 +258,14 @@ public partial class SearchService
             pageNumber < MaxPrefixSearchPages && matches.Count < take;
             pageNumber++)
         {
+            if (maximumSkip is int skipLimit && skip > skipLimit)
+            {
+                operation.ThrowIfExpired();
+                return new PrefixSearchResult(
+                    matches,
+                    PrefixSearchCompletion.SourcePageLimitReached);
+            }
+
             IReadOnlyList<SearchResult> page = await SearchPageAsync(
                 prefix,
                 skip,
@@ -232,7 +274,11 @@ public partial class SearchService
                 auth,
                 operation).ConfigureAwait(false);
             if (page.Count == 0)
-                return matches;
+            {
+                return new PrefixSearchResult(
+                    matches,
+                    PrefixSearchCompletion.Complete);
+            }
 
             bool madeProgress = false;
             foreach (SearchResult result in page)
@@ -245,7 +291,12 @@ public partial class SearchService
                 {
                     matches.Add(result);
                     if (matches.Count == take)
-                        break;
+                    {
+                        operation.ThrowIfExpired();
+                        return new PrefixSearchResult(
+                            matches,
+                            PrefixSearchCompletion.TakeReached);
+                    }
                 }
             }
 
@@ -256,11 +307,33 @@ public partial class SearchService
             skip += page.Count;
         }
 
-        if (matches.Count < take)
-            throw new InvalidOperationException(
-                $"NuGet search pagination exceeded {MaxPrefixSearchPages} pages.");
-
         operation.ThrowIfExpired();
-        return matches;
+        return new PrefixSearchResult(
+            matches,
+            PrefixSearchCompletion.ClientPageLimitReached);
     }
+}
+
+/// <summary>Why a package-prefix search stopped.</summary>
+public enum PrefixSearchCompletion
+{
+    /// <summary>The source returned an empty page.</summary>
+    Complete,
+
+    /// <summary>The caller's requested match count was reached.</summary>
+    TakeReached,
+
+    /// <summary>The source's documented skip boundary was reached.</summary>
+    SourcePageLimitReached,
+
+    /// <summary>The client's bounded page ceiling was reached.</summary>
+    ClientPageLimitReached,
+}
+
+/// <summary>A bounded prefix-search result with explicit completion state.</summary>
+public sealed record PrefixSearchResult(
+    IReadOnlyList<SearchResult> Matches,
+    PrefixSearchCompletion Completion)
+{
+    public bool Truncated => Completion != PrefixSearchCompletion.Complete;
 }
