@@ -657,8 +657,13 @@ production-path gates
 `PlatformMethodSignature_DoesNotAcceptAttackerOwnedCoreTypeName` and
 `PlatformFieldSignature_DoesNotAcceptAttackerOwnedCoreTypeName` reject
 same-named attacker types, while
+`CoreLibraryAlias_RequiresTrustedPlatformLocalDefinition` rejects an untrusted
+locally opened definition and
 `PlatformForwardedByRefMemberRef_RecoversParameterRefKinds` keeps legitimate
-facade forwarding live.
+facade forwarding live. Reference-assembly operator declarations whose local
+value-type kind depends on another assembly remain classifiable through the
+same trusted resolution context;
+`PlatformOperatorMemberRef_RecoversOperatorFact` is that product-path gate.
 
 ### New raises, printer semantics, and structuring changes
 
