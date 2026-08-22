@@ -95,7 +95,9 @@ public static class CustomAttributeValueGuard
         int parameterCount = signature.ReadCompressedInteger();
         if (parameterCount < 0)
             return Result.Unsafe;
-        if (!TrySkipSignatureType(ref signature))
+
+        var signatureSkip = new Stack<SignatureSkipItem>();
+        if (!TrySkipSignatureType(ref signature, signatureSkip))
             return Result.Safe;
 
         var value = reader.GetBlobReader(attribute.Value);
@@ -110,7 +112,8 @@ public static class CustomAttributeValueGuard
             beforeMaterialize,
             enumUnderlyingType,
             signature,
-            value);
+            value,
+            signatureSkip);
         walk.Push(WorkItem.NamedHeader());
         if (parameterCount > 0)
             walk.Push(WorkItem.FixedArgs(parameterCount, depth: 1));
@@ -130,13 +133,16 @@ public static class CustomAttributeValueGuard
         Action<int>? beforeMaterialize,
         Func<string, PrimitiveTypeCode>? enumUnderlyingType,
         BlobReader signature,
-        BlobReader value)
+        BlobReader value,
+        Stack<SignatureSkipItem> signatureSkip)
     {
         readonly MetadataReader _reader = reader;
         readonly EntityHandle _constructor = constructor;
         readonly Action<int>? _beforeMaterialize = beforeMaterialize;
         readonly Func<string, PrimitiveTypeCode>? _enumUnderlyingType = enumUnderlyingType;
         readonly Stack<WorkItem> _work = new();
+        readonly Stack<SignatureSkipItem> _signatureSkip = signatureSkip;
+        readonly Stack<SrmSkipItem> _srmSkip = new();
         Stack<SignatureFrame>? _frames;
         BlobReader _signature = signature;
         BlobReader _value = value;
@@ -258,7 +264,7 @@ public static class CustomAttributeValueGuard
             if (depth > MaxSerializedDepth)
                 return Result.Unsafe;
             int elementStart = _signature.Offset;
-            if (!TrySkipSignatureType(ref _signature))
+            if (!TrySkipSignatureType(ref _signature, _signatureSkip))
                 return Result.Safe;
             int elementEnd = _signature.Offset;
 
@@ -550,7 +556,7 @@ public static class CustomAttributeValueGuard
                 // Match SRM CustomAttributeDecoder.SkipType, including its
                 // CLASS/VALUETYPE recurse-as-type-code, so the remaining
                 // argument is the one DecodeValue will decode.
-                if (!TrySkipSrmAttributeType(ref instantiation, depth: 1))
+                if (!TrySkipSrmAttributeType(ref instantiation, depth: 1, _srmSkip))
                     return Result.Unsafe;
             }
 
@@ -701,9 +707,11 @@ public static class CustomAttributeValueGuard
         return Result.Safe;
     }
 
-    static bool TrySkipSignatureType(ref BlobReader signature)
+    static bool TrySkipSignatureType(
+        ref BlobReader signature,
+        Stack<SignatureSkipItem> work)
     {
-        var work = new Stack<SignatureSkipItem>();
+        work.Clear();
         work.Push(SignatureSkipItem.Type());
         while (work.Count > 0)
         {
@@ -879,9 +887,12 @@ public static class CustomAttributeValueGuard
     /// type code, so a TypeDef row 4 (coded 16 / BYREF) or TypeRef row 4
     /// (coded 17 / VALUETYPE) consumes the next official argument.
     /// </summary>
-    static bool TrySkipSrmAttributeType(ref BlobReader signature, int depth)
+    static bool TrySkipSrmAttributeType(
+        ref BlobReader signature,
+        int depth,
+        Stack<SrmSkipItem> work)
     {
-        var work = new Stack<SrmSkipItem>();
+        work.Clear();
         work.Push(SrmSkipItem.Type(depth));
         while (work.Count > 0)
         {

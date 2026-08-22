@@ -620,7 +620,11 @@ swallowed OOM. The same walk covers each named argument's
 named array type is not left for `DecodeValue` to allocate or recurse
 on. Boxed and nested SZArray encodings are walked on a heap work-stack
 and depth-bounded before decode, so a chain of tags cannot overflow the
-native stack even if the policy cap moves. The small-stack gate is
+native stack even if the policy cap moves. Signature-type skips reuse
+one work-stack per decode (`Clear` at entry) so a wide `int[][]` cannot
+allocate a stack per inner array. That reuse is structural; the path
+gate is `CustomAttributeValueGuardTests.NestedEmptySzArray_IsSafe`. The
+small-stack gate is the 128 KiB
 `CustomAttributeValueGuardTests.BoxedNestingAtLimit_OnSmallNativeStack_IsSafe`. Enum-typed
 fixed and named arguments use one shared underlying-width oracle, so a
 TypeRef that resolves to a local non-`int32` enum, or an over-deep
@@ -699,6 +703,7 @@ pre-decoding rejection.
 `OverDeepEnumFieldModifiers_StopsBeforeLargeAllocationAmplification`,
 `CustomAttributeValueGuardTests.HugeNamedArgumentArrayCount_IsUnsafe`,
 `CustomAttributeValueGuardTests.BoxedNestingAtLimit_OnSmallNativeStack_IsSafe`,
+`CustomAttributeValueGuardTests.NestedEmptySzArray_IsSafe`,
 `CustomAttributeValueGuardTests.WideInt32Array_IsSafe`,
 `CustomAttributeValueGuardTests.NamedArrayNestingJustOverLimit_IsUnsafe`,
 `CustomAttributeValueGuardTests.TypeRefEnumMatchingLocalInt64_SeesFollowingArrayCount`,

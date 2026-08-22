@@ -100,9 +100,11 @@ public sealed class CustomAttributeValueGuardTests
     }
 
     /// <summary>
-    /// Non-vacuity gate that the value walk is iterative. A recursive skip of
-    /// <see cref="CustomAttributeValueGuard.MaxSerializedDepth"/> boxed tags
-    /// overflows a 256 KiB native stack; the heap work-stack must not.
+    /// Non-vacuity gate that the value walk is iterative. The removed recursive
+    /// skip of <see cref="CustomAttributeValueGuard.MaxSerializedDepth"/> boxed
+    /// tags overflowed a 128 KiB native stack (measured against
+    /// <c>67ac331ba</c>) and completed at 256 KiB; the heap work-stack must
+    /// still complete at 128 KiB.
     /// </summary>
     [Fact]
     public void BoxedNestingAtLimit_OnSmallNativeStack_IsSafe()
@@ -130,11 +132,20 @@ public sealed class CustomAttributeValueGuardTests
                     failure = ex;
                 }
             },
-            maxStackSize: 256 * 1024);
+            maxStackSize: 128 * 1024);
         thread.IsBackground = true;
         thread.Start();
         thread.Join();
         Assert.Null(failure);
+    }
+
+    [Fact]
+    public void NestedEmptySzArray_IsSafe()
+    {
+        using var image = Open(BuildNestedEmptySzArrayImage(20_000));
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        Assert.True(
+            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
     }
 
     [Fact]
@@ -474,6 +485,23 @@ public sealed class CustomAttributeValueGuardTests
             value.WriteByte(0x51);
         value.WriteByte(0x08);
         value.WriteInt32(1);
+        value.WriteUInt16(0);
+        AddAttributedType(metadata, constructor, value);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildNestedEmptySzArrayImage(int outerCount)
+    {
+        var metadata = CreateMetadata("NestedEmpty");
+        MemberReferenceHandle constructor = AddConstructor(
+            metadata,
+            parameters => parameters.AddParameter().Type().SZArray().SZArray().Int32(),
+            parameterCount: 1);
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteInt32(outerCount);
+        for (int index = 0; index < outerCount; index++)
+            value.WriteInt32(0);
         value.WriteUInt16(0);
         AddAttributedType(metadata, constructor, value);
         return Serialize(metadata);
