@@ -107,6 +107,18 @@ static class CoreLibraryIdentityTrust
     /// intending it. A host that wants build layouts needs a scenario that
     /// establishes coherence, not a switch that assumes it.
     /// </para>
+    /// <para>
+    /// Both halves of that are gated, in
+    /// <c>PlantedCoreLibraryIdentityTests</c>. Which kinds are entitled is
+    /// held by
+    /// <c>EveryAcquisitionIsClassified_AndExactlyTwoAreEntitled</c>, which
+    /// enumerates every acquisition the product can express and requires this
+    /// set exactly. That the answer depends on the kind alone is held by
+    /// <c>MayMint_ReadsNoValueOutOfTheAcquisition</c>, which decodes this
+    /// method's emitted IL and requires that it read no field, property, or
+    /// literal — a rule keyed on what an acquisition contains must load
+    /// something, so a body that loads nothing cannot be one.
+    /// </para>
     /// </summary>
     internal static bool MayMint(
         AssemblyResolutionProvenance provenance) =>

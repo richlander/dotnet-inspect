@@ -4,6 +4,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 using Xunit;
 
@@ -227,24 +228,11 @@ public class PlantedCoreLibraryIdentityTests
     /// name cannot stand in for one another.
     /// </para>
     /// <para>
-    /// The second half gates the property that makes the first half meaningful.
-    /// Entitlement must follow the <em>kind</em> of acquisition and never the
-    /// content of its fields, so each provenance is built under several field
-    /// shapes — see <see cref="Variants"/> — and <c>MayMint</c> must answer
-    /// identically for every one. Two rounds each found a rule shape the
-    /// previous version could not see: a field compared against a constant,
-    /// such as <c>PackageAsset { PackageId: "System.Runtime" }</c>, which a
-    /// single placeholder value never matched; and a field compared against
-    /// another field, such as <c>ProjectAsset p when p.Project != p.Tfm</c>,
-    /// which stayed invisible while every field held the same value.
-    /// </para>
-    /// <para>
-    /// The residual is stated rather than hidden: a rule keyed on a spelling
-    /// outside <see cref="ProvenanceSpellings"/> that is also insensitive to
-    /// whether the fields are uniform or distinct would still satisfy this
-    /// gate. Closing that completely would require proving a negative over all
-    /// strings, which no test can do; the defence is that <c>MayMint</c> is a
-    /// single type-pattern expression, kept small enough to audit by reading.
+    /// Whether entitlement follows the <em>kind</em> of acquisition rather than
+    /// its contents is gated separately and structurally, by
+    /// <see cref="MayMint_ReadsNoValueOutOfTheAcquisition"/>. That gate replaced
+    /// four rounds of sampling: this one need only establish which kinds are
+    /// entitled, using any single instance of each.
     /// </para>
     /// </summary>
     [Fact]
@@ -254,27 +242,13 @@ public class PlantedCoreLibraryIdentityTests
 
         // Guards against the enumeration silently finding nothing, which would
         // make every assertion below vacuously true. Deliberately not a fixed
-        // count: a provenance added later is denied by the loop below and
-        // caught by the entitled set, so pinning the number would only fail a
-        // legitimate change without proving anything the rest does not.
+        // count: a provenance added later is denied by default and caught by
+        // the entitled set, so pinning the number would only fail a legitimate
+        // change without proving anything the rest does not.
         Assert.NotEmpty(concrete);
 
-        foreach (Type provenanceType in concrete)
-        {
-            bool[] answers = Variants(provenanceType)
-                .Select(CoreLibraryIdentityTrust.MayMint)
-                .Distinct()
-                .ToArray();
-
-            Assert.True(
-                answers.Length == 1,
-                $"{provenanceType.Name} is entitled for some field values and "
-                + "denied for others. Core-library trust must follow the "
-                + "acquisition, not what the acquisition happens to contain.");
-        }
-
         Type[] entitled = concrete
-            .Where(t => CoreLibraryIdentityTrust.MayMint(Variants(t)[0]))
+            .Where(t => CoreLibraryIdentityTrust.MayMint(Sample(t)))
             .ToArray();
 
         Assert.True(
@@ -291,84 +265,127 @@ public class PlantedCoreLibraryIdentityTests
     }
 
     /// <summary>
-    /// Builds one acquisition of the given type per field-value shape that a
-    /// content-keyed rule could plausibly notice. <c>MayMint</c> must answer
-    /// identically for all of them.
-    /// <para>
-    /// Each spelling is used four times, and each shape answers a question the
-    /// others cannot. The **uniform** shape sets every field to the same value,
-    /// which catches a rule comparing a field against a constant, such as
-    /// <c>PackageAsset { PackageId: "System.Runtime" }</c>. The **distinct**
-    /// shape gives every field a different value, which catches a rule
-    /// comparing two fields to each other, such as
-    /// <c>ProjectAsset p when p.Project != p.Tfm</c>. The **absent** shape
-    /// passes <see langword="null"/> for every optional field, which catches a
-    /// rule keyed on a field simply not being there, such as
-    /// <c>ProjectAsset { Tfm: null }</c>. The **blank** shape passes the empty
-    /// string for those same fields, because an optional field has three
-    /// states rather than two: a rule written as
-    /// <c>ProjectAsset { Tfm: "" }</c> reads as an absence test but is a
-    /// distinct one, and only an empty value distinguishes it.
-    /// </para>
-    /// <para>
-    /// Each shape was added because a round found a rule the previous shapes
-    /// could not distinguish — values alone in round 2, the relationship
-    /// between values in round 3, their absence in round 4, and absence
-    /// spelled as empty rather than null in round 5. Several acquisitions
-    /// carry optional fields (a project without a target framework or runtime
-    /// identifier, a package without either), so both spellings of "no value"
-    /// are ordinary here rather than exotic, and a rule that reads either is a
-    /// plausible confusion rather than a contrived attack. Only optional
-    /// fields are left blank: the required ones reject blank input at
-    /// construction, so a blank there would fail the generator instead of the
-    /// gate.
-    /// </para>
+    /// One acquisition of the given type, built with a neutral value in every
+    /// field. Which value it is no longer matters: that entitlement cannot
+    /// depend on any value is established structurally by
+    /// <see cref="MayMint_ReadsNoValueOutOfTheAcquisition"/>, so this only has
+    /// to produce an instance of the right kind.
     /// </summary>
-    static AssemblyResolutionProvenance[] Variants(Type provenanceType) =>
-        provenanceType.GetConstructors()
-            .SelectMany(constructor => ProvenanceSpellings
-                .SelectMany(spelling => new[]
-                {
-                    Construct(constructor, (_, _) => spelling),
-                    Construct(
-                        constructor,
-                        (parameter, index) =>
-                            $"{spelling}.{index}.{parameter.Name}"),
-                    Construct(
-                        constructor,
-                        (parameter, index) => IsOptional(parameter)
-                            ? null
-                            : $"{spelling}.{index}.{parameter.Name}"),
-                    Construct(
-                        constructor,
-                        (parameter, index) => IsOptional(parameter)
-                            ? string.Empty
-                            : $"{spelling}.{index}.{parameter.Name}"),
-                }))
-            .ToArray();
+    static AssemblyResolutionProvenance Sample(Type provenanceType) =>
+        Construct(
+            provenanceType.GetConstructors()[0],
+            (parameter, _) => IsOptional(parameter) ? null : "probe");
 
     /// <summary>
-    /// Whether the acquisition may be constructed without this field. Read
-    /// from the declared nullability rather than from a list, so a field that
-    /// becomes optional later is exercised as absent without anyone
-    /// remembering to say so.
+    /// Whether the acquisition may be constructed without this field, read from
+    /// the declared nullability so a field that becomes optional later is built
+    /// as absent without anyone remembering to say so.
     /// </summary>
     static bool IsOptional(ParameterInfo parameter) =>
         new NullabilityInfoContext().Create(parameter).WriteState
             == NullabilityState.Nullable;
 
     /// <summary>
-    /// Field values used to build each acquisition. The first is neutral; the
-    /// rest are spellings a rule that wrongly keyed on content might single
-    /// out, so that such a rule answers inconsistently and fails.
+    /// Entitlement must follow the <em>kind</em> of acquisition and never
+    /// anything the acquisition contains. This gate proves that from the
+    /// mechanism rather than by sampling behaviour: it decodes the IL the
+    /// compiler actually emitted for <c>MayMint</c> and requires that the
+    /// method never reads a value out of its argument. A rule keyed on content
+    /// has to load one — a field directly, a record property through its
+    /// getter, or a literal to compare against — so a body that loads none
+    /// cannot be keyed on content, whatever it is spelled as.
+    /// <para>
+    /// This replaced an enumerative gate that built each acquisition under
+    /// several field shapes and required a consistent answer. Four consecutive
+    /// review rounds each defeated it with a rule shape its shapes could not
+    /// distinguish, one axis per round: a field compared against a constant
+    /// (<c>PackageAsset { PackageId: "System.Runtime" }</c>), a field compared
+    /// against another field (<c>ProjectAsset p when p.Project != p.Tfm</c>), a
+    /// field being absent (<c>ProjectAsset { Tfm: null }</c>), and absence
+    /// spelled as empty rather than null (<c>ProjectAsset { Tfm: "" }</c>).
+    /// Each round closed one axis and left the next one open, because sampling
+    /// can only refute the shapes it thought to build. Every one of those four
+    /// emits a field or getter load, so all four fail here for the same reason,
+    /// as does any fifth axis nobody has thought of.
+    /// </para>
+    /// <para>
+    /// What this does not gate is <em>which</em> kinds are entitled; adding
+    /// <c>or ProjectAsset</c> reads nothing and passes. That is the other half,
+    /// and <see cref="EveryAcquisitionIsClassified_AndExactlyTwoAreEntitled"/>
+    /// holds it. The two compose: this one fixes what the decision may be made
+    /// of, that one fixes what the decision is.
+    /// </para>
     /// </summary>
-    static readonly string[] ProvenanceSpellings =
-    [
-        "probe",
-        "System.Runtime",
-        "System.Private.CoreLib",
-        "Microsoft.NETCore.App",
-    ];
+    [Fact]
+    public void MayMint_ReadsNoValueOutOfTheAcquisition()
+    {
+        string assemblyPath = typeof(CoreLibraryIdentityTrust).Assembly.Location;
+        Assert.True(
+            File.Exists(assemblyPath),
+            $"Cannot read the product assembly at '{assemblyPath}'.");
+
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        MetadataReader metadata = pe.GetMetadataReader();
+
+        MethodDefinition method = FindMethod(
+            metadata,
+            nameof(CoreLibraryIdentityTrust),
+            nameof(CoreLibraryIdentityTrust.MayMint));
+
+        MethodInstructions decoded = MethodInstructions.Decode(
+            pe.GetMethodBody(method.RelativeVirtualAddress));
+
+        // Non-vacuity: an undecodable or empty body would satisfy every
+        // assertion below without proving anything.
+        Assert.True(decoded.IsComplete, "MayMint's IL did not decode.");
+        Assert.NotEmpty(decoded.Instructions);
+
+        DecodedInstruction[] reads = decoded.Instructions
+            .Where(instruction => instruction.Operand is
+                OperandKind.InlineField     // ldfld/ldsfld: a field, directly
+                or OperandKind.InlineMethod // callvirt: a record property getter
+                or OperandKind.InlineString // ldstr: a literal to compare against
+                or OperandKind.InlineTok
+                or OperandKind.InlineSig)
+            .ToArray();
+
+        Assert.True(
+            reads.Length == 0,
+            "MayMint reads a value out of the acquisition at IL offset(s) "
+            + string.Join(
+                ", ",
+                reads.Select(r => $"{r.Offset:x4} ({r.OpCode}, {r.Operand})"))
+            + ". Core-library trust must follow the kind of acquisition, not "
+            + "anything the acquisition happens to contain, so the decision may "
+            + "name types and nothing else.");
+    }
+
+    /// <summary>
+    /// The named method on the named type, or a failure that names what was
+    /// missing. Resolved by name so that a rename of either — which
+    /// <c>nameof</c> keeps in step — cannot silently leave this gate matching
+    /// nothing and passing.
+    /// </summary>
+    static MethodDefinition FindMethod(
+        MetadataReader metadata,
+        string typeName,
+        string methodName)
+    {
+        foreach (MethodDefinitionHandle handle in metadata.MethodDefinitions)
+        {
+            MethodDefinition method = metadata.GetMethodDefinition(handle);
+            if (metadata.GetString(method.Name) != methodName)
+                continue;
+
+            TypeDefinition declaring =
+                metadata.GetTypeDefinition(method.GetDeclaringType());
+            if (metadata.GetString(declaring.Name) == typeName)
+                return method;
+        }
+
+        Assert.Fail($"{typeName}.{methodName} is not in the product assembly.");
+        return default;
+    }
 
     /// <summary>
     /// Every acquisition the product can express. The base constructor is
