@@ -651,6 +651,64 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
+    public void Emit_ExternalSignatureTypesCannotAliasLocalQualifiedType()
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+        var localAssembly = new ApiAssemblyIdentity(
+            "Local",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: "0011223344556677");
+        var externalAssembly = new ApiAssemblyIdentity(
+            "Local",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: "8899aabbccddeeff");
+        var externalResult = new ApiTypeReferenceIdentity(
+            externalAssembly,
+            "Mine.Result");
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            AssemblyIdentity = localAssembly,
+            Records =
+            [
+                new ApiType
+                {
+                    Namespace = "Mine",
+                    Name = "Result",
+                },
+            ],
+            Functions =
+            [
+                new JsExportFunction
+                {
+                    DeclaringType = "Exports",
+                    Name = "Transform",
+                    ReturnType = "Mine.Result",
+                    ReturnTypeReferences = [externalResult],
+                    Parameters =
+                    [
+                        new ApiParameter
+                        {
+                            Name = "Value",
+                            Type = "Mine.Result",
+                            TypeReferences = [externalResult],
+                        },
+                    ],
+                },
+            ],
+        };
+
+        string dts = DtsEmitter.Emit(surface, diagnostics);
+
+        Assert.Contains(
+            "export declare function transform(value: unknown): unknown;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Equal(2, diagnostics.UnmappedTypes.Count);
+    }
+
+    [Fact]
     public void Emit_WithIncludeAllKeepsJsonIncludeNonPublicProperty()
     {
         string dts = EmitFixtureDts(includeAll: true);

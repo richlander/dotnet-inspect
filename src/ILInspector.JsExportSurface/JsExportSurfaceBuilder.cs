@@ -92,6 +92,8 @@ public static class JsExportSurfaceBuilder
                     DeclaringType = type.Name,
                     Name = member.Name,
                     ReturnType = signature.ReturnType ?? member.ReturnType ?? "void",
+                    ReturnTypeReferences =
+                        signature.ReturnTypeReferences,
                     Parameters = signature.Parameters,
                 };
 

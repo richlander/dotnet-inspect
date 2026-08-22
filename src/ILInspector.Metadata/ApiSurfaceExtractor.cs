@@ -3101,6 +3101,8 @@ public static class ApiSurfaceExtractor
                 StructuralType = paramTypes[i].HasStructuralPayload
                     ? paramTypes[i].StructuralIdentity()
                     : null,
+                TypeReferences =
+                    [.. paramTypes[i].ReferencedTypes().Distinct()],
                 Modifier = modifier,
                 HasDefault = hasDefault,
                 DefaultValueText = defaultValueText
@@ -4232,6 +4234,8 @@ public static class ApiSurfaceExtractor
                 StructuralType = paramTypes[i].HasStructuralPayload
                     ? paramTypes[i].StructuralIdentity()
                     : null,
+                TypeReferences =
+                    [.. paramTypes[i].ReferencedTypes().Distinct()],
                 Modifier = modifier,
                 HasDefault = hasDefault,
                 DefaultValueText = defaultValueText
@@ -4803,6 +4807,12 @@ public static class ApiSurfaceExtractor
             AddText(ref count, parameter.Type);
             AddText(ref count, parameter.CanonicalType);
             AddText(ref count, parameter.StructuralType);
+            foreach (ApiTypeReferenceIdentity reference
+                in parameter.TypeReferences)
+            {
+                AddText(ref count, reference.Assembly);
+                AddText(ref count, reference.FullName);
+            }
             AddText(ref count, parameter.Modifier);
             AddText(ref count, parameter.DefaultValueText);
         }

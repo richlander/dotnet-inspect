@@ -604,6 +604,10 @@ public class ApiParameter
     public string Type { get; set; } = "";
     public string? CanonicalType { get; set; }
 
+    [JsonIgnore]
+    public List<ApiTypeReferenceIdentity> TypeReferences
+        { get; set; } = [];
+
     /// <summary>
     /// Opaque structural parameter-type identity for call-graph selectors. Null on
     /// older serialized surfaces and parameters whose display spelling is already

@@ -42,6 +42,10 @@ public sealed class JsExportFunction
 
     public required string ReturnType { get; init; }
 
+    [JsonIgnore]
+    public IReadOnlyList<ApiTypeReferenceIdentity> ReturnTypeReferences
+        { get; init; } = [];
+
     public IReadOnlyList<ApiParameter> Parameters { get; init; } = [];
 
     /// <summary>

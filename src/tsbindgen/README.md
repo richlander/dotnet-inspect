@@ -158,6 +158,7 @@ distinction.
 path. `DtsEmitterTests.Emit_RefusesIdentifiersNewerThanPinnedTypeScriptUnicode`,
 `TsTypeMapperTests.Map_QualifiedExternalTypeDoesNotAliasLocalRecord`, and
 `DtsEmitterTests.Emit_ExternalEnvelopeCannotAliasLocalQualifiedType` plus
+`Emit_ExternalSignatureTypesCannotAliasLocalQualifiedType`,
 `JsExportSurfaceBuilderTests.Build_DoesNotAliasExternalContextRootToLocalType`
 and `Build_DoesNotTrustLookalikeSerializerContextTypes`
 and `DtsEmitterTests.Emit_RefusesEmptyStringConvertedEnumBeforeOutput` gate the

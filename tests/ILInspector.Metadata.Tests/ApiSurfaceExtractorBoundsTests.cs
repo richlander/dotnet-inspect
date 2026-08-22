@@ -405,6 +405,48 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void ParameterTypeReferenceContributesItsCompleteRetainedText()
+    {
+        const string assemblyName = "Dependency";
+        const string token = "0011223344556677";
+        const string fullName = "Dependency.ParameterType";
+        var withoutReference = new ApiMember
+        {
+            SignatureModel = new ApiSignature
+            {
+                Parameters = [new ApiParameter()],
+            },
+        };
+        var withReference = new ApiMember
+        {
+            SignatureModel = new ApiSignature
+            {
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        TypeReferences =
+                        [
+                            new(
+                                new ApiAssemblyIdentity(
+                                    assemblyName,
+                                    new Version(1, 2, 3, 4),
+                                    culture: null,
+                                    publicKeyToken: token),
+                                fullName),
+                        ],
+                    },
+                ],
+            },
+        };
+
+        Assert.Equal(
+            assemblyName.Length + token.Length + fullName.Length,
+            ApiSurfaceExtractor.CountRetainedText(withReference)
+                - ApiSurfaceExtractor.CountRetainedText(withoutReference));
+    }
+
+    [Fact]
     public void RepeatedLongMemberName_StopsBeforeLargeAllocationAmplification()
     {
         byte[] image = BuildRepeatedLongMethodNameImage(

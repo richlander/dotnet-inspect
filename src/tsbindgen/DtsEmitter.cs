@@ -445,10 +445,26 @@ static class DtsEmitter
                     function.ReturnWireTypeReferences,
                     knownTypeNames,
                     knownTypeIdentities))
-            : TsTypeMapper.MapReturnType(function.ReturnType, knownTypeNames, diagnostics, $"{function.Name} return");
+            : TsTypeMapper.MapReturnType(
+                function.ReturnType,
+                knownTypeNames,
+                diagnostics,
+                $"{function.Name} return",
+                BlockedAliases(
+                    function.ReturnTypeReferences,
+                    knownTypeNames,
+                    knownTypeIdentities));
 
         var parameters = function.Parameters.Select(p =>
-            $"{CamelCase.FromPascalCase(p.Name)}: {TsTypeMapper.MapParameterType(p.Type, knownTypeNames, diagnostics, $"{function.Name}.{p.Name}")}");
+            $"{CamelCase.FromPascalCase(p.Name)}: {TsTypeMapper.MapParameterType(
+                p.Type,
+                knownTypeNames,
+                diagnostics,
+                $"{function.Name}.{p.Name}",
+                BlockedAliases(
+                    p.TypeReferences,
+                    knownTypeNames,
+                    knownTypeIdentities))}");
 
         sb.Append("export declare function ")
           .Append(CamelCase.FromPascalCase(function.Name))

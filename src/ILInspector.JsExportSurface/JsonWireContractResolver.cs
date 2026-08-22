@@ -98,6 +98,8 @@ public static class JsonWireContractResolver
             DeclaringType = function.DeclaringType,
             Name = function.Name,
             ReturnType = function.ReturnType,
+            ReturnTypeReferences =
+                function.ReturnTypeReferences,
             Parameters = function.Parameters,
             ReturnWireType = returnTypes.Count == 1
                 ? returnTypes[0].ToQualifiedDisplayString()
