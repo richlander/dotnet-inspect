@@ -22697,6 +22697,30 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("lib/net/Newtonsoft.Json.dll")]
+    [InlineData("runtimes/linux-x64/lib/net/Newtonsoft.Json.dll")]
+    public async Task Router_IncompleteFrameworkLibraryPath_DoesNotEnterPackageFallback(
+        string libraryPath)
+    {
+        string[] arguments =
+        [
+            "Newtonsoft.Json@13.0.3",
+            "--library",
+            libraryPath,
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Empty(routed.Output);
+        Assert.Contains("File not found:", routed.Error);
+    }
+
+    [Theory]
     [InlineData("Newtonsoft.Json@13.0.4", null)]
     [InlineData("Newtonsoft.Json", "13.0.4")]
     public async Task Router_PackageVersion_DoesNotOverrideExplicitLibraryPath(

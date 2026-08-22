@@ -412,6 +412,7 @@ public sealed class PackageCoordinateResolverTests
     }
 
     [Theory]
+    [InlineData("lib/net/Foo.dll")]
     [InlineData("lib/net8bogus/Foo.dll")]
     [InlineData("lib/net-8.0/Foo.dll")]
     [InlineData("lib/net.8.0/Foo.dll")]
@@ -423,6 +424,7 @@ public sealed class PackageCoordinateResolverTests
     [InlineData("lib/net8.0/../Foo.dll")]
     [InlineData("lib/net8.0 bad/Foo.dll")]
     [InlineData("runtimes/linux-x64/lib/../Foo.dll")]
+    [InlineData("runtimes/linux-x64/lib/net/Foo.dll")]
     [InlineData("runtimes//lib/net8.0/Foo.dll")]
     [InlineData("/lib/net8.0/Foo.dll")]
     [InlineData(@"\lib\net8.0\Foo.dll")]

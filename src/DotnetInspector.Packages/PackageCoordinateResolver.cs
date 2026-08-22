@@ -570,9 +570,12 @@ public static class PackageCoordinateResolver
                 return true;
             }
 
-            bool claimsModeledFamily = name.StartsWith(
-                "netstandard",
+            bool claimsModeledFamily = name.Equals(
+                "net",
                 StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith(
+                    "netstandard",
+                    StringComparison.OrdinalIgnoreCase)
                 || name.StartsWith(
                     "netcoreapp",
                     StringComparison.OrdinalIgnoreCase)
