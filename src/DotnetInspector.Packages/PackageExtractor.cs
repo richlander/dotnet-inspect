@@ -899,10 +899,11 @@ public static class PackageExtractor
     }
 
     /// <summary>
-    /// Builds the flat-container URL for a package's .nuspec ({base}/{id}/{version}/{id}.nuspec),
-    /// or null if the source exposes no usable flat-container endpoint.
+    /// Builds the flat-container URL for a package's .nuspec
+    /// ({base}/{id}/{version}/{id}.nuspec) while preserving malformed critical
+    /// resource evidence from service-index discovery.
     /// </summary>
-    private static async Task<string?> GetNuspecUrlAsync(
+    private static async Task<PackageResourceUrlResult> GetNuspecUrlAsync(
         HttpClient client,
         NuGetSource source,
         string packageName,
@@ -914,19 +915,27 @@ public static class PackageExtractor
         var flatContainerUrl = source.GetFlatContainerUrl();
         if (flatContainerUrl != null)
         {
-            return PackageResourceUrl.Combine(
-                flatContainerUrl,
-                packageName,
-                version,
-                fileName);
+            return new PackageResourceUrlResult(
+                PackageResourceUrl.Combine(
+                    flatContainerUrl,
+                    packageName,
+                    version,
+                    fileName),
+                HasMalformedCriticalResource: false);
         }
 
-        var baseAddress = await GetPackageBaseAddressAsync(client, source, log).ConfigureAwait(false);
-        return PackageResourceUrl.Combine(
-            baseAddress,
-            packageName,
-            version,
-            fileName);
+        ServiceIndexResourceResult baseAddress =
+            await GetPackageBaseAddressResultAsync(
+                client,
+                source,
+                log).ConfigureAwait(false);
+        return new PackageResourceUrlResult(
+            PackageResourceUrl.Combine(
+                baseAddress.Id,
+                packageName,
+                version,
+                fileName),
+            baseAddress.HasMalformedCriticalResource);
     }
 
     /// <summary>
@@ -998,7 +1007,8 @@ public static class PackageExtractor
         string packageId,
         string version,
         Action<string>? log = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        long? maxArchiveReadBytes = null)
     {
         if (!IsValidPackageId(packageId)
             || !TryNormalizePackageVersion(version, out _))
@@ -1021,13 +1031,25 @@ public static class PackageExtractor
                     "Local RID package path was not a regular file.");
             }
 
-            var info = new FileInfo(packagePath);
-            if (info.Length <= 0
-                || info.Length > PackagePayloadLimits.Default.MaxArchiveBytes)
+            long archiveReadLimit =
+                Math.Min(
+                    maxArchiveReadBytes
+                        ?? PackagePayloadLimits.Default.MaxArchiveBytes,
+                    PackagePayloadLimits.Default.MaxArchiveBytes);
+            if (archiveReadLimit <= 0)
             {
                 return IndeterminateLocalProbe(
                     log,
-                    "Local RID package was empty or exceeded the package archive limit.");
+                    "Local RID package archive read budget was exhausted.");
+            }
+
+            var info = new FileInfo(packagePath);
+            if (info.Length <= 0
+                || info.Length > archiveReadLimit)
+            {
+                return IndeterminateLocalProbe(
+                    log,
+                    "Local RID package was empty or exceeded the package archive read limit.");
             }
         }
         catch (FileNotFoundException)
@@ -1092,14 +1114,17 @@ public static class PackageExtractor
                 byte[]? archive =
                     await PackageContentAdmission.ReadBoundedAsync(
                             stream,
-                            PackagePayloadLimits.Default.MaxArchiveBytes,
+                            Math.Min(
+                                maxArchiveReadBytes
+                                    ?? PackagePayloadLimits.Default.MaxArchiveBytes,
+                                PackagePayloadLimits.Default.MaxArchiveBytes),
                             cancellationToken)
                         .ConfigureAwait(false);
                 if (archive is null || archive.Length == 0)
                 {
                     return IndeterminateLocalProbe(
                         log,
-                        "Local RID package was empty or exceeded the package archive limit.");
+                        "Local RID package was empty or exceeded the package archive read limit.");
                 }
 
                 if (PackageArchiveValidator.Validate(
@@ -1288,8 +1313,16 @@ public static class PackageExtractor
             sourceOptions,
             packageId))
         {
-            var url = await GetNuspecUrlAsync(client, source, normalizedName, normalizedVersion, log).ConfigureAwait(false);
-            if (url == null)
+            PackageResourceUrlResult resource =
+                await GetNuspecUrlAsync(
+                    client,
+                    source,
+                    normalizedName,
+                    normalizedVersion,
+                    log).ConfigureAwait(false);
+            if (resource.HasMalformedCriticalResource)
+                sawIndeterminateSource = true;
+            if (resource.Url == null)
             {
                 sawIndeterminateSource = true;
                 continue;
@@ -1300,10 +1333,13 @@ public static class PackageExtractor
                 HttpRetryHelper.HttpBodyFetchResult body =
                     await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
                         client,
-                        url,
+                        resource.Url,
                         static _ => true,
                         log: log,
-                        auth: NuGetCredentialScope.AuthFor(source, url, log),
+                        auth: NuGetCredentialScope.AuthFor(
+                            source,
+                            resource.Url,
+                            log),
                         trafficKind: NetworkTrafficKind.PackageManifest,
                         maxDownloadSize: MaxNuspecBytes).ConfigureAwait(false);
                 if (body.Status == HttpRetryHelper.HttpBodyFetchStatus.Success
@@ -1690,6 +1726,10 @@ public static class PackageExtractor
 
     private readonly record struct ServiceIndexResourceResult(
         string? Id,
+        bool HasMalformedCriticalResource);
+
+    private readonly record struct PackageResourceUrlResult(
+        string? Url,
         bool HasMalformedCriticalResource);
 
     private static async Task<ServiceIndexResourcesResult>

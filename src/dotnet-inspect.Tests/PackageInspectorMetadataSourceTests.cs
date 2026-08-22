@@ -1257,6 +1257,10 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                             {
                               "@id": "https://bounded-discovery.example/flat/",
                               "@type": "PackageBaseAddress/3.0.0"
+                            },
+                            {
+                              "@id": "https://bounded-discovery.example/registration/",
+                              "@type": "RegistrationsBaseUrl/3.6.0"
                             }
                           ]
                         }
@@ -1268,6 +1272,10 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                         == $"/flat/{normalizedId}/1.0.0/"
                             + $"{normalizedId}.1.0.0.nupkg" =>
                         Bytes(package),
+                    var path when path
+                        == $"/registration/{normalizedId}/1.0.0.json" =>
+                        new HttpResponseMessage(
+                            HttpStatusCode.BadGateway),
                     _ => new HttpResponseMessage(
                         HttpStatusCode.NotFound),
                 };
@@ -1292,10 +1300,18 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         Assert.Equal(0, discovered.ExitCode);
         Assert.Contains("| Signals | section |", discovered.Output);
         Assert.DoesNotContain(
+            "Identifier audit failed",
+            discovered.Error);
+        Assert.DoesNotContain(
             requests,
             request => request.AbsolutePath.EndsWith(
                 ".snupkg",
                 StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(
+            requests,
+            request => request.AbsolutePath.StartsWith(
+                "/registration/",
+                StringComparison.Ordinal));
     }
 
     [Fact]

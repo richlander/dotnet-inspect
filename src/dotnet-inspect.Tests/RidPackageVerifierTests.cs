@@ -132,6 +132,63 @@ public class RidPackageVerifierTests
         Assert.False(Assert.Single(result.RuntimeIdentifierPackages!).Exists);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task VerifyAsync_MalformedCriticalResourcePreventsFalseAbsence(
+        bool matchingNuspecExists)
+    {
+        var handler = new StubHandler();
+        handler.Add(
+            "feed.example.test/v3/index.json",
+            """
+            {
+              "resources": [
+                {
+                  "@type": "PackageBaseAddress/3.0.0",
+                  "@id": "https://content.example.test/flat/"
+                },
+                {
+                  "@type": "PackageBaseAddress/3.0.0",
+                  "@id": "not a URL"
+                }
+              ]
+            }
+            """);
+        if (matchingNuspecExists)
+        {
+            handler.Add(
+                "content.example.test/flat/testpackage.linux-x64/1.0.0/testpackage.linux-x64.nuspec",
+                """
+                <package><metadata>
+                <id>TestPackage.linux-x64</id>
+                <version>1.0.0</version>
+                </metadata></package>
+                """);
+        }
+
+        using var client = new HttpClient(handler);
+        InspectionResult result = CreateResult();
+
+        await RidPackageVerifier.VerifyAsync(
+            client,
+            result,
+            "1.0.0",
+            localDir: null,
+            logger: new VerboseLogger(enabled: false),
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = ["https://feed.example.test/v3/index.json"],
+            });
+
+        bool? availability =
+            Assert.Single(result.RuntimeIdentifierPackages!).Exists;
+        if (matchingNuspecExists)
+            Assert.True(availability);
+        else
+            Assert.Null(availability);
+    }
+
     [Fact]
     public async Task VerifyAsync_DuplicatePackageIdsShareOneRemoteProbe()
     {
@@ -753,6 +810,77 @@ public class RidPackageVerifierTests
 
             Assert.False(
                 Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task VerifyAsync_LocalArchiveReadBudgetIsShared(
+        bool budgetIncludesMatchingArchive)
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"rid-local-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string invalidPath = Path.Combine(
+                directory,
+                "TestPackage.first.1.0.0.nupkg");
+            string matchingPath = Path.Combine(
+                directory,
+                "TestPackage.second.1.0.0.nupkg");
+            File.WriteAllBytes(invalidPath, new byte[1024]);
+            WritePackageArchive(
+                matchingPath,
+                "TestPackage.second",
+                "1.0.0");
+            long budget = new FileInfo(invalidPath).Length;
+            if (budgetIncludesMatchingArchive)
+                budget += new FileInfo(matchingPath).Length;
+            var result = new InspectionResult
+            {
+                RuntimeIdentifierPackages =
+                [
+                    new RidPackageReference
+                    {
+                        RuntimeIdentifier = "first",
+                        PackageId = "TestPackage.first",
+                    },
+                    new RidPackageReference
+                    {
+                        RuntimeIdentifier = "second",
+                        PackageId = "TestPackage.second",
+                    },
+                    new RidPackageReference
+                    {
+                        RuntimeIdentifier = "missing",
+                        PackageId = "TestPackage.missing",
+                    },
+                ],
+            };
+
+            await RidPackageVerifier.VerifyAsync(
+                new HttpClient(new OfflineHandler()),
+                result,
+                "1.0.0",
+                directory,
+                new VerboseLogger(enabled: false),
+                sourceOptions: null,
+                acquiredEvidence: null,
+                new RidPackageVerifier.LocalArchiveProbeBudget(budget));
+
+            Assert.Null(result.RuntimeIdentifierPackages[0].Exists);
+            if (budgetIncludesMatchingArchive)
+                Assert.True(result.RuntimeIdentifierPackages[1].Exists);
+            else
+                Assert.Null(result.RuntimeIdentifierPackages[1].Exists);
+            Assert.False(result.RuntimeIdentifierPackages[2].Exists);
         }
         finally
         {

@@ -724,10 +724,19 @@ public class PackageCommand
                     producerOptions,
                     target.IsLocalFile,
                     pipeline);
+            bool enrichesSignals =
+                wantsSignals
+                && options.Discover is not { Length: 0 };
             bool wantsIdentifierMetadata =
-                RequiresIdentifierMetadata(producerOptions, pipeline);
+                RequiresIdentifierMetadata(
+                    producerOptions,
+                    pipeline,
+                    includeSignals: enrichesSignals);
             bool wantsPackageMetadata =
-                RequiresPackageMetadata(producerOptions, pipeline);
+                RequiresPackageMetadata(
+                    producerOptions,
+                    pipeline,
+                    includeSignals: enrichesSignals);
             using var vulnerabilityTrafficScope = AllowsVulnerabilityTraffic(
                 producerOptions)
                 ? NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData)
@@ -828,7 +837,7 @@ public class PackageCommand
                     result);
             }
 
-            if (wantsSignals && options.Discover is not { Length: 0 })
+            if (enrichesSignals)
             {
                 await PopulatePackageSignalsAsync(
                     result, extractPath, packageName, version, client, logger, options.SourceOptions);
@@ -4353,12 +4362,16 @@ public class PackageCommand
 
     internal static bool RequiresPackageMetadata(
         InspectionOptions options,
-        SectionPipeline<InspectionResult> pipeline)
+        SectionPipeline<InspectionResult> pipeline,
+        bool includeSignals = true)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(pipeline);
 
-        return RequiresIdentifierMetadata(options, pipeline)
+        return RequiresIdentifierMetadata(
+                   options,
+                   pipeline,
+                   includeSignals)
                || RequestsSelectedOrDiscoveredSection(
                    options,
                    PackageSections.Statistics,
@@ -4371,15 +4384,17 @@ public class PackageCommand
 
     internal static bool RequiresIdentifierMetadata(
         InspectionOptions options,
-        SectionPipeline<InspectionResult> pipeline)
+        SectionPipeline<InspectionResult> pipeline,
+        bool includeSignals = true)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(pipeline);
 
-        return RequestsSelectedOrDiscoveredSection(
-                   options,
-                   PackageSections.Signals,
-                   pipeline)
+        return (includeSignals
+                && RequestsSelectedOrDiscoveredSection(
+                    options,
+                    PackageSections.Signals,
+                    pipeline))
                || RequestsSelectedOrDiscoveredSection(
                    options,
                    PackageSections.AuditIdentifierConfusion,
