@@ -69,6 +69,26 @@ gate that shared-rule invariant against the real source generator, while
 `DtsEmitterTests.Emit_IncludesPropertyWithJsonIgnoreNever` gates the explicit
 `Never` exception.
 
+Inherited class members and the wire semantics of `[JsonNumberHandling]`,
+`[JsonPolymorphic]`, `[JsonDerivedType]`, and `[JsonExtensionData]` are not yet
+projected. Affected records or members therefore become diagnosed `unknown`
+rather than a partial interface. These attributes are recognized only with
+their framework-signed identity.
+`DtsEmitterTests.Emit_BlocksUnsupportedWireShapingContracts` gates the compiled
+inheritance, number-handling, polymorphism, and extension-data cases.
+
+The JSON envelope for each export comes only from an authentic, platform-signed
+`System.Text.Json.JsonSerializer` call whose `JsonTypeInfo<T>` parameter is
+likewise authenticated. A serialization contributes the return envelope only
+when Analysis proves its string result reaches the method return or an
+authenticated async-builder result sink; stream overloads, discarded results,
+and unresolved flows do not contribute.
+`JsonWireContractResolverTests.SerializerIdentityRequiresSignedSystemTextJsonAssembly`,
+`Build_DoesNotTreatStreamSerializationAsReturnEnvelope`, and
+`Build_DoesNotTreatDiscardedSerializationAsReturnEnvelope` plus
+`MethodCallAnalysisTests.ClassifiesReturnedAndDiscardedCallResults` and
+`ClassifiesSingleLocalUseAsCallArgument` gate these boundaries.
+
 ### Drift detection
 
 `DriftDetector` compares generated and checked-in declarations as the exact
@@ -82,7 +102,11 @@ When `tsbindgen` cannot map a C# type to TypeScript, it still emits `unknown`
 in the generated declaration so the partial output remains inspectable, but it
 also prints a diagnostic to stderr for every unmapped occurrence and exits
 non-zero. That keeps CI from treating a lossy projection as success-shaped
-output.
+output. JavaScript module output is suppressed whenever those mapping
+diagnostics exist, so a lossy declaration cannot be paired with a
+success-shaped wrapper artifact.
+`TsBindGenCommandTests.Invoke_WithDiagnostics_DoesNotAttemptInvalidEmitJsPath`
+gates that output boundary.
 
 A DTO whose serializer contexts declare conflicting property-naming policies
 is emitted as `unknown`, without guessing a policy, and the diagnostic keeps
@@ -91,10 +115,13 @@ enum roots. Duplicate or malformed context-options rows are also unsupported
 rather than resolved by metadata order. Non-default context options that change
 serialized wire shape are unsupported until the object model projects their
 semantics; formatting and read-only options remain accepted.
+Enum-valued options are decoded only when their serialized enum name carries a
+complete platform-signed System.Text.Json assembly identity.
 `JsonSourceGenerationOptionsAttributeTests` gates duplicate-row orders,
 duplicate agreement, duplicate or malformed arguments within one row,
-wire-shaping rejection, byte-backed `ReadCommentHandling` decoding, supported
-peer options, and the ordinary single-row case.
+wire-shaping rejection, signed and unsigned byte-backed
+`ReadCommentHandling` decoding, supported peer options, and the ordinary
+single-row case.
 `DtsEmitterTests.Emit_BlocksEnumWithUnsupportedContextOptions` gates the enum
 path.
 
@@ -105,6 +132,8 @@ assembly identity and expected constructor/value shape. This applies to
 attribute from another assembly cannot alter the projected contract.
 `JsonPropertyNameAttributeTests.SameNameAttributeFromUntrustedAssemblyIsIgnored`
 and
+`JsonPropertyNameAttributeTests.AuthenticAttributeWithMalformedConstructorProducesRowMarker`
+plus
 `JsonSourceGenerationOptionsAttributeTests.SameNameOptionsAttributeFromUntrustedAssemblyIsIgnored`
 gate the cross-assembly boundary.
 
@@ -158,14 +187,18 @@ strict-mode names and collisions with the wrapper's generated `dotnet`,
 identifiers remain supported, including TypeScript's measured continuation-only
 edge points. Identifier acceptance is pinned to the TypeScript 7.0.2 scanner
 rather than the runtime's newer Unicode tables. Qualified CLR type identities must match a discovered local identity by
-complete ECMA assembly identity and qualified name; an unrelated external type
-with the same assembly simple name, simple type name, or namespace-qualified
-name becomes diagnosed `unknown`, not an alias. Built-in mappings such as
+complete ECMA assembly identity and structured metadata definition name; the
+structure distinguishes a top-level `N.A.B` from nested `N.A+B` even when a
+display projection is identical. An unrelated external type with the same
+assembly simple name, simple type name, or namespace-qualified name becomes
+diagnosed `unknown`, not an alias. Built-in mappings such as
 `Task<T>`, `Dictionary<TKey, TValue>`, primitives, and `JsonElement` likewise
 require a platform-signed framework identity; same-name external types become
 diagnosed `unknown`.
 `DtsEmitterTests.Emit_DoesNotApplyDictionarySemanticsToLookalikeType` and
-`Emit_DoesNotApplyTaskSemanticsToLookalikeType` gate this framework boundary.
+`Emit_DoesNotApplyTaskSemanticsToLookalikeType` gate this framework boundary;
+`Emit_NestedIdentityCannotAliasNamespaceQualifiedType` gates structured type
+identity.
 Empty string-converted enums
 are rejected before output. Property keys use the broader `IdentifierName` grammar,
 where reserved words remain valid and do not require quoting;

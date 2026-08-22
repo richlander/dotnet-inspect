@@ -72,6 +72,16 @@ dependency direction and the assembly owner.
 The typed evaluation stack is opt-in via `MethodInstructions.InterpretStack(...)`,
 so broad scans and the offset join never pay for it.
 
+Analysis also projects a narrow call-result-use fact onto `DirectCall`: a
+non-void result can be identified as directly returned, discarded, or stored
+once and then supplied to another call. This is consumer-owned Layer 1 built
+from the shared instructions and Analysis reaching definitions; it is not a
+general cross-consumer symbolic stack. Unknown, multiply used, address-taken,
+or otherwise unresolved flows stay `Unknown`.
+`MethodCallAnalysisTests.ClassifiesReturnedAndDiscardedCallResults` and
+`ClassifiesSingleLocalUseAsCallArgument` gate the projection and its conservative
+boundary.
+
 ## dotnet/runtime heritage and upstream tracking
 
 The byte reader is **ported from `dotnet/runtime`** — the same

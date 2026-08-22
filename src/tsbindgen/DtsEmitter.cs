@@ -28,7 +28,8 @@ static class DtsEmitter
                 declarationTypes.Select(type =>
                     new ApiTypeReferenceIdentity(
                         assembly,
-                        type.FullName)))
+                        type.FullName,
+                        type.DefinitionName)))
             : [];
 
         var sb = new StringBuilder();
@@ -76,6 +77,12 @@ static class DtsEmitter
             EmitBlockedType(sb, enumType);
             return;
         }
+        if (enumType.HasUnsupportedJsonWireAttributes)
+        {
+            ReportUnsupportedJsonWireShape(enumType.Name, diagnostics);
+            EmitBlockedType(sb, enumType);
+            return;
+        }
 
         if (!enumType.HasJsonStringEnumConverter)
         {
@@ -116,6 +123,12 @@ static class DtsEmitter
         if (HasUnsupportedJsonConverter(record))
         {
             ReportUnsupportedJsonConverter(record.Name, diagnostics);
+            EmitBlockedType(sb, record);
+            return;
+        }
+        if (HasUnsupportedRecordWireShape(record))
+        {
+            ReportUnsupportedJsonWireShape(record.Name, diagnostics);
             EmitBlockedType(sb, record);
             return;
         }
@@ -414,6 +427,35 @@ static class DtsEmitter
             || !type.HasJsonStringEnumConverter
             || type.JsonConverterAttributeCount != 1);
 
+    static bool HasUnsupportedRecordWireShape(ApiType type)
+    {
+        if (type.HasUnsupportedJsonWireAttributes
+            || type.Members.Any(member =>
+                member.HasUnsupportedJsonWireAttributes
+                && JsonWireMemberRules.IsSerialized(member)))
+        {
+            return true;
+        }
+
+        if (type.BaseType is null)
+            return false;
+        string expectedBaseType = type.Kind == "struct"
+            ? "System.ValueType"
+            : "System.Object";
+        if (type.BaseType != expectedBaseType)
+            return true;
+        return type.BaseTypeReference is { } reference
+            && !PlatformKeys.IsPlatform(
+                reference.Assembly.PublicKeyToken);
+    }
+
+    static void ReportUnsupportedJsonWireShape(
+        string location,
+        TsBindGenDiagnostics? diagnostics) =>
+        diagnostics?.ReportUnmappedType(
+            $"{location} JSON wire shape",
+            "unsupported wire-shaping attributes or inheritance");
+
     static void ReportUnsupportedJsonConverter(
         string location,
         TsBindGenDiagnostics? diagnostics) =>
@@ -513,21 +555,21 @@ static class DtsEmitter
     {
         string? keyword = fullName switch
         {
-            "System.String" => "string",
-            "System.Char" => "char",
-            "System.Boolean" => "bool",
-            "System.Byte" => "byte",
-            "System.SByte" => "sbyte",
-            "System.Int16" => "short",
-            "System.UInt16" => "ushort",
-            "System.Int32" => "int",
-            "System.UInt32" => "uint",
-            "System.Int64" => "long",
-            "System.UInt64" => "ulong",
-            "System.Single" => "float",
-            "System.Double" => "double",
-            "System.Decimal" => "decimal",
-            "System.Void" => "void",
+            "System.String" or "String" => "string",
+            "System.Char" or "Char" => "char",
+            "System.Boolean" or "Boolean" => "bool",
+            "System.Byte" or "Byte" => "byte",
+            "System.SByte" or "SByte" => "sbyte",
+            "System.Int16" or "Int16" => "short",
+            "System.UInt16" or "UInt16" => "ushort",
+            "System.Int32" or "Int32" => "int",
+            "System.UInt32" or "UInt32" => "uint",
+            "System.Int64" or "Int64" => "long",
+            "System.UInt64" or "UInt64" => "ulong",
+            "System.Single" or "Single" => "float",
+            "System.Double" or "Double" => "double",
+            "System.Decimal" or "Decimal" => "decimal",
+            "System.Void" or "Void" => "void",
             _ => null,
         };
         if (keyword is not null)
@@ -539,21 +581,29 @@ static class DtsEmitter
 
         string? renderedDefinition = fullName switch
         {
-            "System.Nullable`1" => "System.Nullable",
+            "System.Nullable`1" or "Nullable`1" =>
+                fullName.StartsWith("System.", StringComparison.Ordinal)
+                    ? "System.Nullable"
+                    : "Nullable",
             "System.Threading.Tasks.Task`1" =>
                 "System.Threading.Tasks.Task",
             "System.Threading.Tasks.Task" =>
                 "System.Threading.Tasks.Task",
+            "Task`1" or "Task" => "Task",
             "System.Threading.Tasks.ValueTask`1" =>
                 "System.Threading.Tasks.ValueTask",
             "System.Threading.Tasks.ValueTask" =>
                 "System.Threading.Tasks.ValueTask",
+            "ValueTask`1" or "ValueTask" => "ValueTask",
             "System.Collections.Generic.Dictionary`2" =>
                 "System.Collections.Generic.Dictionary",
+            "Dictionary`2" => "Dictionary",
             "System.Collections.Generic.IReadOnlyDictionary`2" =>
                 "System.Collections.Generic.IReadOnlyDictionary",
+            "IReadOnlyDictionary`2" => "IReadOnlyDictionary",
             "System.Text.Json.JsonElement" =>
                 "System.Text.Json.JsonElement",
+            "JsonElement" => "JsonElement",
             _ => null,
         };
         if (renderedDefinition is null)

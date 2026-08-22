@@ -687,6 +687,11 @@ public static class ApiSurfaceExtractor
                     reader,
                     jsonTypeAttributes,
                     observeDecodeWork);
+            apiType.HasUnsupportedJsonWireAttributes =
+                AttributeReader.HasUnsupportedJsonTypeWireAttributes(
+                    reader,
+                    jsonTypeAttributes,
+                    observeDecodeWork);
             apiType.JsonSerializableRoots =
                 AttributeReader.ReadJsonSerializableRoots(
                     reader,
@@ -1082,6 +1087,12 @@ public static class ApiSurfaceExtractor
                     JsonPropertyNameAttributeValues = jsonPropertyNames,
                     JsonConverterAttributeCount =
                         jsonConverterAttributeCount,
+                    HasUnsupportedJsonWireAttributes =
+                        AttributeReader
+                            .HasUnsupportedJsonMemberWireAttributes(
+                                reader,
+                                prop.GetCustomAttributes(),
+                                observeDecodeWork),
                     Attributes = RenderMemberAttributes(
                         reader,
                         prop.GetCustomAttributes(),
@@ -1288,6 +1299,12 @@ public static class ApiSurfaceExtractor
                             reader,
                             field.GetCustomAttributes(),
                             observeDecodeWork),
+                    HasUnsupportedJsonWireAttributes =
+                        AttributeReader
+                            .HasUnsupportedJsonMemberWireAttributes(
+                                reader,
+                                field.GetCustomAttributes(),
+                                observeDecodeWork),
                     JsonStringEnumMemberName =
                         jsonStringEnumMemberNames.Count == 1
                             ? jsonStringEnumMemberNames[0]
@@ -4644,6 +4661,7 @@ public static class ApiSurfaceExtractor
         {
             AddText(ref count, root.ElementType.Assembly);
             AddText(ref count, root.ElementType.FullName);
+            AddText(ref count, root.ElementType.DefinitionName);
         }
         AddText(ref count, type.Interfaces);
         foreach (FilteredJsonPropertyNameFact fact
@@ -4804,11 +4822,15 @@ public static class ApiSurfaceExtractor
         AddText(
             ref count,
             signature.ReturnTypeDefinitionReference?.FullName);
+        AddText(
+            ref count,
+            signature.ReturnTypeDefinitionReference?.DefinitionName);
         foreach (ApiTypeReferenceIdentity reference
             in signature.ReturnTypeReferences)
         {
             AddText(ref count, reference.Assembly);
             AddText(ref count, reference.FullName);
+            AddText(ref count, reference.DefinitionName);
         }
         AddText(ref count, signature.ReturnAttributes);
         AddText(ref count, signature.MemberName);
@@ -4827,6 +4849,7 @@ public static class ApiSurfaceExtractor
             {
                 AddText(ref count, reference.Assembly);
                 AddText(ref count, reference.FullName);
+                AddText(ref count, reference.DefinitionName);
             }
             AddText(ref count, parameter.Modifier);
             AddText(ref count, parameter.DefaultValueText);

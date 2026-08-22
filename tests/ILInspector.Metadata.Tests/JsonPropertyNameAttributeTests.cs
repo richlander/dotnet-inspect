@@ -104,6 +104,34 @@ public sealed class JsonPropertyNameAttributeTests
     }
 
     [Theory]
+    [InlineData("JsonPropertyNameAttribute")]
+    [InlineData("JsonStringEnumMemberNameAttribute")]
+    public void AuthenticAttributeWithMalformedConstructorProducesRowMarker(
+        string attributeTypeName)
+    {
+        using var stream = new MemoryStream(
+            BuildImage(
+                attributeTypeName,
+                malformedStringConstructor: true),
+            writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition type = reader.GetTypeDefinition(
+            MetadataTokens.TypeDefinitionHandle(2));
+
+        List<string?> values =
+            attributeTypeName == "JsonPropertyNameAttribute"
+                ? AttributeReader.ReadJsonPropertyNames(
+                    reader,
+                    type.GetCustomAttributes())
+                : AttributeReader.ReadJsonStringEnumMemberNames(
+                    reader,
+                    type.GetCustomAttributes());
+
+        Assert.Equal([null], values);
+    }
+
+    [Theory]
     [InlineData("JsonIncludeAttribute", true)]
     [InlineData("JsonIncludeAttribute", false)]
     [InlineData("JsonIgnoreAttribute", true)]
@@ -155,6 +183,7 @@ public sealed class JsonPropertyNameAttributeTests
         bool duplicateValidRows = false,
         bool trustedAssembly = true,
         bool markerConstructor = false,
+        bool malformedStringConstructor = false,
         string attributeNamespace =
             "System.Text.Json.Serialization",
         string assemblyName = "System.Text.Json")
@@ -196,11 +225,11 @@ public sealed class JsonPropertyNameAttributeTests
             SignatureCallingConvention.Default,
             genericParameterCount: 0,
             isInstanceMethod: true).Parameters(
-            markerConstructor ? 0 : 1,
+            markerConstructor || malformedStringConstructor ? 0 : 1,
             returnType => returnType.Void(),
             parameters =>
             {
-                if (!markerConstructor)
+                if (!markerConstructor && !malformedStringConstructor)
                     parameters.AddParameter().Type().String();
             });
         MemberReferenceHandle constructor = metadata.AddMemberReference(

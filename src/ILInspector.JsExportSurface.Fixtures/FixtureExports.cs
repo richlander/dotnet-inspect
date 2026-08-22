@@ -59,6 +59,26 @@ public static partial class FixtureExports
             FixtureJsonContext.Default.WidgetDtoArray);
 
     [JSExport]
+    public static string SerializeWidgetSideEffect()
+    {
+        using var stream = new MemoryStream();
+        JsonSerializer.Serialize(
+            stream,
+            new WidgetDto("widget", 0, [], null),
+            FixtureJsonContext.Default.WidgetDto);
+        return "ok";
+    }
+
+    [JSExport]
+    public static string IgnoreSerializedWidget()
+    {
+        JsonSerializer.Serialize(
+            new WidgetDto("widget", 0, [], null),
+            FixtureJsonContext.Default.WidgetDto);
+        return "ok";
+    }
+
+    [JSExport]
     public static string GetWidgetSummary() =>
         JsonSerializer.Serialize(
             new WidgetSummary("widget", WidgetStatus.Published),

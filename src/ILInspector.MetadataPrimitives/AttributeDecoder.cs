@@ -226,6 +226,20 @@ public static class AttributeDecoder
             beforeMaterialize,
             externalEnumUnderlyingTypes: null);
 
+    internal static CustomAttributeValue<string>?
+        TryDecodePreservingSerializedTypeNames(
+            MetadataReader reader,
+            CustomAttribute attribute,
+            Action<int>? beforeMaterialize,
+            IReadOnlyDictionary<string, PrimitiveTypeCode>
+                trustedExternalEnumUnderlyingTypes)
+        => TryDecode(
+            reader,
+            attribute,
+            preserveSerializedTypeNames: true,
+            beforeMaterialize,
+            trustedExternalEnumUnderlyingTypes);
+
     static CustomAttributeValue<string>? TryDecode(
         MetadataReader reader,
         CustomAttribute attribute,

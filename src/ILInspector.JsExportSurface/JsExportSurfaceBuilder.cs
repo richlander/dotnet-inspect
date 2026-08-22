@@ -38,7 +38,8 @@ public static class JsExportSurfaceBuilder
                     .Select(type => (
                         Identity: new ApiTypeReferenceIdentity(
                             assemblyIdentity,
-                            type.FullName),
+                            type.FullName,
+                            type.DefinitionName),
                         Type: type))
                     .GroupBy(candidate => candidate.Identity)
                     .Where(group => group

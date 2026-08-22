@@ -149,7 +149,7 @@ public sealed class TsBindGenCommandTests
     }
 
     [Fact]
-    public void Invoke_WithInvalidEmitJsPath_ReturnsOneAndReportsError()
+    public void Invoke_WithDiagnostics_DoesNotAttemptInvalidEmitJsPath()
     {
         string missingDirectory = Path.Combine(
             AppContext.BaseDirectory,
@@ -165,6 +165,10 @@ public sealed class TsBindGenCommandTests
 
         Assert.Equal(1, exitCode);
         Assert.Contains(
+            "has no TypeScript mapping",
+            error.ToString(),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
             $"could not write JavaScript module to '{missingDirectory}'",
             error.ToString(),
             StringComparison.Ordinal);
@@ -233,14 +237,26 @@ public sealed class TsBindGenCommandTests
     [Fact]
     public void Invoke_PrintsDiagnosticsAndReturnsOneForUnmappedTypes()
     {
+        string emitJsPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "tsbindgen-unmapped.js");
+        File.Delete(emitJsPath);
         var output = new StringWriter();
         var error = new StringWriter();
 
-        int exitCode = TsBindGenCommand.Invoke([typeof(NeedsUnmappedTypeFixtureExports).Assembly.Location], output, error);
+        int exitCode = TsBindGenCommand.Invoke(
+            [
+                typeof(NeedsUnmappedTypeFixtureExports).Assembly.Location,
+                "--emit-js",
+                emitJsPath,
+            ],
+            output,
+            error);
 
         Assert.Equal(1, exitCode);
         Assert.Contains("NeedsUnmappedTypeFixture.Unmapped: System.Guid has no TypeScript mapping.", error.ToString(), StringComparison.Ordinal);
         Assert.Contains("unknown", output.ToString(), StringComparison.Ordinal);
+        Assert.False(File.Exists(emitJsPath));
     }
 
     [Fact]

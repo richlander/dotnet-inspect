@@ -38,23 +38,64 @@ public sealed class JsonWireContractResolverTests
                 different));
     }
 
+    [Fact]
+    public void SerializerIdentityRequiresSignedSystemTextJsonAssembly()
+    {
+        TypeRef trusted = ExternalType(
+            "System.Text.Json",
+            "System.Text.Json",
+            "JsonSerializer",
+            "cc7b13ffcd2ddd51");
+        TypeRef unsigned = ExternalType(
+            "System.Text.Json",
+            "System.Text.Json",
+            "JsonSerializer",
+            publicKeyToken: null);
+        TypeRef lookalike = ExternalType(
+            "Lookalikes",
+            "System.Text.Json",
+            "JsonSerializer",
+            "cc7b13ffcd2ddd51");
+
+        Assert.True(
+            JsonWireContractResolver.IsTrustedJsonSerializerType(
+                trusted));
+        Assert.False(
+            JsonWireContractResolver.IsTrustedJsonSerializerType(
+                unsigned));
+        Assert.False(
+            JsonWireContractResolver.IsTrustedJsonSerializerType(
+                lookalike));
+    }
+
     static TypeRef ScopedType(string publicKeyToken)
+        => ExternalType(
+            "Shared",
+            "Mine",
+            "Result",
+            publicKeyToken);
+
+    static TypeRef ExternalType(
+        string assemblyName,
+        string @namespace,
+        string nameValue,
+        string? publicKeyToken)
     {
         var name = Assert.IsType<
             MetadataTypeDefinitionNameResult.Valid>(
-                MetadataTypeDefinitionName.Create(
-                    "Mine",
-                    ImmutableArray.Create("Result")))
+            MetadataTypeDefinitionName.Create(
+                @namespace,
+                ImmutableArray.Create(nameValue)))
             .Name;
         var assembly = new AssemblyReferenceIdentity(
-            "Shared",
+            assemblyName,
             new Version(1, 0, 0, 0),
             null,
             publicKeyToken);
         return TypeRef.Definition(
-            "Shared",
-            "Mine",
-            "Result",
+            assemblyName,
+            @namespace,
+            nameValue,
             new ResolvableTypeReference(
                 new TypeReferenceOrigin.AssemblyReference(
                     assembly),
@@ -86,7 +127,11 @@ public sealed class JsonWireContractResolverTests
             [
                 new ApiTypeReferenceIdentity(
                     surface.AssemblyIdentity!,
-                    FixtureNamespace + "WidgetDto"),
+                    FixtureNamespace + "WidgetDto",
+                    Assert.Single(
+                        surface.Records,
+                        type => type.Name == "WidgetDto")
+                        .DefinitionName),
             ],
             getWidget.ReturnWireTypeReferences);
         Assert.Empty(getWidget.ParameterWireTypes);
@@ -154,6 +199,34 @@ public sealed class JsonWireContractResolverTests
         Assert.Equal(
             FixtureNamespace + "WidgetDto[]",
             fn.ReturnWireType);
+    }
+
+    [Fact]
+    public void Build_DoesNotTreatStreamSerializationAsReturnEnvelope()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildFixtureSurfaceWithWireContracts();
+
+        JsExportFunction fn = Assert.Single(
+            surface.Functions,
+            function =>
+                function.Name == "SerializeWidgetSideEffect");
+
+        Assert.Null(fn.ReturnWireType);
+    }
+
+    [Fact]
+    public void Build_DoesNotTreatDiscardedSerializationAsReturnEnvelope()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildFixtureSurfaceWithWireContracts();
+
+        JsExportFunction fn = Assert.Single(
+            surface.Functions,
+            function =>
+                function.Name == "IgnoreSerializedWidget");
+
+        Assert.Null(fn.ReturnWireType);
     }
 
     [Fact]

@@ -307,6 +307,74 @@ public sealed class MethodCallAnalysisTests
         Assert.Equal(0, item.ILOffset);
     }
 
+    [Fact]
+    public void ClassifiesReturnedAndDiscardedCallResults()
+    {
+        DirectCall returned = CollectSingle(
+            [
+                0x28, 0x01, 0x00, 0x00, 0x0A,
+                0x2A,
+            ]);
+        DirectCall discarded = CollectSingle(
+            [
+                0x28, 0x01, 0x00, 0x00, 0x0A,
+                0x26,
+                0x2A,
+            ]);
+
+        Assert.Equal(
+            DirectCallResultUse.MethodReturn,
+            returned.ResultUse);
+        Assert.Equal(5, returned.ResultConsumerOffset);
+        Assert.Equal(
+            DirectCallResultUse.Discarded,
+            discarded.ResultUse);
+        Assert.Equal(5, discarded.ResultConsumerOffset);
+    }
+
+    [Fact]
+    public void ClassifiesSingleLocalUseAsCallArgument()
+    {
+        byte[] il =
+        [
+            0x28, 0x01, 0x00, 0x00, 0x0A,
+            0x0A,
+            0x06,
+            0x28, 0x02, 0x00, 0x00, 0x0A,
+            0x2A,
+        ];
+        var calls = ImmutableArray.CreateBuilder<DirectCall>();
+        var evidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
+
+        MethodCallAnalysis.Collect(
+            Context(il),
+            new Resolver(returningFirst: true),
+            _ => AllocationMultiplicity.Once,
+            calls,
+            evidence,
+            includeIndirectOpcodes: false);
+
+        DirectCall producer = calls[0];
+        Assert.Equal(
+            DirectCallResultUse.CallArgument,
+            producer.ResultUse);
+        Assert.Equal(7, producer.ResultConsumerOffset);
+    }
+
+    static DirectCall CollectSingle(byte[] il)
+    {
+        var calls = ImmutableArray.CreateBuilder<DirectCall>();
+        var evidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
+        MethodCallAnalysis.Collect(
+            Context(il),
+            new Resolver(returningFirst: true),
+            _ => AllocationMultiplicity.Once,
+            calls,
+            evidence,
+            includeIndirectOpcodes: false);
+        return Assert.Single(calls);
+    }
+
     static void AssertCall(
         DirectCall call,
         int offset,
@@ -369,6 +437,7 @@ public sealed class MethodCallAnalysisTests
         bool throwOnSecondMember = false,
         bool throwOnDefinition = false,
         bool throwOnIndirectCall = false,
+        bool returningFirst = false,
         List<string>? events = null)
         : IMethodCallResolver
     {
@@ -390,7 +459,9 @@ public sealed class MethodCallAnalysisTests
                             "System",
                             "Int32"))]
                     : [],
-                s_void,
+                returningFirst && token == FirstToken
+                    ? TypeRef.CoreLib("System", "String")
+                    : s_void,
                 MemberKind.Method);
         }
 

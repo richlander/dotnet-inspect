@@ -29,19 +29,21 @@ namespace ILInspector.JsExportSurface;
 /// This is a residual gap, not a silent guess.
 /// </para>
 /// <para>
-/// <see cref="DirectCall"/> also carries no branch/reachability evidence, so a body with more than
-/// one distinct <c>Serialize&lt;T&gt;</c> call site (e.g. different DTOs serialized on different
-/// branches) has no principled way to pick "the" return DTO. Rather than silently guess the first
-/// one found, <see cref="Attach"/> leaves <see cref="JsExportFunction.ReturnWireType"/> unset
-/// whenever more than one distinct DTO is found for the return position. "Distinct" is judged by
-/// assembly-scoped structural identity. That prevents an external type from
-/// aliasing an unrelated discovered local DTO that shares its qualified name.
+/// A <c>Serialize&lt;T&gt;</c> call contributes a return DTO only when Analysis proves its result
+/// reaches the physical method return or an authentic
+/// <c>AsyncTaskMethodBuilder&lt;T&gt;.SetResult</c> sink. Discarded and unresolved result flows are
+/// ignored. A body with more than one distinct proven return DTO (e.g. different DTOs serialized
+/// on different branches) remains ambiguous: <see cref="Attach"/> leaves
+/// <see cref="JsExportFunction.ReturnWireType"/> unset rather than guessing. "Distinct" is judged
+/// by assembly-scoped structural identity, preventing an external type from aliasing an unrelated
+/// discovered local DTO that shares its qualified name.
 /// </para>
 /// </remarks>
 public static class JsonWireContractResolver
 {
     const string JsonSerializerTypeName = "JsonSerializer";
     const string JsonSerializerNamespace = "System.Text.Json";
+    const string SystemTextJsonAssemblyName = "System.Text.Json";
     const string SerializeMethodName = "Serialize";
     const string DeserializeMethodName = "Deserialize";
     const string JsonTypeInfoName = "JsonTypeInfo`1";
@@ -72,6 +74,11 @@ public static class JsonWireContractResolver
             {
                 continue;
             }
+            if (!IsTrustedJsonSerializerType(
+                    call.Callee.DeclaringType))
+            {
+                continue;
+            }
 
             TypeRef? dto = ResolveJsonTypeInfoArgument(call.Callee);
             if (dto is null)
@@ -79,7 +86,9 @@ public static class JsonWireContractResolver
                 continue;
             }
 
-            if (call.Callee.Name == SerializeMethodName)
+            if (call.Callee.Name == SerializeMethodName
+                && IsTrustedSystemString(call.Callee.ReturnType)
+                && ResultFlowsToExportReturn(call, bodyIndex))
             {
                 if (!returnTypes.Any(existing =>
                     WireTypesEqual(existing, dto)))
@@ -113,6 +122,46 @@ public static class JsonWireContractResolver
         };
     }
 
+    static bool ResultFlowsToExportReturn(
+        DirectCall serialize,
+        LibraryBodyIndex bodyIndex)
+    {
+        if (serialize.ResultUse == DirectCallResultUse.MethodReturn)
+            return true;
+        if (serialize.ResultUse != DirectCallResultUse.CallArgument
+            || serialize.ResultConsumerOffset is not { } consumerOffset)
+        {
+            return false;
+        }
+
+        DirectCall? consumer = bodyIndex.DirectCalls.FirstOrDefault(call =>
+            call.EvidenceMethod == serialize.EvidenceMethod
+            && call.ILOffset == consumerOffset);
+        return consumer is not null
+            && IsTrustedAsyncResultSink(consumer.Callee)
+            && consumer.Callee.ParameterTypes.Length == 1
+            && consumer.Callee.ReturnType.Equals(
+                TypeRef.CoreLib("System", "Void"));
+    }
+
+    static bool IsTrustedAsyncResultSink(MemberRef callee)
+    {
+        if (callee.Name != "SetResult")
+            return false;
+        TypeRef identity =
+            callee.DeclaringType.Kind == TypeRefKind.GenericInstance
+                && callee.DeclaringType.ElementType is { } element
+                ? element
+                : callee.DeclaringType;
+        return identity.Name is "AsyncTaskMethodBuilder`1"
+                or "AsyncValueTaskMethodBuilder`1"
+            && IsTrustedFrameworkType(
+                identity,
+                "System.Runtime.CompilerServices",
+                identity.Name,
+                "System.Runtime");
+    }
+
     internal static bool WireTypesEqual(
         TypeRef left,
         TypeRef right) =>
@@ -128,6 +177,10 @@ public static class JsonWireContractResolver
                 && parameter.ElementType is { } elementType
                 && elementType.Name == JsonTypeInfoName
                 && elementType.Namespace == JsonTypeInfoNamespace
+                && IsTrustedSystemTextJsonType(
+                    elementType,
+                    JsonTypeInfoNamespace,
+                    JsonTypeInfoName)
                 && parameter.TypeArguments.Length == 1)
             {
                 // ToDisplayString (not .Name) so a container DTO — e.g. WidgetDto[] — renders as
@@ -159,7 +212,8 @@ public static class JsonWireContractResolver
             {
                 yield return new(
                     assembly,
-                    type.ToQualifiedDisplayString());
+                    type.ToQualifiedDisplayString(),
+                    type.Resolution?.Type);
             }
         }
 
@@ -181,29 +235,77 @@ public static class JsonWireContractResolver
             }
         }
 
-        static ApiAssemblyIdentity? GetAssemblyIdentity(TypeRef type)
-        {
-            AssemblyReferenceIdentity? identity =
-                type.Resolution?.Origin switch
-                {
-                    TypeReferenceOrigin.AssemblyReference reference =>
-                        reference.Assembly,
-                    TypeReferenceOrigin.CurrentAssembly current =>
-                        current.Assembly,
-                    _ => null,
-                };
-            if (identity is not null)
-            {
-                return new(
-                    identity.Name,
-                    identity.Version,
-                    identity.Culture,
-                    identity.PublicKeyToken);
-            }
+    }
 
-            return type.Assembly.Length > 0
-                ? new(type.Assembly, null, null, null)
-                : null;
+    static bool IsTrustedSystemTextJsonType(
+        TypeRef type,
+        string expectedNamespace,
+        string expectedName)
+    {
+        ApiAssemblyIdentity? assembly = GetAssemblyIdentity(type);
+        return type.Namespace == expectedNamespace
+            && type.Name == expectedName
+            && assembly?.Name == SystemTextJsonAssemblyName
+            && PlatformKeys.IsPlatform(
+                assembly.PublicKeyToken);
+    }
+
+    internal static bool IsTrustedJsonSerializerType(TypeRef type) =>
+        IsTrustedSystemTextJsonType(
+            type,
+            JsonSerializerNamespace,
+            JsonSerializerTypeName);
+
+    static bool IsTrustedFrameworkType(
+        TypeRef type,
+        string expectedNamespace,
+        string expectedName,
+        string expectedAssembly)
+    {
+        TypeRef identity = type.Kind == TypeRefKind.GenericInstance
+                && type.ElementType is { } element
+            ? element
+            : type;
+        ApiAssemblyIdentity? assembly = GetAssemblyIdentity(identity);
+        return identity.Namespace == expectedNamespace
+            && identity.Name == expectedName
+            && assembly?.Name == expectedAssembly
+            && PlatformKeys.IsPlatform(assembly.PublicKeyToken);
+    }
+
+    static bool IsTrustedSystemString(TypeRef type)
+    {
+        ApiAssemblyIdentity? assembly = GetAssemblyIdentity(type);
+        return type.Namespace == "System"
+            && type.Name == "String"
+            && (type.Resolution?.Origin
+                is TypeReferenceOrigin.IntrinsicCoreLibrary
+                || PlatformKeys.IsPlatform(
+                    assembly?.PublicKeyToken));
+    }
+
+    static ApiAssemblyIdentity? GetAssemblyIdentity(TypeRef type)
+    {
+        AssemblyReferenceIdentity? identity =
+            type.Resolution?.Origin switch
+            {
+                TypeReferenceOrigin.AssemblyReference reference =>
+                    reference.Assembly,
+                TypeReferenceOrigin.CurrentAssembly current =>
+                    current.Assembly,
+                _ => null,
+            };
+        if (identity is not null)
+        {
+            return new(
+                identity.Name,
+                identity.Version,
+                identity.Culture,
+                identity.PublicKeyToken);
         }
+
+        return type.Assembly.Length > 0
+            ? new(type.Assembly, null, null, null)
+            : null;
     }
 }

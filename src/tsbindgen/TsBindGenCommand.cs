@@ -141,7 +141,8 @@ public static class TsBindGenCommand
                     $"tsbindgen: {diagnostic.Location}: {diagnostic.CSharpType} has no TypeScript mapping.");
             }
 
-            if (emitJsPath is not null)
+            if (emitJsPath is not null
+                && !diagnostics.HasUnmappedTypes)
             {
                 string generatedJs = JsEmitter.Emit(jsExportSurface);
                 try

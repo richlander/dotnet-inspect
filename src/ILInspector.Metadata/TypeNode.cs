@@ -56,7 +56,10 @@ internal abstract class TypeNode
     {
         if (this is NamedTypeNode { AssemblyIdentity: { } assembly } named)
         {
-            yield return new(assembly, named.Name);
+            yield return new(
+                assembly,
+                named.Name,
+                StructuredName(named.MetadataName));
         }
         else if (this is GenericTypeNode
             {
@@ -65,7 +68,8 @@ internal abstract class TypeNode
         {
             yield return new(
                 definitionAssembly,
-                generic.DefinitionName);
+                generic.DefinitionName,
+                StructuredName(generic.MetadataName));
         }
 
         foreach (TypeNode child in TypeChildren(this))
@@ -84,13 +88,29 @@ internal abstract class TypeNode
             NamedTypeNode
             {
                 AssemblyIdentity: { } assembly
-            } named => new(assembly, named.Name),
+            } named => new(
+                assembly,
+                named.Name,
+                StructuredName(named.MetadataName)),
             GenericTypeNode
             {
                 DefinitionAssemblyIdentity: { } assembly
-            } generic => new(assembly, generic.DefinitionName),
+            } generic => new(
+                assembly,
+                generic.DefinitionName,
+                StructuredName(generic.MetadataName)),
             _ => null,
         };
+
+    static MetadataTypeDefinitionName? StructuredName(
+        MetadataTypeNameParts? parts) =>
+        parts is not null
+        && MetadataTypeDefinitionName.Create(
+                parts.Namespace,
+                [.. parts.Segments]) is
+            MetadataTypeDefinitionNameResult.Valid valid
+            ? valid.Name
+            : null;
 
     /// <summary>Renders this type to a C# display string with nullability annotations,
     /// including C# tuple syntax (<c>(int count, string name)</c>) for
@@ -363,6 +383,7 @@ internal sealed class GenericTypeNode(
         ?? baseName;
     public ApiAssemblyIdentity? DefinitionAssemblyIdentity =>
         definitionAssemblyIdentity;
+    public MetadataTypeNameParts? MetadataName => metadataName;
     public ImmutableArray<TypeNode> Arguments => arguments;
     public override bool IsReferenceType => isReferenceType;
     public override bool IsDegraded => degradedGenericType || arguments.Any(argument => argument.IsDegraded);

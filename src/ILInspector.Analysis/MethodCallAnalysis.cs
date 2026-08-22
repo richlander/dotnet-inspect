@@ -39,6 +39,7 @@ internal static class MethodCallAnalysis
         bool includeIndirectOpcodes)
     {
         var caller = context.Method;
+        ReachingDefinitionsResult? reaching = null;
         foreach (var instruction in context.Instructions.Instructions)
         {
             int offset = instruction.Offset;
@@ -55,6 +56,14 @@ internal static class MethodCallAnalysis
                         MethodInstructionFacts.OperandInt32(instruction);
                     var callee = resolver.ResolveMember(token);
                     var kind = ToCallKind(opcode);
+                    DirectCallResult resultUse =
+                        kind is CallKind.Call or CallKind.CallVirtual
+                            ? ClassifyResultUse(
+                                context,
+                                instruction,
+                                callee,
+                                ref reaching)
+                            : default;
                     calls.Add(new DirectCall(
                         caller,
                         callee,
@@ -67,6 +76,8 @@ internal static class MethodCallAnalysis
                         Opcode = FormatCallOpcode(opcode),
                         ReturnAddress = instruction.NextOffset,
                         Multiplicity = multiplicityAt(offset),
+                        ResultUse = resultUse.Use,
+                        ResultConsumerOffset = resultUse.ConsumerOffset,
                     });
                     if (MethodSafetyAnalysis.InspectCall(
                             caller,
@@ -137,4 +148,82 @@ internal static class MethodCallAnalysis
         ILOpCode.Ldftn => CallKind.LoadFunction,
         _ => CallKind.LoadVirtualFunction,
     };
+
+    static DirectCallResult ClassifyResultUse(
+        MethodBodyAnalysisContext context,
+        DecodedInstruction call,
+        MemberRef callee,
+        ref ReachingDefinitionsResult? reaching)
+    {
+        if (callee.ReturnType.Equals(
+                TypeRef.CoreLib("System", "Void")))
+            return default;
+
+        int nextIndex =
+            context.NextNonNopIndexAtOrAfter(call.NextOffset);
+        ImmutableArray<DecodedInstruction> instructions =
+            context.Instructions.Instructions;
+        if (nextIndex >= instructions.Length)
+            return default;
+
+        DecodedInstruction next = instructions[nextIndex];
+        if (next.OpCode == ILOpCode.Ret)
+            return new(DirectCallResultUse.MethodReturn, next.Offset);
+        if (next.OpCode == ILOpCode.Pop)
+            return new(DirectCallResultUse.Discarded, next.Offset);
+        if (!MethodInstructionFacts.TryReadLocalSlot(
+                next,
+                out LocalSlotAccess store)
+            || !store.IsStore
+            || store.IsArgument)
+        {
+            return default;
+        }
+
+        int argumentSlotCount =
+            context.Method.ParameterTypes.Length
+            + (context.Method.IsStatic ? 0 : 1);
+        reaching ??= ReachingDefinitions.Analyze(
+            context.Instructions,
+            argumentSlotCount);
+        if (!reaching.IsComplete)
+            return default;
+        LocalDefinition? definition = reaching.Definitions
+            .FirstOrDefault(candidate =>
+                candidate.Offset == next.Offset
+                && candidate.Slot == store.Slot
+                && !candidate.IsArgument);
+        if (definition is null)
+            return default;
+
+        ImmutableArray<LocalUse> uses = reaching.UsesOf(definition);
+        if (uses.Length != 1 || uses[0].Address)
+            return default;
+
+        int consumerIndex =
+            context.NextNonNopIndexAtOrAfter(
+                context.InstructionAt(uses[0].Offset)?.NextOffset
+                    ?? uses[0].Offset);
+        if (consumerIndex >= instructions.Length)
+            return default;
+
+        DecodedInstruction consumer = instructions[consumerIndex];
+        return consumer.OpCode switch
+        {
+            ILOpCode.Ret => new(
+                DirectCallResultUse.MethodReturn,
+                consumer.Offset),
+            ILOpCode.Call or ILOpCode.Callvirt => new(
+                DirectCallResultUse.CallArgument,
+                consumer.Offset),
+            ILOpCode.Pop => new(
+                DirectCallResultUse.Discarded,
+                consumer.Offset),
+            _ => default,
+        };
+    }
+
+    readonly record struct DirectCallResult(
+        DirectCallResultUse Use,
+        int? ConsumerOffset);
 }

@@ -152,6 +152,21 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
         Assert.Equal(JsonWireNamingPolicy.None, policy);
     }
 
+    [Fact]
+    public void UnsignedEnumIdentityIsUnsupported()
+    {
+        JsonWireNamingPolicy? policy = ReadPolicy(
+            BuildSingleRow(
+                metadata => ByteEnumValue(
+                    metadata,
+                    "ReadCommentHandling",
+                    "System.Text.Json.JsonCommentHandling",
+                    value: 1,
+                    trustedAssembly: false)));
+
+        Assert.Equal(JsonWireNamingPolicy.Unsupported, policy);
+    }
+
     [Theory]
     [InlineData(
         "DefaultIgnoreCondition",
@@ -366,7 +381,7 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
             {
                 blob.WriteSerializedString(
                     "System.Text.Json.Serialization.JsonKnownNamingPolicy, "
-                        + "System.Text.Json");
+                        + SystemTextJsonAssemblyIdentity);
             }
             blob.WriteSerializedString(name);
             blob.WriteInt32(value);
@@ -400,7 +415,7 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
         blob.WriteUInt16(1);
         blob.WriteByte(0x54);
         blob.WriteByte(0x55);
-        blob.WriteSerializedString(type + ", System.Text.Json");
+        blob.WriteSerializedString(type + ", " + SystemTextJsonAssemblyIdentity);
         blob.WriteSerializedString(name);
         blob.WriteInt32(value);
         return metadata.GetOrAddBlob(blob);
@@ -410,14 +425,19 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
         MetadataBuilder metadata,
         string name,
         string type,
-        byte value)
+        byte value,
+        bool trustedAssembly = true)
     {
         var blob = new BlobBuilder();
         blob.WriteUInt16(1);
         blob.WriteUInt16(1);
         blob.WriteByte(0x54);
         blob.WriteByte(0x55);
-        blob.WriteSerializedString(type + ", System.Text.Json");
+        blob.WriteSerializedString(
+            type + ", "
+                + (trustedAssembly
+                    ? SystemTextJsonAssemblyIdentity
+                    : "System.Text.Json"));
         blob.WriteSerializedString(name);
         blob.WriteByte(value);
         return metadata.GetOrAddBlob(blob);
@@ -437,4 +457,8 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
         blob.WriteUInt32(0);
         return metadata.GetOrAddBlob(blob);
     }
+
+    const string SystemTextJsonAssemblyIdentity =
+        "System.Text.Json, Version=10.0.0.0, Culture=neutral, "
+        + "PublicKeyToken=cc7b13ffcd2ddd51";
 }

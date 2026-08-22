@@ -338,6 +338,26 @@ public sealed record DirectCall(
     public int? ReturnAddress { get; init; }
     public AllocationMultiplicity Multiplicity { get; init; }
     public bool ExactTarget { get; init; }
+    /// <summary>
+    /// Conservative use of the value produced by this call.
+    /// <c>MethodCallAnalysisTests.ClassifiesReturnedAndDiscardedCallResults</c>
+    /// gates direct uses; unresolved flows remain <see cref="DirectCallResultUse.Unknown"/>.
+    /// </summary>
+    public DirectCallResultUse ResultUse { get; init; }
+    /// <summary>
+    /// IL offset of the return, discard, or consuming call identified by
+    /// <see cref="ResultUse"/>.
+    /// </summary>
+    public int? ResultConsumerOffset { get; init; }
+}
+
+/// <summary>Conservative disposition of a direct call's produced value.</summary>
+public enum DirectCallResultUse
+{
+    Unknown,
+    MethodReturn,
+    CallArgument,
+    Discarded,
 }
 
 public sealed record CalledTypeSummary(

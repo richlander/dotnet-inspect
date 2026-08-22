@@ -160,3 +160,47 @@ internal sealed class HandwrittenContextPropertyFixture
 {
     public string Value { get; set; } = "";
 }
+
+internal abstract class InheritedWireBaseFixture
+{
+    public string Id { get; set; } = "";
+}
+
+internal sealed class InheritedWireDerivedFixture
+    : InheritedWireBaseFixture
+{
+    public int Count { get; set; }
+}
+
+internal sealed class NumberHandlingWireFixture
+{
+    [JsonNumberHandling(JsonNumberHandling.WriteAsString)]
+    public int Count { get; set; }
+}
+
+[JsonNumberHandling(JsonNumberHandling.WriteAsString)]
+internal sealed class TypeNumberHandlingWireFixture
+{
+    public int Count { get; set; }
+}
+
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "$kind")]
+[JsonDerivedType(typeof(PolymorphicWireDerivedFixture), "derived")]
+internal abstract class PolymorphicWireFixture
+{
+    public string Name { get; set; } = "";
+}
+
+internal sealed class PolymorphicWireDerivedFixture
+    : PolymorphicWireFixture
+{
+    public bool Enabled { get; set; }
+}
+
+internal sealed class ExtensionDataWireFixture
+{
+    public string Id { get; set; } = "";
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement> Extra { get; set; } = [];
+}

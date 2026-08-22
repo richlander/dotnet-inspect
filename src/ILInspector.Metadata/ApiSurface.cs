@@ -753,6 +753,9 @@ public class ApiType
     public int JsonConverterAttributeCount { get; set; }
 
     [JsonIgnore]
+    public bool HasUnsupportedJsonWireAttributes { get; set; }
+
+    [JsonIgnore]
     public int JsonSerializableAttributeCount { get; set; }
 
     [JsonIgnore]
@@ -1009,6 +1012,9 @@ public class ApiMember
     public int JsonConverterAttributeCount { get; set; }
 
     [JsonIgnore]
+    public bool HasUnsupportedJsonWireAttributes { get; set; }
+
+    [JsonIgnore]
     public bool HasRuntimeJsExport { get; set; }
 
     [JsonIgnore]
@@ -1225,7 +1231,8 @@ public sealed class ApiAssemblyIdentity : IEquatable<ApiAssemblyIdentity>
 
 public sealed record ApiTypeReferenceIdentity(
     ApiAssemblyIdentity Assembly,
-    string FullName);
+    string FullName,
+    MetadataTypeDefinitionName? DefinitionName = null);
 
 public sealed record ApiJsonSerializableRoot(
     ApiTypeReferenceIdentity ElementType,

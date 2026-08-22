@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using ILInspector.Analysis;
@@ -709,12 +710,68 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
+    public void Emit_NestedIdentityCannotAliasNamespaceQualifiedType()
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+        var assembly = new ApiAssemblyIdentity(
+            "Local",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: "0011223344556677");
+        var topLevel = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                "N.A",
+                ImmutableArray.Create("B"))).Name;
+        var nested = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                "N",
+                ImmutableArray.Create("A", "B"))).Name;
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            AssemblyIdentity = assembly,
+            Records =
+            [
+                new ApiType
+                {
+                    Namespace = "N.A",
+                    Name = "B",
+                    DefinitionName = topLevel,
+                },
+            ],
+            Functions =
+            [
+                new JsExportFunction
+                {
+                    DeclaringType = "Exports",
+                    Name = "GetB",
+                    ReturnType = "N.A.B",
+                    ReturnTypeReferences =
+                    [
+                        new ApiTypeReferenceIdentity(
+                            assembly,
+                            "N.A.B",
+                            nested),
+                    ],
+                },
+            ],
+        };
+
+        string dts = DtsEmitter.Emit(surface, diagnostics);
+
+        Assert.Contains(
+            "export declare function getB(): unknown;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Single(diagnostics.UnmappedTypes);
+    }
+
+    [Fact]
     public void Emit_DoesNotApplyDictionarySemanticsToLookalikeType()
     {
         var diagnostics = new TsBindGenDiagnostics();
         var lookalikeDictionary = new ApiTypeReferenceIdentity(
             new ApiAssemblyIdentity(
-                "Lookalikes",
+                "System.Collections",
                 new Version(1, 0, 0, 0),
                 culture: null,
                 publicKeyToken: null),
@@ -772,7 +829,7 @@ public sealed class DtsEmitterTests
                     [
                         new(
                             new ApiAssemblyIdentity(
-                                "Lookalikes",
+                                "System.Private.CoreLib",
                                 new Version(1, 0, 0, 0),
                                 culture: null,
                                 publicKeyToken: null),
@@ -1691,6 +1748,41 @@ public sealed class DtsEmitterTests
         Assert.DoesNotContain("IncludedPrivateField", dts, StringComparison.Ordinal);
         Assert.Contains("  IncludedInternalGetter: string;", dts, StringComparison.Ordinal);
         Assert.Contains("  IncludedInternalField: string;", dts, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(nameof(InheritedWireDerivedFixture))]
+    [InlineData(nameof(NumberHandlingWireFixture))]
+    [InlineData(nameof(TypeNumberHandlingWireFixture))]
+    [InlineData(nameof(PolymorphicWireFixture))]
+    [InlineData(nameof(ExtensionDataWireFixture))]
+    public void Emit_BlocksUnsupportedWireShapingContracts(
+        string typeName)
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(InheritedWireDerivedFixture).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType record = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == typeName);
+        var diagnostics = new TsBindGenDiagnostics();
+
+        string dts = DtsEmitter.Emit(
+            new ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = apiSurface.AssemblyIdentity,
+                Records = [record],
+            },
+            diagnostics);
+
+        Assert.Contains(
+            $"export type {typeName} = unknown;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Single(diagnostics.UnmappedTypes);
     }
 
     [Fact]
