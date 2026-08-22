@@ -5315,7 +5315,10 @@ function focusFilter(
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
   };
-  if (immediate) focus();
+  if (immediate) {
+    focus();
+    return;
+  }
   requestAnimationFrame(focus);
 }
 
