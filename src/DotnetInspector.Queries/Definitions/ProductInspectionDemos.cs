@@ -64,6 +64,8 @@ public static class ProductInspectionDemos
 
     /// <summary>
     /// Resolves one home demo. Allocates only that demo's peer definition records.
+    /// Enforces the closed section-preset binding
+    /// (<see cref="ProductDemoSections.EnsureHomeDemoBinding"/>).
     /// </summary>
     public static ResolvedScenario ResolveHomeScenario(string scenarioId)
     {
@@ -74,11 +76,15 @@ public static class ProductInspectionDemos
                 $"Unknown product home demo scenario '{scenarioId}'.");
         }
 
-        return CreateRegistry(entry.CreateRecords()).ResolveScenario(entry.Id);
+        var resolved = CreateRegistry(entry.CreateRecords()).ResolveScenario(entry.Id);
+        ProductDemoSections.EnsureHomeDemoBinding(resolved);
+        return resolved;
     }
 
     /// <summary>
     /// Tries to resolve one home demo without throwing on unknown ids.
+    /// Returns false when the id is unknown. Throws when the demo is known but
+    /// fails the section-preset binding (misconfigured product data).
     /// </summary>
     public static bool TryResolveHomeScenario(
         string scenarioId,
@@ -89,6 +95,7 @@ public static class ProductInspectionDemos
             return false;
 
         resolved = CreateRegistry(entry.CreateRecords()).ResolveScenario(entry.Id);
+        ProductDemoSections.EnsureHomeDemoBinding(resolved);
         return true;
     }
 
@@ -148,7 +155,8 @@ public static class ProductInspectionDemos
             new ViewDefinition(
                 v,
                 "stj-serializer-view",
-                type: "System.Text.Json.JsonSerializer"),
+                type: "System.Text.Json.JsonSerializer",
+                section: ProductDemoSections.Methods),
             new NavigationDefinition(
                 v,
                 "stj-navigation",
@@ -194,7 +202,7 @@ public static class ProductInspectionDemos
                 type: "Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions",
                 memberAnchor: "74b6b4b321",
                 memberKey: "method:TryAddEnumerable",
-                section: "call-graph"),
+                section: ProductDemoSections.CallGraph),
             new NavigationDefinition(
                 v,
                 "extensions-callgraph-navigation",
@@ -220,11 +228,14 @@ public static class ProductInspectionDemos
     {
         const int v = InspectionDefinitionJson.CurrentSchemaVersion;
         var stjPackage = Package("System.Text.Json", "10.0.0", "net10.0");
+        // Unversioned host runtime: CoreLib is runtime-only (no ref-pack download),
+        // so a patch pin would fail on machines without that exact shared framework
+        // (CI installs the 11.0.x SDK lane). Package demos still pin NuGet versions.
         var runtimePlatform = new DefinitionMemberCoordinate.PlatformCoordinate(
             "runtime",
-            null,
-            "10.0.10",
-            "net10.0");
+            Assembly: null,
+            Version: null,
+            Framework: null);
         return
         [
             new WorkspaceDefinition(
@@ -242,7 +253,8 @@ public static class ProductInspectionDemos
                 v,
                 "platform-list-view",
                 library: "System.Private.CoreLib",
-                type: "System.Collections.Generic.List`1"),
+                type: "System.Collections.Generic.List`1",
+                section: ProductDemoSections.Methods),
             new NavigationDefinition(
                 v,
                 "platform-navigation",
