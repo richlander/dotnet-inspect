@@ -252,4 +252,30 @@ public class ProjectionDiagnosticsTests
         Assert.Empty(error);
     }
 
+    [Fact]
+    public async Task DiagnoseRendered_UnknownFieldStillReportsNoData()
+    {
+        var schema = new DocumentSchema()
+            .Add("Facts", "column", "Category");
+        var options = new MarkoutWriterOptions
+        {
+            Projection = new MarkoutProjection { IncludeFields = ["Bogus"] },
+        };
+
+        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            ProjectionDiagnostics.DiagnoseRendered(
+                fields: ["Bogus"],
+                columns: null,
+                (writer, formatter, _) =>
+                    ((IHeadingFormatter)formatter).FormatHeading(
+                        writer, 2, "Facts", context: null),
+                options,
+                schema);
+            return Task.FromResult(0);
+        });
+
+        Assert.Contains("1 field has no data: Bogus", error);
+    }
+
 }

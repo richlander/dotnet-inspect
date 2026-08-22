@@ -139,19 +139,33 @@ public static class ProjectionDiagnostics
             }
         }
 
-        IReadOnlyCollection<string> renderedSections = actual.Sections.Count > 0
-            ? actual.Sections
-            : schema.SectionNames.ToArray();
-        var resolvedFields = ResolveNamesAcrossSections(
-            schema, renderedSections, fields ?? [], "field", null, strictKinds: true);
-        var resolvedColumns = ResolveNamesAcrossSections(
-            schema, renderedSections, columns ?? [], "column", null, strictKinds: true);
         DiagnoseEmitted(
-            fields?.Where(resolvedFields.Contains).ToArray(),
-            columns?.Where(resolvedColumns.Contains).ToArray(),
+            DiagnosableRequests(schema, fields, "field"),
+            DiagnosableRequests(schema, columns, "column"),
             emittedFields,
             actual.TableColumns,
             schema);
+    }
+
+    private static string[]? DiagnosableRequests(
+        DocumentSchema schema,
+        string[]? names,
+        string kind)
+    {
+        if (names is not { Length: > 0 })
+            return names;
+
+        var sections = schema.SectionNames.ToArray();
+        var strict = ResolveNamesAcrossSections(
+            schema, sections, names, kind, null, strictKinds: true);
+        var compatible = ResolveNamesAcrossSections(
+            schema, sections, names, kind, null, strictKinds: false);
+        return
+        [
+            .. names.Where(name =>
+                strict.Contains(name)
+                || !compatible.Contains(name))
+        ];
     }
 
     internal static void DiagnoseProjectedJson(

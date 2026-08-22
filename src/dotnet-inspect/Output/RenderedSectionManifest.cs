@@ -11,11 +11,6 @@ internal sealed class RenderedSectionManifest
         new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, HashSet<string>> _fields =
         new(StringComparer.OrdinalIgnoreCase);
-    private readonly HashSet<string> _sections =
-        new(StringComparer.OrdinalIgnoreCase);
-
-    internal void RecordSection(string section)
-        => _sections.Add(section);
 
     internal void RecordTable(string? section, ReadOnlySpan<string> columns)
     {
@@ -64,8 +59,6 @@ internal sealed class RenderedSectionManifest
 
     internal IReadOnlySet<string> ContentKeys =>
         _tableColumns.Keys.Concat(_fields.Keys).ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-    internal IReadOnlySet<string> Sections => _sections;
 
     internal IReadOnlyList<string> TableColumns =>
         [.. _tableColumns.Values.SelectMany(columns => columns)
@@ -149,10 +142,7 @@ internal sealed class RenderManifestFormatter :
     public void FormatHeading(TextWriter writer, int level, string text, string? context)
     {
         if (level == _sectionHeadingLevel)
-        {
             _currentHeading = text;
-            Manifest.RecordSection(text);
-        }
     }
 
     public void FormatFieldName(TextWriter writer, string key, bool bold)
