@@ -1,6 +1,6 @@
 import type { BrowserPackageDocument } from "./inspect-web-engine.d.ts";
 
-export type DocViewerDocument = Pick<BrowserPackageDocument, "name" | "path">;
+type DocViewerDocument = Pick<BrowserPackageDocument, "name" | "path">;
 
 export interface DocViewerMeta {
   name: string;
@@ -19,7 +19,7 @@ export interface RenderDocViewerOptions {
 
 export function renderDocViewer(options: RenderDocViewerOptions): string {
   const { doc, meta, loading, error, html, escapeHtml } = options;
-  const title = doc ? `${doc.name}` : "Document";
+  const title = doc ? doc.name : "Document";
   const subtitle = doc ? doc.path : "";
   const metaCard = meta
     ? `<div class="doc-frontmatter">

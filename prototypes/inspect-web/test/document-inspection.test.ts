@@ -55,8 +55,8 @@ function inspectionDependencies(
   return {
     state,
     queryDocument: async () => content("# Read me"),
-    renderMarkdown: async text => `<p>${String(text)}</p>`,
-    renderMarkdownInline: async text => `<span>${String(text)}</span>`,
+    renderMarkdown: async text => `<p>${text}</p>`,
+    renderMarkdownInline: async text => `<span>${text}</span>`,
     describeError: error =>
       error instanceof Error ? error.message : String(error),
     render: () => {},
@@ -236,7 +236,7 @@ test("a newer document remains published after an older request completes", asyn
         request.document === document
           ? first.promise
           : content("current"),
-      renderMarkdown: async text => `<p>${String(text)}</p>`,
+      renderMarkdown: async text => `<p>${text}</p>`,
     }));
 
   const firstOpen = coordinator.open({
@@ -268,7 +268,7 @@ test("replacement during acquisition does not enter stale rendering", async () =
         request.document === document ? first.promise : second.promise,
       renderMarkdown: async text => {
         if (text === "stale") staleBodyRenders++;
-        return `<p>${String(text)}</p>`;
+        return `<p>${text}</p>`;
       },
     }));
 
@@ -308,7 +308,7 @@ test("reopening the same document during acquisition rejects stale identity", as
       queryDocument: () => ++queries === 1 ? first.promise : second.promise,
       renderMarkdown: async text => {
         if (text === "stale") staleBodyRenders++;
-        return `<p>${String(text)}</p>`;
+        return `<p>${text}</p>`;
       },
     }));
 
@@ -356,7 +356,7 @@ test("replacement during body rendering suppresses stale description work", asyn
           bodyEntered.resolve();
           return body.promise;
         }
-        return `<p>${String(text)}</p>`;
+        return `<p>${text}</p>`;
       },
       renderMarkdownInline: async () => {
         inlineRenders++;
@@ -407,7 +407,7 @@ test("reopening the same document during body rendering suppresses stale work", 
           bodyEntered.resolve();
           return body.promise;
         }
-        return `<p>${String(text)}</p>`;
+        return `<p>${text}</p>`;
       },
       renderMarkdownInline: async () => {
         inlineRenders++;
@@ -451,7 +451,7 @@ test("replacement during description rendering suppresses stale publication", as
         request.document === document
           ? content("---\ndescription: Summary\n---\nBody")
           : second.promise,
-      renderMarkdown: async text => `<p>${String(text)}</p>`,
+      renderMarkdown: async text => `<p>${text}</p>`,
       renderMarkdownInline: async () => {
         descriptionEntered.resolve();
         return description.promise;
@@ -494,7 +494,7 @@ test("reopening the same document during description rendering suppresses stale 
       queryDocument: () => ++queries === 1
         ? Promise.resolve(content("---\ndescription: Summary\n---\nBody"))
         : second.promise,
-      renderMarkdown: async text => `<p>${String(text)}</p>`,
+      renderMarkdown: async text => `<p>${text}</p>`,
       renderMarkdownInline: async () => {
         descriptionEntered.resolve();
         return description.promise;
@@ -534,7 +534,7 @@ test("rejected replaced documents cannot settle the current request", async () =
     inspectionDependencies(state, {
       queryDocument: async request =>
         request.document === document ? first.promise : second.promise,
-      renderMarkdown: async text => `<p>${String(text)}</p>`,
+      renderMarkdown: async text => `<p>${text}</p>`,
       render: () => renders++,
     }));
 
@@ -573,7 +573,7 @@ test("reopening the same document suppresses a stale rejection", async () => {
   const coordinator = createDocumentInspectionCoordinator(
     inspectionDependencies(state, {
       queryDocument: () => ++queries === 1 ? first.promise : second.promise,
-      renderMarkdown: async text => `<p>${String(text)}</p>`,
+      renderMarkdown: async text => `<p>${text}</p>`,
     }));
 
   const firstOpen = coordinator.open({
@@ -725,7 +725,7 @@ test("opening another document clears a prior visible failure", async () => {
         }
         return replacement.promise;
       },
-      renderMarkdown: async text => `<p>${String(text)}</p>`,
+      renderMarkdown: async text => `<p>${text}</p>`,
     }));
 
   await coordinator.open({
@@ -762,7 +762,7 @@ test("opening another document clears prior published surfaces immediately", asy
         request.document === document
           ? content("---\nname: Old\n---\nold body")
           : replacement.promise,
-      renderMarkdown: async text => `<p>${String(text)}</p>`,
+      renderMarkdown: async text => `<p>${text}</p>`,
     }));
 
   await coordinator.open({

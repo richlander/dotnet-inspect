@@ -116,7 +116,12 @@ function acquisitionDependencies(
       runtimeSurface("corelib", "System.Private.CoreLib", "System.Object")),
     loadRuntimePackAssembly: async () => JSON.stringify(
       runtimeSurface("json", "System.Text.Json", "System.Text.Json.JsonDocument")),
-    parseRuntimeSurface: json => JSON.parse(json),
+    parseRuntimeSurface: json => {
+      const parsed: unknown = JSON.parse(json);
+      // The test parses JSON emitted from the typed fixture immediately above.
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+      return parsed as BrowserPackageSurface;
+    },
     runtimePackage: () => null,
     retainPackage: () => {},
     recordRecentPackage: () => {},
