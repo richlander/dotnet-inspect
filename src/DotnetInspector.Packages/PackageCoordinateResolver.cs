@@ -548,10 +548,19 @@ public static class PackageCoordinateResolver
             if (!IsAcquisitionTargetText(name))
                 return false;
 
-            bool claimsModeledFamily =
-                name.StartsWith(
+            if (name.Equals(
                     "netstandard",
                     StringComparison.OrdinalIgnoreCase)
+                || name.Equals(
+                    "netcoreapp",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            bool claimsModeledFamily = name.StartsWith(
+                "netstandard",
+                StringComparison.OrdinalIgnoreCase)
                 || name.StartsWith(
                     "netcoreapp",
                     StringComparison.OrdinalIgnoreCase)
@@ -565,7 +574,21 @@ public static class PackageCoordinateResolver
             // modeled family, require its full grammar rather than the loose
             // IsTfmLike prefix check.
             return !claimsModeledFamily
-                || TfmResolver.TryGetBaseFrameworkIdentity(name, out _);
+                || TfmResolver.TryGetBaseFrameworkIdentity(name, out _)
+                || IsLegacyDottedNetFramework(name);
+
+            static bool IsLegacyDottedNetFramework(string value)
+            {
+                if (!value.StartsWith(
+                        "net",
+                        StringComparison.OrdinalIgnoreCase)
+                    || !Version.TryParse(value.AsSpan(3), out Version? version))
+                {
+                    return false;
+                }
+
+                return version.Major is > 0 and < 5;
+            }
         }
     }
 

@@ -22216,6 +22216,9 @@ public partial class CommandExecutionTests
     [InlineData("lib/uap10.0/Missing.dll")]
     [InlineData("lib/portable-net45+win8/Missing.dll")]
     [InlineData("lib/x/lib/net8.0/Missing.dll")]
+    [InlineData("tools/netstandard/Missing.dll")]
+    [InlineData("lib/netcoreapp/Missing.dll")]
+    [InlineData("lib/net4.0/Missing.dll")]
     [InlineData("ref/net6.0/Missing.dll")]
     [InlineData("tools/net6.0/Missing.dll")]
     [InlineData("runtimes/linux-x64/lib/net6.0/Missing.dll")]
@@ -22292,6 +22295,38 @@ public partial class CommandExecutionTests
         Assert.Equal(direct, routed);
         Assert.Equal(1, routed.Exit);
         Assert.Contains("File not found:", routed.Error);
+    }
+
+    [Theory]
+    [InlineData("Newtonsoft.Json@13.0.4", null)]
+    [InlineData("Newtonsoft.Json", "13.0.4")]
+    public async Task Router_PackageVersion_DoesNotOverrideExplicitLibraryPath(
+        string package,
+        string? version)
+    {
+        List<string> arguments =
+        [
+            package,
+            "--library",
+            "lib/net8.0/../Newtonsoft.Json.dll",
+            "-S",
+            "Library Info",
+            "--tips",
+            "q"
+        ];
+        if (version is not null)
+        {
+            arguments.Add("--version");
+            arguments.Add(version);
+        }
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync([.. arguments]);
+
+        Assert.Equal(1, direct.Exit);
+        Assert.Equal(direct.Exit, routed.Exit);
+        Assert.DoesNotContain("# Newtonsoft.Json.dll", routed.Output);
+        Assert.DoesNotContain("not found in package", routed.Error);
     }
 
     [Fact]

@@ -392,6 +392,9 @@ public sealed class PackageCoordinateResolverTests
     [InlineData("lib/uap10.0/Foo.dll")]
     [InlineData("ref/portable-net45+win8/Foo.dll")]
     [InlineData("lib/Debug/Foo.dll")]
+    [InlineData("tools/netstandard/Foo.dll")]
+    [InlineData("lib/netcoreapp/Foo.dll")]
+    [InlineData("lib/net4.0/Foo.dll")]
     [InlineData("runtimes/linux-x64/lib/net8.0/Foo.dll")]
     [InlineData("runtimes\\win-x64\\lib\\uap10.0\\Foo.dll")]
     public void PackageFrameworkAssetPath_AcceptsAnchoredFrameworkAssets(

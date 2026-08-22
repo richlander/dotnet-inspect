@@ -294,10 +294,7 @@ public static class RouterCommandDefinition
                 && !ContainsOption(tail, "--package")
                 && !ContainsOption(tail, "--platform")
                 && !ContainsOption(tail, "--project")
-                && IsPackageRelativeLibraryValue(
-                    target,
-                    libraryValue,
-                    hasVersionQuery))
+                && IsPackageRelativeLibraryValue(libraryValue))
             {
                 return ["package", .. tokens];
             }
@@ -914,10 +911,7 @@ public static class RouterCommandDefinition
                 .Any(option => MatchesOption(option, optionName));
         }
 
-        private static bool IsPackageRelativeLibraryValue(
-            string target,
-            string value,
-            bool hasVersionQuery)
+        private static bool IsPackageRelativeLibraryValue(string value)
         {
             if (value.StartsWith('-'))
                 return false;
@@ -925,9 +919,7 @@ public static class RouterCommandDefinition
             if (SourceResolver.IsLibrarySelector(value, package: null))
                 return true;
 
-            return (target.Contains('@')
-                    || hasVersionQuery
-                    || IsPackageAssetLibraryPath(value))
+            return IsPackageAssetLibraryPath(value)
                 && value.EndsWith(
                     ".dll",
                     StringComparison.OrdinalIgnoreCase)
