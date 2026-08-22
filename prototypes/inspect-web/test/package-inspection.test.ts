@@ -150,7 +150,7 @@ function inspectionDependencies(
       error instanceof Error ? error.message : String(error),
     refreshPackageStats: () => {},
     render: () => {},
-    renderDependencyGraph: () => {},
+    renderDependencyGraph: async () => {},
     ...overrides,
   };
 }
@@ -323,7 +323,9 @@ test("dependency results cache for a resident package after the foreground lens 
       queryDependencies: async () => request.promise,
       refreshPackageStats: () => events.push("stats"),
       render: () => events.push("render"),
-      renderDependencyGraph: () => events.push("graph"),
+      renderDependencyGraph: async () => {
+        events.push("graph");
+      },
     }));
 
   const load = coordinator.loadDependencies(packageItem, "first");
@@ -682,7 +684,9 @@ test("workspace dependency loading skips keys already in flight", async () => {
         queries++;
         return dependencyResult();
       },
-      renderDependencyGraph: () => graphRenders++,
+      renderDependencyGraph: async () => {
+        graphRenders++;
+      },
     }));
 
   await coordinator.ensureWorkspaceDependencies();
