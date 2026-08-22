@@ -2223,27 +2223,24 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryAndPackage_ScalarCount_IgnoreTreePresentation()
+    public async Task ReferenceTreeCountRejectsUndefinedLowering_WhilePackageScalarIgnoresTreePresentation()
     {
         var (packagePath, tempDir) = CreateLocalLayoutPackage();
         try
         {
             var (libraryExit, libraryOutput, libraryError) = await RunAppAsync(
                 "library", "System.Text.Json",
-                "-S", "References", "--count", "--tree", "--tips", "q");
+                "-S", "References", "--count", "--tree", "--depth", "2",
+                "--tips", "q");
             var (packageExit, packageOutput, packageError) = await RunAppAsync(
                 "package", packagePath,
                 "-S", "Target Frameworks", "--count", "--tree", "--tips", "q");
 
-            Assert.Equal(0, libraryExit);
-            Assert.Empty(libraryError);
-            Assert.True(
-                int.TryParse(
-                    libraryOutput.Trim(),
-                    CultureInfo.InvariantCulture,
-                    out var libraryCount),
-                libraryOutput);
-            Assert.True(libraryCount > 0);
+            Assert.Equal(1, libraryExit);
+            Assert.Empty(libraryOutput);
+            Assert.Contains(
+                "reference tree does not declare countable row semantics",
+                libraryError);
 
             Assert.Equal(0, packageExit);
             Assert.Empty(packageError);
@@ -2259,6 +2256,25 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task Library_FixedOverviewCountValidatesFieldProjection()
+    {
+        var invalid = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "--count", "--fields", "NoSuchField", "--tips", "q");
+        var valid = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "--count", "--fields", "Name", "--tips", "q");
+
+        Assert.Equal(1, invalid.Exit);
+        Assert.Empty(invalid.Output);
+        Assert.Contains("NoSuchField", invalid.Error);
+
+        Assert.Equal(0, valid.Exit);
+        Assert.Empty(valid.Error);
+        Assert.Contains("| Library Info | 1 |", valid.Output);
     }
 
     [Fact]
@@ -8069,6 +8085,37 @@ public partial class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.DoesNotContain("requires -S/--select", error);
             Assert.Equal("1", output.Trim());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task IlOffsetsFile_RefusesExplicitSectionSelection()
+    {
+        var path = Path.Combine(
+            Path.GetTempPath(),
+            $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(
+            path,
+            "only 0x06000001+0x1\n",
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library", TestAssemblyPath,
+                "--il-offsets", path,
+                "-S", "References",
+                "--count",
+                "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "-S/--select is not available with --il-offsets",
+                error);
         }
         finally
         {
@@ -26711,6 +26758,79 @@ public partial class CommandExecutionTests
                 "--content --out requires exactly one selected package content file; found 2.",
                 result.Error);
             Assert.False(File.Exists(outputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageContentOutput_RowWindowHydratesTheUnarySelection()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.PackageContentOutput.Window",
+            "README.md",
+            "readme",
+            extraFiles:
+            [
+                ("docs/FIRST.md", "first"),
+                ("docs/SECOND.md", "second"),
+            ]);
+        string bareOutputPath = Path.Combine(tempDir, "bare.md");
+        string exactOutputPath = Path.Combine(tempDir, "exact.md");
+        try
+        {
+            var stdout = await RunAppAsync(
+                "package",
+                packagePath,
+                "--path",
+                "docs/*.md",
+                "--content",
+                "--rows",
+                "1",
+                "--bare",
+                "--tips",
+                "q");
+            var bareExport = await RunAppAsync(
+                "package",
+                packagePath,
+                "--path",
+                "docs/*.md",
+                "--content",
+                "--rows",
+                "1",
+                "--bare",
+                "--out",
+                bareOutputPath,
+                "--tips",
+                "q");
+            var exactExport = await RunAppAsync(
+                "package",
+                packagePath,
+                "--path",
+                "docs/*.md",
+                "--content",
+                "--rows",
+                "1",
+                "--out",
+                exactOutputPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, stdout.Exit);
+            Assert.Equal("first", stdout.Output.Trim());
+            Assert.Empty(stdout.Error);
+
+            Assert.Equal(0, bareExport.Exit);
+            Assert.Empty(bareExport.Output);
+            Assert.Empty(bareExport.Error);
+            Assert.Equal("first", File.ReadAllText(bareOutputPath));
+
+            Assert.Equal(0, exactExport.Exit);
+            Assert.Empty(exactExport.Output);
+            Assert.Empty(exactExport.Error);
+            Assert.Equal("first", File.ReadAllText(exactOutputPath));
         }
         finally
         {

@@ -209,6 +209,12 @@ public record LibraryOptions : IProjectionOptions
         => UserIncludeSectionsOverride ?? IncludeSections;
 
     /// <summary>
+    /// Whether the caller actually passed <c>-S/--select</c>, before command sugar can add
+    /// internally selected sections.
+    /// </summary>
+    public bool SelectExplicitlySet { get; init; }
+
+    /// <summary>
     /// Canonical sections reached through an exact selector or compatible legacy alias. An empty
     /// set records that selection came only through categories, globs, or a preset. Null preserves
     /// exact-selection behavior for typed callers that supply <see cref="IncludeSections"/> directly.

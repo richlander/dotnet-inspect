@@ -310,6 +310,17 @@ public class LibraryCommand
         if (!ValidateMultiTfmOutput(options))
             return 1;
 
+        if (options.Tree
+            && options.Count
+            && options.IncludeSections is { Count: 1 } countSections
+            && countSections.Contains(SectionNames.References))
+        {
+            CommandError.Write(
+                "--count is not available with -S References --tree because "
+                + "the reference tree does not declare countable row semantics.");
+            return 1;
+        }
+
         if (options.Tree && options.Discover == null && !options.Count)
         {
             if (options.IncludeSections is not { Count: 1 }
@@ -364,6 +375,14 @@ public class LibraryCommand
         // --il-offsets counts resolved coordinate rows, not section rows, so it does not need a
         // section filter to make --count meaningful.
         var ilOffsetsBatchMode = !string.IsNullOrWhiteSpace(options.ILOffsetsPath);
+        if (ilOffsetsBatchMode && options.SelectExplicitlySet)
+        {
+            CommandError.Write(
+                "-S/--select is not available with --il-offsets, which renders "
+                + "its own payload rather than sections.");
+            return 1;
+        }
+
         // Discovery renders its own rows, so a section requirement describes a filter it does
         // not use. -S still narrows effective discovery, so it stays permitted.
         var rendersOwnPayload = ilOffsetsBatchMode || options.Discover != null;
@@ -444,11 +463,24 @@ public class LibraryCommand
         if (requiredVerbosity > options.Verbosity)
             options = options with { Verbosity = requiredVerbosity };
 
-        // Pre-render validation: check --fields/--columns names against the section schema
-        if ((options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 }) && options.IncludeSections is { Count: > 0 })
+        // Pre-render validation: check --fields/--columns names against the section schema.
+        // Bare -S carries its selection through FixedOverview rather than IncludeSections.
+        IReadOnlyCollection<string>? projectionSections =
+            options.IncludeSections is { Count: > 0 } includeSections
+                ? includeSections
+                : options.FixedOverview
+                    ? pipeline.BareSelectSectionNames
+                    : null;
+        if ((options.Fields is { Length: > 0 }
+                || options.Columns is { Length: > 0 })
+            && projectionSections is { Count: > 0 }
+            && !ProjectionDiagnostics.ValidateProjection(
+                schemaMap,
+                projectionSections,
+                options.Fields,
+                options.Columns))
         {
-            if (!ProjectionDiagnostics.ValidateProjection(schemaMap, options.IncludeSections, options.Fields, options.Columns))
-                return 1;
+            return 1;
         }
 
         if (options.Discover == null

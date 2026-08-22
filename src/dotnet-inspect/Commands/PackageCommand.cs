@@ -741,8 +741,31 @@ public class PackageCommand
                 var packageId = nuspec?.PackageName ?? packageName;
                 var packageVersion = nuspec?.Version ?? version;
                 var packageReadme = PackageFileLister.ResolvePackageReadme(extractPath, nuspec?.ReadmeFile);
+                bool unaryPayload = RequiresUnaryPackageContent(options);
+                PackageFileContentSet content = ReadPackageFileContents(
+                    extractPath,
+                    packageId,
+                    packageVersion,
+                    packageReadme,
+                    nuspec?.ReadmeFile,
+                    options,
+                    suppressUnaryPayloadRead: unaryPayload);
+                if (unaryPayload
+                    && SelectUnaryPackageContent([content], options) is { } selectedFile)
+                {
+                    content = ReadPackageFileContents(
+                        extractPath,
+                        packageId,
+                        packageVersion,
+                        packageReadme,
+                        nuspec?.ReadmeFile,
+                        options,
+                        suppressUnaryPayloadRead: true,
+                        selectedFile.Path);
+                }
+
                 return PrintPackageFileContents(
-                    [ReadPackageFileContents(extractPath, packageId, packageVersion, packageReadme, nuspec?.ReadmeFile, options)],
+                    [content],
                     options);
             }
 
@@ -2263,7 +2286,8 @@ public class PackageCommand
     {
         public PackageFileContentSet Read(
             InspectionOptions options,
-            bool suppressUnaryPayloadRead)
+            bool suppressUnaryPayloadRead,
+            string? selectedPayloadPath = null)
             => ReadPackageFileContents(
                 resolution.ExtractPath,
                 packageName,
@@ -2271,7 +2295,8 @@ public class PackageCommand
                 readmeFile,
                 declaredReadmeFile,
                 options,
-                suppressUnaryPayloadRead);
+                suppressUnaryPayloadRead,
+                selectedPayloadPath);
 
         public void Dispose()
             => CleanupPackageExtraction(resolution);
@@ -2309,65 +2334,61 @@ public class PackageCommand
             return PrintPackageFileContents(results, options);
         }
 
-        PackageFileContentAcquisition? selectedAcquisition = null;
-        int selectedPackage = -1;
-        int selectedFiles = 0;
-        try
+        foreach (var target in targets)
         {
-            foreach (var target in targets)
-            {
-                PackageFileContentAcquisition? acquisition =
-                    await AcquirePackageFileContentAsync(
-                        target,
-                        options,
-                        context);
-                if (acquisition == null)
-                    return 1;
-                try
-                {
-                    PackageFileContentSet result =
-                        acquisition.Read(
-                            options,
-                            suppressUnaryPayloadRead: true);
-                    results.Add(result);
-                    int packageSelectedFiles =
-                        result.Files.Count(static file => file.Found);
-                    if (selectedFiles == 0
-                        && packageSelectedFiles == 1)
-                    {
-                        selectedAcquisition = acquisition;
-                        acquisition = null;
-                        selectedPackage = results.Count - 1;
-                    }
-                    selectedFiles += packageSelectedFiles;
-                    if (selectedFiles > 1
-                        && selectedAcquisition is not null)
-                    {
-                        selectedAcquisition.Dispose();
-                        selectedAcquisition = null;
-                        selectedPackage = -1;
-                    }
-                }
-                finally
-                {
-                    acquisition?.Dispose();
-                }
-            }
-
-            if (selectedFiles == 1)
-            {
-                results[selectedPackage] =
-                    selectedAcquisition!.Read(
-                        options,
-                        suppressUnaryPayloadRead: false);
-            }
-
-            return PrintPackageFileContents(results, options);
+            using PackageFileContentAcquisition? acquisition =
+                await AcquirePackageFileContentAsync(
+                    target,
+                    options,
+                    context);
+            if (acquisition == null)
+                return 1;
+            results.Add(
+                acquisition.Read(
+                    options,
+                    suppressUnaryPayloadRead: true));
         }
-        finally
+
+        if (SelectUnaryPackageContent(results, options) is { } selectedFile)
         {
-            selectedAcquisition?.Dispose();
+            int selectedPackage = results.FindIndex(
+                result => result.Files.Any(
+                    file => ReferenceEquals(file, selectedFile)));
+            if (selectedPackage < 0)
+                throw new InvalidOperationException(
+                    "The selected package content row has no owning package.");
+
+            using PackageFileContentAcquisition? acquisition =
+                await AcquirePackageFileContentAsync(
+                    targets[selectedPackage],
+                    options,
+                    context);
+            if (acquisition == null)
+                return 1;
+            results[selectedPackage] =
+                acquisition.Read(
+                    options,
+                    suppressUnaryPayloadRead: true,
+                    selectedFile.Path);
         }
+
+        return PrintPackageFileContents(results, options);
+    }
+
+    private static PackageFileContent? SelectUnaryPackageContent(
+        IReadOnlyList<PackageFileContentSet> results,
+        InspectionOptions options)
+    {
+        List<PackageFileContent> visibleFiles =
+        [
+            .. RowWindow.Apply(
+                options.Rows,
+                FlattenPackageFileContentRows(results, options).ToList())
+                .Where(static file => file.Found),
+        ];
+        return visibleFiles is [var selectedFile]
+            ? selectedFile
+            : null;
     }
 
     private static async Task<PackageFileContentSet?> ReadPackageFileContentsAsync(
@@ -2974,7 +2995,8 @@ public class PackageCommand
         string? readmeFile,
         string? declaredReadmeFile,
         InspectionOptions options,
-        bool suppressUnaryPayloadRead = false)
+        bool suppressUnaryPayloadRead = false,
+        string? selectedPayloadPath = null)
     {
         var files = PackageFileLister.ListAll(extractPath, readmeFile);
         List<PackageFile> selectedFiles =
@@ -2983,15 +3005,15 @@ public class PackageCommand
                 .Select(file => WithDeclaredReadmeRole(file, declaredReadmeFile)),
         ];
         bool unaryPayload = RequiresUnaryPackageContent(options);
-        bool skipPayloadReads =
-            unaryPayload
-            && (suppressUnaryPayloadRead || selectedFiles.Count != 1);
         bool includeExactContent =
             unaryPayload
             && HasUnstructuredOutputPath(options)
             && options.ContentScope == PackageFileContentScope.Full;
         var contents = selectedFiles
-            .Select(file => skipPayloadReads
+            .Select(file => unaryPayload
+                && (selectedPayloadPath is { } selectedPath
+                    ? !file.Path.Equals(selectedPath, StringComparison.Ordinal)
+                    : suppressUnaryPayloadRead || selectedFiles.Count != 1)
                 ? new PackageFileContent(
                     packageName,
                     version,
@@ -3181,7 +3203,8 @@ public class PackageCommand
         if (HasUnstructuredOutputPath(options)
             && options.OutputPath is { } exactOutputPath)
         {
-            List<PackageFileContent> found = rows.Where(row => row.Found).ToList();
+            List<PackageFileContent> found =
+                visibleRows.Where(row => row.Found).ToList();
             if (found.Count != 1)
             {
                 CommandError.Write(
