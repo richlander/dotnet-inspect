@@ -2103,6 +2103,23 @@ public sealed class PackageSourceClientTests
         Assert.False(handler.UseCookies);
         Assert.False(handler.UseDefaultCredentials);
         Assert.False(handler.PreAuthenticate);
+        Assert.False(handler.AllowAutoRedirect);
+    }
+
+    [Fact]
+    public async Task GalleryDesktopTransportFollowsSourceOwnedRedirects()
+    {
+        using HttpClient transport =
+            PackageSourceClientFactory.CreateGalleryTransport(
+                new RedirectChainHandler(redirects: 1),
+                isBrowser: false);
+
+        using HttpResponseMessage response =
+            await transport.GetAsync(
+                ServiceIndex,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     [Fact]

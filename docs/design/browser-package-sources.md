@@ -597,8 +597,10 @@ information are typed invalid responses rather than normalized requests.
 `RuntimeFactoriesDoNotAcceptSharedHttpClient`,
 `DefaultV3TransportHasNoAmbientCredentialMechanisms`, and
 `BrowserV3TransportAvoidsUnsupportedHandlerConfiguration` gate transport
-construction. `BrowserNuGetRequestsOmitAmbientCredentials` gates the Fetch
-credential option, and
+construction. `GalleryDesktopTransportFollowsSourceOwnedRedirects` gates that
+the Gallery factory uses the bounded desktop redirect policy.
+`BrowserNuGetRequestsOmitAmbientCredentials` gates the Fetch credential option,
+and
 `DesktopRedirectsScopeAuthorizationToOriginalOrigin` gates redirect authority.
 `DesktopRedirectLimitAllowsFiveAndRejectsSix` and
 `RedirectLimitIsResponseRejected` gate the redirect safety bound.

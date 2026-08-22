@@ -473,7 +473,20 @@ public static class PackageSourceClientFactory
     private static HttpClient CreateGalleryTransport()
     {
         bool isBrowser = OperatingSystem.IsBrowser();
-        HttpClientHandler handler = CreateGalleryTransportHandler(isBrowser);
+        HttpMessageHandler handler = CreateGalleryTransportHandler(isBrowser);
+        return CreateGalleryTransport(handler, isBrowser);
+    }
+
+    internal static HttpClient CreateGalleryTransport(
+        HttpMessageHandler handler,
+        bool isBrowser)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        if (!isBrowser)
+        {
+            handler = new NuGetCredentialRedirectHandler(handler);
+        }
+
         return new HttpClient(handler, disposeHandler: true)
         {
             Timeout = Timeout.InfiniteTimeSpan,
