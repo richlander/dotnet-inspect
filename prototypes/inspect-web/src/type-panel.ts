@@ -1,3 +1,5 @@
+import { pdbSourceLimitationHtml } from "./data.ts";
+
 // The type selector (the "PUBLIC TYPES" / "MEMBERS" nav pane) and the type viewer (the
 // type heading, metadata, and source sections shown for the "type" scope) as pure,
 // dependency-injected render functions. This module also binds the controls that its nav pane
@@ -72,6 +74,7 @@ export interface TypeSourceResult {
   provider: string;
   provenance: string;
   url?: string | null;
+  pdbSourceLimitation?: string | null;
   text: string;
 }
 
@@ -550,17 +553,17 @@ export function renderTypeSource(options: RenderTypeSourceOptions): string {
   const { currentSignature, sourceState, escapeHtml, highlightCSharp } = options;
   const fresh = sourceState.typeSourceKey === currentSignature;
   if (sourceState.typeSourceLoading && fresh) {
-    return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying checksum-verified SourceLink source, then dotnet-inspect decompilation.</p></section>`;
+    return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`;
   }
   if (fresh && sourceState.typeSource) {
     const typeSource = sourceState.typeSource;
     return `<section class="document-section source-result">
-        <div class="source-provenance"><strong>${typeSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(typeSource.provenance)}</span>${typeSource.url ? `<a href="${escapeHtml(typeSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}<button id="copy-type-source" type="button">copy</button></div>
+        <div class="source-provenance"><strong>${typeSource.provider === "pdb" ? "PDB Source" : "Decompiled source"}</strong><span>${escapeHtml(typeSource.provenance)}</span>${typeSource.url ? `<a href="${escapeHtml(typeSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}${pdbSourceLimitationHtml(typeSource)}<button id="copy-type-source" type="button">copy</button></div>
         <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(typeSource.text)}</code></pre>
       </section>`;
   }
   if (fresh && sourceState.typeSourceError) {
     return `<section class="document-section empty-document"><span class="large-glyph">⌁</span><h2>Type source failed</h2><p>${escapeHtml(sourceState.typeSourceError)}</p></section>`;
   }
-  return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying checksum-verified SourceLink source, then dotnet-inspect decompilation.</p></section>`;
+  return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`;
 }

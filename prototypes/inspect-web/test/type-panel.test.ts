@@ -724,24 +724,47 @@ test("type metadata renders composition, interfaces, and derived types once load
   assert.match(html, /data-member-jump-kind="method"/);
 });
 
-test("type source renders the provenance and copy action once loaded", () => {
+test("type PDB source renders the provenance and copy action once loaded", () => {
   const html = renderTypeSource({
     item: jsonSerializer,
     currentSignature: "sig",
     sourceState: {
       typeSourceKey: "sig",
       typeSourceLoading: false,
-      typeSource: { provider: "original", provenance: "SourceLink", url: "https://example.test", text: "class JsonSerializer {}" },
+      typeSource: { provider: "pdb", provenance: "SourceLink", url: "https://example.test", text: "class JsonSerializer {}" },
       typeSourceError: null,
     },
     escapeHtml,
     highlightCSharp,
   });
 
-  assert.match(html, /Original source/);
+  assert.match(html, /PDB Source/);
   assert.match(html, /SourceLink/);
   assert.match(html, /id="copy-type-source"/);
   assert.match(html, /open source ↗/);
+});
+
+test("decompiled type source discloses an escaped PDB-source limitation", () => {
+  const html = renderTypeSource({
+    item: jsonSerializer,
+    currentSignature: "sig",
+    sourceState: {
+      typeSourceKey: "sig",
+      typeSourceLoading: false,
+      typeSource: {
+        provider: "decompiled",
+        provenance: "decompiled from IL",
+        pdbSourceLimitation: "<checksum mismatch>",
+        text: "class JsonSerializer {}",
+      },
+      typeSourceError: null,
+    },
+    escapeHtml,
+    highlightCSharp,
+  });
+
+  assert.match(html, /Decompiled source/);
+  assert.match(html, /PDB source unavailable: &lt;checksum mismatch&gt;/);
 });
 
 test("type source reports a failure without a stale result", () => {
