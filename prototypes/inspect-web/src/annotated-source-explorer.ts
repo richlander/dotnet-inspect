@@ -48,6 +48,11 @@ export interface AnnotatedSourceEntryOptions {
   escapeHtml: EscapeHtml;
 }
 
+export interface AnnotatedSourceEntryBindingActions {
+  onCopy: () => void;
+  onOpen: () => void;
+}
+
 export interface AnnotatedSourceExplorerOptions extends AnnotatedSourceEntryOptions {
   state: AnnotatedSourceExplorerState;
   title: string;
@@ -56,6 +61,14 @@ export interface AnnotatedSourceExplorerOptions extends AnnotatedSourceEntryOpti
 
 const MAX_SELECTION_DETAILS = 50;
 const preparedDocuments = new WeakMap<AnnotatedSourceDocument, PreparedAnnotatedView>();
+
+export function bindAnnotatedSourceEntry(
+  root: ParentNode,
+  actions: AnnotatedSourceEntryBindingActions,
+): void {
+  root.querySelector("#copy-annotated")?.addEventListener("click", actions.onCopy);
+  root.querySelector("#open-annotated-explorer")?.addEventListener("click", actions.onOpen);
+}
 
 export class AnnotatedSourceExplorerRenderCoordinator {
   #pendingState: AnnotatedSourceExplorerRenderState | null = null;

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   AnnotatedSourceExplorerRenderCoordinator,
+  bindAnnotatedSourceEntry,
   createAnnotatedSourceExplorerState,
   reduceAnnotatedSourceExplorerState,
   renderAnnotatedSourceEntry,
@@ -14,6 +15,7 @@ import {
   type AnnotatedSourceDocument,
 } from "../src/annotated-source-view.ts";
 import { sampleDocument as sampleDocumentFixture } from "../../annotated-source-viewer/src/sample-document.js";
+import { fakeDom } from "./fake-dom.ts";
 
 validateAnnotatedSourceDocument(sampleDocumentFixture);
 const sampleDocument: AnnotatedSourceDocument = sampleDocumentFixture;
@@ -35,6 +37,22 @@ function escapeHtml(value: unknown) {
     .replaceAll("'", "&#039;");
 }
 
+class FakeElement {
+  private readonly listeners = new Map<string, EventListener[]>();
+
+  addEventListener(type: string, listener: EventListener): void {
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  dispatch(type: string): void {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener(fakeDom.event());
+    }
+  }
+}
+
 test("the member tab hands annotated source off to the full-screen explorer", () => {
   const html = renderAnnotatedSourceEntry({ result, escapeHtml });
 
@@ -43,6 +61,27 @@ test("the member tab hands annotated source off to the full-screen explorer", ()
   assert.match(html, /<strong>3<\/strong>facts/);
   assert.match(html, /<strong>1<\/strong>unanchored/);
   assert.doesNotMatch(html, /IL_0001: newobj/);
+});
+
+test("the member tab binds copy and full-screen handoff controls", () => {
+  const copy = new FakeElement();
+  const open = new FakeElement();
+  const elements = new Map<string, FakeElement>([
+    ["#copy-annotated", copy],
+    ["#open-annotated-explorer", open],
+  ]);
+  const calls: string[] = [];
+
+  bindAnnotatedSourceEntry(fakeDom.parentNode({
+    querySelector: (selector: string) => elements.get(selector) ?? null,
+  }), {
+    onCopy: () => calls.push("copy"),
+    onOpen: () => calls.push("open"),
+  });
+
+  copy.dispatch("click");
+  open.dispatch("click");
+  assert.deepEqual(calls, ["copy", "open"]);
 });
 
 test("the app routes the member tab into the TypeScript explorer", () => {
