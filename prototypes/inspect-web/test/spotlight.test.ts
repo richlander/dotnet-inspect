@@ -293,10 +293,11 @@ test("home Spotlight keeps the shared typed UI without workspace commands", () =
   assert.doesNotMatch(pendingHtml, /data-sl-scope="commands"/);
   assert.doesNotMatch(pendingHtml, /home-search-glint/);
 
-  const readyHtml = spotlight.inlineHtml(false);
+  const readyHtml = spotlight.inlineHtml(false, true);
   assert.match(readyHtml, /class="home-search-glint" aria-hidden="true"/);
   assert.match(readyHtml, /class="home-search-glint-glow" pathLength="1"/);
   assert.match(readyHtml, /class="home-search-glint-line" pathLength="1"/);
+  assert.doesNotMatch(spotlight.inlineHtml(false), /home-search-glint/);
 });
 
 test("command queries and command metadata are escaped in Spotlight markup", () => {

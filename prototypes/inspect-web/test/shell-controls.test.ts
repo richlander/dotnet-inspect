@@ -23,10 +23,11 @@ class FakeElement {
     this.listeners.set(type, listeners);
   }
 
-  dispatch(type: string) {
+  dispatch(type: string, values: Record<string, unknown> = {}) {
     let prevented = false;
     const event = fakeDom.event({
       target: this,
+      ...values,
       preventDefault: () => prevented = true,
     });
     for (const listener of this.listeners.get(type) ?? []) {
@@ -128,6 +129,9 @@ test("home shell accepts only known demos", () => {
   assert.deepEqual(calls, []);
   theme.dispatch("click");
   dismiss.dispatch("click");
+  assert.equal(credits.dispatch("click", { button: 0, metaKey: true }), false);
+  assert.equal(credits.dispatch("click", { button: 1 }), false);
+  assert.deepEqual(calls, ["theme", "dismiss"]);
   assert.equal(credits.dispatch("click"), true);
   stj.dispatch("click");
   runtime.dispatch("click");

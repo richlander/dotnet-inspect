@@ -457,6 +457,9 @@ function isAnnotatedMedium(value: string): value is (typeof MEDIA)[number] {
 }
 
 let spotlightCache: SpotlightCache | null = null;
+const HOME_BOT_ANIMATION_DURATION_MS = 5500;
+let homeBotAnimationStartedAt: number | null = null;
+let homeReadyGlintPending = true;
 const initialState = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   statusBarExpanded: false,
@@ -2003,16 +2006,17 @@ function render() {
     renderMetadataExplorer();
     return;
   }
+  if (state.credits) {
+    loadingBotSrc = null;
+    renderCreditsView();
+    return;
+  }
   // A loading/interstitial view holds one random bot for its whole appearance; any non-loading
   // view resets it so the next interstitial picks a fresh random bot (see interstitialBotSrc).
   const showingInterstitial = state.loading || state.error || (!state.home && !state.package);
   if (!showingInterstitial) loadingBotSrc = null;
   if (state.loading || state.error) {
     renderLoading();
-    return;
-  }
-  if (state.credits) {
-    renderCreditsView();
     return;
   }
   if (state.home) {
@@ -5611,6 +5615,15 @@ async function copyText(value: string, confirmation: string) {
 function renderHomeView() {
   document.title = "dotnet-inspect -- Inspect any NuGet package: types, methods, metadata, decompilation.";
   const enginePending = !state.engineReady;
+  const showReadyGlint = state.engineReady && homeReadyGlintPending;
+  if (showReadyGlint) homeReadyGlintPending = false;
+  if (state.engineReady && homeBotAnimationStartedAt === null) {
+    homeBotAnimationStartedAt = performance.now();
+  }
+  const botAnimationDelay = homeBotAnimationStartedAt === null
+    ? 0
+    : -((performance.now() - homeBotAnimationStartedAt)
+      % HOME_BOT_ANIMATION_DURATION_MS);
   app.innerHTML = `
     <div class="home">
       <header class="home-bar">
@@ -5634,7 +5647,7 @@ function renderHomeView() {
           <h1 class="home-title">Inspect any NuGet package: types, methods, metadata, decompilation.</h1>
           <p class="home-lede">Explore NuGet packages and the .NET platform — types, members, public API surface, dependencies, call graphs, and decompiled C# — all computed locally in your browser. Nothing to install, nothing uploaded.</p>
           <div class="home-search ${enginePending ? "engine-pending" : ""}" role="search" aria-busy="${enginePending}">
-            ${spotlight.inlineHtml(enginePending)}
+            ${spotlight.inlineHtml(enginePending, showReadyGlint)}
             ${enginePending
               ? `<div class="home-engine-status" role="status" aria-live="polite">
                   <span class="loader" aria-hidden="true"></span>
@@ -5653,7 +5666,7 @@ function renderHomeView() {
             </div>
           </div>
         </div>
-        <aside class="home-art ${enginePending ? "engine-pending" : "engine-ready"}">${homeArtSvg()}</aside>
+        <aside class="home-art ${enginePending ? "engine-pending" : "engine-ready"}" style="--home-bot-animation-delay: ${botAnimationDelay}ms">${homeArtSvg()}</aside>
       </main>
       ${statusBarHtml({
         variant: "home",
@@ -7501,7 +7514,7 @@ async function bootstrap() {
     const reportEngineStatus = (message: string) => {
       state.loadingMessage = message;
       state.engineStatus = message;
-      render();
+      if (!state.credits) render();
     };
     await initializeEngine(reportEngineStatus);
     reportEngineStatus("Reading package assemblies…");
@@ -7527,7 +7540,7 @@ async function bootstrap() {
       // Engine is warm and search is ready; show the intro/home page without loading a package.
       state.loading = false;
       state.diag = computeDiagnostics(tStart, tEngine, performance.now());
-      render();
+      if (!state.credits) render();
       return;
     }
     await restoreInitialWorkspace();
@@ -7544,7 +7557,7 @@ async function bootstrap() {
       ? error.stack || error.message
       : String(error);
     state.retryAction = () => window.location.reload();
-    render();
+    if (!state.credits) render();
   }
 }
 

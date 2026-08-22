@@ -60,6 +60,13 @@ export function bindHomeShell(
     ?.addEventListener("click", actions.onDismissNotice);
   root.querySelector("#home-credits")
     ?.addEventListener("click", event => {
+      if (("button" in event && event.button !== 0)
+          || ("metaKey" in event && event.metaKey === true)
+          || ("ctrlKey" in event && event.ctrlKey === true)
+          || ("shiftKey" in event && event.shiftKey === true)
+          || ("altKey" in event && event.altKey === true)) {
+        return;
+      }
       event.preventDefault();
       actions.onOpenCredits();
     });

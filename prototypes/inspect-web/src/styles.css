@@ -1666,7 +1666,7 @@ kbd {
 .home-attribution {
   max-width: 620px;
   margin: 10px 0 0;
-  color: var(--dim);
+  color: var(--muted);
   font: 11px/1.5 var(--mono);
 }
 .home-attribution a { color: var(--muted); text-underline-offset: 3px; }
@@ -1808,6 +1808,7 @@ kbd {
 }
 .home-art.engine-ready .home-art-img {
   animation: home-bot-hover 5.5s ease-in-out infinite;
+  animation-delay: var(--home-bot-animation-delay, 0ms);
   will-change: transform, filter;
 }
 @keyframes home-bot-hover {

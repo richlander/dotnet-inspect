@@ -34,6 +34,10 @@ const testTsconfig = JSON.parse(
 const staticWebAppConfig = JSON.parse(
   readFileSync(new URL("../staticwebapp.config.json", import.meta.url), "utf8"),
 );
+const siteIndexHtml = readFileSync(
+  new URL("../index.html", import.meta.url),
+  "utf8",
+);
 
 test("the package lock pins every registry artifact", () => {
   const missingArtifactIdentity = Object.entries(packageLock.packages)
@@ -59,11 +63,31 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
 });
 
 test("static hosting serves direct credits links through the application entry point", () => {
+  const creditsRoutes = staticWebAppConfig.routes
+    .filter(route => route.route === "/credits" || route.route === "/credits/");
+
+  assert.deepEqual(creditsRoutes, [
+    {
+      route: "/credits",
+      rewrite: "/index.html",
+      headers: {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+      },
+    },
+    {
+      route: "/credits/",
+      rewrite: "/index.html",
+      headers: {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+      },
+    },
+  ]);
   assert.equal(staticWebAppConfig.navigationFallback.rewrite, "/index.html");
   assert.deepEqual(
     staticWebAppConfig.navigationFallback.exclude,
     ["/api/*", "/assets/*", "/_framework/*"],
   );
+  assert.match(siteIndexHtml, /<base href="\/" \/>/);
 });
 
 const linuxLibcs = ["glibc", "musl"];

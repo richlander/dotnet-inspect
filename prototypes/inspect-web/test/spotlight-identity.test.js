@@ -378,7 +378,9 @@ test("typed Spotlight owns search presentation and hosts commands", () => {
     /createSpotlight,[\s\S]*visibleSpotlightPackageHits,[\s\S]*from "\.\/spotlight\.ts"/);
   assert.match(appSource, /openSpotlight\("", "commands"\)/);
   assert.match(appSource, /state\.spotlightOpen \? spotlight\.modalHtml\(\)/);
-  assert.match(appSource, /spotlight\.inlineHtml\(enginePending\)/);
+  assert.match(
+    appSource,
+    /spotlight\.inlineHtml\(enginePending, showReadyGlint\)/);
   assert.doesNotMatch(appSource, /function renderSpotlight\(/);
   assert.doesNotMatch(appSource, /commandBar\.html\(\)/);
   assert.match(spotlightSource, /const COMMAND_SCOPE = \{ id: "commands"/);
@@ -1675,6 +1677,10 @@ test("ready status shows versioned linked build provenance", () => {
 });
 
 test("bare home paints before wasm engine download", () => {
+  const renderDispatch =
+    appSource.match(/function render\(\) \{[\s\S]*?const pkg = state\.package;/)?.[0] ?? "";
+  const bootstrap =
+    appSource.match(/async function bootstrap\(\) \{[\s\S]*?\n}\n\nfunction computeDiagnostics/)?.[0] ?? "";
   const homePaintWait =
     appSource.match(/function waitForHomePaint\(\)[\s\S]*?\n}\n\nfunction loadStoredTaste/)?.[0] ?? "";
   const errorPackageRecovery =
@@ -1695,6 +1701,18 @@ test("bare home paints before wasm engine download", () => {
   assert.match(
     appSource,
     /state\.loading = !state\.home;[\s\S]*render\(\);[\s\S]*if \(state\.home\) await waitForHomePaint\(\);[\s\S]*await loadEngineModule\(\);[\s\S]*await initializeEngine\(reportEngineStatus\);[\s\S]*reportEngineStatus\("Reading package assemblies…"\)/);
+  assert.match(
+    renderDispatch,
+    /if \(state\.credits\) \{[\s\S]*renderCreditsView\(\);[\s\S]*if \(state\.loading \|\| state\.error\)/);
+  assert.match(
+    bootstrap,
+    /const reportEngineStatus = \(message: string\) => \{[\s\S]*if \(!state\.credits\) render\(\);[\s\S]*if \(state\.home\) \{[\s\S]*if \(!state\.credits\) render\(\);[\s\S]*catch \(error\)[\s\S]*if \(!state\.credits\) render\(\)/);
+  assert.match(
+    appSource,
+    /const showReadyGlint = state\.engineReady && homeReadyGlintPending;[\s\S]*homeReadyGlintPending = false;[\s\S]*homeBotAnimationStartedAt[\s\S]*--home-bot-animation-delay:/);
+  assert.match(
+    stylesSource,
+    /animation-delay: var\(--home-bot-animation-delay, 0ms\)/);
   assert.match(
     appSource,
     /class="home-search \$\{enginePending[\s\S]*class="home-engine-status"/);
