@@ -26,7 +26,7 @@ public partial record ApiOptions : IProjectionOptions
     public string? ProjectAssetsPath { get; init; }
 
     /// <summary>
-    /// Local git clone(s) to read authored source from (keyed on the SourceLink commit and
+    /// Local git clone(s) to read PDB-mapped source from (keyed on the SourceLink commit and
     /// authenticated by the portable-PDB checksum) before falling back to the remote SourceLink
     /// URL. Empty = network only. Set via <c>--repo</c>; can repeat.
     /// </summary>
@@ -168,6 +168,18 @@ public partial record ApiOptions : IProjectionOptions
     public HashSet<string> KindFilter { get; init; } = [];
     public bool UnsafeOnly { get; init; }
     public HashSet<string>? IncludeSections { get; init; }
+
+    /// <summary>
+    /// Canonical sections reached through an exact selector or compatible legacy alias. An empty
+    /// set records that selection came only through categories, globs, or a preset. Null preserves
+    /// exact-selection behavior for typed callers that supply <see cref="IncludeSections"/> directly.
+    /// </summary>
+    public HashSet<string>? ExactIncludeSectionsOverride { get; init; }
+
+    /// <summary>The selected sections that retain exact-selector provenance.</summary>
+    public HashSet<string>? ExactIncludeSections
+        => ExactIncludeSectionsOverride ?? IncludeSections;
+
     public string[]? Discover { get; init; }
     public bool Tree { get; init; }
     public string[]? Select { get; init; }
@@ -306,14 +318,14 @@ public record MemberOptions : ApiOptions
 
     /// <summary>
     /// True when the selected member has an IL body but its source range does not identify one
-    /// vouched authored declaration to isolate. <see cref="MethodSource"/> is absent because a
+    /// declaration to isolate from the PDB source range. <see cref="MethodSource"/> is absent because a
     /// type header, initializer, ambiguous range, or structurally unknown span is not a valid
     /// substitute, not because source acquisition failed.
     /// </summary>
-    public bool MemberHasNoAuthoredDeclaration { get; init; }
+    public bool MemberHasNoPdbDeclaration { get; init; }
 
     /// <summary>
-    /// True when authored source was verified but exceeded the bounded lexical-complexity limit.
+    /// True when PDB source was verified but exceeded the bounded lexical-complexity limit.
     /// </summary>
     public bool MemberSourceTooComplex { get; init; }
 
@@ -321,6 +333,11 @@ public record MemberOptions : ApiOptions
     /// True when portable-PDB sequence-point coordinates cannot address the verified source.
     /// </summary>
     public bool MemberSourceCoordinatesInvalid { get; init; }
+
+    /// <summary>
+    /// Explains why PDB source acquisition failed when no more specific source state applies.
+    /// </summary>
+    public string? PdbSourceUnavailableReason { get; init; }
 
     /// <summary>
     /// Output directories (<c>--bin</c>/<c>--directory</c>) to scan for cross-assembly callers

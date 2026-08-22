@@ -11,9 +11,10 @@ import type { MemberFocusSnapshot } from "../src/member-focus.ts";
 
 function source(text: string): BrowserSource {
   return {
-    provider: "SourceLink",
-    provenance: "original",
+    provider: "pdb",
+    provenance: "SourceLink",
     url: "https://example.test/source.cs",
+    pdbSourceLimitation: null,
     text,
   };
 }

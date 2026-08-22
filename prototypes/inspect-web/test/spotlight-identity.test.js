@@ -10,6 +10,7 @@ import { parseSync, visitorKeys } from "oxc-parser";
 import {
   activeSourceOperationKind,
   assemblyDescriptorForType,
+  pdbSourceLimitationHtml,
   beginSourceRequestState,
   cancelSourceRequestState,
   callGraphAssemblyIdentityMatches,
@@ -2631,6 +2632,18 @@ test("call graph source identity prefers the structured type definition", () => 
   assert.equal(candidate.type, literal);
   assert.equal(callGraphTargetMatchesType(target, nested), false);
   assert.equal(callGraphTargetMatchesType(target, literal), true);
+});
+
+test("decompiled source discloses the PDB-source limitation", () => {
+  const html = pdbSourceLimitationHtml({
+    pdbSourceLimitation: "<img src=x onerror=alert(1)>"
+  });
+  assert.match(html, /PDB source unavailable:/);
+  assert.doesNotMatch(html, /<img/);
+  assert.match(html, /&lt;img/);
+  assert.match(
+    appSource,
+    /pdbSourceLimitationHtml\(state\.memberSource\)/);
 });
 
 test("history never applies a selection to another coordinate", () => {

@@ -162,7 +162,7 @@ static class AuthoredRebuildFidelity
             decompilerResult.MemberAnchor?.StableSelector
                 ?? $"{request.FullType}.{request.MethodName}",
             $"{request.FullType}.{request.MethodName}");
-        var authored = await AuthoredSourceAcquisition.AcquireMemberAsync(
+        var authored = await PdbSourceAcquisition.AcquireMemberAsync(
             source,
             MetadataTokens.GetToken(request.TargetMethod),
             request.MethodName,
