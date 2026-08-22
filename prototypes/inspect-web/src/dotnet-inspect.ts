@@ -8,7 +8,6 @@ import {
   createDependencyGraphRenderSequence,
   dependencyCoordinateCandidates,
   dependencyGroupSelectionMessage,
-  dependencyGraphGroupSelectionIndex,
   dependencyGraphRenderSignature,
   graphTargetNavigationDisposition,
   graphMemberSelection,
@@ -17,7 +16,6 @@ import {
   MAX_WORKSPACE_PACKAGES,
   memberRequestKey,
   memberSectionIdsFor,
-  mermaidLabel,
   packageCoordinateMatchesLocation,
   packageForView,
   packageIdentityKey,
@@ -30,7 +28,6 @@ import {
   scopedRequestState,
   sourceReloadKind,
   sourceRequestNeedsLoad,
-  selectedDependencyGroup,
   spotlightCandidateKey,
   spotlightCandidateSignature,
   type DependencyGroupData,
@@ -51,7 +48,6 @@ import {
   restoreLibraryScope,
   restoreMemberHistoryState,
   type BodyTarget,
-  type FilterableMemberGroup,
 } from "./member-filtering.ts";
 import {
   createNavigationHistory,
@@ -82,7 +78,6 @@ import {
 } from "./metadata-inspection.ts";
 import {
   createMemberDetailInspectionCoordinator,
-  type MemberFactRow,
   type MemberFacts,
 } from "./member-detail-inspection.ts";
 import {
@@ -162,8 +157,6 @@ import {
 } from "./catalog-requests.ts";
 import { fmtBytes, statusBarHtml } from "./status-bar.ts";
 import type {
-  BrowserAnnotatedSource,
-  BrowserAssemblyReference,
   BrowserBuildIdentity,
   BrowserCallGraph,
   BrowserCallGraphTarget,
@@ -300,8 +293,10 @@ interface AppMemberSurface extends BrowserMemberSurface {
 
 function loadStoredTaste() {
   try {
-    const value = JSON.parse(localStorage.getItem("inspect-taste") || "[]");
-    return Array.isArray(value) ? value.filter(item => typeof item === "string") : [];
+    const value: unknown = JSON.parse(localStorage.getItem("inspect-taste") || "[]");
+    if (!Array.isArray(value)) return [];
+    const entries: unknown[] = value;
+    return entries.filter((item): item is string => typeof item === "string");
   } catch {
     return [];
   }
@@ -317,10 +312,13 @@ const RECENT_PACKAGES_MAX = 12;
 // browser HTTP cache when still present).
 function loadRecentPackages() {
   try {
-    const value = JSON.parse(localStorage.getItem("inspect-recent-packages") || "[]");
+    const value: unknown = JSON.parse(
+      localStorage.getItem("inspect-recent-packages") || "[]");
     if (!Array.isArray(value)) return [];
-    return value
-      .filter(entry => entry && typeof entry.id === "string" && entry.id)
+    const entries: unknown[] = value;
+    return entries
+      .filter((entry): entry is Record<string, unknown> & { id: string } =>
+        isRecord(entry) && typeof entry.id === "string" && entry.id.length > 0)
       .map(entry => ({
         id: entry.id,
         version: typeof entry.version === "string" && entry.version ? entry.version : "latest",
@@ -339,10 +337,13 @@ function loadRecentPackages() {
 // remembered ASP.NET Core library re-materialises from the right shared framework.
 function loadPlatformRecent() {
   try {
-    const value = JSON.parse(localStorage.getItem("inspect-platform-recent") || "[]");
+    const value: unknown = JSON.parse(
+      localStorage.getItem("inspect-platform-recent") || "[]");
     if (!Array.isArray(value)) return [];
-    return value
-      .filter(entry => entry && typeof entry.assembly === "string")
+    const entries: unknown[] = value;
+    return entries
+      .filter((entry): entry is Record<string, unknown> & { assembly: string } =>
+        isRecord(entry) && typeof entry.assembly === "string")
       .map(entry => ({
         assembly: entry.assembly.replace(/\.dll$/i, ""),
         pack: entry.pack === "aspnetcore.app" ? "aspnetcore.app" : "netcore.app",
@@ -353,7 +354,7 @@ function loadPlatformRecent() {
   }
 }
 
-type RetryAction = (() => unknown) | null;
+type RetryAction = (() => void | Promise<unknown>) | null;
 
 interface SpotlightCache {
   signature: string;
@@ -401,7 +402,11 @@ interface Diagnostics {
 type MemberSection = "overview" | "source" | "annotated" | "call-graph" | "facts";
 
 function isMemberSection(value: string): value is MemberSection {
-  return memberSections.includes(value as MemberSection);
+  return memberSections.some(section => section === value);
+}
+
+function isAnnotatedMedium(value: string): value is (typeof MEDIA)[number] {
+  return MEDIA.some(medium => medium === value);
 }
 
 let spotlightCache: SpotlightCache | null = null;
@@ -421,7 +426,7 @@ const initialState = {
   selectedMemberKey: "",
   memberBrowseTypeId: "",
   selectedOverloadIndex: null,
-  memberSection: "overview",
+  memberSection: "overview" as const,
   memberKindFilter: "all",
   memberAccessibilityFilter: "all",
   memberTraitFilter: "",
@@ -504,7 +509,7 @@ const initialState = {
   spotlightQuery: "",
   spotlightIndex: 0,
   spotlightScope: "all",
-  spotlightFocus: "input",
+  spotlightFocus: "input" as const,
   spotlightChipIndex: 0,
   spotlightPkgHits: [],
   spotlightPkgLoading: false,
@@ -602,7 +607,7 @@ interface StateOverrides {
 
 type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides;
 
-const state = initialState as AppState;
+const state: AppState = initialState;
 const sourceInspection = createSourceInspectionCoordinator({
   state,
   queryMemberSource: request => inspectMemberSource(
@@ -832,11 +837,16 @@ function applyView(view: WorkspaceView) {
   state.selectedBodyTarget = memberHistory.selectedBodyTarget;
   navigationHistory.normalizeCurrent();
   if (!state.atPackageRoot && state.lens === "api" && state.selectedMemberKey && member) {
-    if (state.memberSection === "source") loadSelectedMemberSource();
-    else if (state.memberSection === "annotated") loadSelectedMemberAnnotatedSource();
-    else if (state.memberSection === "call-graph") loadSelectedMemberCallGraph();
-    else if (state.memberSection === "facts") loadSelectedMemberFacts();
-    else loadSelectedMemberDocumentation();
+    if (state.memberSection === "source")
+      observeAsync(loadSelectedMemberSource(), "Loading member source");
+    else if (state.memberSection === "annotated")
+      observeAsync(loadSelectedMemberAnnotatedSource(), "Loading annotated member source");
+    else if (state.memberSection === "call-graph")
+      observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
+    else if (state.memberSection === "facts")
+      observeAsync(loadSelectedMemberFacts(), "Loading member facts");
+    else
+      observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
   } else {
     render();
   }
@@ -935,15 +945,18 @@ const initialDeepLink = {
   memberTraitFilter: initialLocation.memberTraitFilter
 };
 
-function requireElement<T extends Element>(selector: string): T {
-  const element = document.querySelector<T>(selector);
+function requireElement(selector: string): HTMLElement {
+  const element = document.querySelector<HTMLElement>(selector);
   if (!element) throw new Error(`Required element '${selector}' is missing.`);
   return element;
 }
 
-const app = requireElement<HTMLElement>("#app");
-let mermaidModule;
-let markdownModule;
+const app = requireElement("#app");
+type MermaidModule = typeof import("https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.esm.min.mjs");
+type MarkedModule = typeof import("https://cdn.jsdelivr.net/npm/marked@15.0.7/lib/marked.esm.js");
+type DomPurifyModule = typeof import("https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.es.mjs");
+let mermaidModule: Promise<MermaidModule> | undefined;
+let markdownModule: Promise<[MarkedModule, DomPurifyModule]> | undefined;
 const depGraphRenderSequence = createDependencyGraphRenderSequence();
 let callGraphRenderSeq = 0;
 let spotlightFocusGeneration = 0;
@@ -958,11 +971,49 @@ function escapeHtml(value: unknown) {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error ?? "");
+  if (error instanceof Error) return error.message;
+  if (isRecord(error) && typeof error.message === "string") return error.message;
+  if (typeof error === "string") return error;
+  if (typeof error === "number" || typeof error === "boolean" || typeof error === "bigint")
+    return String(error);
+  return "";
 }
 
+function reportAsyncFailure(description: string, error: unknown): void {
+  console.error(`${description} failed.`, error);
+  appendQueryNotice(
+    `${description} failed: ${errorMessage(error) || "Unknown error."}`);
+  render();
+}
+
+function observeAsync(
+  operation: Promise<unknown> | undefined,
+  description: string,
+): void {
+  if (!operation) return;
+  operation.catch((error: unknown) => {
+    reportAsyncFailure(description, error);
+  });
+}
+
+function observeAction(
+  action: () => void | Promise<unknown>,
+  description: string,
+): void {
+  try {
+    observeAsync(Promise.resolve(action()), description);
+  } catch (error) {
+    reportAsyncFailure(description, error);
+  }
+}
+
+// The Wasm engine is an in-process producer whose DTO surface is generated by tsbindgen.
+// Runtime validators are not generated yet, so this is the one trusted JSON/type boundary.
+// oxlint-disable-next-line typescript/no-unnecessary-type-parameters
 function parseEngineJson<T>(json: string): T {
-  return JSON.parse(json) as T;
+  const parsed: unknown = JSON.parse(json);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return parsed as T;
 }
 
 function currentPackage(): AppPackage {
@@ -993,11 +1044,13 @@ const spotlight = createSpotlight({
   searchResults: spotlightResults,
   pickResult: pickSpotlightResult,
   executeCommand,
+  reportCommandError: error =>
+    reportAsyncFailure("Running a Spotlight command", error),
   commandContext: () => !state.home && state.package
     ? { command: state.spotlightQuery, package: state.package }
     : null,
-  schedulePackageFetch: spotlightPackageSearch.schedule,
-  resetPackageSearch: spotlightPackageSearch.reset,
+  schedulePackageFetch: () => spotlightPackageSearch.schedule(),
+  resetPackageSearch: () => spotlightPackageSearch.reset(),
   packageSearchLoading: () => state.spotlightPkgLoading,
   packageCount: () => state.packages.length,
   activeFramework: () => state.package?.activeFramework || "",
@@ -1037,11 +1090,11 @@ function focusTypeList(generation = spotlightFocusGeneration) {
   });
 }
 
-function openSpotlight(seed = "", scope = "all") {
+function openSpotlight(seed = "", spotlightScope = "all") {
   if (state.loading || state.error) return;
   state.tasteOpen = false;
   beginSpotlightNavigation();
-  spotlight.open(seed, scope);
+  spotlight.open(seed, spotlightScope);
 }
 
 function closeSpotlight() {
@@ -1055,8 +1108,10 @@ const packageBar = createPackageBar({
   runtimePackPackage,
   selectPackageTab,
   closePackageTab,
-  openRuntimePack: openRuntimePackFromHome,
-  openPackage: (packageId, version) => loadPackage(packageId, version, ""),
+  openRuntimePack: () =>
+    observeAsync(openRuntimePackFromHome(), "Opening the .NET Platform"),
+  openPackage: (packageId, version) =>
+    observeAsync(loadPackage(packageId, version, ""), "Opening a package"),
   showToast,
 });
 
@@ -1649,7 +1704,7 @@ function openMemberGroup(key: string) {
   state.selectedMemberKey = key;
   state.selectedOverloadIndex = null;
   resetMemberSectionState();
-  loadSelectedMemberDocumentation();
+  observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
 }
 
 function enterMemberScope() {
@@ -1691,7 +1746,7 @@ function normalizeMemberSelection() {
 function openOverload(index: number) {
   state.selectedOverloadIndex = index;
   resetMemberSectionState();
-  loadSelectedMemberDocumentation();
+  observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
 }
 
 // Switch the open member's section (Overview / Call graph / Facts / Source / Annotated) and
@@ -1707,11 +1762,16 @@ function applyMemberSection(id: MemberSection) {
     invalidateMemberCallGraphWork(state);
   }
   state.memberSection = id;
-  if (id === "source") loadSelectedMemberSource();
-  else if (id === "annotated") loadSelectedMemberAnnotatedSource();
-  else if (id === "call-graph") loadSelectedMemberCallGraph();
-  else if (id === "facts") loadSelectedMemberFacts();
-  else if (id === "overview") loadSelectedMemberDocumentation();
+  if (id === "source")
+    observeAsync(loadSelectedMemberSource(), "Loading member source");
+  else if (id === "annotated")
+    observeAsync(loadSelectedMemberAnnotatedSource(), "Loading annotated member source");
+  else if (id === "call-graph")
+    observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
+  else if (id === "facts")
+    observeAsync(loadSelectedMemberFacts(), "Loading member facts");
+  else if (id === "overview")
+    observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
   else render();
 }
 
@@ -2029,7 +2089,7 @@ function render() {
   if (scope() === "member"
     && state.memberSection === "call-graph"
     && currentCallGraph()?.mermaid) {
-    renderMermaidCallGraph();
+    observeAsync(renderMermaidCallGraph(), "Rendering the member call graph");
   }
 }
 
@@ -2042,9 +2102,11 @@ function maybeAutoLoadVisibleSource() {
         state.graphSourceLoading,
         state.graphSource,
         state.graphSourceError)) {
-      openGraphSource(
-        state.graphSourceRequest.request,
-        state.graphSourceRequest.title);
+      observeAsync(
+        openGraphSource(
+          state.graphSourceRequest.request,
+          state.graphSourceRequest.title),
+        "Loading graph source");
     }
     return;
   }
@@ -2058,7 +2120,7 @@ function maybeAutoLoadVisibleSource() {
         state.typeSourceLoading,
         state.typeSource,
         state.typeSourceError)) {
-      loadSelectedTypeSource();
+      observeAsync(loadSelectedTypeSource(), "Loading type source");
     }
     return;
   }
@@ -2072,7 +2134,7 @@ function maybeAutoLoadVisibleSource() {
         state.memberSourceLoading,
         state.memberSource,
         state.memberSourceError)) {
-      loadSelectedMemberSource();
+      observeAsync(loadSelectedMemberSource(), "Loading member source");
     }
   }
 }
@@ -2083,10 +2145,11 @@ function maybeAutoLoadTypeMetadata() {
   if (!type) return;
   const signature = typeMetadataSignature(type, currentPackage());
   if (state.typeMetadataKey === signature) {
-    if (state.typeMetadata && state.typeMetadata.graphNodes.length > 1) renderTypeGraph();
+    if (state.typeMetadata && state.typeMetadata.graphNodes.length > 1)
+      observeAsync(renderTypeGraph(), "Rendering the type graph");
     return;
   }
-  loadSelectedTypeMetadata();
+  observeAsync(loadSelectedTypeMetadata(), "Loading type metadata");
 }
 
 function renderNavPane(
@@ -2103,7 +2166,7 @@ function renderTypeNavPane(
   visible: readonly BrowserTypeSurface[],
 ) {
   return renderTypeNav({
-    current,
+    current: current ?? null,
     visible,
     typeGroups: typeGroups(),
     typeFilter: state.typeFilter,
@@ -2345,7 +2408,7 @@ function patchDependenciesGroup() {
       Number(button.dataset.depGroup) === selectedGroupIndex));
   listSection.outerHTML = dependencyListSectionHtml(groups, selectedGroupIndex);
   bindDependencyListHandlers();
-  renderDependencyGraph();
+  observeAsync(renderDependencyGraph(), "Rendering the dependency graph");
 }
 
 function bindDependencyListHandlers() {
@@ -2358,7 +2421,10 @@ function bindDependencyListHandlers() {
   document.querySelectorAll<HTMLElement>("[data-dep-load]").forEach(button => {
     button.onclick = () => {
       const id = button.dataset.depLoad;
-      if (id) openDependencyPackage(id, button.dataset.depVersion || "");
+      if (id)
+        observeAsync(
+          openDependencyPackage(id, button.dataset.depVersion || ""),
+          "Opening a dependency package");
     };
   });
 }
@@ -2441,12 +2507,12 @@ function maybeAutoLoadPackageDependencies() {
   if (!state.atPackageRoot || state.packageLens !== "dependencies") return;
   if (state.packageDependenciesKey === packageDependenciesSignature()) {
     if (state.packageDependencies) {
-      renderDependencyGraph();
-      ensureWorkspaceDependencies();
+      observeAsync(renderDependencyGraph(), "Rendering the dependency graph");
+      observeAsync(ensureWorkspaceDependencies(), "Loading workspace dependencies");
     }
     return;
   }
-  loadPackageDependencies();
+  observeAsync(loadPackageDependencies(), "Loading package dependencies");
 }
 
 // Fetches dependency manifests for every other open package so the dependency graph can
@@ -2511,7 +2577,7 @@ function renderPackageIntegrations() {
     : "";
 
   if (!categories.length) {
-    return `${platformPicker}${warning}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No ecosystem integrations detected</h2><p>The public surface of ${isPlatform ? `${escapeHtml(scopedLib)}` : escapeHtml(pkg.activeFramework)} shows no known DI, logging, OpenTelemetry, ASP.NET Core, AI, or hosting signals.</p></section>`;
+    return `${platformPicker}${warning}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No ecosystem integrations detected</h2><p>The public surface of ${isPlatform ? escapeHtml(scopedLib) : escapeHtml(pkg.activeFramework)} shows no known DI, logging, OpenTelemetry, ASP.NET Core, AI, or hosting signals.</p></section>`;
   }
 
   const summary = `
@@ -2559,7 +2625,7 @@ async function loadPackageIntegrations() {
 function maybeAutoLoadPackageIntegrations() {
   if (!state.atPackageRoot || state.packageLens !== "integrations") return;
   if (state.packageIntegrationsKey === packageIntegrationsSignature()) return;
-  loadPackageIntegrations();
+  observeAsync(loadPackageIntegrations(), "Loading package integrations");
 }
 
 function packageScopeSignature() {
@@ -2608,7 +2674,7 @@ function maybeAutoLoadPackageOpportunities() {
   if (!state.atPackageRoot || state.packageLens !== "opportunities") return;
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
   if (state.packageOpportunitiesKey === packageScopeSignature()) return;
-  loadPackageOpportunities();
+  observeAsync(loadPackageOpportunities(), "Loading package opportunities");
 }
 
 function renderPackagePerformance() {
@@ -2681,7 +2747,7 @@ function maybeAutoLoadPackagePerformance() {
   if (!state.atPackageRoot || state.packageLens !== "analysis") return;
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
   if (state.packagePerformanceKey === packageScopeSignature()) return;
-  loadPackagePerformance();
+  observeAsync(loadPackagePerformance(), "Loading package analysis");
 }
 
 // The Metadata lens: the image-level "container" view of each assembly — metadata format
@@ -2690,7 +2756,7 @@ function maybeAutoLoadPackagePerformance() {
 // it scopes to one runtime-pack assembly (the shared framework is ~160 assemblies); for a
 // NuGet package it describes every active-framework lib/ assembly.
 function renderPackageMetadata() {
-  const isPlatform = Boolean(state.package?.isRuntimePack);
+  const isPlatform = state.package?.isRuntimePack === true;
   const fresh = state.packageMetadataKey === packageScopeSignature();
   return renderPackageMetadataHtml({
     isPlatform,
@@ -2698,7 +2764,7 @@ function renderPackageMetadata() {
     activeFramework: state.package?.activeFramework || "",
     pickerHtml: isPlatform ? platformLensPicker("data-platform-metadata-library") : "",
     fresh,
-    loading: Boolean(state.packageMetadataLoading),
+    loading: state.packageMetadataLoading,
     error: state.packageMetadataError || "",
     metadata: state.packageMetadata || null,
     escapeHtml,
@@ -2719,7 +2785,7 @@ function maybeAutoLoadPackageMetadata() {
   if (!state.atPackageRoot || state.packageLens !== "metadata") return;
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
   if (state.packageMetadataKey === packageScopeSignature()) return;
-  loadPackageMetadata();
+  observeAsync(loadPackageMetadata(), "Loading package metadata");
 }
 
 // ─── Metadata Explorer ─────────────────────────────────────────────────────────
@@ -2740,7 +2806,7 @@ function explorerPageSize() {
 function openExplorer(assemblyFileName: string, tableIndex: number, rowId = 0) {
   const ex = buildBaseExplorer(assemblyFileName);
   if (!ex) return;
-  ex.history = [{ index: Number(tableIndex), rowId: Number(rowId) || 0 }];
+  ex.history = [{ index: tableIndex, rowId: rowId || 0 }];
   ex.historyPos = 0;
   state.explorer = ex;
   applyExplorerFocus();
@@ -2879,7 +2945,8 @@ function applyExplorerFocus() {
     ex.focusHeap = entry.heap;
     ex.highlight = null;
     ex.detail = null;
-    if (!ex.heapWindows[entry.heap]) loadExplorerHeap(entry.heap);
+    if (!ex.heapWindows[entry.heap])
+      observeAsync(loadExplorerHeap(entry.heap), "Loading metadata heap rows");
     else render();
   } else {
     if (entry.index == null) return;
@@ -2892,7 +2959,7 @@ function applyExplorerFocus() {
     const onScreen = win?.data && (!entry.rowId
       || (entry.rowId >= win.data.startRowId && entry.rowId < win.data.startRowId + (win.data.rows?.length || 0)));
     if (onScreen) render();
-    else loadExplorerWindow(entry.index, start);
+    else observeAsync(loadExplorerWindow(entry.index, start), "Loading metadata table rows");
   }
   ex.pendingScroll = true;
   explorerScrollToFocus();
@@ -2943,7 +3010,9 @@ function syncExplorerPageSize() {
   const win = ex.windows[ex.focusIndex];
   const rows = win?.data?.rows ?? [];
   if (win?.data && rows.length < fit && rows.length < win.data.rowCount) {
-    loadExplorerWindow(ex.focusIndex, win.data.startRowId, fit);
+    observeAsync(
+      loadExplorerWindow(ex.focusIndex, win.data.startRowId, fit),
+      "Loading metadata table rows");
   }
 }
 
@@ -2981,10 +3050,13 @@ function bindMetadataExplorerEvents() {
   document.querySelectorAll<HTMLElement>("[data-mde-page]").forEach(btn =>
     btn.addEventListener("click", () => {
       const [index, start] = (btn.dataset.mdePage ?? "").split(":").map(Number);
-      loadExplorerWindow(index, start);
+      observeAsync(loadExplorerWindow(index, start), "Loading metadata table rows");
     }));
   document.querySelectorAll<HTMLElement>("[data-mde-heap-chip]").forEach(chip =>
-    chip.addEventListener("click", () => pushExplorerFocus({ heap: chip.dataset.mdeHeapChip })));
+    chip.addEventListener("click", () => {
+      const heap = chip.dataset.mdeHeapChip;
+      if (heap !== undefined) pushExplorerFocus({ heap });
+    }));
 
   if (ex?.overview) {
     // All-tables view: clicking a card head, a ref, or a row focuses that table.
@@ -2996,7 +3068,8 @@ function bindMetadataExplorerEvents() {
     document.querySelectorAll<HTMLElement>(".mde-wall .mde-heap-card[data-mde-heap] .mde-card-head").forEach(head =>
       head.addEventListener("click", () => {
         const card = head.closest<HTMLElement>(".mde-heap-card");
-        if (card) pushExplorerFocus({ heap: card.dataset.mdeHeap });
+        const heap = card?.dataset.mdeHeap;
+        if (heap !== undefined) pushExplorerFocus({ heap });
       }));
     document.querySelectorAll<HTMLElement>(".mde-wall .mde-row[data-mde-row]").forEach(tr =>
       tr.addEventListener("click", () => {
@@ -3027,9 +3100,13 @@ function bindMetadataExplorerEvents() {
       if (entry.isIntersecting) {
         if (!(entry.target instanceof HTMLElement)) continue;
         if (entry.target.dataset.mdeHeapNeedsLoad != null) {
-          loadExplorerHeap(entry.target.dataset.mdeHeapNeedsLoad);
+          observeAsync(
+            loadExplorerHeap(entry.target.dataset.mdeHeapNeedsLoad),
+            "Loading metadata heap rows");
         } else {
-          loadExplorerWindow(Number(entry.target.dataset.mdeNeedsLoad));
+          observeAsync(
+            loadExplorerWindow(Number(entry.target.dataset.mdeNeedsLoad)),
+            "Loading metadata table rows");
         }
       }
     }
@@ -3041,9 +3118,13 @@ function bindMetadataExplorerEvents() {
   // Always ensure the focused table or heap is loaded (its window backs the focus panel).
   if (state.explorer) {
     if (state.explorer.focusHeap && !state.explorer.heapWindows[state.explorer.focusHeap]) {
-      loadExplorerHeap(state.explorer.focusHeap);
+      observeAsync(
+        loadExplorerHeap(state.explorer.focusHeap),
+        "Loading metadata heap rows");
     } else if (!state.explorer.focusHeap && !state.explorer.windows[state.explorer.focusIndex]) {
-      loadExplorerWindow(state.explorer.focusIndex);
+      observeAsync(
+        loadExplorerWindow(state.explorer.focusIndex),
+        "Loading metadata table rows");
     }
     // Once the focus panel is laid out, size the row window to its actual height.
     if (!state.explorer.overview && !state.explorer.focusHeap) {
@@ -3098,7 +3179,7 @@ function drillToPerfMember(token: string, assembly: string, typeId: string) {
   resetMemberSectionState();
   state.memberSection = "facts";
   state.typeCursor = filteredTypes().findIndex(candidate => candidate.id === targetType.id);
-  loadSelectedMemberFacts();
+  observeAsync(loadSelectedMemberFacts(), "Loading member facts");
 }
 
 function renderPackageOverview() {
@@ -3190,7 +3271,7 @@ function renderPackageOverview() {
     const ns = type.namespace || "global";
     nsCounts.set(ns, (nsCounts.get(ns) || 0) + 1);
   }
-  const namespaces = [...nsCounts.entries()]
+  const namespaceChips = [...nsCounts.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, 12)
     .map(([ns, count]) => `<button class="type-chip" data-namespace-jump="${escapeHtml(ns)}"><span class="ns-count">${count}</span>${escapeHtml(ns)}</button>`)
@@ -3229,7 +3310,7 @@ function renderPackageOverview() {
     </section>
     <section class="document-section">
       <div class="section-title"><h2>Namespaces</h2><span>${nsCounts.size} — click to filter</span></div>
-      <div class="type-chip-list">${namespaces}${nsOverflow}</div>
+      <div class="type-chip-list">${namespaceChips}${nsOverflow}</div>
     </section>${documentsSection}`;
 }
 
@@ -3403,7 +3484,7 @@ function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
     const platformView = drilled || Boolean(state.package?.isRuntimePack);
     const callers = active?.callers?.children ?? [];
     const callees = active?.callees?.children ?? [];
-    const scope = active?.scope;
+    const graphScope = active?.scope;
     const otherWorkspaceLibraries = Math.max(
       0,
       state.packages.filter(packageItem => !packageItem.isRuntimePack).length - 1);
@@ -3413,11 +3494,11 @@ function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
           <span class="graph-crumbs">${escapeHtml(platformCrumbTrail())}</span>
         </div>`
       : "";
-    const scopeLine = !scope
+    const scopeLine = !graphScope
       ? ""
       : platformView
-      ? `<div class="graph-scope"><strong>Platform${drilled ? " descent" : ""}</strong><span>${escapeHtml(scope.calleeScope)} · runtime pack</span><strong>Callees</strong><span>depth 2</span></div>`
-      : `<div class="graph-scope"><strong>Workspace callers</strong><span>${scope.packages} loaded packages · ${scope.callerAssemblies} scanned assemblies</span><strong>Callees</strong><span>${escapeHtml(scope.calleeScope)} · depth 2</span></div>`;
+      ? `<div class="graph-scope"><strong>Platform${drilled ? " descent" : ""}</strong><span>${escapeHtml(graphScope.calleeScope)} · runtime pack</span><strong>Callees</strong><span>depth 2</span></div>`
+      : `<div class="graph-scope"><strong>Workspace callers</strong><span>${graphScope.packages} loaded packages · ${graphScope.callerAssemblies} scanned assemblies</span><strong>Callees</strong><span>${escapeHtml(graphScope.calleeScope)} · depth 2</span></div>`;
     const diagnostics = active?.diagnostics;
     const diagnosticsMessage = callGraphDiagnosticsMessage(diagnostics);
     const incompleteGraph = diagnosticsMessage
@@ -3530,7 +3611,9 @@ function renderMemberFacts(
     ${renderFactTable("Allocation facts", facts.allocations, [
       ["IL", "offset"], ["Kind", "kind"], ["Type", "type"], ["Multiplicity", "multiplicity"],
       ["Path", "path"], ["Escape", "escape"], ["Loop", row => row.inLoop ? "yes" : ""],
-      ["Size", row => row.estimatedSizeBytes == null ? "" : `${row.estimatedSizeBytes} B`]
+      ["Size", row => typeof row.estimatedSizeBytes === "number"
+        ? `${row.estimatedSizeBytes} B`
+        : ""]
     ], "No heap-allocation occurrences were found in this method.")}
     ${renderFactTable("Calls", facts.calls, [
       ["IL", "offset"], ["Opcode", "opcode"], ["Callee", "callee"],
@@ -3641,8 +3724,8 @@ function highlight(value: string) {
     .replace(/\b(string|object|void|Type|Stream|Task|ValueTask|CancellationToken|TValue)\b/g, '<span class="primitive">$1</span>');
 }
 
-function highlightCSharp(value: unknown) {
-  const source = String(value ?? "");
+function highlightCSharp(value: string) {
+  const source = value;
   if (window.Prism?.languages?.csharp) {
     return window.Prism.highlight(
       source,
@@ -3687,7 +3770,9 @@ function bindEvents() {
     render();
   }));
   document.querySelectorAll<HTMLElement>("[data-framework-chip]").forEach(button => button.addEventListener("click", () => {
-    switchPackageFramework(button.dataset.frameworkChip ?? "");
+    observeAsync(
+      switchPackageFramework(button.dataset.frameworkChip ?? ""),
+      "Switching the package framework");
   }));
   document.querySelectorAll<HTMLElement>("[data-dep-group]").forEach(button => button.addEventListener("click", () => {
     const index = Number(button.dataset.depGroup);
@@ -3772,7 +3857,9 @@ function bindEvents() {
     navigateToTypeByName(id);
   }));
   document.querySelectorAll<HTMLElement>("[data-opp-package]").forEach(button => button.addEventListener("click", () => {
-    openDependencyPackage(button.dataset.oppPackage ?? "", "");
+    observeAsync(
+      openDependencyPackage(button.dataset.oppPackage ?? "", ""),
+      "Opening an opportunity package");
   }));
   document.querySelectorAll<HTMLElement>("[data-opp-lookfor]").forEach(button => button.addEventListener("click", () => {
     openSpotlight(button.dataset.oppLookfor ?? "");
@@ -3804,7 +3891,7 @@ function bindEvents() {
     renderMemberFilterAndRestoreFocus();
   }));
   const memberFilter = document.querySelector<HTMLInputElement>("#member-filter");
-  memberFilter?.addEventListener("input", event => {
+  memberFilter?.addEventListener("input", () => {
     state.memberTextFilter = memberFilter.value;
     normalizeMemberSelection();
     renderPreservingMemberFocus();
@@ -3883,21 +3970,21 @@ function bindEvents() {
   document.querySelector("#member-back")?.addEventListener("click", () => {
     drillOut();
   });
-  document.querySelector("#copy-name")?.addEventListener("click", async () => {
+  document.querySelector("#copy-name")?.addEventListener("click", () => {
     const type = selectedType();
     if (!type) return;
     const typeName = `${type.namespace ? `${type.namespace}.` : ""}${type.name}`;
     const member = selectedMember(type);
     const fullName = member ? `${typeName}.${member.name}` : typeName;
-    await copyText(fullName, "name copied");
+    void copyText(fullName, "name copied");
   });
-  document.querySelector("#copy-signature")?.addEventListener("click", async () => {
+  document.querySelector("#copy-signature")?.addEventListener("click", () => {
     const type = selectedType();
     const member = selectedMember(type);
     const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
-    if (overload) await copyText(overload.signature, "signature copied");
+    if (overload) void copyText(overload.signature, "signature copied");
   });
-  document.querySelectorAll<HTMLElement>("[data-copy-anchor]").forEach(button => button.addEventListener("click", async () => {
+  document.querySelectorAll<HTMLElement>("[data-copy-anchor]").forEach(button => button.addEventListener("click", () => {
     const type = selectedType();
     const member = selectedMember(type);
     const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
@@ -3906,20 +3993,23 @@ function bindEvents() {
       digest: overload?.anchorDigest,
       canonical: overload?.canonicalSignature
     };
-    const anchor = button.dataset.copyAnchor as keyof typeof values | undefined;
-    const value = anchor ? values[anchor] : undefined;
-    if (value) await copyText(value, `${anchor} copied`);
+    const anchor = button.dataset.copyAnchor;
+    const value = anchor === "selector" || anchor === "digest" || anchor === "canonical"
+      ? values[anchor]
+      : undefined;
+    if (value) void copyText(value, `${anchor} copied`);
   }));
-  document.querySelector("#copy-source")?.addEventListener("click", async () => {
-    if (state.memberSource) await copyText(state.memberSource.text, "source copied");
+  document.querySelector("#copy-source")?.addEventListener("click", () => {
+    if (state.memberSource) void copyText(state.memberSource.text, "source copied");
   });
-  document.querySelector("#copy-annotated")?.addEventListener("click", async () => {
-    if (state.memberAnnotated) await copyText(state.memberAnnotated.document.text, "annotated source copied");
+  document.querySelector("#copy-annotated")?.addEventListener("click", () => {
+    if (state.memberAnnotated)
+      void copyText(state.memberAnnotated.document.text, "annotated source copied");
   });
   document.querySelectorAll<HTMLElement>("[data-annotated-medium]").forEach(button => button.addEventListener("click", () => {
     const medium = button.dataset.annotatedMedium;
-    if (!medium || !MEDIA.includes(medium as (typeof MEDIA)[number])) return;
-    const typedMedium = medium as (typeof MEDIA)[number];
+    if (!medium || !isAnnotatedMedium(medium)) return;
+    const typedMedium = medium;
     const next = {
       ...state.memberAnnotatedMedia,
       [typedMedium]: !state.memberAnnotatedMedia[typedMedium],
@@ -3950,8 +4040,8 @@ function bindEvents() {
     state.memberAnnotatedNodeIds = [];
     render();
   });
-  document.querySelector("#copy-type-source")?.addEventListener("click", async () => {
-    if (state.typeSource) await copyText(state.typeSource.text, "source copied");
+  document.querySelector("#copy-type-source")?.addEventListener("click", () => {
+    if (state.typeSource) void copyText(state.typeSource.text, "source copied");
   });
   document.querySelectorAll<HTMLElement>("[data-namespace]").forEach(button => button.addEventListener("click", () => {
     state.namespaceFilter = button.dataset.namespace ?? "";
@@ -4001,7 +4091,7 @@ function bindEvents() {
     const name = select.value;
     if (!name) return;
     const pack = select.selectedOptions[0]?.dataset.pack || "netcore.app";
-    openPlatformLibrary(name, pack);
+    observeAsync(openPlatformLibrary(name, pack), "Opening a platform library");
   }));
   // The lens-scoped library pickers (Integrations, Opportunities, Analysis) scope the scan
   // without leaving the lens: unlike the main platform selector they keep package (platform)
@@ -4015,7 +4105,7 @@ function bindEvents() {
   const bindPlatformLensPicker = (
     dataAttr: string,
     lens: string,
-    loader: () => unknown,
+    loader: () => Promise<void>,
   ) => {
     const openLibrary = async (
       name: string,
@@ -4083,14 +4173,14 @@ function bindEvents() {
       state.typeFilter = "";
       state.kindFilter = "";
       normalizeLibrarySelection();
-      loader();
+      await loader();
     };
     document.querySelectorAll<HTMLSelectElement>(`[${dataAttr}]`).forEach(select => select.addEventListener("change", () => {
       const name = select.value;
       if (!name) return;
       const key = name.replace(/\.dll$/i, "");
       const pack = select.selectedOptions[0]?.dataset.pack || platformPackForAssembly(key);
-      openLibrary(name, pack);
+      observeAsync(openLibrary(name, pack), "Opening a platform library");
     }));
   };
   bindPlatformLensPicker("data-platform-integrations-library", "integrations", loadPackageIntegrations);
@@ -4111,17 +4201,25 @@ function bindEvents() {
     }));
   const frameworkSelect = document.querySelector<HTMLSelectElement>("#framework");
   frameworkSelect?.addEventListener("change", () => {
-    switchPackageFramework(frameworkSelect.value);
+    observeAsync(
+      switchPackageFramework(frameworkSelect.value),
+      "Switching the package framework");
   });
   const packageVersionSelect =
     document.querySelector<HTMLSelectElement>("#package-version");
   packageVersionSelect?.addEventListener("change", () => {
     if (state.package?.isRuntimePack)
-      switchPlatformVersion(packageVersionSelect.value);
-    else switchPackageVersion(packageVersionSelect.value);
+      observeAsync(
+        switchPlatformVersion(packageVersionSelect.value),
+        "Switching the platform version");
+    else
+      observeAsync(
+        switchPackageVersion(packageVersionSelect.value),
+        "Switching the package version");
   });
-  ensurePackageVersions(state.package);
-  if (state.package?.isRuntimePack) ensureDotnetReleases();
+  observeAsync(ensurePackageVersions(state.package), "Loading package versions");
+  if (state.package?.isRuntimePack)
+    observeAsync(ensureDotnetReleases(), "Loading .NET release information");
   const filter = document.querySelector<HTMLInputElement>("#type-filter");
   filter?.addEventListener("input", () => {
     state.typeFilter = filter.value;
@@ -4154,7 +4252,9 @@ function bindEvents() {
   document.querySelectorAll<HTMLElement>("[data-doc-path]").forEach(button =>
     button.addEventListener(
       "click",
-      () => openPackageDocument(button.dataset.docPath ?? "")));
+      () => observeAsync(
+        openPackageDocument(button.dataset.docPath ?? ""),
+        "Opening a package document")));
   document.querySelector("#doc-viewer-backdrop")?.addEventListener("mousedown", event => {
     if (event.target instanceof HTMLElement
         && event.target.id === "doc-viewer-backdrop") closeDocViewer();
@@ -4180,15 +4280,19 @@ function bindEvents() {
     focusFilter();
   });
 
-  document.querySelector("#share")?.addEventListener("click", share);
-  document.querySelector("[data-graph-back]")?.addEventListener("click", popPlatformDrill);
+  document.querySelector("#share")?.addEventListener("click", () => void share());
+  document.querySelector("[data-graph-back]")?.addEventListener(
+    "click",
+    popPlatformDrill);
   document.querySelector("#dismiss-notice")?.addEventListener("click", () => {
     state.queryNotice = "";
     state.queryNoticeRetryAction = null;
     render();
   });
-  document.querySelector("#retry-notice")?.addEventListener("click", () =>
-    state.queryNoticeRetryAction?.());
+  document.querySelector("#retry-notice")?.addEventListener("click", () => {
+    const retryAction = state.queryNoticeRetryAction;
+    if (retryAction) observeAction(retryAction, "Retrying the inspection");
+  });
   document.querySelector("#dismiss-package-notice")?.addEventListener("click", () => {
     currentPackage().inspectionError = "";
     render();
@@ -4211,9 +4315,13 @@ function setTheme(theme: "light" | "dark") {
   localStorage.setItem("inspect-theme", state.theme);
   document.documentElement.dataset.theme = state.theme;
   render();
-  if (state.memberCallGraph) renderMermaidCallGraph();
+  if (state.memberCallGraph)
+    observeAsync(renderMermaidCallGraph(), "Rendering the member call graph");
   const depGraph = document.querySelector<HTMLElement>("#dependency-graph-diagram");
-  if (depGraph) { depGraph.dataset.graphDef = ""; renderDependencyGraph(); }
+  if (depGraph) {
+    depGraph.dataset.graphDef = "";
+    observeAsync(renderDependencyGraph(), "Rendering the dependency graph");
+  }
 }
 
 function handleTypeKeys(event: KeyboardEvent) {
@@ -4606,11 +4714,11 @@ function mostRecentAvailableLibrary() {
 // exclude anything already open.
 function spotlightResults(): SpotlightResult[] {
   const query = state.spotlightQuery.trim();
-  const scope = state.spotlightScope;
-  const all = scope === "all";
+  const spotlightScope = state.spotlightScope;
+  const all = spotlightScope === "all";
   const results: SpotlightResult[] = [];
 
-  if (scope === "runtime") {
+  if (spotlightScope === "runtime") {
     if (state.runtimePackLoading) {
       results.push({ kind: "rtpack-status", loading: true });
       return results;
@@ -4646,7 +4754,7 @@ function spotlightResults(): SpotlightResult[] {
     return results;
   }
 
-  if (all || scope === "packages") {
+  if (all || spotlightScope === "packages") {
     const loaded = spotlightLoadedPackageMatches(query).slice(0, all ? 3 : 20);
     for (const match of loaded) results.push({ kind: "pkg-loaded", pkg: match.pkg, ranges: match.ranges });
     const openIds = new Set(state.packages.map(pkg => pkg.id.toLowerCase()));
@@ -4675,17 +4783,17 @@ function spotlightResults(): SpotlightResult[] {
       if (all && ++added >= 4) break;
     }
   }
-  if ((all || scope === "types") && query) {
+  if ((all || spotlightScope === "types") && query) {
     for (const match of spotlightTypeMatches(query).slice(0, all ? 6 : 50)) results.push({ ...match, kind: "type" });
-  } else if (scope === "types" && !query) {
+  } else if (spotlightScope === "types" && !query) {
     for (const match of spotlightTypeMatches("").slice(0, 40)) results.push({ ...match, kind: "type" });
   }
-  if ((all || scope === "members") && query) {
+  if ((all || spotlightScope === "members") && query) {
     for (const match of spotlightMemberMatches(query).slice(0, all ? 6 : 50)) results.push({ ...match, kind: "member" });
   }
   // Offer the runtime pack when the user is clearly hunting a platform type but it isn't
   // loaded yet — one gesture makes BCL types (TextWriter, String…) searchable session-wide.
-  if ((all || scope === "types") && query.length >= 2 && !runtimePackLoaded() && !state.runtimePackLoading) {
+  if ((all || spotlightScope === "types") && query.length >= 2 && !runtimePackLoaded() && !state.runtimePackLoading) {
     results.push({ kind: "rtpack-suggest" });
   }
   return results;
@@ -4701,12 +4809,38 @@ interface NugetSearchResponse {
   data?: NugetSearchResult[];
 }
 
+interface DotnetReleaseIndexEntry {
+  "channel-version": string;
+  "latest-release": string;
+}
+
+function isNugetSearchResult(value: unknown): value is NugetSearchResult {
+  return isRecord(value)
+    && typeof value.id === "string"
+    && typeof value.version === "string"
+    && (value.description === undefined || typeof value.description === "string");
+}
+
+function isDotnetReleaseIndexEntry(
+  value: unknown,
+): value is DotnetReleaseIndexEntry {
+  return isRecord(value)
+    && typeof value["channel-version"] === "string"
+    && typeof value["latest-release"] === "string";
+}
+
 async function querySpotlightPackages(query: string): Promise<SpotlightPackageHit[]> {
   const url = `https://azuresearch-usnc.nuget.org/query?q=${encodeURIComponent(query)}&take=8&prerelease=true&semVerLevel=2.0.0`;
   const response = await fetch(url);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const payload = await response.json() as NugetSearchResponse;
-  return (payload.data || []).map(item => ({
+  const payload: unknown = await response.json();
+  if (!isRecord(payload)
+      || (payload.data !== undefined
+        && (!Array.isArray(payload.data) || !payload.data.every(isNugetSearchResult)))) {
+    throw new TypeError("NuGet search returned an invalid response.");
+  }
+  const typedPayload: NugetSearchResponse = payload;
+  return (typedPayload.data || []).map(item => ({
     id: item.id,
     version: item.version,
     description: item.description || "",
@@ -4751,13 +4885,16 @@ async function queryDotnetReleases(): Promise<DotnetRelease[]> {
   const url = "https://raw.githubusercontent.com/dotnet/core/refs/heads/main/release-notes/releases-index.json";
   const response = await fetch(url);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const payload = await response.json() as {
-    "releases-index"?: Array<{
-      "channel-version": string;
-      "latest-release": string;
-    }>;
-  };
-  return (payload["releases-index"] || [])
+  const payload: unknown = await response.json();
+  if (!isRecord(payload)) throw new TypeError("The .NET release index was invalid.");
+  const releases = payload["releases-index"];
+  if (releases !== undefined
+      && (!Array.isArray(releases)
+        || !releases.every(isDotnetReleaseIndexEntry))) {
+    throw new TypeError("The .NET release index contained an invalid release.");
+  }
+  const typedReleases: DotnetReleaseIndexEntry[] = releases || [];
+  return typedReleases
     .map(entry => {
       const major = parseInt(entry["channel-version"], 10);
       return {
@@ -4835,7 +4972,7 @@ async function switchPlatformVersion(
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   render();
-  loadSelectionData();
+  observeAsync(loadSelectionData(), "Loading selection data");
 }
 
 function ensurePackageVersions(pkg: AppPackage | null) {
@@ -4881,14 +5018,35 @@ function pickSpotlightResult(result: SpotlightResult) {
   if (!result) { closeSpotlight(); return; }
   switch (result.kind) {
     case "pkg-loaded": pickSpotlightLoadedPackage(result.pkg); break;
-    case "pkg-nuget": loadPackageFromSpotlight(result.hit.id, result.hit.version); break;
-    case "pkg-recent": loadPackageFromSpotlight(result.entry.id, result.entry.version, result.entry.framework); break;
-    case "member": pickSpotlightMember(result); break;
+    case "pkg-nuget":
+      observeAsync(
+        loadPackageFromSpotlight(result.hit.id, result.hit.version),
+        "Loading a Spotlight package");
+      break;
+    case "pkg-recent":
+      observeAsync(
+        loadPackageFromSpotlight(
+          result.entry.id,
+          result.entry.version,
+          result.entry.framework),
+        "Loading a recent package");
+      break;
+    case "member":
+      observeAsync(pickSpotlightMember(result), "Opening a Spotlight member");
+      break;
     case "rtpack-suggest": state.spotlightScope = "runtime"; state.spotlightIndex = 0; activateRuntimePack(); break;
-    case "platform-lib": openPlatformLibrary(result.assembly, result.pack); break;
+    case "platform-lib":
+      observeAsync(
+        openPlatformLibrary(result.assembly, result.pack),
+        "Opening a platform library");
+      break;
     case "rtpack-status": break;
-    case "type": pickSpotlight(result.pkg, result.type.id); break;
-    default: executeCommand(result.value, result); break;
+    case "type":
+      observeAsync(pickSpotlight(result.pkg, result.type.id), "Opening a Spotlight type");
+      break;
+    default:
+      observeAsync(executeCommand(result.value, result), "Running a Spotlight command");
+      break;
   }
 }
 
@@ -4917,10 +5075,12 @@ function activateRuntimePack() {
     framework,
     () => navigationSequence.isCurrent(navigationSeq)); // sets runtimePackLoading synchronously
   spotlight.refresh();
-  pending.then(() => {
-    if (!state.spotlightOpen && !state.home) return;
-    spotlight.refresh();
-  });
+  observeAsync(
+    pending.then(() => {
+      if (!state.spotlightOpen && !state.home) return;
+      spotlight.refresh();
+    }),
+    "Loading the runtime pack");
 }
 
 // Drill into one platform library from the index-first Platform scope: lazily fetch just
@@ -4942,7 +5102,7 @@ async function openPlatformLibrary(
   const scopeOnly = options.scopeOnly === true;
   const focusGeneration = scopeOnly ? null : beginSpotlightNavigation();
   const navigationSeq = options.navigationSeq ?? navigationSequence.begin();
-  if (!navigationSequence.isCurrent(navigationSeq)) return;
+  if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
   spotlight.reset();
   const key = (assembly || "").replace(/\.dll$/i, "");
   const fileName = key ? `${key}.dll` : "";
@@ -4962,7 +5122,7 @@ async function openPlatformLibrary(
       pack,
       () => navigationSequence.isCurrent(navigationSeq));
     const loaded = runtimeResult.packageModel;
-    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
     if (!loaded) {
       state.loading = false;
       const failureMessage =
@@ -4974,11 +5134,11 @@ async function openPlatformLibrary(
       state.retryAction = options.retryAction
         ?? (() => openPlatformLibrary(assembly, pack));
       render();
-      return;
+      return undefined;
     }
   }
   const pkg = runtimePackPackage();
-  if (!pkg) { render(); return; }
+  if (!pkg) { render(); return undefined; }
   activatePackage(pkg, { resetAccessibility: true });
   state.home = false;
   const hasLib = pkg.types.some(type => libraryKey(type) === key);
@@ -5001,6 +5161,7 @@ async function openPlatformLibrary(
   render();
   await selectionData;
   if (focusGeneration != null) focusTypeList(focusGeneration);
+  return undefined;
 }
 
 function pickSpotlightLoadedPackage(pkg: {
@@ -5149,7 +5310,7 @@ function executeCommand(
   } else if (verb === "find" || verb === "types") {
     state.typeFilter = argument.replace(/^public\s*/, "");
   } else if (verb === "share") {
-    share();
+    operation = share();
   }
   state.history = [value, ...state.history.filter(item => item !== value)].slice(0, 5);
   return operation;
@@ -5365,17 +5526,17 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
 // Kick off the async data load implied by the current lens/section so a restored or
 // history-navigated view fills in its content.
 function loadSelectionData() {
-  if (state.atPackageRoot) return;
+  if (state.atPackageRoot) return undefined;
   if (state.lens === "source") {
     return loadSelectedTypeSource();
   }
   if (state.lens === "metadata") {
     return loadSelectedTypeMetadata();
   }
-  if (state.lens !== "api" || !state.selectedMemberKey) return;
+  if (state.lens !== "api" || !state.selectedMemberKey) return undefined;
   const member = selectedMember(selectedType());
-  if (!member) return;
-  if (member.overloads.length > 1 && state.selectedOverloadIndex == null) return;
+  if (!member) return undefined;
+  if (member.overloads.length > 1 && state.selectedOverloadIndex == null) return undefined;
   if (state.memberSection === "source") return loadSelectedMemberSource();
   if (state.memberSection === "annotated") return loadSelectedMemberAnnotatedSource();
   if (state.memberSection === "call-graph") return loadSelectedMemberCallGraph();
@@ -5544,12 +5705,15 @@ const HOME_DEMO_LINKS = {
 
 function runHomeDemo(kind: keyof typeof HOME_DEMO_LINKS | "callgraph") {
   state.home = false;
-  if (kind === "callgraph") { runCallGraphDemo(); return; }
+  if (kind === "callgraph") {
+    observeAsync(runCallGraphDemo(), "Loading the call graph demo");
+    return;
+  }
   const link = HOME_DEMO_LINKS[kind];
   if (!link) return;
   workspaceLocation.push(link);
   const loc = parseLocation();
-  restoreWorkspaceFromLocation(loc, loc);
+  observeAsync(restoreWorkspaceFromLocation(loc, loc), "Loading the demo workspace");
 }
 
 // Return to the intro/home page without tearing down the warm engine or the loaded packages.
@@ -5608,7 +5772,7 @@ async function openRuntimePackFromHome() {
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   render();
-  loadSelectionData();
+  observeAsync(loadSelectionData(), "Loading selection data");
 }
 
 // The inspector-bot mascot series shown on interstitial (loading) screens. Each entry is a
@@ -5643,7 +5807,7 @@ function openPackageFromError(packageId: string, version: string) {
     window.location.assign(url);
     return;
   }
-  loadPackage(packageId, version, "");
+  observeAsync(loadPackage(packageId, version, ""), "Loading a package");
 }
 
 function renderLoading() {
@@ -5668,7 +5832,9 @@ function renderLoading() {
     </div>`;
   document.querySelector("#retry-load")?.addEventListener(
     "click",
-    () => (state.retryAction ?? bootstrap)());
+    () => observeAction(
+      state.retryAction ?? bootstrap,
+      "Retrying the inspection"));
   document.querySelector("#error-package-query")?.addEventListener("submit", event => {
     event.preventDefault();
     const input =
@@ -5788,7 +5954,7 @@ function memberRequestSignature(
     type?.queryId ?? type?.id,
     type?.definitionId ?? type?.id,
     overload?.stableSelector ?? overload?.canonicalSignature ?? overload?.signature
-  ].map(value => String(value ?? ""));
+  ].map(value => value ?? "");
   if (includeBody) {
     parts.push(
       String(state.selectedBodyTarget?.metadataToken ?? ""),
@@ -5893,7 +6059,8 @@ async function renderTypeGraph() {
     const rootStyle = getComputedStyle(document.documentElement);
     const resolved = definition.replace(
       /var\((--[\w-]+)\)/g,
-      (whole, name) => rootStyle.getPropertyValue(name).trim() || whole
+      (whole: string, name: string) =>
+        rootStyle.getPropertyValue(name).trim() || whole
     );
     const { svg } = await mermaid.render(id, resolved);
     if (document.querySelector("#type-graph-diagram") !== container) return;
@@ -6004,9 +6171,13 @@ async function renderDependencyGraph() {
   if (!pkg) return;
   const built = buildDependencyGraphMermaid(
     {
-      ...state,
       package: pkg,
-      packageDependencies: state.packageDependencies ?? undefined,
+      packages: state.packages,
+      dependenciesGroupIndex: state.dependenciesGroupIndex,
+      workspaceDependencies: state.workspaceDependencies,
+      ...(state.packageDependencies
+        ? { packageDependencies: state.packageDependencies }
+        : {}),
     },
     (_packages, packageId, versionRange) =>
       uniqueCompatiblePackage(state.packages, packageId, versionRange));
@@ -6042,7 +6213,8 @@ async function renderDependencyGraph() {
     const rootStyle = getComputedStyle(document.documentElement);
     const resolved = built.definition.replace(
       /var\((--[\w-]+)\)/g,
-      (whole, name) => rootStyle.getPropertyValue(name).trim() || whole
+      (whole: string, name: string) =>
+        rootStyle.getPropertyValue(name).trim() || whole
     );
     const { svg } = await mermaid.render(id, resolved);
     // A newer render superseded this one, or the container was swapped out — bail without touching the DOM.
@@ -6076,7 +6248,9 @@ async function renderDependencyGraph() {
         if (info.kind === "open" && info.packageKey)
           switchToPackageForDependencies(info.packageKey);
         else if (info.id)
-          openDependencyPackage(info.id, info.versionRange);
+          observeAsync(
+            openDependencyPackage(info.id, info.versionRange),
+            "Opening a dependency package");
       });
     });
   } catch (error) {
@@ -6209,7 +6383,7 @@ function patchCallGraphSection(previousMermaid: string | undefined) {
   const graph = state.memberCallGraph;
   const callers = graph?.callers?.children ?? [];
   const callees = graph?.callees?.children ?? [];
-  const scope = graph?.scope;
+  const graphScope = graph?.scope;
   const countSpan = section.querySelector(".section-title span");
   if (countSpan) {
     countSpan.textContent =
@@ -6225,13 +6399,14 @@ function patchCallGraphSection(previousMermaid: string | undefined) {
     warning.textContent = diagnosticsMessage;
     scopeEl?.before(warning);
   }
-  if (scopeEl && scope) {
+  if (scopeEl && graphScope) {
     scopeEl.innerHTML =
-      `<strong>Workspace callers</strong><span>${scope.packages} loaded packages · ${scope.callerAssemblies} scanned assemblies</span><strong>Callees</strong><span>${escapeHtml(scope.calleeScope)} · depth 2</span>`;
+      `<strong>Workspace callers</strong><span>${graphScope.packages} loaded packages · ${graphScope.callerAssemblies} scanned assemblies</span><strong>Callees</strong><span>${escapeHtml(graphScope.calleeScope)} · depth 2</span>`;
   }
   const sourceCode = section.querySelector(".graph-mermaid pre code");
   if (sourceCode) sourceCode.textContent = graph?.mermaid ?? "";
-  if (graph?.mermaid && graph.mermaid !== previousMermaid) renderMermaidCallGraph();
+  if (graph?.mermaid && graph.mermaid !== previousMermaid)
+    observeAsync(renderMermaidCallGraph(), "Rendering the member call graph");
 }
 
 async function renderMermaidCallGraph() {
@@ -6259,7 +6434,8 @@ async function renderMermaidCallGraph() {
     const rootStyle = getComputedStyle(document.documentElement);
     const definition = active.mermaid.replace(
       /var\((--[\w-]+)\)/g,
-      (whole, name) => rootStyle.getPropertyValue(name).trim() || whole
+      (whole: string, name: string) =>
+        rootStyle.getPropertyValue(name).trim() || whole
     );
     const { svg } = await mermaid.render(id, definition);
     if (seq === callGraphRenderSeq
@@ -6434,7 +6610,9 @@ function attachGraphPanZoom(
         node.style.cursor = "pointer";
         node.addEventListener("click", () => {
           if (moved) return;
-          navigateOrDrillPlatform(target);
+          observeAsync(
+            navigateOrDrillPlatform(target),
+            "Opening a platform call-graph target");
         });
         return;
       }
@@ -6466,9 +6644,13 @@ function attachGraphPanZoom(
             loaded.overloadIndex,
             target);
         } else if (loaded) {
-          openGraphSource(loaded.request, loaded.title);
+          observeAsync(
+            openGraphSource(loaded.request, loaded.title),
+            "Loading graph source");
         } else if (platform) {
-          navigateOrDrillPlatform(target);
+          observeAsync(
+            navigateOrDrillPlatform(target),
+            "Opening a platform call-graph target");
         }
       });
     });
@@ -6561,7 +6743,9 @@ async function drillPlatformNode(node: BrowserCallGraphTarget) {
 }
 
 function popPlatformDrill() {
-  callGraphInspection.popDrill();
+  observeAsync(
+    callGraphInspection.popDrill(),
+    "Returning to the previous platform call graph");
 }
 
 // A clicked platform (BCL) call-graph node should land the user *inside* the resident
@@ -6657,7 +6841,7 @@ function navigateToRuntimeMember(
   state.memberAnnotatedError = "";
   state.selectedBodyTarget = bodyTarget;
   state.typeCursor = Math.max(0, filteredTypes().findIndex(item => item.id === type.id));
-  loadSelectedMemberCallGraph();
+  observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
 }
 
 // Resolve a platform call-graph node's structured identity to a concrete type, member
@@ -6722,22 +6906,22 @@ async function markdownLibs() {
   return { marked, DOMPurify };
 }
 
-async function renderMarkdown(text: unknown) {
+async function renderMarkdown(text: string) {
   const { marked, DOMPurify } = await markdownLibs();
-  const html = marked.parse(String(text ?? ""), { gfm: true, breaks: false });
+  const html = marked.parse(text, { gfm: true, breaks: false });
   return DOMPurify.sanitize(html, MARKDOWN_SANITIZE_OPTIONS);
 }
 
-async function renderMarkdownInline(text: unknown) {
+async function renderMarkdownInline(text: string) {
   const { marked, DOMPurify } = await markdownLibs();
-  const html = marked.parseInline(String(text ?? ""), { gfm: true });
+  const html = marked.parseInline(text, { gfm: true });
   return DOMPurify.sanitize(html, MARKDOWN_SANITIZE_OPTIONS);
 }
 
 function openPackageDocument(path: string) {
   const pkg = state.package;
   const doc = (pkg?.documents || []).find(candidate => candidate.path === path);
-  if (!pkg || !doc) return;
+  if (!pkg || !doc) return undefined;
   return documentInspection.open({
     packageId: pkg.id,
     version: pkg.version,
@@ -6792,19 +6976,23 @@ function reloadVisibleSource() {
   switch (sourceReloadKind(state)) {
     case "graph":
       if (state.graphSourceRequest) {
-        openGraphSource(
-          state.graphSourceRequest.request,
-          state.graphSourceRequest.title);
+        observeAsync(
+          openGraphSource(
+            state.graphSourceRequest.request,
+            state.graphSourceRequest.title),
+          "Reloading graph source");
       }
       break;
     case "type":
-      loadSelectedTypeSource();
+      observeAsync(loadSelectedTypeSource(), "Reloading type source");
       break;
     case "member":
-      loadSelectedMemberSource();
+      observeAsync(loadSelectedMemberSource(), "Reloading member source");
       break;
     case "annotated":
-      loadSelectedMemberAnnotatedSource();
+      observeAsync(
+        loadSelectedMemberAnnotatedSource(),
+        "Reloading annotated member source");
       break;
   }
 }
@@ -6921,7 +7109,7 @@ function navigateToMember(
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
   state.selectedBodyTarget = bodyTarget;
-  loadSelectedMemberDocumentation();
+  observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
 }
 
 async function loadSelectedMemberFacts() {
@@ -6996,10 +7184,12 @@ async function loadPackage(
       packageId,
       version,
       framework,
-      replacePackage: options.replacePackage,
-      isCurrent: navigationSeq == null
-        ? undefined
-        : () => navigationSequence.isCurrent(navigationSeq),
+      ...(options.replacePackage !== undefined
+        ? { replacePackage: options.replacePackage }
+        : {}),
+      ...(navigationSeq == null
+        ? {}
+        : { isCurrent: () => navigationSequence.isCurrent(navigationSeq) }),
     });
     if (!packageModel) return null;
     if (background) return packageModel;
@@ -7039,6 +7229,8 @@ async function loadPackage(
       return null;
     }
     state.loading = false;
+    const retryOptions: LoadPackageOptions = { ...options };
+    delete retryOptions.navigationSeq;
     if (prevPackage) {
       // A failed *new* query must not blow away an already-open workbench and trap the user
       // on a full-screen error. Keep them in their current package and restore the requested
@@ -7056,7 +7248,7 @@ async function loadPackage(
           packageId,
           version,
           framework,
-          { ...options, navigationSeq: undefined })));
+          retryOptions)));
       render();
     } else {
       state.error = state.queryNotice
@@ -7070,7 +7262,7 @@ async function loadPackage(
         packageId,
         version,
         framework,
-        { ...options, navigationSeq: undefined });
+        retryOptions);
       render();
     }
     return null;
@@ -7115,7 +7307,7 @@ function platformLibrarySelectHtml(
   if (!roster.length) return "";
   const byAssembly = new Map(roster.map(lib => [lib.assembly, lib]));
   const scoped = selectedKey !== undefined
-    ? String(selectedKey || "")
+    ? selectedKey ?? ""
     : (state.libraryScope && state.libraryScope.size === 1 ? [...state.libraryScope][0] : "");
   // Recent = the loaded/most-recently-accessed libraries: the explicit MRU first
   // (persisted across sessions), then any other currently-loaded libraries such as
@@ -7159,7 +7351,7 @@ function platformLibrarySelectHtml(
 // re-running LoadRuntimePack (per TFM), not GetPackageBytesAsync. This id test lets the
 // restore path route it correctly instead of 404-ing on a nupkg fetch.
 function isRuntimePackId(id: string | null | undefined) {
-  return String(id || "").toLowerCase() === "microsoft.netcore.app";
+  return (id ?? "").toLowerCase() === "microsoft.netcore.app";
 }
 
 const packageAcquisition = createPackageAcquisition({
@@ -7324,13 +7516,13 @@ async function restoreWorkspaceFromLocation(
   };
   const matchesFramework = (tab: RestorableCoordinate) =>
     !target.framework
-    || String(tab.framework || tab.activeFramework || "").toLowerCase()
-      === String(target.framework).toLowerCase();
+    || (tab.framework || tab.activeFramework || "").toLowerCase()
+      === target.framework.toLowerCase();
   const matchesTarget = (tab: RestorableCoordinate) =>
     isRuntimePackId(tab.id)
       ? isRuntimePackId(target.id) && matchesFramework(tab)
       : (tab.id.toLowerCase() === target.id.toLowerCase()
-        && String(tab.version).toLowerCase() === String(target.version).toLowerCase()
+        && tab.version.toLowerCase() === target.version.toLowerCase()
         && matchesFramework(tab));
   if (!tabs.some(matchesTarget)) {
     if (tabs.length === MAX_WORKSPACE_PACKAGES) {
@@ -7396,7 +7588,7 @@ async function restoreWorkspaceFromLocation(
     applyDeepLink(deep);
     state.loading = false;
     render();
-    loadSelectionData();
+    await loadSelectionData();
   } else if (!isRuntimePackId(target.id)) {
     // The focused NuGet target failed to load during the silent background pass; re-run it in
     // the foreground so its error (e.g. a 404) surfaces properly instead of a blank workbench.
@@ -7475,7 +7667,7 @@ async function bootstrap() {
     state.buildIdentity = inspectBuildIdentity();
     const tEngine = performance.now();
     try {
-      const vocabulary = await inspectVocabulary();
+      const vocabulary = inspectVocabulary();
       const sections = vocabulary?.sections || [];
       state.styleTiers = (
         sections.find(section => section.id === "csharp.style-tiers")?.values
@@ -7725,18 +7917,24 @@ window.addEventListener("popstate", () => {
   resetLocationFilters();
   const deep = loc;
   if (!state.package) {
-    restoreWorkspaceFromLocation(loc, deep, navigationSeq);
+    observeAsync(
+      restoreWorkspaceFromLocation(loc, deep, navigationSeq),
+      "Restoring workspace history");
     return;
   }
   if (loc.tabs?.length && !workspaceCoordinatesMatch(state.packages, loc.tabs)) {
-    restoreWorkspaceFromLocation(loc, deep, navigationSeq);
+    observeAsync(
+      restoreWorkspaceFromLocation(loc, deep, navigationSeq),
+      "Restoring workspace history");
     return;
   }
   if (loc.tabs?.length) {
     const target = state.packages.find(candidate =>
       packageCoordinateMatchesLocation(candidate, loc));
     if (!target) {
-      restoreWorkspaceFromLocation(loc, deep, navigationSeq);
+      observeAsync(
+        restoreWorkspaceFromLocation(loc, deep, navigationSeq),
+        "Restoring workspace history");
       return;
     }
     activatePackage(target, { resetAccessibility: true });
@@ -7748,22 +7946,28 @@ window.addEventListener("popstate", () => {
     if (isRuntimePackId(state.package.id)) {
       // Back/forward within the platform: re-scope to the target library (or the
       // aggregate) before restoring selection, since scope is part of the view.
-      restorePlatformScopeThenDeepLink(loc, navigationSeq);
+      observeAsync(
+        restorePlatformScopeThenDeepLink(loc, navigationSeq),
+        "Restoring platform history");
     } else {
       applyDeepLink(loc);
       render();
-      loadSelectionData();
+      observeAsync(loadSelectionData(), "Loading selection data");
     }
   } else if (isRuntimePackId(loc.package)) {
     // The runtime pack has no nupkg; rebuild it from its TFM instead of 404-ing
     // on a NuGet fetch when back/forward lands on a platform state.
-    restoreRuntimePackFromHistory(loc, deep, navigationSeq);
+    observeAsync(
+      restoreRuntimePackFromHistory(loc, deep, navigationSeq),
+      "Restoring runtime-pack history");
   } else {
-    loadPackage(loc.package, loc.version || "latest", loc.framework || "", {
-      deepLink: deep,
-      navigationSeq,
-      queryNotice: loc.workspaceNotice
-    });
+    observeAsync(
+      loadPackage(loc.package, loc.version || "latest", loc.framework || "", {
+        deepLink: deep,
+        navigationSeq,
+        queryNotice: loc.workspaceNotice
+      }),
+      "Restoring package history");
   }
 });
 
@@ -7786,19 +7990,19 @@ async function restorePlatformScopeThenDeepLink(
   applyDeepLink(loc);
   state.loading = false;
   render();
-  loadSelectionData();
+  await loadSelectionData();
 }
 
 // Load and scope to a single platform library key (or clear the scope when null). Reuses
 // openPlatformLibrary so a restored view matches clicking the library in the selector.
 async function applyPlatformLibraryScope(
-  libraryKey: string | null,
+  requestedLibraryKey: string | null,
   navigationSeq: number | null = null,
   retryAction: RetryAction = null,
 ) {
   if (navigationSeq != null && !navigationSequence.isCurrent(navigationSeq))
-    return;
-  const key = String(libraryKey || "").replace(/\.dll$/i, "");
+    return undefined;
+  const key = (requestedLibraryKey ?? "").replace(/\.dll$/i, "");
   if (!key) { state.libraryScope = null; return true; }
   // The pack (CoreCLR vs ASP.NET Core) is resolved from the static index roster; ensure it
   // is loaded on a cold shared/refreshed link so the right assembly is fetched.
@@ -7806,12 +8010,12 @@ async function applyPlatformLibraryScope(
     try { state.platformIndex = await loadPlatformIndex(); } catch { /* best effort; defaults to CoreCLR */ }
   }
   if (navigationSeq != null && !navigationSequence.isCurrent(navigationSeq))
-    return;
+    return undefined;
   return Boolean(await openPlatformLibrary(
     key,
     platformPackForAssembly(key),
     {
-      navigationSeq: navigationSeq ?? undefined,
+      ...(navigationSeq === null ? {} : { navigationSeq }),
       retryAction,
       scopeOnly: true,
     }));
@@ -7855,14 +8059,18 @@ async function restoreRuntimePackFromHistory(
         || "runtime pack acquisition failed."}`);
   }
   render();
-  loadSelectionData();
+  await loadSelectionData();
 }
 
-bootstrap();
+observeAsync(bootstrap(), "Starting dotnet-inspect");
 
 // Warm the static platform-assembly/facade index in the background. It is a
 // hint layer (facade badges, per-library overview roster, library-scope
 // selector) built on top of the app; prefetching keeps it ready without
 // blocking boot. Cached on state once resolved; exposed for verification.
 window.__platformIndex = loadPlatformIndex();
-window.__platformIndex.then(index => { if (index) state.platformIndex = index; });
+observeAsync(
+  window.__platformIndex.then(index => {
+    if (index) state.platformIndex = index;
+  }),
+  "Loading the platform index");

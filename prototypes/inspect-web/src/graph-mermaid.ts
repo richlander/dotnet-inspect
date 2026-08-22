@@ -183,7 +183,8 @@ export function buildDependencyGraphMermaid(
 
   let downFrontier = [model.package];
   const downVisited = new Set([packageIdentityKey(model.package)]);
-  for (let depth = 0; depth < MAX_DEPTH && downFrontier.length && !truncated; depth++) {
+  for (let depth = 0; depth < MAX_DEPTH && downFrontier.length; depth++) {
+    if (truncated) break;
     const next: DependencyGraphPackage[] = [];
     for (const pkg of downFrontier) {
       const group = groupFor(pkg);
@@ -212,7 +213,8 @@ export function buildDependencyGraphMermaid(
 
   let upFrontier = [model.package];
   const upVisited = new Set([packageIdentityKey(model.package)]);
-  for (let depth = 0; depth < MAX_DEPTH && upFrontier.length && !truncated; depth++) {
+  for (let depth = 0; depth < MAX_DEPTH && upFrontier.length; depth++) {
+    if (truncated) break;
     const next: DependencyGraphPackage[] = [];
     for (const targetPackage of upFrontier) {
       const target = openPackageNode(
@@ -262,8 +264,12 @@ export function buildDependencyGraphMermaid(
   lines.push("classDef self fill:var(--accent-soft),stroke:var(--accent),color:var(--text),stroke-width:2px;");
   lines.push("classDef open fill:var(--panel-active),stroke:var(--blue),color:var(--text);");
   lines.push("classDef external fill:transparent,stroke:var(--line-strong),color:var(--dim);");
-  const nodeInfoById = new Map(
-    keys.map(key => [idOf.get(key), nodeInfo.get(key)])) as Map<string, DependencyGraphNodeInfo>;
+  const nodeInfoById = new Map<string, DependencyGraphNodeInfo>();
+  for (const key of keys) {
+    const id = idOf.get(key);
+    const info = nodeInfo.get(key);
+    if (id && info) nodeInfoById.set(id, info);
+  }
   return {
     definition: lines.join("\n"),
     nodeInfoById,

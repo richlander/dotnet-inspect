@@ -96,7 +96,7 @@ test("an inspection error renders a warning banner alongside categories", () => 
   assert.match(html, /&lt;bad&gt; assembly/);
 });
 
-test("categories render a summary with area\/suggestion counts and a chip per category", () => {
+test("categories render a summary with area/suggestion counts and a chip per category", () => {
   const html = renderPackageOpportunities({
     ...baseOptions,
     data: {
