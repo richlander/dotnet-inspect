@@ -1169,6 +1169,39 @@ public sealed class BrowserEngineBoundaryTests
         return image.ToArray();
     }
 
+    static byte[] BuildEmptySurfaceImage(AssemblyName identity)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString($"{identity.Name}.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(identity.Name!),
+            identity.Version ?? new Version(0, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
     [Fact]
     public async Task PackageDependencies_UsesProductQueriesForManifestAndReferences()
     {
@@ -1245,16 +1278,24 @@ public sealed class BrowserEngineBoundaryTests
             new BrowserPackage(
                 PackageId,
                 "1.0.0",
-                Package(
+                PackagePair(
                     image,
-                    $"lib/net11.0/{PackageId}.dll"),
+                    image,
+                    $"{PackageId}.DLL",
+                    $"{PackageId}.dll"),
                 fromCache: false));
 
+        string surfaceJson = await InspectionEngine.QueryPackage(
+            PackageId,
+            "1.0.0",
+            "net11.0");
         string json = await InspectionEngine.QueryPackagePerformance(
             PackageId,
             "1.0.0",
             "net11.0");
 
+        using JsonDocument surfaceDocument =
+            JsonDocument.Parse(surfaceJson);
         using JsonDocument document = JsonDocument.Parse(json);
         JsonElement root = document.RootElement;
         Assert.True(
@@ -1275,6 +1316,20 @@ public sealed class BrowserEngineBoundaryTests
         Assert.StartsWith(
             $"{nameof(PerformanceBoxingProbe)}~",
             member.GetProperty("stableSelector").GetString());
+        JsonElement surfaceType = Assert.Single(
+            surfaceDocument.RootElement
+                .GetProperty("types")
+                .EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("definitionId").GetString()
+                == member.GetProperty("typeId").GetString()
+                && candidate.GetProperty("assembly").GetString()
+                == member.GetProperty("assembly").GetString());
+        Assert.Contains(
+            surfaceType.GetProperty("api").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("stableSelector").GetString()
+                == member.GetProperty("stableSelector").GetString());
         Assert.Contains(
             member.GetProperty("shapes").EnumerateArray(),
             shape => shape.GetString() == "box-value-type");
@@ -1311,6 +1366,37 @@ public sealed class BrowserEngineBoundaryTests
             $"{typeof(BrowserEngineBoundaryTests).FullName}+"
                 + nameof(PerformanceNestedProbe),
             nested.GetProperty("typeId").GetString());
+    }
+
+    [Fact]
+    public async Task PackagePerformance_ExcludesMembersAbsentFromReferenceSurface()
+    {
+        const string PackageId = "Browser.Performance.Reference";
+        byte[] implementation = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] surface = BuildEmptySurfaceImage(
+            typeof(BrowserEngineBoundaryTests).Assembly.GetName());
+        BrowserPackageWorkspace.RegisterAcquiredPackage(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackagePair(
+                    surface,
+                    implementation,
+                    "InspectWeb.Engine.Tests.dll"),
+                fromCache: false));
+
+        string json = await InspectionEngine.QueryPackagePerformance(
+            PackageId,
+            "1.0.0",
+            "net11.0");
+
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement root = document.RootElement;
+        Assert.True(
+            root.GetProperty("totalOpportunities").GetInt32() > 0);
+        Assert.Empty(
+            root.GetProperty("members").EnumerateArray());
     }
 
     [Fact]
@@ -2068,14 +2154,25 @@ public sealed class BrowserEngineBoundaryTests
     static byte[] PackagePair(
         byte[] surfaceAssembly,
         byte[] implementationAssembly,
-        string assemblyFileName)
+        string assemblyFileName) =>
+        PackagePair(
+            surfaceAssembly,
+            implementationAssembly,
+            assemblyFileName,
+            assemblyFileName);
+
+    static byte[] PackagePair(
+        byte[] surfaceAssembly,
+        byte[] implementationAssembly,
+        string surfaceAssemblyFileName,
+        string implementationAssemblyFileName)
     {
         using var content = new MemoryStream();
         using (var archive = new ZipArchive(content, ZipArchiveMode.Create, leaveOpen: true))
         {
             using (Stream entry = archive
                 .CreateEntry(
-                    $"ref/net11.0/{assemblyFileName}",
+                    $"ref/net11.0/{surfaceAssemblyFileName}",
                     CompressionLevel.NoCompression)
                 .Open())
             {
@@ -2084,7 +2181,7 @@ public sealed class BrowserEngineBoundaryTests
 
             using (Stream entry = archive
                 .CreateEntry(
-                    $"lib/net11.0/{assemblyFileName}",
+                    $"lib/net11.0/{implementationAssemblyFileName}",
                     CompressionLevel.NoCompression)
                 .Open())
             {

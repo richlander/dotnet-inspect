@@ -578,6 +578,9 @@ test("typed package view owns package navigation bindings", () => {
   assert.match(
     binding,
     /onPerformanceMemberSelect: target => \{[\s\S]*drillToPerfMember\(\s*target\.stableSelector,\s*target\.assembly,\s*target\.typeId\)/);
+  assert.match(
+    appSource,
+    /function drillToPerfMember\([\s\S]*const openFacts = memberSectionIdsFor\(member\)\.includes\("facts"\);[\s\S]*state\.memberSection = openFacts \? "facts" : "overview";[\s\S]*openFacts\s*\? loadSelectedMemberFacts\(\)\s*: loadSelectedMemberDocumentation\(\)/);
   assert.doesNotMatch(
     appSource,
     /document\.querySelectorAll<HTMLElement>\("\[data-(?:dep-group|dep-open|dep-load|kind-jump|namespace-jump|lib-scope|graph-type|perf-selector)\]"\)/);

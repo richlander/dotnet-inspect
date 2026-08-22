@@ -112,6 +112,32 @@ public sealed class OptimizationOpportunityRankingTests
         Assert.Same(lifted, Assert.Single(ranking.Opportunities));
     }
 
+    [Fact]
+    public void IncludePerformanceOpportunity_SuppressesGeneratedFrameworkMember()
+    {
+        TypeRef generatedType =
+            TypeRef.Definition("Ranking", "Example", "Generated");
+        OptimizationOpportunity opportunity = Opportunity(
+            "WriteTo",
+            "box-value-type",
+            "high",
+            rootReach: 1) with
+        {
+            Method = Method(
+                "WriteTo",
+                metadataToken: 0x06000002) with
+            {
+                DeclaringType = generatedType,
+            },
+        };
+
+        Assert.False(
+            OptimizationOpportunityRanking
+                .IncludePerformanceOpportunity(
+                    opportunity,
+                    new HashSet<TypeRef> { generatedType }));
+    }
+
     static OptimizationOpportunity Opportunity(
         string name,
         string shape,

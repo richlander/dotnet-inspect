@@ -55,6 +55,14 @@ public static partial class InspectionEngine
             packageId,
             version,
             targetFramework);
+        return JsonSerializer.Serialize(
+            PackageSurface(scope),
+            BrowserJsonContext.Default.BrowserPackageSurface);
+    }
+
+    static BrowserPackageSurface PackageSurface(
+        BrowserInspectionScope scope)
+    {
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
 
         // Only this coordinate's assemblies are projected. A composite workspace may hold several
@@ -202,8 +210,7 @@ public static partial class InspectionEngine
             ?? assemblies.FirstOrDefault()?.Id
             ?? coordinate.DefaultAsset.Id;
 
-        return JsonSerializer.Serialize(
-            new BrowserPackageSurface(
+        return new BrowserPackageSurface(
                 coordinate.PackageId,
                 coordinate.Version,
                 [.. coordinate.Selection.AvailableTargetFrameworks],
@@ -216,8 +223,7 @@ public static partial class InspectionEngine
                     .Where(type => IsDefaultBucket(surfaces, type))
                     .Sum(type => type.Members),
                 [.. coordinate.Package.Documents()],
-                notice),
-            BrowserJsonContext.Default.BrowserPackageSurface);
+                notice);
     }
 
     readonly record struct TypeCollisionKey(
@@ -728,6 +734,18 @@ public static partial class InspectionEngine
                         .Get(
                             AssemblyContextOptimizationOpportunitiesQuery
                                 .Definition));
+        BrowserPackageSurface surface = PackageSurface(scope);
+        HashSet<(
+            string Assembly,
+            string Type,
+            string Selector)> navigableMembers =
+        [
+            .. surface.Types.SelectMany(type =>
+                type.Api.Select(member => (
+                    type.Assembly,
+                    type.DefinitionId,
+                    member.StableSelector))),
+        ];
 
         var failures = new List<string>();
         foreach (AssemblyContextEntry<
@@ -771,37 +789,45 @@ public static partial class InspectionEngine
             }
         }
 
-        BrowserPerformanceMember[] members =
-        [
-            .. result.RankedMembers
-                .Where(member =>
-                    member.Member.PublicMember is not null)
-                .Take(200)
-                .Select(member =>
-                {
-                    BrowserWorkspaceParticipant participant =
-                        participants.Single(candidate =>
-                            ReferenceEquals(
-                                candidate.Assembly.Registration,
-                                member.Subject.Registration));
-                    OptimizationOpportunityPublicMember publicMember =
-                        member.Member.PublicMember!;
-                    return new BrowserPerformanceMember(
-                        participant.Asset.AssemblyName,
-                        publicMember.Type,
-                        publicMember.Member,
-                        publicMember.StableSelector,
-                        publicMember.BodyToken,
-                        member.Member.Ranking.Opportunities.Length,
-                        member.Member.Ranking.InLoopCount,
-                        [.. member.Member.Ranking.Shapes],
-                        member.Member.Ranking.Confidence);
-                }),
-        ];
+        var members = new List<BrowserPerformanceMember>(200);
+        foreach (AssemblyContextOptimizationOpportunityMember member
+            in result.RankedMembers)
+        {
+            if (member.Member.PublicMember is not { } publicMember)
+                continue;
+
+            BrowserWorkspaceParticipant analysisParticipant =
+                participants.Single(candidate =>
+                    ReferenceEquals(
+                        candidate.Assembly.Registration,
+                        member.Subject.Registration));
+            BrowserWorkspaceParticipant surfaceParticipant =
+                scope.SurfaceParticipant(analysisParticipant);
+            if (!navigableMembers.Contains((
+                    surfaceParticipant.Asset.AssemblyName,
+                    publicMember.Type,
+                    publicMember.StableSelector)))
+            {
+                continue;
+            }
+
+            members.Add(new BrowserPerformanceMember(
+                surfaceParticipant.Asset.AssemblyName,
+                publicMember.Type,
+                publicMember.Member,
+                publicMember.StableSelector,
+                publicMember.BodyToken,
+                member.Member.Ranking.Opportunities.Length,
+                member.Member.Ranking.InLoopCount,
+                [.. member.Member.Ranking.Shapes],
+                member.Member.Ranking.Confidence));
+            if (members.Count == 200)
+                break;
+        }
 
         return JsonSerializer.Serialize(
             new BrowserPackagePerformance(
-                members,
+                [.. members],
                 failures.Count == 0
                     ? null
                     : string.Join("; ", failures),

@@ -181,7 +181,12 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
             ImmutableArray<
                 OptimizationOpportunityMemberRanking> rankings =
                 OptimizationOpportunityRanking.RankMembers(
-                    index.OptimizationOpportunities);
+                    index.OptimizationOpportunities.Where(
+                        opportunity =>
+                            OptimizationOpportunityRanking
+                                .IncludePerformanceOpportunity(
+                                    opportunity,
+                                    index.GeneratedFrameworkTypes)));
             return new AssemblyOptimizationOpportunityRanking(
                 [
                     .. rankings.Select(

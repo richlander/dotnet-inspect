@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 
+using ILInspector.Metadata;
+
 namespace ILInspector.Analysis;
 
 public enum OptimizationOpportunityPriority
@@ -122,6 +124,42 @@ public static class OptimizationOpportunityRanking
                 && opportunity.InLoop);
     }
 
+    public static bool IncludePerformanceOpportunity(
+        OptimizationOpportunity opportunity,
+        IReadOnlySet<TypeRef> generatedFrameworkTypes)
+    {
+        ArgumentNullException.ThrowIfNull(opportunity);
+        ArgumentNullException.ThrowIfNull(generatedFrameworkTypes);
+        return !IsGeneratedMethod(
+                opportunity.Method,
+                generatedFrameworkTypes)
+            || opportunity.Shape == "generic-parameter-object-box"
+                && !IsInGeneratedFrameworkType(
+                    opportunity,
+                    generatedFrameworkTypes)
+                && IsSourceFunctionName(opportunity.Method.Name);
+    }
+
+    public static bool IsGeneratedMethod(MethodIdentity method)
+    {
+        ArgumentNullException.ThrowIfNull(method);
+        return MemberFilters.IsCompilerGenerated(method.Name)
+            || TypeFilters.IsCompilerGeneratedNested(
+                method.DeclaringType.Name)
+            || IsSystemTextJsonContextGeneratedMethod(method);
+    }
+
+    public static bool IsGeneratedMethod(
+        MethodIdentity method,
+        IReadOnlySet<TypeRef> generatedFrameworkTypes)
+    {
+        ArgumentNullException.ThrowIfNull(generatedFrameworkTypes);
+        return IsGeneratedMethod(method)
+            || LibraryBodyIndex.IsGeneratedFrameworkType(
+                generatedFrameworkTypes,
+                method.DeclaringType);
+    }
+
     static OptimizationOpportunityMemberRanking CreateMemberRanking(
         IGrouping<MethodIdentity, OptimizationOpportunity> group)
     {
@@ -227,4 +265,52 @@ public static class OptimizationOpportunityRanking
 
     static int WeightRank(string? weight) =>
         weight is null ? -1 : ConfidenceRank(weight);
+
+    static bool IsInGeneratedFrameworkType(
+        OptimizationOpportunity opportunity,
+        IReadOnlySet<TypeRef> generatedFrameworkTypes)
+    {
+        if (opportunity.SourceOwner is { } sourceOwner
+            && LibraryBodyIndex.IsGeneratedFrameworkType(
+                generatedFrameworkTypes,
+                sourceOwner.DeclaringType))
+        {
+            return true;
+        }
+
+        return LibraryBodyIndex.IsGeneratedFrameworkType(
+            generatedFrameworkTypes,
+            opportunity.Method.DeclaringType);
+    }
+
+    static bool IsSourceFunctionName(string methodName)
+        => methodName.Contains(">g__", StringComparison.Ordinal)
+            || methodName.Contains(">b__", StringComparison.Ordinal);
+
+    static bool IsSystemTextJsonContextGeneratedMethod(MethodIdentity method)
+        => method.Name is "TryGetTypeInfoForRuntimeCustomConverter"
+            && method.IsStatic
+            && method.ReturnType.Equals(
+                TypeRef.CoreLib("System", "Boolean"))
+            && method.ParameterTypes.Length == 2
+            && method.ParameterTypes[0].Equals(
+                TypeRef.Definition(
+                    "System.Text.Json",
+                    "System.Text.Json",
+                    "JsonSerializerOptions"))
+            && method.ParameterTypes[1] is
+                {
+                    Kind: TypeRefKind.ByRef,
+                    ElementType: { } jsonTypeInfo,
+                }
+            && IsJsonTypeInfo(jsonTypeInfo);
+
+    static bool IsJsonTypeInfo(TypeRef type)
+        => type.Kind == TypeRefKind.GenericInstance
+            && type.ElementType is { } definition
+            && definition.Equals(
+                TypeRef.Definition(
+                    "System.Text.Json",
+                    "System.Text.Json.Serialization.Metadata",
+                    "JsonTypeInfo`1"));
 }

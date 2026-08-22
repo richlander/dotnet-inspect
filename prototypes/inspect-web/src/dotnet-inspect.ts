@@ -3184,9 +3184,14 @@ function drillToPerfMember(
     : -1;
   state.selectedOverloadIndex = overloadIndex >= 0 ? overloadIndex : null;
   resetMemberSectionState();
-  state.memberSection = "facts";
+  const openFacts = memberSectionIdsFor(member).includes("facts");
+  state.memberSection = openFacts ? "facts" : "overview";
   state.typeCursor = filteredTypes().findIndex(candidate => candidate.id === targetType.id);
-  observeAsync(loadSelectedMemberFacts(), "Loading member facts");
+  observeAsync(
+    openFacts
+      ? loadSelectedMemberFacts()
+      : loadSelectedMemberDocumentation(),
+    openFacts ? "Loading member facts" : "Loading member documentation");
 }
 
 function renderPackageOverview() {

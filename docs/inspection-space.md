@@ -624,11 +624,12 @@ index per available participant from the workspace-retained snapshot, uses the
 participant's binding policy only for selected siblings in that group, and
 releases call-graph caches before advancing. Analysis owns opportunity priority,
 semantic loop classification, source-owner aggregation for lifted bodies, and
-deterministic ordering; the query joins analyzed body tokens to owning public
-API members and carries their exact metadata type identity and stable member
-selector. Non-public counts, Analysis diagnostics, metadata projection failures,
-and participant acquisition failures remain beside the ranked result. Group
-execution remains sequential rather than introducing a parallel-only contract.
+generated-framework suppression before aggregation and deterministic ordering;
+the query joins analyzed body tokens to owning public API members and carries
+their exact metadata type identity and stable member selector. Non-public counts,
+Analysis diagnostics, metadata projection failures, and participant acquisition
+failures remain beside the ranked result. Group execution remains sequential
+rather than introducing a parallel-only contract.
 `OptimizationOpportunityRankingTests` gate the product ranking policy, and
 `AssemblyContextOptimizationOpportunitiesQueryTests` gate public-body
 attribution, group ordering, binding-policy use, visible rejection, and query

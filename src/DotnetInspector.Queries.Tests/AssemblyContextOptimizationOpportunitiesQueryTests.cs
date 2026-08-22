@@ -193,6 +193,60 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
     }
 
     [Fact]
+    public void Execute_RanksAcrossTwoAvailableParticipants()
+    {
+        ImmutableArray<byte> firstImage = SelfImage();
+        ImmutableArray<byte> secondImage =
+        [
+            .. File.ReadAllBytes(
+                typeof(OptimizationOpportunityRanking)
+                    .Assembly
+                    .Location),
+        ];
+        var policy = new RecordingBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+            [
+                Participant(
+                    firstImage,
+                    ContentIdentity(firstImage),
+                    policy),
+                Participant(
+                    secondImage,
+                    ContentIdentity(secondImage),
+                    policy),
+            ]);
+
+        AssemblyContextOptimizationOpportunitiesResult result =
+            Execute(group);
+
+        Assert.True(result.IsComplete);
+        Assert.All(
+            result.Assemblies.Assemblies,
+            entry => Assert.IsType<
+                AssemblyContextEntry<
+                    AssemblyOptimizationOpportunityRanking>.Available>(
+                        entry));
+        Assert.Equal(
+            group.Participants
+                .Select(participant =>
+                    participant.Assembly.Registration)
+                .ToHashSet(),
+            result.RankedMembers
+                .Select(member => member.Subject.Registration)
+                .ToHashSet());
+        Assert.Equal(
+            [
+                .. OptimizationOpportunityRanking.OrderMembers(
+                    result.RankedMembers.Select(
+                        member => member.Member.Ranking)),
+            ],
+            result.RankedMembers.Select(
+                member => member.Member.Ranking));
+    }
+
+    [Fact]
     public void Definition_IsUnboundedAndRunsWithoutAHostOwnedIndex()
     {
         var registry =
