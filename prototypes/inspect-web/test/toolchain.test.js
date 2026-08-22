@@ -22,6 +22,9 @@ const packageLock = JSON.parse(
 const packageJson = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf8"),
 );
+const oxlintConfig = JSON.parse(
+  readFileSync(new URL("../.oxlintrc.json", import.meta.url), "utf8"),
+);
 const browserTsconfig = JSON.parse(
   readFileSync(new URL("../tsconfig.json", import.meta.url), "utf8"),
 );
@@ -124,7 +127,19 @@ test("the analysis host check matches locked native packages and lint wiring", (
 
   assert.equal(
     packageJson.scripts.lint,
-    "node scripts/verify-analysis-host.js && oxlint src test scripts vite.config.js",
+    "node scripts/verify-analysis-host.js && oxlint src test scripts "
+      + "engine/wwwroot/inspect-web-engine.js vite.config.js",
+  );
+});
+
+test("the lint gate includes both generated tsbindgen outputs", () => {
+  assert.ok(
+    !(oxlintConfig.ignorePatterns ?? []).includes("src/inspect-web-engine.d.ts"),
+  );
+  assert.match(packageJson.scripts.lint, /(?:^| )src(?: |$)/);
+  assert.match(
+    packageJson.scripts.lint,
+    /(?:^| )engine\/wwwroot\/inspect-web-engine\.js(?: |$)/,
   );
 });
 
