@@ -568,7 +568,7 @@ export function createSpotlight(options: SpotlightOptions) {
     options.focusAfterDismiss?.();
   }
 
-  function open(seed = "", scope = "all"): void {
+  function open(seed = "", scope: SpotlightScope = "all"): void {
     interactionGeneration++;
     options.resetPackageSearch();
     state.spotlightOpen = true;
