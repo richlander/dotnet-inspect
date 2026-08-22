@@ -358,6 +358,58 @@ test("typed catalog requests own release and package-version coordination", () =
     /\bfetch\(|\bdocument\b|inspectPackageVersions/);
 });
 
+test("typed type panel owns its rendered control bindings", () => {
+  const rootEventBinder =
+    appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
+    ?? "";
+  assert.match(
+    appSource,
+    /function bindTypePanelEvents\(\) \{\s*bindTypePanel\(document, \{/);
+  assert.match(
+    appSource,
+    /onTypeFilterChange: value => \{[\s\S]*?render\(\);\s*focusFilter\(\{ immediate: true \}\);\s*},\s*onTypeFilterEscape:/);
+  assert.match(
+    appSource,
+    /onTypeFilterEscape: \(\) => \{\s*state\.typeFilter = "";\s*render\(\);\s*focusFilter\(\{ immediate: true \}\);\s*},/);
+  assert.equal(
+    appSource.match(/\bbindTypePanelEvents\b/g)?.length,
+    2);
+  assert.equal(
+    rootEventBinder.match(/\bbindTypePanelEvents\(\)/g)?.length,
+    1);
+  assert.match(
+    rootEventBinder,
+    /function bindEvents\(\) \{\s*bindStatusBarToggle\(\);\s*packageBar\.bind\(document\);\s*bindTypePanelEvents\(\);/);
+  assert.match(
+    typePanelSource,
+    /export function bindTypePanel\([\s\S]*\[data-type\][\s\S]*\[data-namespace\][\s\S]*\[data-kind-filter\][\s\S]*\[data-nav-member\][\s\S]*\[data-nav-overload\][\s\S]*#nav-to-types[\s\S]*#clear-filter[\s\S]*#namespace-jump[\s\S]*#type-list[\s\S]*#type-filter/);
+  const selectorCount = selector =>
+    appSource.split(selector).length - 1;
+  assert.deepEqual(
+    Object.fromEntries([
+      "[data-type]",
+      "[data-namespace]",
+      "[data-kind-filter]",
+      "[data-nav-member]",
+      "[data-nav-overload]",
+      "#nav-to-types",
+      "#clear-filter",
+      "#namespace-jump",
+    ].map(selector => [selector, selectorCount(selector)])),
+    {
+      "[data-type]": 0,
+      "[data-namespace]": 0,
+      "[data-kind-filter]": 0,
+      "[data-nav-member]": 0,
+      "[data-nav-overload]": 0,
+      "#nav-to-types": 0,
+      "#clear-filter": 0,
+      "#namespace-jump": 0,
+    });
+  assert.equal(selectorCount("#type-filter"), 1);
+  assert.equal(selectorCount("#type-list"), 5);
+});
+
 test("leaving package search clears its pending loading state", () => {
   assert.match(
     spotlightPackageSearchSource,
@@ -407,6 +459,9 @@ test("global workbench shortcuts respect the topmost modal", () => {
     /state\.spotlightOpen[\s\S]*event\.key === "Escape"[\s\S]*closeSpotlight\(\)/);
   assert.match(
     appSource,
+    /event\.key === "Escape" && !event\.defaultPrevented && state\.tasteOpen/);
+  assert.match(
+    appSource,
     /function openSpotlight\(seed = "", spotlightScope = "all"\) \{\s*if \(state\.loading \|\| state\.error\) return;\s*state\.tasteOpen = false;/);
   assert.match(
     spotlightSource,
@@ -425,7 +480,7 @@ test("global workbench shortcuts respect the topmost modal", () => {
     /if \(state\.loading \|\| state\.error\) \{\s*if \(isContainedBrowserShortcut\(event\) \|\| event\.key === "\/"\)[\s\S]*event\.preventDefault\(\);[\s\S]*return;/);
   assert.match(
     appSource,
-    /function focusFilter\(\) \{[\s\S]*const input = document\.querySelector<HTMLInputElement>\([\s\S]*"#member-filter, #type-filter"\);\s*if \(!input\) return;/);
+    /function focusFilter\([\s\S]*\{ immediate = false \}: \{ immediate\?: boolean \} = \{\},[\s\S]*const focus = \(\) => \{[\s\S]*"#member-filter, #type-filter"[\s\S]*if \(immediate\) \{\s*focus\(\);\s*return;\s*}\s*requestAnimationFrame\(focus\);/);
 });
 
 test("Spotlight navigation waits for selection data before restoring focus", () => {
@@ -577,13 +632,13 @@ test("member filters retain accessible controls and focus across rerenders", () 
     /memberFilter\?\.addEventListener\("input"[\s\S]*renderPreservingMemberFocus\(\)/);
   assert.match(
     appSource,
-    /memberFilter\?\.addEventListener\("keydown"[\s\S]*event\.key === "Escape"[\s\S]*if \(navMode\(\) === "member"\)[\s\S]*exitMemberScope\(\)[\s\S]*state\.memberTextFilter = ""[\s\S]*renderMemberFilterAndRestoreFocus\("#member-filter"\)[\s\S]*stepMemberNav/);
+    /memberFilter\?\.addEventListener\("keydown"[\s\S]*event\.key === "Escape"[\s\S]*if \(navMode\(\) !== "member" && memberFilter\.value === ""\) return;[\s\S]*event\.preventDefault\(\);[\s\S]*if \(navMode\(\) === "member"\)[\s\S]*exitMemberScope\(\)[\s\S]*state\.memberTextFilter = ""[\s\S]*renderMemberFilterAndRestoreFocus\("#member-filter"\)[\s\S]*stepMemberNav/);
   assert.match(
     appSource,
     /event\.key === "Escape" && !event\.defaultPrevented && !typing[\s\S]*if \(navMode\(\) === "member"\) exitMemberScope\(\)/);
   assert.match(
     appSource,
-    /#nav-to-types"\)\?\.addEventListener\("click", \(\) => \{\s*exitMemberScope\(\)/);
+    /onShowTypes: exitMemberScope/);
   assert.match(
     appSource,
     /const renderMemberFilterAndRestoreFocus = \(selector = ""\) => \{[\s\S]*renderWithMemberFocus\(preserved\)/);
