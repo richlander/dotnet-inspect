@@ -40,6 +40,19 @@ export interface StatusBarModel {
   expanded?: boolean;
 }
 
+export interface StatusBarBindingActions {
+  onToggle: () => void;
+}
+
+export function bindStatusBar(
+  root: ParentNode,
+  actions: StatusBarBindingActions,
+): void {
+  root.querySelectorAll<HTMLElement>("[data-status-bar-toggle-button]")
+    .forEach(button =>
+      button.addEventListener("click", actions.onToggle));
+}
+
 export function fmtMs(milliseconds: number | null | undefined): string {
   if (milliseconds == null) return "—";
   return milliseconds < 1000
