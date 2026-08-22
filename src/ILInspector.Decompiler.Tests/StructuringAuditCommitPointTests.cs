@@ -1,3 +1,4 @@
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
@@ -27,7 +28,7 @@ public class StructuringAuditCommitPointTests
             descriptionFragment: "structure container at",
             successMethods: ["RecordStructured"]);
         Assert.All(
-            structure.DescendantNodes().OfType<ReturnStatementSyntax>(),
+            ExecutableNodes(structure).OfType<ReturnStatementSyntax>(),
             decline => AssertDeclineBeforeStep(decline, structureStep));
 
         var retained = Method(root, "TryStructureRetainedRegions");
@@ -35,10 +36,13 @@ public class StructuringAuditCommitPointTests
             retained,
             descriptionFragment: "retained-merge region(s)",
             successMethods: ["RecordStructured", "RecordRetainedRegion"]);
+        var returns = ExecutableNodes(retained).OfType<ReturnStatementSyntax>().ToArray();
+        var success = Assert.Single(
+            returns,
+            statement => statement.Expression?.RawKind
+                == (int)SyntaxKind.TrueLiteralExpression);
         Assert.All(
-            retained.DescendantNodes().OfType<ReturnStatementSyntax>()
-                .Where(statement => statement.Expression?.RawKind
-                    == (int)SyntaxKind.FalseLiteralExpression),
+            returns.Where(statement => !ReferenceEquals(statement, success)),
             decline => AssertDeclineBeforeStep(decline, step));
     }
 
@@ -47,7 +51,7 @@ public class StructuringAuditCommitPointTests
         string descriptionFragment,
         IReadOnlyList<string> successMethods)
     {
-        var invocations = method.DescendantNodes().OfType<InvocationExpressionSyntax>().ToArray();
+        var invocations = ExecutableNodes(method).OfType<InvocationExpressionSyntax>().ToArray();
         var step = Assert.Single(
             invocations,
             invocation => InvocationName(invocation) == "StepOver"
@@ -72,6 +76,14 @@ public class StructuringAuditCommitPointTests
                     $"{successMethod} at line {Line(record)} precedes installation at line {Line(install)}."));
         }
         return step;
+    }
+
+    static IEnumerable<SyntaxNode> ExecutableNodes(MethodDeclarationSyntax method)
+    {
+        var body = Assert.IsType<BlockSyntax>(method.Body);
+        return body.DescendantNodes(
+            static node => node is not LocalFunctionStatementSyntax
+                and not AnonymousFunctionExpressionSyntax);
     }
 
     static void AssertDeclineBeforeStep(
