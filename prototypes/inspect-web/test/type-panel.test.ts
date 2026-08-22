@@ -273,7 +273,7 @@ test("type filter keys preserve list focus and Escape behavior", () => {
   const escape = keyboardEvent("Escape");
   filter.dispatch("keydown", escape.event);
   assert.equal(escapes, 1);
-  assert.equal(escape.state.prevented, false);
+  assert.equal(escape.state.prevented, true);
   assert.equal(typeList.focused, false);
   assert.equal(listKeys, 0);
 });

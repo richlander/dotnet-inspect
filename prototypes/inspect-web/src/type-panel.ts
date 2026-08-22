@@ -140,6 +140,7 @@ export function bindTypePanel(
       event.preventDefault();
       typeList?.focus();
     } else if (event.key === "Escape") {
+      event.preventDefault();
       actions.onTypeFilterEscape();
     }
   });
