@@ -5,6 +5,7 @@ import {
   renderScopeBar,
   type ScopeBarBindingActions,
 } from "../src/scope-bar.ts";
+import { fakeDom } from "./fake-dom.ts";
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
@@ -22,7 +23,7 @@ class FakeElement {
 
   dispatch(type: string) {
     for (const listener of this.listeners.get(type) ?? []) {
-      listener({} as Event);
+      listener(fakeDom.event());
     }
   }
 }
@@ -72,7 +73,7 @@ test("package scope bindings dispatch only scope and package-lens controls", () 
   root.add("[data-package-lens]", dependencies);
   const calls: string[] = [];
   bindScopeBar(
-    root as unknown as ParentNode,
+    fakeDom.parentNode(root),
     recordingActions(calls));
 
   packageScope.dispatch("click");
@@ -94,7 +95,7 @@ test("type scope bindings dispatch only scope and type-lens controls", () => {
   root.add("[data-lens]", metadata);
   const calls: string[] = [];
   bindScopeBar(
-    root as unknown as ParentNode,
+    fakeDom.parentNode(root),
     recordingActions(calls));
 
   typeScope.dispatch("click");
@@ -111,7 +112,7 @@ test("member scope bindings dispatch only scope and member-section controls", ()
   root.add("[data-member-section]", facts);
   const calls: string[] = [];
   bindScopeBar(
-    root as unknown as ParentNode,
+    fakeDom.parentNode(root),
     recordingActions(calls));
 
   memberScope.dispatch("click");
@@ -123,7 +124,7 @@ test("member scope bindings dispatch only scope and member-section controls", ()
 test("scope bar binding tolerates an empty strip", () => {
   const root = new FakeRoot();
   assert.doesNotThrow(() => bindScopeBar(
-    root as unknown as ParentNode,
+    fakeDom.parentNode(root),
     recordingActions([])));
 });
 
