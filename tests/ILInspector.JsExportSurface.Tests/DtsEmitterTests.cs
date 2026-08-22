@@ -525,7 +525,11 @@ public sealed class DtsEmitterTests
     [InlineData("class")]
     [InlineData("await")]
     [InlineData("interface")]
-    public void Emit_RefusesReservedTypeDeclarationNames(string name)
+    [InlineData("unknown")]
+    [InlineData("string")]
+    [InlineData("Promise")]
+    [InlineData("Record")]
+    public void Emit_RefusesForbiddenTypeDeclarationNames(string name)
     {
         var surface = new ILInspector.JsExportSurface.JsExportSurface
         {
@@ -540,6 +544,8 @@ public sealed class DtsEmitterTests
     [InlineData("Größe")]
     [InlineData("℘Value")]
     [InlineData("A·B")]
+    [InlineData("A・B")]
+    [InlineData("A･B")]
     public void Emit_AcceptsUnicodeTypeScriptIdentifiers(string name)
     {
         var surface = new ILInspector.JsExportSurface.JsExportSurface
@@ -550,6 +556,18 @@ public sealed class DtsEmitterTests
         string dts = DtsEmitter.Emit(surface);
 
         Assert.Contains($"export interface {name} {{", dts, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_RefusesUnicodePatternSyntaxAsIdentifierStart()
+    {
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records = [new ApiType { Name = "ⸯValue" }],
+        };
+
+        Assert.Throws<UnsupportedWireContractException>(
+            () => DtsEmitter.Emit(surface));
     }
 
     [Fact]
@@ -708,6 +726,120 @@ public sealed class DtsEmitterTests
 
         Assert.Contains($"  {expectedKey}: string;", dts, StringComparison.Ordinal);
         Assert.DoesNotContain($"\"{expectedKey}\"", dts, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_IncludesPropertyWithJsonIgnoreNever()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(JsonIgnoreNeverFixture).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType record = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(JsonIgnoreNeverFixture));
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records = [record],
+        };
+
+        string dts = DtsEmitter.Emit(surface);
+
+        Assert.Contains("  Included: string;", dts, StringComparison.Ordinal);
+        Assert.DoesNotContain("Excluded", dts, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Class", "Value", "Ns.Exports")]
+    [InlineData("Go", "Class", "Ns.Exports")]
+    [InlineData("Go", "Value", "Ns.Bad\nExports")]
+    [InlineData("Go\u001b[31m", "Value", "Ns.Exports")]
+    public void Emit_RefusesInvalidJsExportIdentifiers(
+        string functionName,
+        string parameterName,
+        string declaringType)
+    {
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Functions =
+            [
+                new JsExportFunction
+                {
+                    DeclaringType = declaringType,
+                    Name = functionName,
+                    ReturnType = "void",
+                    Parameters =
+                    [
+                        new ApiParameter
+                        {
+                            Name = parameterName,
+                            Type = "string",
+                        },
+                    ],
+                },
+            ],
+        };
+
+        UnsupportedWireContractException exception =
+            Assert.Throws<UnsupportedWireContractException>(
+                () => DtsEmitter.Emit(surface));
+
+        Assert.DoesNotContain(functionName, exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(parameterName, exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(declaringType, exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_RefusesJsExportNameCollisions()
+    {
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Functions =
+            [
+                new JsExportFunction
+                {
+                    DeclaringType = "Ns.Exports",
+                    Name = "Get",
+                    ReturnType = "void",
+                },
+                new JsExportFunction
+                {
+                    DeclaringType = "Ns.Exports",
+                    Name = "get",
+                    ReturnType = "void",
+                },
+            ],
+        };
+
+        Assert.Throws<UnsupportedWireContractException>(
+            () => DtsEmitter.Emit(surface));
+    }
+
+    [Fact]
+    public void Emit_RefusesJsExportParameterNameCollisions()
+    {
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Functions =
+            [
+                new JsExportFunction
+                {
+                    DeclaringType = "Ns.Exports",
+                    Name = "Get",
+                    ReturnType = "void",
+                    Parameters =
+                    [
+                        new ApiParameter { Name = "Value", Type = "string" },
+                        new ApiParameter { Name = "value", Type = "string" },
+                    ],
+                },
+            ],
+        };
+
+        Assert.Throws<UnsupportedWireContractException>(
+            () => DtsEmitter.Emit(surface));
     }
 
     [Fact]

@@ -19,8 +19,12 @@ public static partial class AttributeReader
     private const string FlagsAttributeName = "System.FlagsAttribute";
     private const string JsonIncludeAttributeName = "System.Text.Json.Serialization.JsonIncludeAttribute";
     private const string JsonIgnoreAttributeName = "System.Text.Json.Serialization.JsonIgnoreAttribute";
+    private const string JsonIgnoreConditionTypeName =
+        "System.Text.Json.Serialization.JsonIgnoreCondition";
     private const string JsonPropertyNameAttributeName = "System.Text.Json.Serialization.JsonPropertyNameAttribute";
     private const string JsonSourceGenerationOptionsAttributeName = "System.Text.Json.Serialization.JsonSourceGenerationOptionsAttribute";
+    private const string JsonKnownNamingPolicyTypeName =
+        "System.Text.Json.Serialization.JsonKnownNamingPolicy";
     private const string RequiredMembersFeatureName = "RequiredMembers";
     private const string RequiredMembersConstructorObsoleteMessage =
         "Constructors of types with required members are not supported in this version of your compiler.";
@@ -387,16 +391,63 @@ public static partial class AttributeReader
 
     /// <summary>
     /// Checks if the member has the <c>[JsonIgnore]</c> attribute. For tsbindgen's static wire-shape
-    /// projection, any presence is treated as excluded: conditional forms such as
-    /// <c>WhenWritingDefault</c> and <c>WhenWritingNull</c> still mean callers cannot rely on the
-    /// property being present in the serialized payload, and the generator has no runtime value
-    /// to decide those conditions.
+    /// projection, conditional forms such as <c>WhenWritingDefault</c> and
+    /// <c>WhenWritingNull</c> mean callers cannot rely on the property being
+    /// present. <c>Never</c> is captured separately because it explicitly keeps
+    /// the member in the wire shape.
     /// </summary>
     public static bool HasJsonIgnoreAttribute(
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
         Action<int>? beforeMaterialize = null)
         => HasAttribute(reader, attributes, JsonIgnoreAttributeName, beforeMaterialize);
+
+    public static bool HasJsonIgnoreNeverAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize = null)
+    {
+        bool found = false;
+        foreach (CustomAttributeHandle attrHandle in attributes)
+        {
+            CustomAttribute attr = reader.GetCustomAttribute(attrHandle);
+            if (GetAttributeTypeName(
+                    reader,
+                    attr.Constructor,
+                    beforeMaterialize)
+                != JsonIgnoreAttributeName)
+            {
+                continue;
+            }
+
+            if (found
+                || AttributeDecoder.TryDecode(
+                    reader,
+                    attr,
+                    beforeMaterialize) is not
+                    {
+                        FixedArguments.Length: 0,
+                        NamedArguments.Length: 1,
+                    } decoded)
+            {
+                return false;
+            }
+
+            found = true;
+            CustomAttributeNamedArgument<string> condition =
+                decoded.NamedArguments[0];
+            if (condition.Kind != CustomAttributeNamedArgumentKind.Property
+                || condition.Name != "Condition"
+                || condition.Type != JsonIgnoreConditionTypeName
+                || !TryReadInt32(condition.Value, out int rawValue)
+                || rawValue != 0)
+            {
+                return false;
+            }
+        }
+
+        return found;
+    }
 
     public static List<string?> ReadJsonPropertyNames(
         MetadataReader reader,
@@ -497,43 +548,50 @@ public static partial class AttributeReader
         CustomAttribute attr,
         Action<int>? beforeMaterialize)
     {
-        if (AttributeDecoder.TryDecode(reader, attr, beforeMaterialize) is not { } decoded)
-            return JsonWireNamingPolicy.Unsupported;
-
-        foreach (var named in decoded.NamedArguments)
+        if (AttributeDecoder.TryDecode(reader, attr, beforeMaterialize) is not
+            {
+                FixedArguments.Length: 0,
+            } decoded)
         {
-            if (named.Name != "PropertyNamingPolicy")
-                continue;
-
-            if (named.Value is null)
-                return JsonWireNamingPolicy.None;
-
-            int rawValue = named.Value switch
-            {
-                byte b => b,
-                sbyte sb => sb,
-                short s => s,
-                ushort us => us,
-                int i => i,
-                uint ui => unchecked((int)ui),
-                long l => unchecked((int)l),
-                ulong ul => unchecked((int)ul),
-                _ => -1,
-            };
-
-            return rawValue switch
-            {
-                0 => JsonWireNamingPolicy.None,
-                1 => JsonWireNamingPolicy.CamelCase,
-                2 => JsonWireNamingPolicy.SnakeCaseLower,
-                3 => JsonWireNamingPolicy.SnakeCaseUpper,
-                4 => JsonWireNamingPolicy.KebabCaseLower,
-                5 => JsonWireNamingPolicy.KebabCaseUpper,
-                _ => JsonWireNamingPolicy.Unsupported,
-            };
+            return JsonWireNamingPolicy.Unsupported;
         }
 
-        return JsonWireNamingPolicy.None;
+        CustomAttributeNamedArgument<string>? propertyNamingPolicy = null;
+        foreach (var named in decoded.NamedArguments)
+        {
+            string? expectedType =
+                ExpectedJsonSourceGenerationOptionType(named.Name);
+            if (named.Kind != CustomAttributeNamedArgumentKind.Property
+                || expectedType is null
+                || named.Type != expectedType)
+            {
+                return JsonWireNamingPolicy.Unsupported;
+            }
+
+            if (named.Name == "PropertyNamingPolicy")
+            {
+                if (propertyNamingPolicy is not null)
+                    return JsonWireNamingPolicy.Unsupported;
+                propertyNamingPolicy = named;
+            }
+        }
+
+        if (propertyNamingPolicy is not { } policy)
+            return JsonWireNamingPolicy.None;
+
+        if (!TryReadInt32(policy.Value, out int rawValue))
+            return JsonWireNamingPolicy.Unsupported;
+
+        return rawValue switch
+        {
+            0 => JsonWireNamingPolicy.None,
+            1 => JsonWireNamingPolicy.CamelCase,
+            2 => JsonWireNamingPolicy.SnakeCaseLower,
+            3 => JsonWireNamingPolicy.SnakeCaseUpper,
+            4 => JsonWireNamingPolicy.KebabCaseLower,
+            5 => JsonWireNamingPolicy.KebabCaseUpper,
+            _ => JsonWireNamingPolicy.Unsupported,
+        };
     }
 
     static bool TryGetSingleStringFixedArgument(
@@ -542,7 +600,11 @@ public static partial class AttributeReader
         out string? value,
         Action<int>? beforeMaterialize)
     {
-        if (AttributeDecoder.TryDecode(reader, attr, beforeMaterialize) is { FixedArguments.Length: 1 } decoded
+        if (AttributeDecoder.TryDecode(reader, attr, beforeMaterialize) is
+            {
+                FixedArguments.Length: 1,
+                NamedArguments.Length: 0,
+            } decoded
             && decoded.FixedArguments[0].Value is string text)
         {
             value = text;
@@ -552,6 +614,82 @@ public static partial class AttributeReader
         value = null;
         return false;
     }
+
+    static bool TryReadInt32(object? value, out int result)
+    {
+        switch (value)
+        {
+            case byte b:
+                result = b;
+                return true;
+            case sbyte sb:
+                result = sb;
+                return true;
+            case short s:
+                result = s;
+                return true;
+            case ushort us:
+                result = us;
+                return true;
+            case int i:
+                result = i;
+                return true;
+            case uint ui:
+                result = unchecked((int)ui);
+                return true;
+            case long l:
+                result = unchecked((int)l);
+                return true;
+            case ulong ul:
+                result = unchecked((int)ul);
+                return true;
+            default:
+                result = default;
+                return false;
+        }
+    }
+
+    static string? ExpectedJsonSourceGenerationOptionType(string? name) =>
+        name switch
+        {
+            "AllowDuplicateProperties"
+                or "AllowOutOfOrderMetadataProperties"
+                or "AllowTrailingCommas"
+                or "IgnoreReadOnlyFields"
+                or "IgnoreReadOnlyProperties"
+                or "IncludeFields"
+                or "PropertyNameCaseInsensitive"
+                or "RespectNullableAnnotations"
+                or "RespectRequiredConstructorParameters"
+                or "UseStringEnumConverter"
+                or "WriteIndented" => "bool",
+            "DefaultBufferSize"
+                or "IndentSize"
+                or "MaxDepth" => "int",
+            "IndentCharacter" => "char",
+            "NewLine" => "string",
+            "Converters"
+                or "TypeClassifiers" => "System.Type[]",
+            "DefaultIgnoreCondition" =>
+                "System.Text.Json.Serialization.JsonIgnoreCondition",
+            "DictionaryKeyPolicy"
+                or "PropertyNamingPolicy" => JsonKnownNamingPolicyTypeName,
+            "GenerationMode" =>
+                "System.Text.Json.Serialization.JsonSourceGenerationMode",
+            "NumberHandling" =>
+                "System.Text.Json.Serialization.JsonNumberHandling",
+            "PreferredObjectCreationHandling" =>
+                "System.Text.Json.Serialization.JsonObjectCreationHandling",
+            "ReadCommentHandling" =>
+                "System.Text.Json.JsonCommentHandling",
+            "ReferenceHandler" =>
+                "System.Text.Json.Serialization.JsonKnownReferenceHandler",
+            "UnknownTypeHandling" =>
+                "System.Text.Json.Serialization.JsonUnknownTypeHandling",
+            "UnmappedMemberHandling" =>
+                "System.Text.Json.Serialization.JsonUnmappedMemberHandling",
+            _ => null,
+        };
 
     static bool TryGetNamedArgumentString(
         MetadataReader reader,

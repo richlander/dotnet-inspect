@@ -309,6 +309,51 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     [Fact]
+    public void Extract_DistinguishesJsonIgnoreNever()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(JsonIgnoreNeverFixture).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+
+        ApiType record = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(JsonIgnoreNeverFixture));
+        ApiMember included = Assert.Single(
+            record.Members,
+            member => member.Name == "Included");
+        ApiMember excluded = Assert.Single(
+            record.Members,
+            member => member.Name == "Excluded");
+
+        Assert.True(included.HasJsonIgnore);
+        Assert.True(included.HasJsonIgnoreNever);
+        Assert.True(excluded.HasJsonIgnore);
+        Assert.False(excluded.HasJsonIgnoreNever);
+    }
+
+    [Fact]
+    public void Extract_ReadsNamingPolicyAlongsideSupportedContextOptions()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(AdditionalOptionsJsonContext).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+
+        ApiType context = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(AdditionalOptionsJsonContext));
+
+        Assert.Equal(
+            JsonWireNamingPolicy.CamelCase,
+            context.JsonPropertyNamingPolicy);
+    }
+
+    [Fact]
     public void Build_CapturesJsonPropertyNameAndJsonIgnoreFacts()
     {
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface(includeAll: true);

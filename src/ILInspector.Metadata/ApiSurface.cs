@@ -959,6 +959,9 @@ public class ApiMember
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool HasJsonIgnore { get; set; }
 
+    [JsonIgnore]
+    public bool HasJsonIgnoreNever { get; set; }
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? JsonPropertyName { get; set; }
 

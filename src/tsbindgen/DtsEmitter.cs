@@ -15,6 +15,7 @@ static class DtsEmitter
             [.. surface.Records, .. surface.Enums];
         ValidateTypeNames(declarationTypes);
         ValidateWireNames(declarationTypes);
+        ValidateFunctionNames(surface.Functions);
 
         var knownTypeNames = new HashSet<string>(
             surface.Records.Select(r => r.Name).Concat(surface.Enums.Select(e => e.Name)),
@@ -166,6 +167,13 @@ static class DtsEmitter
                     "TypeScript declaration names must be identifiers");
             }
 
+            if (!TypeScriptIdentifier.IsTypeDeclarationIdentifier(type.Name))
+            {
+                throw new UnsupportedWireContractException(
+                    FormatTypeLocation(type),
+                    "declaration name conflicts with TypeScript or generated binding vocabulary");
+            }
+
             if (!names.Add(type.Name))
             {
                 throw new UnsupportedWireContractException(
@@ -174,6 +182,55 @@ static class DtsEmitter
             }
         }
     }
+
+    static void ValidateFunctionNames(IEnumerable<JsExportFunction> functions)
+    {
+        var functionNames = new HashSet<string>(
+            ["initializeEngine"],
+            StringComparer.Ordinal);
+        foreach (JsExportFunction function in functions)
+        {
+            string functionName = CamelCase.FromPascalCase(function.Name);
+            if (!TypeScriptIdentifier.IsBindingIdentifier(functionName)
+                || !IsComposedIdentifierName(function.DeclaringType)
+                || !TypeScriptIdentifier.IsIdentifierName(function.Name))
+            {
+                throw new UnsupportedWireContractException(
+                    "JS-export function",
+                    "export names must be TypeScript identifiers");
+            }
+
+            if (!functionNames.Add(functionName))
+            {
+                throw new UnsupportedWireContractException(
+                    "JS-export function",
+                    "multiple exports resolve to the same TypeScript function name");
+            }
+
+            var parameterNames = new HashSet<string>(StringComparer.Ordinal);
+            foreach (ApiParameter parameter in function.Parameters)
+            {
+                string parameterName =
+                    CamelCase.FromPascalCase(parameter.Name);
+                if (!TypeScriptIdentifier.IsBindingIdentifier(parameterName))
+                {
+                    throw new UnsupportedWireContractException(
+                        "JS-export parameter",
+                        "parameter names must be TypeScript identifiers");
+                }
+
+                if (!parameterNames.Add(parameterName))
+                {
+                    throw new UnsupportedWireContractException(
+                        "JS-export parameter",
+                        "multiple parameters resolve to the same TypeScript name");
+                }
+            }
+        }
+    }
+
+    static bool IsComposedIdentifierName(string name) =>
+        name.Split('.').All(TypeScriptIdentifier.IsIdentifierName);
 
     static void ValidatePropertyNameAttributes(
         string location,

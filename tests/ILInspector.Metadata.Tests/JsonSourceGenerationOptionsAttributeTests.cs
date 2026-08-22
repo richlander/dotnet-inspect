@@ -56,7 +56,100 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
         Assert.Equal(JsonWireNamingPolicy.CamelCase, policy);
     }
 
+    [Theory]
+    [InlineData(1, 2)]
+    [InlineData(2, 1)]
+    [InlineData(1, 1)]
+    public void DuplicatePolicyArgumentsWithinOneRowAreUnsupported(
+        int first,
+        int second)
+    {
+        JsonWireNamingPolicy? policy = ReadPolicy(
+            BuildSingleRow(
+                metadata => PolicyValue(
+                    metadata,
+                    0x54,
+                    0x55,
+                    "PropertyNamingPolicy",
+                    first,
+                    second)));
+
+        Assert.Equal(JsonWireNamingPolicy.Unsupported, policy);
+    }
+
+    [Theory]
+    [InlineData(0x53, 0x55, "PropertyNamingPolicy")]
+    [InlineData(0x54, 0x08, "PropertyNamingPolicy")]
+    [InlineData(0x54, 0x55, "Bogus")]
+    public void SemanticallyMalformedOptionIsUnsupported(
+        byte kind,
+        byte type,
+        string name)
+    {
+        JsonWireNamingPolicy? policy = ReadPolicy(
+            BuildSingleRow(
+                metadata => PolicyValue(
+                    metadata,
+                    kind,
+                    type,
+                    name,
+                    1)));
+
+        Assert.Equal(JsonWireNamingPolicy.Unsupported, policy);
+    }
+
+    static JsonWireNamingPolicy? ReadPolicy(byte[] image)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition type = reader.GetTypeDefinition(
+            MetadataTokens.TypeDefinitionHandle(2));
+
+        Assert.True(
+            AttributeReader.TryGetJsonSourceGenerationPropertyNamingPolicy(
+                reader,
+                type.GetCustomAttributes(),
+                out JsonWireNamingPolicy? policy));
+        return policy;
+    }
+
     static byte[] BuildImage(int first, int? second = null)
+        => BuildImageCore(
+            (metadata, target, constructor) =>
+            {
+                metadata.AddCustomAttribute(
+                    target,
+                    constructor,
+                    PolicyValue(metadata, first));
+                if (second is >= 0)
+                {
+                    metadata.AddCustomAttribute(
+                        target,
+                        constructor,
+                        PolicyValue(metadata, second.Value));
+                }
+                else if (second is < 0)
+                {
+                    metadata.AddCustomAttribute(
+                        target,
+                        constructor,
+                        metadata.GetOrAddBlob(new byte[] { 0 }));
+                }
+            });
+
+    static byte[] BuildSingleRow(
+        Func<MetadataBuilder, BlobHandle> valueFactory)
+        => BuildImageCore(
+            (metadata, target, constructor) =>
+                metadata.AddCustomAttribute(
+                    target,
+                    constructor,
+                    valueFactory(metadata)));
+
+    static byte[] BuildImageCore(
+        Action<MetadataBuilder, TypeDefinitionHandle, MemberReferenceHandle>
+            addAttributes)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -110,24 +203,7 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
-        metadata.AddCustomAttribute(
-            target,
-            constructor,
-            PolicyValue(metadata, first));
-        if (second is >= 0)
-        {
-            metadata.AddCustomAttribute(
-                target,
-                constructor,
-                PolicyValue(metadata, second.Value));
-        }
-        else if (second is < 0)
-        {
-            metadata.AddCustomAttribute(
-                target,
-                constructor,
-                metadata.GetOrAddBlob(new byte[] { 0 }));
-        }
+        addAttributes(metadata, target, constructor);
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
@@ -140,17 +216,36 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
     }
 
     static BlobHandle PolicyValue(MetadataBuilder metadata, int value)
+        => PolicyValue(
+            metadata,
+            0x54,
+            0x55,
+            "PropertyNamingPolicy",
+            value);
+
+    static BlobHandle PolicyValue(
+        MetadataBuilder metadata,
+        byte kind,
+        byte type,
+        string name,
+        params int[] values)
     {
         var blob = new BlobBuilder();
         blob.WriteUInt16(1);
-        blob.WriteUInt16(1);
-        blob.WriteByte(0x54);
-        blob.WriteByte(0x55);
-        blob.WriteSerializedString(
-            "System.Text.Json.Serialization.JsonKnownNamingPolicy, "
-                + "System.Text.Json");
-        blob.WriteSerializedString("PropertyNamingPolicy");
-        blob.WriteInt32(value);
+        blob.WriteUInt16((ushort)values.Length);
+        foreach (int value in values)
+        {
+            blob.WriteByte(kind);
+            blob.WriteByte(type);
+            if (type == 0x55)
+            {
+                blob.WriteSerializedString(
+                    "System.Text.Json.Serialization.JsonKnownNamingPolicy, "
+                        + "System.Text.Json");
+            }
+            blob.WriteSerializedString(name);
+            blob.WriteInt32(value);
+        }
         return metadata.GetOrAddBlob(blob);
     }
 }

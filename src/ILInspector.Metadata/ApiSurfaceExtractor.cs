@@ -1002,6 +1002,11 @@ public static class ApiSurfaceExtractor
                         reader,
                         prop.GetCustomAttributes(),
                         observeDecodeWork),
+                    HasJsonIgnoreNever =
+                        AttributeReader.HasJsonIgnoreNeverAttribute(
+                            reader,
+                            prop.GetCustomAttributes(),
+                            observeDecodeWork),
                     JsonPropertyName = jsonPropertyNames.Count == 1
                         ? jsonPropertyNames[0]
                         : null,
@@ -1188,6 +1193,11 @@ public static class ApiSurfaceExtractor
                         reader,
                         field.GetCustomAttributes(),
                         observeDecodeWork),
+                    HasJsonIgnoreNever =
+                        AttributeReader.HasJsonIgnoreNeverAttribute(
+                            reader,
+                            field.GetCustomAttributes(),
+                            observeDecodeWork),
                     JsonPropertyName = jsonPropertyNames.Count == 1
                         ? jsonPropertyNames[0]
                         : null,

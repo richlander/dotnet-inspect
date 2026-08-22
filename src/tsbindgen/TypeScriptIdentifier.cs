@@ -17,8 +17,19 @@ static class TypeScriptIdentifier
         ],
         StringComparer.Ordinal);
 
+    private static readonly HashSet<string> ForbiddenTypeDeclarationNames = new(
+        [
+            "any", "bigint", "boolean", "never", "number", "object", "string",
+            "symbol", "undefined", "unknown", "Promise", "Record",
+        ],
+        StringComparer.Ordinal);
+
     public static bool IsBindingIdentifier(string text) =>
         IsIdentifierName(text) && !ReservedWords.Contains(text);
+
+    public static bool IsTypeDeclarationIdentifier(string text) =>
+        IsBindingIdentifier(text)
+        && !ForbiddenTypeDeclarationNames.Contains(text);
 
     public static bool IsIdentifierName(string text)
     {
@@ -42,6 +53,9 @@ static class TypeScriptIdentifier
 
     static bool IsStart(Rune rune)
     {
+        if (rune.Value == 0x2E2F)
+            return false;
+
         if (rune.Value is '$' or '_')
             return true;
 
@@ -65,5 +79,5 @@ static class TypeScriptIdentifier
             or UnicodeCategory.ConnectorPunctuation
         || rune.Value is 0x00B7 or 0x0387
             or >= 0x1369 and <= 0x1371
-            or 0x19DA or 0x200C or 0x200D;
+            or 0x19DA or 0x200C or 0x200D or 0x30FB or 0xFF65;
 }

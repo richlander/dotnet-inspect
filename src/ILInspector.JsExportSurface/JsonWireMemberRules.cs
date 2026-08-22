@@ -8,7 +8,7 @@ public static class JsonWireMemberRules
     {
         if (member.IsStatic
             || member.IsCompilerGenerated
-            || member.HasJsonIgnore)
+            || member.HasJsonIgnore && !member.HasJsonIgnoreNever)
         {
             return false;
         }

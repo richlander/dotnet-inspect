@@ -65,6 +65,22 @@ internal sealed class GetterAccessibilityFixture
     }
 }
 
+internal sealed class JsonIgnoreNeverFixture
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string Included { get; set; } = "";
+
+    [JsonIgnore]
+    public string Excluded { get; set; } = "";
+}
+
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(string))]
+internal sealed partial class AdditionalOptionsJsonContext
+    : JsonSerializerContext;
+
 internal enum ControlPropertyNameEnumFixture
 {
     [JsonPropertyName("enum\nbreak\r\t\u0001")]
