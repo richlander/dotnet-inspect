@@ -274,6 +274,32 @@ public sealed class CSharpMemberLayoutTests
                 indent: 4));
 
     [Fact]
+    public void Append_UnicodeGenericConstraints_UseContinuationLines()
+        => Assert.Equal(
+            "    public void Pick<T\u0301, T\u203FValue, T\u200CValue, \U00010400>()\n"
+            + "        where T\u0301 : class\n"
+            + "        where T\u203FValue : class\n"
+            + "        where T\u200CValue : class\n"
+            + "        where \U00010400 : class;\n",
+            Render(
+                "public void Pick<T\u0301, T\u203FValue, T\u200CValue, \U00010400>()"
+                + " where T\u0301 : class"
+                + " where T\u203FValue : class"
+                + " where T\u200CValue : class"
+                + " where \U00010400 : class",
+                body: null,
+                indent: 4));
+
+    [Fact]
+    public void Append_InvalidConstraintIdentifier_DoesNotWrap()
+        => Assert.Equal(
+            "    public void Pick<T>() where T-Value : class;\n",
+            Render(
+                "public void Pick<T>() where T-Value : class",
+                body: null,
+                indent: 4));
+
+    [Fact]
     public void Append_GenericConstraint_BlockBraceFollowsConstraintLine()
         => Assert.Equal(
             "    public T Pick<T>(T value)\n"

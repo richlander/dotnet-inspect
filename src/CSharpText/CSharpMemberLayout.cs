@@ -273,10 +273,18 @@ public static class CSharpMemberLayout
             i++;
 
         int identifierStart = i;
-        while (i < head.Length && (char.IsLetterOrDigit(head[i]) || head[i] == '_'))
+        while (i < head.Length
+            && !char.IsWhiteSpace(head[i])
+            && head[i] != ':')
+        {
             i++;
-        if (i == identifierStart)
+        }
+        if (i == identifierStart
+            || !CSharpIdentifierCore.IsIdentifierLike(
+                head[identifierStart..i]))
+        {
             return false;
+        }
 
         while (i < head.Length && char.IsWhiteSpace(head[i]))
             i++;
