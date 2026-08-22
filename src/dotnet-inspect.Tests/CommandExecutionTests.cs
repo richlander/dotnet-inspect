@@ -911,7 +911,8 @@ public partial class CommandExecutionTests
         return (packagePath, tempDir);
     }
 
-    private static (string AssemblyPath, string FixtureDir) CreateNoSourceLinkDiscoveryAssembly()
+    private static (string AssemblyPath, string SourcePath, string FixtureDir)
+        CreateNoSourceLinkDiscoveryAssembly()
     {
         const string source =
             """
@@ -933,6 +934,9 @@ public partial class CommandExecutionTests
         {
             var assemblyPath = Path.Combine(fixtureDir, "NoSourceLinkDiscovery.dll");
             var pdbPath = Path.ChangeExtension(assemblyPath, ".pdb");
+            var sourcePath = Path.Combine(fixtureDir, "NoSourceLinkDiscovery.cs");
+            var sourceEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+            File.WriteAllText(sourcePath, source, sourceEncoding);
             var references = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!)
                 .Split(Path.PathSeparator)
                 .Select(path => MetadataReference.CreateFromFile(path));
@@ -940,9 +944,9 @@ public partial class CommandExecutionTests
                 "NoSourceLinkDiscovery",
                 [
                     CSharpSyntaxTree.ParseText(
-                        SourceText.From(source, Encoding.UTF8),
+                        SourceText.From(source, sourceEncoding),
                         new CSharpParseOptions(LanguageVersion.Preview),
-                        path: "/_/NoSourceLinkDiscovery.cs")
+                        path: sourcePath)
                 ],
                 references,
                 new CSharpCompilationOptions(
@@ -965,7 +969,7 @@ public partial class CommandExecutionTests
             using var sourceLink = SourceLinkService.Open(assemblyPath);
             Assert.True(sourceLink.HasPdb);
             Assert.False(sourceLink.HasSourceLink);
-            return (assemblyPath, fixtureDir);
+            return (assemblyPath, sourcePath, fixtureDir);
         }
         catch
         {
@@ -8237,7 +8241,7 @@ public partial class CommandExecutionTests
         Assert.Contains("| Properties | section |", output);
         Assert.Contains("| Method Groups | section |", output);
         Assert.Contains("| Decompiled Source | section |", output);
-        Assert.Contains("| Original Source | section |", output);
+        Assert.Contains("| PDB Source | section |", output);
         Assert.Contains("| IL | section |", output);
         Assert.DoesNotContain("| Facts | section", output);
     }
@@ -8448,7 +8452,7 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Member_SourceLocations_PropertyAccessor_ResolvesFromAccessorSequencePoints()
     {
-        // A property has no MethodDef of its own; its authored source is located through its
+        // A property has no MethodDef of its own; its PDB source is located through its
         // accessor's PDB sequence points, reported against the owning property (#3278).
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
@@ -8463,31 +8467,31 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_OriginalSource_PropertyAccessorOrdinals_BothRenderTheWholeProperty()
+    public async Task Member_PdbSource_PropertyAccessorOrdinals_BothRenderTheWholeProperty()
     {
         // Ordinal 1 addresses the getter and 2 the setter, matching the accessor addressing the
         // body sections use (#3278), and both resolve. Each renders the *whole property* rather
         // than its own accessor: a property split at an accessor boundary is not a C# declaration
-        // and never parses, so the accessor-scoped slice was a fragment by construction. Authored
-        // source is now located by declaration, and the declaration containing either accessor is
-        // the property.
+        // and never parses, so the accessor-scoped slice was a fragment by construction. PDB source
+        // is now located by declaration, and the declaration containing either accessor is the
+        // property.
         var (getterExit, getterOutput, getterError) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
-            "MaxDepth:1", "-S", "Original Source", "--tips", "q");
+            "MaxDepth:1", "-S", "PDB Source", "--tips", "q");
 
         Assert.Equal(0, getterExit);
         Assert.Empty(getterError);
-        Assert.Contains("## Original Source", getterOutput);
+        Assert.Contains("## PDB Source", getterOutput);
         Assert.Contains("get => _maxDepth;", getterOutput);
         Assert.Contains("_maxDepth = value;", getterOutput);
 
         var (setterExit, setterOutput, setterError) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
-            "MaxDepth:2", "-S", "Original Source", "--tips", "q");
+            "MaxDepth:2", "-S", "PDB Source", "--tips", "q");
 
         Assert.Equal(0, setterExit);
         Assert.Empty(setterError);
-        Assert.Contains("## Original Source", setterOutput);
+        Assert.Contains("## PDB Source", setterOutput);
         Assert.Contains("_maxDepth = value;", setterOutput);
         Assert.Contains("get => _maxDepth;", setterOutput);
 
@@ -8498,14 +8502,105 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_OriginalSource_ConstructorSelectorCasing_UsesTheResolvedMemberIdentity()
+    public async Task Member_OriginalSourceLegacyAlias_RendersCanonicalPdbSourceHeading()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
+            "MaxDepth:1", "-S", "Original Source", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## PDB Source", output);
+        Assert.DoesNotContain("## Original Source", output);
+    }
+
+    [Fact]
+    public async Task Member_PdbSource_LocalDocumentDoesNotRequireSourceLinkMap()
+    {
+        var (assemblyPath, _, fixtureDir) = CreateNoSourceLinkDiscoveryAssembly();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "member", "DiscoveryFixtures.NoSourceLink", "Overloaded:1",
+                "--library", assemblyPath,
+                "-S", "PDB Source", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("## PDB Source", output);
+            Assert.Contains(
+                "public static int Overloaded(int value) => value;",
+                output);
+        }
+        finally
+        {
+            Directory.Delete(fixtureDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Member_PdbSource_LocalChecksumMismatchIsVisible()
+    {
+        var (assemblyPath, sourcePath, fixtureDir) =
+            CreateNoSourceLinkDiscoveryAssembly();
+        try
+        {
+            string source = File.ReadAllText(sourcePath);
+            File.WriteAllText(
+                sourcePath,
+                source.Replace(
+                    "public static int Overloaded(int value) => value;",
+                    "public static int Overloaded(int value) => value + 1;",
+                    StringComparison.Ordinal),
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+            var (exit, output, error) = await RunAppAsync(
+                "member", "DiscoveryFixtures.NoSourceLink", "Overloaded:1",
+                "--library", assemblyPath,
+                "-S", "PDB Source", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("## PDB Source", output);
+            Assert.Contains(ApiCommand.NoMatchingPdbSourceReason, output);
+            Assert.DoesNotContain("value + 1", output);
+
+            var (jsonExit, jsonOutput, jsonError) = await RunAppAsync(
+                "member", "DiscoveryFixtures.NoSourceLink", "Overloaded:1",
+                "--library", assemblyPath,
+                "-S", "PDB Source", "--json", "--print", "--tips", "q");
+
+            Assert.Equal(0, jsonExit);
+            Assert.Empty(jsonError);
+            Assert.Contains(ApiCommand.NoMatchingPdbSourceReason, jsonOutput);
+            Assert.DoesNotContain("value + 1", jsonOutput);
+        }
+        finally
+        {
+            Directory.Delete(fixtureDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DiffHelp_UsesPdbSourceAndHidesLegacyAuthoredSourceFlag()
+    {
+        var (exit, output, error) = await RunAppAsync("diff", "--help");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("--pdb-source", output);
+        Assert.DoesNotContain("--authored-source", output);
+    }
+
+    [Fact]
+    public async Task Member_PdbSource_ConstructorSelectorCasing_UsesTheResolvedMemberIdentity()
     {
         var canonical = await RunAppAsync(
             "member", typeof(ConstructorSourceCaseFixture).FullName!, "--library", TestAssemblyPath,
-            ".ctor:1", "-S", "Original Source", "--tips", "q");
+            ".ctor:1", "-S", "PDB Source", "--tips", "q");
         var caseVariant = await RunAppAsync(
             "member", typeof(ConstructorSourceCaseFixture).FullName!, "--library", TestAssemblyPath,
-            ".Ctor:1", "-S", "Original Source", "--tips", "q");
+            ".Ctor:1", "-S", "PDB Source", "--tips", "q");
 
         Assert.Equal(0, canonical.Exit);
         Assert.Empty(canonical.Error);
@@ -8516,7 +8611,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public void OriginalSource_LineNormalizationPreservesPdbCoordinatesAcrossFormFeed()
+    public void PdbSource_LineNormalizationPreservesPdbCoordinatesAcrossFormFeed()
     {
         const string source =
             "class C\n{\n"
@@ -8525,7 +8620,7 @@ public partial class CommandExecutionTests
             + "    void B() { }\n"
             + "}";
 
-        string normalized = ApiCommand.NormalizeAuthoredSourceLineEndings(source);
+        string normalized = ApiCommand.NormalizePdbSourceLineEndings(source);
         var resolved = ApiCommand.SliceResolvedMethodSource(
             normalized,
             startLine: 4,
@@ -8539,7 +8634,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public void OriginalSource_ForwardsConditionalBranchEvidenceToTheSlicer()
+    public void PdbSource_ForwardsConditionalBranchEvidenceToTheSlicer()
     {
         const string source = """
             class C
@@ -8565,7 +8660,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public void OriginalSource_TokenDenseInputCarriesAVisibleFailureState()
+    public void PdbSource_TokenDenseInputCarriesAVisibleFailureState()
     {
         string source = "class C { void M() { "
             + new string(';', 500_001)
@@ -8583,13 +8678,13 @@ public partial class CommandExecutionTests
         Assert.Null(resolved.Source);
         Assert.Contains(
             "lexical complexity limit",
-            ApiCommand.OriginalSourceUnavailableNote(
+            ApiCommand.PdbSourceUnavailableNote(
                 new MemberOptions { MemberSourceTooComplex = true }),
             StringComparison.Ordinal);
     }
 
     [Fact]
-    public void OriginalSource_InvalidSequencePointCoordinatesCarryAVisibleFailureState()
+    public void PdbSource_InvalidSequencePointCoordinatesCarryAVisibleFailureState()
     {
         const string source = "class C\n{\n    void M() { }\n}";
 
@@ -8607,13 +8702,13 @@ public partial class CommandExecutionTests
         Assert.Equal("fixture.pdb", resolved.PdbPath);
         Assert.Contains(
             "sequence-point coordinates",
-            ApiCommand.OriginalSourceUnavailableNote(
+            ApiCommand.PdbSourceUnavailableNote(
                 new MemberOptions { MemberSourceCoordinatesInvalid = true }),
             StringComparison.Ordinal);
     }
 
     [Theory]
-    [InlineData(SectionNames.OriginalSource, "## Original Source")]
+    [InlineData(SectionNames.PdbSource, "## PDB Source")]
     [InlineData(SectionNames.SourceDiff, "## Source Diff")]
     public async Task Member_InvalidSourceCoordinatesReportVisibleSectionFailure(
         string section,
@@ -8703,7 +8798,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_OriginalSource_ComplexSourceUnderDocumentJsonFailsVisibly()
+    public async Task Member_PdbSource_ComplexSourceUnderDocumentJsonFailsVisibly()
     {
         var type = new ApiType
         {
@@ -8717,7 +8812,7 @@ public partial class CommandExecutionTests
             JsonOutput = true,
             MemberSourceTooComplex = true,
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                { SectionNames.OriginalSource },
+                { SectionNames.PdbSource },
         };
 
         var (exit, output, error) = await ConsoleCapture.RunAsync(
@@ -8736,14 +8831,48 @@ public partial class CommandExecutionTests
         Assert.Contains("add --print", error);
     }
 
+    [Fact]
+    public async Task Member_VerbosityIncludedComplexSourceUnderDocumentJsonFailsVisibly()
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "C",
+            Kind = "class",
+            Members = [new ApiMember { Name = "M", Kind = "method" }],
+        };
+        var options = new MemberOptions
+        {
+            JsonOutput = true,
+            Verbosity = Verbosity.Detailed,
+            MemberSourceTooComplex = true,
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                options));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("lexical complexity limit", error);
+    }
+
     [Theory]
-    [InlineData(SectionNames.OriginalSource, false, "lexical complexity limit")]
+    [InlineData(SectionNames.PdbSource, false, "lexical complexity limit")]
     [InlineData(SectionNames.SourceDiff, false, "lexical complexity limit")]
-    [InlineData(SectionNames.OriginalSource, true, "sequence-point coordinates")]
+    [InlineData(SectionNames.PdbSource, true, "sequence-point coordinates")]
     [InlineData(SectionNames.SourceDiff, true, "sequence-point coordinates")]
+    [InlineData(SectionNames.PdbSource, null, ApiCommand.NoMatchingPdbSourceReason)]
+    [InlineData(SectionNames.SourceDiff, null, ApiCommand.NoMatchingPdbSourceReason)]
     public async Task Member_SourceFailureInNonCodeFormatsFailsVisibly(
         string section,
-        bool coordinatesInvalid,
+        bool? coordinatesInvalid,
         string expectedFailure)
     {
         var type = new ApiType
@@ -8766,8 +8895,11 @@ public partial class CommandExecutionTests
         {
             var options = candidate with
             {
-                MemberSourceTooComplex = !coordinatesInvalid,
-                MemberSourceCoordinatesInvalid = coordinatesInvalid,
+                MemberSourceTooComplex = coordinatesInvalid == false,
+                MemberSourceCoordinatesInvalid = coordinatesInvalid == true,
+                PdbSourceUnavailableReason = coordinatesInvalid is null
+                    ? ApiCommand.NoMatchingPdbSourceReason
+                    : null,
                 IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                     { section },
             };
@@ -8790,9 +8922,183 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData(SectionNames.OriginalSource, false, "lexical complexity limit")]
+    [InlineData(SectionNames.PdbSource, true)]
+    [InlineData(SectionNames.SourceDiff, true)]
+    [InlineData(SectionNames.PdbSource, false)]
+    [InlineData(SectionNames.SourceDiff, false)]
+    public async Task Member_InformationalSourceStateInNonCodeFormatsDoesNotBecomeFailure(
+        string section,
+        bool bodyless)
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "C",
+            Kind = "class",
+            Members = [new ApiMember { Name = "M", Kind = "method" }],
+        };
+        var cases = new[]
+        {
+            new MemberOptions { Count = true },
+            new MemberOptions { Tabular = true },
+            new MemberOptions { Tabular = true, Tsv = true },
+            new MemberOptions { Tabular = true, Jsonl = true },
+            new MemberOptions { JsonOutput = true },
+        };
+
+        foreach (var candidate in cases)
+        {
+            var options = candidate with
+            {
+                MemberHasNoBody = bodyless,
+                MemberHasNoPdbDeclaration = !bodyless,
+                PdbSourceUnavailableReason = ApiCommand.NoPdbSourceMappingReason,
+                IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    { section },
+            };
+
+            var (exit, _, error) = await ConsoleCapture.RunAsync(
+                () => ApiCommand.WriteTypeOutputAsync(
+                    type,
+                    foundIn: null,
+                    packageName: null,
+                    packageVersion: null,
+                    apiSource: null,
+                    selectedTfm: null,
+                    options));
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+        }
+    }
+
+    [Fact]
+    public async Task Member_SourceFailureUnderCountWithAnotherFormatGivesExecutableGuidance()
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "C",
+            Kind = "class",
+            Members = [new ApiMember { Name = "M", Kind = "method" }],
+        };
+        var cases = new[]
+        {
+            new MemberOptions { Count = true, JsonOutput = true },
+            new MemberOptions { Count = true, Tabular = true },
+            new MemberOptions { Count = true, Tabular = true, Tsv = true },
+            new MemberOptions { Count = true, Tabular = true, Jsonl = true },
+        };
+
+        foreach (var candidate in cases)
+        {
+            var options = candidate with
+            {
+                PdbSourceUnavailableReason = ApiCommand.NoMatchingPdbSourceReason,
+                IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    { SectionNames.PdbSource },
+            };
+
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => ApiCommand.WriteTypeOutputAsync(
+                    type,
+                    foundIn: null,
+                    packageName: null,
+                    packageVersion: null,
+                    apiSource: null,
+                    selectedTfm: null,
+                    options));
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("replace --count with --print", error);
+
+            var printable = options with { Count = false, Print = true };
+            var (printExit, printOutput, printError) = await ConsoleCapture.RunAsync(
+                () => ApiCommand.WriteTypeOutputAsync(
+                    type,
+                    foundIn: null,
+                    packageName: null,
+                    packageVersion: null,
+                    apiSource: null,
+                    selectedTfm: null,
+                    printable));
+
+            Assert.Equal(0, printExit);
+            Assert.Empty(printError);
+            Assert.Contains(ApiCommand.NoMatchingPdbSourceReason, printOutput);
+        }
+    }
+
+    [Fact]
+    public async Task Member_VerbosityIncludedPdbSourceUnavailabilityDoesNotFailDocumentJson()
+    {
+        string assemblyPath = FixtureCatalog.DiffPair.OldAssemblyPath();
+        string[] target =
+        [
+            "member", "DiffFixtureSample.BodyStateSample", ".ctor:1",
+            "--library", assemblyPath, "--all",
+        ];
+
+        var detailed = await RunAppAsync(
+            [.. target, "--json", "-v:d", "--tips", "q"]);
+
+        Assert.Equal(0, detailed.Exit);
+        Assert.Empty(detailed.Error);
+        using (var document = JsonDocument.Parse(detailed.Output))
+        {
+            Assert.Equal(
+                "BodyStateSample",
+                document.RootElement.GetProperty("name").GetString());
+        }
+
+        var selected = await RunAppAsync(
+            [.. target, "-S", "PDB Source", "--json", "--tips", "q"]);
+
+        Assert.Equal(1, selected.Exit);
+        Assert.Empty(selected.Output);
+        Assert.Contains(ApiCommand.NoPdbSourceMappingReason, selected.Error);
+        Assert.Contains("cannot represent this code-section failure", selected.Error);
+    }
+
+    [Theory]
+    [InlineData("@Source", false)]
+    [InlineData("@All", false)]
+    [InlineData("*", false)]
+    [InlineData("PDB Source", true)]
+    [InlineData("Source Diff", true)]
+    [InlineData("Original Source", true)]
+    public async Task Member_PdbSourceFailureUnderDocumentJsonHonorsExactSelection(
+        string selector,
+        bool exact)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "DiffFixtureSample.BodyStateSample", ".ctor:1",
+            "--library", FixtureCatalog.DiffPair.OldAssemblyPath(), "--all",
+            "-S", selector, "--json", "--tips", "q");
+
+        if (exact)
+        {
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(ApiCommand.NoPdbSourceMappingReason, error);
+            Assert.Contains("cannot represent this code-section failure", error);
+        }
+        else
+        {
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal(
+                "BodyStateSample",
+                document.RootElement.GetProperty("name").GetString());
+        }
+    }
+
+    [Theory]
+    [InlineData(SectionNames.PdbSource, false, "lexical complexity limit")]
     [InlineData(SectionNames.SourceDiff, false, "lexical complexity limit")]
-    [InlineData(SectionNames.OriginalSource, true, "sequence-point coordinates")]
+    [InlineData(SectionNames.PdbSource, true, "sequence-point coordinates")]
     [InlineData(SectionNames.SourceDiff, true, "sequence-point coordinates")]
     public async Task Member_SourceFailureUnderBareWithEarlierRendererFailsVisibly(
         string section,
@@ -8840,7 +9146,7 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData(SectionNames.OriginalSource)]
+    [InlineData(SectionNames.PdbSource)]
     [InlineData(SectionNames.SourceDiff)]
     public async Task Member_ComplexSourceUnderEffectiveBareRendererRemainsRepresentable(string section)
     {
@@ -8885,7 +9191,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_OriginalSource_ComplexSourceUnderPrintJsonRemainsRepresentable()
+    public async Task Member_PdbSource_ComplexSourceUnderPrintJsonRemainsRepresentable()
     {
         var type = new ApiType
         {
@@ -8900,7 +9206,7 @@ public partial class CommandExecutionTests
             Print = true,
             MemberSourceTooComplex = true,
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                { SectionNames.OriginalSource },
+                { SectionNames.PdbSource },
         };
 
         var (exit, output, error) = await ConsoleCapture.RunAsync(
@@ -8916,11 +9222,15 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("lexical complexity limit", output);
-        using var _ = JsonDocument.Parse(output);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(
+            SectionNames.PdbSource,
+            document.RootElement.GetProperty("section").GetString());
+        Assert.DoesNotContain("Original Source", output);
     }
 
     [Fact]
-    public async Task Member_OriginalSource_ComplexSourceUnderBareRemainsRepresentable()
+    public async Task Member_PdbSource_ComplexSourceUnderBareRemainsRepresentable()
     {
         var type = new ApiType
         {
@@ -8934,7 +9244,7 @@ public partial class CommandExecutionTests
             Bare = true,
             MemberSourceTooComplex = true,
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                { SectionNames.OriginalSource },
+                { SectionNames.PdbSource },
         };
 
         var (exit, output, error) = await ConsoleCapture.RunAsync(
@@ -8953,39 +9263,104 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_OriginalSource_BodylessMember_ExplainsWhyThereIsNoSource()
+    public async Task Member_PdbSource_BodylessMember_ExplainsWhyThereIsNoSource()
     {
-        // An abstract method has no IL body, so it has no authored source to resolve. That is a
+        // An abstract method has no IL body, so it has no PDB source to resolve. That is a
         // complete answer, not a failure: say so and keep exit 0 rather than rendering nothing
         // and leaving the caller unable to tell success from silent failure (#3299).
         var (abstractExit, abstractOutput, abstractError) = await RunAppAsync(
             "member", "JsonConverter<T>", "--platform", "System.Text.Json",
-            "Read", "-S", "Original Source", "--tips", "q");
+            "Read", "-S", "PDB Source", "--tips", "q");
 
         Assert.Equal(0, abstractExit);
         Assert.Empty(abstractError);
-        Assert.Contains("## Original Source", abstractOutput);
+        Assert.Contains("## PDB Source", abstractOutput);
         Assert.Contains("has no IL body", abstractOutput);
 
         // An interface method is bodyless for a different metadata reason and gets the same answer.
         var (interfaceExit, interfaceOutput, interfaceError) = await RunAppAsync(
             "member", "IJsonOnDeserialized", "--platform", "System.Text.Json",
-            "OnDeserialized", "-S", "Original Source", "--tips", "q");
+            "OnDeserialized", "-S", "PDB Source", "--tips", "q");
 
         Assert.Equal(0, interfaceExit);
         Assert.Empty(interfaceError);
-        Assert.Contains("## Original Source", interfaceOutput);
+        Assert.Contains("## PDB Source", interfaceOutput);
         Assert.Contains("has no IL body", interfaceOutput);
     }
 
-    [Fact]
-    public async Task Member_OriginalSource_MemberWithBody_DoesNotClaimTheMemberIsBodyless()
+    [Theory]
+    [InlineData("abstract", "relative")]
+    [InlineData("interface", "dot")]
+    [InlineData("extern", "parent")]
+    public async Task Member_BodylessSource_NonCanonicalAssemblyPathPreservesTokenIdentity(
+        string memberKind,
+        string pathStyle)
     {
-        // Close negative: a member that does have a body still renders its authored source, so
+        var (assemblyPath, typeName, memberName) = memberKind switch
+        {
+            "abstract" => (
+                FixtureCatalog.DiffPair.OldAssemblyPath(),
+                "DiffFixtureSample.BodyStateSample",
+                "BodyState"),
+            "interface" => (
+                FixtureCatalog.DiffPair.OldAssemblyPath(),
+                "DiffFixtureSample.IExplicitSurface",
+                "Get"),
+            _ => (
+                TestAssemblyPath,
+                typeof(SamplePInvokeClass).FullName!,
+                nameof(SamplePInvokeClass.GetCurrentProcessId)),
+        };
+        string fullAssemblyPath = Path.GetFullPath(assemblyPath);
+        string relativePath = Path.GetRelativePath(
+            Environment.CurrentDirectory,
+            fullAssemblyPath);
+        string assemblyDirectory = Path.GetDirectoryName(fullAssemblyPath)!;
+        string suppliedPath = pathStyle switch
+        {
+            "relative" => relativePath,
+            "dot" => Path.Combine(".", relativePath),
+            _ => Path.Combine(
+                Path.GetDirectoryName(assemblyDirectory)!,
+                Path.GetFileName(assemblyDirectory),
+                "..",
+                Path.GetFileName(assemblyDirectory),
+                Path.GetFileName(fullAssemblyPath)),
+        };
+        Assert.NotEqual(fullAssemblyPath, suppliedPath);
+
+        foreach (string section in new[] { SectionNames.PdbSource, SectionNames.SourceDiff })
+        {
+            var bare = await RunAppAsync(
+                "member", typeName, memberName,
+                "--library", suppliedPath, "--all",
+                "-S", section, "--bare", "--tips", "q");
+            var count = await RunAppAsync(
+                "member", typeName, memberName,
+                "--library", suppliedPath, "--all",
+                "-S", section, "--count", "--tips", "q");
+
+            Assert.Equal(0, bare.Exit);
+            Assert.Empty(bare.Error);
+            Assert.Contains(
+                section == SectionNames.PdbSource
+                    ? ApiCommand.BodylessMemberNote
+                    : "PDB Source unavailable",
+                bare.Output);
+            Assert.Equal(0, count.Exit);
+            Assert.Empty(count.Error);
+            Assert.Equal("0\n", count.Output);
+        }
+    }
+
+    [Fact]
+    public async Task Member_PdbSource_MemberWithBody_DoesNotClaimTheMemberIsBodyless()
+    {
+        // Close negative: a member that does have a body still renders its PDB source, so
         // the bodyless explanation never displaces real source (#3299).
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
-            "MaxDepth:1", "-S", "Original Source", "--tips", "q");
+            "MaxDepth:1", "-S", "PDB Source", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -8994,7 +9369,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SourceDiff_BodylessMember_ReportsOriginalSourceUnavailable()
+    public async Task Member_SourceDiff_BodylessMember_ReportsPdbSourceUnavailable()
     {
         // The bodyless explanation is prose about the member, not source text, so the diff must
         // report its "before" side unavailable rather than diffing the explanation (#3299).
@@ -9005,7 +9380,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("## Source Diff", output);
-        Assert.Contains("Original Source unavailable", output);
+        Assert.Contains("PDB Source unavailable", output);
         Assert.DoesNotContain("has no IL body", output);
     }
 
@@ -9019,7 +9394,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("## Source Diff", output);
-        Assert.Contains("--- Original Source", output);
+        Assert.Contains("--- PDB Source", output);
         Assert.Contains("+++ Decompiled Source", output);
         // The decompiled side is the accessor's own body, spelled with its metadata name.
         Assert.Contains("set_MaxDepth", output);
@@ -11343,7 +11718,7 @@ public partial class CommandExecutionTests
         Assert.Contains("Type: System.Text.Json.JsonSerializer", output);
         Assert.DoesNotContain("## Methods", output);
         Assert.DoesNotContain("## Decompiled Source", output);
-        Assert.DoesNotContain("## Original Source", output);
+        Assert.DoesNotContain("## PDB Source", output);
         Assert.DoesNotContain("## IL", output);
     }
 
@@ -11479,7 +11854,7 @@ public partial class CommandExecutionTests
         Assert.Contains("| Decompiled Source | section |", output);
         Assert.Contains("| Annotated Source | section |", output);
         Assert.Contains("| Annotated Source Document | section |", output);
-        Assert.Contains("| Original Source | section |", output);
+        Assert.Contains("| PDB Source | section |", output);
         Assert.Contains("| IL | section |", output);
         Assert.Contains("| Calls | section |", output);
         Assert.Contains("| Callers | section |", output);
@@ -11517,7 +11892,7 @@ public partial class CommandExecutionTests
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Contains("| Original Source | section |", output);
+        Assert.Contains("| PDB Source | section |", output);
         Assert.Contains("| Calls | section |", output);
         Assert.Contains("| Callers | section |", output);
         Assert.Contains("| Call Graph | section |", output);
@@ -12525,11 +12900,11 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("## Source Diff", output);
         Assert.Contains("```diff", output);
-        Assert.Contains("--- Original Source", output);
+        Assert.Contains("--- PDB Source", output);
         Assert.Contains("+++ Decompiled Source", output);
         Assert.Contains("-    return value + 2;", output);
         Assert.Contains("+public int AddOne(int value) => value + 1;", output);
-        Assert.DoesNotContain("## Original Source", output);
+        Assert.DoesNotContain("## PDB Source", output);
         Assert.DoesNotContain("## Decompiled Source", output);
     }
 
@@ -13025,7 +13400,7 @@ public partial class CommandExecutionTests
         Assert.Contains("## Decompiled Source", output);
         Assert.Contains("## IL", output);
         Assert.DoesNotContain("## Annotated Source", output);
-        Assert.DoesNotContain("## Original Source", output);
+        Assert.DoesNotContain("## PDB Source", output);
         // WriteNode<TValue>'s first parameter is `in TValue`; the call site
         // passes it without a keyword (an explicit `ref` here is CS1615). The
         // operand renders bare, not as the old `ref value` spelling.
@@ -13053,7 +13428,7 @@ public partial class CommandExecutionTests
         Assert.Contains("## Decompiled Source", output);
         Assert.Contains("GetTypeInfo", output);
         Assert.Contains("WriteElement", output);
-        Assert.DoesNotContain("## Original Source", output);
+        Assert.DoesNotContain("## PDB Source", output);
         Assert.Contains("public static System.Text.Json.JsonElement SerializeToElement<TValue>(TValue value, System.Text.Json.JsonSerializerOptions? options = null)", output);
     }
 
@@ -16240,7 +16615,7 @@ public partial class CommandExecutionTests
     public async Task CliDiscoverySections_AreSelectable()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
-        var (noSourceLinkAssemblyPath, noSourceLinkFixtureDir) =
+        var (noSourceLinkAssemblyPath, _, noSourceLinkFixtureDir) =
             CreateNoSourceLinkDiscoveryAssembly();
         try
         {
@@ -16398,7 +16773,7 @@ public partial class CommandExecutionTests
         "Annotated Source Document",
         "Cost Overlay",
         "Semantics Overlay",
-        "Original Source",
+        "PDB Source",
         "Source Diff",
         "Calls",
         "Callers",
@@ -18823,9 +19198,9 @@ public partial class CommandExecutionTests
     [InlineData("System.Data.Common")]
     public async Task LibrarySections_RenderIdenticallyAloneAndTogether(string assembly)
     {
-        // Every generated section must render the same content whether it is asked for alone or
-        // alongside all the others. Asking for a section alone runs only its declared scanner or
-        // query closure, so undeclared dependencies render less in isolation.
+        // Every deterministic generated section must render the same content whether it is asked
+        // for alone or alongside all the others. Asking for a section alone runs only its declared
+        // scanner or query closure, so undeclared dependencies render less in isolation.
         //
         // The section set is derived from the pipeline, not from the prerequisite declarations,
         // so deleting a declaration does not also delete the coverage that would catch it.
@@ -18844,6 +19219,11 @@ public partial class CommandExecutionTests
             OptimizationOpportunitiesQuery.Definition,
             TopLeverageQuery.Definition,
             UnsafeEvidenceQuery.Definition,
+        ];
+        InspectionQueryDefinition[] liveNetworkQueries =
+        [
+            SourceAvailabilityQuery.Definition,
+            SourceIntegrityQuery.Definition,
         ];
 
         // Parameter-scoped sections cannot be selected without their required input:
@@ -18873,7 +19253,11 @@ public partial class CommandExecutionTests
             .Where(b => !registry.ExpandRequired([b.ScannerKey]).Overlaps(bodyIndexScanners))
             .Select(b => b.Name);
         var queryNames = pipeline.QueryBoundSections
-            .Where(b => !bodyIndexQueries.Contains(b.Query))
+            // Availability and integrity intentionally observe live per-file network state, so
+            // separate invocations cannot promise byte-for-byte identical results. Their query
+            // closure and costs are pinned by LibrarySourceLinkSections_DemandSharedTypedQueries.
+            .Where(b => !bodyIndexQueries.Contains(b.Query)
+                && !liveNetworkQueries.Contains(b.Query))
             .Select(b => b.Name);
         var names = scannerNames
             .Concat(queryNames)
@@ -22941,7 +23325,7 @@ public partial class CommandExecutionTests
         Assert.Equal([SectionNames.Signature], SectionHeadings(output));
         Assert.DoesNotContain("## Decompiled Source", output);
         Assert.DoesNotContain("## IL", output);
-        Assert.DoesNotContain("## Original Source", output);
+        Assert.DoesNotContain("## PDB Source", output);
         Assert.True(
             output.Split('\n').Length <= 8,
             $"Member detail overview grew to {output.Split('\n').Length} lines.");
