@@ -69,6 +69,19 @@ visible artifact failure, and
 `Execute_ReportsTypeDeclarationRejectionBeforeProducers` gates typed metadata
 rejection at the preflight boundary.
 
+The desktop CLI now consumes that architecture through
+`graph integrations`. Repeated package coordinates and one shared target
+framework lower through `WorkspaceContextLoader` to exactly one group; the
+realized package identities become the explicit induced subjects, and the
+command passes the selected Integration relationship descriptors directly to
+the query. The command does not invent a CLI graph IR, infer identity from
+labels, or add direction/depth to induction. Markdown, tree, Mermaid, tabular,
+and JSON output are presentation projections over the resulting
+`InspectionGraphDocument`. Typed loader and graph failures remain visible, and
+the sequential registry executor remains the command's execution policy.
+`InspectionGraphCommandTests.ExecuteAsync_UsesExactPackageSetAndStructuredRequest`
+gates this composition.
+
 Mechanism-specific documents remain authoritative for the current behavior,
 target design, and verification they own. In particular:
 
