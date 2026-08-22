@@ -58,6 +58,32 @@ public static class StructuralTypeIdentity
         return builder.ToString();
     }
 
+    internal static string Array(
+        string element,
+        bool isSzArray,
+        int rank,
+        IEnumerable<int> sizes,
+        IEnumerable<int> lowerBounds)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(element);
+        ArgumentNullException.ThrowIfNull(sizes);
+        ArgumentNullException.ThrowIfNull(lowerBounds);
+
+        int[] sizeValues = [.. sizes];
+        int[] lowerBoundValues = [.. lowerBounds];
+        var builder = new StringBuilder();
+        builder.Append(isSzArray ? 'z' : 'a');
+        AppendNumber(builder, rank);
+        AppendNumber(builder, sizeValues.Length);
+        foreach (int size in sizeValues)
+            AppendNumber(builder, size);
+        AppendNumber(builder, lowerBoundValues.Length);
+        foreach (int lowerBound in lowerBoundValues)
+            AppendNumber(builder, lowerBound);
+        Append(builder, element);
+        return builder.ToString();
+    }
+
     public static string Pinned(string inner)
     {
         ArgumentException.ThrowIfNullOrEmpty(inner);

@@ -271,8 +271,12 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
 
     public TypeNode GetArrayType(TypeNode elementType, ArrayShape shape)
     {
-        ObserveMaterialization(16L + Math.Max(shape.Rank, 0));
-        var node = new MDArrayTypeNode(elementType, shape.Rank);
+        ObserveMaterialization(
+            16L
+            + Math.Max(shape.Rank, 0)
+            + shape.Sizes.Length
+            + shape.LowerBounds.Length);
+        var node = new MDArrayTypeNode(elementType, shape);
         ObserveMaterialization(node.EstimatedRenderedLength);
         return node;
     }

@@ -6379,6 +6379,92 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void FidelityLookup_UsesEcmaEquivalentAssemblyIdentityForOrdinaryRoots()
+    {
+        MetadataTypeDefinitionName definitionName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Contracts",
+                    ["IContract"])).Name;
+        var signature =
+            new MethodSignatureIdentity(
+                "dependency-signature");
+        var baseline =
+            new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.External,
+                definitionName,
+                new AssemblyReferenceIdentity(
+                    "Dependency",
+                    new Version(1, 2, 3, 4),
+                    "neutral",
+                    "0011223344556677"),
+                "Contracts.IContract<int>",
+                declarationMemberName: "GetValue",
+                interfaceTypeIdentity:
+                    "dependency-scoped-IContract<int>",
+                declarationSignatureIdentity:
+                    signature);
+        var equivalent =
+            new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.External,
+                definitionName,
+                new AssemblyReferenceIdentity(
+                    "dependency",
+                    new Version(1, 2, 3, 4),
+                    null,
+                    "0011223344556677".ToUpperInvariant()),
+                "Contracts.IContract<int>",
+                declarationMemberName: "GetValue",
+                interfaceTypeIdentity:
+                    "dependency-scoped-IContract<int>",
+                declarationSignatureIdentity:
+                    signature);
+        var differentVersion =
+            new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.External,
+                definitionName,
+                new AssemblyReferenceIdentity(
+                    "dependency",
+                    new Version(2, 0, 0, 0),
+                    null,
+                    "0011223344556677".ToUpperInvariant()),
+                "Contracts.IContract<int>",
+                declarationMemberName: "GetValue",
+                interfaceTypeIdentity:
+                    "dependency-scoped-IContract<int>",
+                declarationSignatureIdentity:
+                    signature);
+        var differentToken =
+            new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.External,
+                definitionName,
+                new AssemblyReferenceIdentity(
+                    "dependency",
+                    new Version(1, 2, 3, 4),
+                    null,
+                    "8899aabbccddeeff"),
+                "Contracts.IContract<int>",
+                declarationMemberName: "GetValue",
+                interfaceTypeIdentity:
+                    "dependency-scoped-IContract<int>",
+                declarationSignatureIdentity:
+                    signature);
+
+        Assert.True(
+            FidelityCheck.ExplicitInterfaceDeclarationEqualsForTest(
+                baseline,
+                equivalent));
+        Assert.False(
+            FidelityCheck.ExplicitInterfaceDeclarationEqualsForTest(
+                baseline,
+                differentVersion));
+        Assert.False(
+            FidelityCheck.ExplicitInterfaceDeclarationEqualsForTest(
+                baseline,
+                differentToken));
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_MatchesSourceBySignatureWhenDeclarationOrderDiffers()
     {
         // The compiled assembly declares Pick(int) before Pick(string); the source slice

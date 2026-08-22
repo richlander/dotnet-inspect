@@ -497,6 +497,7 @@ public sealed class StructuralSignatureBuilder
         _beforeEncodedWork = beforeEncodedWork;
         _provider = new StructuralSignatureTypeProvider(
             workBudget,
+            beforeEncodedWork,
             normalizeNamedTypeScope);
     }
 
@@ -670,8 +671,24 @@ public sealed class StructuralSignatureBuilder
         }
 
         _workBudget.EnsureAvailable();
-        MethodSignature<StructuralSignatureType> signature =
-            decode();
+        long observedEncodedWorkBeforeDecode =
+            _provider.ObservedEncodedWork;
+        MethodSignature<StructuralSignatureType> signature;
+        try
+        {
+            signature = decode();
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException
+                or InvalidOperationException
+                or OverflowException)
+        {
+            ObserveFailedMethodSignatureEncodedWork(
+                signatureHandle,
+                observedEncodedWorkBeforeDecode);
+            throw;
+        }
         int encodedLength =
             StructuralSignatureKey.MethodSignatureLength(signature);
         if (encodedLength > MetadataSafetyPolicy.MaxStructuralSignatureChars)
@@ -679,7 +696,7 @@ public sealed class StructuralSignatureBuilder
             throw new BadImageFormatException(
                 "The method signature exceeds the encoded-character budget.");
         }
-        _beforeEncodedWork?.Invoke(encodedLength);
+        ObserveMethodSignatureEncodedWork(signature);
         _workBudget.Charge(encodedLength);
         var builder = new StringBuilder(encodedLength);
         StructuralSignatureKey.AppendMethodSignature(builder, signature);
@@ -689,6 +706,61 @@ public sealed class StructuralSignatureBuilder
         if (cache)
             _methodSignatures.Add(signatureHandle, signatureKey);
         return signatureKey;
+    }
+
+    void ObserveMethodSignatureEncodedWork(
+        MethodSignature<StructuralSignatureType> signature)
+    {
+        if (_beforeEncodedWork is null)
+            return;
+
+        long local = StructuralSignatureKey.MethodSignatureLength(
+            signature);
+        local -= signature.ReturnType.EncodedLength;
+        foreach (StructuralSignatureType parameter
+            in signature.ParameterTypes)
+        {
+            local -= parameter.EncodedLength;
+        }
+
+        _beforeEncodedWork(
+            checked((int)local));
+    }
+
+    void ObserveFailedMethodSignatureEncodedWork(
+        BlobHandle signatureHandle,
+        long observedEncodedWorkBeforeDecode)
+    {
+        if (_beforeEncodedWork is null
+            || signatureHandle.IsNil)
+        {
+            return;
+        }
+
+        long observedDuringDecode =
+            _provider.ObservedEncodedWork
+            - observedEncodedWorkBeforeDecode;
+        int fallbackEstimate =
+            FailedMethodSignatureEncodedWorkEstimate(
+                signatureHandle);
+        long remainingFallback =
+            fallbackEstimate - observedDuringDecode;
+        if (remainingFallback > 0)
+            _beforeEncodedWork(
+                checked((int)remainingFallback));
+    }
+
+    int FailedMethodSignatureEncodedWorkEstimate(
+        BlobHandle signatureHandle)
+    {
+        int blobLength =
+            _reader.GetBlobReader(signatureHandle).Length;
+        return Math.Min(
+            MetadataSafetyPolicy.MaxStructuralSignatureChars,
+            checked(
+                Math.Max(
+                    blobLength,
+                    blobLength * 4)));
     }
 }
 
@@ -1221,25 +1293,37 @@ sealed class StructuralSignatureTypeProvider
     readonly StructuralSignatureWorkBudget _workBudget;
     readonly Func<MetadataReader, EntityHandle, bool>?
         _normalizeNamedTypeScope;
+    readonly Action<int>? _beforeEncodedWork;
     readonly Dictionary<EntityHandle, string> _constraintTypes = [];
     readonly Dictionary<BlobHandle, string> _constraintTypeSpecifications = [];
     readonly Dictionary<BlobHandle, StructuralSignatureType> _typeSpecifications = [];
+    long _observedEncodedWork;
 
     internal StructuralSignatureTypeProvider(
         StructuralSignatureWorkBudget workBudget,
+        Action<int>? beforeEncodedWork = null,
         Func<MetadataReader, EntityHandle, bool>?
             normalizeNamedTypeScope = null)
     {
         _workBudget = workBudget;
+        _beforeEncodedWork = beforeEncodedWork;
         _normalizeNamedTypeScope = normalizeNamedTypeScope;
     }
 
+    internal long ObservedEncodedWork => _observedEncodedWork;
+
     public StructuralSignatureType GetPrimitiveType(
         PrimitiveTypeCode typeCode)
-        => Encoded(
-            "p"
-            + ((int)typeCode).ToString(CultureInfo.InvariantCulture)
-            + ";");
+    {
+        StructuralSignatureType type =
+            Encoded(
+                "p"
+                + ((int)typeCode)
+                    .ToString(CultureInfo.InvariantCulture)
+                + ";");
+        ObserveLeafEncodedWork(type);
+        return type;
+    }
 
     public StructuralSignatureType GetTypeFromDefinition(
         MetadataReader reader,
@@ -1248,7 +1332,7 @@ sealed class StructuralSignatureTypeProvider
     {
         bool normalizeScope =
             NormalizeNamedTypeScope(reader, handle);
-        return NamedTypeUse(
+        StructuralSignatureType type = NamedTypeUse(
             reader,
             normalizeScope ? 'p' : 'd',
             rawTypeKind,
@@ -1257,6 +1341,8 @@ sealed class StructuralSignatureTypeProvider
                 handle,
                 typeNameOverrides: null,
                 normalizeScope));
+        ObserveLeafEncodedWork(type);
+        return type;
     }
 
     public StructuralSignatureType GetTypeFromReference(
@@ -1266,7 +1352,7 @@ sealed class StructuralSignatureTypeProvider
     {
         bool normalizeScope =
             NormalizeNamedTypeScope(reader, handle);
-        return NamedTypeUse(
+        StructuralSignatureType type = NamedTypeUse(
             reader,
             normalizeScope ? 'p' : 'r',
             rawTypeKind,
@@ -1274,6 +1360,8 @@ sealed class StructuralSignatureTypeProvider
                 reader,
                 handle,
                 normalizeScope));
+        ObserveLeafEncodedWork(type);
+        return type;
     }
 
     public StructuralSignatureType GetTypeFromSpecification(
@@ -1281,9 +1369,18 @@ sealed class StructuralSignatureTypeProvider
         object? context,
         TypeSpecificationHandle handle,
         byte rawTypeKind)
-        => new SpecificationUseStructuralSignatureType(
-            rawTypeKind,
-            DecodeTypeSpecification(reader, handle, context));
+    {
+        StructuralSignatureType specification =
+            DecodeTypeSpecification(reader, handle, context);
+        StructuralSignatureType type =
+            new SpecificationUseStructuralSignatureType(
+                rawTypeKind,
+                specification);
+        ObserveLocalEncodedWork(
+            type.EncodedLength,
+            specification.EncodedLength);
+        return type;
+    }
 
     internal string GetConstraintType(
         MetadataReader reader,
@@ -1377,6 +1474,7 @@ sealed class StructuralSignatureTypeProvider
                 signature,
                 out var decoded))
         {
+            ObserveSubtreeEncodedWork(decoded);
             return decoded;
         }
 
@@ -1410,36 +1508,99 @@ sealed class StructuralSignatureTypeProvider
 
     public StructuralSignatureType GetSZArrayType(
         StructuralSignatureType elementType)
-        => new PartPrefixStructuralSignatureType('z', elementType);
+    {
+        StructuralSignatureType type =
+            new PartPrefixStructuralSignatureType(
+                'z',
+                elementType);
+        ObserveLocalEncodedWork(
+            type.EncodedLength,
+            elementType.EncodedLength);
+        return type;
+    }
 
     public StructuralSignatureType GetArrayType(
         StructuralSignatureType elementType,
         ArrayShape shape)
-        => new ArrayStructuralSignatureType(elementType, shape);
+    {
+        StructuralSignatureType type =
+            new ArrayStructuralSignatureType(
+                elementType,
+                shape);
+        ObserveLocalEncodedWork(
+            type.EncodedLength,
+            elementType.EncodedLength);
+        return type;
+    }
 
     public StructuralSignatureType GetByReferenceType(
         StructuralSignatureType elementType)
-        => new PartPrefixStructuralSignatureType('b', elementType);
+    {
+        StructuralSignatureType type =
+            new PartPrefixStructuralSignatureType(
+                'b',
+                elementType);
+        ObserveLocalEncodedWork(
+            type.EncodedLength,
+            elementType.EncodedLength);
+        return type;
+    }
 
     public StructuralSignatureType GetPointerType(
         StructuralSignatureType elementType)
-        => new PartPrefixStructuralSignatureType('i', elementType);
+    {
+        StructuralSignatureType type =
+            new PartPrefixStructuralSignatureType(
+                'i',
+                elementType);
+        ObserveLocalEncodedWork(
+            type.EncodedLength,
+            elementType.EncodedLength);
+        return type;
+    }
 
     public StructuralSignatureType GetPinnedType(
         StructuralSignatureType elementType)
-        => new PartPrefixStructuralSignatureType('q', elementType);
+    {
+        StructuralSignatureType type =
+            new PartPrefixStructuralSignatureType(
+                'q',
+                elementType);
+        ObserveLocalEncodedWork(
+            type.EncodedLength,
+            elementType.EncodedLength);
+        return type;
+    }
 
     public StructuralSignatureType GetGenericInstantiation(
         StructuralSignatureType genericType,
         ImmutableArray<StructuralSignatureType> typeArguments)
-        => new GenericInstantiationStructuralSignatureType(
-            genericType,
-            typeArguments);
+    {
+        StructuralSignatureType type =
+            new GenericInstantiationStructuralSignatureType(
+                genericType,
+                typeArguments);
+        int childEncodedLength =
+            genericType.EncodedLength;
+        foreach (StructuralSignatureType argument
+            in typeArguments)
+        {
+            childEncodedLength = checked(
+                childEncodedLength
+                + argument.EncodedLength);
+        }
+        ObserveLocalEncodedWork(
+            type.EncodedLength,
+            childEncodedLength);
+        return type;
+    }
 
     public StructuralSignatureType GetGenericTypeParameter(
         object? context,
         int index)
-        => context is StructuralSignatureGenericContext substitution
+    {
+        StructuralSignatureType type =
+            context is StructuralSignatureGenericContext substitution
             ? substitution.TypeArguments[
                 ValidateTypeArgumentIndex(
                     substitution.TypeArguments,
@@ -1448,25 +1609,65 @@ sealed class StructuralSignatureTypeProvider
                 "t"
                 + index.ToString(CultureInfo.InvariantCulture)
                 + ";");
+        if (context is StructuralSignatureGenericContext)
+            ObserveSubtreeEncodedWork(type);
+        else
+            ObserveLeafEncodedWork(type);
+        return type;
+    }
 
     public StructuralSignatureType GetGenericMethodParameter(
         object? context,
         int index)
-        => Encoded(
-            "m" + index.ToString(CultureInfo.InvariantCulture) + ";");
+    {
+        _ = context;
+        StructuralSignatureType type =
+            Encoded(
+                "m"
+                + index.ToString(CultureInfo.InvariantCulture)
+                + ";");
+        ObserveLeafEncodedWork(type);
+        return type;
+    }
 
     public StructuralSignatureType GetFunctionPointerType(
         MethodSignature<StructuralSignatureType> signature)
-        => new FunctionPointerStructuralSignatureType(signature);
+    {
+        StructuralSignatureType type =
+            new FunctionPointerStructuralSignatureType(
+                signature);
+        int childEncodedLength =
+            signature.ReturnType.EncodedLength;
+        foreach (StructuralSignatureType parameter
+            in signature.ParameterTypes)
+        {
+            childEncodedLength = checked(
+                childEncodedLength
+                + parameter.EncodedLength);
+        }
+        ObserveLocalEncodedWork(
+            type.EncodedLength,
+            childEncodedLength);
+        return type;
+    }
 
     public StructuralSignatureType GetModifiedType(
         StructuralSignatureType modifier,
         StructuralSignatureType unmodifiedType,
         bool isRequired)
-        => new ModifiedStructuralSignatureType(
-            modifier,
-            unmodifiedType,
-            isRequired);
+    {
+        StructuralSignatureType type =
+            new ModifiedStructuralSignatureType(
+                modifier,
+                unmodifiedType,
+                isRequired);
+        ObserveLocalEncodedWork(
+            type.EncodedLength,
+            checked(
+                modifier.EncodedLength
+                + unmodifiedType.EncodedLength));
+        return type;
+    }
 
     StructuralSignatureType NamedTypeUse(
         MetadataReader reader,
@@ -1527,6 +1728,34 @@ sealed class StructuralSignatureTypeProvider
                 "A generic type parameter index exceeds the TypeSpec argument list.");
         }
         return index;
+    }
+
+    void ObserveLeafEncodedWork(
+        StructuralSignatureType type)
+        => ObserveEncodedWork(type.EncodedLength);
+
+    void ObserveSubtreeEncodedWork(
+        StructuralSignatureType type)
+        => ObserveEncodedWork(type.EncodedLength);
+
+    void ObserveLocalEncodedWork(
+        int totalEncodedLength,
+        int childEncodedLength)
+        => ObserveEncodedWork(
+            checked(
+                totalEncodedLength
+                - childEncodedLength));
+
+    void ObserveEncodedWork(
+        int encodedLength)
+    {
+        if (encodedLength <= 0)
+            return;
+
+        _observedEncodedWork = checked(
+            _observedEncodedWork
+            + encodedLength);
+        _beforeEncodedWork?.Invoke(encodedLength);
     }
 }
 

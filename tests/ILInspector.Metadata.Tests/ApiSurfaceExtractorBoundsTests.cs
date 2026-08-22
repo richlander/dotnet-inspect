@@ -871,6 +871,37 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void MalformedExplicitMethodImplSignaturesUseExtractionWideDecodeBudget()
+    {
+        byte[] image =
+            BuildMalformedWideMethodImplSignatureImage(
+                declarationCount: 500,
+                firstParameterCount: 1_000);
+        using var stream = new MemoryStream(
+            image,
+            writable: false);
+        using var peReader = new PEReader(stream);
+
+        var exceeded =
+            Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+                ApiSurfaceExtractor.ExtractBounded(
+                    peReader,
+                    ApiSurfaceExtractionScope.Public,
+                    new ApiSurfaceExtractionBounds(
+                        maxTypes: 10,
+                        maxMembers: 10,
+                        maxInspectionFailures: 10,
+                        maxTypeForwarders: 10,
+                        maxMetadataRows: 10_000,
+                        maxRetainedTextCharacters:
+                            64 * 1024 * 1024)));
+
+        Assert.Equal(
+            ApiSurfaceExtractionBound.RetainedTextCharacters,
+            exceeded.Bound);
+    }
+
+    [Fact]
     public void RepeatedLongSkippedFieldName_StopsBeforeLargeAllocationAmplification()
     {
         AssertTextAmplificationIsBounded(
@@ -2315,6 +2346,80 @@ public sealed class ApiSurfaceExtractorBoundsTests
             {
                 signature.WriteByte(0x08);
             }
+            MemberReferenceHandle declaration =
+                metadata.AddMemberReference(
+                    contract,
+                    metadata.GetOrAddString("Map"),
+                    metadata.GetOrAddBlob(signature));
+            metadata.AddMethodImplementation(
+                type,
+                body,
+                declaration);
+        }
+
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildMalformedWideMethodImplSignatureImage(
+        int declarationCount,
+        int firstParameterCount)
+    {
+        var metadata = Metadata(
+            "MalformedWideMethodImplSignatures");
+        TypeDefinitionHandle type = AddModuleAndPublicType(
+            metadata,
+            "MalformedWideMethodImplSignatures");
+        AssemblyReferenceHandle contracts =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Contracts"),
+                new Version(1, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(
+                    Convert.FromHexString(
+                        "B03F5F7F11D50A3A")),
+                default,
+                default);
+        TypeReferenceHandle contract =
+            metadata.AddTypeReference(
+                contracts,
+                metadata.GetOrAddString("Contracts"),
+                metadata.GetOrAddString("IMap"));
+        BlobHandle bodySignature =
+            AddUnaryMethodSignature(metadata, 0x08);
+        MethodDefinitionHandle body =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | MethodAttributes.Final
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Map"),
+                bodySignature,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddInterfaceImplementation(type, contract);
+
+        for (int declarationIndex = 0;
+            declarationIndex < declarationCount;
+            declarationIndex++)
+        {
+            int parameterCount =
+                checked(
+                    firstParameterCount
+                    + declarationIndex);
+            var signature = new BlobBuilder(
+                parameterCount + 8);
+            signature.WriteByte(0x20);
+            signature.WriteCompressedInteger(parameterCount);
+            signature.WriteByte(0x08);
+            for (int parameterIndex = 0;
+                parameterIndex < parameterCount - 1;
+                parameterIndex++)
+            {
+                signature.WriteByte(0x08);
+            }
+            signature.WriteByte(0x41);
+
             MemberReferenceHandle declaration =
                 metadata.AddMemberReference(
                     contract,

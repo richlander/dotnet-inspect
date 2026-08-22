@@ -1,4 +1,6 @@
+using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Metadata.Tests;
@@ -308,6 +310,29 @@ public sealed class MethodStructuralSignatureTests
 
         Assert.Equal(firstIdentity, secondIdentity);
         Assert.Equal(firstIdentity.Encoded.Length, charged);
+    }
+
+    [Fact]
+    public void BuildSignature_ChargesAttemptedEncodedWorkBeforeFailure()
+    {
+        byte[] image = BuildMalformedPrimitiveSignatureImage(
+            parameterCount: 4_000);
+        using var pe = new PEReader(new MemoryStream(image));
+        MetadataReader reader = pe.GetMetadataReader();
+        MethodDefinition method =
+            reader.GetMethodDefinition(
+                reader.MethodDefinitions.Single());
+        int charged = 0;
+        var builder = new StructuralSignatureBuilder(
+            reader,
+            amount => charged = checked(charged + amount),
+            normalizeNamedTypeScope: null);
+
+        Assert.Throws<BadImageFormatException>(
+            () => builder.BuildSignature(method));
+        Assert.True(
+            charged > 0,
+            "Expected failed signature decode to charge attempted encoded work.");
     }
 
     [Fact]
@@ -770,6 +795,67 @@ public sealed class MethodStructuralSignatureTests
 
         System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
             => GetEnumerator();
+    }
+
+    static byte[] BuildMalformedPrimitiveSignatureImage(
+        int parameterCount)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Probe.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Probe"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            default,
+            metadata.GetOrAddString("C"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var signature = new BlobBuilder(parameterCount + 8);
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(parameterCount);
+        signature.WriteByte(0x01);
+        for (int index = 0; index < parameterCount - 1; index++)
+            signature.WriteByte(0x08);
+        signature.WriteByte(0x41);
+
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            new PEHeaderBuilder(
+                imageCharacteristics:
+                    Characteristics.Dll
+                    | Characteristics.ExecutableImage),
+            new MetadataRootBuilder(metadata),
+            ilStream: new BlobBuilder());
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
     }
 }
 

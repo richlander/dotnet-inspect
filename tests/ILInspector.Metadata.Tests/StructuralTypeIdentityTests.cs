@@ -117,6 +117,60 @@ public sealed class StructuralTypeIdentityTests
     }
 
     [Fact]
+    public void TypeNode_DistinguishesSzArraysFromRankOneMdArraysAndPreservesMdShape()
+    {
+        var provider = TypeNodeProvider.Instance;
+        TypeNode element =
+            provider.GetPrimitiveType(PrimitiveTypeCode.Int32);
+        TypeNode szArray =
+            provider.GetSZArrayType(element);
+        TypeNode mdRankOne =
+            provider.GetArrayType(
+                element,
+                new ArrayShape(
+                    1,
+                    [],
+                    []));
+        TypeNode mdRankOneEquivalent =
+            provider.GetArrayType(
+                provider.GetPrimitiveType(
+                    PrimitiveTypeCode.Int32),
+                new ArrayShape(
+                    1,
+                    [],
+                    []));
+        TypeNode mdSized =
+            provider.GetArrayType(
+                provider.GetPrimitiveType(
+                    PrimitiveTypeCode.Int32),
+                new ArrayShape(
+                    1,
+                    [3],
+                    []));
+        TypeNode mdLowerBounded =
+            provider.GetArrayType(
+                provider.GetPrimitiveType(
+                    PrimitiveTypeCode.Int32),
+                new ArrayShape(
+                    1,
+                    [],
+                    [0]));
+
+        Assert.NotEqual(
+            szArray.StructuralIdentity(),
+            mdRankOne.StructuralIdentity());
+        Assert.Equal(
+            mdRankOne.StructuralIdentity(),
+            mdRankOneEquivalent.StructuralIdentity());
+        Assert.NotEqual(
+            mdRankOne.StructuralIdentity(),
+            mdSized.StructuralIdentity());
+        Assert.NotEqual(
+            mdRankOne.StructuralIdentity(),
+            mdLowerBounded.StructuralIdentity());
+    }
+
+    [Fact]
     public void TypeNode_RecursesPositionalGenericsUnderWrappersAndGenericInstantiations()
     {
         var provider = TypeNodeProvider.Instance;
@@ -246,5 +300,70 @@ public sealed class StructuralTypeIdentityTests
                 namespaced,
                 ["System.Int32", "System.String"],
                 normalizePlatform: false));
+    }
+
+    [Fact]
+    public void ScopedArrayIdentityPreservesEveryArrayShapeDiscriminator()
+    {
+        var scoped =
+            new ScopedNamedTypeIdentity(
+                "assembly-a",
+                "platform",
+                RawTypeKind: 0x12);
+        var metadataName =
+            new MetadataTypeNameParts(
+                "Contracts",
+                ["Buffer"]);
+        TypeNode element =
+            new NamedTypeNode(
+                "Contracts.Buffer",
+                isReferenceType: true,
+                metadataName,
+                scoped);
+        TypeNode szArray =
+            new SZArrayTypeNode(element);
+        TypeNode mdRankOne =
+            new MDArrayTypeNode(
+                element,
+                new ArrayShape(
+                    1,
+                    [],
+                    []));
+        TypeNode mdRankOneEquivalent =
+            new MDArrayTypeNode(
+                new NamedTypeNode(
+                    "Contracts.Buffer",
+                    isReferenceType: true,
+                    metadataName,
+                    scoped),
+                new ArrayShape(
+                    1,
+                    [],
+                    []));
+        TypeNode mdDifferentLowerBound =
+            new MDArrayTypeNode(
+                element,
+                new ArrayShape(
+                    1,
+                    [],
+                    [1]));
+
+        Assert.NotEqual(
+            szArray.StructuralIdentity(),
+            mdRankOne.StructuralIdentity());
+        Assert.Equal(
+            mdRankOne.StructuralIdentity(),
+            mdRankOneEquivalent.StructuralIdentity());
+        Assert.Equal(
+            mdRankOne.PlatformNormalizedStructuralIdentity(),
+            mdRankOneEquivalent
+                .PlatformNormalizedStructuralIdentity());
+        Assert.NotEqual(
+            mdRankOne.StructuralIdentity(),
+            mdDifferentLowerBound.StructuralIdentity());
+        Assert.NotEqual(
+            mdRankOne.PlatformNormalizedStructuralIdentity(),
+            mdDifferentLowerBound
+                .PlatformNormalizedStructuralIdentity());
     }
 }

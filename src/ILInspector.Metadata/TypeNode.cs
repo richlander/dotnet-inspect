@@ -477,10 +477,20 @@ internal sealed class SZArrayTypeNode(TypeNode elementType) : TypeNode
         Math.Min(int.MaxValue, elementType.EstimatedRenderedLength + 3);
 
     internal override string StructuralIdentity()
-        => $"{elementType.StructuralIdentity()}[]";
+        => StructuralTypeIdentity.Array(
+            elementType.StructuralIdentity(),
+            isSzArray: true,
+            rank: 1,
+            sizes: [],
+            lowerBounds: []);
 
     internal override string PlatformNormalizedStructuralIdentity()
-        => $"{elementType.PlatformNormalizedStructuralIdentity()}[]";
+        => StructuralTypeIdentity.Array(
+            elementType.PlatformNormalizedStructuralIdentity(),
+            isSzArray: true,
+            rank: 1,
+            sizes: [],
+            lowerBounds: []);
 
     public override string Render(bool canonicalTuples)
     {
@@ -503,26 +513,41 @@ internal sealed class SZArrayTypeNode(TypeNode elementType) : TypeNode
 }
 
 /// <summary>Multi-dimensional arrays (int[,], etc.).</summary>
-internal sealed class MDArrayTypeNode(TypeNode elementType, int rank) : TypeNode
+internal sealed class MDArrayTypeNode(TypeNode elementType, ArrayShape shape)
+    : TypeNode
 {
     public TypeNode ElementType => elementType;
+    public ArrayShape Shape => shape;
     public override bool IsReferenceType => true;
     public override bool IsDegraded => elementType.IsDegraded;
     internal override bool HasStructuralPayload => elementType.HasStructuralPayload;
     public override long EstimatedRenderedLength =>
         Math.Min(
             int.MaxValue,
-            elementType.EstimatedRenderedLength + Math.Max(rank, 0L) + 2);
+            elementType.EstimatedRenderedLength
+            + Math.Max(shape.Rank, 0L)
+            + 2);
 
     internal override string StructuralIdentity()
-        => $"{elementType.StructuralIdentity()}[{new string(',', Math.Max(rank - 1, 0))}]";
+        => StructuralTypeIdentity.Array(
+            elementType.StructuralIdentity(),
+            isSzArray: false,
+            shape.Rank,
+            shape.Sizes,
+            shape.LowerBounds);
 
     internal override string PlatformNormalizedStructuralIdentity()
-        => $"{elementType.PlatformNormalizedStructuralIdentity()}[{new string(',', Math.Max(rank - 1, 0))}]";
+        => StructuralTypeIdentity.Array(
+            elementType.PlatformNormalizedStructuralIdentity(),
+            isSzArray: false,
+            shape.Rank,
+            shape.Sizes,
+            shape.LowerBounds);
 
     public override string Render(bool canonicalTuples)
     {
-        var result = $"{elementType.Render(canonicalTuples)}[{new string(',', rank - 1)}]";
+        var result =
+            $"{elementType.Render(canonicalTuples)}[{new string(',', shape.Rank - 1)}]";
         return IsNullableAnnotated ? $"{result}?" : result;
     }
 

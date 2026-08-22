@@ -6531,7 +6531,9 @@ static class FidelityCheck
                     actual
                         .PlatformNormalizedDeclarationSignatureIdentity);
         }
-        if (expected.Assembly == actual.Assembly)
+        if (AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                expected.Assembly,
+                actual.Assembly))
         {
             return expected.InterfaceTypeIdentity
                     == actual.InterfaceTypeIdentity
