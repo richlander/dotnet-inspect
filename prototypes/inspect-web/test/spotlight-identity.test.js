@@ -651,6 +651,12 @@ test("typed settings panel owns its rendered control bindings", () => {
   const settingsEventBinder = functionDeclaration("bindSettingsPanelEvents");
   const eventBinderCalls = callExpressionsNamed(appSyntax, "bindSettingsPanelEvents");
   assert.equal(eventBinderCalls.length, 2);
+  assert.equal(
+    syntaxNodes(
+      appSyntax,
+      node => node.type === "Identifier"
+        && node.name === "bindSettingsPanelEvents").length,
+    3);
   for (const [owner, description] of [
     [bindEvents, "workbench settings binder"],
     [renderSettings, "settings view binder"],
@@ -667,6 +673,19 @@ test("typed settings panel owns its rendered control bindings", () => {
       1,
       `${description} direct call`);
   }
+  assert.equal(renderSettings.body.body.length, 2);
+  const renderStatement = renderSettings.body.body[0];
+  assert.equal(renderStatement.type, "ExpressionStatement");
+  assert.equal(renderStatement.expression.type, "AssignmentExpression");
+  assert.equal(renderStatement.expression.operator, "=");
+  assert.equal(sourceText(renderStatement.expression.left), "app.innerHTML");
+  assert.equal(renderStatement.expression.right.type, "CallExpression");
+  assert.equal(renderStatement.expression.right.callee.type, "Identifier");
+  assert.equal(renderStatement.expression.right.callee.name, "renderSettingsView");
+  assert.ok(
+    directCallExpression(
+      renderSettings.body.body[1],
+      "bindSettingsPanelEvents"));
 
   const innerSettingsCalls = callExpressionsNamed(appSyntax, "bindSettingsPanel");
   assert.equal(innerSettingsCalls.length, 1);
@@ -680,6 +699,7 @@ test("typed settings panel owns its rendered control bindings", () => {
   assert.equal(innerSettingsCall.arguments[0].name, "document");
   const actions = innerSettingsCall.arguments[1];
   assert.equal(actions.type, "ObjectExpression");
+  assert.equal(actions.properties.length, 4);
   for (const [name, value] of [
     ["onClose", "closeSettings"],
     ["onTasteClear", "clearTaste"],
