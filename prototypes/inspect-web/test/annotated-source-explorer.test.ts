@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   AnnotatedSourceExplorerRenderCoordinator,
   bindAnnotatedSourceEntry,
+  bindAnnotatedSourceExplorer,
   createAnnotatedSourceExplorerState,
   reduceAnnotatedSourceExplorerState,
   renderAnnotatedSourceEntry,
@@ -41,7 +42,26 @@ function escapeHtml(value: unknown) {
 }
 
 class FakeElement {
+  readonly dataset: Record<string, string | undefined>;
+  readonly ownerDocument: {
+    activeElement: unknown;
+    getSelection(): {
+      isCollapsed: boolean;
+      containsNode(): boolean;
+    } | null;
+  };
   private readonly listeners = new Map<string, EventListener[]>();
+
+  constructor(
+    dataset: Record<string, string | undefined> = {},
+    ownerDocument: FakeElement["ownerDocument"] = {
+      activeElement: null,
+      getSelection: () => null,
+    },
+  ) {
+    this.dataset = dataset;
+    this.ownerDocument = ownerDocument;
+  }
 
   addEventListener(type: string, listener: EventListener): void {
     const listeners = this.listeners.get(type) ?? [];
@@ -49,9 +69,9 @@ class FakeElement {
     this.listeners.set(type, listeners);
   }
 
-  dispatch(type: string): void {
+  dispatch(type: string, event: Event = fakeDom.event()): void {
     for (const listener of this.listeners.get(type) ?? []) {
-      listener(fakeDom.event());
+      listener(event);
     }
   }
 }
@@ -85,6 +105,42 @@ test("the member tab binds copy and full-screen handoff controls", () => {
   copy.dispatch("click");
   open.dispatch("click");
   assert.deepEqual(calls, ["copy", "open"]);
+});
+
+test("drag selection does not activate an addressable source segment", () => {
+  let selecting = true;
+  const ownerDocument = {
+    activeElement: null,
+    getSelection: () => ({
+      isCollapsed: !selecting,
+      containsNode: () => selecting,
+    }),
+  };
+  const offset = new FakeElement({ aseOffset: "17" }, ownerDocument);
+  const calls: number[] = [];
+  const root = fakeDom.parentNode({
+    querySelector: () => null,
+    querySelectorAll: (selector: string) =>
+      selector === "[data-ase-offset]" ? [offset] : [],
+  });
+
+  bindAnnotatedSourceExplorer(root, {
+    onClearSelection: () => {},
+    onCopy: () => {},
+    onExit: () => {},
+    onFactSelect: () => {},
+    onMediumToggle: () => {},
+    onNodeKindSelect: () => {},
+    onNodeSelect: () => {},
+    onOffsetSelect: value => calls.push(value),
+  });
+
+  offset.dispatch("click", fakeDom.event({ detail: 1 }));
+  assert.deepEqual(calls, []);
+  selecting = false;
+  offset.dispatch("click", fakeDom.event({ detail: 1 }));
+  offset.dispatch("click", fakeDom.event({ detail: 0 }));
+  assert.deepEqual(calls, [17, 17]);
 });
 
 test("the app routes the member tab into the TypeScript explorer", () => {

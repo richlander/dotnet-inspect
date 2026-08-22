@@ -105,7 +105,16 @@ export function bindAnnotatedSourceExplorer(
   root.querySelectorAll<HTMLElement>("[data-ase-offset]").forEach(button =>
     button.addEventListener(
       "click",
-      () => actions.onOffsetSelect(Number(button.dataset.aseOffset))));
+      event => {
+        const selection = button.ownerDocument.getSelection();
+        if (event.detail !== 0
+          && selection
+          && !selection.isCollapsed
+          && selection.containsNode(button, true)) {
+          return;
+        }
+        actions.onOffsetSelect(Number(button.dataset.aseOffset));
+      }));
   root.querySelector("#ase-clear")?.addEventListener("click", actions.onClearSelection);
 
   const code = root.querySelector<HTMLElement>(".ase-code-scroll");
