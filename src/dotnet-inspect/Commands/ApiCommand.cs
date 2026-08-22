@@ -1569,7 +1569,9 @@ public class ApiCommand
                 methodName,
                 methodInfo.SourceUrl ?? methodInfo.FilePath,
                 pdbPath,
-                methodInfo.SequencePointStartLines);
+                methodInfo.SequencePointStartLines,
+                methodInfo.ChecksumAlgorithm,
+                methodInfo.Checksum);
         }
         catch (Exception ex)
         {
@@ -1590,7 +1592,9 @@ public class ApiCommand
         string methodName,
         string sourceLocation,
         string? pdbPath,
-        IReadOnlyList<int>? visibleSequencePointStartLines = null)
+        IReadOnlyList<int>? visibleSequencePointStartLines = null,
+        string? checksumAlgorithm = null,
+        byte[]? checksum = null)
     {
         try
         {
@@ -1609,7 +1613,11 @@ public class ApiCommand
                     pdbPath,
                     MemberHasNoAuthoredDeclaration: true)
                 : new ResolvedMethodSource(
-                    new MethodSourceContext(sourceCode, sourceLocation),
+                    new MethodSourceContext(
+                        sourceCode,
+                        sourceLocation,
+                        checksumAlgorithm,
+                        checksum is null ? null : Convert.ToHexString(checksum)),
                     pdbPath);
         }
         catch (CSharpTextComplexityException)
@@ -1941,7 +1949,9 @@ public class ApiCommand
                 view,
                 GetRequestedMemberSections(type, options),
                 options is MemberOptions { MemberSourceTooComplex: true },
-                options is MemberOptions { MemberSourceCoordinatesInvalid: true });
+                options is MemberOptions { MemberSourceCoordinatesInvalid: true },
+                (options as MemberOptions)?.MethodSource,
+                options.Verbosity < Verbosity.Detailed);
 
         }
 
@@ -2172,7 +2182,7 @@ public class ApiCommand
             SectionNames.OriginalSource => CodeSectionDocument(section, "Original Source", (options as MemberOptions)?.MethodSource?.SourceUrl, view.MemberCode?.OriginalSourceCode.Content),
             SectionNames.DecompiledSource => CodeSectionDocument(section, "Decompiled Source", null, view.MemberCode?.DecompiledSourceCode.Content),
             SectionNames.AnnotatedSource => CodeSectionDocument(section, "Annotated Source", null, view.MemberCode?.AnnotatedSourceCode.Content),
-            SectionNames.SourceDiff => CodeSectionDocument(section, "Source Diff", null, view.MemberCode?.SourceDiffCode.Content),
+            SectionNames.SourceDiff => CodeSectionDocument(section, "Source Diff", (options as MemberOptions)?.MethodSource?.SourceUrl, view.MemberCode?.SourceDiffCode.Content),
             SectionNames.IL => CodeSectionDocument(section, "IL", null, view.MemberCode?.ILCode.Content),
             _ => []
         };
@@ -2755,7 +2765,9 @@ public class ApiCommand
                     view,
                     requestedSections,
                     memberOptions.MemberSourceTooComplex,
-                    memberOptions.MemberSourceCoordinatesInvalid);
+                    memberOptions.MemberSourceCoordinatesInvalid,
+                    memberOptions.MethodSource,
+                    memberOptions.Verbosity < Verbosity.Detailed);
             }
 
             if (renderOptions is TypeOptions
@@ -2898,7 +2910,9 @@ public class ApiCommand
         TypeView view,
         IReadOnlySet<string> requestedSections,
         bool sourceTooComplex,
-        bool sourceCoordinatesInvalid)
+        bool sourceCoordinatesInvalid,
+        MethodSourceContext? source,
+        bool reviewerSized)
     {
         if (!requestedSections.Contains(SectionNames.SourceDiff))
             return;
@@ -2921,15 +2935,28 @@ public class ApiCommand
             return;
         }
 
-        view.MemberCode.SourceDiffCode = new Markout.CodeSection(
-            "diff",
-            SourceTextDiffRenderer.CreateUnifiedDiff(
+        string diff = SourceTextDiffRenderer.CreateUnifiedDiff(
                 // The bodyless note is an explanation, not source text: leave the diff's
                 // "before" side unavailable so it reports that rather than diffing the note.
                 view.MemberCode.OriginalSourceUnavailable ? null : view.MemberCode.OriginalSourceCode.Content,
                 view.MemberCode.DecompiledSourceCode.Content,
                 "Original Source",
-                "Decompiled Source"));
+                "Decompiled Source",
+                reviewerSized);
+        if (source is { HasChecksumEvidence: true })
+        {
+            string location = CSharpText.CSharpIdentifier.ContainRenderedText(
+                source.SourceUrl ?? "portable-PDB source document");
+            string algorithm = CSharpText.CSharpIdentifier.ContainRenderedText(
+                source.ChecksumAlgorithm!);
+            string checksum = CSharpText.CSharpIdentifier.ContainRenderedText(
+                source.Checksum!);
+            diff = $"# Authored source: {location}\n"
+                + $"# Integrity: verified against portable-PDB {algorithm} checksum {checksum}.\n"
+                + diff;
+        }
+
+        view.MemberCode.SourceDiffCode = new Markout.CodeSection("diff", diff);
     }
 
     private static void WriteJsonTypeOutput(ApiType type, ApiOptions options)

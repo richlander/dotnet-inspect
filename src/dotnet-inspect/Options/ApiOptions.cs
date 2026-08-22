@@ -361,4 +361,13 @@ public record MemberOptions : ApiOptions
 /// <summary>
 /// Resolved source context for a single method, ready for rendering.
 /// </summary>
-public record MethodSourceContext(string SourceCode, string? SourceUrl);
+public record MethodSourceContext(
+    string SourceCode,
+    string? SourceUrl,
+    string? ChecksumAlgorithm = null,
+    string? Checksum = null)
+{
+    public bool HasChecksumEvidence =>
+        !string.IsNullOrWhiteSpace(ChecksumAlgorithm)
+        && !string.IsNullOrWhiteSpace(Checksum);
+}

@@ -10342,7 +10342,9 @@ public partial class CommandExecutionTests
                     return value + 2;
                 }
                 """,
-                SourceUrl: null)
+                SourceUrl: "https://raw.githubusercontent.com/example/repo/0123456789abcdef/Fixture.cs",
+                ChecksumAlgorithm: "SHA256",
+                Checksum: "0123456789ABCDEF")
         };
 
         var (exit, output, error) = await ConsoleCapture.RunAsync(
@@ -10352,12 +10354,84 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("## Source Diff", output);
         Assert.Contains("```diff", output);
+        Assert.Contains(
+            "# Authored source: https://raw.githubusercontent.com/example/repo/0123456789abcdef/Fixture.cs",
+            output);
+        Assert.Contains(
+            "# Integrity: verified against portable-PDB SHA256 checksum 0123456789ABCDEF.",
+            output);
         Assert.Contains("--- Original Source", output);
         Assert.Contains("+++ Decompiled Source", output);
         Assert.Contains("-    return value + 2;", output);
         Assert.Contains("+public int AddOne(int value) => value + 1;", output);
         Assert.DoesNotContain("## Original Source", output);
         Assert.DoesNotContain("## Decompiled Source", output);
+    }
+
+    [Fact]
+    public async Task Member_SourceDiff_DetailedVerbosityPreservesCompleteLineEvidence()
+    {
+        using var stream = File.OpenRead(TestAssemblyPath);
+        using var peReader = new PEReader(stream);
+        var api = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        var type = Assert.Single(
+            api.Types,
+            candidate => candidate.FullName == typeof(CommandExecutionSourceDiffFixture).FullName);
+        var member = Assert.Single(
+            type.Members,
+            candidate => candidate.Name == nameof(CommandExecutionSourceDiffFixture.AddOne));
+        type.Members = [member];
+
+        string authored = string.Join(
+            "\n",
+            Enumerable.Range(1, 120).Select(index => $"authored-line-{index}"));
+        MemberOptions Options(Verbosity verbosity) => new()
+        {
+            AssemblyPath = TestAssemblyPath,
+            DllPath = TestAssemblyPath,
+            TypeName = type.FullName,
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                { nameof(CommandExecutionSourceDiffFixture.AddOne) },
+            OverloadIndex = member.DeclaringOverloadIndex ?? 1,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                { SectionNames.SourceDiff },
+            Verbosity = verbosity,
+            MethodSource = new MethodSourceContext(
+                authored,
+                "https://raw.githubusercontent.com/example/repo/0123456789abcdef/Fixture.cs",
+                "SHA256",
+                "0123456789ABCDEF"),
+        };
+
+        var (normalExit, normalOutput, normalError) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: "dotnet-inspect.Tests",
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                Options(Verbosity.Normal)));
+        var (detailedExit, detailedOutput, detailedError) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: "dotnet-inspect.Tests",
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                Options(Verbosity.Detailed)));
+
+        Assert.Equal(0, normalExit);
+        Assert.Empty(normalError);
+        Assert.Contains("Source diff status: Partial", normalOutput);
+        Assert.Contains("use -v:d for complete line evidence", normalOutput);
+        Assert.DoesNotContain("-authored-line-60", normalOutput);
+
+        Assert.Equal(0, detailedExit);
+        Assert.Empty(detailedError);
+        Assert.DoesNotContain("Source diff status: Partial", detailedOutput);
+        Assert.Contains("-authored-line-60", detailedOutput);
     }
 
     [Fact]

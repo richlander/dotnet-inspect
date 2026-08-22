@@ -586,7 +586,13 @@ to high. Caller-loop evidence remains queryable but does not change priority.
 evidence: `Decompiled Source` (raised C#), `Annotated Source` (C# with
 hidden-fact comments and interleaved IL), `Annotated Source Document` (the same
 rendering as a machine payload), `Original Source` (SourceLink-backed),
-and `IL`. The decompiler is exception-safe by construction and degrades
+`Source Diff` (Original Source compared with Decompiled Source), and `IL`.
+`Source Diff` names the checksum-verified authored document in its diff
+comments. Normal output uses bounded unified hunks for review; if it reports a
+partial presentation, use `-v:d` to emit complete line evidence. Source
+convergence remains independent of compile-back fidelity: similar text does not
+prove equivalent IL, and different text does not prove incorrect behavior.
+The decompiler is exception-safe by construction and degrades
 honestly: IL with no faithful C# spelling renders as a visible comment and
 lowers the result's fidelity level (`Full` → `Partial` → `StructuredOnly` →
 `IlOnly` → `Failed`) instead of emitting plausible-but-wrong source, with a

@@ -161,6 +161,42 @@ alignment; `AnnotationGestureTests.
 AlignedDetailContinuationsShareTheFirstCaretColumn` gates continuation
 alignment in the reusable renderer.
 
+### Authored-source convergence
+
+`member -S "Source Diff"` is the Original → After reviewer lens. It compares
+the checksum-verified authored declaration with the candidate decompiled
+member as line-oriented text. It does not reuse structural correspondence:
+authored C# has no product-issued IL-origin node identity, so this lens reports
+text convergence and never claims that authored syntax nodes correspond to
+decompiler nodes.
+
+Normal verbosity renders standard unified hunks with three context lines,
+retains at most five hunk examples and 80 lines per hunk, and reports
+`Partial` with the omitted counts when either bound is crossed. Detailed
+verbosity (`-v:d`) retains the complete line stream. Both forms identify the
+authored source location and portable-PDB checksum used to verify it.
+`SourceTextDiffRendererTests.
+ReviewerSizedDiff_OmitsDistantUnchangedLinesButRetainsEveryChange` and
+`ReviewerSizedDiff_BoundsHunksAndLargeHunksWithVisibleDisclosure`, plus
+`ReviewerSizedDiff_BoundsTheNumberOfHunkExamples`, gate the bounded projection.
+`CommandExecutionTests.
+Member_SourceDiff_DetailedVerbosityPreservesCompleteLineEvidence` gates the
+normal/detailed boundary, while
+`Member_SelectedOverload_SelectSourceDiff_RendersOriginalVsDecompiledDiff`
+gates visible source identity and checksum evidence. The acquisition side is
+gated by
+`VerifiedLocalSourceReadTests.ReturnsBytes_WhenChecksumMatches`,
+`VerifiedLocalSourceReadTests.ReturnsNull_WhenChecksumMismatches`, and
+`AuthoredSourceAcquisitionTests.
+FromContent_MismatchedChecksumProducesFailedInspection`; a source context is
+published only after one of the verified local, repository, or fetched paths
+accepts the portable-PDB checksum.
+
+This lens does not infer validity, behavior, or compile-back fidelity from
+text. Decompiler raise reviews place the independently measured compile-back
+status beside it and keep the structural Before → After lens available when
+authored source is unavailable.
+
 ## Research comparison model
 
 `ResearchDiff` is the operation facade. It returns one `ResearchComparison`
