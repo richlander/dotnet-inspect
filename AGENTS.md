@@ -82,10 +82,19 @@ them.
 
 ### Name the window for identity
 
-`tmux rename-window pr<number>` — not the session. A tmux session is shared by
-every window on that host, so renaming it identifies nothing; `rename-window`
-sets the same per-window name that `C-b ,` sets. Without a PR yet, use the
-issue: `i<number>`.
+```sh
+tmux rename-window -t "$TMUX_PANE" pr<number>
+```
+
+**The `-t "$TMUX_PANE"` is required, not decoration.** Bare `tmux rename-window`
+resolves to the session's *current* window, not the window you are running in —
+so without it you rename whichever window the operator happens to be viewing,
+and every agent overwrites every other agent's name. Verified: a rename issued
+from window 2 renamed window 0.
+
+Rename the window, never the session. A session is shared by every window on
+that host, so renaming it identifies nothing. Without a PR yet, use the issue:
+`i<number>`.
 
 Keep the name short and stable. The status bar truncates, and a truncated name
 reads as a corrupted one. Do not encode changing state in it — your terminal
