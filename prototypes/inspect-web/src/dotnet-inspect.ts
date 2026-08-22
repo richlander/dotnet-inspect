@@ -100,7 +100,10 @@ import {
   nodeAtOffset,
   validateAnnotatedSourceDocument,
 } from "./annotated-source-view.ts";
-import { renderScopeBar as renderScopeBarPure } from "./scope-bar.ts";
+import {
+  bindScopeBar,
+  renderScopeBar as renderScopeBarPure,
+} from "./scope-bar.ts";
 import {
   renderDocViewer as renderDocViewerPure,
   type DocViewerMeta,
@@ -3814,34 +3817,48 @@ function bindTypePanelEvents() {
   });
 }
 
+function bindScopeBarEvents() {
+  bindScopeBar(document, {
+    onMemberSectionSelect: section => {
+      if (section && isMemberSection(section)) applyMemberSection(section);
+    },
+    onPackageLensSelect: lens => {
+      state.packageLens = lens;
+      render();
+    },
+    onScopeSelect: target => {
+      if (target === "package") {
+        state.atPackageRoot = true;
+      } else if (target === "type") {
+        // Pop out to the type level: leave the package root and drop any open member so the
+        // type lenses (API / Metadata / Source) take the strip. Ensure a type is selected.
+        state.atPackageRoot = false;
+        if (!state.selectedTypeId) {
+          const first = filteredTypes()[0];
+          if (first) state.selectedTypeId = first.id;
+        }
+        state.selectedMemberKey = "";
+        state.memberBrowseTypeId = "";
+        state.selectedOverloadIndex = null;
+      } else if (target === "member") {
+        enterMemberScope();
+      }
+      render();
+    },
+    onTypeLensSelect: lens => {
+      state.lens = lens;
+      state.selectedMemberKey = "";
+      state.memberBrowseTypeId = "";
+      render();
+    },
+  });
+}
+
 function bindEvents() {
   bindStatusBarToggle();
   packageBar.bind(document);
   bindTypePanelEvents();
-  document.querySelectorAll<HTMLElement>("[data-scope]").forEach(button => button.addEventListener("click", () => {
-    const target = button.dataset.scope;
-    if (target === "package") {
-      state.atPackageRoot = true;
-    } else if (target === "type") {
-      // Pop out to the type level: leave the package root and drop any open member so the
-      // type lenses (API / Metadata / Source) take the strip. Ensure a type is selected.
-      state.atPackageRoot = false;
-      if (!state.selectedTypeId) {
-        const first = filteredTypes()[0];
-        if (first) state.selectedTypeId = first.id;
-      }
-      state.selectedMemberKey = "";
-      state.memberBrowseTypeId = "";
-      state.selectedOverloadIndex = null;
-    } else if (target === "member") {
-      enterMemberScope();
-    }
-    render();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-package-lens]").forEach(button => button.addEventListener("click", () => {
-    state.packageLens = button.dataset.packageLens ?? "overview";
-    render();
-  }));
+  bindScopeBarEvents();
   document.querySelectorAll<HTMLElement>("[data-framework-chip]").forEach(button => button.addEventListener("click", () => {
     observeAsync(
       switchPackageFramework(button.dataset.frameworkChip ?? ""),
@@ -3896,12 +3913,6 @@ function bindEvents() {
     state.typeCursor = 0;
     const first = filteredTypes()[0];
     if (first) state.selectedTypeId = first.id;
-    render();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-lens]").forEach(button => button.addEventListener("click", () => {
-    state.lens = button.dataset.lens ?? "api";
-    state.selectedMemberKey = "";
-    state.memberBrowseTypeId = "";
     render();
   }));
   document.querySelectorAll<HTMLElement>("[data-graph-type]").forEach(button => button.addEventListener("click", () => {
@@ -4016,10 +4027,6 @@ function bindEvents() {
   }));
   document.querySelectorAll<HTMLElement>("[data-overload]").forEach(button => button.addEventListener("click", () => {
     openOverload(Number(button.dataset.overload));
-  }));
-  document.querySelectorAll<HTMLElement>("[data-member-section]").forEach(button => button.addEventListener("click", () => {
-    const section = button.dataset.memberSection;
-    if (section && isMemberSection(section)) applyMemberSection(section);
   }));
   document.querySelector("#member-back")?.addEventListener("click", () => {
     drillOut();
