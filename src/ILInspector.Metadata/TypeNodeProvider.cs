@@ -80,27 +80,18 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
     /// a canonical <c>`N</c> suffix (#4507). Scoped to <see cref="TypeDefinitionHandle"/>
     /// (a local declaration): a <see cref="TypeReferenceHandle"/> has no
     /// equivalent trusted source without loading the referenced assembly, which
-    /// this product does not do.
+    /// this product does not do. Malformed generic-parameter ownership propagates
+    /// as a rejection instead of producing an ordinary raw-name rendering, gated
+    /// by <c>NestedGenericSignature_WithMalformedOwnership_IsReportedAsInspectionFailure</c>.
     /// </summary>
     static MetadataTypeNameParts WithTrustedArity(
         MetadataReader reader,
         TypeDefinitionHandle handle,
         MetadataTypeNameParts metadataName)
-    {
-        try
-        {
-            List<int> counts = MetadataDeclarationQuery.GetIntroducedTypeParameterCounts(reader, handle);
-            return metadataName.WithIntroducedTypeParameterCounts(counts);
-        }
-        catch (BadImageFormatException)
-        {
-            // A malformed declaring/generic-parameter relationship here does not
-            // change what TryGetTypeNameFromDefinition already resolved; fall
-            // back to raw-name-only arity rather than rejecting a name the
-            // caller already trusts.
-            return metadataName;
-        }
-    }
+        => metadataName.WithIntroducedTypeParameterCounts(
+            MetadataDeclarationQuery.GetIntroducedTypeParameterCounts(
+                reader,
+                handle));
 
     public TypeNode GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
     {
