@@ -31,6 +31,17 @@ public static class JsExportSurfaceBuilder
                 group => group.First().Type,
                 StringComparer.Ordinal);
 
+        var incompleteBodyTokens = new HashSet<int>();
+        if (bodyIndex is not null)
+        {
+                foreach (AnalysisDiagnostic diagnostic in bodyIndex.Diagnostics)
+                {
+                    incompleteBodyTokens.Add(diagnostic.MethodToken);
+                    if (diagnostic.SourceMethodToken is { } sourceMethodToken)
+                        incompleteBodyTokens.Add(sourceMethodToken);
+                }
+        }
+
         var functions = new List<JsExportFunction>();
         foreach (ApiType type in surface.Types)
         {
@@ -66,7 +77,15 @@ public static class JsExportSurfaceBuilder
                 };
 
                 if (bodyIndex is not null && member.MetadataToken is { } token)
+                {
+                    if (incompleteBodyTokens.Contains(token))
+                    {
+                        throw new UnsupportedJsExportSurfaceException(
+                            FormatMemberLocation(type, member),
+                            "JS export body analysis is incomplete");
+                    }
                     function = JsonWireContractResolver.Attach(bodyIndex, function, token);
+                }
 
                 functions.Add(function);
             }
@@ -135,12 +154,14 @@ public static class JsExportSurfaceBuilder
                     records.Add(type);
             }
 
-            if (type.Kind == "enum")
+            if (type.Kind == "enum"
+                || type.JsonConverterAttributeCount > 0)
                 continue;
 
             foreach (ApiMember member in type.Members)
             {
-                if (!JsonWireMemberRules.IsSerialized(member))
+                if (!JsonWireMemberRules.IsSerialized(member)
+                    || member.JsonConverterAttributeCount > 0)
                     continue;
                 if (member.SignatureDecodeStatus
                     == SignatureDecodeStatus.Degraded)
@@ -160,7 +181,7 @@ public static class JsExportSurfaceBuilder
     }
 
     static bool HasJsExportAttribute(ApiMember member) =>
-        member.Attributes.Any(a => a == JsExportAttributeName || a.EndsWith(".JSExport", StringComparison.Ordinal));
+        member.Attributes.Any(a => a == JsExportAttributeName);
 
     static string FormatMemberLocation(ApiType type, ApiMember member) =>
         member.MetadataToken is { } memberToken

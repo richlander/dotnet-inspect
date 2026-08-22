@@ -53,6 +53,12 @@ static class DtsEmitter
             EmitBlockedType(sb, enumType);
             return;
         }
+        if (HasUnsupportedJsonConverter(enumType))
+        {
+            ReportUnsupportedJsonConverter(enumType.Name, diagnostics);
+            EmitBlockedType(sb, enumType);
+            return;
+        }
 
         if (!enumType.HasJsonStringEnumConverter)
         {
@@ -66,7 +72,10 @@ static class DtsEmitter
             return;
         }
 
-        IEnumerable<string> memberNames = enumType.Members.Where(m => m.Kind == "field" && m.IsConst).Select(m => m.Name);
+        IEnumerable<string> memberNames = enumType.Members
+            .Where(member => member.Kind == "field" && member.IsConst)
+            .Select(ResolvedEnumMemberName)
+            .Distinct(StringComparer.Ordinal);
         string union = string.Join(
             " | ",
             memberNames.Select(n => $"\"{EscapeString(n)}\""));
@@ -86,6 +95,12 @@ static class DtsEmitter
             EmitBlockedType(sb, record);
             return;
         }
+        if (HasUnsupportedJsonConverter(record))
+        {
+            ReportUnsupportedJsonConverter(record.Name, diagnostics);
+            EmitBlockedType(sb, record);
+            return;
+        }
 
         var members = record.Members
             .Where(JsonWireMemberRules.IsSerialized)
@@ -100,11 +115,21 @@ static class DtsEmitter
         {
             string tsName = FormatPropertyKey(resolvedName);
             string propertyType = member.SignatureModel?.ReturnType ?? member.ReturnType ?? "unknown";
-            string tsType = TsTypeMapper.MapParameterType(
-                propertyType,
-                knownTypeNames,
-                diagnostics,
-                $"{record.Name}.{member.Name}");
+            string location = $"{record.Name}.{member.Name}";
+            string tsType;
+            if (member.JsonConverterAttributeCount > 0)
+            {
+                ReportUnsupportedJsonConverter(location, diagnostics);
+                tsType = "unknown";
+            }
+            else
+            {
+                tsType = TsTypeMapper.MapParameterType(
+                    propertyType,
+                    knownTypeNames,
+                    diagnostics,
+                    location);
+            }
             sb.Append("  ").Append(tsName).Append(": ").Append(tsType).Append(";\n");
         }
 
@@ -142,6 +167,10 @@ static class DtsEmitter
                     ValidatePropertyName(
                         FormatMemberLocation(type, member),
                         member.Name);
+                    ValidateEnumMemberNameAttributes(
+                        $"{FormatMemberLocation(type, member)} "
+                            + "[JsonStringEnumMemberName]",
+                        member.JsonStringEnumMemberNameAttributeValues);
                 }
                 if (type.JsonPropertyNamingPolicy
                         != JsonWireNamingPolicy.Unsupported
@@ -286,6 +315,22 @@ static class DtsEmitter
         ValidatePropertyName(location, propertyName);
     }
 
+    static void ValidateEnumMemberNameAttributes(
+        string location,
+        IReadOnlyList<string?> names)
+    {
+        if (names.Count == 0)
+            return;
+
+        if (names.Count != 1 || names[0] is null)
+        {
+            throw new UnsupportedWireContractException(
+                location,
+                "duplicate or malformed JsonStringEnumMemberName "
+                    + "attributes are not supported");
+        }
+    }
+
     static void ValidatePropertyName(string location, string propertyName)
     {
         if (propertyName.Any(char.IsControl))
@@ -325,6 +370,22 @@ static class DtsEmitter
         diagnostics?.ReportUnmappedType(
             $"{type.Name} JsonSerializerContext options",
             "unsupported wire-shaping options");
+
+    static bool HasUnsupportedJsonConverter(ApiType type) =>
+        type.JsonConverterAttributeCount > 0
+        && (type.Kind != "enum"
+            || !type.HasJsonStringEnumConverter
+            || type.JsonConverterAttributeCount != 1);
+
+    static void ReportUnsupportedJsonConverter(
+        string location,
+        TsBindGenDiagnostics? diagnostics) =>
+        diagnostics?.ReportUnmappedType(
+            location,
+            "unsupported custom JsonConverter");
+
+    static string ResolvedEnumMemberName(ApiMember member) =>
+        member.JsonStringEnumMemberName ?? member.Name;
 
     static void EmitBlockedType(StringBuilder sb, ApiType type) =>
         sb.Append("export type ").Append(type.Name).Append(" = unknown;\n\n");

@@ -24,7 +24,49 @@ public sealed class JsonPropertyNameAttributeTests
         Assert.Equal([null], values);
     }
 
-    static byte[] BuildImage()
+    [Fact]
+    public void JsonStringEnumMemberNameUnexpectedNamedArgumentProducesMalformedRowMarker()
+    {
+        using var stream = new MemoryStream(
+            BuildImage("JsonStringEnumMemberNameAttribute"),
+            writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition type = reader.GetTypeDefinition(
+            MetadataTokens.TypeDefinitionHandle(2));
+
+        List<string?> values =
+            AttributeReader.ReadJsonStringEnumMemberNames(
+                reader,
+                type.GetCustomAttributes());
+
+        Assert.Equal([null], values);
+    }
+
+    [Fact]
+    public void JsonStringEnumMemberNameDuplicateRowsPreserveOrderedEvidence()
+    {
+        using var stream = new MemoryStream(
+            BuildImage(
+                "JsonStringEnumMemberNameAttribute",
+                duplicateValidRows: true),
+            writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition type = reader.GetTypeDefinition(
+            MetadataTokens.TypeDefinitionHandle(2));
+
+        List<string?> values =
+            AttributeReader.ReadJsonStringEnumMemberNames(
+                reader,
+                type.GetCustomAttributes());
+
+        Assert.Equal(["ok", "ok"], values);
+    }
+
+    static byte[] BuildImage(
+        string attributeTypeName = "JsonPropertyNameAttribute",
+        bool duplicateValidRows = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -50,7 +92,7 @@ public sealed class JsonPropertyNameAttributeTests
         TypeReferenceHandle attributeType = metadata.AddTypeReference(
             systemTextJson,
             metadata.GetOrAddString("System.Text.Json.Serialization"),
-            metadata.GetOrAddString("JsonPropertyNameAttribute"));
+            metadata.GetOrAddString(attributeTypeName));
         var constructorSignature = new BlobBuilder();
         new BlobEncoder(constructorSignature).MethodSignature(
             SignatureCallingConvention.Default,
@@ -80,15 +122,21 @@ public sealed class JsonPropertyNameAttributeTests
         var value = new BlobBuilder();
         value.WriteUInt16(1);
         value.WriteSerializedString("ok");
-        value.WriteUInt16(1);
-        value.WriteByte(0x54);
-        value.WriteByte(0x0E);
-        value.WriteSerializedString("Bogus");
-        value.WriteSerializedString("x");
+        value.WriteUInt16(duplicateValidRows ? (ushort)0 : (ushort)1);
+        if (!duplicateValidRows)
+        {
+            value.WriteByte(0x54);
+            value.WriteByte(0x0E);
+            value.WriteSerializedString("Bogus");
+            value.WriteSerializedString("x");
+        }
+        BlobHandle valueHandle = metadata.GetOrAddBlob(value);
         metadata.AddCustomAttribute(
             target,
             constructor,
-            metadata.GetOrAddBlob(value));
+            valueHandle);
+        if (duplicateValidRows)
+            metadata.AddCustomAttribute(target, constructor, valueHandle);
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),

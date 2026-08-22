@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace ILInspector.JsExportSurface.Tests;
@@ -98,10 +99,34 @@ internal sealed class JsonIgnoreNeverFixture
 
 [JsonSourceGenerationOptions(
     WriteIndented = true,
-    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    ReadCommentHandling = JsonCommentHandling.Skip)]
 [JsonSerializable(typeof(string))]
 internal sealed partial class AdditionalOptionsJsonContext
     : JsonSerializerContext;
+
+internal sealed class MemberJsonConverterFixture
+{
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public NamedEnumFixture Value { get; set; }
+
+    [JsonIgnore]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public NamedEnumFixture Ignored { get; set; }
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+internal enum NamedEnumFixture
+{
+    [JsonStringEnumMemberName("wire \"value\"\n\u2028")]
+    Value,
+
+    [JsonStringEnumMemberName("duplicate")]
+    FirstDuplicate,
+
+    [JsonStringEnumMemberName("duplicate")]
+    SecondDuplicate,
+}
 
 internal enum ControlPropertyNameEnumFixture
 {

@@ -16,6 +16,8 @@ public static partial class AttributeReader
     private const string ObsoleteAttributeName = "System.ObsoleteAttribute";
     private const string JsonConverterAttributeName = "System.Text.Json.Serialization.JsonConverterAttribute";
     private const string JsonStringEnumConverterTypeName = "System.Text.Json.Serialization.JsonStringEnumConverter";
+    private const string JsonStringEnumMemberNameAttributeName =
+        "System.Text.Json.Serialization.JsonStringEnumMemberNameAttribute";
     private const string FlagsAttributeName = "System.FlagsAttribute";
     private const string JsonIncludeAttributeName = "System.Text.Json.Serialization.JsonIncludeAttribute";
     private const string JsonIgnoreAttributeName = "System.Text.Json.Serialization.JsonIgnoreAttribute";
@@ -25,6 +27,13 @@ public static partial class AttributeReader
     private const string JsonSourceGenerationOptionsAttributeName = "System.Text.Json.Serialization.JsonSourceGenerationOptionsAttribute";
     private const string JsonKnownNamingPolicyTypeName =
         "System.Text.Json.Serialization.JsonKnownNamingPolicy";
+    private static readonly IReadOnlyDictionary<string, PrimitiveTypeCode>
+        JsonSourceGenerationExternalEnumUnderlyingTypes =
+            new Dictionary<string, PrimitiveTypeCode>(StringComparer.Ordinal)
+            {
+                ["System.Text.Json.JsonCommentHandling"] =
+                    PrimitiveTypeCode.Byte,
+            };
     private const string RequiredMembersFeatureName = "RequiredMembers";
     private const string RequiredMembersConstructorObsoleteMessage =
         "Constructors of types with required members are not supported in this version of your compiler.";
@@ -388,6 +397,27 @@ public static partial class AttributeReader
         Action<int>? beforeMaterialize = null)
         => HasAttribute(reader, attributes, JsonIncludeAttributeName, beforeMaterialize);
 
+    public static int CountJsonConverterAttributes(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize = null)
+    {
+        int count = 0;
+        foreach (CustomAttributeHandle attrHandle in attributes)
+        {
+            CustomAttribute attr = reader.GetCustomAttribute(attrHandle);
+            if (GetAttributeTypeName(
+                    reader,
+                    attr.Constructor,
+                    beforeMaterialize)
+                == JsonConverterAttributeName)
+            {
+                count++;
+            }
+        }
+        return count;
+    }
+
 
     /// <summary>
     /// Checks if the member has the <c>[JsonIgnore]</c> attribute. For tsbindgen's static wire-shape
@@ -475,6 +505,36 @@ public static partial class AttributeReader
         return propertyNames;
     }
 
+    public static List<string?> ReadJsonStringEnumMemberNames(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize = null)
+    {
+        var names = new List<string?>();
+        foreach (CustomAttributeHandle attrHandle in attributes)
+        {
+            CustomAttribute attr = reader.GetCustomAttribute(attrHandle);
+            if (GetAttributeTypeName(
+                    reader,
+                    attr.Constructor,
+                    beforeMaterialize)
+                != JsonStringEnumMemberNameAttributeName)
+            {
+                continue;
+            }
+
+            names.Add(
+                TryGetSingleStringFixedArgument(
+                    reader,
+                    attr,
+                    out string? name,
+                    beforeMaterialize)
+                    ? name
+                    : null);
+        }
+        return names;
+    }
+
     public static bool TryGetJsonSourceGenerationPropertyNamingPolicy(
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
@@ -531,7 +591,7 @@ public static partial class AttributeReader
                 continue;
             // Strip generic arity (`1) and any nested/assembly-qualified suffix before comparing, since
             // the serialized name preserves those (e.g. "System.Text.Json.Serialization.JsonStringEnumConverter`1[[...]]").
-            int genericMarker = converterTypeName.IndexOfAny(['`', '[']);
+            int genericMarker = converterTypeName.IndexOfAny(['`', '[', ',']);
             string baseName = genericMarker < 0
                 ? converterTypeName
                 : converterTypeName[..genericMarker];
@@ -548,7 +608,11 @@ public static partial class AttributeReader
         CustomAttribute attr,
         Action<int>? beforeMaterialize)
     {
-        if (AttributeDecoder.TryDecode(reader, attr, beforeMaterialize) is not
+        if (AttributeDecoder.TryDecode(
+                reader,
+                attr,
+                beforeMaterialize,
+                JsonSourceGenerationExternalEnumUnderlyingTypes) is not
             {
                 FixedArguments.Length: 0,
             } decoded)

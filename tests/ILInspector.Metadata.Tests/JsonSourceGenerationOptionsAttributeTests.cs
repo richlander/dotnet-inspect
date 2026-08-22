@@ -138,6 +138,20 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
         Assert.Equal(JsonWireNamingPolicy.None, policy);
     }
 
+    [Fact]
+    public void ByteBackedReadCommentHandlingIsDecoded()
+    {
+        JsonWireNamingPolicy? policy = ReadPolicy(
+            BuildSingleRow(
+                metadata => ByteEnumValue(
+                    metadata,
+                    "ReadCommentHandling",
+                    "System.Text.Json.JsonCommentHandling",
+                    value: 1)));
+
+        Assert.Equal(JsonWireNamingPolicy.None, policy);
+    }
+
     [Theory]
     [InlineData(
         "DefaultIgnoreCondition",
@@ -358,6 +372,23 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
         blob.WriteSerializedString(type + ", System.Text.Json");
         blob.WriteSerializedString(name);
         blob.WriteInt32(value);
+        return metadata.GetOrAddBlob(blob);
+    }
+
+    static BlobHandle ByteEnumValue(
+        MetadataBuilder metadata,
+        string name,
+        string type,
+        byte value)
+    {
+        var blob = new BlobBuilder();
+        blob.WriteUInt16(1);
+        blob.WriteUInt16(1);
+        blob.WriteByte(0x54);
+        blob.WriteByte(0x55);
+        blob.WriteSerializedString(type + ", System.Text.Json");
+        blob.WriteSerializedString(name);
+        blob.WriteByte(value);
         return metadata.GetOrAddBlob(blob);
     }
 

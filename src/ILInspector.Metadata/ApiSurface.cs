@@ -733,6 +733,9 @@ public class ApiType
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool HasJsonStringEnumConverter { get; set; }
 
+    [JsonIgnore]
+    public int JsonConverterAttributeCount { get; set; }
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public JsonWireNamingPolicy? JsonPropertyNamingPolicy { get; set; }
 
@@ -966,6 +969,15 @@ public class ApiMember
 
     [JsonIgnore]
     public List<string?> JsonPropertyNameAttributeValues { get; set; } = [];
+
+    [JsonIgnore]
+    public int JsonConverterAttributeCount { get; set; }
+
+    [JsonIgnore]
+    public string? JsonStringEnumMemberName { get; set; }
+
+    [JsonIgnore]
+    public List<string?> JsonStringEnumMemberNameAttributeValues { get; set; } = [];
 
     /// <summary>
     /// True if the member carries an [Obsolete] attribute.

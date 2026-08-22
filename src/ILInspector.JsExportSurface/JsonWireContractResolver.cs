@@ -33,13 +33,8 @@ namespace ILInspector.JsExportSurface;
 /// branches) has no principled way to pick "the" return DTO. Rather than silently guess the first
 /// one found, <see cref="Attach"/> leaves <see cref="JsExportFunction.ReturnWireType"/> unset
 /// whenever more than one distinct DTO is found for the return position. "Distinct" is judged by
-/// resolved display-string name (e.g. <c>"WidgetDto"</c>), not full type identity: two DTOs from
-/// different namespaces sharing a simple name would collapse into one entry and escape this
-/// ambiguity guard. This matches <see cref="JsExportSurfaceBuilder"/>'s own pre-existing record
-/// discovery, which is deliberately simple-name-keyed for the same reason (see its remarks) — the
-/// same erased-signature text is all either stage has to work with, so staying consistent with
-/// that existing boundary is correct rather than introducing a second, differently-scoped notion
-/// of type identity at this layer alone.
+/// qualified structural identity. That prevents an external type from aliasing
+/// an unrelated discovered local DTO that shares its simple name.
 /// </para>
 /// </remarks>
 public static class JsonWireContractResolver
@@ -128,7 +123,7 @@ public static class JsonWireContractResolver
                 // WidgetCatalog.OwnersByKey property, which already renders "unknown" for exactly
                 // this reason, independent of this resolver). Recovering the correct display text
                 // here does not change that pre-existing, system-wide boundary.
-                return parameter.TypeArguments[0].ToDisplayString();
+                return parameter.TypeArguments[0].ToQualifiedDisplayString();
             }
         }
 

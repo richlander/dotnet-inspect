@@ -642,6 +642,11 @@ public static class ApiSurfaceExtractor
             // declared name) and whether it carries a JsonStringEnumConverter (STJ serializes by
             // declared name rather than by numeric value only when this converter is present).
             var jsonTypeAttributes = typeDef.GetCustomAttributes();
+            apiType.JsonConverterAttributeCount =
+                AttributeReader.CountJsonConverterAttributes(
+                    reader,
+                    jsonTypeAttributes,
+                    observeDecodeWork);
             if (apiType.Kind == "enum")
             {
                 apiType.IsFlagsEnum = AttributeReader.HasFlagsAttribute(
@@ -968,6 +973,11 @@ public static class ApiSurfaceExtractor
                         reader,
                         prop.GetCustomAttributes(),
                         observeDecodeWork);
+                int jsonConverterAttributeCount =
+                    AttributeReader.CountJsonConverterAttributes(
+                        reader,
+                        prop.GetCustomAttributes(),
+                        observeDecodeWork);
                 var member = new ApiMember
                 {
                     Name = DecodeString(
@@ -1011,6 +1021,8 @@ public static class ApiSurfaceExtractor
                         ? jsonPropertyNames[0]
                         : null,
                     JsonPropertyNameAttributeValues = jsonPropertyNames,
+                    JsonConverterAttributeCount =
+                        jsonConverterAttributeCount,
                     Attributes = RenderMemberAttributes(
                         reader,
                         prop.GetCustomAttributes(),
@@ -1133,6 +1145,11 @@ public static class ApiSurfaceExtractor
                     field.GetCustomAttributes(),
                     out var obsoleteMessage,
                     observeDecodeWork);
+                List<string?> jsonStringEnumMemberNames =
+                    AttributeReader.ReadJsonStringEnumMemberNames(
+                        reader,
+                        field.GetCustomAttributes(),
+                        observeDecodeWork);
 
                 // Decode field type. For enums the special value__ field carries
                 // the underlying type; literal fields are constants, not fields in
@@ -1202,6 +1219,17 @@ public static class ApiSurfaceExtractor
                         ? jsonPropertyNames[0]
                         : null,
                     JsonPropertyNameAttributeValues = jsonPropertyNames,
+                    JsonConverterAttributeCount =
+                        AttributeReader.CountJsonConverterAttributes(
+                            reader,
+                            field.GetCustomAttributes(),
+                            observeDecodeWork),
+                    JsonStringEnumMemberName =
+                        jsonStringEnumMemberNames.Count == 1
+                            ? jsonStringEnumMemberNames[0]
+                            : null,
+                    JsonStringEnumMemberNameAttributeValues =
+                        jsonStringEnumMemberNames,
                     Attributes = RenderMemberAttributes(
                         reader,
                         field.GetCustomAttributes(),
@@ -4562,6 +4590,12 @@ public static class ApiSurfaceExtractor
             in member.JsonPropertyNameAttributeValues)
         {
             AddText(ref count, propertyName);
+        }
+        AddText(ref count, member.JsonStringEnumMemberName);
+        foreach (string? enumMemberName
+            in member.JsonStringEnumMemberNameAttributeValues)
+        {
+            AddText(ref count, enumMemberName);
         }
         return count;
     }

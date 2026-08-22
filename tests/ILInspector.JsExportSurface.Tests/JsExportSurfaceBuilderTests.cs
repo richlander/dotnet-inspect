@@ -1,4 +1,6 @@
+using System.Collections.Immutable;
 using System.Reflection.PortableExecutable;
+using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.Metadata;
 
@@ -135,6 +137,71 @@ public sealed class JsExportSurfaceBuilderTests
 
         Assert.Throws<UnsupportedJsExportSurfaceException>(
             () => JsExportSurfaceBuilder.Build(apiSurface));
+    }
+
+    [Fact]
+    public void Build_IgnoresLookalikeJsExportAttribute()
+    {
+        var apiSurface = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType
+                {
+                    Name = "Exports",
+                    Members =
+                    [
+                        new ApiMember
+                        {
+                            Name = "NotAnExport",
+                            Kind = "method",
+                            IsStatic = true,
+                            Attributes = ["Other.JSExport"],
+                        },
+                    ],
+                },
+            ],
+        };
+
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            JsExportSurfaceBuilder.Build(apiSurface);
+
+        Assert.Empty(surface.Functions);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Build_RejectsOnlyExportScopedBodyDiagnostics(
+        bool sourceAttributed)
+    {
+        const int exportToken = 0x06000001;
+        const int diagnosticToken = 0x06000002;
+        ApiSurface apiSurface = ExportSurface(exportToken);
+        var diagnostic = new AnalysisDiagnostic(
+            diagnosticToken,
+            "Exports.Failed",
+            "BadImageFormatException: invalid body",
+            SourceMethodToken:
+                sourceAttributed ? exportToken : null);
+        LibraryBodyIndex bodyIndex = LibraryBodyIndex.FromEvidence(
+            [],
+            [],
+            diagnostics: [diagnostic]);
+
+        if (sourceAttributed)
+        {
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    apiSurface,
+                    bodyIndex));
+        }
+        else
+        {
+            Assert.Single(
+                JsExportSurfaceBuilder.Build(apiSurface, bodyIndex)
+                    .Functions);
+        }
     }
 
     [Fact]
@@ -509,7 +576,7 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     [Fact]
-    public void Extract_ReadsNamingPolicyAlongsideSupportedContextOptions()
+    public void Extract_DecodesByteBackedReadCommentHandlingOption()
     {
         using FileStream stream = File.OpenRead(
             typeof(AdditionalOptionsJsonContext).Assembly.Location);
@@ -526,6 +593,72 @@ public sealed class JsExportSurfaceBuilderTests
             JsonWireNamingPolicy.CamelCase,
             context.JsonPropertyNamingPolicy);
     }
+
+    [Fact]
+    public void Extract_CapturesJsonConverterAndEnumWireNameFacts()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(MemberJsonConverterFixture).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+
+        ApiType record = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(MemberJsonConverterFixture));
+        Assert.Equal(
+            1,
+            Assert.Single(
+                record.Members,
+                member => member.Name == "Value")
+                .JsonConverterAttributeCount);
+
+        ApiType enumType = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(NamedEnumFixture));
+        Assert.Equal(1, enumType.JsonConverterAttributeCount);
+        Assert.True(enumType.HasJsonStringEnumConverter);
+        ApiMember value = Assert.Single(
+            enumType.Members,
+            member => member.Name == "Value");
+        Assert.Equal(
+            "wire \"value\"\n\u2028",
+            value.JsonStringEnumMemberName);
+        Assert.Equal(
+            ["wire \"value\"\n\u2028"],
+            value.JsonStringEnumMemberNameAttributeValues);
+    }
+
+    static ApiSurface ExportSurface(int token) =>
+        new()
+        {
+            Types =
+            [
+                new ApiType
+                {
+                    Name = "Exports",
+                    Members =
+                    [
+                        new ApiMember
+                        {
+                            Name = "Run",
+                            Kind = "method",
+                            MetadataToken = token,
+                            IsStatic = true,
+                            SignatureModel = new ApiSignature
+                            {
+                                ReturnType = "void",
+                            },
+                            Attributes =
+                            [
+                                "System.Runtime.InteropServices.JavaScript.JSExport",
+                            ],
+                        },
+                    ],
+                },
+            ],
+        };
 
     [Fact]
     public void Build_CapturesJsonPropertyNameAndJsonIgnoreFacts()
@@ -595,6 +728,48 @@ public sealed class JsExportSurfaceBuilderTests
 
         ApiType record = Assert.Single(surface.Records);
         Assert.Equal(JsonWireNamingPolicy.CamelCase, record.JsonPropertyNamingPolicy);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Build_DoesNotTraverseConverterControlledShapes(
+        bool converterIsOnType)
+    {
+        ApiType root = new()
+        {
+            Name = "Root",
+            JsonConverterAttributeCount = converterIsOnType ? 1 : 0,
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Child",
+                    Kind = "property",
+                    HasGetter = true,
+                    ReturnType = "Child",
+                    JsonConverterAttributeCount =
+                        converterIsOnType ? 0 : 1,
+                },
+            ],
+        };
+        var apiSurface = new ApiSurface
+        {
+            Types =
+            [
+                CreateSerializerContext(
+                    "Context",
+                    "Root",
+                    JsonWireNamingPolicy.None),
+                root,
+                new ApiType { Name = "Child" },
+            ],
+        };
+
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            JsExportSurfaceBuilder.Build(apiSurface);
+
+        Assert.Equal(["Root"], surface.Records.Select(type => type.Name));
     }
 
     private static ApiType CreateSerializerContext(

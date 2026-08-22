@@ -87,9 +87,30 @@ serialized wire shape are unsupported until the object model projects their
 semantics; formatting and read-only options remain accepted.
 `JsonSourceGenerationOptionsAttributeTests` gates duplicate-row orders,
 duplicate agreement, duplicate or malformed arguments within one row,
-wire-shaping rejection, supported peer options, and the ordinary single-row
-case. `DtsEmitterTests.Emit_BlocksEnumWithUnsupportedContextOptions` gates the
-enum path.
+wire-shaping rejection, byte-backed `ReadCommentHandling` decoding, supported
+peer options, and the ordinary single-row case.
+`DtsEmitterTests.Emit_BlocksEnumWithUnsupportedContextOptions` gates the enum
+path.
+
+Type- or member-level custom `[JsonConverter]` attributes can replace the
+entire inferred wire shape. Types using an unsupported converter are emitted
+as diagnosed `unknown`; individual serialized members using one have an
+`unknown` TypeScript type. Ignored members remain irrelevant. Exactly one
+`JsonStringEnumConverter` on an enum remains supported, while duplicate,
+malformed, or other converter metadata is not guessed.
+`DtsEmitterTests.Emit_BlocksUnsupportedTypeAndMemberConverters`,
+`Emit_AllowsExactlyOneSupportedStringEnumConverter`, and
+`JsExportSurfaceBuilderTests.Extract_CapturesJsonConverterAndEnumWireNameFacts`
+gate these boundaries against both direct models and compiled metadata.
+
+For string-converted enums, `[JsonStringEnumMemberName]` supplies the emitted
+wire value. Arbitrary values are safely escaped, equal wire values are
+deduplicated in the TypeScript union, and duplicate or malformed attribute
+rows stop generation before output.
+`JsonPropertyNameAttributeTests.JsonStringEnumMemberName*` gates ordered
+metadata evidence, while
+`DtsEmitterTests.Emit_UsesEscapedDeduplicatedEnumWireNames` and
+`Emit_RefusesMalformedOrDuplicateEnumWireNames` gate emission.
 
 A control character in `[JsonPropertyName]` is a harder boundary: generation
 stops without emitting declarations, and reports only a safe metadata location
@@ -131,11 +152,17 @@ path. `DtsEmitterTests.Emit_RefusesIdentifiersNewerThanPinnedTypeScriptUnicode`,
 remaining declaration boundaries. Incomplete metadata extraction and unsafe,
 signature-less, or degraded JS-export/wire signatures stop before declaration
 or file output and report only token-based locations; incomplete extraction is
-rejected before body analysis begins.
+rejected before body analysis begins. A recoverable body-analysis diagnostic
+for a JS export, including its compiler-generated async implementation, is also
+fatal because its JSON envelope evidence may be incomplete; diagnostics for
+unrelated methods remain irrelevant.
 `TsBindGenCommandTests.Invoke_IncompleteExtractionFailsWithoutOutput` and
 `JsExportSurfaceBuilderTests.Build_InvalidExportUsesContainedFailure` plus the
-`Build_RejectsDegraded*` tests gate those boundaries. Artifact-derived text in
-diagnostics is visually contained before it reaches stderr.
+`Build_RejectsDegraded*` and
+`Build_RejectsOnlyExportScopedBodyDiagnostics` tests gate those boundaries.
+`Build_IgnoresLookalikeJsExportAttribute` gates exact
+`System.Runtime.InteropServices.JavaScript.JSExport` identity. Artifact-derived
+text in diagnostics is visually contained before it reaches stderr.
 `DtsEmitterTests.Emit_AcceptsUnicodeTypeScriptIdentifiers`,
 `DtsEmitterTests.Emit_RefusesUnicodePatternSyntaxAsIdentifierStart`,
 `DtsEmitterTests.Emit_RefusesForbiddenTypeDeclarationNames`,

@@ -325,6 +325,183 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
+    public void Emit_UsesEscapedDeduplicatedEnumWireNames()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(NamedEnumFixture).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType enumType = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(NamedEnumFixture));
+
+        string dts = DtsEmitter.Emit(
+            new ILInspector.JsExportSurface.JsExportSurface
+            {
+                Enums = [enumType],
+            });
+
+        Assert.Contains(
+            "\"wire \\\"value\\\"\\n\\u2028\" | \"duplicate\"",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            1,
+            dts.Split("\"duplicate\"", StringSplitOptions.None).Length - 1);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Emit_RefusesMalformedOrDuplicateEnumWireNames(
+        bool malformed)
+    {
+        var enumType = new ApiType
+        {
+            Name = "Status",
+            Kind = "enum",
+            HasJsonStringEnumConverter = true,
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Ready",
+                    Kind = "field",
+                    IsConst = true,
+                    JsonStringEnumMemberNameAttributeValues =
+                        malformed ? [null] : ["ready", "also-ready"],
+                },
+            ],
+        };
+
+        Assert.Throws<UnsupportedWireContractException>(
+            () => DtsEmitter.Emit(
+                new ILInspector.JsExportSurface.JsExportSurface
+                {
+                    Enums = [enumType],
+                }));
+    }
+
+    [Fact]
+    public void Emit_BlocksUnsupportedTypeAndMemberConverters()
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+        var blocked = new ApiType
+        {
+            Name = "Blocked",
+            JsonConverterAttributeCount = 1,
+        };
+        var memberConverted = new ApiType
+        {
+            Name = "MemberConverted",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    HasGetter = true,
+                    ReturnType = "int",
+                    JsonConverterAttributeCount = 1,
+                },
+                new ApiMember
+                {
+                    Name = "Ignored",
+                    Kind = "property",
+                    HasGetter = true,
+                    HasJsonIgnore = true,
+                    ReturnType = "int",
+                    JsonConverterAttributeCount = 1,
+                },
+            ],
+        };
+
+        string dts = DtsEmitter.Emit(
+            new ILInspector.JsExportSurface.JsExportSurface
+            {
+                Records = [blocked, memberConverted],
+            },
+            diagnostics);
+
+        Assert.Contains(
+            "export type Blocked = unknown;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains("Value: unknown;", dts, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ignored", dts, StringComparison.Ordinal);
+        Assert.Equal(2, diagnostics.UnmappedTypes.Count);
+    }
+
+    [Fact]
+    public void Emit_AllowsExactlyOneSupportedStringEnumConverter()
+    {
+        var enumType = new ApiType
+        {
+            Name = "Status",
+            Kind = "enum",
+            HasJsonStringEnumConverter = true,
+            JsonConverterAttributeCount = 1,
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Ready",
+                    Kind = "field",
+                    IsConst = true,
+                },
+            ],
+        };
+
+        string dts = DtsEmitter.Emit(
+            new ILInspector.JsExportSurface.JsExportSurface
+            {
+                Enums = [enumType],
+            });
+
+        Assert.Contains(
+            "export type Status = \"Ready\";",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_BlocksDuplicateStringEnumConverters()
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+        var enumType = new ApiType
+        {
+            Name = "Status",
+            Kind = "enum",
+            HasJsonStringEnumConverter = true,
+            JsonConverterAttributeCount = 2,
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Ready",
+                    Kind = "field",
+                    IsConst = true,
+                },
+            ],
+        };
+
+        string dts = DtsEmitter.Emit(
+            new ILInspector.JsExportSurface.JsExportSurface
+            {
+                Enums = [enumType],
+            },
+            diagnostics);
+
+        Assert.Contains(
+            "export type Status = unknown;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Single(diagnostics.UnmappedTypes);
+    }
+
+    [Fact]
     public void Emit_WithIncludeAllKeepsJsonIncludeNonPublicProperty()
     {
         string dts = EmitFixtureDts(includeAll: true);

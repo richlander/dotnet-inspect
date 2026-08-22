@@ -977,7 +977,8 @@ public sealed class LibraryBodyIndex
         ImmutableArray<MethodIdentity> methods,
         ImmutableArray<UnsafeEvidence> unsafeEvidence,
         IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>>? allocationOccurrences = null,
-        IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>>? unsafetyOccurrences = null)
+        IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>>? unsafetyOccurrences = null,
+        ImmutableArray<AnalysisDiagnostic> diagnostics = default)
         => new(
             path: "",
             analysis: new(
@@ -1021,7 +1022,7 @@ public sealed class LibraryBodyIndex
                         new HashSet<string>(StringComparer.Ordinal)),
                 OwnershipFlow: new(Methods: []),
                 Resources: new(LeakTriage: null),
-                Diagnostics: []),
+                Diagnostics: diagnostics.IsDefault ? [] : diagnostics),
             features: LibraryBodyAnalysisFeatures.MethodEvidence
                 | (allocationOccurrences is null
                     ? LibraryBodyAnalysisFeatures.None
