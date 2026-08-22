@@ -80,7 +80,8 @@ function createHarness({
     kindIcon: () => "C",
     searchResults,
     pickResult: () => {},
-    executeCommand: () => {},
+    executeCommand: () => undefined,
+    reportCommandError: () => {},
     commandContext: () => commandContext,
     schedulePackageFetch: () => {},
     resetPackageSearch: () => {},
@@ -182,7 +183,7 @@ test("modal arrow navigation reuses rendered results", () => {
     selectionStart: 7,
     selectionEnd: 7,
     addEventListener: (name, listener) => {
-      listeners.set(name, listener as (event: MockKeyboardEvent) => void);
+      listeners.set(name, listener);
     },
     focus: () => {},
     setAttribute: () => {},
@@ -201,12 +202,15 @@ test("modal arrow navigation reuses rendered results", () => {
     querySelector: selector => selector === "#spotlight-input" ? input : null,
     querySelectorAll: () => [],
   };
+  // The harness temporarily installs its minimal DOM globals and restores them below.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const globals = globalThis as unknown as {
     document?: Document;
     requestAnimationFrame?: (callback: FrameRequestCallback) => number;
   };
   const previousDocument = globals.document;
   const previousRequestAnimationFrame = globals.requestAnimationFrame;
+  // oxlint-disable typescript/no-unsafe-type-assertion
   globals.document = {
     querySelector: (selector: string) => {
       if (selector === "#spotlight-input") return input;
@@ -214,12 +218,15 @@ test("modal arrow navigation reuses rendered results", () => {
       return null;
     },
   } as unknown as Document;
+  // oxlint-enable typescript/no-unsafe-type-assertion
   globals.requestAnimationFrame = (callback: FrameRequestCallback) => {
     callback(0);
     return 0;
   };
 
   try {
+    // The root implements the exact ParentNode query surface Spotlight consumes.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     spotlight.bind(root as unknown as ParentNode, "modal");
     for (let index = 0; index < 4; index++) {
       listeners.get("keydown")!({
@@ -300,4 +307,3 @@ test("command queries and command metadata are escaped in Spotlight markup", () 
   assert.doesNotMatch(html, /<script/);
   assert.match(html, /find &lt;script class=&quot;x&quot;&gt;/);
 });
-
