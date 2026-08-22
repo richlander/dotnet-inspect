@@ -697,6 +697,7 @@ The local-folder descriptor remains modeled without a runtime client.
 `GalleryRegistrationReservationWaitsForReturnedCapacity`,
 `GalleryRegistrationMaterializationBudgetReturnsFailedAttemptCapacity`,
 `GalleryLatePageDeadlineReturnsMaterializationCapacity`,
+`GalleryCleanupFailureReturnsMaterializationCapacity`,
 `GalleryRegistrationAggregateCountsFailedAttemptBytes`,
 `GalleryRegistrationLeafLimitIsTypedPartialEnumeration`,
 `GalleryRegistrationPageLimitIsTypedPartialEnumeration`,

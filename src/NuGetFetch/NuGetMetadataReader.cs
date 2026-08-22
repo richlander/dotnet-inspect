@@ -26,14 +26,27 @@ internal static class NuGetMetadataReader
         return await RunWithBodyTimeoutAsync(
             async bodyToken =>
             {
-                await using Stream body = await response.Content
-                    .ReadAsStreamAsync(bodyToken)
-                    .ConfigureAwait(false);
-                return await ReadStreamCoreAsync(
-                    body,
-                    deserialize,
-                    options.MaxMetadataResponseBytes,
-                    bodyToken).ConfigureAwait(false);
+                T result = default!;
+                bool hasResult = false;
+                try
+                {
+                    await using Stream body = await response.Content
+                        .ReadAsStreamAsync(bodyToken)
+                        .ConfigureAwait(false);
+                    result = await ReadStreamCoreAsync(
+                        body,
+                        deserialize,
+                        options.MaxMetadataResponseBytes,
+                        bodyToken).ConfigureAwait(false);
+                    hasResult = true;
+                    return result;
+                }
+                catch
+                {
+                    if (hasResult)
+                        NuGetRejectedResult.RejectIfOwned(result);
+                    throw;
+                }
             },
             options,
             cancellationToken).ConfigureAwait(false);

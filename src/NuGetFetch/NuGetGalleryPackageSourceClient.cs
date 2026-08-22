@@ -423,34 +423,48 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
             operation,
             async requestToken =>
             {
-                using HttpRequestMessage request =
-                    NuGetHttpRequest.CreateGet(url);
-                using HttpResponseMessage response =
-                    await _client.SendAsync(
-                        request,
-                        HttpCompletionOption.ResponseHeadersRead,
-                        requestToken).ConfigureAwait(false);
-                if (response.StatusCode
-                    == System.Net.HttpStatusCode.NotFound)
+                NuGetGalleryRegistrationByteBudget.Materialization?
+                    result = null;
+                bool hasResult = false;
+                try
                 {
-                    return null;
-                }
-
-                response.EnsureSuccessStatusCode();
-                return await NuGetMetadataReader.ReadResponseAsync(
-                    response,
-                    async (json, cancellationToken) =>
+                    using HttpRequestMessage request =
+                        NuGetHttpRequest.CreateGet(url);
+                    using HttpResponseMessage response =
+                        await _client.SendAsync(
+                            request,
+                            HttpCompletionOption.ResponseHeadersRead,
+                            requestToken).ConfigureAwait(false);
+                    if (response.StatusCode
+                        == System.Net.HttpStatusCode.NotFound)
                     {
-                        using Stream aggregateLimitedJson =
-                            aggregateBudget.LimitBytes(json);
-                        return await materializationBudget
-                            .MaterializeAsync(
-                                aggregateLimitedJson,
-                                cancellationToken).ConfigureAwait(false);
-                    },
-                    _options,
-                    _client.Timeout,
-                    requestToken).ConfigureAwait(false);
+                        return null;
+                    }
+
+                    response.EnsureSuccessStatusCode();
+                    result = await NuGetMetadataReader.ReadResponseAsync(
+                        response,
+                        async (json, cancellationToken) =>
+                        {
+                            using Stream aggregateLimitedJson =
+                                aggregateBudget.LimitBytes(json);
+                            return await materializationBudget
+                                .MaterializeAsync(
+                                    aggregateLimitedJson,
+                                    cancellationToken).ConfigureAwait(false);
+                        },
+                        _options,
+                        _client.Timeout,
+                        requestToken).ConfigureAwait(false);
+                    hasResult = true;
+                    return result;
+                }
+                catch
+                {
+                    if (hasResult)
+                        NuGetRejectedResult.RejectIfOwned(result);
+                    throw;
+                }
             }).ConfigureAwait(false);
         if (materialization is null)
             return null;

@@ -1728,6 +1728,76 @@ public sealed class PackageSourceClientTests
         Assert.Equal(2, pageRequests);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task
+        GalleryCleanupFailureReturnsMaterializationCapacity(
+            bool responseCleanup)
+    {
+        const string page = """
+            {
+              "items": [
+                {
+                  "catalogEntry": {
+                    "version": "1.0.0"
+                  }
+                }
+              ]
+            }
+            """;
+        string registration = $$"""
+            {
+              "items": [
+                {
+                  "@id": "{{GalleryRegistrationPage}}"
+                }
+              ]
+            }
+            """;
+        byte[] pageBytes = Encoding.UTF8.GetBytes(page);
+        int pageRequests = 0;
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] = """{"versions":["1.0.0"]}""",
+            [GalleryRegistration] = registration,
+        };
+        handler.SetResponse(
+            GalleryRegistrationPage,
+            request => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = Interlocked.Increment(ref pageRequests) == 1
+                    ? new CleanupFailureContent(
+                        pageBytes,
+                        responseCleanup)
+                    : new ByteArrayContent(pageBytes),
+                RequestMessage = request,
+            });
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(
+                handler,
+                new NuGetFetchOptions
+                {
+                    MaxMetadataResponseBytes = Math.Max(
+                        pageBytes.Length,
+                        Encoding.UTF8.GetByteCount(registration)),
+                    MaxRegistrationPageBatchBytes = pageBytes.Length,
+                    MaxRegistrationMetadataBytes =
+                        Encoding.UTF8.GetByteCount(registration)
+                        + (2L * pageBytes.Length),
+                    RequestTimeout = TimeSpan.FromSeconds(1),
+                    OperationTimeout = TimeSpan.FromSeconds(3),
+                });
+
+        PackageVersionResult result = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.True(result.HasAuthoritativeListingState);
+        Assert.Equal(2, pageRequests);
+    }
+
     [Fact]
     public async Task GalleryRegistrationAggregateCountsFailedAttemptBytes()
     {
@@ -3390,6 +3460,48 @@ public sealed class PackageSourceClientTests
             int offset,
             int count) =>
             throw new NotSupportedException();
+    }
+
+    private sealed class CleanupFailureContent(
+        byte[] content,
+        bool responseCleanup) : HttpContent
+    {
+        protected override async Task SerializeToStreamAsync(
+            Stream stream,
+            TransportContext? context)
+        {
+            await stream.WriteAsync(content);
+        }
+
+        protected override Task<Stream> CreateContentReadStreamAsync() =>
+            Task.FromResult<Stream>(
+                responseCleanup
+                    ? new MemoryStream(content, writable: false)
+                    : new AsyncDisposeFailureStream(content));
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = content.Length;
+            return true;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+            if (disposing && responseCleanup)
+            {
+                throw new IOException(
+                    "The response cleanup failed.");
+            }
+        }
+    }
+
+    private sealed class AsyncDisposeFailureStream(byte[] content)
+        : MemoryStream(content, writable: false)
+    {
+        public override ValueTask DisposeAsync() =>
+            ValueTask.FromException(
+                new IOException("The body cleanup failed."));
     }
 
     private sealed class LateOversizeStream(byte[] content) : Stream
