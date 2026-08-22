@@ -305,6 +305,20 @@ public static class AnnotatedSourceJson
         {
             ValidateObjectArray(targets, $"{name}.targets", "fact_id", "node_id");
         }
+
+        // Capture evidence is optional on the wire: a capture-free document omits
+        // it entirely, which keeps every document produced before this plane
+        // existed readable — and byte-identical when it is re-serialized, so a
+        // retained revision-bound structural diff still replays.
+        if (document.TryGetProperty("captures", out var captures))
+        {
+            ValidateObjectArray(
+                captures,
+                $"{name}.captures",
+                "parent_node_id",
+                "display_name",
+                "use_node_ids");
+        }
         if (document.TryGetProperty("source", out var source)
             && source.ValueKind == JsonValueKind.Object)
         {

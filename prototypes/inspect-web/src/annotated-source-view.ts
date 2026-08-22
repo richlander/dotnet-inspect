@@ -16,6 +16,7 @@ export type {
   AnnotatedSourceDocument,
   AnnotatedSourceFact,
   AnnotatedSourceNode,
+  AnnotatedSourceRegion,
   SourceMedium,
 } from "./document-model.ts";
 
@@ -31,6 +32,7 @@ export function validateAnnotatedSourceDocument(
 export interface AnnotatedViewState {
   media?: Partial<Record<SourceMedium, boolean | undefined>>;
   selectedFactId?: number | null;
+  selectedCaptureIndex?: number | null;
   selectedNodeIds?: readonly number[];
 }
 
@@ -46,6 +48,8 @@ interface IndexedLine {
 }
 
 interface AnnotatedViewSegment extends SourceSegment {
+  captureIds: number[];
+  factIds: number[];
   selected: boolean;
 }
 
@@ -70,12 +74,23 @@ export interface AnnotatedViewFact {
   selected: boolean;
 }
 
+export interface AnnotatedViewCapture {
+  index: number;
+  parentNodeId: number;
+  displayName: string;
+  useNodeIds: number[];
+  selected: boolean;
+}
+
 export interface AnnotatedView {
   media: Record<SourceMedium, boolean | undefined>;
   selectedFactId: number | null;
+  selectedCaptureIndex: number | null;
+  captureScopeNodeId: number | null;
   selectedNodeIds: number[];
   lines: AnnotatedViewLine[];
   facts: AnnotatedViewFact[];
+  captures: AnnotatedViewCapture[];
   unanchoredFactIds: number[];
   hiddenLines: number;
 }
@@ -84,6 +99,7 @@ export interface PreparedAnnotatedView {
   document: AnnotatedSourceDocument;
   lines: readonly AnnotatedViewLine[];
   facts: readonly AnnotatedViewFact[];
+  captures: readonly AnnotatedViewCapture[];
   unanchoredFactIds: readonly number[];
   totalLineCount: number;
 }
@@ -106,6 +122,23 @@ export function prepareAnnotatedView(
   document: AnnotatedSourceDocument,
 ): PreparedAnnotatedView {
   validateAnnotatedSourceDocument(document);
+  const factIdsByNode = document.nodes.map((): number[] => []);
+  const captureIdsByNode = document.nodes.map((): number[] => []);
+  const nodeIdsByFact = document.facts.map((): number[] => []);
+  for (const target of document.targets) {
+    factIdsByNode[target.node_id].push(target.fact_id);
+    nodeIdsByFact[target.fact_id].push(target.node_id);
+  }
+  const captures = (document.captures ?? []).map((capture, index) => {
+    for (const nodeId of capture.use_node_ids) captureIdsByNode[nodeId].push(index);
+    return {
+      index,
+      parentNodeId: capture.parent_node_id,
+      displayName: capture.display_name,
+      useNodeIds: [...capture.use_node_ids],
+      selected: false,
+    };
+  });
   const sourceLines = buildLines(document.text);
   const indexedLines = indexLines(sourceLines, document.nodes);
   const lines = sourceLines.map((line, index) => ({
@@ -113,10 +146,13 @@ export function prepareAnnotatedView(
     medium: mediumForLine(indexedLines[index].media),
     start: line.start,
     end: line.end,
-    segments: segmentsForIntersections(document.text, line, indexedLines[index].intersections),
+    segments: segmentsForIntersections(document.text, line, indexedLines[index].intersections)
+      .map(segment => ({
+        ...segment,
+        captureIds: [...new Set(segment.nodeIds.flatMap(nodeId => captureIdsByNode[nodeId]))],
+        factIds: [...new Set(segment.nodeIds.flatMap(nodeId => factIdsByNode[nodeId]))],
+      })),
   }));
-  const nodeIdsByFact = document.facts.map((): number[] => []);
-  for (const target of document.targets) nodeIdsByFact[target.fact_id].push(target.node_id);
   const anchored = new Set(document.targets.map(target => target.fact_id));
   const facts = document.facts.map(fact => ({
     id: fact.id,
@@ -134,6 +170,7 @@ export function prepareAnnotatedView(
     document,
     lines,
     facts,
+    captures,
     unanchoredFactIds: document.facts
       .filter(fact => !anchored.has(fact.id))
       .map(fact => fact.id),
@@ -154,9 +191,21 @@ export function projectPreparedAnnotatedView(
     typeof state.selectedFactId === "number" && Number.isInteger(state.selectedFactId)
       ? state.selectedFactId
       : null;
-  const targetNodeIds: number[] = selectedFactId == null
-    ? [...new Set(state.selectedNodeIds ?? [])]
-    : [...(prepared.facts[selectedFactId]?.nodeIds ?? [])];
+  const selectedCaptureIndex =
+    selectedFactId === null
+      && typeof state.selectedCaptureIndex === "number"
+      && Number.isInteger(state.selectedCaptureIndex)
+      && prepared.captures[state.selectedCaptureIndex]
+        ? state.selectedCaptureIndex
+        : null;
+  const selectedCapture = selectedCaptureIndex == null
+    ? null
+    : prepared.captures[selectedCaptureIndex];
+  const targetNodeIds: number[] = selectedFactId != null
+    ? [...(prepared.facts[selectedFactId]?.nodeIds ?? [])]
+    : selectedCapture
+      ? [...selectedCapture.useNodeIds]
+      : [...new Set(state.selectedNodeIds ?? [])];
   const targeted = new Set(targetNodeIds);
 
   const lines = prepared.lines
@@ -176,13 +225,20 @@ export function projectPreparedAnnotatedView(
     ...fact,
     selected: fact.id === selectedFactId,
   }));
+  const captures = prepared.captures.map(capture => ({
+    ...capture,
+    selected: capture.index === selectedCaptureIndex,
+  }));
 
   return {
     media,
     selectedFactId,
+    selectedCaptureIndex,
+    captureScopeNodeId: selectedCapture?.parentNodeId ?? null,
     selectedNodeIds: targetNodeIds,
     lines,
     facts,
+    captures,
     unanchoredFactIds: [...prepared.unanchoredFactIds],
     hiddenLines: prepared.totalLineCount - lines.length,
   };

@@ -78,6 +78,32 @@ internal sealed record CSharpAnnotatedSourceProjection(
                 regions.Add(new AnnotatedSourceRegion(region.Role, spans));
         }
 
+        // Capture rows are node references, so removing the IL lines renumbers
+        // them like everything else. They are remapped through the same table
+        // the nodes were, never re-derived from the projected text.
+        var captures = new List<AnnotatedSourceCapture>();
+        foreach (var capture in source.Captures ?? [])
+        {
+            if (!nodeIds.TryGetValue(capture.ParentNodeId, out int parentId))
+                continue;
+
+            var uses = new List<int>();
+            foreach (int use in capture.UseNodeIds)
+            {
+                if (!nodeIds.TryGetValue(use, out int projectedUse))
+                {
+                    uses.Clear();
+                    break;
+                }
+                uses.Add(projectedUse);
+            }
+            if (uses.Count == 0)
+                continue;
+
+            uses.Sort();
+            captures.Add(new AnnotatedSourceCapture(parentId, capture.DisplayName, uses));
+        }
+
         return new CSharpAnnotatedSourceProjection(
             new AnnotatedSourceDocument(
                 text,
@@ -85,7 +111,8 @@ internal sealed record CSharpAnnotatedSourceProjection(
                 regions,
                 Facts: [],
                 Targets: [],
-                source.Source),
+                source.Source,
+                captures),
             nodeIds);
     }
 

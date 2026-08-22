@@ -631,7 +631,14 @@ kinds from a stable rendered-syntax catalog, plus one `Instruction` node per
 rendered IL line carrying its `il_offset`),
 `regions` name construct parts, `facts` are the semantic observations stated once
 each, and `targets` is the only join between them — fact to node, then node spans
-to text. A node carries several spans when interleaved IL splits its construct,
+to text. `captures` is present only when the member declares a recovered lambda
+or local function that closes over an outer variable: each row names that nested
+function's node, the variable's rendered name, and the name nodes that read it.
+It is producer evidence rather than something a reader can recompute — once the
+compiler's closure environment is undone, a captured read is spelled like any
+other variable read — and a use the producer cannot bind to exactly one rendered
+node is omitted rather than approximated.
+A node carries several spans when interleaved IL splits its construct,
 and the C# line breaks it printed stay inside those spans, so concatenating them
 reproduces the rendered source verbatim. `Instruction` is exactly the nodes that
 carry an `il_offset`, and a fact with no target is explicitly unanchored rather

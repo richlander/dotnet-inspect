@@ -1504,7 +1504,7 @@ test("annotated source entry owns its rendered control bindings", () => {
     /export function bindAnnotatedSourceEntry\([\s\S]*#copy-annotated[\s\S]*#open-annotated-explorer/);
   assert.match(
     annotatedSourceExplorerModule,
-    /export function bindAnnotatedSourceExplorer\([\s\S]*#ase-exit[\s\S]*#ase-copy[\s\S]*\[data-ase-medium\][\s\S]*#ase-node-kind[\s\S]*\[data-ase-fact\][\s\S]*\[data-ase-node\][\s\S]*\[data-ase-offset\][\s\S]*#ase-clear[\s\S]*\.ase-code-scroll/);
+    /export function bindAnnotatedSourceExplorer\([\s\S]*#ase-exit[\s\S]*#ase-copy[\s\S]*\[data-ase-medium\][\s\S]*\[data-ase-kind\][\s\S]*\[data-ase-region\][\s\S]*\[data-ase-capture\][\s\S]*\[data-ase-fact\][\s\S]*\[data-ase-node\][\s\S]*\[data-ase-offset\][\s\S]*#ase-clear[\s\S]*\.ase-code-scroll/);
   for (const [identifier, count] of [
     ["bindAnnotatedSourceEntryEvents", 2],
     ["bindAnnotatedSourceEntry", 2],

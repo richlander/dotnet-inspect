@@ -59,6 +59,24 @@ public class PrintedBodyMapTests
     }
 
     [Fact]
+    public void StableNodeKindsOwnHumanReadableVocabularyLabels()
+    {
+        Assert.Equal("For loop", AnnotatedSourceNodeKinds.GetVocabularyLabel("ForStatement"));
+        Assert.Equal("Local function statement", AnnotatedSourceNodeKinds.GetVocabularyLabel(
+            "LocalFunctionStatement"));
+        Assert.Equal("Lambda expression", AnnotatedSourceNodeKinds.GetVocabularyLabel(
+            "LambdaExpression"));
+        Assert.Equal("Object creation expression", AnnotatedSourceNodeKinds.GetVocabularyLabel(
+            "ObjectCreationExpression"));
+        Assert.Equal("FutureSyntax", AnnotatedSourceNodeKinds.GetVocabularyLabel("FutureSyntax"));
+
+        Assert.Equal("Break", AnnotatedSourceNodeKinds.GetDisplayLabel("BreakStatement"));
+        Assert.Equal(
+            "InvocationExpression",
+            AnnotatedSourceNodeKinds.GetDisplayLabel("InvocationExpression"));
+    }
+
+    [Fact]
     public void StableKindProjectionMakesAnExplicitDecisionForEveryIrNode()
     {
         var concreteNodes = typeof(IrNode).Assembly

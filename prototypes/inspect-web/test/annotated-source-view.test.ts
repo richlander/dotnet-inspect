@@ -11,6 +11,7 @@ import {
 import type { AnnotatedSourceDocument } from "../src/annotated-source-view.ts";
 import { buildLines, lineMedium, segmentsForLine } from "../src/document-model.ts";
 import { sampleDocument as sampleDocumentFixture } from "../../annotated-source-viewer/src/sample-document.js";
+import { captureDocument } from "./annotated-source-fixtures.ts";
 
 validateAnnotatedSourceDocument(sampleDocumentFixture);
 const sampleDocument: AnnotatedSourceDocument = sampleDocumentFixture;
@@ -73,6 +74,48 @@ test("selecting a fact highlights every target node across both media", () => {
     "new object()",
     "IL_0001: newobj instance void System.Object::.ctor()",
   ]);
+});
+
+test("anchored fact ids are projected onto every target segment before selection", () => {
+  const view = buildAnnotatedView(sampleDocument);
+  const ambient = view.lines
+    .flatMap(line => line.segments)
+    .filter(segment => segment.factIds.length > 0)
+    .map(segment => [segment.text, segment.factIds]);
+
+  assert.deepEqual(ambient, [
+    ["for (var i = 0; i < 2; i++)", [1]],
+    ["IL_0000: ldc.i4.0", [1]],
+    ["{", [1]],
+    ["    return ", [1]],
+    ["new object()", [0, 1]],
+    [";", [1]],
+    ["IL_0001: newobj instance void System.Object::.ctor()", [0]],
+    ["}", [1]],
+  ]);
+});
+
+test("captured variables project ambient uses and exact capture selection", () => {
+  const ambient = buildAnnotatedView(captureDocument);
+  assert.deepEqual(
+    ambient.lines.flatMap(line => line.segments)
+      .filter(segment => segment.captureIds.length > 0)
+      .map(segment => [segment.text, segment.captureIds]),
+    [["first", [0]], ["second", [1]]],
+  );
+
+  const selected = buildAnnotatedView(captureDocument, { selectedCaptureIndex: 0 });
+  assert.equal(selected.selectedCaptureIndex, 0);
+  assert.equal(selected.captureScopeNodeId, 0);
+  assert.deepEqual(selected.selectedNodeIds, [1]);
+  assert.deepEqual(
+    selected.lines.flatMap(line => line.segments)
+      .filter(segment => segment.selected)
+      .map(segment => segment.text),
+    ["first"],
+  );
+  assert.equal(selected.captures[0].selected, true);
+  assert.equal(selected.captures[1].selected, false);
 });
 
 test("a multi-span node highlights its spans without selecting interleaved IL", () => {
@@ -182,7 +225,20 @@ test("indexed preparation preserves the portable model's segmentation", () => {
       segments: segmentsForLine(document, line),
     }));
 
-    assert.deepEqual(prepared.lines, expected);
+    assert.deepEqual(
+      prepared.lines.map(line => ({
+        ...line,
+        segments: line.segments.map(segment => ({
+          start: segment.start,
+          end: segment.end,
+          text: segment.text,
+          nodeIds: segment.nodeIds,
+          media: segment.media,
+          selected: segment.selected,
+        })),
+      })),
+      expected,
+    );
   }
 });
 

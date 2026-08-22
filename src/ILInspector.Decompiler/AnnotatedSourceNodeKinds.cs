@@ -1,4 +1,5 @@
 using System.Collections.Frozen;
+using System.Text;
 
 namespace ILInspector.Decompiler;
 
@@ -24,6 +25,15 @@ public static class AnnotatedSourceNodeKinds
 
     /// <summary>A producer-recognized node whose syntax has no more specific catalog entry.</summary>
     public const string Unknown = nameof(Unknown);
+
+    /// <summary>A rendered lambda, and one of the two kinds a capture parent may be.</summary>
+    public const string LambdaExpression = nameof(LambdaExpression);
+
+    /// <summary>A rendered local-function declaration, and one of the two kinds a capture parent may be.</summary>
+    public const string LocalFunctionStatement = nameof(LocalFunctionStatement);
+
+    /// <summary>A rendered identifier reference, and the only kind a capture use may be.</summary>
+    public const string NameExpression = nameof(NameExpression);
 
     private static readonly FrozenSet<string> Known =
         new[]
@@ -62,7 +72,7 @@ public static class AnnotatedSourceNodeKinds
             "ConversionExpression",
             "EmptyStatement",
             "ExpressionStatement",
-            "NameExpression",
+            NameExpression,
             "AssignmentStatement",
             "LiteralExpression",
             "InvocationExpression",
@@ -78,8 +88,8 @@ public static class AnnotatedSourceNodeKinds
             "InitializerExpression",
             "MethodAddressExpression",
             "DelegateCreationExpression",
-            "LambdaExpression",
-            "LocalFunctionStatement",
+            LambdaExpression,
+            LocalFunctionStatement,
             "ThrowStatement",
             "MemberAccessExpression",
             "ReturnStatement",
@@ -115,6 +125,19 @@ public static class AnnotatedSourceNodeKinds
             ["ReturnStatement"] = "Return",
         }.ToFrozenDictionary(StringComparer.Ordinal);
 
+    private static readonly FrozenDictionary<string, string> VocabularyLabels =
+        Known.ToFrozenDictionary(
+            static kind => kind,
+            static kind => kind switch
+            {
+                "DoStatement" => "Do loop",
+                "ForStatement" => "For loop",
+                "ForeachStatement" => "Foreach loop",
+                "WhileStatement" => "While loop",
+                _ => HumanizeKnownKind(kind),
+            },
+            StringComparer.Ordinal);
+
     /// <summary>All node kinds emitted by this version of the producer.</summary>
     public static IReadOnlySet<string> All => Known;
 
@@ -124,11 +147,40 @@ public static class AnnotatedSourceNodeKinds
 
     /// <summary>
     /// Returns the product-owned display label for a stable node kind.
-    /// Unknown kinds and kinds without a shorter label retain their stable id.
+    /// Unknown kinds retain their stable id.
     /// </summary>
     public static string GetDisplayLabel(string kind)
     {
         ArgumentNullException.ThrowIfNull(kind);
         return DisplayLabels.GetValueOrDefault(kind, kind);
+    }
+
+    /// <summary>
+    /// Returns the product-owned human-readable label used in selection vocabularies.
+    /// Unknown kinds retain their stable id.
+    /// </summary>
+    public static string GetVocabularyLabel(string kind)
+    {
+        ArgumentNullException.ThrowIfNull(kind);
+        return VocabularyLabels.GetValueOrDefault(kind, kind);
+    }
+
+    private static string HumanizeKnownKind(string kind)
+    {
+        var label = new StringBuilder(kind.Length + 8);
+        for (int index = 0; index < kind.Length; index++)
+        {
+            char current = kind[index];
+            bool startsWord = index > 0
+                && char.IsUpper(current)
+                && (char.IsLower(kind[index - 1])
+                    || index + 1 < kind.Length && char.IsLower(kind[index + 1]));
+            if (startsWord)
+                label.Append(' ');
+            label.Append(index == 0 || !startsWord
+                ? current
+                : char.ToLowerInvariant(current));
+        }
+        return label.ToString();
     }
 }

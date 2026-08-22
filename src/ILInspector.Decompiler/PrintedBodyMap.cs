@@ -91,6 +91,65 @@ public enum PrintedRegionRole
 public readonly record struct PrintedRegion(PrintedRegionRole Role, PrintedExtent Extent);
 
 /// <summary>
+/// One outer variable a printed nested function captured, bound to the printed
+/// nodes that name it.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The association between a nested function and the outer variables it reads is
+/// producer evidence discovered by <c>LambdaRaisingPass</c> and
+/// <c>LocalFunctionRaisingPass</c> and carried on the <c>Lambda</c> /
+/// <c>LocalFunctionStatement</c> node as <c>IrCapturedVariable</c>. This is where
+/// that evidence stops being references: it is resolved here, while
+/// <see cref="IrNode"/> identity is still alive, into the same node ids
+/// everything else in the projection uses.
+/// </para>
+/// <para>
+/// <see cref="DisplayName"/> is read from the exact characters the uses printed
+/// rather than minted from metadata, because the C# spelling of an argument or a
+/// local is a print-time decision. A capture whose uses do not all print one
+/// identical name is not recorded at all — declining a row is honest, while
+/// naming a variable something the reader cannot see in the text is not.
+/// </para>
+/// <para>
+/// <see cref="UseNodeIds"/> is a strictly increasing set, not a list of
+/// occurrences: two IR uses that print the same characters under the same kind
+/// are one surface node, and repeating its id would make the row unreadable as
+/// "which printed names are this variable". It is also not a count of reads —
+/// the printer refuses a range for a name that is ambiguous inside its parent's
+/// window, so a repeated read within one statement is unaddressable and simply
+/// absent. Rows are ordered by parent, then by display name, so an identical
+/// print produces an identical projection.
+/// </para>
+/// </remarks>
+/// <param name="ParentNodeId">The <see cref="PrintedNodeSpan.Id"/> of the printed lambda or local-function declaration that captured the variable.</param>
+/// <param name="DisplayName">The exact characters the variable's uses printed.</param>
+/// <param name="UseNodeIds">The printed name nodes that read the captured variable: distinct, strictly increasing, and never empty.</param>
+public sealed record PrintedCapture(
+    int ParentNodeId,
+    string DisplayName,
+    IReadOnlyList<int> UseNodeIds)
+{
+    /// <inheritdoc/>
+    public bool Equals(PrintedCapture? other)
+        => other is not null
+            && ParentNodeId == other.ParentNodeId
+            && string.Equals(DisplayName, other.DisplayName, StringComparison.Ordinal)
+            && UseNodeIds.SequenceEqual(other.UseNodeIds);
+
+    /// <inheritdoc/>
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(ParentNodeId);
+        hash.Add(DisplayName);
+        foreach (int id in UseNodeIds)
+            hash.Add(id);
+        return hash.ToHashCode();
+    }
+}
+
+/// <summary>
 /// A printed body plus the positions of everything known about it, in text
 /// coordinates only.
 /// </summary>
@@ -148,11 +207,13 @@ public sealed record PrintedBodyMap
     /// <param name="Nodes">Every distinct kind-and-extent pair whose exact printed extent is known, with ids contiguous from <c>0</c> in list order.</param>
     /// <param name="Regions">Named construct and clause regions recorded during emission.</param>
     /// <param name="Annotations">Every fact, with its exact node extent and node id when one is known.</param>
+    /// <param name="Captures">Captured outer variables bound to the printed nested functions that read them, in canonical order.</param>
     public PrintedBodyMap(
         IReadOnlyList<string> Lines,
         IReadOnlyList<PrintedNodeSpan> Nodes,
         IReadOnlyList<PrintedRegion> Regions,
-        IReadOnlyList<PrintedAnnotationSpan> Annotations)
+        IReadOnlyList<PrintedAnnotationSpan> Annotations,
+        IReadOnlyList<PrintedCapture>? Captures = null)
     {
         ArgumentNullException.ThrowIfNull(Lines);
         ArgumentNullException.ThrowIfNull(Nodes);
@@ -165,6 +226,7 @@ public sealed record PrintedBodyMap
         var nodes = Nodes.ToArray();
         var regions = Regions.ToArray();
         var annotations = Annotations.ToArray();
+        var captures = Captures?.ToArray() ?? [];
 
         for (int index = 0; index < nodes.Length; index++)
         {
@@ -220,11 +282,13 @@ public sealed record PrintedBodyMap
 
         ValidateLaminar(nodes.Select(node => node.Extent).Concat(regions.Select(region => region.Extent)));
         Array.Sort(regions, Compare);
+        ValidateCaptures(captures, nodes);
 
         this.Lines = Array.AsReadOnly(lines);
         this.Nodes = Array.AsReadOnly(nodes);
         this.Regions = Array.AsReadOnly(regions);
         this.Annotations = Array.AsReadOnly(annotations);
+        this.Captures = Array.AsReadOnly(captures);
     }
 
     /// <summary>The printed body, split into lines.</summary>
@@ -238,6 +302,95 @@ public sealed record PrintedBodyMap
 
     /// <summary>Every fact, with a null extent when it could not be placed.</summary>
     public IReadOnlyList<PrintedAnnotationSpan> Annotations { get; }
+
+    /// <summary>
+    /// Captured outer variables bound to the printed nested functions that read
+    /// them, ordered by parent node id and then by display name. Empty when the
+    /// printed body declares no capturing nested function, or when the producer's
+    /// evidence could not be bound to printed nodes.
+    /// </summary>
+    public IReadOnlyList<PrintedCapture> Captures { get; }
+
+    static void ValidateCaptures(PrintedCapture[] captures, PrintedNodeSpan[] nodes)
+    {
+        var identities = new HashSet<(int Parent, string Name)>();
+        PrintedCapture? previous = null;
+        foreach (var capture in captures)
+        {
+            if (capture is null)
+                throw new ArgumentException("Captures cannot contain null.", "Captures");
+            if (string.IsNullOrEmpty(capture.DisplayName))
+            {
+                throw new ArgumentException(
+                    "A captured variable must carry the name its uses printed.",
+                    "Captures");
+            }
+            if (capture.ParentNodeId < 0 || capture.ParentNodeId >= nodes.Length)
+            {
+                throw new ArgumentException(
+                    $"Capture {capture.DisplayName} names parent node {capture.ParentNodeId}, which does not exist.",
+                    "Captures");
+            }
+            string parentKind = nodes[capture.ParentNodeId].Kind;
+            if (parentKind is not (AnnotatedSourceNodeKinds.LambdaExpression
+                or AnnotatedSourceNodeKinds.LocalFunctionStatement))
+            {
+                throw new ArgumentException(
+                    $"Capture {capture.DisplayName} names parent node {capture.ParentNodeId}, which is {parentKind}, not a nested function.",
+                    "Captures");
+            }
+            if (capture.UseNodeIds.Count == 0)
+            {
+                throw new ArgumentException(
+                    $"Capture {capture.DisplayName} is evidenced by its uses, so it must name at least one.",
+                    "Captures");
+            }
+
+            int previousUse = -1;
+            foreach (int use in capture.UseNodeIds)
+            {
+                if (use < 0 || use >= nodes.Length)
+                {
+                    throw new ArgumentException(
+                        $"Capture {capture.DisplayName} names use node {use}, which does not exist.",
+                        "Captures");
+                }
+                if (use <= previousUse)
+                {
+                    throw new ArgumentException(
+                        $"Capture {capture.DisplayName} must name distinct use nodes in increasing order; {use} follows {previousUse}.",
+                        "Captures");
+                }
+                if (nodes[use].Kind != AnnotatedSourceNodeKinds.NameExpression)
+                {
+                    throw new ArgumentException(
+                        $"Capture {capture.DisplayName} names use node {use}, which is {nodes[use].Kind}, not a {AnnotatedSourceNodeKinds.NameExpression}.",
+                        "Captures");
+                }
+                previousUse = use;
+            }
+
+            if (!identities.Add((capture.ParentNodeId, capture.DisplayName)))
+            {
+                throw new ArgumentException(
+                    $"Node {capture.ParentNodeId} captures {capture.DisplayName} more than once.",
+                    "Captures");
+            }
+            if (previous is not null && CompareCaptures(previous, capture) >= 0)
+            {
+                throw new ArgumentException(
+                    $"Captures must be ordered by parent node and then by display name; {capture.DisplayName} follows {previous.DisplayName}.",
+                    "Captures");
+            }
+            previous = capture;
+        }
+    }
+
+    internal static int CompareCaptures(PrintedCapture a, PrintedCapture b)
+    {
+        int c = a.ParentNodeId.CompareTo(b.ParentNodeId);
+        return c != 0 ? c : string.CompareOrdinal(a.DisplayName, b.DisplayName);
+    }
 
     /// <summary>
     /// Orders facts by position, then by everything else that can distinguish
@@ -295,7 +448,7 @@ public sealed record PrintedBodyMap
     {
         ArgumentNullException.ThrowIfNull(ranges);
 
-        var (lines, nodes, regions, nodeIds) = Project(
+        var (lines, nodes, regions, nodeIds, captures) = Project(
             ranges,
             includeNodeProvenance: annotations is not null);
 
@@ -333,7 +486,7 @@ public sealed record PrintedBodyMap
 
         facts.Sort(Compare);
 
-        return new PrintedBodyMap(lines, nodes, regions, facts);
+        return new PrintedBodyMap(lines, nodes, regions, facts, captures);
     }
 
     /// <summary>
@@ -361,7 +514,8 @@ public sealed record PrintedBodyMap
         string[] Lines,
         PrintedNodeSpan[] Nodes,
         List<PrintedRegion> Regions,
-        Dictionary<IrNode, int> NodeIds) Project(
+        Dictionary<IrNode, int> NodeIds,
+        List<PrintedCapture> Captures) Project(
             PrintedRangeMap ranges,
             bool includeNodeProvenance,
             IReadOnlySet<int>? provenanceOffsetAllowList = null)
@@ -443,7 +597,144 @@ public sealed record PrintedBodyMap
             if (ranges.TryGetExtent(printed.Characters, out var extent))
                 regions.Add(new PrintedRegion(printed.Role, extent));
 
-        return (lines, [.. nodes], regions, nodeIds);
+        var captures = ProjectCaptures(recorded, nodes, nodeIds, lines);
+
+        return (lines, [.. nodes], regions, nodeIds, captures);
+    }
+
+    /// <summary>
+    /// Binds each recovered nested function's producer-recorded capture evidence
+    /// to the node ids its substituted uses printed as.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Every step here can decline, and declining is the designed outcome rather
+    /// than a failure: a capture row that cannot be bound exactly is omitted, and
+    /// no coordinate is invented for it. A row is emitted only when the parent
+    /// printed as a lambda or local-function node of its own, every recorded use
+    /// still lives inside that parent's subtree, and the uses the printer named
+    /// are all <c>NameExpression</c> nodes in this same map printing one
+    /// identical name on one line.
+    /// </para>
+    /// <para>
+    /// A use the printer gave no range to is skipped rather than fatal, and that
+    /// is the one asymmetry worth stating plainly.
+    /// <see cref="PrintedRangeMap"/> refuses a range for a node whose printed
+    /// text is not unique inside its parent's window, so the second <c>n</c> in
+    /// <c>x * n + n</c> owns no characters in <em>any</em> projection — no
+    /// consumer could have pointed at it, and dropping the whole row over it
+    /// would lose the capture a reader can see. <see cref="PrintedCapture.UseNodeIds"/>
+    /// is therefore the addressable uses, never a count of reads.
+    /// </para>
+    /// <para>
+    /// The subtree test is what makes a stale record harmless, and it declines
+    /// the row rather than skipping the use. <see cref="IrNode.Clone"/> copies
+    /// the capture list by reference, so a cloned nested function carries uses
+    /// that point into the original's body; those uses <em>do</em> resolve — to
+    /// the original's node ids — which would be a confidently wrong answer rather
+    /// than a missing one.
+    /// </para>
+    /// <para>
+    /// Two captures on one parent that print the same name are both declined:
+    /// the printed text cannot then say which variable a highlighted name is,
+    /// and guessing is worse than not answering. Rows come out ordered by parent
+    /// node id and then by display name.
+    /// </para>
+    /// </remarks>
+    static List<PrintedCapture> ProjectCaptures(
+        List<(IrNode Node, string Kind, PrintedExtent Extent, int Slot)> recorded,
+        List<PrintedNodeSpan> nodes,
+        Dictionary<IrNode, int> nodeIds,
+        string[] lines)
+    {
+        var captures = new List<PrintedCapture>();
+        foreach (var (node, _, _, _) in recorded)
+        {
+            var recordedCaptures = node switch
+            {
+                Lambda lambda => lambda.Captures,
+                LocalFunctionStatement local => local.Captures,
+                _ => default,
+            };
+            if (recordedCaptures.IsDefaultOrEmpty
+                || !nodeIds.TryGetValue(node, out int parentId))
+            {
+                continue;
+            }
+            string parentKind = nodes[parentId].Kind;
+            if (parentKind is not (AnnotatedSourceNodeKinds.LambdaExpression
+                or AnnotatedSourceNodeKinds.LocalFunctionStatement))
+            {
+                continue;
+            }
+
+            foreach (var capture in recordedCaptures)
+            {
+                var useIds = new SortedSet<int>();
+                string? name = null;
+                bool declined = false;
+                foreach (var use in capture.Uses)
+                {
+                    // Stale evidence, not an unnamed use: this record belongs to
+                    // another subtree, so nothing in it may be resolved here.
+                    if (!IsWithin(use, node))
+                    {
+                        declined = true;
+                        break;
+                    }
+
+                    // The printer refuses a range for characters it cannot prove
+                    // belong to one node — a second `n` inside the same window is
+                    // ambiguous — so this use is not addressable in any document.
+                    // Skipping it drops nothing a consumer could have pointed at.
+                    if (!nodeIds.TryGetValue(use, out int useId))
+                        continue;
+
+                    if (nodes[useId].Kind != AnnotatedSourceNodeKinds.NameExpression
+                        || SingleLineText(nodes[useId].Extent, lines) is not { } printed
+                        || name is not null && !string.Equals(name, printed, StringComparison.Ordinal))
+                    {
+                        declined = true;
+                        break;
+                    }
+                    name = printed;
+                    useIds.Add(useId);
+                }
+                if (declined || name is null || useIds.Count == 0)
+                    continue;
+
+                captures.Add(new PrintedCapture(parentId, name, [.. useIds]));
+            }
+        }
+
+        var ambiguous = captures
+            .GroupBy(capture => (capture.ParentNodeId, capture.DisplayName))
+            .Where(group => group.Skip(1).Any())
+            .Select(group => group.Key)
+            .ToHashSet();
+        captures.RemoveAll(capture => ambiguous.Contains((capture.ParentNodeId, capture.DisplayName)));
+        captures.Sort(CompareCaptures);
+        return captures;
+    }
+
+    static bool IsWithin(IrNode node, IrNode ancestor)
+    {
+        for (var current = node.Parent; current is not null; current = current.Parent)
+            if (ReferenceEquals(current, ancestor))
+                return true;
+        return false;
+    }
+
+    /// <summary>
+    /// The exact characters an extent selects, or null when it is not one
+    /// contiguous run on one line — a name printed across a line break is not a
+    /// name this projection is willing to spell.
+    /// </summary>
+    static string? SingleLineText(PrintedExtent extent, string[] lines)
+    {
+        if (extent.StartLine != extent.EndLine || extent.EndColumn <= extent.StartColumn)
+            return null;
+        return lines[extent.StartLine][extent.StartColumn..extent.EndColumn];
     }
 
     /// <summary>
@@ -468,7 +759,7 @@ public sealed record PrintedBodyMap
         ArgumentNullException.ThrowIfNull(function);
         ArgumentNullException.ThrowIfNull(annotations);
 
-        var (lines, nodes, regions, nodeIds) = Project(
+        var (lines, nodes, regions, nodeIds, captures) = Project(
             ranges,
             includeNodeProvenance: true,
             provenanceOffsetAllowList: provenanceOffsetAllowList);
@@ -511,7 +802,7 @@ public sealed record PrintedBodyMap
         }
         facts.Sort(Compare);
 
-        return new PrintedBodyMap(lines, nodes, regions, facts);
+        return new PrintedBodyMap(lines, nodes, regions, facts, captures);
     }
 
     static int Compare(PrintedExtent? a, PrintedExtent? b)

@@ -65,7 +65,7 @@ public sealed class BrowserStyleOptionsTests
             string expected = BodyShapeSearch.SupportedKinds[i];
             Assert.Equal(expected, actual[i].GetProperty("id").GetString());
             Assert.Equal(
-                AnnotatedSourceNodeKinds.GetDisplayLabel(expected),
+                AnnotatedSourceNodeKinds.GetVocabularyLabel(expected),
                 actual[i].GetProperty("label").GetString());
         }
     }

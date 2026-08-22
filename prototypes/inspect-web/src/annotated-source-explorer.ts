@@ -7,6 +7,8 @@ import {
   projectPreparedAnnotatedView,
   type AnnotatedSourceDocument,
   type AnnotatedSourceNode,
+  type AnnotatedSourceRegion,
+  type AnnotatedViewCapture,
   type AnnotatedViewFact,
   type PreparedAnnotatedView,
   type SourceMedium,
@@ -22,8 +24,10 @@ export interface AnnotatedSourceExplorerState {
   prepared: PreparedAnnotatedView;
   media: Record<SourceMedium, boolean>;
   selectedFactId: number | null;
+  selectedCaptureIndex: number | null;
   selectedNodeIds: readonly number[];
   selectedKind: string;
+  selectedRegionRole: string;
 }
 
 export interface AnnotatedSourceExplorerRenderState {
@@ -36,9 +40,11 @@ export interface AnnotatedSourceExplorerRenderState {
 export type AnnotatedSourceExplorerAction =
   | { type: "toggle-medium"; medium: SourceMedium }
   | { type: "select-fact"; factId: number }
+  | { type: "select-capture"; captureIndex: number }
   | { type: "select-node"; nodeId: number }
   | { type: "select-offset"; offset: number }
   | { type: "select-kind"; kind: string }
+  | { type: "select-region"; role: string }
   | { type: "clear-selection" };
 
 type EscapeHtml = (value: unknown) => string;
@@ -57,21 +63,41 @@ export interface AnnotatedSourceExplorerBindingActions {
   onClearSelection: () => void;
   onCopy: () => void;
   onExit: () => void;
+  onCaptureSelect: (captureIndex: number) => void;
   onFactSelect: (factId: number) => void;
   onMediumToggle: (medium: SourceMedium) => void;
   onNodeKindSelect: (kind: string) => void;
+  onRegionSelect: (role: string) => void;
   onNodeSelect: (nodeId: number) => void;
   onOffsetSelect: (offset: number) => void;
 }
+
+export interface AnnotatedSourceKindOption {
+  id: string;
+  label: string;
+}
+
+export interface CSharpSyntaxToken {
+  text: string;
+  classes: readonly string[];
+}
+
+type CSharpTokenizer = (value: string) => readonly CSharpSyntaxToken[];
 
 export interface AnnotatedSourceExplorerOptions extends AnnotatedSourceEntryOptions {
   state: AnnotatedSourceExplorerState;
   title: string;
   subtitle: string;
+  nodeKinds?: readonly AnnotatedSourceKindOption[];
+  tokenizeCSharp?: CSharpTokenizer;
 }
 
 const MAX_SELECTION_DETAILS = 50;
 const preparedDocuments = new WeakMap<AnnotatedSourceDocument, PreparedAnnotatedView>();
+const preparedSyntax = new WeakMap<
+  AnnotatedSourceDocument,
+  WeakMap<CSharpTokenizer, Map<number, readonly SyntaxRange[]>>
+>();
 
 export function bindAnnotatedSourceEntry(
   root: ParentNode,
@@ -92,8 +118,18 @@ export function bindAnnotatedSourceExplorer(
       const medium = button.dataset.aseMedium;
       if (medium === "CSharp" || medium === "Il") actions.onMediumToggle(medium);
     }));
-  const nodeKind = root.querySelector<HTMLSelectElement>("#ase-node-kind");
-  nodeKind?.addEventListener("change", () => actions.onNodeKindSelect(nodeKind.value));
+  root.querySelectorAll<HTMLElement>("[data-ase-kind]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onNodeKindSelect(button.dataset.aseKind ?? "")));
+  root.querySelectorAll<HTMLElement>("[data-ase-region]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onRegionSelect(button.dataset.aseRegion ?? "")));
+  root.querySelectorAll<HTMLElement>("[data-ase-capture]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onCaptureSelect(Number(button.dataset.aseCapture))));
   root.querySelectorAll<HTMLElement>("[data-ase-fact]").forEach(button =>
     button.addEventListener(
       "click",
@@ -196,8 +232,10 @@ export function createAnnotatedSourceExplorerState(
     prepared: preparedDocument(document),
     media,
     selectedFactId: initial.selectedFactId ?? null,
+    selectedCaptureIndex: initial.selectedCaptureIndex ?? null,
     selectedNodeIds: [...new Set(initial.selectedNodeIds ?? [])],
     selectedKind: initial.selectedKind ?? "",
+    selectedRegionRole: initial.selectedRegionRole ?? "",
   };
 }
 
@@ -217,8 +255,24 @@ export function reduceAnnotatedSourceExplorerState(
       return {
         ...state,
         selectedFactId,
+        selectedCaptureIndex: null,
         selectedNodeIds: [],
         selectedKind: "",
+        selectedRegionRole: "",
+      };
+    }
+    case "select-capture": {
+      if (!(document.captures ?? [])[action.captureIndex]) return state;
+      const selectedCaptureIndex = state.selectedCaptureIndex === action.captureIndex
+        ? null
+        : action.captureIndex;
+      return {
+        ...state,
+        selectedFactId: null,
+        selectedCaptureIndex,
+        selectedNodeIds: [],
+        selectedKind: "",
+        selectedRegionRole: "",
       };
     }
     case "select-node":
@@ -226,8 +280,10 @@ export function reduceAnnotatedSourceExplorerState(
       return {
         ...state,
         selectedFactId: null,
+        selectedCaptureIndex: null,
         selectedNodeIds: [action.nodeId],
         selectedKind: "",
+        selectedRegionRole: "",
       };
     case "select-offset": {
       const node = nodeAtOffset(document, action.offset);
@@ -235,26 +291,44 @@ export function reduceAnnotatedSourceExplorerState(
       return {
         ...state,
         selectedFactId: owningFacts.length === 1 ? owningFacts[0].id : null,
+        selectedCaptureIndex: null,
         selectedNodeIds: node ? [node.id] : [],
         selectedKind: "",
+        selectedRegionRole: "",
       };
     }
-    case "select-kind":
+    case "select-kind": {
       if (action.kind && !document.nodes.some(node => node.kind === action.kind)) return state;
+      const selectedKind = state.selectedKind === action.kind ? "" : action.kind;
       return {
         ...state,
         selectedFactId: null,
-        selectedNodeIds: action.kind
-          ? document.nodes.filter(node => node.kind === action.kind).map(node => node.id)
+        selectedCaptureIndex: null,
+        selectedNodeIds: selectedKind
+          ? document.nodes.filter(node => node.kind === selectedKind).map(node => node.id)
           : [],
-        selectedKind: action.kind,
+        selectedKind,
+        selectedRegionRole: "",
+      };
+    }
+    case "select-region":
+      if (action.role && !document.regions.some(region => region.role === action.role)) return state;
+      return {
+        ...state,
+        selectedFactId: null,
+        selectedCaptureIndex: null,
+        selectedNodeIds: [],
+        selectedKind: "",
+        selectedRegionRole: state.selectedRegionRole === action.role ? "" : action.role,
       };
     case "clear-selection":
       return {
         ...state,
         selectedFactId: null,
+        selectedCaptureIndex: null,
         selectedNodeIds: [],
         selectedKind: "",
+        selectedRegionRole: "",
       };
   }
   const unhandledAction: never = action;
@@ -279,6 +353,7 @@ export function renderAnnotatedSourceEntry(options: AnnotatedSourceEntryOptions)
             ${countHtml(result.document.nodes.length, "node", escapeHtml)}
             ${countHtml(result.document.facts.length, "fact", escapeHtml)}
             ${countHtml(targetCount, "target", escapeHtml)}
+            ${countHtml(result.document.captures?.length ?? 0, "capture", escapeHtml)}
             ${countHtml(result.document.facts.length - anchoredFacts.size, "unanchored", escapeHtml)}
           </div>
         </div>
@@ -290,7 +365,7 @@ export function renderAnnotatedSourceEntry(options: AnnotatedSourceEntryOptions)
 export function renderAnnotatedSourceExplorer(
   options: AnnotatedSourceExplorerOptions,
 ): string {
-  const { result, state, title, subtitle, escapeHtml } = options;
+  const { result, state, title, subtitle, escapeHtml, tokenizeCSharp } = options;
   if (state.prepared.document !== result.document) {
     throw new Error("The annotated source explorer state belongs to a different document.");
   }
@@ -302,27 +377,87 @@ export function renderAnnotatedSourceExplorer(
   const unanchoredIds = new Set(view.unanchoredFactIds);
   const anchoredFacts = view.facts.filter(fact => !unanchoredIds.has(fact.id));
   const unanchoredFacts = view.facts.filter(fact => unanchoredIds.has(fact.id));
-  const kindCounts = nodeKindCounts(result.document);
+  const selectedCapture = view.selectedCaptureIndex === null
+    ? null
+    : view.captures[view.selectedCaptureIndex];
+  const kindCounts = nodeKindCounts(result.document, options.nodeKinds ?? []);
+  const kindLabels = new Map(kindCounts.map(kind => [kind.id, kind.label]));
+  const instructionCount = result.document.nodes
+    .filter(node => node.kind === "Instruction").length;
+  const regionCounts = regionRoleCounts(result.document);
+  const selectedRegions = result.document.regions
+    .filter(region => region.role === state.selectedRegionRole);
+  const selectedRegionSpans = selectedRegions.flatMap(region => region.spans);
+  const selectedKindLabel = kindCounts.find(kind => kind.id === state.selectedKind)?.label
+    ?? (state.selectedKind === "Instruction" ? "Instruction" : state.selectedKind);
 
   const mediumButtons = MEDIA.map(medium =>
     `<button type="button" class="annotated-medium${view.media[medium] ? " on" : ""}" data-ase-medium="${medium}" aria-pressed="${view.media[medium]}">${escapeHtml(MEDIUM_LABELS[medium])}</button>`,
   ).join("");
-  const kindOptions = [
-    `<option value="">all node kinds</option>`,
-    ...kindCounts.map(([kind, count]) =>
-      `<option value="${escapeHtml(kind)}"${state.selectedKind === kind ? " selected" : ""}>${escapeHtml(kind)} · ${count}</option>`),
-  ].join("");
   const lines = view.lines.map(line => {
+    const lineText = line.segments.map(segment => segment.text).join("");
+    const syntaxRanges = line.medium === "CSharp" && tokenizeCSharp
+      ? syntaxRangesForDocumentLine(
+          result.document,
+          tokenizeCSharp,
+          lineText,
+          line.start)
+      : [];
+    const lineRegionSpans = selectedRegionSpans.filter(
+      span => span.start < line.end && line.start < span.start + span.length);
     const segments = line.segments.map(segment => {
       const nodes = segment.nodeIds
         .map(id => nodeById.get(id))
         .filter((node): node is AnnotatedSourceNode => node !== undefined);
       const addressable = nodes.length > 0;
-      const titleText = nodes.map(node => `#${node.id} ${node.kind}`).join(" · ");
+      const factCount = segment.factIds.length;
+      const captureCount = segment.captureIds.length;
+      const factDescriptors = segment.factIds
+        .map(factId => view.facts[factId]?.descriptor)
+        .filter((descriptor): descriptor is string => descriptor !== undefined);
+      const captureNames = segment.captureIds
+        .map(captureId => view.captures[captureId]?.displayName)
+        .filter((name): name is string => name !== undefined);
+      const titleText = [
+        nodes.map(node => `#${node.id} ${node.kind}`).join(" · "),
+        factCount > 0
+          ? `${factCount} finding${factCount === 1 ? "" : "s"}: ${factDescriptors.join(", ")}`
+          : "",
+        captureCount > 0
+          ? `${captureCount} captured variable${captureCount === 1 ? "" : "s"}: ${captureNames.join(", ")}`
+          : "",
+      ].filter(Boolean).join(" · ");
+      const selectionClass = segment.selected
+        ? state.selectedFactId !== null
+          ? " selected semantic"
+          : state.selectedCaptureIndex !== null
+            ? " selected capture"
+            : " selected structural"
+        : "";
+      const captureScope = view.captureScopeNodeId !== null
+        && segment.nodeIds.includes(view.captureScopeNodeId);
+      const descriptions = [
+        factCount > 0
+          ? `${factCount} finding${factCount === 1 ? "" : "s"} available: ${factDescriptors.join(", ")}`
+          : "",
+        captureCount > 0
+          ? `captured variable${captureCount === 1 ? "" : "s"}: ${captureNames.join(", ")}`
+          : "",
+      ].filter(Boolean).join("; ");
+      const content = renderSegmentText(
+        segment.start,
+        segment.end,
+        result.document.text,
+        syntaxRanges,
+        lineRegionSpans,
+        escapeHtml);
       if (addressable) {
-        return `<button type="button" tabindex="-1" class="annotated-span addressable${segment.selected ? " selected" : ""}" data-ase-offset="${segment.start}" title="${escapeHtml(titleText)}">${escapeHtml(segment.text)}</button>`;
+        const accessibleLabel = descriptions
+          ? ` aria-label="${escapeHtml(`${segment.text}; ${descriptions}`)}"`
+          : "";
+        return `<button type="button" tabindex="-1" class="annotated-span addressable${factCount > 0 ? " has-fact" : ""}${captureCount > 0 ? " has-capture" : ""}${captureScope ? " capture-scope" : ""}${selectionClass}" data-ase-offset="${segment.start}" title="${escapeHtml(titleText)}"${accessibleLabel}>${content}</button>`;
       }
-      return `<span class="annotated-span${segment.selected ? " selected" : ""}">${escapeHtml(segment.text)}</span>`;
+      return `<span class="annotated-span${selectionClass}">${content}</span>`;
     }).join("");
     const mediumLabel = line.medium === "Mixed" ? "C#/IL" : MEDIUM_LABELS[line.medium];
     return `<div class="annotated-line medium-${line.medium.toLowerCase()}">
@@ -339,7 +474,6 @@ export function renderAnnotatedSourceExplorer(
           <strong>${escapeHtml(title)}</strong>
           <span>${escapeHtml(subtitle)}</span>
         </div>
-        <label class="ase-kind-filter">node kind<select id="ase-node-kind">${kindOptions}</select></label>
         <div class="ase-media" role="group" aria-label="Visible source media">${mediumButtons}</div>
         <button id="ase-copy" class="ase-copy" type="button">copy source</button>
       </header>
@@ -348,6 +482,12 @@ export function renderAnnotatedSourceExplorer(
         <section class="ase-code-panel" aria-label="Annotated source text">
           <div class="ase-panel-heading">
             <div><span>Canonical text</span><strong>Finding overlays</strong></div>
+            <div class="ase-overlay-legend" role="group" aria-label="Overlay legend">
+              <span><i class="finding"></i>finding available</span>
+              <span><i class="semantic"></i>active finding</span>
+              <span><i class="capture"></i>captured variable</span>
+              <span><i class="structure"></i>active structure</span>
+            </div>
             <p>${result.document.nodes.length} nodes · ${result.document.targets.length} targets${view.hiddenLines ? ` · ${view.hiddenLines} hidden lines` : ""}</p>
           </div>
           <div class="ase-code-scroll" tabindex="0" aria-label="Annotated source text. Use arrow keys to move between structural spans.">
@@ -356,11 +496,21 @@ export function renderAnnotatedSourceExplorer(
         </section>
         <aside class="ase-inspector">
           <section class="ase-inspector-section">
+            <div class="ase-section-heading"><div><span>Structural plane</span><strong>Source structures</strong></div><em>${kindCounts.length + regionCounts.length + (instructionCount > 0 ? 1 : 0)}</em></div>
+            <p class="ase-structure-help">Overlay product-issued constructs and named regions on the canonical source.</p>
+            ${structureButtonsHtml(kindCounts, instructionCount, regionCounts, state, escapeHtml)}
+          </section>
+          ${captureSectionHtml(view.captures, nodeById, kindLabels, escapeHtml)}
+          <section class="ase-inspector-section">
             <div class="ase-section-heading">
-              <div><span>Selection</span><strong>${escapeHtml(selectionTitle(view.selectedFactId, selectedNodes, state.selectedKind))}</strong></div>
-              ${view.selectedFactId !== null || selectedNodes.length > 0 ? `<button id="ase-clear" type="button">clear</button>` : ""}
+              <div><span>Selection</span><strong>${escapeHtml(selectionTitle(view.selectedFactId, selectedCapture, selectedNodes, selectedKindLabel, state.selectedRegionRole, selectedRegions.length))}</strong></div>
+              ${view.selectedFactId !== null || selectedCapture !== null || selectedNodes.length > 0 || selectedRegions.length > 0 ? `<button id="ase-clear" type="button">clear</button>` : ""}
             </div>
-            ${selectionHtml(selectedNodes, escapeHtml)}
+            ${selectedRegions.length > 0
+              ? regionSelectionHtml(selectedRegions, state.prepared, escapeHtml)
+              : selectedCapture
+                ? captureSelectionHtml(selectedCapture, nodeById, kindLabels, escapeHtml)
+                : selectionHtml(selectedNodes, escapeHtml)}
           </section>
           <section class="ase-inspector-section">
             <div class="ase-section-heading"><div><span>Semantic plane</span><strong>Anchored facts</strong></div><em>${anchoredFacts.length}</em></div>
@@ -394,22 +544,235 @@ function countHtml(count: number, label: string, escapeHtml: EscapeHtml): string
   return `<span><strong>${count}</strong>${escapeHtml(plural)}</span>`;
 }
 
-function nodeKindCounts(document: AnnotatedSourceDocument): [string, number][] {
+function nodeKindCounts(
+  document: AnnotatedSourceDocument,
+  catalog: readonly AnnotatedSourceKindOption[],
+): { id: string; label: string; count: number }[] {
   const counts = new Map<string, number>();
-  for (const node of document.nodes) counts.set(node.kind, (counts.get(node.kind) ?? 0) + 1);
+  for (const node of document.nodes) {
+    if (node.medium === "CSharp") counts.set(node.kind, (counts.get(node.kind) ?? 0) + 1);
+  }
+  const seen = new Set<string>();
+  const known = catalog.flatMap(option => {
+    const count = counts.get(option.id);
+    if (count === undefined) return [];
+    seen.add(option.id);
+    return [{ ...option, count }];
+  });
+  return [
+    ...known,
+    ...[...counts]
+      .filter(([id]) => !seen.has(id) && id !== "MemberBody" && id !== "Block")
+      .map(([id, count]) => ({ id, label: id, count })),
+  ];
+}
+
+function regionRoleCounts(document: AnnotatedSourceDocument): [string, number][] {
+  const counts = new Map<string, number>();
+  for (const region of document.regions) {
+    counts.set(region.role, (counts.get(region.role) ?? 0) + 1);
+  }
   return [...counts];
 }
 
 function selectionTitle(
   selectedFactId: number | null,
+  selectedCapture: AnnotatedViewCapture | null,
   nodes: readonly AnnotatedSourceNode[],
-  selectedKind: string,
+  selectedKindLabel: string,
+  selectedRegionRole: string,
+  selectedRegionCount: number,
 ): string {
   if (selectedFactId !== null) return `Fact #${selectedFactId} targets`;
-  if (selectedKind) return `${nodes.length} ${selectedKind} nodes`;
+  if (selectedCapture) {
+    return `${selectedCapture.displayName} · ${selectedCapture.useNodeIds.length} captured use${selectedCapture.useNodeIds.length === 1 ? "" : "s"}`;
+  }
+  if (selectedKindLabel) return `${nodes.length} ${selectedKindLabel} nodes`;
+  if (selectedRegionRole) {
+    return `${selectedRegionCount} ${selectedRegionRole} region${selectedRegionCount === 1 ? "" : "s"}`;
+  }
   if (nodes.length === 1) return `Node #${nodes[0].id}`;
   if (nodes.length > 1) return `${nodes.length} nodes`;
   return "Nothing selected";
+}
+
+function captureSectionHtml(
+  captures: readonly AnnotatedViewCapture[],
+  nodeById: ReadonlyMap<number, AnnotatedSourceNode>,
+  labels: ReadonlyMap<string, string>,
+  escapeHtml: EscapeHtml,
+): string {
+  if (captures.length === 0) return "";
+  return `<section class="ase-inspector-section">
+      <div class="ase-section-heading"><div><span>Closure plane</span><strong>Captured variables</strong></div><em>${captures.length}</em></div>
+      <p class="ase-structure-help">Select a variable to reveal its recovered nested-function scope and exact addressable uses.</p>
+      <div class="ase-capture-list">${captures.map(capture => {
+        const parent = nodeById.get(capture.parentNodeId);
+        const parentLabel = parent ? labels.get(parent.kind) ?? parent.kind : "Nested function";
+        return `<button type="button" class="${capture.selected ? "selected" : ""}" data-ase-capture="${capture.index}" aria-pressed="${capture.selected}">
+            <span><strong>${escapeHtml(capture.displayName)}</strong><em>${escapeHtml(parentLabel)}</em></span>
+            <small>${capture.useNodeIds.length} addressable use${capture.useNodeIds.length === 1 ? "" : "s"}</small>
+          </button>`;
+      }).join("")}</div>
+    </section>`;
+}
+
+function captureSelectionHtml(
+  capture: AnnotatedViewCapture,
+  nodeById: ReadonlyMap<number, AnnotatedSourceNode>,
+  labels: ReadonlyMap<string, string>,
+  escapeHtml: EscapeHtml,
+): string {
+  const parent = nodeById.get(capture.parentNodeId);
+  const parentLabel = parent ? labels.get(parent.kind) ?? parent.kind : "Nested function";
+  const uses = capture.useNodeIds
+    .map(id => nodeById.get(id))
+    .filter((node): node is AnnotatedSourceNode => node !== undefined);
+  return `<div class="ase-capture-selection">
+      <p><span>Captured by</span><strong>${escapeHtml(parentLabel)} #${capture.parentNodeId}</strong></p>
+      ${selectionHtml(uses, escapeHtml)}
+    </div>`;
+}
+
+function regionSelectionHtml(
+  regions: readonly AnnotatedSourceRegion[],
+  prepared: PreparedAnnotatedView,
+  escapeHtml: EscapeHtml,
+): string {
+  const visible = regions.slice(0, MAX_SELECTION_DETAILS);
+  const overflow = regions.length - visible.length;
+  return `<div class="ase-selection-list">${visible.map((region, index) => `
+      <button type="button" class="ase-region-selection" data-ase-offset="${region.spans[0].start}">
+        <span><strong>${escapeHtml(region.role)} region ${index + 1}</strong></span>
+        <small>${escapeHtml(regionLineSummary(region, prepared))}</small>
+      </button>`).join("")}
+      ${overflow > 0 ? `<p class="ase-overflow">${overflow} more regions; choose a source span to inspect its enclosing structure.</p>` : ""}
+    </div>`;
+}
+
+function structureButtonsHtml(
+  kinds: readonly { id: string; label: string; count: number }[],
+  instructionCount: number,
+  regions: readonly [string, number][],
+  state: AnnotatedSourceExplorerState,
+  escapeHtml: EscapeHtml,
+): string {
+  if (kinds.length === 0 && regions.length === 0 && instructionCount === 0) {
+    return `<p class="ase-empty">No C# structure was projected for this member.</p>`;
+  }
+  const kindButtons = kinds.map(kind =>
+    `<button type="button" class="ase-structure-button${state.selectedKind === kind.id ? " selected" : ""}" data-ase-kind="${escapeHtml(kind.id)}" aria-pressed="${state.selectedKind === kind.id}"><span>${escapeHtml(kind.label)}</span><em>${kind.count}</em></button>`,
+  ).join("");
+  const regionButtons = regions.map(([role, count]) =>
+    `<button type="button" class="ase-structure-button${state.selectedRegionRole === role ? " selected" : ""}" data-ase-region="${escapeHtml(role)}" aria-pressed="${state.selectedRegionRole === role}"><span>${escapeHtml(role)}</span><em>${count}</em></button>`,
+  ).join("");
+  const instructionButton = instructionCount > 0
+    ? `<button type="button" class="ase-structure-button${state.selectedKind === "Instruction" ? " selected" : ""}" data-ase-kind="Instruction" aria-pressed="${state.selectedKind === "Instruction"}"><span>Instruction</span><em>${instructionCount}</em></button>`
+    : "";
+  return `<div class="ase-structure-groups">
+      ${kindButtons ? `<div><span>Constructs</span><div class="ase-structure-buttons">${kindButtons}</div></div>` : ""}
+      ${regionButtons ? `<div><span>Regions</span><div class="ase-structure-buttons">${regionButtons}</div></div>` : ""}
+      ${instructionButton ? `<div><span>IL nodes</span><div class="ase-structure-buttons">${instructionButton}</div></div>` : ""}
+    </div>`;
+}
+
+function regionLineSummary(
+  region: AnnotatedSourceRegion,
+  prepared: PreparedAnnotatedView,
+): string {
+  const lineNumbers = prepared.lines
+    .filter(line => region.spans.some(
+      span => span.start < line.end && line.start < span.start + span.length))
+    .map(line => line.number);
+  if (lineNumbers.length === 0) return "No rendered lines";
+  if (lineNumbers.length === 1) return `Line ${lineNumbers[0]}`;
+  return `Lines ${lineNumbers[0]}–${lineNumbers.at(-1)}`;
+}
+
+interface SyntaxRange {
+  start: number;
+  end: number;
+  classes: readonly string[];
+}
+
+function syntaxRangesForLine(
+  tokens: readonly CSharpSyntaxToken[],
+  lineText: string,
+  lineStart: number,
+): SyntaxRange[] {
+  if (tokens.map(token => token.text).join("") !== lineText) return [];
+  let start = lineStart;
+  return tokens.map(token => {
+    const range = {
+      start,
+      end: start + token.text.length,
+      classes: token.classes.filter(cssClass => /^[A-Za-z0-9_-]+$/.test(cssClass)),
+    };
+    start = range.end;
+    return range;
+  });
+}
+
+function syntaxRangesForDocumentLine(
+  document: AnnotatedSourceDocument,
+  tokenizer: CSharpTokenizer,
+  lineText: string,
+  lineStart: number,
+): readonly SyntaxRange[] {
+  let tokenizers = preparedSyntax.get(document);
+  if (!tokenizers) {
+    tokenizers = new WeakMap();
+    preparedSyntax.set(document, tokenizers);
+  }
+  let lines = tokenizers.get(tokenizer);
+  if (!lines) {
+    lines = new Map();
+    tokenizers.set(tokenizer, lines);
+  }
+  const cached = lines.get(lineStart);
+  if (cached) return cached;
+  const ranges = syntaxRangesForLine(tokenizer(lineText), lineText, lineStart);
+  lines.set(lineStart, ranges);
+  return ranges;
+}
+
+function renderSegmentText(
+  segmentStart: number,
+  segmentEnd: number,
+  text: string,
+  syntaxRanges: readonly SyntaxRange[],
+  selectedRegionSpans: readonly { start: number; length: number }[],
+  escapeHtml: EscapeHtml,
+): string {
+  const boundaries = new Set([segmentStart, segmentEnd]);
+  for (const range of syntaxRanges) {
+    if (range.start < segmentEnd && segmentStart < range.end) {
+      boundaries.add(Math.max(segmentStart, range.start));
+      boundaries.add(Math.min(segmentEnd, range.end));
+    }
+  }
+  for (const span of selectedRegionSpans) {
+    const end = span.start + span.length;
+    if (span.start < segmentEnd && segmentStart < end) {
+      boundaries.add(Math.max(segmentStart, span.start));
+      boundaries.add(Math.min(segmentEnd, end));
+    }
+  }
+  const ordered = [...boundaries].sort((left, right) => left - right);
+  return ordered.slice(0, -1).map((start, index) => {
+    const end = ordered[index + 1];
+    const syntax = syntaxRanges.find(range => range.start <= start && end <= range.end);
+    const inRegion = selectedRegionSpans.some(
+      span => span.start <= start && end <= span.start + span.length);
+    const classes = [
+      ...(syntax?.classes.length ? ["token", ...syntax.classes] : []),
+      ...(inRegion ? ["annotated-region", "selected"] : []),
+    ];
+    const content = escapeHtml(text.slice(start, end));
+    return classes.length > 0
+      ? `<span class="${classes.map(escapeHtml).join(" ")}">${content}</span>`
+      : content;
+  }).join("");
 }
 
 function selectionHtml(

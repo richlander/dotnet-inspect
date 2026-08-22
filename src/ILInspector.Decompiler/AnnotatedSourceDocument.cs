@@ -417,6 +417,117 @@ public readonly record struct AnnotatedSourceFact(
 public readonly record struct AnnotatedSourceTarget(int FactId, int NodeId);
 
 /// <summary>
+/// One outer variable a rendered nested function captured, named by the printed
+/// nodes that read it.
+/// </summary>
+/// <remarks>
+/// <para>
+/// This is <em>producer evidence carried forward</em>, not something a consumer
+/// could re-derive. The association between a lambda or local function and the
+/// outer variables it closes over exists in the compiler's
+/// <c>&lt;&gt;c__DisplayClass</c> environment, which the raising passes erase
+/// once they have substituted the captured values back in. After that, a
+/// captured read is spelled exactly like any other variable read, so a consumer
+/// holding only the rendered text — a browser, a viewer, a diff — cannot tell
+/// them apart. That is why this plane exists: the answer is recorded where it is
+/// known, in the same node-id currency as everything else, rather than guessed
+/// from C# text downstream.
+/// </para>
+/// <para>
+/// <see cref="UseNodeIds"/> is a set of printed name nodes, strictly increasing
+/// and distinct, not an occurrence log: two implementation nodes that print the
+/// same characters are one surface node, so a repeated id would be indelible
+/// noise rather than a second use. It is also not a count of reads — a name the
+/// producer could not bind to exactly one printed node is absent rather than
+/// approximated, which is the same rule the rest of this document follows. The
+/// producer emits rows ordered by <see cref="ParentNodeId"/> and then by
+/// <see cref="DisplayName"/>, and the document constructor enforces that order,
+/// so an identical render replays as an identical payload.
+/// </para>
+/// <para>
+/// A nested function with no row here captured nothing, and a capture the
+/// producer could not bind exactly to printed nodes is omitted rather than
+/// approximated: an invented coordinate would be indistinguishable from a real
+/// one.
+/// </para>
+/// </remarks>
+public sealed record AnnotatedSourceCapture
+{
+    /// <summary>Creates one validated captured-variable row.</summary>
+    /// <param name="ParentNodeId">The <see cref="AnnotatedSourceNode.Id"/> of the rendered lambda or local-function declaration that captured the variable.</param>
+    /// <param name="DisplayName">The exact characters the variable's uses printed, e.g. <c>n</c>.</param>
+    /// <param name="UseNodeIds">The rendered name nodes that read the captured variable: distinct, strictly increasing, and never empty.</param>
+    public AnnotatedSourceCapture(
+        int ParentNodeId,
+        string DisplayName,
+        IReadOnlyList<int> UseNodeIds)
+    {
+        ArgumentNullException.ThrowIfNull(DisplayName);
+        ArgumentNullException.ThrowIfNull(UseNodeIds);
+        ArgumentOutOfRangeException.ThrowIfNegative(ParentNodeId);
+        if (DisplayName.Length == 0)
+        {
+            throw new ArgumentException(
+                "A captured variable must carry the name its uses printed.",
+                nameof(DisplayName));
+        }
+        AnnotatedSourceText.ValidateWellFormedUtf16(
+            DisplayName,
+            nameof(DisplayName),
+            "Capture display name");
+
+        var uses = UseNodeIds.ToArray();
+        if (uses.Length == 0)
+        {
+            throw new ArgumentException(
+                $"Capture {DisplayName} is evidenced by its uses, so it must name at least one.",
+                nameof(UseNodeIds));
+        }
+        for (int index = 0; index < uses.Length; index++)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(uses[index], nameof(UseNodeIds));
+            if (index > 0 && uses[index - 1] >= uses[index])
+            {
+                throw new ArgumentException(
+                    $"Capture {DisplayName} must name distinct use nodes in increasing order.",
+                    nameof(UseNodeIds));
+            }
+        }
+
+        this.ParentNodeId = ParentNodeId;
+        this.DisplayName = DisplayName;
+        this.UseNodeIds = Array.AsReadOnly(uses);
+    }
+
+    /// <summary>The rendered lambda or local-function declaration that captured the variable.</summary>
+    public int ParentNodeId { get; }
+
+    /// <summary>The exact characters the variable's uses printed.</summary>
+    public string DisplayName { get; }
+
+    /// <summary>The rendered name nodes that read the captured variable, distinct and strictly increasing.</summary>
+    public IReadOnlyList<int> UseNodeIds { get; }
+
+    /// <inheritdoc/>
+    public bool Equals(AnnotatedSourceCapture? other)
+        => other is not null
+            && ParentNodeId == other.ParentNodeId
+            && string.Equals(DisplayName, other.DisplayName, StringComparison.Ordinal)
+            && UseNodeIds.SequenceEqual(other.UseNodeIds);
+
+    /// <inheritdoc/>
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(ParentNodeId);
+        hash.Add(DisplayName);
+        foreach (int id in UseNodeIds)
+            hash.Add(id);
+        return hash.ToHashCode();
+    }
+}
+
+/// <summary>
 /// Portable annotated source for one member: the rendered text, the structure
 /// over it, the facts observed about it, and which structure each fact is about.
 /// </summary>
@@ -471,13 +582,22 @@ public sealed record AnnotatedSourceDocument
     /// <param name="Regions">Named construct and clause regions over <paramref name="Text"/>.</param>
     /// <param name="Facts">Every distinct observation about the member, ids contiguous from <c>0</c> in list order.</param>
     /// <param name="Targets">Which node each fact is about; a fact with none is unanchored.</param>
+    /// <param name="Source">Physical method-body provenance, when the producer can issue it.</param>
+    /// <param name="Captures">
+    /// Captured outer variables bound to the rendered nested functions that read
+    /// them, ordered by parent node and then by display name. Null and empty mean
+    /// the same thing — the producer recorded no capture evidence — and normalize
+    /// to null so a capture-free document keeps the wire shape it had before this
+    /// plane existed.
+    /// </param>
     public AnnotatedSourceDocument(
         string Text,
         IReadOnlyList<AnnotatedSourceNode> Nodes,
         IReadOnlyList<AnnotatedSourceRegion> Regions,
         IReadOnlyList<AnnotatedSourceFact> Facts,
         IReadOnlyList<AnnotatedSourceTarget> Targets,
-        AnnotatedSourceDocumentSource? Source = null)
+        AnnotatedSourceDocumentSource? Source = null,
+        IReadOnlyList<AnnotatedSourceCapture>? Captures = null)
     {
         ArgumentNullException.ThrowIfNull(Text);
         ArgumentNullException.ThrowIfNull(Nodes);
@@ -495,12 +615,14 @@ public sealed record AnnotatedSourceDocument
             throw new ArgumentException("Regions cannot contain null.", nameof(Regions));
         var facts = Facts.ToArray();
         var targets = Targets.ToArray();
+        var captures = Captures?.ToArray() ?? [];
 
         ValidateNodes(nodes, Text);
         foreach (var region in regions)
             AnnotatedSourceSpans.ValidateBounds(region.Spans, Text, nameof(Regions));
         ValidateFacts(facts);
         ValidateTargets(targets, facts, nodes);
+        ValidateCaptures(captures, nodes);
 
         this.Text = Text;
         this.Nodes = Array.AsReadOnly(nodes);
@@ -508,6 +630,7 @@ public sealed record AnnotatedSourceDocument
         this.Facts = Array.AsReadOnly(facts);
         this.Targets = Array.AsReadOnly(targets);
         this.Source = Source;
+        this.Captures = captures.Length == 0 ? null : Array.AsReadOnly(captures);
     }
 
     /// <summary>The rendered interleaved C#/IL text: the canonical artifact every span indexes. Always well-formed UTF-16.</summary>
@@ -528,6 +651,12 @@ public sealed record AnnotatedSourceDocument
     /// <summary>Physical method-body provenance, when the producer can issue it.</summary>
     public AnnotatedSourceDocumentSource? Source { get; }
 
+    /// <summary>
+    /// Captured outer variables bound to the rendered nested functions that read
+    /// them, or <see langword="null"/> when the producer recorded none.
+    /// </summary>
+    public IReadOnlyList<AnnotatedSourceCapture>? Captures { get; }
+
     /// <summary>An empty annotated source document.</summary>
     public static AnnotatedSourceDocument Empty { get; } = new("", [], [], [], []);
 
@@ -539,7 +668,8 @@ public sealed record AnnotatedSourceDocument
             && Regions.SequenceEqual(other.Regions)
             && Facts.SequenceEqual(other.Facts)
             && Targets.SequenceEqual(other.Targets)
-            && Source == other.Source;
+            && Source == other.Source
+            && (Captures ?? []).SequenceEqual(other.Captures ?? []);
 
     /// <inheritdoc/>
     public override int GetHashCode()
@@ -555,6 +685,8 @@ public sealed record AnnotatedSourceDocument
         foreach (var target in Targets)
             hash.Add(target);
         hash.Add(Source);
+        foreach (var capture in Captures ?? [])
+            hash.Add(capture);
         return hash.ToHashCode();
     }
 
@@ -718,6 +850,77 @@ public sealed record AnnotatedSourceDocument
                     $"Fact {fact.Descriptor} targets the IL instruction at offset {offset}, which is not its own offset {fact.SourceOffset}.",
                     "Targets");
             }
+        }
+    }
+
+    /// <summary>
+    /// Enforces that every capture row names real structure of the right kind.
+    /// </summary>
+    /// <remarks>
+    /// A capture is a claim about two specific rendered things: a nested function
+    /// and the names inside it that read one outer variable. A row naming a node
+    /// that is neither a lambda nor a local function, or a use that is not a
+    /// rendered name, is not a weaker claim — it is a claim about characters that
+    /// are something else, which a consumer would highlight anyway. The canonical
+    /// order is enforced here too, so two payloads describing the same render
+    /// cannot differ by row order alone.
+    /// </remarks>
+    static void ValidateCaptures(AnnotatedSourceCapture[] captures, AnnotatedSourceNode[] nodes)
+    {
+        var identities = new HashSet<(int Parent, string Name)>();
+        AnnotatedSourceCapture? previous = null;
+        foreach (var capture in captures)
+        {
+            if (capture is null)
+                throw new ArgumentException("Captures cannot contain null.", "Captures");
+            if (capture.ParentNodeId >= nodes.Length)
+            {
+                throw new ArgumentException(
+                    $"Capture {capture.DisplayName} names parent node {capture.ParentNodeId}, which does not exist.",
+                    "Captures");
+            }
+
+            var parent = nodes[capture.ParentNodeId];
+            if (parent.Kind is not (AnnotatedSourceNodeKinds.LambdaExpression
+                or AnnotatedSourceNodeKinds.LocalFunctionStatement))
+            {
+                throw new ArgumentException(
+                    $"Capture {capture.DisplayName} names parent node {capture.ParentNodeId}, which is {parent.Kind}, not a nested function.",
+                    "Captures");
+            }
+
+            foreach (int use in capture.UseNodeIds)
+            {
+                if (use >= nodes.Length)
+                {
+                    throw new ArgumentException(
+                        $"Capture {capture.DisplayName} names use node {use}, which does not exist.",
+                        "Captures");
+                }
+                if (nodes[use].Kind != AnnotatedSourceNodeKinds.NameExpression)
+                {
+                    throw new ArgumentException(
+                        $"Capture {capture.DisplayName} names use node {use}, which is {nodes[use].Kind}, not a {AnnotatedSourceNodeKinds.NameExpression}.",
+                        "Captures");
+                }
+            }
+
+            if (!identities.Add((capture.ParentNodeId, capture.DisplayName)))
+            {
+                throw new ArgumentException(
+                    $"Node {capture.ParentNodeId} captures {capture.DisplayName} more than once.",
+                    "Captures");
+            }
+            if (previous is not null
+                && (previous.ParentNodeId > capture.ParentNodeId
+                    || previous.ParentNodeId == capture.ParentNodeId
+                        && string.CompareOrdinal(previous.DisplayName, capture.DisplayName) > 0))
+            {
+                throw new ArgumentException(
+                    $"Captures must be ordered by parent node and then by display name; {capture.DisplayName} follows {previous.DisplayName}.",
+                    "Captures");
+            }
+            previous = capture;
         }
     }
 }

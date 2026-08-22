@@ -134,6 +134,57 @@ export function validateDocument(document) {
     }
   });
 
+  if (document.captures != null) {
+    if (!Array.isArray(document.captures)) {
+      throw new TypeError("The document captures must be an array or null.");
+    }
+    const identities = new Set();
+    let previousParent = -1;
+    let previousName = "";
+    document.captures.forEach((capture, index) => {
+      if (!Number.isInteger(capture?.parent_node_id)
+        || !document.nodes[capture.parent_node_id]) {
+        throw new TypeError(`Capture ${index} names a parent node that does not exist.`);
+      }
+      const parent = document.nodes[capture.parent_node_id];
+      if (parent.kind !== "LambdaExpression" && parent.kind !== "LocalFunctionStatement") {
+        throw new TypeError(`Capture ${index} parent is not a lambda or local function.`);
+      }
+      if (typeof capture.display_name !== "string" || capture.display_name.length === 0) {
+        throw new TypeError(`Capture ${index} must have a non-empty display name.`);
+      }
+      validateUtf16(capture.display_name, `captures[${index}].display_name`);
+      if (!Array.isArray(capture.use_node_ids) || capture.use_node_ids.length === 0) {
+        throw new TypeError(`Capture ${index} must name at least one use node.`);
+      }
+      let previousUse = -1;
+      for (const use of capture.use_node_ids) {
+        if (!Number.isInteger(use) || !document.nodes[use]) {
+          throw new TypeError(`Capture ${index} names a use node that does not exist.`);
+        }
+        if (use <= previousUse) {
+          throw new TypeError(`Capture ${index} use node ids must be distinct and increasing.`);
+        }
+        if (document.nodes[use].kind !== "NameExpression") {
+          throw new TypeError(`Capture ${index} use node is not a NameExpression.`);
+        }
+        previousUse = use;
+      }
+      const identity = `${capture.parent_node_id}:${capture.display_name}`;
+      if (identities.has(identity)) {
+        throw new TypeError(`Capture ${index} repeats ${identity}.`);
+      }
+      identities.add(identity);
+      if (capture.parent_node_id < previousParent
+        || capture.parent_node_id === previousParent
+          && capture.display_name < previousName) {
+        throw new TypeError("Captures must be ordered by parent node and display name.");
+      }
+      previousParent = capture.parent_node_id;
+      previousName = capture.display_name;
+    });
+  }
+
   return document;
 }
 

@@ -3259,6 +3259,19 @@ public sealed class Lambda : IrExpression
     /// </summary>
     public bool ReturnsVoid { get; init; }
 
+    /// <summary>
+    /// The outer variables <see cref="LambdaRaisingPass"/> substituted into this
+    /// body when it erased the <c>&lt;&gt;c__DisplayClass</c> environment, each
+    /// holding the exact substituted load instances. Empty for a non-capturing
+    /// lambda, which is the positive statement that nothing was captured.
+    /// <see cref="PrintedBodyMap"/> resolves these to printed node ids while the
+    /// identities are still alive; a stale set — one carried into a
+    /// <see cref="IrNode.Clone"/> whose uses still point into the original
+    /// subtree — resolves to nothing there rather than to another node's
+    /// coordinates.
+    /// </summary>
+    public ImmutableArray<IrCapturedVariable> Captures { get; init; } = [];
+
     public override IEnumerable<TypeRef> DirectTypes
         => Parameters.Select(p => p.Type).Append(DelegateType);
 
@@ -3354,6 +3367,9 @@ public sealed class LocalFunctionStatement : IrNode
     public bool UsesUpdatedMemorySafetyRules { get; }
     public bool SkipLocalsInit { get; }
     public BlockContainer Body => (BlockContainer)Children[0];
+
+    /// <inheritdoc cref="Lambda.Captures"/>
+    public ImmutableArray<IrCapturedVariable> Captures { get; init; } = [];
 
     public override IEnumerable<TypeRef> DirectTypes => Parameters.Select(p => p.Type).Append(ReturnType);
 

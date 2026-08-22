@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
@@ -312,16 +314,43 @@ public sealed class LambdaRaisingPass : IIrPass
             .Select(a => ((LoadField)a.Parent!).Field.Name)
             .ToHashSet(StringComparer.Ordinal);
 
+        // The substituted clones are the only surviving evidence that these
+        // reads were captured variables: once the environment is erased, a
+        // capture read is indistinguishable from any other outer-variable read.
+        // Record them per field, in body order, while that is still known.
+        var substituted = new Dictionary<string, List<IrExpression>>(StringComparer.Ordinal);
         foreach (var load in body.Descendants.OfType<LoadField>().ToList())
         {
             if (load.Instance is LoadArgument { Index: 0 }
                 && Equals(load.Field.DeclaringType, creation.Method.DeclaringType)
                 && captures.TryGetValue(load.Field.Name, out var value))
-                load.ReplaceWith(value.Clone());
+            {
+                var use = (IrExpression)value.Clone();
+                load.ReplaceWith(use);
+                if (!substituted.TryGetValue(load.Field.Name, out var uses))
+                    substituted[load.Field.Name] = uses = [];
+                uses.Add(use);
+            }
         }
 
-        return Finish(creation, body, provenance, allowLocals: CapturesAreArgumentOnly(captures.Values));
+        return Finish(
+            creation,
+            body,
+            provenance,
+            allowLocals: CapturesAreArgumentOnly(captures.Values),
+            captures: CaptureEvidence(substituted));
     }
+
+    // Ordered by the display-class field name so the recorded order is a
+    // property of the input rather than of dictionary enumeration.
+    static ImmutableArray<IrCapturedVariable> CaptureEvidence(
+        Dictionary<string, List<IrExpression>> substituted)
+        =>
+        [
+            .. substituted
+                .OrderBy(entry => entry.Key, StringComparer.Ordinal)
+                .Select(entry => new IrCapturedVariable(entry.Value))
+        ];
 
     // A hoisted capture binds a variable, not an expression: a parameter/this load
     // or a non-display-class local (a display-class local would be a nested
@@ -359,7 +388,12 @@ public sealed class LambdaRaisingPass : IIrPass
     // through a nested lambda scope. Capturing callers enable that only when all
     // substituted captures are argument/this loads, whose names are stable across
     // the nested print scope.
-    static RaisedLambda? Finish(DelegateCreation creation, IrFunction body, IrNode provenance, bool allowLocals)
+    static RaisedLambda? Finish(
+        DelegateCreation creation,
+        IrFunction body,
+        IrNode provenance,
+        bool allowLocals,
+        ImmutableArray<IrCapturedVariable> captures = default)
     {
         if (!allowLocals && !body.Locals.IsEmpty)
             return null;
@@ -410,6 +444,7 @@ public sealed class LambdaRaisingPass : IIrPass
         {
             ReturnsVoid = returnsVoid,
             ParameterRefKinds = hasByRefParameter ? creation.Method.ParameterRefKinds : [],
+            Captures = captures.IsDefault ? [] : captures,
         };
         lambda.InheritSourceOffset(provenance);
         return new RaisedLambda(lambda, body);

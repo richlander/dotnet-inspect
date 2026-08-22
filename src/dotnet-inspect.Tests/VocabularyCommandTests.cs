@@ -67,7 +67,7 @@ public sealed class VocabularyCommandTests
             bodyKinds.Values.Select(ValueId));
         Assert.Equal(
             BodyShapeSearch.SupportedKinds.Select(
-                AnnotatedSourceNodeKinds.GetDisplayLabel),
+                AnnotatedSourceNodeKinds.GetVocabularyLabel),
             bodyKinds.Values.Select(row => row.GetRequired("label").Text));
         var bodyKindId = Assert.Single(
             bodyKinds.Fields,

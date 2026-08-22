@@ -16,7 +16,7 @@ export interface AnnotatedSourceNode {
   il_offset?: number | null;
 }
 
-interface AnnotatedSourceRegion {
+export interface AnnotatedSourceRegion {
   role: string;
   spans: readonly TextSpan[];
 }
@@ -31,6 +31,12 @@ export interface AnnotatedSourceFact {
   source_offset: number;
 }
 
+interface AnnotatedSourceCapture {
+  parent_node_id: number;
+  display_name: string;
+  use_node_ids: readonly number[];
+}
+
 interface AnnotatedSourceTarget {
   fact_id: number;
   node_id: number;
@@ -42,6 +48,7 @@ export interface AnnotatedSourceDocument {
   regions: readonly AnnotatedSourceRegion[];
   facts: readonly AnnotatedSourceFact[];
   targets: readonly AnnotatedSourceTarget[];
+  captures?: readonly AnnotatedSourceCapture[] | null;
 }
 
 export interface SourceLine {

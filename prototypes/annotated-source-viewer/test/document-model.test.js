@@ -148,6 +148,37 @@ test("only IL instruction nodes may carry an IL offset", () => {
   assert.throws(() => validateDocument(csharpWithOffset), /do not identify one instruction/);
 });
 
+test("capture rows require nested-function parents and ordered name uses", () => {
+  const document = {
+    text: "x => x + n",
+    nodes: [
+      { id: 0, kind: "LambdaExpression", medium: "CSharp", spans: [{ start: 0, length: 10 }] },
+      { id: 1, kind: "NameExpression", medium: "CSharp", spans: [{ start: 9, length: 1 }] },
+    ],
+    regions: [],
+    facts: [],
+    targets: [],
+    captures: [{ parent_node_id: 0, display_name: "n", use_node_ids: [1] }],
+  };
+  validateDocument(document);
+
+  for (const mutate of [
+    capture => { capture.parent_node_id = 1; },
+    capture => { capture.display_name = ""; },
+    capture => { capture.use_node_ids = []; },
+    capture => { capture.use_node_ids = [0]; },
+    capture => { capture.use_node_ids = [1, 1]; },
+  ]) {
+    const invalid = structuredClone(document);
+    mutate(invalid.captures[0]);
+    assert.throws(() => validateDocument(invalid), /Capture/);
+  }
+
+  const duplicate = structuredClone(document);
+  duplicate.captures.push(structuredClone(duplicate.captures[0]));
+  assert.throws(() => validateDocument(duplicate), /repeats/);
+});
+
 test("mixed-medium lines classify and segment each substring independently", () => {
   const mixed = {
     text: "ab",

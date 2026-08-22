@@ -359,7 +359,7 @@ public static class VocabularyCatalog
             .. BodyShapeSearch.SupportedKinds.Select(kind => new VocabularyRow(
                 ("id", VocabularyValue.FromText(kind)),
                 ("label", VocabularyValue.FromText(
-                    AnnotatedSourceNodeKinds.GetDisplayLabel(kind))))),
+                    AnnotatedSourceNodeKinds.GetVocabularyLabel(kind))))),
         ];
         return new(
             "csharp.body-kinds",

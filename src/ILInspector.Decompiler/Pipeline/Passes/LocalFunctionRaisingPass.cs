@@ -210,7 +210,8 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         List<Call> Calls,
         Environment? Environment,
         IrFunction Body,
-        string Name);
+        string Name,
+        ImmutableArray<IrCapturedVariable> Captures);
 
     /// <summary>Raises what it can, and reports the identities it actually declared.</summary>
     static HashSet<(TypeRef Type, string Name)> RaiseCalls(IrFunction function, PassContext context)
@@ -332,8 +333,12 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 // #3631.
                 if (!TypeParametersAreTheHostsOwn(body.Signature, SelfReferences(body, group.Key)))
                     continue;
-                if (environment is not null && !SubstituteEnvironment(body, environment))
+                var captures = ImmutableArray<IrCapturedVariable>.Empty;
+                if (environment is not null
+                    && !SubstituteEnvironment(body, environment, out captures))
+                {
                     continue;
+                }
                 bool allowLocals = environment is null;
                 if (!allowLocals && !body.Locals.IsEmpty
                     || body.Descendants.OfType<UnsupportedNode>().Any()
@@ -345,7 +350,8 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                     calls,
                     environment,
                     body,
-                    CSharpNaming.MethodName(method.Name)));
+                    CSharpNaming.MethodName(method.Name),
+                    captures));
             }
         }
 
@@ -412,7 +418,10 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 body.LocalNames,
                 body.UsesUpdatedMemorySafetyRules,
                 body.SkipLocalsInit,
-                container));
+                container)
+            {
+                Captures = candidate.Captures,
+            });
             // Merge the raised body's resolved type info into the enclosing
             // function. The body was imported from a separate method, so the
             // host never materialized shapes/enum members/underlying types/
@@ -525,8 +534,13 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         return null;
     }
 
-    static bool SubstituteEnvironment(IrFunction body, Environment environment)
+    static bool SubstituteEnvironment(
+        IrFunction body,
+        Environment environment,
+        out ImmutableArray<IrCapturedVariable> captures)
     {
+        captures = [];
+
         // Every use of the environment parameter must be the receiver of a
         // LoadField we can substitute. Check that on the original body, before
         // substitution: the captured values cloned in below are themselves
@@ -543,13 +557,32 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 return false;
         }
 
+        // The substituted clones are the only surviving evidence of which reads
+        // were captured variables; the environment parameter and its field reads
+        // are gone by the time the declaration is built. Record them per field,
+        // in body order, ordered by field name so the recorded order is a
+        // property of the input.
+        var substituted = new Dictionary<string, List<IrExpression>>(StringComparer.Ordinal);
         foreach (var load in body.Descendants.OfType<LoadField>().ToList())
         {
             if (load.Instance is LoadArgument arg && arg.Index == environment.ArgIndex
                 && Equals(load.Field.DeclaringType, environment.Type)
                 && environment.Captures.TryGetValue(load.Field.Name, out var value))
-                load.ReplaceWith(value.Clone());
+            {
+                var use = (IrExpression)value.Clone();
+                load.ReplaceWith(use);
+                if (!substituted.TryGetValue(load.Field.Name, out var uses))
+                    substituted[load.Field.Name] = uses = [];
+                uses.Add(use);
+            }
         }
+
+        captures =
+        [
+            .. substituted
+                .OrderBy(entry => entry.Key, StringComparer.Ordinal)
+                .Select(entry => new IrCapturedVariable(entry.Value))
+        ];
         return true;
     }
 

@@ -380,7 +380,7 @@ the original `PrintedRangeMap` slot — because that map promises only
 descendants-before-ancestors, and ids taken from emission order would be
 reproducible by accident.
 
-#### The portable document: text, nodes, regions, facts, targets
+#### The portable document: text, nodes, regions, facts, targets, captures
 
 `AnnotatedSourceDocument` is the transport envelope, and it is a **text buffer
 plus overlays** — the model an editor or a compiler uses for a file, not a table
@@ -423,6 +423,59 @@ of rows that happen to be lines.
   AnnotationConditionality Conditionality, string? Detail, int SourceOffset,
   AnnotatedSourceFactOrigin Origin)`. A fact carries **no coordinates**.
 - **`Targets`** — `AnnotatedSourceTarget(int FactId, int NodeId)`.
+- **`Captures`** — `AnnotatedSourceCapture(int ParentNodeId, string DisplayName,
+  IReadOnlyList<int> UseNodeIds)`, or null when the producer recorded none.
+  Producer evidence carried forward, not a fact and not re-derivable: the
+  association between a nested function and the outer variables it closes over
+  lives in the compiler's `<>c__DisplayClass`, which `LambdaRaisingPass` and
+  `LocalFunctionRaisingPass` erase once they have substituted the captured
+  values back in. After that a captured read is spelled like any other variable
+  read, so a consumer holding only the rendered text cannot recover it. See
+  [capture evidence](#capture-evidence-the-plane-a-consumer-cannot-re-derive).
+
+#### Capture evidence: the plane a consumer cannot re-derive
+
+The evidence is recorded where it is known and resolved once, in the same
+currency as everything else:
+
+1. **The raising passes** record `IrCapturedVariable` on the `Lambda` /
+   `LocalFunctionStatement` node — the exact substituted `IrNode` instances per
+   captured variable, in body order. An empty list is the positive statement
+   that nothing was captured.
+2. **`PrintedBodyMap`** binds those identities to node ids while they are still
+   alive, producing `PrintedCapture(ParentNodeId, DisplayName, UseNodeIds)`.
+3. **`ResearchViews.MakeDocument`** carries the rows into the mixed C#/IL
+   document unchanged, because C# nodes keep their ids there and instruction
+   nodes are appended after them. `CSharpAnnotatedSourceProjection` remaps them
+   through the same table it renumbers nodes with.
+
+Three decisions in that pipeline are load-bearing:
+
+- **The display name is read off the printed extent of the uses**, not minted
+  from metadata. An argument's C# spelling comes from
+  `CSharpNaming.ContainedIdentifier` and a local's from the printer's
+  deduplicated local-name table, both print-time decisions, so a name minted in
+  the pass could disagree with the characters the reader sees. A capture whose
+  uses do not all print one identical name is declined instead.
+- **`UseNodeIds` is the addressable uses, not a count of reads.**
+  `PrintedRangeMap` refuses a range for a node whose printed text is not unique
+  inside its parent's window, so the second `n` in `x * n + n` owns no
+  characters in any projection and no consumer could point at it. Such a use is
+  skipped; the row still names the reads that are addressable.
+- **A row is omitted rather than approximated.** The parent must have printed as
+  a `LambdaExpression` or `LocalFunctionStatement` node, every recorded use must
+  still live inside that parent's subtree — which is what makes a capture list
+  copied by `IrNode.Clone` resolve to nothing rather than to the original's
+  coordinates — and two captures on one parent that print the same name decline
+  both. The document constructor re-enforces the parent kind, the
+  `NameExpression` use kind, distinct increasing use ids, at least one use, and
+  the canonical row order, so a deserialized payload cannot claim otherwise.
+
+On the wire, `captures` is **omitted when empty**. A capture-free document
+therefore keeps the exact bytes it had before this plane existed, which is what
+lets a retained revision-bound structural diff still replay: `CSharpDocumentRevision`
+is a SHA-256 over the compact serialization, and re-serializing a document that
+predates captures must reproduce it.
 
 The JSON wire contract lives beside this model in `ILInspector.Decompiler`.
 `AnnotatedSourceDocumentJsonContext` and

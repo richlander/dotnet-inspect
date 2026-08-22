@@ -13,7 +13,9 @@ portable contract without re-running the decompiler:
 - one node can highlight several separated spans without selecting interleaved
   IL;
 - C# and IL lines can be hidden independently without rebasing coordinates;
-- facts with no targets remain visible as explicitly unanchored observations.
+- facts with no targets remain visible as explicitly unanchored observations;
+- optional capture rows retain the producer-issued nested-function, variable
+  name, and exact rendered uses without parsing C# in the viewer.
 
 ## Run
 
@@ -36,4 +38,4 @@ dotnet-inspect member MyType --library MyLibrary.dll MyMethod:1 \
 
 Use **load JSON** in the viewer and select `document.json`. Input strings are
 HTML-escaped before rendering, and the viewer validates IDs, targets, spans,
-bounds, and UTF-16 before accepting a payload.
+bounds, capture relationships, and UTF-16 before accepting a payload.

@@ -779,7 +779,19 @@ public static partial class ResearchViews
             return c != 0 ? c : a.NodeId.CompareTo(b.NodeId);
         });
 
-        return new AnnotatedSourceDocument(text, nodes, regions, facts, targets, source);
+        // C# nodes keep the ids the printer projection minted, and instruction
+        // nodes are appended after them, so the capture rows' node ids mean the
+        // same thing in this document as they did in the body map. They are
+        // carried across rather than re-derived: the IR identities they were
+        // resolved from are long gone by here.
+        var captures = csharpMap.Captures
+            .Select(capture => new AnnotatedSourceCapture(
+                capture.ParentNodeId,
+                capture.DisplayName,
+                capture.UseNodeIds))
+            .ToArray();
+
+        return new AnnotatedSourceDocument(text, nodes, regions, facts, targets, source, captures);
 
         IReadOnlyList<AnnotatedSourceSpan> ToSpans(PrintedExtent extent)
         {

@@ -122,9 +122,11 @@ import {
   renderAnnotatedSourceEntry,
   renderAnnotatedSourceExplorer as renderAnnotatedSourceExplorerMarkup,
   type AnnotatedSourceExplorerAction,
+  type AnnotatedSourceKindOption,
   type AnnotatedSourceExplorerRenderState,
   type AnnotatedSourceExplorerState,
   type AnnotatedSourceResult,
+  type CSharpSyntaxToken,
 } from "./annotated-source-explorer.ts";
 import { validateAnnotatedSourceDocument } from "./annotated-source-view.ts";
 import {
@@ -297,10 +299,17 @@ async function loadEngineModule() {
 }
 
 declare global {
+  interface PrismToken {
+    type: string;
+    content: string | PrismToken | (string | PrismToken)[];
+    alias?: string | string[];
+  }
+
   interface Window {
     Prism?: {
       languages: { csharp?: unknown };
       highlight: (value: string, grammar: unknown, language: string) => string;
+      tokenize: (value: string, grammar: unknown) => (string | PrismToken)[];
     };
     __platformIndex?: Promise<PlatformIndex | null>;
   }
@@ -483,6 +492,7 @@ const initialState = {
   memberAnnotatedKey: "",
   memberAnnotatedMedia: { CSharp: true, Il: true },
   memberAnnotatedFactId: null,
+  memberAnnotatedCaptureIndex: null,
   memberAnnotatedNodeIds: [],
   annotatedExplorer: null,
   typeSource: null,
@@ -577,6 +587,7 @@ const initialState = {
   graphSourceSeq: 0,
   styleTiers: null,
   styleOptions: null,
+  bodyKinds: null,
   styleCatalogError: "",
   taste: loadStoredTaste(),
   tasteOpen: false,
@@ -607,6 +618,7 @@ interface StateOverrides {
   memberSource: BrowserSource | null;
   memberAnnotated: AnnotatedSourceResult | null;
   memberAnnotatedFactId: number | null;
+  memberAnnotatedCaptureIndex: number | null;
   memberAnnotatedNodeIds: number[];
   annotatedExplorer: AnnotatedSourceExplorerState | null;
   typeSource: BrowserSource | null;
@@ -641,6 +653,7 @@ interface StateOverrides {
   graphSourceRequest: { request: GraphSourceRequest; title: string } | null;
   styleTiers: StyleTier[] | null;
   styleOptions: StyleOption[] | null;
+  bodyKinds: AnnotatedSourceKindOption[] | null;
   history: string[];
   retryAction: RetryAction;
   diag: Diagnostics | null;
@@ -3587,6 +3600,7 @@ function openAnnotatedSourceExplorer() {
   state.annotatedExplorer = createAnnotatedSourceExplorerState(context.result.document, {
     media: state.memberAnnotatedMedia,
     selectedFactId: state.memberAnnotatedFactId,
+    selectedCaptureIndex: state.memberAnnotatedCaptureIndex,
     selectedNodeIds: state.memberAnnotatedNodeIds,
   });
   render();
@@ -3597,6 +3611,7 @@ function closeAnnotatedSourceExplorer() {
   if (!state.annotatedExplorer) return;
   state.memberAnnotatedMedia = { ...state.annotatedExplorer.media };
   state.memberAnnotatedFactId = state.annotatedExplorer.selectedFactId;
+  state.memberAnnotatedCaptureIndex = state.annotatedExplorer.selectedCaptureIndex;
   state.memberAnnotatedNodeIds = [...state.annotatedExplorer.selectedNodeIds];
   state.annotatedExplorer = null;
   render();
@@ -3619,6 +3634,8 @@ function renderAnnotatedSourceExplorer() {
       ...context,
       state: state.annotatedExplorer,
       escapeHtml,
+      nodeKinds: state.bodyKinds ?? [],
+      tokenizeCSharp,
     });
   } catch (error) {
     app.innerHTML = `<div class="annotated-explorer" role="dialog" aria-modal="true" aria-label="Annotated source explorer">
@@ -3650,7 +3667,9 @@ function updateAnnotatedSourceExplorer(
       focused.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
     if (revealTarget) {
-      document.querySelector<HTMLElement>(".annotated-span.selected")?.scrollIntoView({
+      document.querySelector<HTMLElement>(
+        ".annotated-span.selected, .annotated-region.selected",
+      )?.scrollIntoView({
         block: "center",
         inline: "nearest",
       });
@@ -3664,7 +3683,7 @@ function bindAnnotatedSourceExplorerEvents() {
       updateAnnotatedSourceExplorer(
         { type: "clear-selection" },
         false,
-        "#ase-node-kind");
+        "#ase-exit");
     },
     onCopy: () => {
       if (state.memberAnnotated) {
@@ -3672,6 +3691,12 @@ function bindAnnotatedSourceExplorerEvents() {
       }
     },
     onExit: closeAnnotatedSourceExplorer,
+    onCaptureSelect: captureIndex => {
+      updateAnnotatedSourceExplorer({
+        type: "select-capture",
+        captureIndex,
+      }, true, `[data-ase-capture="${captureIndex}"]`);
+    },
     onFactSelect: factId => {
       updateAnnotatedSourceExplorer({
         type: "select-fact",
@@ -3688,7 +3713,13 @@ function bindAnnotatedSourceExplorerEvents() {
       updateAnnotatedSourceExplorer({
         type: "select-kind",
         kind,
-      }, Boolean(kind), "#ase-node-kind");
+      }, Boolean(kind), `[data-ase-kind="${cssEscape(kind)}"]`);
+    },
+    onRegionSelect: role => {
+      updateAnnotatedSourceExplorer({
+        type: "select-region",
+        role,
+      }, Boolean(role), `[data-ase-region="${cssEscape(role)}"]`);
     },
     onNodeSelect: nodeId => {
       updateAnnotatedSourceExplorer({
@@ -3737,14 +3768,22 @@ function restoreAnnotatedSourceExplorerRenderState(
 function annotatedSourceExplorerFocusSelector() {
   const active = document.activeElement;
   if (!(active instanceof HTMLElement) || !active.closest(".annotated-explorer")) return "";
-  if (["ase-exit", "ase-node-kind", "ase-copy", "ase-clear"].includes(active.id)) {
+  if (["ase-exit", "ase-copy", "ase-clear"].includes(active.id)) {
     return `#${active.id}`;
   }
   if (active.matches(".ase-code-scroll")) return ".ase-code-scroll";
-  for (const name of ["aseMedium", "aseFact", "aseNode", "aseOffset"]) {
+  for (const name of [
+    "aseMedium",
+    "aseKind",
+    "aseRegion",
+    "aseCapture",
+    "aseFact",
+    "aseNode",
+    "aseOffset",
+  ]) {
     if (active.dataset?.[name] !== undefined) {
       const attribute = name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`);
-      return `[data-${attribute}="${active.dataset[name]}"]`;
+      return `[data-${attribute}="${cssEscape(active.dataset[name])}"]`;
     }
   }
   return "";
@@ -3911,6 +3950,30 @@ function highlightCSharp(value: string) {
       "csharp");
   }
   return escapeHtml(source);
+}
+
+function tokenizeCSharp(value: string): CSharpSyntaxToken[] {
+  const grammar = window.Prism?.languages?.csharp;
+  if (!grammar || !window.Prism) return [{ text: value, classes: [] }];
+  try {
+    return flattenPrismTokens(window.Prism.tokenize(value, grammar));
+  } catch (error) {
+    console.warn("C# syntax highlighting failed; rendering escaped source.", error);
+    return [{ text: value, classes: [] }];
+  }
+}
+
+function flattenPrismTokens(
+  tokens: readonly (string | PrismToken)[],
+  inheritedClasses: readonly string[] = [],
+): CSharpSyntaxToken[] {
+  return tokens.flatMap(token => {
+    if (typeof token === "string") return [{ text: token, classes: inheritedClasses }];
+    const aliases = typeof token.alias === "string" ? [token.alias] : token.alias ?? [];
+    const classes = [...inheritedClasses, token.type, ...aliases];
+    const content = Array.isArray(token.content) ? token.content : [token.content];
+    return flattenPrismTokens(content, classes);
+  });
 }
 
 const packageViewActions: PackageViewBindingActions = {
@@ -6951,6 +7014,7 @@ function invalidateSourceCaches() {
   state.memberAnnotatedKey = "";
   state.memberAnnotatedError = "";
   state.memberAnnotatedFactId = null;
+  state.memberAnnotatedCaptureIndex = null;
   state.memberAnnotatedNodeIds = [];
   state.annotatedExplorer = null;
 }
@@ -7614,6 +7678,12 @@ function isStyleOption(value: unknown): value is StyleOption {
     && typeof value.summary === "string";
 }
 
+function isBodyKind(value: unknown): value is AnnotatedSourceKindOption {
+  return isRecord(value)
+    && typeof value.id === "string"
+    && typeof value.label === "string";
+}
+
 async function bootstrap() {
   state.loading = !state.home;
   state.engineReady = false;
@@ -7643,9 +7713,13 @@ async function bootstrap() {
       state.styleOptions = (
         sections.find(section => section.id === "csharp.style-choices")?.values
         || []).filter(isStyleOption);
+      state.bodyKinds = (
+        sections.find(section => section.id === "csharp.body-kinds")?.values
+        || []).filter(isBodyKind);
     } catch (error) {
       state.styleTiers = [];
       state.styleOptions = [];
+      state.bodyKinds = [];
       state.styleCatalogError = errorMessage(error);
     }
     state.engineReady = true;

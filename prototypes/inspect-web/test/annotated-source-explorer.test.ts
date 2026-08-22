@@ -17,6 +17,7 @@ import {
 } from "../src/annotated-source-view.ts";
 import { sampleDocument as sampleDocumentFixture } from "../../annotated-source-viewer/src/sample-document.js";
 import { fakeDom } from "./fake-dom.ts";
+import { captureDocument } from "./annotated-source-fixtures.ts";
 
 validateAnnotatedSourceDocument(sampleDocumentFixture);
 const sampleDocument: AnnotatedSourceDocument = sampleDocumentFixture;
@@ -128,9 +129,11 @@ test("drag selection does not activate an addressable source segment", () => {
     onClearSelection: () => {},
     onCopy: () => {},
     onExit: () => {},
+    onCaptureSelect: () => {},
     onFactSelect: () => {},
     onMediumToggle: () => {},
     onNodeKindSelect: () => {},
+    onRegionSelect: () => {},
     onNodeSelect: () => {},
     onOffsetSelect: value => calls.push(value),
   });
@@ -167,7 +170,11 @@ test("the explorer presents canonical text beside anchored and unanchored facts"
   assert.match(html, /alloc\.new/);
   assert.match(html, /Unanchored facts/);
   assert.match(html, /cost\.method/);
-  assert.match(html, /ForStatement · 1/);
+  assert.match(html, /Source structures/);
+  assert.match(html, /data-ase-kind="ForStatement"/);
+  assert.match(html, /data-ase-kind="Instruction"/);
+  assert.match(html, /data-ase-region="Body"/);
+  assert.match(html, /finding available/);
 });
 
 test("fact, source, node-kind, and clear actions preserve typed selection semantics", () => {
@@ -196,14 +203,31 @@ test("fact, source, node-kind, and clear actions preserve typed selection semant
   assert.equal(kind.selectedFactId, null);
   assert.equal(kind.selectedKind, "Instruction");
   assert.deepEqual(kind.selectedNodeIds, [2, 3]);
+  const kindToggledOff = reduceAnnotatedSourceExplorerState(
+    sampleDocument,
+    kind,
+    { type: "select-kind", kind: "Instruction" },
+  );
+  assert.equal(kindToggledOff.selectedKind, "");
+  assert.deepEqual(kindToggledOff.selectedNodeIds, []);
+
+  const region = reduceAnnotatedSourceExplorerState(
+    sampleDocument,
+    kind,
+    { type: "select-region", role: "Body" },
+  );
+  assert.equal(region.selectedKind, "");
+  assert.equal(region.selectedRegionRole, "Body");
+  assert.deepEqual(region.selectedNodeIds, []);
 
   const cleared = reduceAnnotatedSourceExplorerState(
     sampleDocument,
-    kind,
+    region,
     { type: "clear-selection" },
   );
   assert.deepEqual(cleared.selectedNodeIds, []);
   assert.equal(cleared.selectedKind, "");
+  assert.equal(cleared.selectedRegionRole, "");
 });
 
 test("media actions refuse an empty-looking document", () => {
@@ -245,6 +269,140 @@ test("explorer presentation escapes document and member text", () => {
   assert.doesNotMatch(html, /<img/);
   assert.match(html, /&lt;member&gt;/);
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+});
+
+test("C# syntax tokens stay inside addressable spans while findings remain ambient", () => {
+  const html = renderAnnotatedSourceExplorer({
+    result,
+    state: createAnnotatedSourceExplorerState(sampleDocument),
+    title: "Example.Run",
+    subtitle: "public object Run()",
+    escapeHtml,
+    tokenizeCSharp: value => {
+      const keyword = "return";
+      const start = value.indexOf(keyword);
+      return start < 0
+        ? [{ text: value, classes: [] }]
+        : [
+            { text: value.slice(0, start), classes: [] },
+            { text: keyword, classes: ["keyword"] },
+            { text: value.slice(start + keyword.length), classes: [] },
+          ];
+    },
+  });
+
+  assert.match(html, /class="annotated-span addressable has-fact"/);
+  assert.match(html, /finding available/);
+  assert.match(html, /aria-label="[^"]*; 1 finding available:/);
+  assert.doesNotMatch(html, /class="visually-hidden"/);
+  assert.match(html, /<button[^>]*>\s*<span class="token keyword">return<\/span>/);
+  assert.doesNotMatch(html, /<span class="token keyword">[^<]*<button/);
+  assert.match(styles, /\.annotated-span\.has-fact\s*\{[^}]*box-shadow:/);
+});
+
+test("product labels and regions render as structural overlays", () => {
+  const kindState = reduceAnnotatedSourceExplorerState(
+    sampleDocument,
+    createAnnotatedSourceExplorerState(sampleDocument),
+    { type: "select-kind", kind: "ForStatement" },
+  );
+  const kindHtml = renderAnnotatedSourceExplorer({
+    result,
+    state: kindState,
+    title: "Example.Run",
+    subtitle: "public object Run()",
+    escapeHtml,
+    nodeKinds: [{ id: "ForStatement", label: "For loop" }],
+  });
+  assert.match(kindHtml, /data-ase-kind="ForStatement" aria-pressed="true"/);
+  assert.match(kindHtml, />For loop<\/span><em>1<\/em>/);
+  assert.match(kindHtml, /annotated-span addressable has-fact selected structural/);
+
+  const regionState = reduceAnnotatedSourceExplorerState(
+    sampleDocument,
+    kindState,
+    { type: "select-region", role: "Body" },
+  );
+  const regionHtml = renderAnnotatedSourceExplorer({
+    result,
+    state: regionState,
+    title: "Example.Run",
+    subtitle: "public object Run()",
+    escapeHtml,
+  });
+  assert.match(regionHtml, /data-ase-region="Body" aria-pressed="true"/);
+  assert.match(regionHtml, /class="annotated-region selected"/);
+  assert.match(regionHtml, /class="ase-region-selection" data-ase-offset=/);
+  assert.match(regionHtml, /Lines 3–6/);
+  assert.match(regionHtml, /1 Body region/);
+});
+
+test("captured variables remain discoverable and select their exact uses", () => {
+  const captureResult = { ...result, document: captureDocument };
+  const nodeKinds = [
+    { id: "LambdaExpression", label: "Lambda expression" },
+    { id: "NameExpression", label: "Name expression" },
+    { id: "ReturnStatement", label: "Return statement" },
+  ];
+  const initial = createAnnotatedSourceExplorerState(captureDocument);
+  const ambientHtml = renderAnnotatedSourceExplorer({
+    result: captureResult,
+    state: initial,
+    title: "Example.Capture",
+    subtitle: "Func<int, int> Capture(int first, int second)",
+    escapeHtml,
+    nodeKinds,
+  });
+
+  assert.match(ambientHtml, /Captured variables/);
+  assert.match(ambientHtml, /data-ase-capture="0" aria-pressed="false"/);
+  assert.match(ambientHtml, /annotated-span addressable has-capture/);
+  assert.match(ambientHtml, /captured variable: first/);
+
+  const selected = reduceAnnotatedSourceExplorerState(
+    captureDocument,
+    initial,
+    { type: "select-capture", captureIndex: 0 },
+  );
+  assert.equal(selected.selectedCaptureIndex, 0);
+  const selectedHtml = renderAnnotatedSourceExplorer({
+    result: captureResult,
+    state: selected,
+    title: "Example.Capture",
+    subtitle: "Func<int, int> Capture(int first, int second)",
+    escapeHtml,
+    nodeKinds,
+  });
+
+  assert.match(selectedHtml, /data-ase-capture="0" aria-pressed="true"/);
+  assert.match(selectedHtml, /annotated-span addressable capture-scope/);
+  assert.match(selectedHtml, /has-capture capture-scope selected capture/);
+  assert.match(selectedHtml, /first · 1 captured use/);
+  assert.match(selectedHtml, /Captured by/);
+  assert.match(selectedHtml, /Lambda expression #0/);
+});
+
+test("C# syntax tokenization is reused across interaction renders", () => {
+  let calls = 0;
+  const tokenizer = (value: string) => {
+    calls++;
+    return [{ text: value, classes: [] }];
+  };
+  const options = {
+    result,
+    state: createAnnotatedSourceExplorerState(sampleDocument),
+    title: "Example.Run",
+    subtitle: "public object Run()",
+    escapeHtml,
+    tokenizeCSharp: tokenizer,
+  };
+
+  renderAnnotatedSourceExplorer(options);
+  const firstRenderCalls = calls;
+  renderAnnotatedSourceExplorer(options);
+
+  assert.ok(firstRenderCalls > 0);
+  assert.equal(calls, firstRenderCalls);
 });
 
 test("invalid portable documents remain visible failures instead of empty explorers", () => {
@@ -292,7 +450,7 @@ test("addressable source uses one tab stop and roving keyboard navigation", () =
   });
 
   assert.match(html, /class="ase-code-scroll" tabindex="0"/);
-  assert.match(html, /<button type="button" tabindex="-1" class="annotated-span addressable"/);
+  assert.match(html, /<button type="button" tabindex="-1" class="annotated-span addressable/);
   assert.match(
     styles,
     /\.annotated-span\.addressable\s*\{[^}]*user-select:\s*text;/,
@@ -315,6 +473,10 @@ test("all explorer renders preserve focus and scroll while home invalidates the 
     appSource,
     /document\.querySelector<HTMLElement>\(renderState\.focusSelector\)\?\.focus/,
   );
+  assert.match(appSource, /"aseKind"/);
+  assert.match(appSource, /"aseRegion"/);
+  assert.match(appSource, /"aseCapture"/);
+  assert.doesNotMatch(appSource, /"ase-node-kind"/);
   assert.match(
     appSource,
     /annotatedSourceExplorerRenderCoordinator\.isCurrent\(renderGeneration\)/,
@@ -354,6 +516,7 @@ test("action focus remains visible when inspector content changes height", () =>
     appSource,
     /focused\.scrollIntoView\(\{ block: "nearest", inline: "nearest" \}\)/,
   );
+  assert.match(appSource, /\.annotated-span\.selected, \.annotated-region\.selected/);
 });
 
 test("fact buttons expose their toggle state", () => {
