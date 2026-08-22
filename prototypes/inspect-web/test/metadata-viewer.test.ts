@@ -20,6 +20,7 @@ import {
   sameFocus,
   type MetadataExplorerBindingActions,
 } from "../src/metadata-viewer.ts";
+import { fakeDom } from "./fake-dom.ts";
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
@@ -36,7 +37,7 @@ class FakeElement {
     this.listeners.set(type, listeners);
   }
 
-  dispatch(type: string, event: Event = {} as Event) {
+  dispatch(type: string, event: Event = fakeDom.event()) {
     for (const listener of this.listeners.get(type) ?? []) {
       listener(event);
     }
@@ -47,8 +48,8 @@ class FakeElement {
     return this;
   }
 
-  closest<T>(selector: string): T | null {
-    return (this.closestElements.get(selector) as T | undefined) ?? null;
+  closest(selector: string) {
+    return this.closestElements.get(selector) ?? null;
   }
 }
 
@@ -85,10 +86,10 @@ function recordingActions(calls: string[]): MetadataExplorerBindingActions {
     onHistoryForward: () => calls.push("forward"),
     onHeapFocus: heap => calls.push(`heap:${heap}`),
     onJump: (index, rowId) => calls.push(`jump:${index}:${rowId}`),
-    onOpenHeap: (assembly, heap) =>
-      calls.push(`open-heap:${assembly}:${heap}`),
-    onOpenTable: (assembly, index) =>
-      calls.push(`open-table:${assembly}:${index}`),
+    onOpenHeap: (assemblyFileName, heap) =>
+      calls.push(`open-heap:${assemblyFileName}:${heap}`),
+    onOpenTable: (assemblyFileName, index) =>
+      calls.push(`open-table:${assemblyFileName}:${index}`),
     onPage: (index, startRowId) =>
       calls.push(`page:${index}:${startRowId}`),
     onRowFocus: (index, rowId) => calls.push(`row:${index}:${rowId}`),
@@ -100,11 +101,11 @@ function recordingActions(calls: string[]): MetadataExplorerBindingActions {
 
 function stoppableEvent() {
   const state = { stopped: false };
-  const event = {
+  const event = fakeDom.event({
     stopPropagation: () => {
       state.stopped = true;
     },
-  } as unknown as Event;
+  });
   return { event, state };
 }
 
@@ -141,15 +142,18 @@ test("overview bindings dispatch explorer navigation from the wall controls", ()
     orphanTableHead);
   const heapCard = new FakeElement({ mdeHeap: "Blob" });
   const heapHead = new FakeElement().withClosest(".mde-heap-card", heapCard);
+  const incompleteHeapHead =
+    new FakeElement().withClosest(".mde-heap-card", new FakeElement());
   root.addAll(
     ".mde-wall .mde-heap-card[data-mde-heap] .mde-card-head",
-    heapHead);
+    heapHead,
+    incompleteHeapHead);
   const row = new FakeElement({ mdeRow: "7:8" });
   root.addAll(".mde-wall .mde-row[data-mde-row]", row);
 
   const calls: string[] = [];
   bindMetadataExplorer(
-    root as unknown as ParentNode,
+    fakeDom.parentNode(root),
     { overview: true },
     recordingActions(calls));
 
@@ -161,6 +165,7 @@ test("overview bindings dispatch explorer navigation from the wall controls", ()
   tableHead.dispatch("click");
   orphanTableHead.dispatch("click");
   heapHead.dispatch("click");
+  incompleteHeapHead.dispatch("click");
   row.dispatch("click");
 
   assert.deepEqual(calls, [
@@ -192,7 +197,7 @@ test("focus bindings dispatch lightbox controls and keep inner clicks contained"
   root.addAll(".mde-focus .mde-row[data-mde-row]", row);
   const calls: string[] = [];
   bindMetadataExplorer(
-    root as unknown as ParentNode,
+    fakeDom.parentNode(root),
     { overview: false },
     recordingActions(calls));
   const jumpClick = stoppableEvent();
@@ -234,7 +239,7 @@ test("metadata lens bindings open table and heap explorer views", () => {
   root.addAll("[data-mde-chip]", chip);
   const calls: string[] = [];
   bindMetadataExplorer(
-    root as unknown as ParentNode,
+    fakeDom.parentNode(root),
     null,
     recordingActions(calls));
 

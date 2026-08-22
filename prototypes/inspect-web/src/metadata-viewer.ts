@@ -201,7 +201,7 @@ export interface MetadataExplorerBindingActions {
   onClose: () => void;
   onHistoryBack: () => void;
   onHistoryForward: () => void;
-  onHeapFocus: (heap: string | undefined) => void;
+  onHeapFocus: (heap: string) => void;
   onJump: (index: number, rowId: number) => void;
   onOpenHeap: (assembly: string, heap: string) => void;
   onOpenTable: (assembly: string, index: number) => void;
@@ -260,9 +260,10 @@ export function bindMetadataExplorer(
       actions.onPage(index, startRowId);
     }));
   root.querySelectorAll<HTMLElement>("[data-mde-heap-chip]").forEach(chip =>
-    chip.addEventListener(
-      "click",
-      () => actions.onHeapFocus(chip.dataset.mdeHeapChip)));
+    chip.addEventListener("click", () => {
+      const heap = chip.dataset.mdeHeapChip;
+      if (heap) actions.onHeapFocus(heap);
+    }));
 
   if (explorer.overview) {
     root.querySelectorAll<HTMLElement>(
@@ -275,7 +276,8 @@ export function bindMetadataExplorer(
       ".mde-wall .mde-heap-card[data-mde-heap] .mde-card-head",
     ).forEach(head => head.addEventListener("click", () => {
       const card = head.closest<HTMLElement>(".mde-heap-card");
-      if (card) actions.onHeapFocus(card.dataset.mdeHeap);
+      const heap = card?.dataset.mdeHeap;
+      if (heap) actions.onHeapFocus(heap);
     }));
     root.querySelectorAll<HTMLElement>(
       ".mde-wall .mde-row[data-mde-row]",
