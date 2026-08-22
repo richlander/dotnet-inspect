@@ -84,7 +84,7 @@ export interface MemberDetailInspectionState {
   memberAnnotatedKey: string;
   memberAnnotatedFactId: number | null;
   memberAnnotatedNodeIds: number[];
-  annotatedExplorer: unknown | null;
+  annotatedExplorer: unknown;
   memberFacts: MemberFacts | null;
   memberFactsLoading: boolean;
   memberFactsError: string;

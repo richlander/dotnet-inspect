@@ -164,6 +164,8 @@ export function reduceAnnotatedSourceExplorerState(
         selectedKind: "",
       };
   }
+  const unhandledAction: never = action;
+  throw new Error(`Unsupported annotated source explorer action: ${String(unhandledAction)}`);
 }
 
 export function renderAnnotatedSourceEntry(options: AnnotatedSourceEntryOptions): string {

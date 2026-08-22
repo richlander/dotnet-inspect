@@ -481,11 +481,75 @@ that contains whitespace. If that applies to the local SDK installation, pass
 `EmscriptenSdkToolsPath` pointing to a no-whitespace link to the installed
 Emscripten `tools` directory.
 
+## Static analysis
+
+Run both frontend analysis gates locally with:
+
+```bash
+cd prototypes/inspect-web
+npm run typecheck
+npm run analyze
+```
+
+The TypeScript gate checks product and test projects with `strict`,
+`exactOptionalPropertyTypes`, and `noImplicitReturns`. `npm run analyze` then
+runs Oxlint with its tsgolint backend against the same TypeScript 7.0.2
+toolchain used to build the product. Correctness and suspicious diagnostics,
+type-aware promise and unsafe-operation checks, warnings, and unused
+suppression directives all fail the gate. Browser/background promises must
+either preserve sequencing or surface unexpected rejection visibly. The exact
+`node:test` `test` call is the only configured safe promise-returning call
+because the test runner owns and observes that returned promise.
+
+Oxlint checks both checked-in tsbindgen outputs as consumer contracts:
+`src/inspect-web-engine.d.ts` receives the TypeScript rules, while
+`engine/wwwroot/inspect-web-engine.js` receives the JavaScript correctness and
+suspicious rules described below. TypeScript compilation and the generated
+surface drift gate provide independent declaration coverage. The toolchain
+test pins both generated lint inputs so a generator change cannot silently
+leave analysis coverage. The configuration disables four non-correctness
+rules: underscore spelling, function relocation, listener API preference, and
+`Array.prototype.sort`. Those rules prescribe naming/layout churn or, for
+sorting, the ES2023 `toSorted` API while this project targets ES2022.
+
+Existing JavaScript tests and verification scripts remain covered by Oxlint's
+correctness and suspicious rules, but not by its unsafe-operation type rules:
+adding a shadow type model or migrating those files to TypeScript is outside
+this analysis change. Their dependency and reachability graph remains covered
+by Knip.
+
+Knip checks authored source, every TypeScript and JavaScript test, and
+build/verification scripts for unused files, exports, and dependencies.
+`knip.json` excludes only `engine/wwwroot/inspect-web-engine.js`: that generated
+publish artifact imports `./_framework/dotnet.js`, which exists only after Wasm
+publish. The exclusion is specific to Knip reachability; Oxlint still checks
+the generated module.
+
+The tsgolint semantic backend publishes native binaries for x64 and arm64 hosts
+running macOS, Linux (glibc or musl), or Windows. Those are the supported
+development-analysis hosts; `npm run lint` fails before launching the analyzer
+on other operating-system or architecture combinations, including Linux
+ppc64le and s390x. Oxlint itself supports additional hosts, but type-aware
+analysis is the limiting capability. This approved development-tool exception
+does not affect the browser/Wasm product runtime or artifact. The host-matrix
+unit test derives the supported intersection from the locked Oxlint and
+tsgolint package metadata, requires both Linux libc variants, and pins the npm
+preflight wiring; `npm run analyze` on macOS arm64 and the Linux x64 CI host
+gates the supported paths.
+
+`noUncheckedIndexedAccess` is not enabled yet. A TypeScript 7.0.2 migration
+probe reports 77 findings across 15 files: 65 in nine product files and 12 in
+six test files. [Issue #4549](https://github.com/richlander/dotnet-inspect/issues/4549)
+records the probe commands, file distribution, and migration discipline; the
+set should be migrated with close negative tests for indexing behavior rather
+than hidden behind assertions.
+
 ## Test
 
 ```bash
 cd prototypes/inspect-web
 npm ci
+npm run analyze
 npm run build
 npm test
 cd ../..
@@ -527,9 +591,9 @@ above on every browser-engine CI run.
 Pull requests that change the browser prototype, its shared annotated-source
 viewer, product dependencies, or repository build inputs run the `inspect-web`
 CI job. That job installs the locked Node dependencies, checks and bundles the
-TypeScript/JavaScript frontend, compiles the platform-index generator, publishes
-the Release Wasm bundle, runs the browser-engine tests, and runs both frontend
-test suites.
+TypeScript/JavaScript frontend, rejects unused authored files, exports, and
+dependencies, compiles the platform-index generator, publishes the Release Wasm
+bundle, runs the browser-engine tests, and runs both frontend test suites.
 The `eng/CiChangeDetection` gate, invoked through
 `eng/test-ci-change-detection.cs`, gates the path classification, and
 `ci-required` includes the job's result.
