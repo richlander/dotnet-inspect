@@ -17,9 +17,12 @@ static class TypeScriptIdentifier
         ],
         StringComparer.Ordinal);
 
-    public static bool IsIdentifier(string text)
+    public static bool IsBindingIdentifier(string text) =>
+        IsIdentifierName(text) && !ReservedWords.Contains(text);
+
+    public static bool IsIdentifierName(string text)
     {
-        if (string.IsNullOrEmpty(text) || ReservedWords.Contains(text))
+        if (string.IsNullOrEmpty(text))
             return false;
 
         bool first = true;

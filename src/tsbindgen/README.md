@@ -92,7 +92,10 @@ name boundaries.
 Generation also stops when nested types, TypeScript reserved words, or multiple
 CLR types would produce an illegal or ambiguous declaration name rather than
 inventing a disambiguation scheme. Valid Unicode TypeScript identifiers remain
-supported. Artifact-derived text in diagnostics is visually contained before
+supported. Property keys use the broader `IdentifierName` grammar, where
+reserved words remain valid and do not require quoting;
+`DtsEmitterTests.Emit_DoesNotQuoteReservedWordsUsedAsPropertyKeys` gates that
+distinction. Artifact-derived text in diagnostics is visually contained before
 it reaches stderr. `DtsEmitterTests.Emit_AcceptsUnicodeTypeScriptIdentifiers`,
 `DtsEmitterTests.Emit_RefusesReservedTypeDeclarationNames`,
 `DtsEmitterTests.Emit_DoesNotEchoRejectedTypeNames`, and

@@ -678,6 +678,38 @@ public sealed class DtsEmitterTests
         Assert.DoesNotContain('\u202E', dts);
     }
 
+    [Theory]
+    [InlineData("Package", "package")]
+    [InlineData("Static", "static")]
+    public void Emit_DoesNotQuoteReservedWordsUsedAsPropertyKeys(
+        string memberName,
+        string expectedKey)
+    {
+        var record = new ApiType
+        {
+            Name = "Dto",
+            JsonPropertyNamingPolicy = JsonWireNamingPolicy.CamelCase,
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = memberName,
+                    Kind = "property",
+                    ReturnType = "string",
+                },
+            ],
+        };
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records = [record],
+        };
+
+        string dts = DtsEmitter.Emit(surface);
+
+        Assert.Contains($"  {expectedKey}: string;", dts, StringComparison.Ordinal);
+        Assert.DoesNotContain($"\"{expectedKey}\"", dts, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Emit_RefusesControlCharacterJsonPropertyNamesOnEnumFields()
     {

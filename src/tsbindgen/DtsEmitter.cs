@@ -159,7 +159,7 @@ static class DtsEmitter
         var names = new HashSet<string>(StringComparer.Ordinal);
         foreach (ApiType type in types)
         {
-            if (!TypeScriptIdentifier.IsIdentifier(type.Name))
+            if (!TypeScriptIdentifier.IsBindingIdentifier(type.Name))
             {
                 throw new UnsupportedWireContractException(
                     FormatTypeLocation(type),
@@ -267,7 +267,7 @@ static class DtsEmitter
     };
 
     static string FormatPropertyKey(string name) =>
-        TypeScriptIdentifier.IsIdentifier(name)
+        TypeScriptIdentifier.IsIdentifierName(name)
             ? name
             : $"\"{EscapeString(name)}\"";
 
