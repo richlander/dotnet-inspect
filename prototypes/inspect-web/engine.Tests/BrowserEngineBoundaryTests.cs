@@ -29,8 +29,9 @@ public sealed class BrowserEngineBoundaryTests
     public void BrowserSource_ProvenanceSerializesAsAnEncodedString()
     {
         var source = new BrowserSource(
-            "original",
+            "pdb",
             new InertString(TextPolicy.Field, "repo\u202Egpj"),
+            null,
             null,
             "text");
 
@@ -39,7 +40,7 @@ public sealed class BrowserEngineBoundaryTests
             BrowserJsonContext.Default.BrowserSource);
 
         Assert.Equal(
-            """{"provider":"original","provenance":"repo\\u202Egpj","url":null,"text":"text"}""",
+            """{"provider":"pdb","provenance":"repo\\u202Egpj","url":null,"pdbSourceLimitation":null,"text":"text"}""",
             json);
     }
 

@@ -735,7 +735,8 @@ test("decompiled type source discloses an escaped PDB-source limitation", () => 
       typeSourceLoading: false,
       typeSource: {
         provider: "decompiled",
-        provenance: "decompiled from IL",
+        provenance: inertStringFixture("decompiled from IL"),
+        url: null,
         pdbSourceLimitation: "<checksum mismatch>",
         text: "class JsonSerializer {}",
       },

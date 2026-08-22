@@ -4,8 +4,7 @@
 //   eng/generate-inspect-web-engine-dts.sh
 // CI fails if the committed file drifts from this output.
 
-declare const inertStringBrand: unique symbol;
-export type InertString = string & { readonly [inertStringBrand]: true };
+export type InertString = string & { readonly __inertStringBrand: unique symbol };
 
 export type BrowserDependencyCoordinateMatchOutcome = "NoMatch" | "Unique" | "Ambiguous";
 
