@@ -179,6 +179,7 @@ async function verifyPackageLensLifecycle<T>(
   {
     const query = deferred<T>();
     const events: string[] = [];
+    let queries = 0;
     const state = inspectionState();
     fixture.write(state, {
       status: "failed",
@@ -187,19 +188,27 @@ async function verifyPackageLensLifecycle<T>(
     });
     const coordinator = fixture.createCoordinator(
       state,
-      async () => query.promise,
+      async () => {
+        queries++;
+        return query.promise;
+      },
       () => events.push("render"));
 
     const load = fixture.load(coordinator, "current");
+    const duplicate = fixture.load(coordinator, "current");
 
     assert.deepEqual(fixture.read(state), {
       status: "loading",
       key: "current",
     }, `${fixture.name} started loading`);
-    assert.deepEqual(events, ["render"], `${fixture.name} start render`);
+    assert.equal(queries, 1, `${fixture.name} reused in-flight request`);
+    assert.deepEqual(
+      events,
+      ["render", "render"],
+      `${fixture.name} start and reuse renders`);
 
     query.resolve(fixture.result);
-    await load;
+    await Promise.all([load, duplicate]);
 
     assert.deepEqual(fixture.read(state), {
       status: "ready",
@@ -208,7 +217,7 @@ async function verifyPackageLensLifecycle<T>(
     }, `${fixture.name} current result`);
     assert.deepEqual(
       events,
-      ["render", "render"],
+      ["render", "render", "render"],
       `${fixture.name} completion render`);
   }
 
