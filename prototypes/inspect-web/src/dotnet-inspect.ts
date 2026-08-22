@@ -7813,7 +7813,7 @@ document.addEventListener("keydown", event => {
     }
     return;
   }
-  if (event.key === "Escape" && state.tasteOpen) {
+  if (event.key === "Escape" && !event.defaultPrevented && state.tasteOpen) {
     event.preventDefault();
     state.tasteOpen = false;
     render();

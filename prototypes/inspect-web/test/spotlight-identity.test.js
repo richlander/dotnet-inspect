@@ -459,6 +459,9 @@ test("global workbench shortcuts respect the topmost modal", () => {
     /state\.spotlightOpen[\s\S]*event\.key === "Escape"[\s\S]*closeSpotlight\(\)/);
   assert.match(
     appSource,
+    /event\.key === "Escape" && !event\.defaultPrevented && state\.tasteOpen/);
+  assert.match(
+    appSource,
     /function openSpotlight\(seed = "", spotlightScope = "all"\) \{\s*if \(state\.loading \|\| state\.error\) return;\s*state\.tasteOpen = false;/);
   assert.match(
     spotlightSource,
