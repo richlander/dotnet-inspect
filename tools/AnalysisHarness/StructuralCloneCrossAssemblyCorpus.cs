@@ -448,11 +448,15 @@ public static class StructuralCloneCrossAssemblyCorpus
                 static candidate =>
                     candidate.Relevance
                         == StructuralCloneReviewRelevance.HardNegative)),
-            queries.Sum(query => query.Labels.Count(label =>
-                label.Label.Relevance
-                    == StructuralCloneReviewRelevance.Relevant
-                && (label.Rank is not { } rank
-                    || rank > query.ReviewedTopK))),
+            queries
+                .Where(static query =>
+                    query.RetrievalDisposition
+                        == StructuralCloneRetrievalDisposition.Completed)
+                .Sum(query => query.Labels.Count(label =>
+                    label.Label.Relevance
+                        == StructuralCloneReviewRelevance.Relevant
+                    && (label.Rank is not { } rank
+                        || rank > query.ReviewedTopK))),
             queries);
     }
 

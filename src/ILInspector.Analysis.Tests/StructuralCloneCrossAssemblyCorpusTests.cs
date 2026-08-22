@@ -117,6 +117,7 @@ public class StructuralCloneCrossAssemblyCorpusTests
                 });
 
         Assert.False(report.Success);
+        Assert.Equal(0, report.KnownMisses);
         Assert.All(
             report.Queries,
             static query =>
