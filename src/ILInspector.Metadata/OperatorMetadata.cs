@@ -117,6 +117,21 @@ public static class OperatorMetadata
         if (declaringHandle.IsNil)
             return DeclarationClassification.No;
         var declaringType = reader.GetTypeDefinition(declaringHandle);
+        int declaringTypeArity =
+            declaringType.GetGenericParameters().Count;
+        int methodArity = method.GetGenericParameters().Count;
+        if (!HasValidGenericParameterReferences(
+                signature.ReturnType,
+                declaringTypeArity,
+                methodArity)
+            || signature.ParameterTypes.Any(parameter =>
+                !HasValidGenericParameterReferences(
+                    parameter,
+                    declaringTypeArity,
+                    methodArity)))
+        {
+            return DeclarationClassification.No;
+        }
         var declaringAttributes = declaringType.Attributes;
         bool declaringTypeIsInterface =
             (declaringAttributes & TypeAttributes.Interface) != 0;
@@ -260,6 +275,26 @@ public static class OperatorMetadata
         return hasUnknownEvidence
             ? DeclarationClassification.Unknown
             : DeclarationClassification.Yes;
+    }
+
+    static bool HasValidGenericParameterReferences(
+        OperatorSignatureType type,
+        int declaringTypeArity,
+        int methodArity)
+    {
+        if (type.IsTypeParameter)
+        {
+            int arity = type.IsMethodTypeParameter
+                ? methodArity
+                : declaringTypeArity;
+            return type.TypeParameterIndex >= 0
+                && type.TypeParameterIndex < arity;
+        }
+        return type.TypeArguments.All(argument =>
+            HasValidGenericParameterReferences(
+                argument,
+                declaringTypeArity,
+                methodArity));
     }
 
     static TypeRelationship CombineForbiddenRelationships(
@@ -746,7 +781,11 @@ public static class OperatorMetadata
                 reader.GetString(definition.Name),
                 IsNullable: false,
                 IsGenericInstantiation: false,
-                []);
+                [])
+            {
+                DefinitionAddress =
+                    DefinitionAddressFor(reader, handle),
+            };
         }
 
         public static OperatorSignatureType ForDeclaringType(
@@ -868,6 +907,25 @@ public static class OperatorMetadata
                     .. TypeArguments.Select(argument => argument.Instantiate(typeArguments)),
                 ],
             };
+        }
+
+        internal MetadataTypeDefinitionAddress? DefinitionAddress
+        {
+            get;
+            init;
+        }
+
+        static MetadataTypeDefinitionAddress? DefinitionAddressFor(
+            MetadataReader reader,
+            TypeDefinitionHandle handle)
+        {
+            Guid moduleVersionId =
+                reader.GetGuid(reader.GetModuleDefinition().Mvid);
+            return moduleVersionId == Guid.Empty
+                ? null
+                : new MetadataTypeDefinitionAddress(
+                    moduleVersionId,
+                    TypeDefinitionToken.FromHandle(reader, handle));
         }
 
     }

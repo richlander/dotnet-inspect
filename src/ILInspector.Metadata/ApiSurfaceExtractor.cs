@@ -4877,6 +4877,13 @@ public static class ApiSurfaceExtractor
             }
             if (left.IsNonNamedType || right.IsNonNamedType)
                 return OperatorMetadata.TypeRelationship.Unknown;
+            if (left.DefinitionAddress is { } leftAddress
+                && right.DefinitionAddress is { } rightAddress)
+            {
+                return leftAddress == rightAddress
+                    ? OperatorMetadata.TypeRelationship.Yes
+                    : OperatorMetadata.TypeRelationship.No;
+            }
             if (left.IsGenericInstantiation
                 != right.IsGenericInstantiation
                 || left.TypeArguments.Length

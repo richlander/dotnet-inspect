@@ -1453,6 +1453,14 @@ internal sealed class CrossAssemblyTypeResolver
         }
         if (left.Kind != TypeRefKind.Definition)
             return left.Equals(right);
+        if (!left.DefinitionHandle.IsNil
+            && left.DefinitionModuleVersionId is { } leftMvid
+            && !right.DefinitionHandle.IsNil
+            && right.DefinitionModuleVersionId is { } rightMvid)
+        {
+            return leftMvid == rightMvid
+                && left.DefinitionHandle == right.DefinitionHandle;
+        }
         if (NamedDefinition(left) is not { } leftDefinition
             || NamedDefinition(right) is not { } rightDefinition
             || Locate(

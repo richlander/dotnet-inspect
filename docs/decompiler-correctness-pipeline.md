@@ -669,7 +669,14 @@ synthetic receiver local from colliding with a method type parameter.
 Cross-assembly operator relationships compare resolved type definitions and
 assembly identities, not display-level `TypeRef` equality.
 `OperatorRelationship_DistinguishesSameNamedTypesFromAssemblyVersions` is the
-same-name, different-version gate.
+same-name, different-version gate. Generic base walking must also retain the
+definition identity of substituted source-local type arguments rather than
+interpreting their handles against the external base assembly.
+`OperatorRelationshipPreservesSourceLocalGenericArgumentIdentity` gates the
+resolution-aware API surface, and
+`OperatorRelationship_PreservesSourceLocalGenericArgumentIdentity` gates the
+decompiler resolver. Both pair a prohibited matching-argument conversion with
+a valid distinct-argument conversion.
 
 Operator signature encoding consistency is recursive through arrays, pointers,
 and function pointers.
@@ -679,6 +686,14 @@ well-formed and contradictory close pairs for all three wrappers.
 an externally resolved base chain to reject conversion to `System.Object`; the
 primitive spelling is accepted as that named type only with trusted
 core-library provenance.
+
+Every generic-parameter reference in an operator signature must be in scope for
+the declaring type or method. Since C# operator methods are nongeneric,
+undeclared `!!n` references cannot become source declarations.
+`CSharpOperatorDeclaration_RejectsOutOfScopeMethodTypeParameter` gates direct
+and nested references, while
+`CSharpOperatorDeclaration_AcceptsConversionToDeclaringTypeParameter` keeps a
+valid declaring-type parameter live.
 
 ReturnToSender's fidelity skeleton must not promote a non-public
 assignment-shaped `SpecialName` method into a public C# operator declaration.

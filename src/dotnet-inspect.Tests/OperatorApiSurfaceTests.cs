@@ -993,6 +993,24 @@ public sealed class OperatorApiSurfaceTests
         Assert.True(image.IsCSharpOperatorDeclaration("op_Implicit"));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CSharpOperatorDeclaration_RejectsOutOfScopeMethodTypeParameter(
+        bool nestedInArray)
+    {
+        using var image =
+            OperatorImage.BuildRawUnboundMethodTypeParameterOperator(
+                nestedInArray);
+
+        ApiMember member = Assert.Single(image.Members);
+        Assert.Equal("operator", member.Kind);
+        Assert.True(member.HasCSharpOperatorDeclarationClassification);
+        Assert.False(member.CSharpOperatorDeclaration);
+        Assert.False(
+            image.IsCSharpOperatorDeclaration("op_UnaryPlus"));
+    }
+
     [Fact]
     public void CSharpOperatorDeclaration_AcceptsArrayAndPointerConversions()
     {
@@ -1612,6 +1630,92 @@ public sealed class OperatorApiSurfaceTests
             builder.Serialize(image);
             File.WriteAllBytes(path, image.ToArray());
             return new OperatorImage(path, fullName);
+        }
+
+        public static OperatorImage
+            BuildRawUnboundMethodTypeParameterOperator(
+                bool nestedInArray)
+        {
+            string path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                $"operator-surface-{Guid.NewGuid():N}.dll");
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                0,
+                metadata.GetOrAddString("OperatorSurface.dll"),
+                metadata.GetOrAddGuid(Guid.NewGuid()),
+                default,
+                default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString("OperatorSurface"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+            metadata.AddTypeDefinition(
+                default,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            TypeDefinitionHandle declaringType =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public
+                        | TypeAttributes.Class,
+                    default,
+                    metadata.GetOrAddString(TypeName),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x00);
+            signature.WriteCompressedInteger(1);
+            if (nestedInArray)
+                signature.WriteByte((byte)SignatureTypeCode.SZArray);
+            signature.WriteByte(
+                (byte)SignatureTypeCode.GenericMethodParameter);
+            signature.WriteCompressedInteger(0);
+            WriteClass(signature, declaringType);
+
+            var bodies = new BlobBuilder();
+            var bodyEncoder =
+                new MethodBodyStreamEncoder(bodies);
+            var code = new BlobBuilder();
+            var instructions =
+                new InstructionEncoder(
+                    code,
+                    new ControlFlowBuilder());
+            instructions.OpCode(ILOpCode.Ldnull);
+            instructions.OpCode(ILOpCode.Throw);
+            int bodyOffset =
+                bodyEncoder.AddMethodBody(
+                    instructions,
+                    maxStack: 1);
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("op_UnaryPlus"),
+                metadata.GetOrAddBlob(signature),
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+
+            var builder = new ManagedPEBuilder(
+                PEHeaderBuilder.CreateLibraryHeader(),
+                new MetadataRootBuilder(
+                    metadata,
+                    suppressValidation: true),
+                bodies,
+                flags: CorFlags.ILOnly);
+            var image = new BlobBuilder();
+            builder.Serialize(image);
+            File.WriteAllBytes(path, image.ToArray());
+            return new OperatorImage(path, TypeName);
         }
 
         static void WriteClass(

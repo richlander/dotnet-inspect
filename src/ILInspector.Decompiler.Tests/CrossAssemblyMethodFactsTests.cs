@@ -217,6 +217,40 @@ public class CrossAssemblyMethodFactsTests
     }
 
     [Fact]
+    public void OperatorRelationship_PreservesSourceLocalGenericArgumentIdentity()
+    {
+        using var fixture =
+            GenericOperatorOriginFixture.Create();
+        using var context = new MetadataContext(fixture);
+        using var source = MetadataSource.OpenWithoutSymbols(
+            fixture.SubjectPath,
+            fixture,
+            context);
+
+        Assert.Equal(
+            OperatorMetadata.DeclarationClassification.No,
+            Classify("op_Implicit"));
+        Assert.Equal(
+            OperatorMetadata.DeclarationClassification.Yes,
+            Classify("op_Explicit"));
+
+        OperatorMetadata.DeclarationClassification Classify(
+            string name)
+        {
+            MethodDefinition method =
+                source.Reader.MethodDefinitions
+                    .Select(source.Reader.GetMethodDefinition)
+                    .Single(candidate =>
+                        source.Reader.GetString(candidate.Name)
+                            == name);
+            return source.CrossAssembly
+                .ClassifyCSharpOperatorDeclaration(
+                    source.Reader,
+                    method);
+        }
+    }
+
+    [Fact]
     public void CustomModifierSignatureCollision_UsesExactModifiers()
     {
         using var fixture = MethodCollisionFixture.Create();
@@ -1114,6 +1148,162 @@ public class CrossAssemblyMethodFactsTests
                         AssemblyResolutionProvenance.Local(
                             nameof(OperatorAssemblyCollisionFixture)))
                     : _runtime.Resolve(identity, scope);
+
+        public void Dispose()
+            => Directory.Delete(_directory, recursive: true);
+    }
+
+    sealed class GenericOperatorOriginFixture
+        : IAssemblyReferenceResolver, IDisposable
+    {
+        readonly string _directory;
+        readonly string _dependencyPath;
+        readonly IAssemblyReferenceResolver _runtime =
+            TestAssemblyReferenceResolvers.RuntimeAssemblies();
+
+        GenericOperatorOriginFixture(
+            string directory,
+            string dependencyPath,
+            string subjectPath)
+        {
+            _directory = directory;
+            _dependencyPath = dependencyPath;
+            SubjectPath = subjectPath;
+        }
+
+        public string SubjectPath { get; }
+
+        public static GenericOperatorOriginFixture Create()
+        {
+            string directory = Directory.CreateTempSubdirectory(
+                "dotnet-inspect-generic-operator-origin-")
+                .FullName;
+            string dependencyPath =
+                Path.Combine(directory, "dependency.dll");
+            string subjectPath =
+                Path.Combine(directory, "subject.dll");
+            var dependency = new PersistedAssemblyBuilder(
+                new AssemblyName("GenericOperator.Dependency"),
+                typeof(object).Assembly);
+            ModuleBuilder dependencyModule =
+                dependency.DefineDynamicModule(
+                    "GenericOperator.Dependency");
+            TypeBuilder externalBase =
+                dependencyModule.DefineType(
+                    "N.ExternalBase`1",
+                    TypeAttributes.Public
+                        | TypeAttributes.Class,
+                    typeof(object));
+            externalBase.DefineGenericParameters("T");
+            TypeBuilder externalDerived =
+                dependencyModule.DefineType(
+                    "N.ExternalDerived`1",
+                    TypeAttributes.Public
+                        | TypeAttributes.Class);
+            GenericTypeParameterBuilder derivedParameter =
+                Assert.Single(
+                    externalDerived.DefineGenericParameters("T"));
+            externalDerived.SetParent(
+                externalBase.MakeGenericType(
+                    derivedParameter));
+            externalBase.CreateType();
+            externalDerived.CreateType();
+            dependency.Save(dependencyPath);
+
+            var loadContext = new AssemblyLoadContext(
+                "generic-operator-origin",
+                isCollectible: true);
+            try
+            {
+                using var dependencyImage =
+                    new MemoryStream(
+                        File.ReadAllBytes(dependencyPath),
+                        writable: false);
+                Assembly loadedDependency =
+                    loadContext.LoadFromStream(dependencyImage);
+                Type loadedBase = loadedDependency.GetType(
+                    "N.ExternalBase`1",
+                    throwOnError: true)!;
+                Type loadedDerived = loadedDependency.GetType(
+                    "N.ExternalDerived`1",
+                    throwOnError: true)!;
+                var subject = new PersistedAssemblyBuilder(
+                    new AssemblyName("GenericOperator.Subject"),
+                    typeof(object).Assembly);
+                ModuleBuilder subjectModule =
+                    subject.DefineDynamicModule(
+                        "GenericOperator.Subject");
+                Type localArgument =
+                    subjectModule.DefineType(
+                            "N.LocalArgument",
+                            TypeAttributes.Public
+                                | TypeAttributes.Class,
+                            typeof(object))
+                        .CreateType();
+                Type otherArgument =
+                    subjectModule.DefineType(
+                            "N.OtherArgument",
+                            TypeAttributes.Public
+                                | TypeAttributes.Class,
+                            typeof(object))
+                        .CreateType();
+                TypeBuilder holder =
+                    subjectModule.DefineType(
+                        "N.Holder",
+                        TypeAttributes.Public
+                            | TypeAttributes.Class,
+                        loadedDerived.MakeGenericType(
+                            localArgument));
+                DefineConversion(
+                    holder,
+                    "op_Implicit",
+                    loadedBase.MakeGenericType(
+                        localArgument));
+                DefineConversion(
+                    holder,
+                    "op_Explicit",
+                    loadedBase.MakeGenericType(
+                        otherArgument));
+                holder.CreateType();
+                subject.Save(subjectPath);
+            }
+            finally
+            {
+                loadContext.Unload();
+            }
+
+            return new GenericOperatorOriginFixture(
+                directory,
+                dependencyPath,
+                subjectPath);
+
+            static void DefineConversion(
+                TypeBuilder holder,
+                string name,
+                Type returnType)
+            {
+                MethodBuilder method = holder.DefineMethod(
+                    name,
+                    MethodAttributes.Public
+                        | MethodAttributes.Static
+                        | MethodAttributes.SpecialName,
+                    returnType,
+                    [holder]);
+                ILGenerator il = method.GetILGenerator();
+                il.Emit(OpCodes.Ldnull);
+                il.Emit(OpCodes.Ret);
+            }
+        }
+
+        public ResolvedAssemblyReference? Resolve(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope)
+            => identity.Name == "GenericOperator.Dependency"
+                ? ResolvedAssemblyReference.CreateFromPath(
+                    _dependencyPath,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(GenericOperatorOriginFixture)))
+                : _runtime.Resolve(identity, scope);
 
         public void Dispose()
             => Directory.Delete(_directory, recursive: true);
