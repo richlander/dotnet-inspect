@@ -17,7 +17,8 @@ ordinary local suite does not require package-feed credentials.
 
 Version `1.0.0` deliberately models three facts:
 
-- `DotnetInspect.TestAssets.ToolV2` is a Tool v2 pointer package.
+- `DotnetInspect.TestAssets.ToolV2` is a TFM-agnostic Tool v2 pointer package
+  with the SDK's name-only command shape.
 - `DotnetInspect.TestAssets.ToolV2.linux-x64` exists at the same version.
 - `DotnetInspect.TestAssets.ToolV2.win-x64` is referenced but intentionally
   absent at that version.
@@ -48,7 +49,8 @@ dotnet pack eng/package-fixtures/PackageFixtures.proj -c Release \
 
 `PackageFixtureTests.PackageFixtureCatalog_PacksDeclaredToolV2Packages` is the
 structural gate for package IDs, versions, package types, paths, pointer
-mappings, and the deliberately missing sibling.
+mappings, the deliberately missing sibling, and packing without an ambient
+global package cache.
 
 ## Publication
 

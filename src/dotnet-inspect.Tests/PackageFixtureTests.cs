@@ -51,10 +51,17 @@ public sealed class PackageFixtureTests
 
                 XDocument settings = ReadXmlEntry(
                     pointer,
-                    "tools/net10.0/any/DotnetToolSettings.xml");
+                    "tools/any/any/DotnetToolSettings.xml");
                 Assert.Equal(
                     "2",
                     settings.Root?.Attribute("Version")?.Value);
+                XElement command = Assert.Single(
+                    settings.Descendants("Command"));
+                Assert.Equal(
+                    "dotnet-inspect-fixture",
+                    command.Attribute("Name")?.Value);
+                Assert.Null(command.Attribute("EntryPoint"));
+                Assert.Null(command.Attribute("Runner"));
 
                 var ridPackages = settings
                     .Descendants("RuntimeIdentifierPackage")
@@ -119,6 +126,12 @@ public sealed class PackageFixtureTests
         Assert.Contains(
             "https://nuget.pkg.github.com/richlander/index.json",
             workflow);
+        Assert.Contains(
+            "-class \"DotnetInspector.Tests.PackageFixtureTests\"",
+            workflow);
+        Assert.Contains(
+            "grep -Eq 'total=\"[1-9][0-9]*\"'",
+            workflow);
         Assert.DoesNotContain("--skip-duplicate", workflow);
 
         int publishStep = workflow.IndexOf(
@@ -172,6 +185,9 @@ public sealed class PackageFixtureTests
         {
             startInfo.ArgumentList.Add(argument);
         }
+        startInfo.Environment["NUGET_PACKAGES"] = Path.Combine(
+            temp,
+            "nuget-packages");
 
         using Process process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Could not start dotnet pack.");

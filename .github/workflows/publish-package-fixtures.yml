@@ -40,10 +40,17 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Validate fixture catalog
-        run: >
-          dotnet run --project src/dotnet-inspect.Tests -c Release --
-          -method
-          '*PackageFixtureCatalog_PacksDeclaredToolV2Packages*'
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/package-fixture-tests.xml"
+          dotnet run --project src/dotnet-inspect.Tests -c Release -- \
+            -class "DotnetInspector.Tests.PackageFixtureTests" \
+            -xml "$results"
+          if ! grep -Eq 'total="[1-9][0-9]*"' "$results"; then
+            echo "::error::Package fixture test filter selected no tests." >&2
+            exit 1
+          fi
 
       - name: Pack fixture packages
         shell: bash
