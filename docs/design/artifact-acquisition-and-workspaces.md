@@ -388,16 +388,21 @@ those endpoints will realize after source-specific selection.
 A multi-participant comparison therefore uses two levels:
 
 ```text
-ComparisonEndpointRequest
+ComparisonEndpointKey
   Id                     opaque host-declared endpoint identity
   Side                   Before | After
+
+ComparisonEndpointRequest
+  Key                    ComparisonEndpointKey
   Coordinate             adapter- or host-owned typed endpoint coordinate
 
 ComparisonEndpointOutcome
-  Realized               sealed non-empty ArtifactParticipantManifest
-  Unavailable            typed diagnostic
-  Rejected               typed diagnostic
-  Failed                 typed diagnostic
+  Key                    exact originating ComparisonEndpointKey
+  Result                 Realized | Unavailable | Rejected | Failed
+
+ComparisonEndpointOutcomeSet
+  Requests               sealed declared ComparisonEndpointKey set
+  Outcomes               sealed map, exactly one outcome per request key
 
 ArtifactParticipantManifest
   Revision               sealed adapter-issued inventory identity
@@ -405,13 +410,19 @@ ArtifactParticipantManifest
 
 ArtifactParticipantPairing
   Id                     opaque comparison-scoped participant identity
+  Authority              LogicalSlot | DirectMemberDesignation
   Before/After           validated side-local participant bindings
   Outcome                Paired | BeforeOnly | AfterOnly | Ambiguous | Failed
 ```
 
-Every declared endpoint produces exactly one endpoint outcome. A realized
-endpoint carries one sealed 1:N manifest; an unavailable, rejected, or failed
-endpoint remains a terminal comparison input failure. It never becomes an
+The host seals the request-key set before acquisition. Every declared endpoint
+produces exactly one endpoint outcome under the same `(Side, Id)` key. Outcome
+construction validates that the embedded key equals its map key, and sealing
+requires exact set equality between request and outcome keys. A duplicate,
+missing, extra, cross-side, or rekeyed outcome rejects the entire outcome set;
+it cannot let endpoint A occupy endpoint B's slot. A realized endpoint carries
+one sealed 1:N manifest; an unavailable, rejected, or failed endpoint remains a
+terminal comparison input failure keyed by its request. It never becomes an
 empty manifest or disappears because another endpoint succeeded.
 
 The adapter seals its manifest from the complete selected artifact inventory
@@ -422,13 +433,14 @@ dependencies; a directory endpoint may realize multiple files. Empty or wholly
 non-projectable acquisition remains the typed member failure defined above,
 not a successful manifest.
 
-The comparison coordinator forms the union of the before/after manifests and
+The comparison coordinator accepts only a sealed outcome set, forms the union
+of the before/after manifests, and
 requires exactly one paired, one-sided, ambiguous, or failed pairing outcome
 for every manifest entry. Missing, extra, or duplicate outcomes reject the
 comparison plan. It also requires one terminal failed comparison input for
-every non-realized endpoint outcome. The anti-omission claim is relative to the
-complete declared endpoint set and sealed manifests that the pairing stage did
-not author.
+every non-realized endpoint outcome, identified by `ComparisonEndpointKey`.
+The anti-omission claim is relative to the complete declared endpoint set and
+sealed manifests that the pairing stage did not author.
 
 Adapter selection completeness is a separate gate. Package archives, restore
 graphs, project outputs, platform packs, workspace definitions, and directory
@@ -446,8 +458,9 @@ participant slots it realizes. Research and presentation receive only opaque
 They do not inspect package, project, platform, path, or workspace provenance
 to reconstruct correspondence.
 
-Each pairing first validates equal version-neutral assembly identity: name,
-normalized culture, and canonical public-key token. The owner then applies its
+Each `LogicalSlot` pairing first validates equal version-neutral assembly
+identity: name, normalized culture, and canonical public-key token. Adapters
+and endpoint owners can mint only that authority. The owner then applies its
 logical selection rule:
 
 | Acquisition owner | Logical participant slot | Side-local evidence |
@@ -498,8 +511,20 @@ already-open participants as a pair and returns a typed
 participant bindings, both MVIDs, and a lifetime bounded by the supplied
 sources. It does not create a parallel pairing identity and contains no path,
 handle, token, or display identity.
+
+This explicit designation is a comparison-scope grant, not a claim that the
+participants are versions of the same assembly. It is the only pairing path
+that may bypass version-neutral assembly-identity equality, which is required
+for every `LogicalSlot` pairing. Only the product direct-member factory can
+mint `DirectMemberDesignation` authority. The direct designation may therefore
+compare an original assembly with a differently named emitted artifact, or two
+arbitrary methods selected by `match --implementation`. It cannot enumerate
+another member, widen into an assembly comparison, or authorize cross-side body
+correspondence. The exact before/after method addresses and relationship roles
+are supplied separately by the direct comparison input.
+
 `CompareMembers` separately validates its exact participant-scoped method
-addresses and relationship role against that designation. This convenience
+addresses and per-side relationship roles against that designation. This convenience
 cannot feed an assembly-wide comparison or outlive either supplied source.
 
 ## Source adapters
@@ -945,14 +970,18 @@ The target remains unverified until tests equivalent to these exist:
 - `RequiredMember_EmptyOrNonProjectableAcquisitionFailsContext`
 - `RequiredAcquisitionFailure_DoesNotShortenWorkspaceContext`
 - `ComparisonEndpoint_ProducesExactlyOneOutcome`
+- `ComparisonEndpointOutcomeSet_EqualsDeclaredRequestKeys`
+- `ComparisonEndpointOutcome_RejectsRekeyedOrCrossSideResult`
 - `ComparisonEndpoint_RealizedManifestIsNonEmptyAndSealed`
 - `ComparisonParticipantManifest_EqualsSelectedArtifactInventory`
 - `ComparisonParticipantPairing_IsTotalOverManifestUnion`
 - `ComparisonEndpointFailure_RemainsComparisonInputFailure`
 - `ComparisonParticipantPairing_DuplicateLogicalSlotIsAmbiguous`
 - `ComparisonParticipantPairing_IsStableAcrossInputReordering`
+- `ComparisonParticipantPairing_AdaptersCannotMintDirectAuthority`
 - `EmbeddedWorkspacePairing_RequiresHostIssuedPairedDesignation`
 - `DirectMemberPairing_RequiresInvocationScopedDesignation`
+- `DirectMemberPairing_AllowsExplicitCrossIdentityPairWithoutWeakeningEndpoints`
 - `AssemblyContextGroup_CanBindParticipantsFromDifferentArtifactSources`
 - `RetainedWorkspace_CanAddASecondSealedContextGeneration`
 - `PackageAdapter_ProjectsSelectedEntriesWithoutLeakingPackageTypes`

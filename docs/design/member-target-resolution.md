@@ -92,7 +92,7 @@ MemberBodyTarget
   PresentationAnchor?    label only
 
 BodyEvidenceTarget
-  Exact                  MetadataMethodAddress
+  Exact                  MetadataMethodAddress + RelationshipRole
   Carried                MemberBodyTarget
 
 MemberBodyResolution
@@ -104,11 +104,14 @@ MemberBodyResolution
   Failed                 malformed metadata or bounded-decode failure
 ```
 
-`Exact` is authoritative only in the MVID it carries. `Carried` revalidates an
-optional preferred address, then resolves by `MemberBodyKey` and relationship
-role inside its side-local selected participant. It is same-artifact
-reacquisition or same-side reference-to-implementation currency, not a target
-for the opposite comparison version.
+`Exact` is authoritative only in the MVID it carries and only for its explicit
+relationship role. Resolution validates that the addressed MethodDef occupies
+that method/getter/setter/adder/remover role in the same metadata source.
+`Carried` revalidates an optional preferred address, then resolves by
+`MemberBodyKey` and relationship role inside its side-local selected
+participant; the role on the carried target and strict key must agree. It is
+same-artifact reacquisition or same-side reference-to-implementation currency,
+not a target for the opposite comparison version.
 Comparison selection mints an independent exact/carried target binding from
 each side's own API/metadata surface before body resolution. A stale or
 cross-reader address is a hint failure, not permission to fall back to name,
@@ -157,8 +160,12 @@ ambiguity; occurrence or metadata order cannot select a winner.
 
 `Bodyless` still names a successfully resolved MethodDef. It retains the exact
 address, relationship role, strict key, and correspondence key needed to enter
-the comparison coordinate population; body-producing mechanisms decide
-`Absent` for that work item. It is never a target-resolution failure.
+the comparison coordinate population. Body presence is then evaluated per
+side: bodyless/bodyful and bodyful/bodyless pairs produce body-added or
+body-removed `Compared` evidence, as do one-sided bodyful entries. A
+body-producing mechanism returns `Absent(NoBody)` only when neither available
+side contributes a body, including a one-sided bodyless entry. `Bodyless` is
+never a target-resolution failure.
 
 Request ids, endpoint ids, participant ids, and presentation anchors are not
 part of either body key. The comparison query attaches its own
@@ -172,12 +179,12 @@ The target architecture remains unverified until these gates exist:
 
 | Gate | Fails if |
 | --- | --- |
-| `MemberBodyTargetRoundTripsStructuralKey` | API extraction and live resolution produce different strict keys; JSON loses key version or accessor role; or a same-source preferred address bypasses key/role validation |
+| `MemberBodyTargetRoundTripsStructuralKey` | API extraction and live resolution produce different strict keys; JSON loses key version or accessor role; an exact target omits or misstates its role; or a same-source exact/preferred address bypasses key/role validation |
 | `BodyTargetResolutionNeverUsesPresentation` | A carried target falls back to name, ordinal, anchor, display signature, path, or raw token; legacy/unknown keys guess; or duplicate candidates select one |
 | `BodyCorrespondenceNormalizationIsExact` | Strict keys erase AssemblyRef version/raw representation; correspondence retains version or `PublicKey`; clears another flag; drops name/culture/token or non-scope structure; or the two policies use different builders/budgets |
 | `BodyCorrespondenceCollisionIsAmbiguous` | Two normalized candidates in one participant pair by occurrence/order, or equal keys in different paired participants collide |
 | `BodyCorrespondence_UsesIndependentSideLocalTargets` | One side's strict target is fanned into the other side; AssemblyRef-version-only drift fails before correspondence; or remove/add shares a target request |
-| `BodylessResolution_RetainsComparisonCoordinate` | A validated bodyless MethodDef becomes a target failure, loses its strict/correspondence identity, or cannot produce a mechanism-level `Absent` disposition |
+| `BodylessResolution_RetainsComparisonCoordinate` | A validated bodyless MethodDef becomes a target failure, loses its strict/correspondence identity, makes a bodyless/bodyful transition `Absent`, or prevents `Absent(NoBody)` when neither side has a body |
 
 ## Body identity migration
 
