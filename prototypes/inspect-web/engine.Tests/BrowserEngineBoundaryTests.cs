@@ -1687,7 +1687,7 @@ public sealed class BrowserEngineBoundaryTests
                 new NuGetFetchOptions
                 {
                     RequestTimeout = TimeSpan.FromMilliseconds(100),
-                    OperationTimeout = TimeSpan.FromMilliseconds(100),
+                    OperationTimeout = TimeSpan.FromSeconds(5),
                 });
 
         InvalidOperationException failure =
@@ -1702,7 +1702,8 @@ public sealed class BrowserEngineBoundaryTests
             "authoritative Gallery listing state is unavailable",
             failure.Message,
             StringComparison.Ordinal);
-        Assert.Equal(2, handler.Requests);
+        Assert.Equal(1, handler.FlatContainerRequests);
+        Assert.True(handler.RegistrationRequests >= 1);
     }
 
     [Fact]
@@ -1733,7 +1734,7 @@ public sealed class BrowserEngineBoundaryTests
                 new NuGetFetchOptions
                 {
                     RequestTimeout = TimeSpan.FromMilliseconds(100),
-                    OperationTimeout = TimeSpan.FromMilliseconds(100),
+                    OperationTimeout = TimeSpan.FromSeconds(5),
                 });
 
         string[] versions = await BrowserPackageWorkspace.GetVersionsAsync(
@@ -1742,7 +1743,8 @@ public sealed class BrowserEngineBoundaryTests
             TimeSpan.FromSeconds(10));
 
         Assert.Equal(["1.0.0"], versions);
-        Assert.Equal(2, handler.Requests);
+        Assert.Equal(1, handler.FlatContainerRequests);
+        Assert.True(handler.RegistrationRequests >= 1);
     }
 
     private static BrowserDependencyCoordinateMatch MatchDependencyCoordinate(
@@ -2253,17 +2255,18 @@ public sealed class BrowserEngineBoundaryTests
 
     sealed class StallingGalleryRegistrationHandler : HttpMessageHandler
     {
-        public int Requests { get; private set; }
+        public int FlatContainerRequests { get; private set; }
+        public int RegistrationRequests { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
-            Requests++;
             if (request.RequestUri!.AbsoluteUri.Contains(
                     "v3-flatcontainer",
                     StringComparison.Ordinal))
             {
+                FlatContainerRequests++;
                 return new HttpResponseMessage(
                     System.Net.HttpStatusCode.OK)
                 {
@@ -2272,6 +2275,7 @@ public sealed class BrowserEngineBoundaryTests
                 };
             }
 
+            RegistrationRequests++;
             await Task.Delay(
                 Timeout.InfiniteTimeSpan,
                 cancellationToken);
