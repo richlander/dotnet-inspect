@@ -47,8 +47,8 @@ namespace DotnetInspector.Tests;
 ///
 /// <para><b>What the pinned set does and does not say.</b> Row-level
 /// containment is one of two idioms in this assembly. The other contains at the
-/// <i>producer</i>: <c>ResourceTriageRow</c> is built from
-/// <c>MarkoutInline.Code(row.Member)</c>, which routes through
+/// <i>producer</i>: <c>UnsafeMemberRow.Member</c> is built from
+/// <c>MarkoutInline.Code(member)</c>, which routes through
 /// <c>CSharpIdentifier.ContainRenderedText</c> before the row ever sees the
 /// text. Constructing that row directly, as this walk does, bypasses the
 /// containment without disproving it.</para>
@@ -106,10 +106,10 @@ public class MarkoutRowContainmentTests
     /// Not a leak list -- see the remarks on
     /// <see cref="MarkoutRowContainmentTests"/>. Membership has three causes and
     /// this set does not distinguish them: a column contained at the producer
-    /// (<c>ResourceTriageRow.Member</c>, built from <c>MarkoutInline.Code</c>);
+    /// (<c>UnsafeMemberRow.Member</c>, built from <c>MarkoutInline.Code</c>);
     /// a column whose value the tool composes rather than reads, so there is no
-    /// untrusted text to contain (<c>SourceLinkAuditSection.SourceFiles</c>,
-    /// which is <c>$"{int}/{int} available"</c>); and the genuine residual
+    /// untrusted text to contain (<c>AllocationFactRow.CountedAsHeap</c>,
+    /// which is <c>"Yes"</c> or <c>"No"</c>); and the genuine residual
     /// tracked by issue #3463. Deciding which a given entry is takes reading its
     /// producer -- which is the work #3463 exists to do, and is why this pins
     /// the set rather than asserting it empty.
