@@ -78,19 +78,62 @@ internal sealed class NuGetGalleryRegistrationByteBudget
             this,
             returnDeliveredBytesOnDispose: false);
 
-    internal async Task CopyWithRollbackAsync(
+    internal async Task<Materialization> MaterializeAsync(
         Stream source,
-        Stream destination,
         CancellationToken cancellationToken)
     {
-        using var limited = new BudgetedReadStream(
+        var destination = new MemoryStream();
+        var limited = new BudgetedReadStream(
             source,
             this,
             returnDeliveredBytesOnDispose: true);
-        await limited.CopyToAsync(
-            destination,
-            cancellationToken).ConfigureAwait(false);
-        limited.Commit();
+        try
+        {
+            await limited.CopyToAsync(
+                destination,
+                cancellationToken).ConfigureAwait(false);
+            destination.Position = 0;
+            return new Materialization(destination, limited);
+        }
+        catch
+        {
+            limited.Dispose();
+            destination.Dispose();
+            throw;
+        }
+    }
+
+    internal sealed class Materialization(
+        MemoryStream content,
+        BudgetedReadStream reservation) :
+        INuGetRejectedResult,
+        IDisposable
+    {
+        private MemoryStream? _content = content;
+        private BudgetedReadStream? _reservation = reservation;
+
+        internal MemoryStream Commit()
+        {
+            ObjectDisposedException.ThrowIf(
+                _reservation is null || _content is null,
+                this);
+            MemoryStream committed = _content;
+            _reservation.Commit();
+            _reservation.Dispose();
+            _reservation = null;
+            _content = null;
+            return committed;
+        }
+
+        void INuGetRejectedResult.Reject() => Dispose();
+
+        public void Dispose()
+        {
+            _reservation?.Dispose();
+            _reservation = null;
+            _content?.Dispose();
+            _content = null;
+        }
     }
 
     private int ReserveBytes(int requested)
@@ -169,7 +212,7 @@ internal sealed class NuGetGalleryRegistrationByteBudget
     private static TaskCompletionSource NewReservationCompletion() =>
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    private sealed class BudgetedReadStream(
+    internal sealed class BudgetedReadStream(
         Stream inner,
         NuGetGalleryRegistrationByteBudget budget,
         bool returnDeliveredBytesOnDispose) : Stream

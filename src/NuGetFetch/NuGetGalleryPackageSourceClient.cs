@@ -418,7 +418,8 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
         NuGetGalleryRegistrationByteBudget materializationBudget,
         NuGetOperationDeadline operation)
     {
-        return await NuGetHttpRetry.RunRequestAsync(
+        NuGetGalleryRegistrationByteBudget.Materialization?
+            materialization = await NuGetHttpRetry.RunRequestAsync(
             operation,
             async requestToken =>
             {
@@ -440,29 +441,22 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                     response,
                     async (json, cancellationToken) =>
                     {
-                        var page = new MemoryStream();
-                        try
-                        {
-                            using Stream aggregateLimitedJson =
-                                aggregateBudget.LimitBytes(json);
-                            await materializationBudget
-                                .CopyWithRollbackAsync(
-                                    aggregateLimitedJson,
-                                    page,
-                                    cancellationToken).ConfigureAwait(false);
-                            page.Position = 0;
-                            return page;
-                        }
-                        catch
-                        {
-                            page.Dispose();
-                            throw;
-                        }
+                        using Stream aggregateLimitedJson =
+                            aggregateBudget.LimitBytes(json);
+                        return await materializationBudget
+                            .MaterializeAsync(
+                                aggregateLimitedJson,
+                                cancellationToken).ConfigureAwait(false);
                     },
                     _options,
                     _client.Timeout,
                     requestToken).ConfigureAwait(false);
             }).ConfigureAwait(false);
+        if (materialization is null)
+            return null;
+
+        using (materialization)
+            return materialization.Commit();
     }
 
     private static string RebaseRegistrationPage(

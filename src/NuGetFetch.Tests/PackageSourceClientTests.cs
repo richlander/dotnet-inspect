@@ -1633,25 +1633,99 @@ public sealed class PackageSourceClientTests
             maximumBytes: 2);
 
         await Assert.ThrowsAsync<IOException>(
-            () => budget.CopyWithRollbackAsync(
+            () => budget.MaterializeAsync(
                 new ReadThenFailureStream([(byte)'a', (byte)'b']),
-                new MemoryStream(),
                 TestContext.Current.CancellationToken));
 
-        using var destination = new MemoryStream();
-        await budget.CopyWithRollbackAsync(
+        using NuGetGalleryRegistrationByteBudget.Materialization
+            materialization = await budget.MaterializeAsync(
             new MemoryStream([(byte)'c', (byte)'d']),
-            destination,
             TestContext.Current.CancellationToken);
+        using MemoryStream destination = materialization.Commit();
 
         Assert.Equal("cd", Encoding.UTF8.GetString(destination.ToArray()));
 
         await Assert.ThrowsAsync<
             NuGetRegistrationResourceLimitExceededException>(
-            () => budget.CopyWithRollbackAsync(
+            () => budget.MaterializeAsync(
                 new MemoryStream([(byte)'e']),
-                new MemoryStream(),
                 TestContext.Current.CancellationToken));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task
+        GalleryLatePageDeadlineReturnsMaterializationCapacity(
+            bool metadataBodyDeadline)
+    {
+        const string page = """
+            {
+              "items": [
+                {
+                  "catalogEntry": {
+                    "version": "1.0.0"
+                  }
+                }
+              ]
+            }
+            """;
+        string registration = $$"""
+            {
+              "items": [
+                {
+                  "@id": "{{GalleryRegistrationPage}}"
+                }
+              ]
+            }
+            """;
+        byte[] pageBytes = Encoding.UTF8.GetBytes(page);
+        int pageRequests = 0;
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] = """{"versions":["1.0.0"]}""",
+            [GalleryRegistration] = registration,
+        };
+        handler.SetResponse(
+            GalleryRegistrationPage,
+            request => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = Interlocked.Increment(ref pageRequests) == 1
+                    ? new StreamContent(
+                        new LateEofStream(
+                            pageBytes,
+                            TimeSpan.FromMilliseconds(100)))
+                    : new ByteArrayContent(pageBytes),
+                RequestMessage = request,
+            });
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(
+                handler,
+                new NuGetFetchOptions
+                {
+                    MaxMetadataResponseBytes = Math.Max(
+                        pageBytes.Length,
+                        Encoding.UTF8.GetByteCount(registration)),
+                    MaxRegistrationPageBatchBytes = pageBytes.Length,
+                    MaxRegistrationMetadataBytes =
+                        Encoding.UTF8.GetByteCount(registration)
+                        + (2L * pageBytes.Length),
+                    RequestTimeout = metadataBodyDeadline
+                        ? TimeSpan.FromSeconds(1)
+                        : TimeSpan.FromMilliseconds(40),
+                    OperationTimeout = TimeSpan.FromSeconds(3),
+                    MetadataBodyTimeout = metadataBodyDeadline
+                        ? TimeSpan.FromMilliseconds(40)
+                        : Timeout.InfiniteTimeSpan,
+                });
+
+        PackageVersionResult result = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.True(result.HasAuthoritativeListingState);
+        Assert.Equal(2, pageRequests);
     }
 
     [Fact]
@@ -3247,6 +3321,59 @@ public sealed class PackageSourceClientTests
             }
 
             throw new IOException("The response body ended.");
+        }
+
+        public override void Flush() =>
+            throw new NotSupportedException();
+
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class LateEofStream(
+        byte[] content,
+        TimeSpan eofDelay) : Stream
+    {
+        private int _position;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (_position < content.Length)
+            {
+                int copied = Math.Min(
+                    buffer.Length,
+                    content.Length - _position);
+                content.AsMemory(_position, copied).CopyTo(buffer);
+                _position += copied;
+                return copied;
+            }
+
+            await Task.Delay(eofDelay).ConfigureAwait(false);
+            return 0;
         }
 
         public override void Flush() =>

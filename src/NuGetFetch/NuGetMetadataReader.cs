@@ -88,21 +88,29 @@ internal static class NuGetMetadataReader
         try
         {
             T result = await operation(timeout.Token).ConfigureAwait(false);
-            cancellationToken.ThrowIfCancellationRequested();
-            if (HasBodyTimeoutExpired(
-                    started,
-                    timeout,
-                    options.MetadataBodyTimeout))
+            try
             {
-                var cancellation = new OperationCanceledException(
-                    "NuGet metadata body completed after its deadline expired.",
-                    timeout.Token);
-                throw new NuGetMetadataBodyTimeoutException(
-                    options.MetadataBodyTimeout,
-                    cancellation);
-            }
+                cancellationToken.ThrowIfCancellationRequested();
+                if (HasBodyTimeoutExpired(
+                        started,
+                        timeout,
+                        options.MetadataBodyTimeout))
+                {
+                    var cancellation = new OperationCanceledException(
+                        "NuGet metadata body completed after its deadline expired.",
+                        timeout.Token);
+                    throw new NuGetMetadataBodyTimeoutException(
+                        options.MetadataBodyTimeout,
+                        cancellation);
+                }
 
-            return result;
+                return result;
+            }
+            catch
+            {
+                NuGetRejectedResult.RejectIfOwned(result);
+                throw;
+            }
         }
         catch (OperationCanceledException ex)
             when (cancellationToken.IsCancellationRequested)

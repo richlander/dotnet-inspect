@@ -39,8 +39,18 @@ internal sealed class NuGetOperationDeadline : IDisposable
         {
             T result = await request(requestCancellation.Token)
                 .ConfigureAwait(false);
-            ThrowIfRequestExpired(requestStarted, requestCancellation);
-            return result;
+            try
+            {
+                ThrowIfRequestExpired(
+                    requestStarted,
+                    requestCancellation);
+                return result;
+            }
+            catch
+            {
+                NuGetRejectedResult.RejectIfOwned(result);
+                throw;
+            }
         }
         catch (OperationCanceledException ex)
         {

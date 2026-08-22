@@ -72,6 +72,7 @@ shortening the selected assembly set.
    `GalleryRegistrationDefaultBatchExceedsPerResponseLimit`,
    `GalleryRegistrationReservationWaitsForReturnedCapacity`,
    `GalleryRegistrationMaterializationBudgetReturnsFailedAttemptCapacity`,
+   `GalleryLatePageDeadlineReturnsMaterializationCapacity`,
    `GalleryRegistrationAggregateCountsFailedAttemptBytes`,
    `GalleryRegistrationLeafLimitIsTypedPartialEnumeration`,
    `GalleryRegistrationPageLimitIsTypedPartialEnumeration`,
