@@ -142,6 +142,14 @@ internal readonly record struct UnsafeEvidencePresenceMethodResult(
     bool HasEvidence,
     AnalysisDiagnostic? Diagnostic);
 
+internal enum UnsafeCallProbeResult
+{
+    NoCandidate,
+    RequiresResolution,
+    Evidence,
+    Incomplete,
+}
+
 /// <summary>
 /// Runs the ordered topic producers for one method while the assembly builder
 /// retains scheduling and primary-image lifetime. The primary metadata
@@ -152,6 +160,8 @@ internal sealed class LibraryMethodAnalysisRunner(
 {
     readonly ILibraryMethodAnalysisInfrastructure _infrastructure =
         infrastructure;
+    readonly UnsafeSignatureMarkerCache _unsafeSignatureMarkers =
+        new(infrastructure.Reader);
 
     internal UnsafeEvidencePresenceMethodResult ProbeUnsafeEvidence(
         TypeDefinitionHandle typeHandle,
@@ -179,7 +189,6 @@ internal sealed class LibraryMethodAnalysisRunner(
 
             if ((MayBeUnsafeApiType(reader, typeHandle)
                     || SignatureMayContainUnsafeType(
-                        reader,
                         methodDefinition.Signature))
                 && MethodSafetyAnalysis.HasUnsafeDeclaration(
                     Caller()))
@@ -200,11 +209,20 @@ internal sealed class LibraryMethodAnalysisRunner(
                 var localSignature =
                     reader.GetStandaloneSignature(
                         body.LocalSignature);
-                if (SignatureMayContainUnsafeType(
-                        reader,
-                        localSignature.Signature,
-                        includePinned: true))
+                UnsafeSignatureMarkers markers =
+                    _unsafeSignatureMarkers.GetMarkers(
+                        localSignature.Signature);
+                if (markers != UnsafeSignatureMarkers.None)
                 {
+                    if (!SignatureBlobGuard.IsSafeToDecode(
+                            reader,
+                            localSignature.Signature,
+                            SignatureBlobGuard.Kind
+                                .LocalVariables))
+                    {
+                        throw new BadImageFormatException(
+                            "An unsafe local signature exceeds the safe decoding limits.");
+                    }
                     ImmutableArray<TypeRef> localTypes =
                         DecodeLocalTypes(body, Scope());
                     if (MethodSafetyAnalysis.HasUnsafeLocals(
@@ -230,19 +248,42 @@ internal sealed class LibraryMethodAnalysisRunner(
                             MethodInstructionFacts
                                 .OperandInt32(
                                     instruction);
-                        if (MayBeUnsafeCall(
+                        UnsafeCallProbeResult callProbe =
+                            ProbeUnsafeCall(
                                 reader,
-                                operandToken))
+                                operandToken);
+                        if (callProbe
+                            == UnsafeCallProbeResult.Evidence)
+                        {
+                            return new(true, null);
+                        }
+                        if (callProbe
+                            == UnsafeCallProbeResult.Incomplete)
+                        {
+                            throw new BadImageFormatException(
+                                "An unsafe call signature exceeds the safe decoding limits.");
+                        }
+                        if (callProbe
+                            == UnsafeCallProbeResult
+                                .RequiresResolution)
                         {
                             resolver ??=
                                 _infrastructure.CreateCallResolver(
                                     Scope(),
                                     Caller());
+                            MemberRef member =
+                                resolver.ResolveMember(
+                                    operandToken);
                             if (MethodSafetyAnalysis.IsUnsafeCall(
-                                    resolver.ResolveMember(
-                                        operandToken)))
+                                    member))
                             {
                                 return new(true, null);
+                            }
+                            if (member.Kind
+                                == MemberKind.Unsupported)
+                            {
+                                throw new BadImageFormatException(
+                                    "An unsafe call signature could not be decoded.");
                             }
                         }
                         break;
@@ -278,7 +319,7 @@ internal sealed class LibraryMethodAnalysisRunner(
         }
     }
 
-    static bool MayBeUnsafeCall(
+    UnsafeCallProbeResult ProbeUnsafeCall(
         MetadataReader reader,
         int token)
     {
@@ -287,48 +328,102 @@ internal sealed class LibraryMethodAnalysisRunner(
         switch (handle.Kind)
         {
             case HandleKind.MethodSpecification:
-            {
-                var specification =
-                    reader.GetMethodSpecification(
-                        (MethodSpecificationHandle)handle);
-                return SignatureMayContainUnsafeType(
-                        reader,
-                        specification.Signature)
-                    || MayBeUnsafeCall(
-                        reader,
-                        MetadataTokens.GetToken(
-                            specification.Method));
-            }
+                {
+                    var specification =
+                        reader.GetMethodSpecification(
+                            (MethodSpecificationHandle)handle);
+                    UnsafeCallProbeResult target =
+                        ProbeUnsafeCall(
+                            reader,
+                            MetadataTokens.GetToken(
+                                specification.Method));
+                    if (target is
+                        UnsafeCallProbeResult.Evidence
+                        or UnsafeCallProbeResult.Incomplete)
+                    {
+                        return target;
+                    }
+
+                    UnsafeCallProbeResult signature =
+                        ProbeUnsafeSignature(
+                            reader,
+                            specification.Signature,
+                            SignatureBlobGuard.Kind
+                                .MethodSpecification);
+                    return signature
+                        == UnsafeCallProbeResult.NoCandidate
+                            ? target
+                            : signature;
+                }
 
             case HandleKind.MethodDefinition:
-            {
-                var method =
-                    reader.GetMethodDefinition(
-                        (MethodDefinitionHandle)handle);
-                return MayBeUnsafeApiType(
-                        reader,
-                        method.GetDeclaringType())
-                    || SignatureMayContainUnsafeType(
-                        reader,
-                        method.Signature);
-            }
+                {
+                    var method =
+                        reader.GetMethodDefinition(
+                            (MethodDefinitionHandle)handle);
+                    if (MayBeUnsafeApiType(
+                            reader,
+                            method.GetDeclaringType()))
+                    {
+                        return UnsafeCallProbeResult.Evidence;
+                    }
+                    UnsafeCallProbeResult result =
+                        ProbeUnsafeSignature(
+                            reader,
+                            method.Signature,
+                            SignatureBlobGuard.Kind.Method);
+                    return result
+                        == UnsafeCallProbeResult.Incomplete
+                            ? UnsafeCallProbeResult.Evidence
+                            : result;
+                }
 
             case HandleKind.MemberReference:
-            {
-                var member =
-                    reader.GetMemberReference(
-                        (MemberReferenceHandle)handle);
-                return MayBeUnsafeApiType(
-                        reader,
-                        member.Parent)
-                    || SignatureMayContainUnsafeType(
-                        reader,
-                        member.Signature);
-            }
+                {
+                    var member =
+                        reader.GetMemberReference(
+                            (MemberReferenceHandle)handle);
+                    bool parentRequiresResolution =
+                        member.Parent.Kind is not
+                            HandleKind.TypeDefinition
+                            and not HandleKind.TypeReference;
+                    if (MayBeUnsafeApiType(
+                            reader,
+                            member.Parent))
+                    {
+                        return UnsafeCallProbeResult.Evidence;
+                    }
+                    UnsafeCallProbeResult signature =
+                        ProbeUnsafeSignature(
+                            reader,
+                            member.Signature,
+                            SignatureBlobGuard.Kind.Method);
+                    return signature
+                            == UnsafeCallProbeResult.NoCandidate
+                        && parentRequiresResolution
+                            ? UnsafeCallProbeResult
+                                .RequiresResolution
+                            : signature;
+                }
 
             default:
-                return true;
+                return UnsafeCallProbeResult.Incomplete;
         }
+    }
+
+    UnsafeCallProbeResult ProbeUnsafeSignature(
+        MetadataReader reader,
+        BlobHandle signature,
+        SignatureBlobGuard.Kind kind)
+    {
+        if (!SignatureMayContainUnsafeType(signature))
+            return UnsafeCallProbeResult.NoCandidate;
+        return SignatureBlobGuard.IsSafeToDecode(
+            reader,
+            signature,
+            kind)
+                ? UnsafeCallProbeResult.RequiresResolution
+                : UnsafeCallProbeResult.Incomplete;
     }
 
     static bool MayBeUnsafeApiType(
@@ -340,27 +435,27 @@ internal sealed class LibraryMethodAnalysisRunner(
         switch (handle.Kind)
         {
             case HandleKind.TypeDefinition:
-            {
-                var type =
-                    reader.GetTypeDefinition(
-                        (TypeDefinitionHandle)handle);
-                namespaceHandle = type.Namespace;
-                nameHandle = type.Name;
-                break;
-            }
+                {
+                    var type =
+                        reader.GetTypeDefinition(
+                            (TypeDefinitionHandle)handle);
+                    namespaceHandle = type.Namespace;
+                    nameHandle = type.Name;
+                    break;
+                }
 
             case HandleKind.TypeReference:
-            {
-                var type =
-                    reader.GetTypeReference(
-                        (TypeReferenceHandle)handle);
-                namespaceHandle = type.Namespace;
-                nameHandle = type.Name;
-                break;
-            }
+                {
+                    var type =
+                        reader.GetTypeReference(
+                            (TypeReferenceHandle)handle);
+                    namespaceHandle = type.Namespace;
+                    nameHandle = type.Name;
+                    break;
+                }
 
             default:
-                return true;
+                return false;
         }
 
         return reader.StringComparer.Equals(
@@ -371,21 +466,15 @@ internal sealed class LibraryMethodAnalysisRunner(
                 "System.Runtime.CompilerServices");
     }
 
-    static bool SignatureMayContainUnsafeType(
-        MetadataReader reader,
-        BlobHandle signature,
-        bool includePinned = false)
+    bool SignatureMayContainUnsafeType(
+        BlobHandle signature)
     {
-        foreach (byte value in reader.GetBlobBytes(
-                     signature))
-        {
-            if (value is 0x0F or 0x1B
-                || includePinned && value == 0x45)
-            {
-                return true;
-            }
-        }
-        return false;
+        UnsafeSignatureMarkers markers =
+            _unsafeSignatureMarkers.GetMarkers(signature);
+        UnsafeSignatureMarkers relevant =
+            UnsafeSignatureMarkers.Pointer
+            | UnsafeSignatureMarkers.FunctionPointer;
+        return (markers & relevant) != 0;
     }
 
     internal LibraryMethodAnalysisResult Analyze(

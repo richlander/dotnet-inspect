@@ -46,9 +46,12 @@ Library uses `@Library` and `@Surface` as its base categories. Package uses
 no category and is selected for rendering by exact name (or an explicit
 matching wildcard). Target-aware bare discovery lists it when a bounded,
 early-exit presence probe finds evidence or the metadata scan produces a
-renderable incomplete-decode diagnostic; the probe does not materialize the
-complete unsafe-evidence census. The explicit-only `Body Shapes` section is
-likewise uncategorized; its required `Kind=...` predicate supplies its scope.
+renderable incomplete-decode diagnostic. The probe caches no-copy signature
+marker scans by blob, applies an assembly-wide work budget, and fails visibly
+when a candidate local or call signature cannot be decoded safely; it does not
+materialize the complete unsafe-evidence census. The explicit-only `Body
+Shapes` section is likewise uncategorized; its required `Kind=...` predicate
+supplies its scope.
 
 There are no user-facing `@All`, `@Default`, or `@Hidden` categories. Users who
 need broad evidence select the relevant authored categories explicitly.
