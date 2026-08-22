@@ -143,10 +143,12 @@ Two resolution paths, chosen by scope:
   (`int`, `object?`, `IReadOnlyList<string>`) and the metadata-flavored anchor
   from `CreateMethodAnchor` (`System.Int32`, `System.Object`,
   `IReadOnlyList` with an arity tick) — and **their fingerprints do not match**.
-  The reconciling bridge is `ResearchMemberIdentity.BodyMemberIdentity`, which
-  normalizes the surface spelling to the metadata spelling (`ParameterPrimitiveName`,
-  strip nullable `?`, `out`/`ref` → `&`, `Foo<T>` → `` Foo`1<T> ``) so a surface
-  member and a metadata method produce the *same* `StableSelector`.
+  The post-resolution presentation bridge is
+  `ResearchMemberIdentity.BodyMemberIdentity`, which normalizes the surface
+  spelling to the metadata spelling (`ParameterPrimitiveName`, strip nullable
+  `?`, `out`/`ref` → `&`, `Foo<T>` → `` Foo`1<T> ``) so a resolved surface
+  member and metadata method produce the *same* `StableSelector`. It does not
+  select or correspond a MethodDef.
   `ImplementationDiff`/`ResearchDiff` already resolve members this way; the
   substrate reuses that bridge rather than comparing raw `MemberAnchor`
   fingerprints, which would silently never match across the two spelling worlds.
@@ -921,7 +923,7 @@ sourced from Metadata/Analysis, not from the printed text:
 
 | Layer | Role | Adds |
 | --- | --- | --- |
-| Metadata | `SignatureProducer` + identity + source-link | keep identity addressing the rule (`MetadataToken` same-reader, `ResearchMemberIdentity` cross-reader); add `SignatureProducer` (type/member, singular or list, no shells); keep the PDB/source-link core (`ResolveByILOffset`, source docs, compilation info) with **no** `Instructions` dependency; expose async classification for the body path |
+| Metadata | `SignatureProducer` + identity + source-link | keep physical addressing the rule (`MetadataMethodAddress` exact, `MemberBodyTarget` carried, `MemberBodyCorrespondenceKey` only after independent resolution); add `SignatureProducer` (type/member, singular or list, no shells); keep the PDB/source-link core (`ResolveByILOffset`, source docs, compilation info) with **no** `Instructions` dependency; expose async classification for the body path |
 | Instructions | `InstructionProducer` | host `InstructionProducer` behind the shared `IOperandNameResolver` contract (stays free of the Metadata assembly); own the IL-offset→instruction context helpers (`ResolveInstructionContext`/`ResolveCallsiteContext`/`ResolveReturnAddressContext`) split out of `PdbContext` |
 | Analysis | body-fact source | expose offset-keyed body facts (unsafe/throw/alloc) for the member pre-filter and Research body-subset |
 | CSharp | `TypeShellProducer` | own `ApiType` shape + `TypeShellProducer` that expands Metadata signatures, and its member subset; carry async/unsafe flags on `CSharpMemberBody` |
@@ -929,8 +931,9 @@ sourced from Metadata/Analysis, not from the printed text:
 | Research | the join | compose the singular producers — interleave (`RenderMixedCore`), diff (move `CSharpBodyDiff` here beside `ImplementationDiff`), body-subset, and `ILOffsetProjectionProducer` coordinate views — all on the IL-offset axis |
 
 The end state: **shape** (`ApiType` / `ApiMember`, fact-enriched) → **address**
-(identity: `MetadataToken` same-reader, normalized `ResearchMemberIdentity`
-cross-reader) → **scope** (`MetadataSource`, one load) → **producers**
+(`MetadataMethodAddress` exact, `MemberBodyTarget` carried, independently
+resolved `MemberBodyCorrespondenceKey` for comparison) → **scope**
+(`MetadataSource`, one load) → **producers**
 (`SignatureProducer`, `InstructionProducer`, `TypeShellProducer`,
 `MemberBodyProducer` — a capability ladder, each `filter → render` over its own
 projection, self-annotated) → **join** (Research: interleave, diff, body-subset on

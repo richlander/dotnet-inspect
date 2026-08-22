@@ -154,18 +154,19 @@ cluster donor directly with the all donor:
 cluster donor <-> all donor
 ```
 
-The comparison resolves exact cluster-donor and all-donor method handles through
-a typed cross-reader correspondence result. That resolver is a planned product
-capability; normalized `ResearchMemberIdentity` strings are correspondence input,
-not a handle resolver by themselves. The direct donor comparison then applies
-the existing C# and IL diff contracts. Separate original-to-cluster and
-original-to-all correspondence and diff results remain available as fidelity
-evidence, but they are not substituted for the direct scope comparison. A donor
-difference may reveal context-sensitive binding, incomplete cluster membership,
-different synthesized context, or an artifact-production gap. It is evidence,
-not automatically a cluster defect. If either donor or member correspondence is
-absent, ambiguous, or failed, the scope comparison is `Unavailable` and retains
-the typed reason.
+The comparison independently resolves exact cluster-donor and all-donor method
+addresses from the same carried `MemberBodyTarget`. Metadata validates each
+side-local target first. The round-trip request then explicitly authorizes the
+two resolved addresses through `DirectMemberPairingDesignation`; neither
+`ResearchMemberIdentity` nor an inferred correspondence key pairs the donors.
+The direct donor comparison applies the existing C# and IL diff contracts.
+Separate original-to-cluster and original-to-all resolution and diff results
+remain available as fidelity evidence, but they are not substituted for the
+direct scope comparison. A donor difference may reveal context-sensitive
+binding, incomplete cluster membership, different synthesized context, or an
+artifact-production gap. It is evidence, not automatically a cluster defect.
+If either donor target is absent, ambiguous, or failed, the scope comparison is
+`Unavailable` and retains the typed reason.
 
 The initial `cluster` lane remains useful without a successful `all` lane. A
 consumer making a stronger contextual-binding claim must require the scope A/B

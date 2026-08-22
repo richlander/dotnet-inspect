@@ -396,6 +396,13 @@ ComparisonEndpointRequest
   Key                    ComparisonEndpointKey
   Coordinate             adapter- or host-owned typed endpoint coordinate
 
+ComparisonEndpointPairingSlot
+  Id                     opaque host-issued comparison-scope identity
+  Before/After           Request(ComparisonEndpointKey) | Absent(proof)
+
+ComparisonEndpointPairingPlan
+  Slots                  sealed before acquisition; every request appears once
+
 ComparisonEndpointOutcome
   Key                    exact originating ComparisonEndpointKey
   Result                 Realized | Unavailable | Rejected | Failed
@@ -415,15 +422,18 @@ ArtifactParticipantPairing
   Outcome                Paired | BeforeOnly | AfterOnly | Ambiguous | Failed
 ```
 
-The host seals the request-key set before acquisition. Every declared endpoint
-produces exactly one endpoint outcome under the same `(Side, Id)` key. Outcome
-construction validates that the embedded key equals its map key, and sealing
-requires exact set equality between request and outcome keys. A duplicate,
-missing, extra, cross-side, or rekeyed outcome rejects the entire outcome set;
-it cannot let endpoint A occupy endpoint B's slot. A realized endpoint carries
-one sealed 1:N manifest; an unavailable, rejected, or failed endpoint remains a
-terminal comparison input failure keyed by its request. It never becomes an
-empty manifest or disappears because another endpoint succeeded.
+The host seals the endpoint-pairing plan and request-key set before acquisition.
+Every request appears in exactly one pairing-slot side. An `Absent` side is a
+typed proof that no endpoint exists there, not a failed or omitted request.
+Every declared request produces exactly one endpoint outcome under the same
+`(Side, Id)` key. Outcome construction validates that the embedded key equals
+its map key, and sealing requires exact set equality between request and
+outcome keys. A duplicate, missing, extra, cross-side, or rekeyed outcome
+rejects the entire outcome set; it cannot let endpoint A occupy endpoint B's
+slot. A realized endpoint carries one sealed 1:N manifest; an unavailable,
+rejected, or failed endpoint remains a terminal comparison input failure keyed
+by its request. It never becomes an empty manifest or disappears because
+another endpoint succeeded.
 
 The adapter seals its manifest from the complete selected artifact inventory
 that its acquisition policy admitted and the workspace projected into assembly
@@ -433,14 +443,19 @@ dependencies; a directory endpoint may realize multiple files. Empty or wholly
 non-projectable acquisition remains the typed member failure defined above,
 not a successful manifest.
 
-The comparison coordinator accepts only a sealed outcome set, forms the union
-of the before/after manifests, and
-requires exactly one paired, one-sided, ambiguous, or failed pairing outcome
-for every manifest entry. Missing, extra, or duplicate outcomes reject the
-comparison plan. It also requires one terminal failed comparison input for
-every non-realized endpoint outcome, identified by `ComparisonEndpointKey`.
-The anti-omission claim is relative to the complete declared endpoint set and
-sealed manifests that the pairing stage did not author.
+The comparison coordinator accepts only a sealed pairing plan and outcome set.
+For a slot whose requested sides both realize, it forms the union of the
+before/after manifests and requires exactly one paired, one-sided, ambiguous,
+or failed pairing outcome for every manifest entry. A realized side opposite
+an explicit `Absent` side may likewise produce proven one-sided participants.
+Missing, extra, or duplicate outcomes reject the comparison plan.
+
+If any requested side is unavailable, rejected, or failed, the entire endpoint
+pairing slot is failed. The coordinator retains one terminal failed comparison
+input identified by the slot and does **not** classify entries from a realized
+opposite manifest as one-sided; the missing manifest cannot prove their
+absence. The anti-omission claim is relative to the complete declared endpoint
+pairing plan and sealed manifests that the pairing stage did not author.
 
 Adapter selection completeness is a separate gate. Package archives, restore
 graphs, project outputs, platform packs, workspace definitions, and directory
@@ -972,6 +987,9 @@ The target remains unverified until tests equivalent to these exist:
 - `ComparisonEndpoint_ProducesExactlyOneOutcome`
 - `ComparisonEndpointOutcomeSet_EqualsDeclaredRequestKeys`
 - `ComparisonEndpointOutcome_RejectsRekeyedOrCrossSideResult`
+- `ComparisonEndpointPairingPlan_UsesEveryRequestExactlyOnce`
+- `ComparisonEndpointPairing_RequiresExplicitAbsenceForOneSidedEvidence`
+- `ComparisonEndpointPairing_FailedSideTaintsOppositeManifest`
 - `ComparisonEndpoint_RealizedManifestIsNonEmptyAndSealed`
 - `ComparisonParticipantManifest_EqualsSelectedArtifactInventory`
 - `ComparisonParticipantPairing_IsTotalOverManifestUnion`

@@ -230,7 +230,8 @@ Conversions are operations with an owner, not implicit casts:
 | Target plus candidate signature shapes | `MemberSignatureCorrespondence<T>` | `CSharpText.MemberSignatureShapeMatcher` returns unique, ambiguous, or unavailable; one unavailable candidate prevents a false unique result |
 | `ApiMember` | `MemberAnchor` | `ApiMemberIdentity` owns canonical signature and digest construction |
 | `MemberTargetSelector` | `ResolvedMemberTarget` | `MemberTargetResolver` returns the anchor, API handle, body target, or typed diagnostic |
-| `ResolvedMemberTarget` / `MethodIdentity` | Research subject | `ResearchMemberIdentity` owns API-to-body aliasing |
+| `MetadataMethodAddress` / `MemberBodyTarget` | Physical body selection | Metadata owns exact/carried resolution and comparison-key projection |
+| Resolved physical body | Research subject | `ResearchMemberIdentity` formats a post-resolution `ResearchSubjectKey`; it never selects or corresponds a MethodDef |
 
 No generic converter should turn one `TypeRef` into the other, an address into
 correspondence, a display string into identity, or a `MemberAnchor` into body
@@ -419,18 +420,20 @@ Decompiler, not by evidence for model unification. So: **use your own layer's
 `TypeRef`, never assume the other layer's has the same shape, and consolidate
 only neutral mechanics with one bounded answer.**
 
-### Member identity — two vocabularies, on purpose
+### Member identity and subject vocabularies
 
-| | API identity | Body identity |
-| --- | --- | --- |
-| Owner | `ILInspector.Metadata.ApiMemberIdentity` | `ILInspector.Research.ResearchMemberIdentity` |
-| Value | `MemberAnchor` | `MethodIdentity` |
-| Type identity | `MemberAnchor.TypeFullName` | `MethodIdentity.DeclaringType` |
-| Nested types | `Outer.Inner` (`MetadataReaderExtensions.GetFullTypeName`) | `Outer+Inner` (`MetadataTypeDefinitionName.ToNestedMetadataName`) |
+| | API identity | Physical body address | Research subject |
+| --- | --- | --- | --- |
+| Owner | `ILInspector.Metadata.ApiMemberIdentity` | Metadata body resolver | `ILInspector.Research.ResearchMemberIdentity` |
+| Value | `MemberAnchor` | `MetadataMethodAddress` / `MemberBodyTarget` | `ResearchSubjectKey` |
+| Type identity | `MemberAnchor.TypeFullName` | exact structural declaring-type segments | post-resolution display/grouping value |
+| Nested types | `Outer.Inner` (`MetadataReaderExtensions.GetFullTypeName`) | exact namespace + nested segment chain | `Outer+Inner` (`MetadataTypeDefinitionName.ToNestedMetadataName`) |
 
-`member-target-resolution.md` states the divergence is deliberate: "Body identity
-deliberately has a different type-name vocabulary from API identity because it
-mirrors `LibraryBodyIndex`/`MethodIdentity` evidence."
+Physical body selection never uses either flattened type spelling. Metadata
+resolves an exact address or structural carried target first; only then may
+Research project a subject for grouping and presentation. The subject
+vocabulary deliberately remains distinct from API display vocabulary, but that
+distinction is not body-selection or correspondence authority.
 
 **This is the highest-value fact in this document for anyone writing a type
 predicate.** The two spellings agree on non-nested types and diverge silently on
@@ -438,7 +441,7 @@ nested ones. A predicate written as `type => type == typeof(Outer.Inner).FullNam
 produces `Outer+Inner`, matches nothing against the API vocabulary, and — absent a
 zero-match guard — passes vacuously.
 
-The split is enforced, not merely observed. The
+The presentation split is enforced, not merely observed. The
 [Implementation Diff row currency contract](implementation-diff.md#row-currency-contract)
 records that the body substrate *could* embed a `MemberAnchor` and
 **deliberately does not**; the two carriers stay separate (`MemberAnchor` /

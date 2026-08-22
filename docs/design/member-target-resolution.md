@@ -162,10 +162,13 @@ ambiguity; occurrence or metadata order cannot select a winner.
 address, relationship role, strict key, and correspondence key needed to enter
 the comparison coordinate population. Body presence is then evaluated per
 side: bodyless/bodyful and bodyful/bodyless pairs produce body-added or
-body-removed `Compared` evidence, as do one-sided bodyful entries. A
-body-producing mechanism returns `Absent(NoBody)` only when neither available
-side contributes a body, including a one-sided bodyless entry. `Bodyless` is
-never a target-resolution failure.
+body-removed `Compared` evidence, as do one-sided bodyful entries whose
+opposite-side absence was proven from a complete failure-free selection
+census. A failed or incomplete counterpart produces typed unavailable evidence,
+never semantic add/remove. A body-producing mechanism returns
+`Absent(NoBody)` only when neither available side contributes a body,
+including a proven-one-sided bodyless entry. `Bodyless` is never a
+target-resolution failure.
 
 Request ids, endpoint ids, participant ids, and presentation anchors are not
 part of either body key. The comparison query attaches its own
@@ -184,7 +187,7 @@ The target architecture remains unverified until these gates exist:
 | `BodyCorrespondenceNormalizationIsExact` | Strict keys erase AssemblyRef version/raw representation; correspondence retains version or `PublicKey`; clears another flag; drops name/culture/token or non-scope structure; or the two policies use different builders/budgets |
 | `BodyCorrespondenceCollisionIsAmbiguous` | Two normalized candidates in one participant pair by occurrence/order, or equal keys in different paired participants collide |
 | `BodyCorrespondence_UsesIndependentSideLocalTargets` | One side's strict target is fanned into the other side; AssemblyRef-version-only drift fails before correspondence; or remove/add shares a target request |
-| `BodylessResolution_RetainsComparisonCoordinate` | A validated bodyless MethodDef becomes a target failure, loses its strict/correspondence identity, makes a bodyless/bodyful transition `Absent`, or prevents `Absent(NoBody)` when neither side has a body |
+| `BodylessResolution_RetainsComparisonCoordinate` | A validated bodyless MethodDef becomes a target failure, loses its strict/correspondence identity, makes a bodyless/bodyful transition `Absent`, permits failed-counterpart add/remove, or prevents `Absent(NoBody)` when neither side has a body |
 
 ## Body identity migration
 
