@@ -1,0 +1,14 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "test/**/*.test.ts",
+    "test/*.test.js",
+    "scripts/*.js"
+  ],
+  "project": [
+    "src/**/*.ts",
+    "test/**/*.{ts,js}",
+    "scripts/*.js"
+  ],
+  "ignore": ["engine/wwwroot/inspect-web-engine.js"]
+}

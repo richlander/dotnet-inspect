@@ -468,11 +468,75 @@ that contains whitespace. If that applies to the local SDK installation, pass
 `EmscriptenSdkToolsPath` pointing to a no-whitespace link to the installed
 Emscripten `tools` directory.
 
+## Static analysis
+
+Run both frontend analysis gates locally with:
+
+```bash
+cd prototypes/inspect-web
+npm run typecheck
+npm run analyze
+```
+
+The TypeScript gate checks product and test projects with `strict`,
+`exactOptionalPropertyTypes`, and `noImplicitReturns`. `npm run analyze` then
+runs Oxlint with its tsgolint backend against the same TypeScript 7.0.2
+toolchain used to build the product. Correctness and suspicious diagnostics,
+type-aware promise and unsafe-operation checks, warnings, and unused
+suppression directives all fail the gate. Browser/background promises must
+either preserve sequencing or surface unexpected rejection visibly. The exact
+`node:test` `test` call is the only configured safe promise-returning call
+because the test runner owns and observes that returned promise.
+
+Oxlint checks both checked-in tsbindgen outputs as consumer contracts:
+`src/inspect-web-engine.d.ts` receives the TypeScript rules, while
+`engine/wwwroot/inspect-web-engine.js` receives the JavaScript correctness and
+suspicious rules described below. TypeScript compilation and the generated
+surface drift gate provide independent declaration coverage. The toolchain
+test pins both generated lint inputs so a generator change cannot silently
+leave analysis coverage. The configuration disables four non-correctness
+rules: underscore spelling, function relocation, listener API preference, and
+`Array.prototype.sort`. Those rules prescribe naming/layout churn or, for
+sorting, the ES2023 `toSorted` API while this project targets ES2022.
+
+Existing JavaScript tests and verification scripts remain covered by Oxlint's
+correctness and suspicious rules, but not by its unsafe-operation type rules:
+adding a shadow type model or migrating those files to TypeScript is outside
+this analysis change. Their dependency and reachability graph remains covered
+by Knip.
+
+Knip checks authored source, every TypeScript and JavaScript test, and
+build/verification scripts for unused files, exports, and dependencies.
+`knip.json` excludes only `engine/wwwroot/inspect-web-engine.js`: that generated
+publish artifact imports `./_framework/dotnet.js`, which exists only after Wasm
+publish. The exclusion is specific to Knip reachability; Oxlint still checks
+the generated module.
+
+The tsgolint semantic backend publishes native binaries for x64 and arm64 hosts
+running macOS, Linux (glibc or musl), or Windows. Those are the supported
+development-analysis hosts; `npm run lint` fails before launching the analyzer
+on other operating-system or architecture combinations, including Linux
+ppc64le and s390x. Oxlint itself supports additional hosts, but type-aware
+analysis is the limiting capability. This approved development-tool exception
+does not affect the browser/Wasm product runtime or artifact. The host-matrix
+unit test derives the supported intersection from the locked Oxlint and
+tsgolint package metadata, requires both Linux libc variants, and pins the npm
+preflight wiring; `npm run analyze` on macOS arm64 and the Linux x64 CI host
+gates the supported paths.
+
+`noUncheckedIndexedAccess` is not enabled yet. A TypeScript 7.0.2 migration
+probe reports 77 findings across 15 files: 65 in nine product files and 12 in
+six test files. [Issue #4549](https://github.com/richlander/dotnet-inspect/issues/4549)
+records the probe commands, file distribution, and migration discipline; the
+set should be migrated with close negative tests for indexing behavior rather
+than hidden behind assertions.
+
 ## Test
 
 ```bash
 cd prototypes/inspect-web
 npm ci
+npm run analyze
 npm run build
 npm test
 cd ../..
@@ -514,9 +578,9 @@ above on every browser-engine CI run.
 Pull requests that change the browser prototype, its shared annotated-source
 viewer, product dependencies, or repository build inputs run the `inspect-web`
 CI job. That job installs the locked Node dependencies, checks and bundles the
-TypeScript/JavaScript frontend, compiles the platform-index generator, publishes
-the Release Wasm bundle, runs the browser-engine tests, and runs both frontend
-test suites.
+TypeScript/JavaScript frontend, rejects unused authored files, exports, and
+dependencies, compiles the platform-index generator, publishes the Release Wasm
+bundle, runs the browser-engine tests, and runs both frontend test suites.
 The `eng/CiChangeDetection` gate, invoked through
 `eng/test-ci-change-detection.cs`, gates the path classification, and
 `ci-required` includes the job's result.
@@ -527,14 +591,104 @@ Package tabs and the framework selector are workspace identity, not display
 state: changing either resolves a different workspace. Lenses this engine does
 not answer report the engine's failure rather than fixture results.
 
+`src/workspace-navigation.ts` owns the in-memory view history, monotonic
+navigation generation, share-packet encoding and decoding, URL parsing and
+building, and the browser-history port. `dotnet-inspect.ts` remains the sole
+mutable application-state owner: it supplies typed snapshots and explicit
+transition callbacks, and retains asynchronous workspace restoration and DOM
+event binding. `test/workspace-navigation.test.ts` gates history traversal,
+stale-entry removal, navigation cancellation, rich and legacy URL
+compatibility, visible invalid-state failures, and sandboxed history errors;
+`test/spotlight-identity.test.js` gates the composition-root wiring.
+
+`src/package-acquisition.ts` owns NuGet and runtime-pack engine invocation,
+surface-to-workspace-model projection, serialized runtime-pack loading, and
+stale-result checks at the publication boundary. `dotnet-inspect.ts` supplies
+the engine and state ports and retains mutable loading/error state, package
+activation, workspace restoration, notices, retries, and rendering.
+`test/package-acquisition.test.ts` gates package projection, publication
+ordering, runtime request serialization and merging, cancellation after queued
+or in-flight work, request-local failure reporting, replacement-slot
+preservation, retry after failure, and resident-pack reuse;
+`test/spotlight-identity.test.js` gates provenance, failure adaptation, and
+composition-root wiring.
+
+`src/package-inspection.ts` owns the async request lifecycle for Dependencies,
+Integrations, Opportunities, Analysis, and package-level Metadata, including
+workspace dependency-cache population and stale-result suppression.
+`dotnet-inspect.ts` supplies the typed state, engine, platform-routing,
+diagnostics, and rendering ports while retaining lens selection and
+presentation. `test/package-inspection.test.ts` gates complete cache identity,
+resident-package checks, visible partial/failure results, package/platform
+routing, stale publication, and explicit Platform library scope;
+`test/spotlight-identity.test.js` gates the composition-root wiring.
+
+`src/source-inspection.ts` owns the mutually exclusive member, type, and
+call-graph source request lifecycle: shared cancellation, generation and
+per-surface identity checks, loading/error/result transitions, graph-modal
+open/close state, and focus-preserving completion. `dotnet-inspect.ts`
+validates the active selection, builds typed engine requests, supplies mutable
+state and rendering ports, and retains source presentation.
+`test/source-inspection.test.ts` gates hidden cancellation, stale member
+selection, visible failure, hidden type completion, graph close/cancellation,
+and graph failure; `test/spotlight-identity.test.js` gates engine and
+composition-root wiring.
+
+`src/member-detail-inspection.ts` owns member XML-documentation, annotated
+source, and Facts request lifecycles: cache and request identity, current-member
+publication, loading/error/result transitions, annotated selection reset,
+runtime documentation suppression, and focus-preserving completion.
+`dotnet-inspect.ts` validates the selected overload, constructs exact engine
+requests, and retains mutable state, rendering, and annotated-source
+interaction handlers. `test/member-detail-inspection.test.ts` gates current and
+stale completion, cached failures, runtime documentation, exact request
+coordinates, cross-surface invalidation, and focus restoration;
+`test/spotlight-identity.test.js` gates composition-root wiring.
+
+`src/call-graph-inspection.ts` owns member call-graph request coordination:
+fast local publication followed by full-workspace expansion, runtime-member
+platform routing, sequence/current/key stale suppression, visible partial and
+terminal failures, and the platform drill stack. `dotnet-inspect.ts` validates
+the selected overload, constructs exact engine requests, and supplies paint,
+rendering, DOM patching, package-stat, and platform-navigation ports.
+`test/call-graph-inspection.test.ts` gates cache reuse, progressive ordering,
+workspace and runtime routing, partial failures, stale completion, drill
+navigation, and focus restoration; `test/spotlight-identity.test.js` gates
+composition-root wiring.
+
+`src/metadata-inspection.ts` owns the type-metadata request lifecycle and the
+Metadata Explorer's table-window and heap-listing requests, including cache
+identity, package/platform routing, stale-explorer suppression, visible
+loading/failure state, and focus-aware completion. `dotnet-inspect.ts` supplies
+typed state, engine, rendering, and scroll ports while retaining selection
+validation, explorer focus/history navigation, and DOM effects.
+`test/metadata-inspection.test.ts` gates cached and stale type completions,
+focus preservation, explorer routing, window identity, failure publication,
+and focused scrolling; `test/spotlight-identity.test.js` gates composition-root
+wiring.
+
 `src/spotlight.ts` owns the modal workbench search, embedded home search,
 scope/result rendering, selection, and keyboard interaction.
+`src/spotlight-package-search.ts` owns debounced NuGet discovery, generation
+cancellation, result publication, and reset state.
 `src/command-bar.ts` supplies its typed Commands-scope grammar and results;
-`dotnet-inspect.ts` retains package queries, navigation, network acquisition, and command
-effects so the components do not acquire engine or workspace authority.
-`test/spotlight.test.js` and `test/command-bar.test.ts` gate both presentation
-modes, scope ownership, completion and replacement behavior, bounded results,
-command metadata, and escaping.
+`dotnet-inspect.ts` retains command effects, the NuGet query endpoint, package
+navigation, and acquisition so the components do not acquire engine or
+workspace authority. `test/spotlight.test.ts` and
+`test/command-bar.test.ts` gate both presentation modes, scope ownership,
+completion and replacement behavior, bounded results, command metadata, and
+escaping; `test/spotlight-package-search.test.ts` gates debounce, scope and
+query eligibility, cancellation, stale suppression, failure settlement, and
+mounted-result refresh.
+
+`src/catalog-requests.ts` owns .NET release and package-version catalog
+lifecycles: cache and loading state, request deduplication, version ordering,
+package-residency guards, and selector-update dispatch. `dotnet-inspect.ts`
+retains the .NET release endpoint, engine version query, option rendering, DOM
+repainting, and version switching. `test/catalog-requests.test.ts` gates cache
+reuse, in-flight deduplication, sorting, current Platform refresh, package
+removal, and both silent transient-failure paths; the composition-root gate
+checks that network and DOM authority remain outside the coordinator.
 
 The typed `src/status-bar.ts` component renders both the full-width workspace
 data bar and the home readiness bar. The workspace bar occupies the bottom row
@@ -598,35 +752,43 @@ assembly — format stamp, heap sizes, ECMA-335 table row counts, and PE/CLI
 headers) and the Metadata Explorer (the spatial table/heap drill-down laid over
 it) as pure, dependency-injected render functions; both describe the metadata
 image rather than the API surface within it, so they share one module the way
-`type-panel.ts` combines the type selector and the type viewer. `dotnet-inspect.ts` still
-owns `state`, the engine calls that fetch an image, a table row window, or a
-heap listing, the explorer's focus/history stack, the DOM event binding, the
-`IntersectionObserver` that hydrates cards lazily, the resize listener, and the
-global keydown handler, and passes each computed slice in explicitly; the shared
-helpers used well beyond these views (`escapeHtml`, `fmtBytes`,
-`platformLensPicker`, `scopedPlatformLibrary`, `packageScopeSignature`) stay in
-`dotnet-inspect.ts` and are injected the same way. `test/metadata-viewer.test.ts` gates the
-lens's picker, loading, failure, stale-scope, partial-read, and empty-image
-states and its heap/table ordering; the explorer's chips, history-button
+`type-panel.ts` combines the type selector and the type viewer.
+`package-inspection.ts` coordinates the package-level image request, while
+`metadata-inspection.ts` coordinates type metadata and the explorer's
+table-window and heap-listing requests. `dotnet-inspect.ts` still owns `state`,
+the explorer's focus/history stack, the DOM event binding, the
+`IntersectionObserver` that hydrates cards lazily, the resize listener, and
+the global keydown handler, and passes each computed slice in explicitly; the
+shared helpers used well beyond these views (`escapeHtml`, `fmtBytes`,
+`platformLensPicker`, `scopedPlatformLibrary`, `packageScopeSignature`) stay
+in `dotnet-inspect.ts` and are injected the same way.
+`test/metadata-viewer.test.ts` gates the lens's picker, loading, failure,
+stale-scope, partial-read, and empty-image states and its heap/table ordering;
+the explorer's chips, history-button
 enablement, overview versus focus lightbox, lazy-load hooks, pager bounds, row
 highlight and selection, ref->def jump targets, cell escaping, heap addressing
 and coverage notes, and the row inspector.
 
 `src/doc-viewer.ts` owns the package document modal (the Markdown reader
 opened from a package's documents list) as a pure, dependency-injected render
-function. `dotnet-inspect.ts` still owns `state`, fetching and rendering the document's
-Markdown and frontmatter, and the sequence-guarded async load/close
-lifecycle, and passes each computed slice in explicitly. `test/doc-viewer.test.ts`
-gates the closed/no-document fallback, loading and error states, the
+function. `src/document-inspection.ts` owns its sequence-guarded async
+load/close lifecycle, visible failure, and frontmatter projection.
+`dotnet-inspect.ts` validates the selected package document and supplies the
+engine, sanitized Markdown-rendering, state, and render ports.
+`test/doc-viewer.test.ts` gates the closed/no-document fallback, loading and
+error presentation, the
 frontmatter card's presence and fields, and title/subtitle/frontmatter-name
-escaping (the rendered document body is trusted, pre-sanitized Markdown HTML
-and is not escaped).
+escaping; `test/document-inspection.test.ts` gates exact request coordinates,
+frontmatter projection, stale-stage suppression, visible failures, and close
+invalidation (the rendered document body is trusted, pre-sanitized Markdown
+HTML and is not escaped).
 
 `src/graph-source.ts` owns the member source modal (the code viewer opened
 from a call graph node) as a pure, dependency-injected render function.
-`dotnet-inspect.ts` still owns `state`, the sequence-guarded async source-inspection
-lifecycle, and the `highlightCSharp` Prism wrapper, and passes each computed
-slice in explicitly. `test/graph-source.test.ts` gates the loading state, the
+`source-inspection.ts` owns its sequence-guarded async lifecycle;
+`dotnet-inspect.ts` supplies `state`, the typed engine port, and the
+`highlightCSharp` Prism wrapper, and passes each computed slice explicitly.
+`test/graph-source.test.ts` gates the loading state, the
 original-versus-decompiled provenance labels, the open-source link's presence
 only when a `url` is provided, the error state's fallback message, and title
 escaping in both the header and loading status.
@@ -634,9 +796,10 @@ escaping in both the header and loading status.
 `src/annotated-source.ts` owns the annotated source result (the
 fact-annotated C#/IL dual view shown for a member overload) as a pure,
 dependency-injected render function; it composes `annotated-source-view.ts`'s
-`buildAnnotatedView` projection into markup. `dotnet-inspect.ts` still owns `state`, the
-sequence-guarded async load lifecycle, and the medium-toggle/fact-selection
-event handlers, and passes each computed slice in explicitly.
+`buildAnnotatedView` projection into markup. `member-detail-inspection.ts` owns
+the sequence-guarded async load lifecycle; `dotnet-inspect.ts` still owns
+`state` and the medium-toggle/fact-selection event handlers, and passes each
+computed slice in explicitly.
 `test/annotated-source.test.ts` gates the rejected-document fallback, the
 medium toggles and hidden-line count, the context-limitation notice, anchored
 versus unanchored fact rendering, selection state, and source-text escaping.
@@ -646,13 +809,14 @@ opportunities" lens (the ecosystem auth/cloud/config/database/AI-client
 integration suggestions for a package or platform library) as a pure,
 dependency-injected render function, including its opportunity-row API-name
 splitting, package-chip detection, and "look for" chip rendering. `dotnet-inspect.ts`
-still owns `state`, the scan-scope-keyed async load lifecycle
-(`loadPackageOpportunities`), and the platform library picker, and passes
-each computed slice in explicitly. `test/package-opportunities.test.ts` gates
-the platform pick-a-library prompt, the scanning/loading/error states (fresh
-versus stale scope), the no-opportunities and inspection-error banners, the
-category summary counts, API name splitting, package-chip versus plain-text
-kind rendering, look-for chip/wildcard/empty rendering, and text escaping.
+still owns `state` and the platform library picker, `package-inspection.ts`
+owns the scan-scope-keyed async load lifecycle, and the root passes each
+computed slice into the renderer explicitly.
+`test/package-opportunities.test.ts` gates the platform pick-a-library prompt,
+the scanning/loading/error states (fresh versus stale scope), the
+no-opportunities and inspection-error banners, the category summary counts,
+API name splitting, package-chip versus plain-text kind rendering, look-for
+chip/wildcard/empty rendering, and text escaping.
 
 - `Cmd/Ctrl+K` opens Spotlight in the Commands scope.
 - `Cmd/Ctrl+P` opens Spotlight in the All scope.
