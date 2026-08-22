@@ -237,6 +237,7 @@ test("Spotlight result bindings ignore malformed indexes", () => {
 
   const rows = [
     resultRow(),
+    resultRow(""),
     resultRow("-1"),
     resultRow("0.5"),
     resultRow("not-an-index"),
