@@ -4168,6 +4168,36 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SuppliedTypeAcceptsFullyQualifiedMemberFilter()
+    {
+        string[] tail =
+        [
+            "--platform",
+            "System.Runtime",
+            "-S",
+            "Methods",
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var simple = await RunAppAsync(
+            ["member", "System.String", "-m", "String.Contains", .. tail]);
+        var qualified = await RunAppAsync(
+            [
+                "member",
+                "System.String",
+                "-m",
+                "System.String.Contains",
+                .. tail
+            ]);
+
+        Assert.Equal(simple, qualified);
+        Assert.Equal(0, qualified.Exit);
+        Assert.Equal("6", qualified.Output.Trim());
+        Assert.Empty(qualified.Error);
+    }
+
+    [Fact]
     public async Task Router_GenericTypeFilterPreservesPlatformOwner()
     {
         SkipUnlessAspNetCoreAvailable();

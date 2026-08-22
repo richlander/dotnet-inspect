@@ -338,6 +338,22 @@ public class SharedParsersTests
     }
 
     [Fact]
+    public void ProcessMemberArguments_SuppliedTypeStripsMatchingQualifiedType()
+    {
+        var members =
+            new[] { "System.Text.Json.JsonElement.GetProperty" };
+
+        var (typeFilter, _, _, _, _, _) =
+            SharedParsers.ProcessMemberArguments(
+                members,
+                inferDottedTypeFilter: false,
+                suppliedTypeName: "System.Text.Json.JsonElement");
+
+        Assert.Null(typeFilter);
+        Assert.Equal("GetProperty", members[0]);
+    }
+
+    [Fact]
     public void ProcessMemberArguments_SuppliedTypeRetainsQualifiedMember()
     {
         var members =
@@ -346,11 +362,30 @@ public class SharedParsersTests
         var (typeFilter, _, _, _, _, _) =
             SharedParsers.ProcessMemberArguments(
                 members,
-                inferDottedTypeFilter: false);
+                inferDottedTypeFilter: false,
+                suppliedTypeName: "DiffFixtureSample.ExplicitSurface");
 
         Assert.Null(typeFilter);
         Assert.Equal(
             "System.Collections.IList.IsReadOnly",
+            members[0]);
+    }
+
+    [Fact]
+    public void ProcessMemberArguments_SuppliedTypeRetainsDifferentQualifiedType()
+    {
+        var members =
+            new[] { "Other.Namespace.JsonElement.GetProperty" };
+
+        var (typeFilter, _, _, _, _, _) =
+            SharedParsers.ProcessMemberArguments(
+                members,
+                inferDottedTypeFilter: false,
+                suppliedTypeName: "System.Text.Json.JsonElement");
+
+        Assert.Null(typeFilter);
+        Assert.Equal(
+            "Other.Namespace.JsonElement.GetProperty",
             members[0]);
     }
 

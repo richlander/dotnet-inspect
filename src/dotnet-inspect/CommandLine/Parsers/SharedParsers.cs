@@ -265,10 +265,15 @@ public static class SharedParsers
     /// <param name="inferDottedTypeFilter">
     /// Whether a qualified member may supply a missing type target.
     /// </param>
+    /// <param name="suppliedTypeName">
+    /// The explicit type target, used to distinguish its qualifier from an
+    /// explicit-interface member name.
+    /// </param>
     /// <returns>Extracted type filter and overload index if found.</returns>
     public static (string? DottedTypeFilter, int? OverloadIndex, string? MemberDigest, int? GenericArity, bool GenericArityConflict, HashSet<string> KindFilter) ProcessMemberArguments(
         string[] members,
-        bool inferDottedTypeFilter = true)
+        bool inferDottedTypeFilter = true,
+        string? suppliedTypeName = null)
     {
         string? dottedTypeFilter = null;
         int? overloadIndex = null;
@@ -287,7 +292,10 @@ public static class SharedParsers
                 var (typeFilter, dottedMemberName) = ParseDottedMember(members[i]);
                 if (typeFilter != null
                     && (inferDottedTypeFilter
-                        || FqnParser.LastTopLevelDot(typeFilter) < 0))
+                        || FqnParser.LastTopLevelDot(typeFilter) < 0
+                        || MatchesSuppliedTypeQualifier(
+                            typeFilter,
+                            suppliedTypeName)))
                 {
                     if (inferDottedTypeFilter)
                         dottedTypeFilter = typeFilter;
@@ -313,6 +321,23 @@ public static class SharedParsers
         }
 
         return (dottedTypeFilter, overloadIndex, memberDigest, genericArity, genericArityConflict, kindFilter);
+    }
+
+    private static bool MatchesSuppliedTypeQualifier(
+        string qualifier,
+        string? suppliedTypeName)
+    {
+        if (string.IsNullOrWhiteSpace(suppliedTypeName))
+            return false;
+
+        var normalizedQualifier = FqnParser.NormalizeTypeName(qualifier)
+            .Replace('+', '.');
+        var normalizedSuppliedType = FqnParser.NormalizeTypeName(suppliedTypeName)
+            .Replace('+', '.');
+
+        return normalizedQualifier.Equals(
+            normalizedSuppliedType,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     public static (string Name, string? Digest) ParseDigestShorthand(string value)
