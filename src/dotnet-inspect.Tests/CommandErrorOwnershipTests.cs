@@ -750,7 +750,9 @@ public class CommandErrorOwnershipTests
 
     internal static HashSet<string> ProjectPackageDependencies(string projectPath)
     {
-        HashSet<string> dependencies = PreprocessedPackageReferences(projectPath);
+        HashSet<string> dependencies = new(
+            ProjectPreprocessedPackageReferences(projectPath),
+            StringComparer.OrdinalIgnoreCase);
 
         foreach (Dictionary<string, string> package in EvaluatedItems(projectPath, "PackageReference"))
         {
@@ -774,7 +776,15 @@ public class CommandErrorOwnershipTests
         return dependencies;
     }
 
-    private static HashSet<string> PreprocessedPackageReferences(string projectPath)
+    internal static HashSet<string> ProjectPreprocessedPackageReferences(string projectPath) =>
+        PreprocessedPackageReferences.GetOrAdd(
+            Path.GetFullPath(projectPath),
+            ReadPreprocessedPackageReferences);
+
+    private static readonly ConcurrentDictionary<string, HashSet<string>>
+        PreprocessedPackageReferences = new(StringComparer.Ordinal);
+
+    private static HashSet<string> ReadPreprocessedPackageReferences(string projectPath)
     {
         string preprocessedPath = Path.Combine(
             Path.GetTempPath(),
@@ -891,11 +901,16 @@ public class CommandErrorOwnershipTests
 
     private static bool IsRepositoryPath(string repositoryRoot, string path)
     {
-        string relative = Path.GetRelativePath(repositoryRoot, path);
+        string normalizedRoot = NormalizePreprocessedPath(Path.GetFullPath(repositoryRoot));
+        string normalizedPath = NormalizePreprocessedPath(Path.GetFullPath(path));
+        string relative = Path.GetRelativePath(normalizedRoot, normalizedPath);
         return relative != ".."
             && !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
             && !Path.IsPathRooted(relative);
     }
+
+    private static string NormalizePreprocessedPath(string path) =>
+        path.Replace("--", "__", StringComparison.Ordinal);
 
     private static readonly ConcurrentDictionary<string, HashSet<string>> Closures = new(StringComparer.Ordinal);
 

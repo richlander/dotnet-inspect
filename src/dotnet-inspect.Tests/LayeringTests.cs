@@ -44,8 +44,8 @@ public sealed class LayeringTests
             closure,
             path => Path.GetFileNameWithoutExtension(path) == "ILInspector.Metadata");
         Assert.Contains(
-            closure.SelectMany(CommandErrorOwnershipTests.ProjectPackageDependencies),
-            package => package == "Microsoft.CodeAnalysis.BannedApiAnalyzers");
+            "Microsoft.CodeAnalysis.BannedApiAnalyzers",
+            CommandErrorOwnershipTests.ProjectPreprocessedPackageReferences(project));
         AssertNoForbiddenImplementations(root, closure, PackageImplementationProjects);
     }
 
@@ -116,6 +116,31 @@ public sealed class LayeringTests
             ["Local.Transitive.Wrapper", "NuGet.Protocol"],
             CommandErrorOwnershipTests.PackageDependenciesFromAssets(assets.RootElement)
                 .Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void PreprocessedPackageReader_RecognizesMsBuildEscapedRepositoryPaths()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "repo--checkout");
+        XDocument preprocessed = new(
+            new XElement(
+                "Project",
+                new XComment(
+                    $"{Environment.NewLine}===={Environment.NewLine}"
+                        + $"{Path.Combine(root.Replace("--", "__"), "Directory.Build.targets")}"
+                        + $"{Environment.NewLine}===={Environment.NewLine}"),
+                new XElement(
+                    "ItemGroup",
+                    new XElement(
+                        "PackageReference",
+                        new XAttribute("Include", "NuGet.Versioning")))));
+
+        Assert.Equal(
+            ["NuGet.Versioning"],
+            CommandErrorOwnershipTests.PackageReferencesFromPreprocessedProject(
+                Path.Combine(root, "fixture.csproj"),
+                root,
+                preprocessed));
     }
 
     [Fact]

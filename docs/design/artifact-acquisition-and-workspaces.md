@@ -833,8 +833,10 @@ sequentially without threads, blocking waits, or a filesystem.
 
 `AssemblyOnlyHostClosure_ExcludesPackageAndNuGetImplementations` and
 `MetadataClosure_ExcludesPackageAndStorageImplementations` are enforced by
-`LayeringTests`; the remaining gates are migration targets and remain
-unverified.
+`LayeringTests` for the standard Release graph. They witness the required
+package-free local-only variant; they do not claim that every
+configuration-specific full-host graph is package-free. The remaining gates are
+migration targets and remain unverified.
 
 ## Non-goals
 
