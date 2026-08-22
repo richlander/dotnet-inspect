@@ -367,7 +367,10 @@ test("typed type panel owns its rendered control bindings", () => {
     /function bindTypePanelEvents\(\) \{\s*bindTypePanel\(document, \{/);
   assert.match(
     appSource,
-    /onTypeFilterEscape: \(\) => \{\s*state\.typeFilter = "";\s*render\(\);\s*focusFilter\(\);\s*},/);
+    /onTypeFilterChange: value => \{[\s\S]*?render\(\);\s*focusFilter\(\{ immediate: true \}\);\s*},\s*onTypeFilterEscape:/);
+  assert.match(
+    appSource,
+    /onTypeFilterEscape: \(\) => \{\s*state\.typeFilter = "";\s*render\(\);\s*focusFilter\(\{ immediate: true \}\);\s*},/);
   assert.equal(
     appSource.match(/\bbindTypePanelEvents\b/g)?.length,
     2);
@@ -474,7 +477,7 @@ test("global workbench shortcuts respect the topmost modal", () => {
     /if \(state\.loading \|\| state\.error\) \{\s*if \(isContainedBrowserShortcut\(event\) \|\| event\.key === "\/"\)[\s\S]*event\.preventDefault\(\);[\s\S]*return;/);
   assert.match(
     appSource,
-    /function focusFilter\(\) \{[\s\S]*const input = document\.querySelector<HTMLInputElement>\([\s\S]*"#member-filter, #type-filter"\);\s*if \(!input\) return;/);
+    /function focusFilter\([\s\S]*\{ immediate = false \}: \{ immediate\?: boolean \} = \{\},[\s\S]*const focus = \(\) => \{[\s\S]*"#member-filter, #type-filter"[\s\S]*if \(immediate\) focus\(\);\s*requestAnimationFrame\(focus\);/);
 });
 
 test("Spotlight navigation waits for selection data before restoring focus", () => {

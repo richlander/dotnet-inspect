@@ -3752,7 +3752,7 @@ function bindTypePanelEvents() {
       state.libraryScope = null;
       state.accessibilityFilter = defaultAccessibilityFilter(state.package);
       render();
-      focusFilter();
+      focusFilter({ immediate: true });
     },
     onKindSelect: kind => {
       state.kindFilter = kind;
@@ -3794,12 +3794,12 @@ function bindTypePanelEvents() {
       state.memberBrowseTypeId = "";
       resetMemberFilters();
       render();
-      focusFilter();
+      focusFilter({ immediate: true });
     },
     onTypeFilterEscape: () => {
       state.typeFilter = "";
       render();
-      focusFilter();
+      focusFilter({ immediate: true });
     },
     onTypeSelect: typeId => {
       state.atPackageRoot = false;
@@ -5305,14 +5305,18 @@ function executeCommand(
   return operation;
 }
 
-function focusFilter() {
-  requestAnimationFrame(() => {
+function focusFilter(
+  { immediate = false }: { immediate?: boolean } = {},
+) {
+  const focus = () => {
     const input = document.querySelector<HTMLInputElement>(
       "#member-filter, #type-filter");
     if (!input) return;
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
-  });
+  };
+  if (immediate) focus();
+  requestAnimationFrame(focus);
 }
 
 const memberFocusRestorer = createMemberFocusRestorer();
