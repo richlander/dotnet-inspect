@@ -759,6 +759,141 @@ test("typed settings panel owns its rendered control bindings", () => {
   }
 });
 
+test("metadata viewer owns its rendered explorer control bindings", () => {
+  assert.deepEqual(parsedAppSource.errors, []);
+  const bindEvents = functionDeclaration("bindEvents");
+  const renderMetadata = functionDeclaration("renderMetadataExplorer");
+  const metadataEventBinder = functionDeclaration("bindMetadataViewerEvents");
+  const outerCalls = callExpressionsNamed(appSyntax, "bindMetadataViewerEvents");
+  assert.equal(outerCalls.length, 2);
+  assert.equal(
+    syntaxNodes(
+      appSyntax,
+      node => node.type === "Identifier"
+        && node.name === "bindMetadataViewerEvents").length,
+    3);
+  for (const [owner, description] of [
+    [bindEvents, "workbench metadata binder"],
+    [renderMetadata, "metadata explorer binder"],
+  ]) {
+    assert.equal(
+      callExpressionsNamed(owner, "bindMetadataViewerEvents").length,
+      1,
+      description);
+    assert.equal(
+      owner.body.body
+        .map(statement => directCallExpression(statement, "bindMetadataViewerEvents"))
+        .filter(Boolean)
+        .length,
+      1,
+      `${description} direct call`);
+  }
+  const directWorkbenchCalls = bindEvents.body.body.map(statement => {
+    if (statement.type !== "ExpressionStatement") return null;
+    const expression = statement.expression;
+    return expression.type === "CallExpression"
+      && expression.callee?.type === "Identifier"
+      ? expression.callee.name
+      : null;
+  });
+  assert.equal(
+    directWorkbenchCalls.indexOf("bindMetadataViewerEvents"),
+    directWorkbenchCalls.indexOf("bindSettingsPanelEvents") + 1);
+  const metadataRenderStatements = renderMetadata.body.body;
+  const replacementIndex = metadataRenderStatements.findIndex(
+    statement => statement.type === "ExpressionStatement"
+      && statement.expression.type === "AssignmentExpression"
+      && statement.expression.operator === "="
+      && sourceText(statement.expression.left) === "app.innerHTML");
+  const binderIndex = metadataRenderStatements.findIndex(
+    statement => directCallExpression(statement, "bindMetadataViewerEvents"));
+  assert.notEqual(replacementIndex, -1);
+  assert.equal(binderIndex, replacementIndex + 1);
+
+  const innerCalls = callExpressionsNamed(appSyntax, "bindMetadataExplorer");
+  assert.equal(innerCalls.length, 1);
+  const innerCall = innerCalls[0];
+  assert.equal(
+    metadataEventBinder.body.body
+      .map(statement => directCallExpression(statement, "bindMetadataExplorer"))
+      .filter(Boolean)
+      .length,
+    1);
+  assert.deepEqual(
+    statementSignatures(metadataEventBinder.body.body.slice(0, 1)),
+    ["declare:const ex = state.explorer"]);
+  assert.equal(
+    directCallExpression(metadataEventBinder.body.body[1], "bindMetadataExplorer"),
+    innerCall);
+  assert.deepEqual(
+    statementSignatures(metadataEventBinder.body.body.slice(2, 3)),
+    [
+      {
+        if: "!ex",
+        whenTrue: ["statement:ReturnStatement:return;"],
+        whenFalse: [],
+      },
+    ]);
+  assert.equal(innerCall.arguments.length, 3);
+  assert.equal(innerCall.arguments[0].type, "Identifier");
+  assert.equal(innerCall.arguments[0].name, "document");
+  assert.equal(innerCall.arguments[1].type, "Identifier");
+  assert.equal(innerCall.arguments[1].name, "ex");
+  const actions = innerCall.arguments[2];
+  assert.equal(actions.type, "ObjectExpression");
+  assert.equal(actions.properties.length, 11);
+  const rowFocus = callbackProperty(actions, "onRowFocus");
+  assert.deepEqual(
+    statementSignatures(rowFocus.body.body),
+    [
+      {
+        if: "!ex",
+        whenTrue: ["statement:ReturnStatement:return;"],
+        whenFalse: [],
+      },
+      "declare:const already = ex.detail && ex.detail.index === index && ex.detail.rowId === rowId",
+      "assign:ex.detail = already ? null : { index, rowId }",
+      "assign:ex.highlight = already ? null : { index, rowId }",
+      "declare:const current = ex.history[ex.historyPos]",
+      {
+        if: "current && current.index === index",
+        whenTrue: ["assign:current.rowId = already ? 0 : rowId"],
+        whenFalse: [],
+      },
+      "call:render()",
+    ]);
+
+  const binding = sourceText(innerCall);
+  assert.match(
+    binding,
+    /bindMetadataExplorer\s*\(document, ex, \{[\s\S]*onClose: closeExplorer,[\s\S]*onHistoryBack: explorerHistoryBack,[\s\S]*onHistoryForward: explorerHistoryForward,[\s\S]*onHeapFocus: heap => pushExplorerFocus\(\{ heap \}\),[\s\S]*onJump: explorerJump,[\s\S]*onOpenHeap: openExplorerHeap,[\s\S]*onOpenTable: openExplorer,[\s\S]*onPage: \(index, startRowId\) =>\s*observeAsync\(\s*loadExplorerWindow\(index, startRowId\),\s*"Loading metadata table rows"\),[\s\S]*onRowFocus: \(index, rowId\) => \{[\s\S]*ex\.detail = already \? null : \{ index, rowId \};[\s\S]*ex\.highlight = already \? null : \{ index, rowId \};[\s\S]*onShowOverview: explorerShowOverview,[\s\S]*onTableFocus: \(index, rowId\) => pushExplorerFocus\(\{ index, rowId \}\),/);
+  assert.doesNotMatch(
+    binding,
+    /\b(?:getElementById|querySelector|querySelectorAll)\s*\(|\.addEventListener\s*\(/);
+  assert.match(
+    metadataViewerSource,
+    /export function bindMetadataExplorer\([\s\S]*#mde-exit[\s\S]*#mde-hist-back[\s\S]*#mde-hist-fwd[\s\S]*\[data-mde-open\][\s\S]*\[data-mde-open-heap\][\s\S]*\[data-mde-chip\][\s\S]*\[data-mde-jump\][\s\S]*\[data-mde-overview\][\s\S]*\[data-mde-page\][\s\S]*\[data-mde-heap-chip\][\s\S]*\.mde-wall \.mde-card\[data-mde-index\] \.mde-card-head[\s\S]*\.mde-wall \.mde-heap-card\[data-mde-heap\] \.mde-card-head[\s\S]*\.mde-wall \.mde-row\[data-mde-row\][\s\S]*#mde-canvas[\s\S]*\.mde-focus \.mde-row\[data-mde-row\]/);
+  for (const selector of [
+    "#mde-exit",
+    "#mde-hist-back",
+    "#mde-hist-fwd",
+    "[data-mde-open]",
+    "[data-mde-open-heap]",
+    "[data-mde-chip]",
+    "[data-mde-jump]",
+    "[data-mde-overview]",
+    "[data-mde-page]",
+    "[data-mde-heap-chip]",
+    ".mde-wall .mde-card[data-mde-index] .mde-card-head",
+    ".mde-wall .mde-heap-card[data-mde-heap] .mde-card-head",
+    ".mde-wall .mde-row[data-mde-row]",
+    ".mde-focus .mde-row[data-mde-row]",
+  ]) {
+    assert.equal(appSource.split(selector).length - 1, 0, selector);
+  }
+  assert.equal(appSource.split("#mde-canvas").length - 1, 1);
+});
+
 test("leaving package search clears its pending loading state", () => {
   assert.match(
     spotlightPackageSearchSource,
