@@ -3799,6 +3799,7 @@ function bindTypePanelEvents() {
     onTypeFilterEscape: () => {
       state.typeFilter = "";
       render();
+      focusFilter();
     },
     onTypeSelect: typeId => {
       state.atPackageRoot = false;

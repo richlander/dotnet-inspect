@@ -365,6 +365,9 @@ test("typed type panel owns its rendered control bindings", () => {
   assert.match(
     appSource,
     /function bindTypePanelEvents\(\) \{\s*bindTypePanel\(document, \{/);
+  assert.match(
+    appSource,
+    /onTypeFilterEscape: \(\) => \{\s*state\.typeFilter = "";\s*render\(\);\s*focusFilter\(\);\s*},/);
   assert.equal(
     appSource.match(/\bbindTypePanelEvents\b/g)?.length,
     2);
