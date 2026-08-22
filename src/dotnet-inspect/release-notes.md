@@ -13,6 +13,10 @@
   relationship traversal, type forwarding, PDB/source mapping, decompilation,
   and selector spelling. Nested and foreign generic types now retain their
   declared arity without trusting unvalidated name suffixes (#4233, #4539).
+- **Breaking:** Canonical member signatures now spell nested types with `+`.
+  This changes `Name~digest` selectors for members declared by nested types;
+  refresh those selectors from `Member Index`. Top-level member selectors are
+  unaffected (#4233).
 
 ### Package audit
 
