@@ -137,7 +137,8 @@ public static class RouterCommandDefinition
         "implements",
         "depends",
         "cache",
-        "skill"
+        "skill",
+        DemoCommand.Name
     ];
 
     private static string? TryGetCommandTypoSuggestion(string token)

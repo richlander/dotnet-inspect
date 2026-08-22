@@ -94,7 +94,7 @@ Dependency order is compiled into the static plans:
 | --- | --- | --- |
 | Metadata | `Metadata` | Probe, detailed, explicit |
 | Decompiled Source | `Decompile` | Explicit |
-| Original Source | `AcquirePdb`, `FetchSource` | Explicit |
+| PDB Source | `AcquirePdb`, `FetchSource` | Explicit |
 | Calls | `BodyIndex`, `Calls` | Explicit |
 | Facts | `BodyIndex`, `Facts` | Explicit |
 
@@ -137,7 +137,7 @@ Measured work is identical:
 | Empty | 0 | 0 |
 | Metadata | 1 | 1 |
 | Decompiled Source | 1 | 1 |
-| Original Source | 2 | 2 |
+| PDB Source | 2 | 2 |
 | Calls | 2 | 2 |
 | Calls + Facts | 3 | 3 |
 | Metadata + Facts (cold arbitrary plan) | 3 | 3 |
