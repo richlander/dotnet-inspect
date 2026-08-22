@@ -370,9 +370,11 @@ export function renderMemberNav(options: MemberNavOptions): string {
             </button>`;
           }
           const selected = entry.group.key === selectedMemberKey && selectedOverloadIndex === entry.index;
+          const overload = entry.group.overloads[entry.index];
+          if (!overload) return "";
           return `<button class="type-row overload-nav-row ${selected ? "selected" : ""}" data-nav-overload="${entry.index}" role="option" aria-selected="${selected}">
             <span class="overload-branch">↳</span>
-            <code>${highlight(entry.group.overloads[entry.index].signature)}</code>
+            <code>${highlight(overload.signature)}</code>
           </button>`;
         }).join("") || '<div class="empty-list">No members match these filters.</div>'}
       </div>

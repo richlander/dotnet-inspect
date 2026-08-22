@@ -163,6 +163,33 @@ test("NuGet projection selects the declared assembly and preserves package total
     /did not return its selected assembly descriptor/);
 });
 
+test("runtime assembly acquisition reports a missing selected descriptor", async () => {
+  const failures: string[] = [];
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    loadRuntimePackAssembly: async () => JSON.stringify(packageSurface({
+      package: "Microsoft.NETCore.App",
+      defaultAssemblyId: "missing",
+      assemblies: [],
+      types: [],
+    })),
+    failRuntimeLoad: error =>
+      failures.push(error instanceof Error ? error.message : String(error)),
+  }));
+
+  const result = await acquisition.loadRuntimePackAssembly(
+    "net10.0",
+    "System.Text.Json",
+    "netcore.app");
+
+  assert.equal(result.packageModel, null);
+  assert.match(
+    result.error instanceof Error ? result.error.message : "",
+    /platform assembly query did not return its selected assembly descriptor/);
+  assert.deepEqual(failures, [
+    "The platform assembly query did not return its selected assembly descriptor.",
+  ]);
+});
+
 test("package acquisition publishes only current results", async () => {
   const events: string[] = [];
   const replacedPackage = createNuGetPackageModel(packageSurface({
@@ -269,7 +296,9 @@ test("runtime acquisition serializes and merges full-pack and assembly requests"
     mergedModel.types.map(candidate => candidate.id),
     ["System.Object", "System.Text.Json.JsonDocument"]);
   assert.equal(mergedModel.totalMembers, 5);
-  assert.equal(mergedModel.accessibility[0].count, 2);
+  const publicAccessibility = mergedModel.accessibility[0];
+  assert.ok(publicAccessibility);
+  assert.equal(publicAccessibility.count, 2);
 });
 
 test("queued runtime work rechecks cancellation before invoking the engine", async () => {

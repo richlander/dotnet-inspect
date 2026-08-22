@@ -1718,7 +1718,8 @@ function packageLensesFor(pkg: AppPackage | null) {
 // Identity is the bare assembly key (no .dll), matching libraryScope and the platform roster.
 function scopedPlatformLibrary() {
   if (!state.package?.isRuntimePack) return null;
-  if (state.libraryScope && state.libraryScope.size === 1) return [...state.libraryScope][0];
+  if (state.libraryScope && state.libraryScope.size === 1)
+    return state.libraryScope.values().next().value ?? null;
   return null;
 }
 
@@ -1776,7 +1777,8 @@ function enterMemberScope() {
   const visible = visibleMemberGroups(type);
   const selectedIsVisible = visible.some(group => group.key === state.selectedMemberKey);
   if (!selectedIsVisible) {
-    if (visible.length) openMemberGroup(visible[0].key);
+    const first = visible[0];
+    if (first) openMemberGroup(first.key);
     else {
       state.selectedMemberKey = "";
       state.selectedOverloadIndex = null;
@@ -1881,7 +1883,8 @@ function stepMemberNav(delta: number, focusList: boolean) {
   const entries = memberNavEntries(type);
   if (!entries.length) return;
   const cursor = memberNavTargetIndex(memberNavCursor(entries), entries.length, delta);
-  selectMemberNavEntry(entries[cursor], focusList);
+  const entry = entries[cursor];
+  if (entry) selectMemberNavEntry(entry, focusList);
 }
 
 // ↑/↓ always act on the visible nav list, whatever depth you are at.
@@ -1896,7 +1899,9 @@ function stepHorizontal(delta: number) {
   if (state.atPackageRoot) {
     const strip = packageLensesFor(state.package);
     const index = strip.findIndex(([id]) => id === state.packageLens);
-    state.packageLens = strip[(index + delta + strip.length) % strip.length][0];
+    const next = strip[(index + delta + strip.length) % strip.length];
+    if (!next) return;
+    state.packageLens = next[0];
     render();
     return;
   }
@@ -1908,10 +1913,13 @@ function stepHorizontal(delta: number) {
     const order = memberSectionsFor(member).map(([id]) => id);
     let index = order.indexOf(state.memberSection);
     if (index < 0) index = 0;
-    applyMemberSection(order[(index + delta + order.length) % order.length]);
+    const next = order[(index + delta + order.length) % order.length];
+    if (next) applyMemberSection(next);
   } else {
     const index = lenses.findIndex(([id]) => id === state.lens);
-    state.lens = lenses[(index + delta + lenses.length) % lenses.length][0];
+    const next = lenses[(index + delta + lenses.length) % lenses.length];
+    if (!next) return;
+    state.lens = next[0];
     render();
   }
 }
@@ -2430,6 +2438,7 @@ function dependencyListSectionHtml(
   selectedGroupIndex: number | null,
 ) {
   const group = groups.find(candidate => candidate.index === selectedGroupIndex) || groups[0];
+  if (!group) throw new Error("Cannot render a dependency list without a dependency group.");
   const deps = group.dependencies || [];
   return `
     <section class="document-section" id="dep-list-section">
@@ -3361,12 +3370,17 @@ function renderLens(item: BrowserTypeSurface | null | undefined) {
     <section class="document-section">
       <div class="section-title"><h2>Public API</h2><span>${groups.length} member groups · ${item.members} overloads</span></div>
       <div class="member-browser-controls">${renderMemberFilterControls(item)}</div>
-      <div class="api-list">${visibleGroups.map(group => `
+      <div class="api-list">${visibleGroups.map(group => {
+        const overload = group.overloads[0];
+        if (!overload)
+          throw new Error(`Member group '${group.key}' did not contain an overload.`);
+        return `
         <button class="api-row" data-member="${escapeHtml(group.key)}">
           <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
-          <code>${highlight(group.overloads[0].signature)}</code>
+          <code>${highlight(overload.signature)}</code>
           <small>${group.overloads.length === 1 ? escapeHtml(group.kind) : `${group.overloads.length} overloads`}</small>
-        </button>`).join("") || '<div class="empty-list">No declared public members match these filters.</div>'}</div>
+        </button>`;
+      }).join("") || '<div class="empty-list">No declared public members match these filters.</div>'}</div>
     </section>`;
 }
 
@@ -4229,7 +4243,8 @@ function bindAnnotatedSourceEvents() {
       const owning = node
         ? factsForNode(state.memberAnnotated.document, node.id)
         : [];
-      if (owning.length === 1) state.memberAnnotatedFactId = owning[0].id;
+      const fact = owning.length === 1 ? owning[0] : undefined;
+      if (fact) state.memberAnnotatedFactId = fact.id;
       render();
     },
   });
@@ -4350,8 +4365,10 @@ function selectTypeByCursor(
   items: readonly BrowserTypeSurface[],
   focusList: boolean,
 ) {
+  const selected = items[cursor];
+  if (!selected) return;
   state.typeCursor = cursor;
-  state.selectedTypeId = items[cursor].id;
+  state.selectedTypeId = selected.id;
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
   resetMemberFilters();
@@ -5345,10 +5362,7 @@ function workbenchModalOwnsFocus() {
 
 function captureWorkspaceUrlState(): WorkspaceUrlState | null {
   if (!state.package) return null;
-  const library = isRuntimePackId(state.package.id)
-    && state.libraryScope?.size === 1
-    ? [...state.libraryScope][0]
-    : null;
+  const library = scopedPlatformLibrary();
   return {
     package: state.package.id,
     tabs: state.packages.map(item => ({
@@ -6474,7 +6488,7 @@ function callGraphNodeBinding(
   return {
     platform,
     onSelect: () => {
-      if (loaded?.group) {
+      if (loaded && "group" in loaded) {
         navigateToMember(
           loaded.pkg,
           loaded.type,
@@ -6495,9 +6509,7 @@ function callGraphNodeBinding(
 }
 
 function currentCallGraph() {
-  return state.platformStack.length > 0
-    ? state.platformStack[state.platformStack.length - 1].graph
-    : state.memberCallGraph;
+  return state.platformStack.at(-1)?.graph ?? state.memberCallGraph;
 }
 
 function platformCrumbTrail() {
@@ -6521,8 +6533,6 @@ function resolveLoadedGraphTarget(
   return {
     pkg,
     type,
-    group: null,
-    overloadIndex: null,
     title: `${stripArity(type.name)}.${target.memberName}`,
     request: {
       packageId: pkg.id,
@@ -6543,11 +6553,10 @@ function findGraphMemberSelection(
 ) {
   const groups = memberGroups(type);
   const selection = graphMemberSelection(groups, target);
-  return selection
-    ? {
-        group: groups[selection.groupIndex],
-        overloadIndex: selection.overloadIndex
-      }
+  if (!selection) return null;
+  const group = groups[selection.groupIndex];
+  return group
+    ? { group, overloadIndex: selection.overloadIndex }
     : null;
 }
 
@@ -6695,13 +6704,13 @@ function findRuntimeMemberSelection(
     overloadIndex: number;
   }> = [];
   for (const group of groups) {
-    for (let i = 0; i < group.overloads.length; i++) {
-      if (group.overloads[i].graphSelectorKey === node.selectorKey) {
-        matches.push({ type, group, overloadIndex: i });
+    for (const [overloadIndex, overload] of group.overloads.entries()) {
+      if (overload.graphSelectorKey === node.selectorKey) {
+        matches.push({ type, group, overloadIndex });
       }
     }
   }
-  return matches.length === 1 ? matches[0] : null;
+  return matches.length === 1 ? matches[0] ?? null : null;
 }
 
 function stripArity(name: string) {
@@ -7655,12 +7664,14 @@ document.addEventListener("keydown", event => {
   } else if (!typing && !event.metaKey && !event.ctrlKey && /^[1-9]$/.test(event.key)) {
     const set = activeLenses();
     const index = Number(event.key) - 1;
-    if (index < set.length) {
+    const selected = set[index];
+    if (selected) {
+      const [id] = selected;
       const sc = scope();
-      if (sc === "package") { state.packageLens = set[index][0]; render(); }
-      else if (sc === "member" && isMemberSection(set[index][0]))
-        applyMemberSection(set[index][0]);
-      else { state.lens = set[index][0]; render(); }
+      if (sc === "package") { state.packageLens = id; render(); }
+      else if (sc === "member" && isMemberSection(id))
+        applyMemberSection(id);
+      else { state.lens = id; render(); }
     }
   } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
       && (event.key === "ArrowUp" || event.key === "ArrowDown")) {

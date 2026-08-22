@@ -268,11 +268,15 @@ export function normalizeShareTabs(list: unknown): NormalizedShareTabs {
       version: tab.version,
       activeFramework: tab.framework
     });
-    if (!identityIndexes.has(identity)) {
-      identityIndexes.set(identity, tabs.length);
+    const existingIndex = identityIndexes.get(identity);
+    if (existingIndex === undefined) {
+      const newIndex = tabs.length;
+      identityIndexes.set(identity, newIndex);
       tabs.push(tab);
+      sourceIndexes[sourceIndex] = newIndex;
+    } else {
+      sourceIndexes[sourceIndex] = existingIndex;
     }
-    sourceIndexes[sourceIndex] = identityIndexes.get(identity)!;
   }
   return { tabs, sourceIndexes, error: "" };
 }
@@ -333,11 +337,11 @@ export function removeWorkspacePackage<T extends RemoveWorkspacePackageInput>(
   packageKey: string,
 ): RemoveWorkspacePackageResult<T> {
   const index = packages.findIndex(item => packageIdentityKey(item) === packageKey);
-  if (index < 0 || packages[index].isRuntimePack) {
+  const closed = index >= 0 ? packages[index] : undefined;
+  if (!closed || closed.isRuntimePack) {
     return { packages: [...packages], active: activePackage, closed: null };
   }
 
-  const closed = packages[index];
   const remaining = packages.filter((_, candidate) => candidate !== index);
   const active = packageIdentityKey(activePackage) === packageKey
     ? remaining[Math.min(index, remaining.length - 1)] ?? null
@@ -518,7 +522,7 @@ export function uniqueTypeByQueryId<T extends QueryIdentifiedType>(
 ): T | null {
   const matches = (types ?? []).filter(type =>
     (type.queryId ?? type.id) === queryId);
-  return matches.length === 1 ? matches[0] : null;
+  return matches.length === 1 ? matches[0] ?? null : null;
 }
 
 export interface CallGraphAssembly {
@@ -597,8 +601,9 @@ export function resolveLoadedGraphTargetCandidate<
       }
     }
   }
-  return matches.length === 1
-    ? { status: "unique", ...matches[0] }
+  const match = matches[0];
+  return matches.length === 1 && match
+    ? { status: "unique", ...match }
     : { status: "missing" };
 }
 
@@ -705,10 +710,8 @@ export function graphMemberSelection(
   target: GraphMemberTarget,
 ): GraphMemberSelection | null {
   const bodyMatches: GraphMemberSelection[] = [];
-  for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
-    const group = groups[groupIndex];
-    for (let overloadIndex = 0; overloadIndex < group.overloads.length; overloadIndex++) {
-      const overload = group.overloads[overloadIndex];
+  for (const [groupIndex, group] of groups.entries()) {
+    for (const [overloadIndex, overload] of group.overloads.entries()) {
       if ((overload.bodySelectors ?? []).some(body =>
         body.memberName === target.memberName
         && body.selectorKey === target.selectorKey
@@ -717,17 +720,16 @@ export function graphMemberSelection(
       }
     }
   }
-  if (bodyMatches.length === 1) return bodyMatches[0];
+  if (bodyMatches.length === 1) return bodyMatches[0] ?? null;
 
   const ownerMatches: GraphMemberSelection[] = [];
-  for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
-    const group = groups[groupIndex];
-    for (let overloadIndex = 0; overloadIndex < group.overloads.length; overloadIndex++) {
-      if (group.overloads[overloadIndex].graphSelectorKey === target.selectorKey)
+  for (const [groupIndex, group] of groups.entries()) {
+    for (const [overloadIndex, overload] of group.overloads.entries()) {
+      if (overload.graphSelectorKey === target.selectorKey)
         ownerMatches.push({ groupIndex, overloadIndex });
     }
   }
-  return ownerMatches.length === 1 ? ownerMatches[0] : null;
+  return ownerMatches.length === 1 ? ownerMatches[0] ?? null : null;
 }
 
 export interface ScopedRequestState {

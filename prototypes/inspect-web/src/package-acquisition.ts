@@ -86,10 +86,13 @@ export function createRuntimePackageModel(
 function createRuntimeAssemblyPackageModel(
   result: BrowserPackageSurface,
 ): AppPackage {
+  const assembly = defaultAssembly(
+    result,
+    "The platform assembly query did not return its selected assembly descriptor.");
   return createRuntimePackageModelForAssembly(
     result,
-    result.assemblies[0],
-    result.defaultAssemblyId);
+    assembly,
+    assembly.id);
 }
 
 function createRuntimePackageModelForAssembly(

@@ -232,6 +232,57 @@ test("focus bindings dispatch lightbox controls and keep inner clicks contained"
   }
 });
 
+test("explorer bindings ignore malformed encoded coordinates", () => {
+  const focusRoot = new FakeRoot();
+  const invalidJumps = [
+    new FakeElement({ mdeJump: "" }),
+    new FakeElement({ mdeJump: "2" }),
+    new FakeElement({ mdeJump: "two:4" }),
+    new FakeElement({ mdeJump: "2:9007199254740992" }),
+  ];
+  const invalidPages = [
+    new FakeElement({ mdePage: "5:" }),
+    new FakeElement({ mdePage: "5:twenty" }),
+  ];
+  const invalidFocusRows = [
+    new FakeElement({ mdeRow: ":9" }),
+    new FakeElement({ mdeRow: "4:9:10" }),
+  ];
+  focusRoot.addAll("[data-mde-jump]", ...invalidJumps);
+  focusRoot.addAll("[data-mde-page]", ...invalidPages);
+  focusRoot.addAll(".mde-focus .mde-row[data-mde-row]", ...invalidFocusRows);
+
+  const overviewRoot = new FakeRoot();
+  const invalidOverviewRows = [
+    new FakeElement({ mdeRow: "7" }),
+    new FakeElement({ mdeRow: "-1:8" }),
+  ];
+  overviewRoot.addAll(
+    ".mde-wall .mde-row[data-mde-row]",
+    ...invalidOverviewRows);
+
+  const calls: string[] = [];
+  bindMetadataExplorer(
+    fakeDom.parentNode(focusRoot),
+    { overview: false },
+    recordingActions(calls));
+  bindMetadataExplorer(
+    fakeDom.parentNode(overviewRoot),
+    { overview: true },
+    recordingActions(calls));
+
+  for (const element of [
+    ...invalidJumps,
+    ...invalidPages,
+    ...invalidFocusRows,
+    ...invalidOverviewRows,
+  ]) {
+    element.dispatch("click", stoppableEvent().event);
+  }
+
+  assert.deepEqual(calls, []);
+});
+
 test("metadata lens bindings open table and heap explorer views", () => {
   const root = new FakeRoot();
   const table = new FakeElement({

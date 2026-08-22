@@ -781,7 +781,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /const platform = disposition === "platform";\s*return \{\s*platform,\s*onSelect:/);
   assert.match(
     callGraphBinding,
-    /if \(loaded\?\.group\) \{\s*navigateToMember\([\s\S]*\} else if \(loaded\) \{\s*observeAsync\(\s*openGraphSource\(loaded\.request, loaded\.title\),\s*"Loading graph source"\);\s*\} else if \(platform\) \{\s*observeAsync\(\s*navigateOrDrillPlatform\(target\),\s*"Opening a platform call-graph target"\);\s*\}/);
+    /if \(loaded && "group" in loaded\) \{\s*navigateToMember\([\s\S]*\} else if \(loaded\) \{\s*observeAsync\(\s*openGraphSource\(loaded\.request, loaded\.title\),\s*"Loading graph source"\);\s*\} else if \(platform\) \{\s*observeAsync\(\s*navigateOrDrillPlatform\(target\),\s*"Opening a platform call-graph target"\);\s*\}/);
   assert.equal(appSource.match(/\bbindGraphBack\(/g)?.length, 1);
   assert.equal(appSource.match(/\bbindGraphPanZoom\(/g)?.length, 3);
   assert.equal(appSource.match(/\bbindTypeGraphNodes\(/g)?.length, 1);
@@ -2871,6 +2871,7 @@ test("relationship navigation rejects ambiguous dotted identities", () => {
 
   assert.equal(uniqueTypeByQueryId([first], "N.T"), first);
   assert.equal(uniqueTypeByQueryId([first, second], "N.T"), null);
+  assert.equal(uniqueTypeByQueryId([], "N.T"), null);
 });
 
 test("call graph diagnostics distinguish failures from expected bounds", () => {
@@ -3001,6 +3002,14 @@ test("closing a package removes its coordinate and selects the adjacent tab", ()
     packageIdentityKey(active));
   assert.deepEqual(only.packages, []);
   assert.equal(only.active, null);
+
+  const missing = removeWorkspacePackage(
+    [first, active, last],
+    active,
+    "Missing.Package\u00001.0.0\u0000net10.0");
+  assert.deepEqual(missing.packages, [first, active, last]);
+  assert.equal(missing.active, active);
+  assert.equal(missing.closed, null);
 });
 
 test("workspace UI routes replacements and restore notices through bounded paths", () => {

@@ -67,7 +67,10 @@ function splitApiName(fullName: string): { short: string; qualifier: string } {
 // with no dotted prefix (e.g. "IServiceCollection registration") stay as plain muted text.
 function splitOpportunityKind(integrationType: string): { package: string | null; text: string } {
   const match = integrationType.match(/^([A-Z][A-Za-z0-9]+(?:\.[A-Z][A-Za-z0-9]+)+)\b\s*(.*)$/);
-  return match ? { package: match[1], text: match[2].trim() } : { package: null, text: integrationType };
+  const packageName = match?.[1];
+  return packageName
+    ? { package: packageName, text: match?.[2]?.trim() ?? "" }
+    : { package: null, text: integrationType };
 }
 
 // Turns the comma-separated "look for" hint into chips. Concrete identifiers open a spotlight

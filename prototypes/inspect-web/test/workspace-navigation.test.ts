@@ -301,6 +301,19 @@ test("invalid and oversized workspace packets stay visible", () => {
   assert.match(oversized.workspaceNotice, /65536-character limit/);
 });
 
+test("an empty decoded workspace has no active package", () => {
+  const packet = Buffer.from(JSON.stringify({ t: [], a: 99 }))
+    .toString("base64url");
+  const parsed = parseWorkspaceLocation(locationSnapshot(
+    `https://inspect.example/?w=${packet}`));
+
+  assert.deepEqual(parsed.tabs, []);
+  assert.equal(parsed.package, null);
+  assert.equal(parsed.version, null);
+  assert.equal(parsed.framework, null);
+  assert.equal(parsed.workspaceNotice, "");
+});
+
 test("location persistence contains sync failures but leaves direct build failures visible", () => {
   const current = locationSnapshot("https://inspect.example/");
   const replaced: string[] = [];
@@ -313,7 +326,9 @@ test("location persistence contains sync failures but leaves direct build failur
 
   persistence.sync(workspaceState());
   persistence.push("/");
-  assert.equal(new URL(replaced[0]).searchParams.get("package"), "Example.Second");
+  const replacedUrl = replaced[0];
+  assert.ok(replacedUrl);
+  assert.equal(new URL(replacedUrl).searchParams.get("package"), "Example.Second");
   assert.deepEqual(pushed, ["/"]);
   const replacedCount = replaced.length;
   assert.doesNotThrow(() => persistence.sync(workspaceState({

@@ -112,9 +112,11 @@ export function createNavigationHistory<TView>(
       const view = dependencies.capture();
       if (!view) return;
       const sig = dependencies.signature(view);
-      if (navigation.index >= 0
-        && navigation.stack[navigation.index]?.sig === sig) {
-        navigation.stack[navigation.index].view = view;
+      const current = navigation.index >= 0
+        ? navigation.stack[navigation.index]
+        : undefined;
+      if (current?.sig === sig) {
+        current.view = view;
         return;
       }
       navigation.stack = navigation.stack.slice(0, navigation.index + 1);
@@ -139,7 +141,8 @@ export function createNavigationHistory<TView>(
       while (navigation.index > 0) {
         const candidate = navigation.index - 1;
         navigation.index = candidate;
-        if (dependencies.apply(navigation.stack[candidate].view)) return true;
+        const entry = navigation.stack[candidate];
+        if (entry && dependencies.apply(entry.view)) return true;
         navigation.stack.splice(candidate, 1);
       }
       dependencies.onExhausted();
@@ -149,7 +152,8 @@ export function createNavigationHistory<TView>(
       while (navigation.index < navigation.stack.length - 1) {
         const candidate = navigation.index + 1;
         navigation.index = candidate;
-        if (dependencies.apply(navigation.stack[candidate].view)) return true;
+        const entry = navigation.stack[candidate];
+        if (entry && dependencies.apply(entry.view)) return true;
         navigation.stack.splice(candidate, 1);
         navigation.index--;
       }
@@ -417,9 +421,11 @@ export function parseWorkspaceLocation(location: WorkspaceLocationSnapshot) {
   }
   if (!pkg && tabs.length) {
     const target = tabs[Math.min(Math.max(0, active), tabs.length - 1)];
-    pkg = target.id;
-    version = target.version;
-    framework = target.framework;
+    if (target) {
+      pkg = target.id;
+      version = target.version;
+      framework = target.framework;
+    }
   }
 
   const view = resolveView(viewToken);
