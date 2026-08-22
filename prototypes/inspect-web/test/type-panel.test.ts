@@ -270,12 +270,19 @@ test("type filter keys preserve list focus and Escape behavior", () => {
   assert.equal(listKeys, 0);
 
   typeList.focused = false;
+  filter.value = "json";
   const escape = keyboardEvent("Escape");
   filter.dispatch("keydown", escape.event);
   assert.equal(escapes, 1);
   assert.equal(escape.state.prevented, true);
   assert.equal(typeList.focused, false);
   assert.equal(listKeys, 0);
+
+  filter.value = "";
+  const emptyEscape = keyboardEvent("Escape");
+  filter.dispatch("keydown", emptyEscape.event);
+  assert.equal(escapes, 1);
+  assert.equal(emptyEscape.state.prevented, false);
 });
 
 test("type panel binding tolerates controls from the inactive nav being absent", () => {

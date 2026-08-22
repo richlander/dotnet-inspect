@@ -139,7 +139,7 @@ export function bindTypePanel(
     if (event.key === "ArrowDown") {
       event.preventDefault();
       typeList?.focus();
-    } else if (event.key === "Escape") {
+    } else if (event.key === "Escape" && filter.value !== "") {
       event.preventDefault();
       actions.onTypeFilterEscape();
     }
