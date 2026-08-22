@@ -5,6 +5,7 @@ using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 
 using ILInspector.Decompiler;
+using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 using ILInspector.Research;
 
@@ -14,7 +15,8 @@ namespace DotnetInspector.Queries.Tests;
 /// Gates the group-scoped Research projection queries: they project from workspace-owned content
 /// with no filesystem path, address an exact <c>MethodDef</c>, carry the whole-assembly fact
 /// context path-keyed resolution cannot reach, resolve references through the participant's own
-/// binding policy, and report participant failure as a typed entry.
+/// binding policy, produce the same portable document as the path-backed CLI projection, and
+/// report participant failure as a typed entry.
 /// </summary>
 public sealed class AssemblyContextResearchProjectionQueryTests
 {
@@ -78,6 +80,55 @@ public sealed class AssemblyContextResearchProjectionQueryTests
         AnnotatedSourceDocument document =
             Assert.IsType<AnnotatedSourceDocument>(projection.Projection.SourceDocument);
         Assert.Contains(document.Facts, fact => fact.Descriptor == "alloc.box");
+    }
+
+    [Fact]
+    public void MemberProjection_ContentAndPathBackedPortableDocumentsAreIdentical()
+    {
+        var policy = new RecordingBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = ContentGroup(workspace, policy);
+        int token = typeof(ResearchProjectionProbe)
+            .GetMethod(nameof(ResearchProjectionProbe.AllocateArrayBoxAndObject))!
+            .MetadataToken;
+        var request = Request(nameof(ResearchProjectionProbe.AllocateArrayBoxAndObject)) with
+        {
+            MethodToken = token,
+        };
+
+        AssemblyMemberProjection contentProjection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(group, request));
+        using MetadataSource source = MetadataSource.OpenWithoutSymbols(
+            typeof(ResearchProjectionProbe).Assembly.Location);
+        ResearchViews.MemberProjectionResult pathProjection =
+            ResearchViews.ProjectMember(
+                new ResearchViews.MemberProjectionRequest(
+                    source,
+                    request.Type,
+                    request.Member,
+                    MethodToken: token,
+                    SourceDocument: true));
+
+        Assert.Null(contentProjection.ContextLimitation);
+        Assert.Null(contentProjection.Projection.SourceDocumentFailure);
+        Assert.Null(pathProjection.SourceDocumentFailure);
+        AnnotatedSourceDocument contentDocument =
+            Assert.IsType<AnnotatedSourceDocument>(
+                contentProjection.Projection.SourceDocument);
+        AnnotatedSourceDocument pathDocument =
+            Assert.IsType<AnnotatedSourceDocument>(pathProjection.SourceDocument);
+        Assert.Contains(contentDocument.Facts, fact => fact.Descriptor == "alloc.array");
+        Assert.Contains(contentDocument.Facts, fact => fact.Descriptor == "alloc.box");
+        Assert.Contains(contentDocument.Facts, fact => fact.Descriptor == "alloc.new");
+        Assert.Equal(
+            System.Text.Json.JsonSerializer.Serialize(
+                pathDocument,
+                AnnotatedSourceDocumentCompactJsonContext.Default
+                    .AnnotatedSourceDocument),
+            System.Text.Json.JsonSerializer.Serialize(
+                contentDocument,
+                AnnotatedSourceDocumentCompactJsonContext.Default
+                    .AnnotatedSourceDocument));
     }
 
     [Fact]
@@ -330,6 +381,8 @@ public sealed class AssemblyContextResearchProjectionQueryTests
 public static class ResearchProjectionProbe
 {
     public static object BoxInt(int value) => value;
+
+    public static object[] AllocateArrayBoxAndObject(int value) => [value, new object()];
 
     public static int Overloaded(int value) => value + 1;
 
