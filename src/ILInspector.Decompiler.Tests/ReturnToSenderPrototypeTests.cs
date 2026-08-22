@@ -6187,13 +6187,22 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void FidelityLookup_NormalizesOnlyTrustedPlatformProvenance()
+    public void FidelityLookup_NormalizesOnlyTrustedPlatformScopedIdentity()
     {
         MetadataTypeDefinitionName definitionName =
             Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
                 MetadataTypeDefinitionName.Create(
                     "System",
                     ["IContract"])).Name;
+        var facadeSignature =
+            new MethodSignatureIdentity(
+                "system-runtime-signature");
+        var coreLibrarySignature =
+            new MethodSignatureIdentity(
+                "corelib-signature");
+        var platformSignature =
+            new MethodSignatureIdentity(
+                "platform-signature");
         var trustedFacade =
             new ApiExplicitInterfaceDeclarationContext(
                 ApiExplicitInterfaceDeclarationKind.External,
@@ -6203,7 +6212,15 @@ public class ReturnToSenderPrototypeTests
                     new Version(10, 0, 0, 0),
                     null,
                     "b03f5f7f11d50a3a"),
-                "System.IContract");
+                "System.IContract<int>",
+                interfaceTypeIdentity:
+                    "system-runtime-scoped-IContract<int>",
+                platformNormalizedInterfaceTypeIdentity:
+                    "platform-scoped-IContract<int>",
+                declarationSignatureIdentity:
+                    facadeSignature,
+                platformNormalizedDeclarationSignatureIdentity:
+                    platformSignature);
         var trustedCoreLibrary =
             new ApiExplicitInterfaceDeclarationContext(
                 ApiExplicitInterfaceDeclarationKind.External,
@@ -6213,7 +6230,15 @@ public class ReturnToSenderPrototypeTests
                     new Version(10, 0, 0, 0),
                     null,
                     "7cec85d7bea7798e"),
-                "System.IContract");
+                "System.IContract<int>",
+                interfaceTypeIdentity:
+                    "corelib-scoped-IContract<int>",
+                platformNormalizedInterfaceTypeIdentity:
+                    "platform-scoped-IContract<int>",
+                declarationSignatureIdentity:
+                    coreLibrarySignature,
+                platformNormalizedDeclarationSignatureIdentity:
+                    platformSignature);
         var spoofedFacade =
             new ApiExplicitInterfaceDeclarationContext(
                 ApiExplicitInterfaceDeclarationKind.External,
@@ -6223,7 +6248,15 @@ public class ReturnToSenderPrototypeTests
                     new Version(1, 0, 0, 0),
                     null,
                     null),
-                "System.IContract");
+                "System.IContract<int>",
+                interfaceTypeIdentity:
+                    "contracts-a-scoped-IContract<int>",
+                platformNormalizedInterfaceTypeIdentity:
+                    "platform-scoped-IContract<int>",
+                declarationSignatureIdentity:
+                    facadeSignature,
+                platformNormalizedDeclarationSignatureIdentity:
+                    platformSignature);
         var spoofedCoreLibrary =
             new ApiExplicitInterfaceDeclarationContext(
                 ApiExplicitInterfaceDeclarationKind.External,
@@ -6233,12 +6266,80 @@ public class ReturnToSenderPrototypeTests
                     new Version(2, 0, 0, 0),
                     "fr",
                     null),
-                "System.IContract");
+                "System.IContract<int>",
+                interfaceTypeIdentity:
+                    "contracts-b-scoped-IContract<int>",
+                platformNormalizedInterfaceTypeIdentity:
+                    "platform-scoped-IContract<int>",
+                declarationSignatureIdentity:
+                    coreLibrarySignature,
+                platformNormalizedDeclarationSignatureIdentity:
+                    platformSignature);
+        var nonConstructedFacade =
+            new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.External,
+                definitionName,
+                trustedFacade.Assembly,
+                declarationMemberName: "GetValue",
+                declarationSignatureIdentity:
+                    facadeSignature,
+                platformNormalizedDeclarationSignatureIdentity:
+                    platformSignature);
+        var nonConstructedCoreLibrary =
+            new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.External,
+                definitionName,
+                trustedCoreLibrary.Assembly,
+                declarationMemberName: "GetValue",
+                declarationSignatureIdentity:
+                    coreLibrarySignature,
+                platformNormalizedDeclarationSignatureIdentity:
+                    platformSignature);
+        var exactAssemblySignatureMismatch =
+            new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.External,
+                definitionName,
+                trustedFacade.Assembly,
+                "System.IContract<int>",
+                interfaceTypeIdentity:
+                    trustedFacade.InterfaceTypeIdentity,
+                platformNormalizedInterfaceTypeIdentity:
+                    trustedFacade
+                        .PlatformNormalizedInterfaceTypeIdentity,
+                declarationSignatureIdentity:
+                    coreLibrarySignature,
+                platformNormalizedDeclarationSignatureIdentity:
+                    platformSignature);
 
+        Assert.NotNull(trustedFacade.InterfaceTypeIdentity);
+        Assert.NotNull(trustedCoreLibrary.InterfaceTypeIdentity);
+        Assert.NotNull(
+            trustedFacade.DeclarationSignatureIdentity);
+        Assert.NotNull(
+            trustedFacade
+                .PlatformNormalizedDeclarationSignatureIdentity);
+        Assert.NotEqual(
+            trustedFacade.DeclarationSignatureIdentity,
+            trustedCoreLibrary.DeclarationSignatureIdentity);
+        Assert.Equal(
+            trustedFacade
+                .PlatformNormalizedDeclarationSignatureIdentity,
+            trustedCoreLibrary
+                .PlatformNormalizedDeclarationSignatureIdentity);
         Assert.True(
             FidelityCheck.ExplicitInterfaceDeclarationEqualsForTest(
                 trustedFacade,
                 trustedCoreLibrary));
+        Assert.True(
+            FidelityCheck.ExplicitInterfaceDeclarationEqualsForTest(
+                nonConstructedFacade,
+                nonConstructedCoreLibrary));
+        Assert.False(
+            FidelityCheck.ExplicitInterfaceDeclarationEqualsForTest(
+                trustedFacade,
+                exactAssemblySignatureMismatch));
+        Assert.NotNull(spoofedFacade.InterfaceTypeIdentity);
+        Assert.NotNull(spoofedCoreLibrary.InterfaceTypeIdentity);
         Assert.False(
             FidelityCheck.ExplicitInterfaceDeclarationEqualsForTest(
                 spoofedFacade,

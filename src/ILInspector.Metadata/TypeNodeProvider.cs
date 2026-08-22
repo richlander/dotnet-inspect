@@ -165,7 +165,6 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
                     ? ScopedNamedTypeIdentity(
                         reader,
                         handle,
-                        read.Name,
                         rawTypeKind)
                     : null);
         }
@@ -299,9 +298,16 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         _beforeMaterialize?.Invoke(checked(16 + typeArguments.Length * 4));
         ObserveMaterialization(genericType.EstimatedRenderedLength);
         string rawName = genericType is NamedTypeNode n ? n.Name : genericType.Render();
-        string? structuralBaseIdentity = _scopeNamedTypeIdentity
-            ? genericType.StructuralIdentity()
-            : null;
+        ScopedNamedTypeIdentity? scopedIdentity =
+            (genericType as NamedTypeNode)?.ScopedIdentity;
+        string? structuralBaseIdentity =
+            _scopeNamedTypeIdentity && scopedIdentity is null
+                ? genericType.StructuralIdentity()
+                : null;
+        string? platformNormalizedStructuralBaseIdentity =
+            _scopeNamedTypeIdentity && scopedIdentity is null
+                ? genericType.PlatformNormalizedStructuralIdentity()
+                : null;
         GenericTypeNode node;
         if (genericType is NamedTypeNode { MetadataName: { } metadataName })
         {
@@ -316,7 +322,10 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
                 typeArguments,
                 degradedGenericType: genericType.IsDegraded,
                 metadataName: metadataName,
-                structuralBaseIdentity: structuralBaseIdentity);
+                structuralBaseIdentity: structuralBaseIdentity,
+                platformNormalizedStructuralBaseIdentity:
+                    platformNormalizedStructuralBaseIdentity,
+                scopedIdentity: scopedIdentity);
         }
         else
         {
@@ -344,7 +353,9 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
                     genericType.IsReferenceType,
                     typeArguments,
                     structuralMetadataName: rawName,
-                    structuralBaseIdentity: structuralBaseIdentity);
+                    structuralBaseIdentity: structuralBaseIdentity,
+                    platformNormalizedStructuralBaseIdentity:
+                        platformNormalizedStructuralBaseIdentity);
             }
             else
             {
@@ -358,7 +369,9 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
                     nestedSuffix,
                     genericType.IsDegraded,
                     structuralMetadataName: rawName,
-                    structuralBaseIdentity: structuralBaseIdentity);
+                    structuralBaseIdentity: structuralBaseIdentity,
+                    platformNormalizedStructuralBaseIdentity:
+                        platformNormalizedStructuralBaseIdentity);
             }
         }
 
@@ -366,18 +379,15 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         return node;
     }
 
-    string? ScopedNamedTypeIdentity(
+    ScopedNamedTypeIdentity? ScopedNamedTypeIdentity(
         MetadataReader reader,
         EntityHandle handle,
-        string? name,
         byte rawTypeKind)
     {
-        if (name is null)
-            return null;
-
-        string? scope = handle.Kind switch
+        TypeScopeIdentity? scope = handle.Kind switch
         {
-            HandleKind.TypeDefinition => "current",
+            HandleKind.TypeDefinition =>
+                new TypeScopeIdentity("current", "current"),
             HandleKind.TypeReference =>
                 TypeReferenceScopeIdentity(
                     reader,
@@ -386,14 +396,13 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         };
         return scope is null
             ? null
-            : StructuralSegment(
-                "named",
-                rawTypeKind.ToString("x2"),
-                scope,
-                name);
+            : new ScopedNamedTypeIdentity(
+                scope.Scope,
+                scope.PlatformNormalizedScope,
+                rawTypeKind);
     }
 
-    string? TypeReferenceScopeIdentity(
+    TypeScopeIdentity? TypeReferenceScopeIdentity(
         MetadataReader reader,
         TypeReferenceHandle handle)
     {
@@ -415,20 +424,38 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         return terminal.Kind switch
         {
             HandleKind.AssemblyReference =>
-                AssemblyScopeIdentity(
+                AssemblyScopeIdentityPair(
                     ReadAssemblyReferenceIdentity(
                         reader,
                         (AssemblyReferenceHandle)terminal)),
-            HandleKind.ModuleDefinition => "current",
+            HandleKind.ModuleDefinition =>
+                new TypeScopeIdentity("current", "current"),
             HandleKind.ModuleReference =>
-                StructuralSegment(
-                    "module",
+                ModuleScopeIdentity(
                     reader.GetString(
                         reader.GetModuleReference(
                             (ModuleReferenceHandle)terminal).Name)),
-            _ when terminal.IsNil => "current",
+            _ when terminal.IsNil =>
+                new TypeScopeIdentity("current", "current"),
             _ => null,
         };
+    }
+
+    static TypeScopeIdentity AssemblyScopeIdentityPair(
+        AssemblyReferenceIdentity assembly)
+    {
+        string exact = AssemblyScopeIdentity(assembly);
+        return new TypeScopeIdentity(
+            exact,
+            PlatformKeys.IsPlatform(assembly.PublicKeyToken)
+                ? StructuralSegment("platform")
+                : exact);
+    }
+
+    static TypeScopeIdentity ModuleScopeIdentity(string moduleName)
+    {
+        string identity = StructuralSegment("module", moduleName);
+        return new TypeScopeIdentity(identity, identity);
     }
 
     AssemblyReferenceIdentity ReadAssemblyReferenceIdentity(
@@ -477,6 +504,10 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         => kind
             + string.Concat(values.Select(value =>
                 $"{{{value.Length}:{value}}}"));
+
+    sealed record TypeScopeIdentity(
+        string Scope,
+        string PlatformNormalizedScope);
 
     public TypeNode GetGenericMethodParameter(GenericContext? context, int index)
     {

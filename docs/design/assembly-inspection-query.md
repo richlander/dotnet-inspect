@@ -461,11 +461,32 @@ interface member. A structurally valid MethodImpl whose external target cannot b
 is retained with unavailable provenance and an `authenticate MethodImpl target` inspection
 failure, rather than being silently dropped or relabeled as an interface member. Authenticated
 and unavailable declarations remain independently visible when one body has both; consumers that
-require complete declaration identity reject the mixed provenance. A constructed interface
-declaration authenticates only against the exact structural InterfaceImpl instantiation,
-including same-image interface roots and the defining assembly identity of every nested named
-type argument, not merely the same generic interface definition or rendered spelling. Method,
-property, and event spelling uses the
+require complete declaration identity reject the mixed provenance. Each declaration also retains
+a bounded exact structural signature identity and, for a declaration rooted in a trusted platform
+assembly, a typed platform-normalized counterpart. MethodImpl authentication within the inspected
+image requires exact correspondence between the declaration identity and body signature across
+calling convention, method generic arity, return and parameter types, by-reference shape, custom
+modifiers, and function-pointer headers; an unavailable or incompatible signature is retained as
+unavailable provenance and produces the same visible authentication failure. Compile-back compares
+the exact declaration signature when the declaration-root assembly corresponds exactly. Only when
+both differing roots independently authenticate as platform may it compare the normalized
+signature, which replaces token-authenticated platform TypeRef scope and acquisition-authenticated
+platform TypeDef scope while preserving every other signature component and every non-platform
+scope. Metadata-only extraction cannot grant a current assembly that TypeDef trust from its
+self-declared name or public key. Same-named overload rows remain separate
+provenance entries because their signature identities differ; exact duplicate MethodImpl rows and
+duplicate accessor projections coalesce by the complete typed declaration context. Signature
+encoding work is charged to the extraction-wide decode budget on each builder cache miss, including
+both exact and normalized identities, so per-type builders cannot each spend the full local
+structural-signature budget without drawing down the image-wide bound. A constructed interface declaration
+authenticates only against the exact structural InterfaceImpl instantiation, including same-image
+interface roots, exact assembly or module scope, structured namespace and nesting segments,
+raw metadata segment spelling, raw class/value-type kind, the encoded argument count, and every
+nested named type argument, not merely the same generic interface definition or rendered spelling.
+The display-name `` `n `` suffix is not authoritative metadata arity: structurally identical
+TypeSpecs remain identical when their encoded argument count disagrees with that suffix, while
+different excess arguments remain distinct because the actual count and every argument are
+length-prefixed. Method, property, and event spelling uses the
 authenticated MethodImpl declaration method name for its semantic member leaf; it does not infer
 that leaf from the implementing member's unrelated metadata name. Unavailable bodies remain
 addressable as ordinary methods, but their metadata-only virtual, abstract, and override flags
@@ -474,7 +495,10 @@ interfaces that re-abstract inherited default members, and constructed interface
 decoded with the containing type's generic-parameter names. Compile-back provenance keeps
 non-platform assembly identity exact;
 facade/core-library correspondence is normalized only when both assembly references carry trusted
-platform key tokens. Event raiser and other semantic
+platform key tokens. For constructed platform interfaces, that relaxation replaces only trusted
+platform assembly scopes in the complete structural identity; namespace, nesting, arity, raw type
+kind, arguments, modifiers, declaration-signature structure, and non-platform scopes remain exact.
+Event raiser and other semantic
 methods remain method members because `ApiMember` has no event-token slots through which their
 bodies could otherwise remain addressable.
 `DirectDefinition_CarriesAccessibilityAndConstructorFacts` gates the copied declaration facts,
@@ -497,11 +521,23 @@ methods and accessors,
 `SkeletonOmitsUnconstructibleExternalBaseForPlainMethod` gates fail-closed compile-back
 consumption. `Extract_PreservesOrdinaryAccessorPrefixedMethods` is the direct Metadata gate for
 MethodSemantics-based accessor exclusion, and `Extract_PreservesEventRaiserAndOtherMethods` gates
-the event semantic-method boundary. ``MethodImplWithoutImplementedInterface_FailsVisibly`,
+the event semantic-method boundary. `MethodImplWithoutImplementedInterface_FailsVisibly`,
 `AbstractInstanceMethodImplWithoutFinal_IsNotExplicit`,
 `Extract_TransitiveExternalMethodImplFailsVisibly`,
 `ConstructedMethodImplRequiresExactInterfaceInstantiation`,
+`ConstructedMethodImplAuthenticatesExactInterfaceInstantiation`,
 `ConstructedMethodImplRequiresExactArgumentAssemblyIdentity`,
+`ConstructedMethodImplPreservesEveryArgumentWithoutTrustingNameArity`,
+`ConstructedMethodImplDistinguishesDottedArgumentBoundaries`,
+`ScopedGenericIdentityPreservesScopeNameBoundariesKindAndEveryArgument`,
+`BuildSignature_PreservesMethodImplCorrespondenceFields`,
+`BuildSignature_NormalizesOnlyTrustedPlatformTypeScopes`,
+`BuildSignature_ChargesEncodedWorkOnlyOnCacheMiss`,
+`ExplicitMethodImplSignaturesUseExtractionWideDecodeBudget`,
+`IncompatibleMethodImplSignatureFailsVisibly`,
+`DuplicateNameMethodImplRowsKeepDistinctSignatureProvenance`,
+`DuplicateMethodImplRowsDoNotIncreaseProvenanceOrRetainedText`,
+`CompilerProducedOverloadedMethodImplsKeepDistinctSignatureProvenance`,
 `Extract_UsesContainingGenericParameterInExplicitQualifier`,
 `ExplicitQualifier_UsesContainingGenericParameterName`,
 `ExplicitInterfaceMethod_UsesDeclarationLeafForUndottedName`,
@@ -511,8 +547,11 @@ the event semantic-method boundary. ``MethodImplWithoutImplementedInterface_Fail
 `FidelityCheck_UsesAuthenticatedExplicitMethodDeclarationLeaf`,
 `FidelityLookup_RejectsMismatchedExplicitInterfaceProvenance`,
 `Extract_RetainsReabstractedInterfaceMethodImpls`, and
-`FidelityLookup_NormalizesOnlyTrustedPlatformProvenance` gate the MethodImpl and provenance
-authentication rules above.
+`FidelityLookup_NormalizesOnlyTrustedPlatformScopedIdentity` gate the fast MethodImpl and
+provenance authentication rules above.
+`PlatformForwardedGenericExplicitInterfaceUsesDefinitionAlias` is the generated end-to-end gate
+for a constructed platform explicit implementation whose declaration signature contains a
+non-primitive platform type.
 
 A per-generation type-request budget bounds both discovery
 (`ResolutionPlan_BoundsCollectedTypeRequests`) and authentication dependencies

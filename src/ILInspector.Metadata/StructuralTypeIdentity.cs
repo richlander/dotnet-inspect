@@ -11,6 +11,53 @@ namespace ILInspector.Metadata;
 /// </summary>
 public static class StructuralTypeIdentity
 {
+    internal static string ScopedNamed(
+        string scope,
+        byte rawTypeKind,
+        string @namespace,
+        IEnumerable<string> metadataSegments)
+        => Scoped(
+            'n',
+            scope,
+            rawTypeKind,
+            @namespace,
+            metadataSegments,
+            []);
+
+    internal static string ScopedGeneric(
+        string scope,
+        byte rawTypeKind,
+        string @namespace,
+        IEnumerable<string> metadataSegments,
+        IEnumerable<string> typeArguments)
+        => Scoped(
+            'g',
+            scope,
+            rawTypeKind,
+            @namespace,
+            metadataSegments,
+            typeArguments);
+
+    internal static string OpaqueGeneric(
+        string baseIdentity,
+        IEnumerable<string> typeArguments)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(baseIdentity);
+        ArgumentNullException.ThrowIfNull(typeArguments);
+
+        string[] arguments = [.. typeArguments];
+        foreach (string argument in arguments)
+            ArgumentException.ThrowIfNullOrEmpty(argument);
+
+        var builder = new StringBuilder();
+        builder.Append('o');
+        Append(builder, baseIdentity);
+        AppendNumber(builder, arguments.Length);
+        foreach (string argument in arguments)
+            Append(builder, argument);
+        return builder.ToString();
+    }
+
     public static string Pinned(string inner)
     {
         ArgumentException.ThrowIfNullOrEmpty(inner);
@@ -223,6 +270,43 @@ public static class StructuralTypeIdentity
         }
         return true;
     }
+
+    static string Scoped(
+        char kind,
+        string scope,
+        byte rawTypeKind,
+        string @namespace,
+        IEnumerable<string> metadataSegments,
+        IEnumerable<string> typeArguments)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(scope);
+        ArgumentNullException.ThrowIfNull(@namespace);
+        ArgumentNullException.ThrowIfNull(metadataSegments);
+        ArgumentNullException.ThrowIfNull(typeArguments);
+
+        string[] segments = [.. metadataSegments];
+        string[] arguments = [.. typeArguments];
+        foreach (string segment in segments)
+            ArgumentException.ThrowIfNullOrEmpty(segment);
+        foreach (string argument in arguments)
+            ArgumentException.ThrowIfNullOrEmpty(argument);
+
+        var builder = new StringBuilder();
+        builder.Append(kind);
+        Append(builder, scope);
+        AppendNumber(builder, rawTypeKind);
+        Append(builder, @namespace);
+        AppendNumber(builder, segments.Length);
+        foreach (string segment in segments)
+            Append(builder, segment);
+        AppendNumber(builder, arguments.Length);
+        foreach (string argument in arguments)
+            Append(builder, argument);
+        return builder.ToString();
+    }
+
+    static void AppendNumber(StringBuilder builder, int value)
+        => builder.Append(value).Append(':');
 
     static void Append(StringBuilder builder, string value)
         => builder.Append(value.Length).Append(':').Append(value);

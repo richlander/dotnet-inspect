@@ -295,6 +295,22 @@ public static class ApiSurfaceExtractor
             budget: null,
             resolution: null);
 
+    internal static ApiSurface Extract(
+        PEReader peReader,
+        ApiSurfaceExtractionScope scope,
+        bool typesOnly,
+        bool includeCompilerGenerated,
+        bool currentAssemblyHasPlatformIdentityTrust)
+        => Extract(
+            peReader,
+            scope,
+            typesOnly,
+            includeCompilerGenerated,
+            budget: null,
+            resolution: null,
+            currentAssemblyHasPlatformIdentityTrust:
+                currentAssemblyHasPlatformIdentityTrust);
+
     /// <summary>
     /// Extracts an API surface, classifies external named generic constraints,
     /// and optionally resolves external base facts through one frozen
@@ -335,7 +351,11 @@ public static class ApiSurfaceExtractor
             typesOnly,
             includeCompilerGenerated,
             budget: null,
-            resolution);
+            resolution,
+            currentAssemblyHasPlatformIdentityTrust:
+                source.Provenance
+                    is AssemblyResolutionProvenance.PlatformAsset
+                        or AssemblyResolutionProvenance.DesignatedAsset);
         if (resolution.Requests.Count == 0)
         {
             AddResolutionFailure(
@@ -489,7 +509,8 @@ public static class ApiSurfaceExtractor
         bool typesOnly,
         bool includeCompilerGenerated,
         ExtractionBudget? budget,
-        ApiSurfaceResolution? resolution)
+        ApiSurfaceResolution? resolution,
+        bool currentAssemblyHasPlatformIdentityTrust = false)
     {
         if (!Enum.IsDefined(scope))
             throw new ArgumentOutOfRangeException(nameof(scope));
@@ -766,7 +787,8 @@ public static class ApiSurfaceExtractor
                     typeContext,
                     out HashSet<MethodDefinitionHandle>
                         unavailableMethodImplementationBodies,
-                    observeDecodeWork);
+                    observeDecodeWork,
+                    currentAssemblyHasPlatformIdentityTrust);
 
             foreach (MethodDefinitionHandle unavailable
                 in unavailableMethodImplementationBodies)
@@ -2045,12 +2067,17 @@ public static class ApiSurfaceExtractor
         GenericContext typeContext,
         out HashSet<MethodDefinitionHandle>
             unavailableMethodImplementationBodies,
-        Action<int>? beforeDecodeWork = null)
+        Action<int>? beforeDecodeWork = null,
+        bool currentAssemblyHasPlatformIdentityTrust = false)
     {
         Dictionary<
             MethodDefinitionHandle,
-            HashSet<ApiExplicitInterfaceDeclarationContext>>
+            List<ApiExplicitInterfaceDeclarationContext>>
             handles = [];
+        Dictionary<
+            MethodDefinitionHandle,
+            HashSet<ApiExplicitInterfaceDeclarationContext>>
+            seenDeclarations = [];
         Dictionary<
             EntityHandle,
             ApiExplicitInterfaceDeclarationContext>
@@ -2063,6 +2090,22 @@ public static class ApiSurfaceExtractor
 
         var referenceProjection =
             new AssemblyReferenceProjectionCache(reader);
+        var signatureBuilder =
+            new StructuralSignatureBuilder(
+                reader,
+                beforeDecodeWork,
+                normalizeNamedTypeScope: null);
+        Dictionary<EntityHandle, bool>
+            platformSignatureScopes = [];
+        var platformNormalizedSignatureBuilder =
+            new StructuralSignatureBuilder(
+                reader,
+                beforeDecodeWork,
+                NormalizePlatformSignatureScope);
+        Dictionary<
+            MethodDefinitionHandle,
+            MethodSignatureIdentity?>
+            bodySignatureIdentities = [];
         HashSet<ApiExplicitInterfaceDeclarationContext>
             implementedInterfaces = [];
         foreach (InterfaceImplementationHandle interfaceHandle
@@ -2098,6 +2141,8 @@ public static class ApiSurfaceExtractor
                         implementation.MethodDeclaration,
                         typeContext,
                         referenceProjection,
+                        signatureBuilder,
+                        platformNormalizedSignatureBuilder,
                         beforeDecodeWork);
                     declarationContexts.Add(
                         implementation.MethodDeclaration,
@@ -2113,6 +2158,32 @@ public static class ApiSurfaceExtractor
                         declaringType,
                         declarationContext,
                         implementedInterfaces);
+                if (targetKind == MethodImplTargetKind.Interface)
+                {
+                    if (!bodySignatureIdentities.TryGetValue(
+                            body,
+                            out MethodSignatureIdentity?
+                                bodySignatureIdentity))
+                    {
+                        bodySignatureIdentity =
+                            MethodImplSignatureIdentity(
+                                reader,
+                                body,
+                                signatureBuilder);
+                        bodySignatureIdentities.Add(
+                            body,
+                            bodySignatureIdentity);
+                    }
+                    if (bodySignatureIdentity is null
+                        || declarationContext
+                                .DeclarationSignatureIdentity
+                            is not { } declarationSignatureIdentity
+                        || bodySignatureIdentity
+                            != declarationSignatureIdentity)
+                    {
+                        targetKind = MethodImplTargetKind.Unknown;
+                    }
+                }
                 if (!HasExplicitInterfaceImplementationShape(
                         reader.GetMethodDefinition(body))
                     || targetKind == MethodImplTargetKind.NonInterface)
@@ -2132,26 +2203,66 @@ public static class ApiSurfaceExtractor
                             declarationMemberName:
                                 declarationContext.DeclarationMemberName,
                             interfaceTypeIdentity:
-                                declarationContext.InterfaceTypeIdentity);
+                                declarationContext.InterfaceTypeIdentity,
+                            platformNormalizedInterfaceTypeIdentity:
+                                declarationContext
+                                    .PlatformNormalizedInterfaceTypeIdentity,
+                            declarationSignatureIdentity:
+                                declarationContext
+                                    .DeclarationSignatureIdentity,
+                            platformNormalizedDeclarationSignatureIdentity:
+                                declarationContext
+                                    .PlatformNormalizedDeclarationSignatureIdentity);
                 }
 
                 if (!handles.TryGetValue(
                         body,
-                        out HashSet<ApiExplicitInterfaceDeclarationContext>?
+                        out List<ApiExplicitInterfaceDeclarationContext>?
                         declarations))
                 {
                     declarations = [];
                     handles.Add(body, declarations);
                 }
-                declarations.Add(declarationContext);
+                if (!seenDeclarations.TryGetValue(
+                        body,
+                        out HashSet<
+                            ApiExplicitInterfaceDeclarationContext>?
+                            seen))
+                {
+                    seen = [];
+                    seenDeclarations.Add(body, seen);
+                }
+                if (seen.Add(declarationContext))
+                    declarations.Add(declarationContext);
             }
         }
 
         return handles.ToDictionary(
             static pair => pair.Key,
             pair => new ApiExplicitInterfaceProvenance(
-                pair.Value.ToImmutableArray()),
+                [.. pair.Value]),
             EqualityComparer<MethodDefinitionHandle>.Default);
+
+        bool NormalizePlatformSignatureScope(
+            MetadataReader scopeReader,
+            EntityHandle type)
+        {
+            if (platformSignatureScopes.TryGetValue(
+                    type,
+                    out bool normalize))
+            {
+                return normalize;
+            }
+
+            normalize =
+                PlatformStructuralSignatureScope
+                    .IsTrustedPlatformType(
+                        scopeReader,
+                        type,
+                        currentAssemblyHasPlatformIdentityTrust);
+            platformSignatureScopes.Add(type, normalize);
+            return normalize;
+        }
     }
 
     private static bool SameExplicitInterfaceDefinition(
@@ -2265,7 +2376,9 @@ public static class ApiSurfaceExtractor
             ApiExplicitInterfaceProvenance> implementations,
         params MethodDefinitionHandle[] accessors)
     {
-        HashSet<ApiExplicitInterfaceDeclarationContext>? declarations =
+        List<ApiExplicitInterfaceDeclarationContext>? declarations =
+            null;
+        HashSet<ApiExplicitInterfaceDeclarationContext>? seen =
             null;
         foreach (MethodDefinitionHandle accessor in accessors)
         {
@@ -2275,15 +2388,20 @@ public static class ApiSurfaceExtractor
                     out ApiExplicitInterfaceProvenance? provenance))
             {
                 declarations ??= [];
-                declarations.UnionWith(
-                    provenance.Declarations);
+                seen ??= [];
+                foreach (ApiExplicitInterfaceDeclarationContext declaration
+                    in provenance.Declarations)
+                {
+                    if (seen.Add(declaration))
+                        declarations.Add(declaration);
+                }
             }
         }
 
         return declarations is null
             ? null
             : new ApiExplicitInterfaceProvenance(
-                declarations.ToImmutableArray());
+                [.. declarations]);
     }
 
     private static ApiExplicitInterfaceDeclarationContext
@@ -2292,6 +2410,9 @@ public static class ApiSurfaceExtractor
         EntityHandle declaration,
         GenericContext typeContext,
         AssemblyReferenceProjectionCache referenceProjection,
+        StructuralSignatureBuilder signatureBuilder,
+        StructuralSignatureBuilder
+            platformNormalizedSignatureBuilder,
         Action<int>? beforeDecodeWork)
     {
         EntityHandle declaringType =
@@ -2311,13 +2432,88 @@ public static class ApiSurfaceExtractor
                 typeContext,
                 referenceProjection,
                 beforeDecodeWork);
+        MethodSignatureIdentity? declarationSignatureIdentity =
+            MethodImplSignatureIdentity(
+                reader,
+                declaration,
+                signatureBuilder);
+        MethodSignatureIdentity?
+            platformNormalizedDeclarationSignatureIdentity =
+                typeContextResult.Assembly is { } assembly
+                && PlatformKeys.IsPlatform(
+                    assembly.PublicKeyToken)
+                    ? MethodImplSignatureIdentity(
+                        reader,
+                        declaration,
+                        platformNormalizedSignatureBuilder)
+                    : null;
         return new ApiExplicitInterfaceDeclarationContext(
             typeContextResult.Kind,
             typeContextResult.DefinitionName,
             typeContextResult.Assembly,
             typeContextResult.InterfaceTypeName,
             declarationMemberName,
-            typeContextResult.InterfaceTypeIdentity);
+            typeContextResult.InterfaceTypeIdentity,
+            typeContextResult
+                .PlatformNormalizedInterfaceTypeIdentity,
+            declarationSignatureIdentity,
+            platformNormalizedDeclarationSignatureIdentity);
+    }
+
+    private static MethodSignatureIdentity?
+        MethodImplSignatureIdentity(
+        MetadataReader reader,
+        EntityHandle method,
+        StructuralSignatureBuilder signatureBuilder)
+    {
+        try
+        {
+            return method.Kind switch
+            {
+                HandleKind.MethodDefinition =>
+                    signatureBuilder.BuildSignature(
+                        reader.GetMethodDefinition(
+                            (MethodDefinitionHandle)method)),
+                HandleKind.MemberReference =>
+                    MethodImplMemberReferenceSignatureIdentity(
+                        reader,
+                        (MemberReferenceHandle)method,
+                        signatureBuilder),
+                _ => throw new BadImageFormatException(
+                    "A MethodImpl method must be a MethodDef or MemberRef."),
+            };
+        }
+        catch (BadImageFormatException)
+        {
+            return null;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return null;
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+        catch (OverflowException)
+        {
+            return null;
+        }
+    }
+
+    private static MethodSignatureIdentity
+        MethodImplMemberReferenceSignatureIdentity(
+        MetadataReader reader,
+        MemberReferenceHandle handle,
+        StructuralSignatureBuilder signatureBuilder)
+    {
+        MemberReference method =
+            reader.GetMemberReference(handle);
+        return method.Parent.Kind == HandleKind.TypeSpecification
+            ? signatureBuilder.BuildSignature(
+                method,
+                (TypeSpecificationHandle)method.Parent)
+            : signatureBuilder.BuildSignature(method);
     }
 
     private static string? MethodDeclarationName(
@@ -2489,13 +2685,22 @@ public static class ApiSurfaceExtractor
                 context.DefinitionName,
                 interfaceTypeName: interfaceTypeName);
         }
+        string interfaceTypeIdentity =
+            interfaceType.StructuralIdentity();
+        string? platformNormalizedInterfaceTypeIdentity =
+            context.Assembly is { } assembly
+            && PlatformKeys.IsPlatform(assembly.PublicKeyToken)
+                ? interfaceType
+                    .PlatformNormalizedStructuralIdentity()
+                : null;
         return new ApiExplicitInterfaceDeclarationContext(
             context.Kind,
             context.DefinitionName,
             context.Assembly,
             interfaceTypeName,
             context.DeclarationMemberName,
-            interfaceType.StructuralIdentity());
+            interfaceTypeIdentity,
+            platformNormalizedInterfaceTypeIdentity);
     }
 
     private static MetadataTypeDefinitionName? ReadDefinitionName(
@@ -5255,6 +5460,21 @@ public static class ApiSurfaceExtractor
             AddText(ref count, declaration.Assembly?.PublicKeyToken);
             AddText(ref count, declaration.InterfaceTypeName);
             AddText(ref count, declaration.DeclarationMemberName);
+            AddText(ref count, declaration.InterfaceTypeIdentity);
+            AddText(
+                ref count,
+                declaration
+                    .PlatformNormalizedInterfaceTypeIdentity);
+            AddText(
+                ref count,
+                declaration
+                    .DeclarationSignatureIdentity
+                    ?.Encoded);
+            AddText(
+                ref count,
+                declaration
+                    .PlatformNormalizedDeclarationSignatureIdentity
+                    ?.Encoded);
         }
     }
 

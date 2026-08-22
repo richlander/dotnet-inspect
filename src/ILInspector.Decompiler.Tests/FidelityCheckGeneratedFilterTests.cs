@@ -457,9 +457,11 @@ public class FidelityCheckGeneratedFilterTests
             """
             namespace PlatformForwarded;
 
-            public sealed class Target : System.IEquatable<int>
+            public sealed class Target :
+                System.IEquatable<System.DateTime>
             {
-                bool System.IEquatable<int>.Equals(int value) => true;
+                bool System.IEquatable<System.DateTime>.Equals(
+                    System.DateTime value) => true;
             }
             """,
             references: ReferencePackReferences(),

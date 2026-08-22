@@ -195,4 +195,56 @@ public sealed class StructuralTypeIdentityTests
         Assert.DoesNotContain("List{TM0}", functionPointer.StructuralIdentity(), StringComparison.Ordinal);
         Assert.False(list.HasStructuralPayload);
     }
+
+    [Fact]
+    public void ScopedGenericIdentityPreservesScopeNameBoundariesKindAndEveryArgument()
+    {
+        var scoped = new ScopedNamedTypeIdentity(
+            "assembly-a",
+            "platform",
+            RawTypeKind: 0x12);
+        var namespaced = new MetadataTypeNameParts(
+            "Collision.Outer",
+            ["IValue`1"]);
+        var nested = new MetadataTypeNameParts(
+            "Collision",
+            ["Outer", "IValue`1"]);
+        string first = scoped.Generic(
+            namespaced,
+            ["System.Int32", "System.String"],
+            normalizePlatform: false);
+
+        Assert.NotEqual(
+            first,
+            scoped.Generic(
+                namespaced,
+                ["System.Int32", "System.Object"],
+                normalizePlatform: false));
+        Assert.NotEqual(
+            first,
+            scoped.Generic(
+                nested,
+                ["System.Int32", "System.String"],
+                normalizePlatform: false));
+        Assert.NotEqual(
+            first,
+            new ScopedNamedTypeIdentity(
+                "assembly-b",
+                "platform",
+                RawTypeKind: 0x12)
+            .Generic(
+                namespaced,
+                ["System.Int32", "System.String"],
+                normalizePlatform: false));
+        Assert.NotEqual(
+            first,
+            new ScopedNamedTypeIdentity(
+                "assembly-a",
+                "platform",
+                RawTypeKind: 0x11)
+            .Generic(
+                namespaced,
+                ["System.Int32", "System.String"],
+                normalizePlatform: false));
+    }
 }

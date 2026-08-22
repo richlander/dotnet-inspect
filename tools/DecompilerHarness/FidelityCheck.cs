@@ -4994,7 +4994,17 @@ static class FidelityCheck
                 // index the whole surface — otherwise internal/private targets
                 // silently miss the migration and retain the legacy signature
                 // emitter this change replaces (#3062 review).
-                foreach (var type in ApiSurfaceExtractor.Extract(p, includeAll: true).Types)
+                MetadataReader reader =
+                    p.GetMetadataReader();
+                foreach (var type in ApiSurfaceExtractor.Extract(
+                    p,
+                    ApiSurfaceExtractionScope.IncludeAll,
+                    typesOnly: false,
+                    includeCompilerGenerated: false,
+                    currentAssemblyHasPlatformIdentityTrust:
+                        CoreLibraryIdentityTrust
+                            .MayMintCoreLibraryIdentity(reader))
+                    .Types)
                     foreach (var member in type.Members)
                     {
                         if (member.MetadataToken is { } token)
@@ -6500,19 +6510,45 @@ static class FidelityCheck
         if (expected.Kind != actual.Kind
             || expected.DefinitionName != actual.DefinitionName
             || expected.InterfaceTypeName != actual.InterfaceTypeName
-            || expected.InterfaceTypeIdentity
-                != actual.InterfaceTypeIdentity
             || expected.DeclarationMemberName
                 != actual.DeclarationMemberName)
         {
             return false;
         }
         if (expected.Assembly == actual.Assembly)
-            return true;
-        return expected.Assembly is { } expectedAssembly
+        {
+            return expected.InterfaceTypeIdentity
+                    == actual.InterfaceTypeIdentity
+                && expected.DeclarationSignatureIdentity
+                    == actual.DeclarationSignatureIdentity;
+        }
+        bool platformAssemblyCorrespondence =
+            expected.Assembly is { } expectedAssembly
             && actual.Assembly is { } actualAssembly
             && IsPlatformAssembly(expectedAssembly)
             && IsPlatformAssembly(actualAssembly);
+        if (!platformAssemblyCorrespondence)
+            return false;
+
+        bool interfaceIdentityCorresponds =
+            expected.InterfaceTypeIdentity is null
+            || actual.InterfaceTypeIdentity is null
+                ? expected.InterfaceTypeIdentity
+                    == actual.InterfaceTypeIdentity
+                : expected.PlatformNormalizedInterfaceTypeIdentity
+                        is { } expectedNormalized
+                    && actual.PlatformNormalizedInterfaceTypeIdentity
+                        is { } actualNormalized
+                    && expectedNormalized == actualNormalized;
+        return interfaceIdentityCorresponds
+            && expected
+                    .PlatformNormalizedDeclarationSignatureIdentity
+                is { } expectedNormalizedSignature
+            && actual
+                    .PlatformNormalizedDeclarationSignatureIdentity
+                is { } actualNormalizedSignature
+            && expectedNormalizedSignature
+                == actualNormalizedSignature;
     }
 
     internal static bool ExplicitInterfaceDeclarationEqualsForTest(

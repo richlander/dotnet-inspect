@@ -16,6 +16,12 @@
   <ItemGroup>
     <InternalsVisibleTo Include="dotnet-inspect.Tests" />
     <InternalsVisibleTo Include="ILInspector.Metadata.Tests" />
+    <!-- The compile-back harness forwards the decompiler's acquisition-backed
+         current-assembly platform trust into API provenance extraction. -->
+    <InternalsVisibleTo Include="decompiler-harness" />
+    <!-- FidelityCheck is linked into this test host, which exercises the same
+         trust-bearing harness path without widening the product API. -->
+    <InternalsVisibleTo Include="ILInspector.Decompiler.Tests" />
     <!-- The renderer tests cross a subsystem boundary to build projection
          fixtures with the same containment policy the projector applies,
          rather than duplicating TextPolicy.Field in test code. This grants

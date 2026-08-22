@@ -14,6 +14,8 @@ using ILInspector.CSharp;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
+using GuardedSignatureText =
+    ILInspector.Decompiler.GuardedSignatureText;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.DecompilerHarness;

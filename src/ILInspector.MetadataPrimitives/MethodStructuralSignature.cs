@@ -37,6 +37,20 @@ public static class MethodStructuralSignature
 }
 
 /// <summary>
+/// Bounded structural identity for one ECMA-335 method signature.
+/// </summary>
+public sealed record MethodSignatureIdentity
+{
+    public MethodSignatureIdentity(string encoded)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(encoded);
+        Encoded = encoded;
+    }
+
+    public string Encoded { get; }
+}
+
+/// <summary>
 /// Builds a strict cross-module definition key for a metadata type, including
 /// every declaring segment and its generic-parameter constraints.
 /// </summary>
@@ -371,13 +385,17 @@ internal sealed class StructuralEncodedSignature
 {
     readonly int _hashCode;
 
-    internal StructuralEncodedSignature(string text)
+    internal StructuralEncodedSignature(
+        string text,
+        int genericParameterCount)
     {
         Text = text;
+        GenericParameterCount = genericParameterCount;
         _hashCode = StringComparer.Ordinal.GetHashCode(text);
     }
 
     internal string Text { get; }
+    internal int GenericParameterCount { get; }
 
     public bool Equals(StructuralEncodedSignature? other)
         => ReferenceEquals(this, other)
@@ -427,6 +445,7 @@ public sealed class StructuralSignatureBuilder
     readonly MetadataReader _reader;
     readonly IReadOnlyDictionary<TypeDefinitionHandle, string>? _typeNameOverrides;
     readonly StructuralSignatureWorkBudget _workBudget;
+    readonly Action<int>? _beforeEncodedWork;
     readonly StructuralSignatureTypeProvider _provider;
     readonly Dictionary<TypeDefinitionHandle, StructuralTypeKey> _typeKeys = [];
     readonly Dictionary<TypeDefinitionHandle, string> _typeSegments = [];
@@ -442,21 +461,43 @@ public sealed class StructuralSignatureBuilder
         : this(
             reader,
             typeNameOverrides,
-            new StructuralSignatureWorkBudget())
+            new StructuralSignatureWorkBudget(),
+            beforeEncodedWork: null,
+            normalizeNamedTypeScope: null)
+    {
+    }
+
+    internal StructuralSignatureBuilder(
+        MetadataReader reader,
+        Action<int>? beforeEncodedWork,
+        Func<MetadataReader, EntityHandle, bool>?
+            normalizeNamedTypeScope)
+        : this(
+            reader,
+            null,
+            new StructuralSignatureWorkBudget(),
+            beforeEncodedWork,
+            normalizeNamedTypeScope)
     {
     }
 
     internal StructuralSignatureBuilder(
         MetadataReader reader,
         IReadOnlyDictionary<TypeDefinitionHandle, string>? typeNameOverrides,
-        StructuralSignatureWorkBudget workBudget)
+        StructuralSignatureWorkBudget workBudget,
+        Action<int>? beforeEncodedWork = null,
+        Func<MetadataReader, EntityHandle, bool>?
+            normalizeNamedTypeScope = null)
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(workBudget);
         _reader = reader;
         _typeNameOverrides = typeNameOverrides;
         _workBudget = workBudget;
-        _provider = new StructuralSignatureTypeProvider(workBudget);
+        _beforeEncodedWork = beforeEncodedWork;
+        _provider = new StructuralSignatureTypeProvider(
+            workBudget,
+            normalizeNamedTypeScope);
     }
 
     /// <summary>Builds a method key, optionally substituting its name.</summary>
@@ -464,6 +505,40 @@ public sealed class StructuralSignatureBuilder
         MethodDefinition method,
         string? methodName = null)
         => BuildMethodKey(method, methodName).ToString();
+
+    /// <summary>
+    /// Builds only the bounded ECMA signature identity for a MethodDef.
+    /// </summary>
+    public MethodSignatureIdentity BuildSignature(
+        MethodDefinition method)
+        => StructuralSignatureKey.Build(_reader, () =>
+            new MethodSignatureIdentity(
+                BuildMethodSignature(method).Text));
+
+    /// <summary>
+    /// Builds only the bounded ECMA signature identity for a method MemberRef.
+    /// </summary>
+    public MethodSignatureIdentity BuildSignature(
+        MemberReference method)
+        => StructuralSignatureKey.Build(_reader, () =>
+            new MethodSignatureIdentity(
+                BuildMethodSignature(method).Text));
+
+    /// <summary>
+    /// Builds a method MemberRef signature after substituting the generic type
+    /// arguments carried by its TypeSpec parent.
+    /// </summary>
+    public MethodSignatureIdentity BuildSignature(
+        MemberReference method,
+        TypeSpecificationHandle declaringType)
+        => StructuralSignatureKey.Build(_reader, () =>
+            new MethodSignatureIdentity(
+                BuildMethodSignature(
+                    method,
+                    _provider.GetTypeSpecificationContext(
+                        _reader,
+                        declaringType))
+                .Text));
 
     internal StructuralMethodKey BuildMethodKey(
         MethodDefinition method,
@@ -526,21 +601,77 @@ public sealed class StructuralSignatureBuilder
 
     StructuralEncodedSignature BuildMethodSignature(MethodDefinition method)
     {
-        if (_methodSignatures.TryGetValue(method.Signature, out var signatureKey))
-            return signatureKey;
-
-        _workBudget.EnsureAvailable();
-        if (!SignatureBlobGuard.IsSafeToDecode(
-                _reader,
+        StructuralEncodedSignature signatureKey =
+            BuildMethodSignature(
                 method.Signature,
-                SignatureBlobGuard.Kind.Method))
+                () => GuardedSignatureDecoder.Decode(
+                    _reader,
+                    method.Signature,
+                    SignatureBlobGuard.Kind.Method,
+                    () => method.DecodeSignature(
+                        _provider,
+                        genericContext: null))
+                .GetValueOrThrow());
+        GenericParameterHandleCollection genericParameters =
+            method.GetGenericParameters();
+        if (genericParameters.Count
+            != signatureKey.GenericParameterCount)
         {
             throw new BadImageFormatException(
-                "The method signature exceeds the structural safety limit.");
+                "The MethodDef generic-parameter rows do not match its signature header.");
+        }
+        GenericContext.ValidateParameterIndices(
+            _reader,
+            genericParameters);
+        return signatureKey;
+    }
+
+    StructuralEncodedSignature BuildMethodSignature(
+        MemberReference method)
+        => BuildMethodSignature(
+            method.Signature,
+            () => GuardedSignatureDecoder.Decode(
+                _reader,
+                method.Signature,
+                SignatureBlobGuard.Kind.Method,
+                () => method.DecodeMethodSignature(
+                    _provider,
+                    genericContext: null))
+            .GetValueOrThrow());
+
+    StructuralEncodedSignature BuildMethodSignature(
+        MemberReference method,
+        object? genericContext)
+        => genericContext is null
+            ? BuildMethodSignature(method)
+            : BuildMethodSignature(
+                method.Signature,
+                () => GuardedSignatureDecoder.Decode(
+                    _reader,
+                    method.Signature,
+                    SignatureBlobGuard.Kind.Method,
+                    () => method.DecodeMethodSignature(
+                        _provider,
+                        genericContext))
+                .GetValueOrThrow(),
+                cache: false);
+
+    StructuralEncodedSignature BuildMethodSignature(
+        BlobHandle signatureHandle,
+        Func<MethodSignature<StructuralSignatureType>> decode,
+        bool cache = true)
+    {
+        if (cache
+            && _methodSignatures.TryGetValue(
+                signatureHandle,
+                out var signatureKey))
+        {
+            return signatureKey;
         }
 
+        _workBudget.EnsureAvailable();
         MethodSignature<StructuralSignatureType> signature =
-            method.DecodeSignature(_provider, null);
+            decode();
         int encodedLength =
             StructuralSignatureKey.MethodSignatureLength(signature);
         if (encodedLength > MetadataSafetyPolicy.MaxStructuralSignatureChars)
@@ -548,11 +679,15 @@ public sealed class StructuralSignatureBuilder
             throw new BadImageFormatException(
                 "The method signature exceeds the encoded-character budget.");
         }
+        _beforeEncodedWork?.Invoke(encodedLength);
         _workBudget.Charge(encodedLength);
         var builder = new StringBuilder(encodedLength);
         StructuralSignatureKey.AppendMethodSignature(builder, signature);
-        signatureKey = new StructuralEncodedSignature(builder.ToString());
-        _methodSignatures.Add(method.Signature, signatureKey);
+        signatureKey = new StructuralEncodedSignature(
+            builder.ToString(),
+            signature.GenericParameterCount);
+        if (cache)
+            _methodSignatures.Add(signatureHandle, signatureKey);
         return signatureKey;
     }
 }
@@ -1003,6 +1138,9 @@ sealed class GenericInstantiationStructuralSignatureType
         _typeArguments = typeArguments;
     }
 
+    internal ImmutableArray<StructuralSignatureType>
+        TypeArguments => _typeArguments;
+
     static int GetLength(
         StructuralSignatureType genericType,
         ImmutableArray<StructuralSignatureType> typeArguments)
@@ -1081,13 +1219,20 @@ sealed class StructuralSignatureTypeProvider
     : ISignatureTypeProvider<StructuralSignatureType, object?>
 {
     readonly StructuralSignatureWorkBudget _workBudget;
+    readonly Func<MetadataReader, EntityHandle, bool>?
+        _normalizeNamedTypeScope;
     readonly Dictionary<EntityHandle, string> _constraintTypes = [];
     readonly Dictionary<BlobHandle, string> _constraintTypeSpecifications = [];
     readonly Dictionary<BlobHandle, StructuralSignatureType> _typeSpecifications = [];
 
     internal StructuralSignatureTypeProvider(
-        StructuralSignatureWorkBudget workBudget)
-        => _workBudget = workBudget;
+        StructuralSignatureWorkBudget workBudget,
+        Func<MetadataReader, EntityHandle, bool>?
+            normalizeNamedTypeScope = null)
+    {
+        _workBudget = workBudget;
+        _normalizeNamedTypeScope = normalizeNamedTypeScope;
+    }
 
     public StructuralSignatureType GetPrimitiveType(
         PrimitiveTypeCode typeCode)
@@ -1100,24 +1245,36 @@ sealed class StructuralSignatureTypeProvider
         MetadataReader reader,
         TypeDefinitionHandle handle,
         byte rawTypeKind)
-        => NamedTypeUse(
+    {
+        bool normalizeScope =
+            NormalizeNamedTypeScope(reader, handle);
+        return NamedTypeUse(
             reader,
-            'd',
+            normalizeScope ? 'p' : 'd',
             rawTypeKind,
             StructuralTypeName.OfDefinition(
                 reader,
                 handle,
-                typeNameOverrides: null));
+                typeNameOverrides: null,
+                normalizeScope));
+    }
 
     public StructuralSignatureType GetTypeFromReference(
         MetadataReader reader,
         TypeReferenceHandle handle,
         byte rawTypeKind)
-        => NamedTypeUse(
+    {
+        bool normalizeScope =
+            NormalizeNamedTypeScope(reader, handle);
+        return NamedTypeUse(
             reader,
-            'r',
+            normalizeScope ? 'p' : 'r',
             rawTypeKind,
-            StructuralTypeName.OfReference(reader, handle));
+            StructuralTypeName.OfReference(
+                reader,
+                handle,
+                normalizeScope));
+    }
 
     public StructuralSignatureType GetTypeFromSpecification(
         MetadataReader reader,
@@ -1160,23 +1317,30 @@ sealed class StructuralSignatureTypeProvider
             }
         }
 
+        bool normalizeScope =
+            handle.Kind
+                is HandleKind.TypeDefinition
+                    or HandleKind.TypeReference
+            && NormalizeNamedTypeScope(reader, handle);
         StructuralSignatureType type = handle.Kind switch
         {
             HandleKind.TypeDefinition =>
                 new PartPrefixStructuralSignatureType(
-                    'd',
+                    normalizeScope ? 'p' : 'd',
                     NamedType(
                         StructuralTypeName.OfDefinition(
                             reader,
                             (TypeDefinitionHandle)handle,
-                            typeNameOverrides: null))),
+                            typeNameOverrides: null,
+                            normalizeScope))),
             HandleKind.TypeReference =>
                 new PartPrefixStructuralSignatureType(
-                    'r',
+                    normalizeScope ? 'p' : 'r',
                     NamedType(
                         StructuralTypeName.OfReference(
                             reader,
-                            (TypeReferenceHandle)handle))),
+                            (TypeReferenceHandle)handle,
+                            normalizeScope))),
             HandleKind.TypeSpecification =>
                 new PartPrefixStructuralSignatureType(
                     's',
@@ -1208,8 +1372,13 @@ sealed class StructuralSignatureTypeProvider
         object? context)
     {
         BlobHandle signature = reader.GetTypeSpecification(handle).Signature;
-        if (_typeSpecifications.TryGetValue(signature, out var decoded))
+        if (context is null
+            && _typeSpecifications.TryGetValue(
+                signature,
+                out var decoded))
+        {
             return decoded;
+        }
 
         if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
         {
@@ -1221,9 +1390,23 @@ sealed class StructuralSignatureTypeProvider
             decoded = reader.GetTypeSpecification(handle)
                 .DecodeSignature(this, context);
         }
-        _typeSpecifications.Add(signature, decoded);
+        // A MemberRef whose parent is a constructed TypeSpec supplies a
+        // substitution context. The same nested TypeSpec blob can therefore
+        // decode differently for two parents; only open/null-context decodes
+        // are context-independent and safe to cache by blob.
+        if (context is null)
+            _typeSpecifications.TryAdd(signature, decoded);
         return decoded;
     }
+
+    internal object? GetTypeSpecificationContext(
+        MetadataReader reader,
+        TypeSpecificationHandle handle)
+        => DecodeTypeSpecification(reader, handle, context: null)
+            is GenericInstantiationStructuralSignatureType generic
+                ? new StructuralSignatureGenericContext(
+                    generic.TypeArguments)
+                : null;
 
     public StructuralSignatureType GetSZArrayType(
         StructuralSignatureType elementType)
@@ -1256,8 +1439,15 @@ sealed class StructuralSignatureTypeProvider
     public StructuralSignatureType GetGenericTypeParameter(
         object? context,
         int index)
-        => Encoded(
-            "t" + index.ToString(CultureInfo.InvariantCulture) + ";");
+        => context is StructuralSignatureGenericContext substitution
+            ? substitution.TypeArguments[
+                ValidateTypeArgumentIndex(
+                    substitution.TypeArguments,
+                    index)]
+            : Encoded(
+                "t"
+                + index.ToString(CultureInfo.InvariantCulture)
+                + ";");
 
     public StructuralSignatureType GetGenericMethodParameter(
         object? context,
@@ -1320,14 +1510,36 @@ sealed class StructuralSignatureTypeProvider
 
     static StructuralSignatureType Encoded(string encoded)
         => new EncodedStructuralSignatureType(encoded);
+
+    bool NormalizeNamedTypeScope(
+        MetadataReader reader,
+        EntityHandle handle)
+        => _normalizeNamedTypeScope?.Invoke(reader, handle)
+            is true;
+
+    static int ValidateTypeArgumentIndex(
+        ImmutableArray<StructuralSignatureType> typeArguments,
+        int index)
+    {
+        if ((uint)index >= (uint)typeArguments.Length)
+        {
+            throw new BadImageFormatException(
+                "A generic type parameter index exceeds the TypeSpec argument list.");
+        }
+        return index;
+    }
 }
+
+sealed record StructuralSignatureGenericContext(
+    ImmutableArray<StructuralSignatureType> TypeArguments);
 
 static class StructuralTypeName
 {
     internal static string OfDefinition(
         MetadataReader reader,
         TypeDefinitionHandle handle,
-        IReadOnlyDictionary<TypeDefinitionHandle, string>? typeNameOverrides)
+        IReadOnlyDictionary<TypeDefinitionHandle, string>? typeNameOverrides,
+        bool normalizeScope = false)
     {
         Span<TypeDefinitionHandle> chain =
             stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -1345,7 +1557,8 @@ static class StructuralTypeName
                 rejection?.Detail ?? "The type has an invalid declaring-type chain.");
         }
 
-        var builder = new StringBuilder("D");
+        var builder = new StringBuilder(
+            normalizeScope ? "P" : "D");
         var outer = reader.GetTypeDefinition(chain[0]);
         StructuralSignatureKey.AppendPart(
             builder,
@@ -1369,7 +1582,8 @@ static class StructuralTypeName
 
     internal static string OfReference(
         MetadataReader reader,
-        TypeReferenceHandle handle)
+        TypeReferenceHandle handle,
+        bool normalizeScope = false)
     {
         Span<TypeReferenceHandle> chain =
             stackalloc TypeReferenceHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -1386,10 +1600,16 @@ static class StructuralTypeName
                 rejection?.Detail ?? "The type has an invalid resolution-scope chain.");
         }
 
-        var builder = new StringBuilder("R");
-        StructuralSignatureKey.AppendPart(
-            builder,
-            StructuralSignatureKey.ReferenceScope(reader, terminal));
+        var builder = new StringBuilder(
+            normalizeScope ? "P" : "R");
+        if (!normalizeScope)
+        {
+            StructuralSignatureKey.AppendPart(
+                builder,
+                StructuralSignatureKey.ReferenceScope(
+                    reader,
+                    terminal));
+        }
         var outer = reader.GetTypeReference(chain[0]);
         StructuralSignatureKey.AppendPart(
             builder,

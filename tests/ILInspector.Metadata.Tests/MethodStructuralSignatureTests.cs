@@ -98,6 +98,219 @@ public sealed class MethodStructuralSignatureTests
     }
 
     [Fact]
+    public void BuildSignature_PreservesMethodImplCorrespondenceFields()
+    {
+        using var image = new MetadataImage(
+            typeof(MethodStructuralSignatureTests).Assembly.Location);
+        TypeDefinitionHandle fixture = FindType(
+            image.Reader,
+            nameof(StructuralSignatureFixture));
+        TypeDefinitionHandle contract = FindType(
+            image.Reader,
+            nameof(IStructuralSignatureFixture));
+        var builder = new StructuralSignatureBuilder(image.Reader);
+
+        MethodSignatureIdentity Signature(
+            TypeDefinitionHandle type,
+            string methodName)
+            => builder.BuildSignature(
+                image.Reader.GetMethodDefinition(
+                    FindMethod(
+                        image.Reader,
+                        type,
+                        methodName)));
+
+        Assert.NotEqual(
+            Signature(
+                fixture,
+                nameof(StructuralSignatureFixture.Transform)),
+            Signature(
+                fixture,
+                nameof(StructuralSignatureFixture.TransformText)));
+        Assert.NotEqual(
+            Signature(
+                fixture,
+                nameof(StructuralSignatureFixture.InstanceNoArgs)),
+            Signature(
+                fixture,
+                nameof(StructuralSignatureFixture.StaticNoArgs)));
+        Assert.NotEqual(
+            Signature(
+                fixture,
+                nameof(StructuralSignatureFixture.GenericArity)),
+            Signature(
+                fixture,
+                nameof(StructuralSignatureFixture.NonGenericArity)));
+        Assert.NotEqual(
+            Signature(
+                fixture,
+                nameof(StructuralSignatureFixture.ReturnRef)),
+            Signature(
+                fixture,
+                nameof(StructuralSignatureFixture.ReturnRefReadonly)));
+        Assert.NotEqual(
+            Signature(
+                contract,
+                nameof(IStructuralSignatureFixture.Consume)),
+            Signature(
+                contract,
+                nameof(IStructuralSignatureFixture.ConsumeRef)));
+        Assert.NotEqual(
+            Signature(
+                fixture,
+                nameof(StructuralSignatureFixture.FnPtrManaged)),
+            Signature(
+                fixture,
+                nameof(StructuralSignatureFixture.FnPtrUnmanaged)));
+    }
+
+    [Fact]
+    public void BuildSignature_NormalizesOnlyTrustedPlatformTypeScopes()
+    {
+        using var localImage = new MetadataImage(
+            typeof(MethodStructuralSignatureTests).Assembly.Location);
+        using var platformImage = new MetadataImage(
+            typeof(object).Assembly.Location);
+        MethodDefinition localDeclaration =
+            localImage.Reader.GetMethodDefinition(
+                FindMethod(
+                    localImage.Reader,
+                    FindType(
+                        localImage.Reader,
+                        nameof(IPlatformSignatureFixture)),
+                    nameof(
+                        IPlatformSignatureFixture.GetEnumerator)));
+        MethodDefinition platformDeclaration =
+            platformImage.Reader.GetMethodDefinition(
+                FindMethod(
+                    platformImage.Reader,
+                    FindType(
+                        platformImage.Reader,
+                        "System.Collections",
+                        "IEnumerable"),
+                    nameof(
+                        System.Collections.IEnumerable
+                            .GetEnumerator)));
+
+        MethodSignatureIdentity localExact =
+            new StructuralSignatureBuilder(
+                localImage.Reader)
+            .BuildSignature(localDeclaration);
+        MethodSignatureIdentity platformExact =
+            new StructuralSignatureBuilder(
+                platformImage.Reader)
+            .BuildSignature(platformDeclaration);
+        MethodSignatureIdentity localNormalized =
+            new StructuralSignatureBuilder(
+                localImage.Reader,
+                beforeEncodedWork: null,
+                normalizeNamedTypeScope:
+                    (reader, handle) =>
+                        PlatformStructuralSignatureScope
+                            .IsTrustedPlatformType(
+                                reader,
+                                handle))
+            .BuildSignature(localDeclaration);
+        MethodSignatureIdentity
+            untrustedPlatformDefinitionNormalized =
+                new StructuralSignatureBuilder(
+                    platformImage.Reader,
+                    beforeEncodedWork: null,
+                    normalizeNamedTypeScope:
+                        (reader, handle) =>
+                            PlatformStructuralSignatureScope
+                                .IsTrustedPlatformType(
+                                    reader,
+                                    handle))
+                .BuildSignature(
+                    platformDeclaration);
+        MethodSignatureIdentity platformNormalized =
+            new StructuralSignatureBuilder(
+                platformImage.Reader,
+                beforeEncodedWork: null,
+                normalizeNamedTypeScope:
+                    (reader, handle) =>
+                        PlatformStructuralSignatureScope
+                            .IsTrustedPlatformType(
+                                reader,
+                                handle,
+                                currentAssemblyHasPlatformIdentityTrust:
+                                    true))
+            .BuildSignature(platformDeclaration);
+
+        Assert.NotEqual(localExact, platformExact);
+        Assert.NotEqual(
+            localNormalized,
+            untrustedPlatformDefinitionNormalized);
+        Assert.Equal(
+            localNormalized,
+            platformNormalized);
+
+        MethodDefinition nonPlatformMethod =
+            localImage.Reader.GetMethodDefinition(
+                FindMethod(
+                    localImage.Reader,
+                    FindType(
+                        localImage.Reader,
+                        nameof(StructuralSignatureFixture)),
+                    nameof(
+                        StructuralSignatureFixture.Nested)));
+        Assert.Equal(
+            new StructuralSignatureBuilder(
+                localImage.Reader)
+            .BuildSignature(nonPlatformMethod),
+            new StructuralSignatureBuilder(
+                localImage.Reader,
+                beforeEncodedWork: null,
+                normalizeNamedTypeScope:
+                    (reader, handle) =>
+                        PlatformStructuralSignatureScope
+                            .IsTrustedPlatformType(
+                                reader,
+                                handle))
+            .BuildSignature(nonPlatformMethod));
+    }
+
+    [Fact]
+    public void BuildSignature_ChargesEncodedWorkOnlyOnCacheMiss()
+    {
+        using var image = new MetadataImage(
+            typeof(MethodStructuralSignatureTests).Assembly.Location);
+        TypeDefinitionHandle fixture = FindType(
+            image.Reader,
+            nameof(StructuralSignatureFixture));
+        MethodDefinition first =
+            image.Reader.GetMethodDefinition(
+                FindMethod(
+                    image.Reader,
+                    fixture,
+                    nameof(
+                        StructuralSignatureFixture.ByValue)));
+        MethodDefinition second =
+            image.Reader.GetMethodDefinition(
+                FindMethod(
+                    image.Reader,
+                    fixture,
+                    nameof(
+                        StructuralSignatureFixture.ByValueAgain)));
+        Assert.Equal(first.Signature, second.Signature);
+        int charged = 0;
+        var builder = new StructuralSignatureBuilder(
+            image.Reader,
+            amount => charged = checked(charged + amount),
+            normalizeNamedTypeScope: null);
+
+        MethodSignatureIdentity firstIdentity =
+            builder.BuildSignature(first);
+        Assert.Equal(firstIdentity.Encoded.Length, charged);
+        MethodSignatureIdentity secondIdentity =
+            builder.BuildSignature(second);
+
+        Assert.Equal(firstIdentity, secondIdentity);
+        Assert.Equal(firstIdentity.Encoded.Length, charged);
+    }
+
+    [Fact]
     public void Build_DistinguishesSameNameTypesFromDifferentAssemblies()
     {
         // DiffAsmTarget.Api has two Ping overloads whose parameter types share
@@ -439,6 +652,27 @@ public sealed class MethodStructuralSignatureTests
         throw new InvalidOperationException($"Type '{typeName}' was not found.");
     }
 
+    static TypeDefinitionHandle FindType(
+        MetadataReader reader,
+        string @namespace,
+        string typeName)
+    {
+        foreach (TypeDefinitionHandle typeHandle
+            in reader.TypeDefinitions)
+        {
+            TypeDefinition type =
+                reader.GetTypeDefinition(typeHandle);
+            if (reader.GetString(type.Namespace) == @namespace
+                && reader.GetString(type.Name) == typeName)
+            {
+                return typeHandle;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Type '{@namespace}.{typeName}' was not found.");
+    }
+
     static MethodDefinitionHandle FindMethod(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
@@ -549,6 +783,10 @@ public sealed class StructuralSignatureFixture
 
     public void GenericRenamed<TOther>(TOther item) => _ = item;
 
+    public void GenericArity<T>(int value) => _ = value;
+
+    public void NonGenericArity(int value) => _ = value;
+
     public string TransformText(string value) => value;
 
     public void ByRef(ref int value) => value++;
@@ -556,6 +794,11 @@ public sealed class StructuralSignatureFixture
     public void ByValue(int value) => _ = value;
 
     public void ByValueAgain(int value) => _ = value;
+
+    public ref int ReturnRef(ref int value) => ref value;
+
+    public ref readonly int ReturnRefReadonly(ref int value)
+        => ref value;
 
     public void In(in int value) => _ = value;
 
@@ -609,6 +852,11 @@ public interface IStructuralSignatureFixture
     void ConsumeRef(ref int value);
 
     void ConsumeValue(int value);
+}
+
+public interface IPlatformSignatureFixture
+{
+    System.Collections.IEnumerator GetEnumerator();
 }
 
 public sealed class ReferenceConstrainedFixture<T>

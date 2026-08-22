@@ -859,7 +859,11 @@ public sealed record ApiExplicitInterfaceDeclarationContext
         AssemblyReferenceIdentity? assembly = null,
         string? interfaceTypeName = null,
         string? declarationMemberName = null,
-        string? interfaceTypeIdentity = null)
+        string? interfaceTypeIdentity = null,
+        string? platformNormalizedInterfaceTypeIdentity = null,
+        MethodSignatureIdentity? declarationSignatureIdentity = null,
+        MethodSignatureIdentity?
+            platformNormalizedDeclarationSignatureIdentity = null)
     {
         if (kind == ApiExplicitInterfaceDeclarationKind.External
             && assembly is null)
@@ -882,6 +886,12 @@ public sealed record ApiExplicitInterfaceDeclarationContext
         InterfaceTypeName = interfaceTypeName;
         DeclarationMemberName = declarationMemberName;
         InterfaceTypeIdentity = interfaceTypeIdentity;
+        PlatformNormalizedInterfaceTypeIdentity =
+            platformNormalizedInterfaceTypeIdentity;
+        DeclarationSignatureIdentity =
+            declarationSignatureIdentity;
+        PlatformNormalizedDeclarationSignatureIdentity =
+            platformNormalizedDeclarationSignatureIdentity;
     }
 
     public ApiExplicitInterfaceDeclarationKind Kind { get; }
@@ -910,6 +920,28 @@ public sealed record ApiExplicitInterfaceDeclarationContext
     /// MethodImpl authentication.
     /// </summary>
     public string? InterfaceTypeIdentity { get; }
+
+    /// <summary>
+    /// Complete structural identity with only trusted platform assembly scopes
+    /// normalized. Used solely for facade-to-definition correspondence after
+    /// both root assemblies have independently authenticated as platform.
+    /// </summary>
+    public string? PlatformNormalizedInterfaceTypeIdentity { get; }
+
+    /// <summary>
+    /// Bounded structural identity of the MethodImpl declaration signature.
+    /// It keeps same-named overload rows distinct in provenance and must match
+    /// the body signature before the declaration authenticates.
+    /// </summary>
+    public MethodSignatureIdentity? DeclarationSignatureIdentity { get; }
+
+    /// <summary>
+    /// Declaration signature identity with only trusted platform named-type
+    /// scopes normalized. Consumers may use it only after independently
+    /// authenticating both declaration-root assemblies as platform.
+    /// </summary>
+    public MethodSignatureIdentity?
+        PlatformNormalizedDeclarationSignatureIdentity { get; }
 }
 
 /// <summary>
