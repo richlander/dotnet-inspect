@@ -154,6 +154,19 @@ BodyEvidenceTargetSet
   All                    unscoped same-reader physical enumeration
   Scoped(BodyEvidenceTargetRequest*)
 
+ArtifactEndpointRequest
+  Id                     opaque host-declared endpoint identity
+
+ArtifactEndpointOutcome
+  Acquired               sealed 1:N ArtifactParticipantManifest
+  Unavailable            typed diagnostic
+  Rejected               typed diagnostic
+  Failed                 typed diagnostic
+
+ArtifactParticipantManifest
+  Revision               sealed adapter-issued inventory identity
+  Entries                complete selected logical participant slots/bindings
+
 ArtifactParticipantPairing
   Id                     opaque comparison-scoped participant identity
   Before/After           adapter-owned validated artifact bindings
@@ -184,21 +197,27 @@ ResolvedBodyEvidenceIndex
   Failures               request-id-keyed typed resolution failures
 
 BodyEvidenceWorkItem
+  RequestIds             complete opaque target/endpoint request aliases
   Corresponded           coordinate plus optional before/after entry
-  ResolutionFailed       request id, optional entries, typed per-side failures
-  ParticipantFailed      participant pairing failure
+  ResolutionFailed       request ids, optional entries, typed per-side failures
+  ParticipantFailed      endpoint/acquisition/pairing failure
 
-BodyEvidenceComparisonPlan
-  WorkItems              resolved, target-failed, and participant-failed union
+BodyEvidenceComparisonPlan (internal)
+  WorkItems              private resolved/failed union
   Ids                    opaque plan-scoped BodyEvidenceWorkItemId
   Before/After           private bindings, entries, and failures
-  Project/ProjectAsync   total per-work-item mechanism callbacks
 
-BodyEvidenceComparisonSession
+BodyEvidenceComparisonSession (internal)
   Plan                    BodyEvidenceComparisonPlan
   RequestedMechanisms     closed set declared before projection
+  Dependencies            acyclic same-work-item prerequisite graph
   Ledgers                 validated synchronous/asynchronous projections
+  Project/ProjectAsync    total per-work-item mechanism callbacks
   Complete                one atomic finalization after every ledger exists
+
+BodyEvidencePlanReceipt
+  Revision               projection-free completed-plan identity
+  WorkItemSet            internal validated set identity
 
 BodyEvidenceMechanismLedger<T>
   Mechanism              requested mechanism descriptor
@@ -212,7 +231,7 @@ ResearchComparison
   BodyEvidenceResearchComparison
 
 BodyEvidenceResearchComparison
-  Plan                    BodyEvidenceComparisonPlan
+  Receipt                 BodyEvidencePlanReceipt
   Ledgers                 complete disjoint mechanism ledgers
   Presentation            total BodyEvidencePresentationMap
   Changes/Native          existing Research projections and payloads
@@ -425,11 +444,29 @@ the adapter that understands a coordinate validates it and issues the
 correspondence proof. The proof is scoped to one comparison generation and is
 not persisted or recreated from provenance after that generation ends.
 
-The host declares the complete participant-request set before acquisition.
-Every request must yield exactly one paired, one-sided, ambiguous, unavailable,
-rejected, or failed pairing outcome; missing, extra, and duplicate outcomes
-fail plan construction. An adapter therefore cannot hide a required artifact
-by returning a shorter successful list.
+The host declares the complete `ArtifactEndpointRequest` set before
+acquisition. Every endpoint request yields exactly one
+`ArtifactEndpointOutcome`. `Unavailable`, `Rejected`, and `Failed` remain
+terminal endpoint failures and produce participant-failed work items.
+`Acquired` contains one non-empty sealed
+`ArtifactParticipantManifest`; one endpoint may legitimately realize many
+assemblies, TFM/RID groups, project dependencies, or directory members.
+This is the 1:N acquisition contract owned by
+[artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md),
+not a pre-acquisition claim that the host already knows content-derived slots.
+
+The adapter seals its manifest from the complete selected artifact inventory
+that its acquisition policy admitted. The body-evidence coordinator forms the
+union of the before/after manifests and requires exactly one paired, one-sided,
+ambiguous, or failed outcome for every manifest entry. Missing, extra, or
+duplicate pairing outcomes fail plan construction. It also requires one
+terminal participant-failed work item for every non-acquired endpoint outcome.
+The anti-omission claim is therefore relative to the declared endpoint set and
+a sealed inventory the pairing stage did not author.
+The adapter's own selection completeness is separately gated against real
+package archives, restore graphs, project outputs, platform packs, workspace
+definitions, and directory snapshots; the contract does not attempt to defend
+against a malicious adapter that falsifies its manifest.
 
 Each pairing validates equal version-neutral assembly identity: name,
 normalized culture, and canonical public-key token. The pairing owner then
@@ -487,11 +524,15 @@ registration remain side-local evidence.
 
 Index construction validates every exact target against its participant and
 every carried target through `MemberBodyTargetResolver`. Duplicate target
-requests may coalesce only after request id, participant, exact address, key,
-and role agree. A scoped selector assigns one opaque
-`BodyEvidenceTargetRequest.Id` before either side resolves. `All` assigns a
-side-local request id before decoding each discovered MethodDef; a discovery
-that cannot mint a correspondence key remains a visible one-sided failure.
+requests coalesce after participant, exact address, strict target key,
+correspondence key, and role agree; request id is deliberately not part of
+body identity. The coordinate-keyed entry retains the complete immutable set of
+request-id aliases, and the plan validates a total many-to-one mapping in which
+every request id names exactly one work item. A scoped selector assigns one
+opaque `BodyEvidenceTargetRequest.Id` before either side resolves. `All`
+assigns a side-local request id before decoding each discovered MethodDef; a
+discovery that cannot mint a correspondence key remains a visible one-sided
+failure.
 Request ids correlate requested work and its diagnostics only; they never
 authorize a MethodDef match or replace strict/correspondence keys.
 Duplicate correspondence keys naming different strict target keys, addresses,
@@ -510,16 +551,33 @@ shared by every requested mechanism; an empty coordinate set cannot turn that
 request into successful empty output.
 
 `BodyEvidenceComparisonSession` declares the complete requested-mechanism set
-before projection. Its `Project` and `ProjectAsync` methods privately walk all
-work items and require exactly one `Compared`, `Absent`, or `Failed`
-disposition per id. `ProjectAsync` accepts a cancellation-aware `ValueTask`
-callback and owns bounded concurrency; it does not expose entries or require
-sync-over-async. For a target- or participant-failed work item, the session
-stamps the shared terminal `Failed` disposition into every requested ledger
-without invoking a body mechanism. Internal construction rejects a missing,
-extra, or duplicate disposition. `Complete` is the only final transition, is
-one-shot, and fails unless every declared mechanism has one disjoint complete
-ledger. Projection or completion after the session is completed fails visibly.
+before projection, together with an acyclic same-work-item dependency graph.
+Its `Project` and `ProjectAsync` methods privately walk all work items and
+require exactly one `Compared`, `Absent`, or `Failed` disposition per id.
+A mechanism callback may inspect only the already validated prerequisite
+dispositions for its current id; it cannot enumerate another mechanism or the
+plan. `ProjectAsync` accepts a cancellation-aware `ValueTask` callback and
+bounded query-owned execution; it does not expose entries or require
+sync-over-async.
+
+Source depends on at least one local implementation mechanism, C# or IL, and
+the dependency set contains every declared local mechanism used to decide its
+eligibility. After those ledgers validate, its callback receives a read-only
+same-item prerequisite view. If any prerequisite failed, Source records
+`Failed(PrerequisiteFailed)` without I/O. If none reports a local change,
+Source records `Absent(NotEligible)` without PDB, SourceLink, sequence-point,
+document, or network work. Otherwise eligible source acquisition coalesces
+PDB/document setup once per participant and is bounded by the query's existing
+entry, byte, request, concurrency, and cancellation budgets. This preserves
+today's changed-member scope without deriving population from presentation
+rows. Declaring Source without one local prerequisite is invalid.
+
+For a target- or participant-failed work item, the session stamps the shared
+terminal `Failed` disposition into every requested ledger without invoking a
+body mechanism. Internal construction rejects a missing, extra, or duplicate
+disposition. `Complete` is the only final transition, is one-shot, and fails
+unless every declared mechanism has one disjoint complete ledger. Projection
+or completion after the session is completed fails visibly.
 
 Only after `Complete` validates all ledgers does it build the
 `BodyEvidencePresentationMap`, keyed by opaque work-item id. The map exposes no
@@ -528,15 +586,19 @@ reselect evidence. Research may derive changed-only rows, subject groups, and
 windowed output from a validated ledger, but those are presentation
 projections and cannot change the retained mechanism population.
 Failed work items receive an inert label from their original request/participant
-slot, remain failure rows in `ImplementationDiffResult`, and follow the
-existing CLI failure-exit policy; they never disappear because no semantic
-change row could be produced.
+slot and remain failure rows in `ImplementationDiffResult`.
+`ImplementationDiffResult.HasFailures` is derived from the retained ledgers,
+not rendered rows. When Implementation Diff was selected, every CLI output
+mode returns nonzero if that value is true; `Absent`, including
+`Absent(NotEligible)`, remains non-failing. This explicitly extends the
+current API-inspection-only exit policy.
 The ledger is a completeness envelope around producer-owned C#, IL, Finding,
 and authored-source results, not another generic evidence-row hierarchy.
-`ResearchComparison` and `ImplementationDiffResult` retain the comparison plan,
-every requested ledger, and the total presentation map; their existing native
-payloads and `Changes`/`Members` projections remain the mechanism and display
-contracts.
+`ResearchComparison` and `ImplementationDiffResult` retain a projection-free
+`BodyEvidencePlanReceipt`, every requested ledger, and the total presentation
+map; their existing native payloads and `Changes`/`Members` projections remain
+the mechanism and display contracts. The internal plan and both projection
+callbacks become unreachable at completion.
 
 `ResearchComparison` becomes a closed union rather than one publicly
 constructible success shape. `UnscopedResearchComparison` owns standalone API
@@ -545,18 +607,32 @@ claim. The current public constructors and
 `ResearchDiff.FromCSharpBodyDiff`/`FromIlBodyDiff` return this unscoped arm and
 cannot be passed to `ImplementationDiff.FromResearchComparison`.
 `BodyEvidenceResearchComparison` has only Research-owned factories that require
-the completed session's plan, complete ledgers, total presentation map, and
+the completed session's receipt, complete ledgers, total presentation map, and
 existing native payloads together. The normal `ResearchDiff.Compare`
 implementation path uses a session and returns this arm whenever a body
 mechanism is requested.
 
-`ResearchDiff.BeginBodyEvidenceComparison` is the only factory for the
-non-renderable session. `ResearchDiff.Compare` calls it and immediately
-completes when all requested mechanisms are Research-owned and synchronous.
-The CLI calls it directly when a host-owned asynchronous mechanism such as
-authored source was declared, projects that ledger, and completes afterward.
-The session cannot convert to `ResearchComparison`,
-`ImplementationDiffResult`, or presentation before `Complete`.
+`ResearchDiffOptions` defaults to the explicit synchronous Research-owned set:
+API, Body Signals, IL, and C#. `AllAvailable` is retired because Source and
+ReturnToSender availability depends on a host lifetime. Public synchronous
+`ResearchDiff.Compare` rejects Source or ReturnToSender rather than silently
+omitting their ledgers. The async implementation query and the harness runner
+declare those mechanisms under the lifetime that owns them.
+
+Internal `ResearchDiff.BeginBodyEvidenceComparison` is the only session
+constructor. The session never crosses a public or CLI boundary.
+`ImplementationComparisonQuery` becomes an `InspectionQueryRegistry.AddAsync`
+operation and performs begin, synchronous projections, dependency-gated Source
+projection, and completion lexically under one current query lease. The query
+owns or borrows every `AssemblyInspectionSession`, source/PDB content lease,
+and retained artifact binding; `finally` releases owned resources and lease
+claims after success or failure without disposing caller-owned borrowed
+sessions. A cleanup failure is retained alongside and never replaces the
+primary operation failure. Cancellation aborts projection, propagates as
+cancellation rather than a ledger failure, drains owned work, and returns no
+partial comparison.
+The CLI supplies options/capabilities and receives only the completed
+`ImplementationDiffResult`.
 
 `ImplementationDiff.FromResearchComparison` accepts only
 `BodyEvidenceResearchComparison`, so planless composition is a type error rather
@@ -570,25 +646,14 @@ compatibility is not retained: all current callers migrate to the arm matching
 the claim they make.
 
 The direct `ImplementationDiff.CompareMembers` API is not an unscoped
-exception. It mints one paired participant, one opaque target request, and one
-`BodyEvidenceComparisonSession`, projects its requested synchronous
-mechanisms, then completes. `CompareMembersWithAuthoredSource` is removed;
-`BeginMemberComparison` instead returns the one-item session with Source
-declared, and the caller supplies the two inspections only inside that item's
-`Project` callback. That API is a typed wrapper over
-`ResearchDiff.BeginBodyEvidenceComparison`, not a second session constructor.
-`ImplementationMemberDiffResult` is projected from the completed planned
-comparison. Supplying source for another member is therefore impossible rather
-than silently attributing it to the selected MethodDef.
-
-Authored-source acquisition is a requested asynchronous mechanism, not
-post-presentation enrichment. The CLI obtains a non-renderable session with
-the synchronous C#/IL/Finding ledgers already attached, calls `ProjectAsync`
-with the exact per-side addresses retained privately by the plan, and only
-then calls `Complete`. `ImplementationDiffResult` and
-`BodyEvidenceResearchComparison` are never exposed before that transition.
-The current `ImplementationDiff.WithAuthoredSourceComparisons` result-rewrite
-API disappears; no finalized comparison can accept another body ledger.
+exception. It executes a one-item session to completion synchronously while
+the caller's supplied live `MetadataSource` values remain valid; no session
+escapes. `CompareMembersWithAuthoredSource` is replaced by one typed
+`CompareMemberEvidence` call whose source input carries and validates both
+exact addresses before the internal session runs. It likewise completes before
+returning `ImplementationMemberDiffResult`. The current
+`ImplementationDiff.WithAuthoredSourceComparisons` result-rewrite API
+disappears; no finalized comparison can accept another body ledger.
 
 `AssemblyMemberSourceRequest` also carries `MemberBodyTarget`, not
 `ApiMember.MetadataToken` plus `MemberAnchor`. After opening the selected
@@ -1253,8 +1318,8 @@ physical rendering. A resolved `MemberTargetSelector` supplies the matching
 per-side `MemberBodyTarget`; an exact API supplies per-side
 `MetadataMethodAddress` values. The implementation-diff coordinator resolves
 the per-participant scopes once against their owning readers and builds one
-opaque per-side index keyed by
-opaque adapter-issued participant pairing plus the same complete
+opaque per-side index keyed by the adapter-issued participant pairing plus the
+same complete
 `MethodStructuralSignature`-backed `MemberBodyCorrespondenceKey` and role. The
 comparison plan pairs members only inside one validated participant pairing.
 Strict
@@ -1271,11 +1336,12 @@ than independent index builders or filters.
 `ResearchDiff.AddCSharpDiff` retains each work-item disposition on semantic
 rows, display failures, and native Finding comparisons; retained-comparison and
 divergence validation compare complete ledgers before subject projection.
-Authored-source acquisition runs through `ProjectAsync` before `Complete` and
-consumes the same exact entries rather than resolving a `ResearchSubjectKey`
-through `LibraryBodyIndex`. Once selected and paired, each MethodDef still
-imports and renders through the null foreign-body seam, so line origins and
-offsets remain strictly physical.
+The async implementation query runs authored-source acquisition through
+`ProjectAsync` before `Complete`. It consumes the same exact entries and
+same-item local-ledger eligibility rather than resolving a
+`ResearchSubjectKey` through `LibraryBodyIndex` or iterating presentation rows.
+Once selected and paired, each MethodDef still imports and renders through the
+null foreign-body seam, so line origins and offsets remain strictly physical.
 
 The diff therefore remains a named seam-free physical-evidence projection. It
 can display the physical kickoff because it neither prints a declaration nor
@@ -1302,6 +1368,7 @@ The identity migrations are explicit:
 | `MatchCommand.ResolvedSelector.Token` / path-equality check | Carried targets resolved to two exact same-MVID addresses; paths are locators only |
 | `ResearchMatch.Compare(MethodDefinitionHandle, MethodDefinitionHandle)` | One live source plus two validated `MetadataMethodAddress` values |
 | `AssemblyResolutionProvenance` pattern matching in body comparison | Adapter-owned `ArtifactParticipantPairing` proof; Research preserves the opaque comparison id and never owns a source-kind union |
+| `AssemblySetResolver` endpoint-to-flat-list acquisition | One typed endpoint outcome carrying a sealed 1:N participant manifest; pairing validates the before/after manifest union |
 | `ProjectAssetsParser` path/package/version tuples | Project-adapter candidates retaining paired project request, target-selection slot, dependency package id, asset role, logical entry, and side-local resolved TFM/RID/path |
 | Direct project inputs skipped by `ProjectAssetsParser` / `AssemblySetResolver` | Project-adapter direct-output candidates with project input id, requested target/configuration, output role, and logical entry |
 | `WorkspaceContextLoader` embedded provenance | Canonical workspace context + `ContentRef` member slot + declared assembly name; provider handle and digest remain side-local evidence |
@@ -1316,13 +1383,15 @@ The identity migrations are explicit:
 | `ResearchDiff.AddCSharpDiff` rows, failures, retained comparisons, and divergence | Compare complete ledgers; subject is later presentation/grouping only |
 | `ImplementationDiff.FromResearchComparison` selector-bearing options/member filters | Remove semantic selectors from this surface; move selection before plan construction and derive separately typed changed-only/window presentation from validated ledgers |
 | Public `ResearchComparison` constructors and `ResearchDiff.FromCSharpBodyDiff` / `FromIlBodyDiff` | Return `UnscopedResearchComparison`; cannot feed Implementation Diff |
-| Body-mechanism `ResearchDiff.Compare` | `BeginBodyEvidenceComparison`; complete immediately only when no declared host-owned async mechanism remains |
+| `ResearchChangeMechanism.AllAvailable` / `ResearchDiffOptions` default | Explicit API + Body Signals + IL + C# Research-owned default; synchronous `Compare` rejects Source/ReturnToSender |
+| Body-mechanism `ResearchDiff.Compare` | Run the internal session to completion synchronously; host/harness mechanisms use their owning runner |
 | `ResearchComparison.Combine` | `CombineUnscoped`; any planned input fails, while one body session owns all declared mechanisms and optional API attachment |
 | `ImplementationDiff.FromResearchComparison(ResearchComparison)` | Accept only `BodyEvidenceResearchComparison`; planless composition is a type error |
-| `ImplementationDiff.CompareMembers` / `CompareMembersWithAuthoredSource` | One-work-item planned session; remove the authored overload and use `BeginMemberComparison` + the Source `Project` callback |
+| `ImplementationDiff.CompareMembers` / `CompareMembersWithAuthoredSource` | Complete one internal work-item session before returning; replace the authored overload with exact-address-validated `CompareMemberEvidence` |
 | `ImplementationDiff.WithAuthoredSourceComparisons` | Remove result rewriting; authored source is a declared async ledger before session completion |
 | `ImplementationDiff` scoped IL/body evidence | Project every shared-plan work item; retain native IL rows and coordinates |
-| `DiffCommand` authored-source enrichment | Call `ProjectAsync` by exact per-side address before `Complete`; no `ResearchSubjectKey` → `LibraryBodyIndex` re-resolution |
+| Synchronous `ImplementationComparisonQuery` / `DiffCommand` authored-source enrichment | One async query owns lease/session lifetime, prerequisite-gated `ProjectAsync`, completion, and disposal; CLI receives only the final result |
+| `DiffCommand` implementation exit status | Include `ImplementationDiffResult.HasFailures` in every selected structured/text/tabular return path |
 
 `MemberAnchor`, raw method keys, duplicate signature discriminators, and
 reconstructed `SignatureModel` identities remain available for API display or
@@ -1669,7 +1738,9 @@ the decompiler library and corpus.
    adapter-issued participant id, version-neutral correspondence key, and role.
    Resolution and participant failures remain work items even without a body
    key. Every requested synchronous or asynchronous mechanism projects the
-   opaque comparison session totally before `Complete` creates presentation.
+   opaque comparison session totally before `Complete` creates presentation;
+   async Source runs inside the owning query lease and uses validated
+   same-item local evidence to skip unchanged work without I/O.
    Presentation anchors and subjects may label or group validated dispositions
    but never reconstruct, filter, pair, or reacquire evidence.
    A stale or cross-reader hint resolves by structural body-key
@@ -1717,17 +1788,22 @@ divergence, or authored-source enrichment filters, pairs, or reacquires bodies
 through display/anchor/subject identity; equal body keys from different
 assembly participants collide or pair; removing one project dependency package
 changes an unrelated adapter-issued pairing; repeated logical participant keys
-are paired by order instead of failing; default package comparison stops pairing
-when independently selected highest TFMs differ; a pathless embedded workspace
-member cannot use its canonical `ContentRef` slot; AssemblyRef-version-only
-signature drift becomes remove/add; full-key/token representation alone stops
-pairing; a planless public Research adapter or direct member factory reaches
-Implementation Diff; authored source is attached after presentation or requires
-sync-over-async; a requested mechanism omits a work item without
-session-completion rejection; a target-resolution failure disappears because
-no correspondence key was minted; an abstract member or accessor is filtered
-before classification; malformed async metadata on an RVA-zero method becomes
-`Bodyless` instead of `ClassificationFailed`; replay loses companion
+are paired by order instead of failing; one multi-assembly endpoint is forced
+into one participant or a manifest participant is dropped; default package
+comparison stops pairing when independently selected highest TFMs differ; a
+pathless embedded workspace member cannot use its canonical `ContentRef` slot;
+AssemblyRef-version-only signature drift becomes remove/add; full-key/token
+representation alone stops pairing; overlapping requests for one MethodDef
+cannot map to one work item; a planless public Research adapter or direct
+member factory reaches Implementation Diff; synchronous `Compare` silently
+accepts Source/ReturnToSender; authored source runs outside a current query
+lease, is attached after presentation, requires sync-over-async, or performs
+I/O for unchanged work items; a finalized result retains a projection
+callback; a requested mechanism omits a work item without session-completion
+rejection; a target-resolution failure disappears or returns a zero CLI exit
+because no correspondence key was minted; an abstract member or accessor is
+filtered before classification; malformed async metadata on an RVA-zero method
+becomes `Bodyless` instead of `ClassificationFailed`; replay loses companion
 type facts or aliases mutable snapshot state; an outer decision reaches
 a nested function; a Lowered render applies a byte-divergent style lens
 or loses interleaved IL; a bodyless member loses its existing visible
@@ -1908,14 +1984,14 @@ another raise. Do not invent more `TryBuild*` methods.
 | Research annotation, document, overlay, and Fact Row presentation | Research over Decompiler-prepared clones |
 | Assembly-context authored/decompiled member source identity | Queries over one participant-resolved `MemberBodyTarget` / `MetadataMethodAddress`; anchor is presentation only |
 | Scoped body/source/search/diff target currency | Metadata `BodyEvidenceTargetSet` within Research/Queries `BodyEvidenceParticipantScope`; exact or structurally carried only |
-| Cross-side participant correspondence | Acquisition adapter mints a validated comparison-scoped opaque pairing from its typed logical request/asset coordinate; Research retains only the pairing id and side-local binding |
+| Cross-side participant correspondence | Acquisition adapter seals a 1:N participant manifest per endpoint; coordinator pairs the manifest union into comparison-scoped opaque ids; Research retains only ids and side-local bindings |
 | CLI member presentation | CLI |
 | CLI Original Source / Source Diff identity | CLI over one Metadata-resolved participant address for authored and decompiled paths |
 | Same-reader structural body match identity | CLI selection through Metadata carried targets; Research comparison over exact same-MVID addresses |
 | Body Shape scope | Decompiler over one resolved target set; same-reader handle enumeration only for explicit `All` |
-| Implementation body-evidence selection/correspondence | Research opaque comparison session and total sync/async mechanism ledgers over resolved, target-failed, and participant-failed work items |
+| Implementation body-evidence selection/correspondence | Queries owns one authorized lexical lifetime around Research's opaque comparison session and total dependency-ordered sync/async ledgers |
 | Planned versus unscoped Research comparison | Research closed union; only body-evidence arm can feed Implementation Diff |
-| Implementation presentation identity | Research total work-item-to-label map after session completion validates every requested ledger |
+| Implementation presentation identity | Research projection-free plan receipt plus total work-item-to-label map after session completion validates every requested ledger |
 | Seam-free physical C# body evidence | Decompiler `CSharpBodyDiff` after typed correspondence (no kickoff outcome; local support acknowledgment allowed) |
 | Corpus / library `MoveNext` rendering | Decompiler |
 
@@ -1933,8 +2009,11 @@ predicate. They must not assume current kickoffs are Full.
 | Body-status policy ownership | Source-architecture test `DeclaredSourceBodyStatusUsesProjector` | A declared-source consumer uses RVA/`HasBody`/null import or semantic `ApiMember.IsAbstract` filtering to choose `Bodyless`, suppress a method/accessor, skip classification, or map state to a carrier; the exact retained body-reference/semantic-policy manifest differs, or any named migration site remains |
 | Body-target identity architecture | Metadata + Decompiler + Research + Queries + CLI source-architecture/product tests, including Research request records, graph callers, assembly-context member-source callers, CLI source and `match`, Body Shape, and implementation-diff callers with same-token/same-anchor but body-key-different participants | A body-facing request retains any integral raw token field, nullable or non-nullable; a token is treated as exact without its originating MVID; graph focus fails to mint a same-source address; an assembly-context request pairs one token/anchor with a later-opened participant; `AssemblyMemberSourceRequest` lacks a carried target; authored acquisition and decompiled fallback resolve different identities; `MemberAnchor` participates in acceptance rather than presentation; a carried API member/accessor falls back to name/ordinal or either anchor spelling; an accessor is identified by ordinal rather than role; path equality authenticates a raw token; target resolution parses declaration/display text, reads bodies, or reads custom attributes; an unsupported/legacy body key guesses; or duplicate/unavailable structural correspondence selects a candidate |
 | Body-evidence selection currency | Source-architecture test `BodyEvidenceSelectionUsesTypedTargets`, plus exact set-equality manifests over all product evidence entry points and sink calls | A scoped body/source/search/diff parameter or field carries a token, handle, ordinal, `ApiMember`, anchor, stable-selector/subject/raw-key string, or fingerprint instead of `BodyEvidenceParticipantScope`; a call to body projection, physical C# indexing/findings, Body Shape, Portable PDB/SourceLink acquisition, or authored-source enrichment cannot be traced to one opaque request id and its exact/carried target; a selected entry is re-resolved from presentation identity; a new entry or sink is absent from the file/member/reason manifest; or a same-reader physical-token exception is not the explicit unscoped `All` enumeration, low-level import/decode, raw IL evidence, or legacy `MetadataBodySelector` path named by the gate |
-| Multi-participant evidence correspondence | Adapter + Research + Queries tests over default package comparison whose independently selected highest TFM changes, explicit single TFM, package `--tfm all`, RID/runtime copies, an explicitly paired package-to-local comparison, project-assets dependencies from two packages with the same assembly identity and one package removed, direct project output, directory/framework sides, repeated equal assembly identities, byte-identical copies, pathless embedded Browser/Wasm workspace members, added/removed/reordered participants, and same type/member keys across different assemblies | Research pattern-matches source provenance; input pairing is reconstructed from a path or presentation; direct endpoint pairing requires equal package/source kinds or ids; default package selection uses the resolved TFM as its slot and splits one package across versions; `all` collapses distinct TFM/RID groups; a project dependency is collapsed into its enclosing project-output slot; direct project output lacks target/configuration/output-role identity; embedded content cannot use canonical `ContentRef` or uses its digest/provider handle as correspondence; assembly/content version, resolved TFM/RID, path, locator, digest, MVID, or registration becomes cross-side participant identity; repeated logical keys pair by occurrence/order instead of failing ambiguous; equal member keys in different paired participants collide; participant insertion changes an unrelated pairing; or pairing crosses adapter-/host-issued ids |
-| Total body-evidence population | `BodyEvidenceComparisonPlan`/`BodyEvidenceComparisonSession`/`BodyEvidenceMechanismLedger` product and architecture tests, including `ImplementationDiff_DroppedDispositionIsRejected`, unresolved-target and participant-failure specimens, presentation-filter mutations, public Research/direct-member factories, sync/async projection, and unscoped-combine/planned-rejection matrices | The plan exposes an enumerable entry population; a declared participant request has no pairing outcome; a requested/discovered target or failed participant has no work-item id; a failed target without a correspondence key becomes empty successful output or a zero exit; a requested mechanism returns missing, extra, or duplicate work items; evidence entries expose presentation identity; a member/type filter runs after plan construction; C#, IL, Findings, divergence, or authored source evaluates a different work-item set; an unscoped factory/constructor or direct member result can feed Implementation Diff; any factory besides `BeginBodyEvidenceComparison` creates a session; `CombineUnscoped` accepts a planned input; session completion succeeds before every declared sync/async ledger exists, runs twice, permits later projection, or accepts a duplicate mechanism; authored source attaches after presentation, re-resolves a subject, or blocks synchronously on async I/O; cancellation becomes a failure disposition; or changed-only/group/window presentation mutates the retained ledgers |
+| Multi-participant evidence correspondence | Adapter + Research + Queries tests over one endpoint realizing `{A,B}` versus `{A,C}`, unavailable/rejected/failed endpoints, default package comparison whose independently selected highest TFM changes, explicit single TFM, package `--tfm all`, RID/runtime copies, an explicitly paired package-to-local comparison, project-assets dependencies from two packages with the same assembly identity and one package removed, direct project output, directory/framework sides, repeated equal assembly identities, byte-identical copies, pathless embedded Browser/Wasm workspace members, added/removed/reordered participants, and same type/member keys across different assemblies | One endpoint is forced to produce one participant; an acquired endpoint has an empty/unsealed manifest; a non-acquired endpoint lacks one terminal participant-failed work item; the adapter's manifest differs from the selected real artifact inventory; the pairing output differs from the before/after manifest union; Research pattern-matches source provenance; input pairing is reconstructed from a path or presentation; direct endpoint pairing requires equal package/source kinds or ids; default package selection uses the resolved TFM as its slot and splits one package across versions; `all` collapses distinct TFM/RID groups; a project dependency is collapsed into its enclosing project-output slot; direct project output lacks target/configuration/output-role identity; embedded content cannot use canonical `ContentRef` or uses its digest/provider handle as correspondence; assembly/content version, resolved TFM/RID, path, locator, digest, MVID, or registration becomes cross-side participant identity; repeated logical keys pair by occurrence/order instead of failing ambiguous; equal member keys in different paired participants collide; participant insertion changes an unrelated pairing; or pairing crosses adapter-/host-issued ids |
+| Total body-evidence population | `BodyEvidenceComparisonPlan`/`BodyEvidenceComparisonSession`/`BodyEvidenceMechanismLedger` product and architecture tests, including `ImplementationDiff_DroppedDispositionIsRejected`, overlapping-selector aliases, unresolved-target and participant-failure specimens, presentation-filter mutations, public Research/direct-member factories, sync/async projection, and unscoped-combine/planned-rejection matrices | A requested/discovered target or failed participant has no work-item id; one request maps to zero/multiple work items; equal resolved targets with different request ids cannot coalesce to one coordinate and retain both aliases; a failed target without a correspondence key becomes empty successful output; a requested mechanism returns missing, extra, or duplicate work items; evidence entries expose presentation identity; the plan exposes a work-item enumerator or projection callback; a member/type filter runs after plan construction; C#, IL, Findings, divergence, or authored source evaluates a different work-item set; an unscoped factory/constructor or direct member result can feed Implementation Diff; any path besides internal `BeginBodyEvidenceComparison` creates a session; `CombineUnscoped` accepts a planned input; session completion succeeds before every declared ledger exists, runs twice, permits later projection, or accepts a duplicate mechanism; the completed result retains the internal plan or any projection callback instead of a projection-free receipt; or changed-only/group/window presentation mutates the retained ledgers |
+| Research mechanism ownership | Research + harness API tests over default, explicit Source, explicit ReturnToSender, and unknown flag combinations | The synchronous default includes a host/harness mechanism; synchronous `ResearchDiff.Compare` accepts or silently ignores Source/ReturnToSender; a host runner fails to declare its complete mechanism set; or `AllAvailable` remains a context-free default |
+| Async body-evidence query lifetime and budget | Queries + CLI tests using `InspectionQueryRegistry.AddAsync`, revoked/narrowed authorization, primary-plus-cleanup failure, cancellation before/during SourceLink acquisition, failed/unchanged/changed local prerequisites, changed large assemblies, repeated eligible members in one participant, and single-threaded Browser/Wasm awaited reentrancy | The CLI receives a session or opens a reader around the query; begin/project/complete escape one current query lease; a source/PDB/content or inspection lease is used after release or leaked on success/failure/cancellation; a borrowed session is disposed; cleanup replaces the primary failure; cancellation becomes a ledger failure or returns a partial result; Source has no C#/IL prerequisite, enumerates another ledger, performs I/O after a prerequisite failure or for `Absent(NotEligible)`, derives eligibility from presentation, reacquires PDB/documents per member instead of per participant, exceeds query budgets/concurrency, or blocks synchronously |
+| Implementation failure exit | CLI text/Markdown/JSON/table/JSONL tests with API-clean inputs and one target/participant/mechanism `Failed`, plus `Absent` controls | A selected Implementation Diff returns zero when any retained ledger contains `Failed`; exit status is derived from rendered/windowed rows instead of `ImplementationDiffResult.HasFailures`; a hidden failure becomes success; or `Absent`, including Source `NotEligible`, becomes nonzero |
 | Selector currency boundary | CLI/API + Metadata architecture/product tests over display/metadata order disagreement, protected overloads, case aliases, `this[]`, property/event accessor ordinals, generic/non-generic overloads in both orders, digests, explicit extensions/generic receivers/static-helper near misses, malformed ExtensionAttribute, and physical bodyless rows | Any `MemberTargetSelector` is converted to `MetadataBodySelector`; display ordinal is arithmetically treated as a MethodDef ordinal; digest, generic arity, alias, accessor, or extension semantics are dropped/reimplemented by the body resolver; a resolved user/API target does not enter as `Carried(MemberBodyTarget)`; extension attachment is duplicated or stores the receiver instead of the actual static holder; malformed/budget-exhausted API selection reaches body projection; or an existing zero-based `MemberProjectionRequest` differs from the legacy exact-name/visibility/metadata-order physical walk |
 | Modifier-complete body-key contract | Metadata key/schema tests deriving specimens from `MethodStructuralSignature`, including safety-limit and hash-collision near cases | API extraction and live carried-key resolution produce different keys for one MethodDef; version or exact declaring type is omitted; a hash-only fingerprint is authoritative; structural safety limits are bypassed or collapsed to missing; API JSON loses the target/key or accessor-specific targets; an attached extension stores the receiver instead of its holder; a legacy missing/unknown version is accepted cross-reader; `modreq`/`modopt`, calling convention, generic constraint, function-pointer, or by-ref drift compares equal; surface/metadata `MemberAnchor` spelling affects the body key; or the optional key changes API anchor/diff/order/presentation identity |
 | Version-neutral body-correspondence contract | Metadata + Research tests deriving strict and correspondence keys from the same structural-signature fixtures, full-key/token equivalent and flag-drift specimens, plus a real framework/package pair whose only signature-scope drift is AssemblyRef version | Strict `MemberBodyKey` loses AssemblyRef version or raw flag/key representation; correspondence does not pair version-only AssemblyRef drift or equivalent full-key/token encodings; correspondence clears any flag besides `AssemblyFlags.PublicKey` or retains that representation bit; correspondence drops assembly name/culture/canonical token, any other flag bit, type structure, constraints, calling convention, function pointers, by-ref shape, or custom modifiers; the two policies use different builders/budgets; a normalized collision within one participant selects a MethodDef; or body-correspondence keys enter persisted API inventory or target resolution |
@@ -2142,18 +2221,20 @@ Research, Queries, Services, and CLI product projects:
    references to the named sink APIs and must equal the reviewed manifest;
    adding, removing, or moving a wrapper cannot silently escape review.
 3. The **population-ownership gate** makes
-   `BodyEvidenceComparisonSession.Project`/`ProjectAsync` the only product
-   enumerators of resolved and failed work items. Source architecture pins
-   every projection and `Complete` call and asserts that callbacks expose no
-   presentation identity, the index/plan expose no enumerable collection, and
+   internal `BodyEvidenceComparisonSession.Project`/`ProjectAsync` the only
+   product enumerators of resolved and failed work items. Source architecture
+   pins every projection and `Complete` call and asserts that callbacks expose
+   no presentation identity, the plan exposes no projection or enumerable
+   collection, the completed receipt exposes no projection callback, and
    mechanism-ledger/final-envelope constructors remain Research-owned. It also
-   pins the sole `BeginBodyEvidenceComparison` session factory, every
-   `ResearchComparison` constructor/factory, direct
-   `ImplementationDiff.CompareMembers` factory, body-diff adapter, `Combine`,
-   `WithAuthoredSourceComparisons`, and
+   pins the sole internal session construction, the Queries-owned
+   `ImplementationComparisonQuery` as the only async product lifetime, every
+   `ResearchComparison` constructor/factory, the direct-member
+   `CompareMemberEvidence` helper, body-diff adapter, `Combine`, and
    `ImplementationDiff.FromResearchComparison` call: only a completed planned
-   arm is accepted at the final implementation boundary, and the result-rewrite
-   authored-source API has no retained call.
+   arm is accepted at the final implementation boundary; no public or CLI
+   session factory, `BeginMemberComparison`, `ProjectAsync`, or result-rewrite
+   authored-source API remains.
    Product non-vacuity tests remove one disposition, add one, duplicate one, and
    apply the current member-target `.Where` to mechanism dispositions before
    ledger construction; each construction must fail exact work-item-set
