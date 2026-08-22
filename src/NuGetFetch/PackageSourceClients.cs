@@ -388,10 +388,9 @@ public static class PackageSourceClientFactory
     {
         ArgumentNullException.ThrowIfNull(transport);
         return new NuGetGalleryPackageSourceClient(
-            new HttpClient(transport, disposeHandler: true)
-            {
-                Timeout = Timeout.InfiniteTimeSpan,
-            },
+            CreateGalleryTransport(
+                transport,
+                OperatingSystem.IsBrowser()),
             options ?? new NuGetFetchOptions());
     }
 

@@ -596,9 +596,11 @@ targets with malformed raw text, unusable IDNA hosts, or embedded user
 information are typed invalid responses rather than normalized requests.
 `RuntimeFactoriesDoNotAcceptSharedHttpClient`,
 `DefaultV3TransportHasNoAmbientCredentialMechanisms`, and
-`BrowserV3TransportAvoidsUnsupportedHandlerConfiguration` gate transport
-construction. `GalleryDesktopTransportFollowsSourceOwnedRedirects` gates that
-the Gallery factory uses the bounded desktop redirect policy.
+`BrowserV3TransportAvoidsUnsupportedHandlerConfiguration` gate shared transport
+construction. `GalleryBrowserTransportAvoidsUnsupportedHandlerConfiguration`
+gates the Gallery-specific Browser handler, and
+`GalleryDesktopTransportFollowsSourceOwnedRedirects` gates that the Gallery
+factory uses the bounded desktop redirect policy.
 `BrowserNuGetRequestsOmitAmbientCredentials` gates the Fetch credential option,
 and
 `DesktopRedirectsScopeAuthorizationToOriginalOrigin` gates redirect authority.

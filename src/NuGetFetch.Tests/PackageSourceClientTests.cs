@@ -2107,19 +2107,33 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
+    public void GalleryBrowserTransportAvoidsUnsupportedHandlerConfiguration()
+    {
+        using HttpClientHandler handler =
+            PackageSourceClientFactory.CreateGalleryTransportHandler(
+                isBrowser: true);
+
+        Assert.Equal(
+            DecompressionMethods.None,
+            handler.AutomaticDecompression);
+        Assert.True(handler.AllowAutoRedirect);
+    }
+
+    [Fact]
     public async Task GalleryDesktopTransportFollowsSourceOwnedRedirects()
     {
-        using HttpClient transport =
-            PackageSourceClientFactory.CreateGalleryTransport(
-                new RedirectChainHandler(redirects: 1),
-                isBrowser: false);
+        var handler = new GalleryRedirectHandler();
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
 
-        using HttpResponseMessage response =
-            await transport.GetAsync(
-                ServiceIndex,
-                TestContext.Current.CancellationToken);
+        PackageSourcePayload payload = Succeeded(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+        await payload.Content.DisposeAsync();
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(2, handler.Requests);
     }
 
     [Fact]
@@ -2426,6 +2440,33 @@ public sealed class PackageSourceClientTests
 
             return Task.FromResult(
                 new HttpResponseMessage(HttpStatusCode.OK));
+        }
+    }
+
+    private sealed class GalleryRedirectHandler : HttpMessageHandler
+    {
+        public int Requests { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Requests++;
+            if (Requests == 1)
+            {
+                var redirect =
+                    new HttpResponseMessage(HttpStatusCode.Found);
+                redirect.Headers.Location =
+                    new Uri("/redirected", UriKind.Relative);
+                return Task.FromResult(redirect);
+            }
+
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent([1, 2, 3]),
+                });
         }
     }
 
