@@ -25,6 +25,130 @@ Keep the peer-checkout `ProjectReference` edits local and unpushed. After
 Markout lands and releases, restore `PackageReference` and only then raise the
 dotnet-inspect PR.
 
+## Session resume
+
+Your process can be replaced without your work being finished — a machine
+reboot, a lost terminal, a session resumed from disk. This section covers that.
+It is distinct from a round restart, which
+[Canonical round flow](#canonical-round-flow) governs.
+
+Your transcript comes back intact, and no conversation was missed: nothing
+happened between your last turn and this one, so there is nothing to catch up on
+and no new direction waiting to be found. What may have moved is machine state
+outside your process — CI runs asynchronously and other work merges — so a plan
+formed before you stopped can describe a world that no longer exists.
+
+### First, re-establish the world
+
+- **Position comes from git, not from the transcript.** Confirm the worktree,
+  branch, and head. Fetch, and determine whether the effective base moved while
+  you were gone. Do not pull or rebase a pushed branch to "catch up"; reconcile
+  it the way this file already requires.
+- **Re-check PR state** per [Canonical round flow](#canonical-round-flow).
+- **Re-announce yourself.** A resumed window has lost whatever it had on
+  screen, so nothing identifies it. Rename it and restate your PR per
+  [Making your work findable](#making-your-work-findable).
+
+### Then act on where you stopped
+
+Exactly one of these applies. Say which, in one line, before doing anything
+else.
+
+- **Mid-stream — continue.** Pick the work back up. The re-check above takes
+  precedence: a conflict, a failed gate, or a moved base supersedes your
+  restored plan and is handled first. Conflict recovery remains the first
+  priority. If nothing changed, do not re-litigate decisions already made in
+  the transcript; carry on from them.
+- **Waiting on the user — restate the request.** Never assume the question was
+  seen or answered while you were gone. Restate it in full, including the
+  context needed to answer it and the options you were choosing between; a
+  pointer to an earlier message is not a restatement, because the user may be
+  looking at a fresh window with none of that history on screen. Then wait.
+- **Task complete — report and propose.** State what landed and what proves it.
+  Then either propose the next piece of work, with a reason it is the right
+  next thing, or ask for a task. Propose; do not start. Inventing scope after a
+  resume is how a finished PR grows changes nobody asked for.
+
+If you cannot tell which of the three applies, that is the fourth case: say so,
+summarize what the transcript claims and what git shows, and wait rather than
+guessing.
+
+## Making your work findable
+
+Work runs in many concurrent agent windows across several machines. Whoever is
+watching must be able to tell, without attaching to any of them, which PR each
+window is on and which one needs a person. Three conventions carry that. Use
+them.
+
+### Name the window for identity
+
+`tmux rename-window pr<number>` — not the session. A tmux session is shared by
+every window on that host, so renaming it identifies nothing; `rename-window`
+sets the same per-window name that `C-b ,` sets. Without a PR yet, use the
+issue: `i<number>`.
+
+Keep the name short and stable. The status bar truncates, and a truncated name
+reads as a corrupted one. Do not encode changing state in it — your terminal
+title already carries that, updates itself, and costs nothing.
+
+The one exception is a state a person must act on. Append a single token then,
+and remove it when it clears:
+
+| suffix | means |
+| --- | --- |
+| `-blocked` | waiting on a human decision |
+| `-conflict` | in conflict recovery |
+
+`pr4405-conflict` is worth the eight characters. `pr4405-round-6-of-adversarial-review` is not.
+
+### Announce PR identity in your output
+
+State which PR you are on, in your visible output, in a form a reader and a
+script can both parse. Either pattern below is sufficient and both is fine; what
+matters is that the literal token `PR #<number>` or `PR <number>` appears, and
+the branch name where it is relevant.
+
+Beginning or continuing work:
+
+> Continue PR #4405 readiness for frozen expected head `595e5d4b…` on branch
+> `browser-platform-workspace` after conflict recovery.
+
+Completing a round:
+
+> Round 6 is complete for PR 4463.
+> - Review models GPT-5.6 Sol and Claude Opus 5 were used for adversarial review.
+> - Review feedback is: converging.
+> - Round start / end / duration.
+>
+> Fix description: …
+
+Restate it after every resume and at the start of every round, not once at the
+beginning. A window that has scrolled past its only mention of the PR is a
+window nobody can identify.
+
+### Signal when you need a person
+
+Whenever you stop and wait on a human decision, say so out of band as well as on
+screen. This is the standing convention during normal work, not an option:
+
+```sh
+tmux display-message -d 10000 'PR #4405 needs a decision'
+```
+
+Send it once, when you become blocked — not on a timer, and not again while
+waiting on the same question. Keep it to one short line naming the PR and what
+is needed; the message takes over the status line for as long as it shows.
+
+**It is best effort and will often go unseen.** Nobody may be attached; the
+person may be in another window, on another machine, or asleep. So it is a
+nudge, never a handoff: a sent notification is not a delivered question and
+never an answered one. Stop at your prompt and wait exactly as you would have
+without it, and restate the request in full when resumed.
+
+Signal only for being blocked. Progress, completion, and resuming are not
+signals — they belong in your output, where they can be read whenever someone
+looks.
+
 ## User-directed workflow adjustments
 
 The workflow gates in this file establish the default safe sequencing. A user
