@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { renderPackageOpportunities } from "../src/package-opportunities.ts";
 
-function escapeHtml(value) {
+function escapeHtml(value: unknown) {
   return String(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -64,7 +64,7 @@ test("no data yet (fresh, no error, no data) shows a generic loading placeholder
 test("empty categories render the no-opportunities message with the scan scope", () => {
   const html = renderPackageOpportunities({
     ...baseOptions,
-    data: { categories: [], totalOpportunities: 0 },
+    data: { categories: [], totalOpportunities: 0, inspectionError: null },
   });
 
   assert.match(html, /No integration opportunities/);
@@ -76,7 +76,7 @@ test("a platform scan scope names the scoped library and framework", () => {
     ...baseOptions,
     isPlatform: true,
     scopedLibrary: "System.Text.Json",
-    data: { categories: [], totalOpportunities: 0 },
+    data: { categories: [], totalOpportunities: 0, inspectionError: null },
   });
 
   assert.match(html, /System\.Text\.Json · net10\.0/);
@@ -105,6 +105,7 @@ test("categories render a summary with area\/suggestion counts and a chip per ca
         { integration: "Database", items: [] },
       ],
       totalOpportunities: 1,
+      inspectionError: null,
     },
   });
 
@@ -122,6 +123,7 @@ test("an opportunity row splits the API into short name and qualifier", () => {
         items: [{ api: "System.ClientModel.Primitives.PipelineMessage", integrationType: "IServiceCollection registration", lookFor: "" }],
       }],
       totalOpportunities: 1,
+      inspectionError: null,
     },
   });
 
@@ -138,6 +140,7 @@ test("an integration kind with a leading dotted namespace renders a load-on-dema
         items: [{ api: "Widget", integrationType: "Microsoft.Extensions.AI IChatClient extension", lookFor: "" }],
       }],
       totalOpportunities: 1,
+      inspectionError: null,
     },
   });
 
@@ -154,6 +157,7 @@ test("an integration kind with no dotted namespace renders as plain muted text",
         items: [{ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "" }],
       }],
       totalOpportunities: 1,
+      inspectionError: null,
     },
   });
 
@@ -170,6 +174,7 @@ test("look-for tokens render as spotlight-seeded chips, one per comma-separated 
         items: [{ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "AddChatClient, AddEmbeddingGenerator" }],
       }],
       totalOpportunities: 1,
+      inspectionError: null,
     },
   });
 
@@ -186,6 +191,7 @@ test("a wildcard look-for pattern renders as a muted, non-interactive hint", () 
         items: [{ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "Add*" }],
       }],
       totalOpportunities: 1,
+      inspectionError: null,
     },
   });
 
@@ -202,6 +208,7 @@ test("an empty look-for hint renders a generic any-registration-surface hint", (
         items: [{ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "" }],
       }],
       totalOpportunities: 1,
+      inspectionError: null,
     },
   });
 
@@ -217,6 +224,7 @@ test("API and integration-type text is escaped", () => {
         items: [{ api: "<Widget>", integrationType: "<bad> kind", lookFor: "<bad>" }],
       }],
       totalOpportunities: 1,
+      inspectionError: null,
     },
   });
 

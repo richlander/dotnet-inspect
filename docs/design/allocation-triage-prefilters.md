@@ -155,12 +155,49 @@ This separates two joins that have different stability contracts. `Candidate`
 is exact within one assembly build and is the key for runtime/static trace
 correlation. Cross-version onset still uses the producer-native
 `diff --finding` or `timeline --finding` matcher, where IL offsets and metadata
-tokens remain provenance rather than correspondence identity. Aggregate rows
-such as `allocation-hotspot` have no exact source occurrence and therefore use
-`Provenance=aggregate` while keeping their `Finding`, `Operation`, and `Token`
-fields empty. Candidate IDs are checked for uniqueness when an index is built;
-a truncated-prefix collision is deterministically lengthened rather than
-creating an ambiguous join.
+tokens remain provenance rather than correspondence identity. Aggregate rows such as `allocation-hotspot` have no exact source occurrence and
+therefore use `Provenance=aggregate` while keeping their `Finding`, `Operation`,
+`Token`, and `IL` fields empty. A composite repeated-scan judgment may retain
+one exact local call in the separately typed `SupportingCallSite` coordinate:
+the argument-producing allocation call when one directly feeds the scan,
+otherwise the scan call itself. It projects as `SupportingFinding`,
+`SupportingOperation`,
+`SupportingToken`, `SupportingEvidenceMethod`, and `SupportingIL`. This
+supporting coordinate enables same-build runtime correspondence without
+changing aggregate provenance, candidate identity, confidence, or rank.
+`OptimizationOpportunities_FlagsImmediateLazyQueryTerminalInvokedInCallerLoop`
+pins the allocation-producing `Where` call for the composed scan case, while
+`OptimizationOpportunities_DoNotChooseAmbiguousScanSupport` requires multiple
+local scans to remain coordinate-free. Candidate IDs are checked for uniqueness
+when an index is built; a truncated-prefix collision is deterministically
+lengthened rather than creating an ambiguous join.
+
+RunFaster promotes allocation evidence from a raw library row to a
+coordinate-bearing scan aggregate only when the raw row has the same build and
+coordinate and exactly one supporting aggregate in that build claims that
+coordinate. Each build applies that precedence independently before
+cross-build ambiguity attribution. The raw site's predicted type need not match
+the sampled type: GC allocation ticks are attributed to the nearest preceding
+IL allocation site. Supporting
+coordinates are indexed separately: RunFaster selects the nearest raw
+allocation first and attaches only support at that exact offset, so a later
+non-allocation scan call cannot shadow the raw evidence. If an exact triage row
+also projects the same raw site, the unique aggregate support owns the
+observation and the exact row is superseded rather than sharing bytes. The raw
+row is then `superseded-by-triage`; an exact row at a different offset or from
+a different build remains independent. Support anchors are allocation-only:
+method-name or CPU samples may establish method heat on the aggregate but
+cannot supersede its raw allocation row. Otherwise the raw row retains the
+evidence.
+`Correlate_AggregateSupportingCallSite_PromotesExactLibraryEvidence` and
+`Correlate_AmbiguousAggregateSupports_DoNotClaimLibraryEvidence`,
+`Correlate_NonAllocationSupport_DoesNotShadowNearestLibrarySite`, and
+`Correlate_ExactAndAggregateSites_RespectCoordinateAndBuild` are the
+non-vacuity gates for those outcomes. The flattened projection gate
+`FlattenedPerformanceTriageJsonl_RetainsSupportingCallSite` keeps all five
+`Supporting*` fields available in JSONL and tabular output as well as nested
+JSON. `ApplyAcceptedSupportPrecedence_IsIndependentPerBuild` pins the
+multi-build grouping boundary.
 
 ## Opt-in allocation fanout
 
