@@ -32,10 +32,11 @@ reboot, a lost terminal, a session resumed from disk. This section covers that.
 It is distinct from a round restart, which
 [Canonical round flow](#canonical-round-flow) governs.
 
-A resume restores your transcript and nothing else. Time has passed: the base may
-have moved and CI has run, so your restored plan may describe a state that no
-longer exists. Treat the transcript as
-history, not as current fact.
+Your transcript comes back intact, and no conversation was missed: nothing
+happened between your last turn and this one, so there is nothing to catch up on
+and no new direction waiting to be found. What may have moved is machine state
+outside your process — CI runs asynchronously and other work merges — so a plan
+formed before you stopped can describe a world that no longer exists.
 
 ### First, re-establish the world
 
