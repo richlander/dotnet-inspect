@@ -505,12 +505,21 @@ public static class PackageCoordinateResolver
     }
 
     /// <summary>
-    /// Returns true for a structurally valid package framework asset path.
-    /// Recognizes <c>lib|ref|tools/&lt;framework&gt;/...</c> and
-    /// <c>runtimes/&lt;rid&gt;/lib/&lt;framework&gt;/...</c>.
+    /// Returns true for a structurally valid package-relative asset path.
+    /// Framework-root paths additionally validate their framework and runtime
+    /// coordinates.
     /// </summary>
-    public static bool IsPackageFrameworkAssetPath(string relativePath)
+    public static bool IsPackageRelativeAssetPath(string relativePath)
     {
+        if (string.IsNullOrEmpty(relativePath)
+            || relativePath[0] is '/' or '\\'
+            || (relativePath.Length >= 2
+                && char.IsAsciiLetter(relativePath[0])
+                && relativePath[1] == ':'))
+        {
+            return false;
+        }
+
         string[] parts = relativePath.Split('/', '\\');
         if (parts.Any(static part =>
                 part.Length == 0 || part is "." or ".."))
@@ -519,7 +528,6 @@ public static class PackageCoordinateResolver
         }
 
         if (parts.Length >= 3
-            && IsFrameworkFolderName(parts[1])
             && (parts[0].Equals(
                     "lib",
                     StringComparison.OrdinalIgnoreCase)
@@ -530,18 +538,22 @@ public static class PackageCoordinateResolver
                     "tools",
                     StringComparison.OrdinalIgnoreCase)))
         {
-            return true;
+            return IsFrameworkFolderName(parts[1]);
         }
 
-        return parts.Length >= 5
+        if (parts.Length >= 5
             && parts[0].Equals(
                 "runtimes",
                 StringComparison.OrdinalIgnoreCase)
-            && IsAcquisitionTargetText(parts[1])
             && parts[2].Equals(
                 "lib",
-                StringComparison.OrdinalIgnoreCase)
-            && IsFrameworkFolderName(parts[3]);
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return IsAcquisitionTargetText(parts[1])
+                && IsFrameworkFolderName(parts[3]);
+        }
+
+        return true;
 
         static bool IsFrameworkFolderName(string name)
         {
@@ -568,7 +580,8 @@ public static class PackageCoordinateResolver
                         "net",
                         StringComparison.OrdinalIgnoreCase)
                     && name.Length > 3
-                    && char.IsAsciiDigit(name[3]));
+                    && (char.IsAsciiDigit(name[3])
+                        || name[3] is '.' or '-' or '+'));
 
             // Preserve framework folders this resolver cannot select. For a
             // modeled family, require its full grammar rather than the loose

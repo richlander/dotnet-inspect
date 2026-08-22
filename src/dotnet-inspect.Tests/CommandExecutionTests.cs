@@ -6534,12 +6534,10 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Package", routed.Error);
     }
 
-    [Theory]
-    [InlineData(@"C:\missing.dll")]
-    [InlineData(@"directory\missing.dll")]
-    public async Task Router_ForeignSeparatorLibraryValue_UsesTypeParser(
-        string libraryPath)
+    [Fact]
+    public async Task Router_WindowsDriveLibraryValue_UsesTypeParser()
     {
+        const string libraryPath = @"C:\missing.dll";
         string[] arguments =
         [
             "System.String",
@@ -22527,19 +22525,29 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("Newtonsoft.Json")]
-    [InlineData("Newtonsoft.Json@13.0.4")]
+    [InlineData(
+        "Newtonsoft.Json",
+        "lib/net6.0/Newtonsoft.Json.dll",
+        "Newtonsoft.Json.dll")]
+    [InlineData(
+        "Newtonsoft.Json@13.0.4",
+        "lib/net6.0/Newtonsoft.Json.dll",
+        "Newtonsoft.Json.dll")]
+    [InlineData(
+        "Microsoft.CodeAnalysis.BannedApiAnalyzers@5.6.0",
+        "analyzers/dotnet/cs/Microsoft.CodeAnalysis.BannedApiAnalyzers.dll",
+        "Microsoft.CodeAnalysis.BannedApiAnalyzers.dll")]
     public async Task Router_PackageLibrarySubpath_IsIndependentOfCurrentDirectory(
-        string package)
+        string package,
+        string libraryPath,
+        string libraryName)
     {
         var tempDir = Path.Combine(
             Path.GetTempPath(),
             $"router-library-subpath-{Guid.NewGuid():N}");
         var localLibrary = Path.Combine(
             tempDir,
-            "lib",
-            "net6.0",
-            "Newtonsoft.Json.dll");
+            libraryPath.Replace('/', Path.DirectorySeparatorChar));
         Directory.CreateDirectory(Path.GetDirectoryName(localLibrary)!);
         File.WriteAllText(localLibrary, "not an assembly");
         try
@@ -22548,7 +22556,7 @@ public partial class CommandExecutionTests
             [
                 package,
                 "--library",
-                "lib/net6.0/Newtonsoft.Json.dll",
+                libraryPath,
                 "-S",
                 "Library Info",
                 "--tips",
@@ -22564,7 +22572,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(direct, routed);
             Assert.Equal(0, routed.Exit);
-            Assert.Contains("# Newtonsoft.Json.dll", routed.Output);
+            Assert.Contains($"# {libraryName}", routed.Output);
         }
         finally
         {
@@ -22606,7 +22614,14 @@ public partial class CommandExecutionTests
     [InlineData("ref/net6.0/Missing.dll")]
     [InlineData("tools/net6.0/Missing.dll")]
     [InlineData("runtimes/linux-x64/lib/net6.0/Missing.dll")]
-    public async Task Router_PackageAssetLibraryPath_RoutesPackage(
+    [InlineData("analyzers/dotnet/cs/Missing.dll")]
+    [InlineData("build/net8.0/Missing.dll")]
+    [InlineData("tasks/Missing.dll")]
+    [InlineData("runtimes/linux-x64/native/Missing.dll")]
+    [InlineData("directory/lib/net8.0/Missing.dll")]
+    [InlineData(@"directory\Missing.dll")]
+    [InlineData("runtimes/lib/net8.0/Missing.dll")]
+    public async Task Router_PackageRelativeLibraryPath_RoutesPackage(
         string libraryPath)
     {
         string[] arguments =
@@ -22653,15 +22668,15 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("directory/lib/net8.0/missing.dll")]
     [InlineData("lib/net8bogus/missing.dll")]
+    [InlineData("lib/net-8.0/missing.dll")]
+    [InlineData("lib/net.8.0/missing.dll")]
+    [InlineData("lib/net+8.0/missing.dll")]
     [InlineData("lib//net8.0/missing.dll")]
     [InlineData("lib/./missing.dll")]
     [InlineData("lib/net8.0/../missing.dll")]
-    [InlineData("runtimes/linux-x64/native/missing.dll")]
     [InlineData("runtimes/linux-x64/lib/../missing.dll")]
-    [InlineData("runtimes/lib/net8.0/missing.dll")]
-    public async Task Router_NestedPackageLikeLibraryPath_UsesTypeParser(
+    public async Task Router_MalformedPackageLibraryPath_UsesTypeParser(
         string libraryPath)
     {
         string[] arguments =

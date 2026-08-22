@@ -397,31 +397,41 @@ public sealed class PackageCoordinateResolverTests
     [InlineData("lib/net4.0/Foo.dll")]
     [InlineData("runtimes/linux-x64/lib/net8.0/Foo.dll")]
     [InlineData("runtimes\\win-x64\\lib\\uap10.0\\Foo.dll")]
-    public void PackageFrameworkAssetPath_AcceptsAnchoredFrameworkAssets(
+    [InlineData("analyzers/dotnet/cs/Analyzer.dll")]
+    [InlineData("build/net8.0/BuildTask.dll")]
+    [InlineData("tasks/BuildTask.dll")]
+    [InlineData("contentFiles/any/any/Content.dll")]
+    [InlineData("directory/lib/net8.0/Foo.dll")]
+    [InlineData("runtimes/linux-x64/native/Foo.dll")]
+    [InlineData("runtimes/lib/net8.0/Foo.dll")]
+    public void PackageRelativeAssetPath_AcceptsHygienicRelativePaths(
         string path)
     {
         Assert.True(
-            PackageCoordinateResolver.IsPackageFrameworkAssetPath(path));
+            PackageCoordinateResolver.IsPackageRelativeAssetPath(path));
     }
 
     [Theory]
-    [InlineData("directory/lib/net8.0/Foo.dll")]
     [InlineData("lib/net8bogus/Foo.dll")]
+    [InlineData("lib/net-8.0/Foo.dll")]
+    [InlineData("lib/net.8.0/Foo.dll")]
+    [InlineData("lib/net+8.0/Foo.dll")]
     [InlineData("lib/netstandardbogus/Foo.dll")]
     [InlineData("lib/netcoreappbogus/Foo.dll")]
     [InlineData("lib//net8.0/Foo.dll")]
     [InlineData("lib/./Foo.dll")]
     [InlineData("lib/net8.0/../Foo.dll")]
     [InlineData("lib/net8.0 bad/Foo.dll")]
-    [InlineData("runtimes/linux-x64/native/Foo.dll")]
     [InlineData("runtimes/linux-x64/lib/../Foo.dll")]
     [InlineData("runtimes//lib/net8.0/Foo.dll")]
-    [InlineData("runtimes/lib/net8.0/Foo.dll")]
-    public void PackageFrameworkAssetPath_RejectsMalformedOrShiftedPaths(
+    [InlineData("/lib/net8.0/Foo.dll")]
+    [InlineData(@"\lib\net8.0\Foo.dll")]
+    [InlineData(@"C:\lib\net8.0\Foo.dll")]
+    public void PackageRelativeAssetPath_RejectsExplicitOrMalformedPaths(
         string path)
     {
         Assert.False(
-            PackageCoordinateResolver.IsPackageFrameworkAssetPath(path));
+            PackageCoordinateResolver.IsPackageRelativeAssetPath(path));
     }
 
     /// <summary>

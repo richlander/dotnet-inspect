@@ -920,18 +920,18 @@ public static class RouterCommandDefinition
             if (SourceResolver.IsLibrarySelector(value, package: null))
                 return true;
 
-            return IsPackageAssetLibraryPath(value)
+            return IsPackageRelativeLibraryPath(value)
                 && value.EndsWith(
                     ".dll",
                     StringComparison.OrdinalIgnoreCase)
                 && !IsExplicitLibraryPath(value);
         }
 
-        private static bool IsPackageAssetLibraryPath(string value)
+        private static bool IsPackageRelativeLibraryPath(string value)
         {
-            // A package asset root is authoritative even when the target resembles
-            // a type; consulting cwd would make the same command route differently.
-            return PackageCoordinateResolver.IsPackageFrameworkAssetPath(value);
+            // A hygienic relative asset path is authoritative even when the target
+            // resembles a type; consulting cwd would make routing nondeterministic.
+            return PackageCoordinateResolver.IsPackageRelativeAssetPath(value);
         }
 
         private static bool IsExplicitLibraryPath(string value) =>
