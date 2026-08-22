@@ -197,6 +197,11 @@ import {
   type DotnetRelease,
 } from "./catalog-requests.ts";
 import { bindStatusBar, fmtBytes, statusBarHtml } from "./status-bar.ts";
+import {
+  bindCreditsPanel,
+  isCreditsPath,
+  renderCreditsPage,
+} from "./credits-panel.ts";
 import type {
   BrowserBuildIdentity,
   BrowserCallGraph,
@@ -457,6 +462,7 @@ const initialState = {
   packages: [],
   package: null,
   home: false,
+  credits: false,
   platformIndex: null,
   queryNotice: "",
   queryNoticeRetryAction: null,
@@ -958,7 +964,9 @@ const initialLocation = parseLocation();
 // A bare visit (no package, no shared workspace packet) lands on the intro/home page
 // instead of auto-loading a package. Any deep link or shared link skips home and restores
 // its workspace directly.
-state.home = !initialLocation.package && !(initialLocation.tabs && initialLocation.tabs.length);
+state.credits = isCreditsPath(location.pathname);
+state.home = state.credits
+  || (!initialLocation.package && !(initialLocation.tabs && initialLocation.tabs.length));
 state.queryNotice = initialLocation.workspaceNotice || "";
 if (initialLocation.package) {
   state.requestedPackage = initialLocation.package;
@@ -2000,6 +2008,10 @@ function render() {
   if (!showingInterstitial) loadingBotSrc = null;
   if (state.loading || state.error) {
     renderLoading();
+    return;
+  }
+  if (state.credits) {
+    renderCreditsView();
     return;
   }
   if (state.home) {
@@ -5620,7 +5632,6 @@ function renderHomeView() {
           <p class="home-kicker">Browser-native · WebAssembly · zero install</p>
           <h1 class="home-title">Inspect any NuGet package: types, methods, metadata, decompilation.</h1>
           <p class="home-lede">Explore NuGet packages and the .NET platform — types, members, public API surface, dependencies, call graphs, and decompiled C# — all computed locally in your browser. Nothing to install, nothing uploaded.</p>
-          <p class="home-availability">Also available as a <a href="https://www.nuget.org/packages/dotnet-inspect" target="_blank" rel="noreferrer">CLI tool</a> and <a href="https://github.com/richlander/dotnet-skills" target="_blank" rel="noreferrer">agent skill</a>.</p>
           <div class="home-search ${enginePending ? "engine-pending" : ""}" role="search" aria-busy="${enginePending}">
             ${spotlight.inlineHtml(enginePending)}
             ${enginePending
@@ -5630,6 +5641,8 @@ function renderHomeView() {
                 </div>`
               : ""}
           </div>
+          <p class="home-availability">Also available as a <a href="https://www.nuget.org/packages/dotnet-inspect" target="_blank" rel="noreferrer">CLI tool</a> and <a href="https://github.com/richlander/dotnet-skills" target="_blank" rel="noreferrer">agent skill</a>.</p>
+          <p class="home-attribution">Built with .NET 11, WebAssembly, TypeScript 7, NuGet, and System.Reflection.Metadata. <a id="home-credits" href="/credits">Credits</a></p>
           <div class="home-demos">
             <span class="home-demos-label">Or jump straight into a demo</span>
             <div class="home-demo-row">
@@ -5639,7 +5652,7 @@ function renderHomeView() {
             </div>
           </div>
         </div>
-        <aside class="home-art">${homeArtSvg()}</aside>
+        <aside class="home-art ${enginePending ? "engine-pending" : "engine-ready"}">${homeArtSvg()}</aside>
       </main>
       ${statusBarHtml({
         variant: "home",
@@ -5667,6 +5680,7 @@ const homeShellActions: HomeShellBindingActions = {
     state.queryNoticeRetryAction = null;
     render();
   },
+  onOpenCredits: openCredits,
   onToggleTheme: toggleTheme,
 };
 
@@ -5705,10 +5719,28 @@ function runHomeDemo(kind: keyof typeof HOME_DEMO_LINKS | "callgraph") {
 // Soft in-app navigation (pushState "/") so a refresh stays on home and Back returns to the
 // workbench; the home search reuses the still-resident package list.
 function goHome() {
+  state.credits = false;
   state.home = true;
   spotlight.reset();
   workspaceLocation.push("/");
   render();
+}
+
+function openCredits() {
+  state.credits = true;
+  state.home = true;
+  spotlight.reset();
+  workspaceLocation.push("/credits");
+  render();
+}
+
+function renderCreditsView() {
+  document.title = "Credits · dotnet-inspect";
+  app.innerHTML = renderCreditsPage(state.theme === "light" ? "light" : "dark");
+  bindCreditsPanel(document, {
+    onClose: goHome,
+    onToggleTheme: toggleTheme,
+  });
 }
 
 // Loads the resident runtime pack and lands on its package Overview (the runtime pack has no
@@ -7710,6 +7742,17 @@ window.addEventListener("popstate", () => {
   const loc = parseLocation();
   state.queryNotice = loc.workspaceNotice || "";
   state.queryNoticeRetryAction = null;
+  if (isCreditsPath(location.pathname)) {
+    state.error = "";
+    state.errorTitle = "";
+    state.errorDetail = "";
+    state.retryAction = null;
+    state.credits = true;
+    state.home = true;
+    spotlight.reset();
+    render();
+    return;
+  }
   const bareHome = !loc.package && !(loc.tabs && loc.tabs.length);
   if (bareHome) {
     // Navigated back to the bare root — show the intro/home page (engine stays warm).
@@ -7717,11 +7760,13 @@ window.addEventListener("popstate", () => {
     state.errorTitle = "";
     state.errorDetail = "";
     state.retryAction = null;
+    state.credits = false;
     state.home = true;
     spotlight.reset();
     render();
     return;
   }
+  state.credits = false;
   resetLocationFilters();
   const deep = loc;
   if (!state.package) {

@@ -13,6 +13,14 @@
       }
     }
   ],
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": [
+      "/api/*",
+      "/assets/*",
+      "/_framework/*"
+    ]
+  },
   "platform": {
     "apiRuntime": "dotnet-isolated:8.0"
   }

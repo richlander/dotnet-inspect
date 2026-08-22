@@ -31,6 +31,9 @@ const browserTsconfig = JSON.parse(
 const testTsconfig = JSON.parse(
   readFileSync(new URL("tsconfig.json", import.meta.url), "utf8"),
 );
+const staticWebAppConfig = JSON.parse(
+  readFileSync(new URL("../staticwebapp.config.json", import.meta.url), "utf8"),
+);
 
 test("the package lock pins every registry artifact", () => {
   const missingArtifactIdentity = Object.entries(packageLock.packages)
@@ -52,6 +55,14 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
   assert.equal(
     packageJson.scripts.typecheck,
     "tsc --noEmit && tsc --noEmit -p test/tsconfig.json",
+  );
+});
+
+test("static hosting serves direct credits links through the application entry point", () => {
+  assert.equal(staticWebAppConfig.navigationFallback.rewrite, "/index.html");
+  assert.deepEqual(
+    staticWebAppConfig.navigationFallback.exclude,
+    ["/api/*", "/assets/*", "/_framework/*"],
   );
 });
 

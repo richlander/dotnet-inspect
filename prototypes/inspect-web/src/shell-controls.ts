@@ -17,6 +17,7 @@ export interface WorkbenchShellBindingActions {
 export interface HomeShellBindingActions {
   onDemo: (demo: HomeDemo) => void;
   onDismissNotice: () => void;
+  onOpenCredits: () => void;
   onToggleTheme: () => void;
 }
 
@@ -57,6 +58,11 @@ export function bindHomeShell(
     ?.addEventListener("click", actions.onToggleTheme);
   root.querySelector("#dismiss-notice")
     ?.addEventListener("click", actions.onDismissNotice);
+  root.querySelector("#home-credits")
+    ?.addEventListener("click", event => {
+      event.preventDefault();
+      actions.onOpenCredits();
+    });
   root.querySelectorAll<HTMLElement>("[data-home-demo]").forEach(button =>
     button.addEventListener("click", () => {
       const demo = button.dataset.homeDemo;

@@ -464,6 +464,10 @@ export function createSpotlight(options: SpotlightOptions) {
     return `
       <div class="home-search-content" ${disabled ? "inert" : ""}>
         <div class="home-search-box">
+          ${disabled ? "" : `<svg class="home-search-glint" aria-hidden="true">
+            <rect class="home-search-glint-glow" pathLength="1"></rect>
+            <rect class="home-search-glint-line" pathLength="1"></rect>
+          </svg>`}
           <span class="spotlight-glyph">⌕</span>
           <input id="spotlight-input" value="${escapeHtml(state.spotlightQuery)}" placeholder="Search NuGet — a package, type, or member…" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="spotlight-results"${activeDescendantAttribute(items)} ${disabled ? "disabled" : ""} />
         </div>
