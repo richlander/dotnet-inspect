@@ -190,6 +190,59 @@ test("runtime assembly acquisition reports a missing selected descriptor", async
   ]);
 });
 
+test("resident runtime assembly acquisition reports a missing selected descriptor before merging", async () => {
+  const resident = createRuntimePackageModel(
+    runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"));
+  const residentAssemblyNames = resident.assemblies.map(candidate => candidate.name);
+  const residentTypeIds = resident.types.map(candidate => candidate.id);
+  const residentAccessibility = resident.accessibility.map(descriptor => ({
+    id: descriptor.id,
+    count: descriptor.count,
+  }));
+  const residentTotalMembers = resident.totalMembers;
+  const residentTotalTypes = resident.totalTypes;
+  const failures: string[] = [];
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    loadRuntimePackAssembly: async () => JSON.stringify(packageSurface({
+      package: "Microsoft.NETCore.App",
+      activeFramework: "net10.0",
+      defaultAssemblyId: "missing",
+      assemblies: [],
+      types: [],
+    })),
+    runtimePackage: () => resident,
+    failRuntimeLoad: error =>
+      failures.push(error instanceof Error ? error.message : String(error)),
+  }));
+
+  const result = await acquisition.loadRuntimePackAssembly(
+    "net10.0",
+    "System.Text.Json",
+    "netcore.app");
+
+  assert.equal(result.packageModel, null);
+  assert.match(
+    result.error instanceof Error ? result.error.message : "",
+    /platform assembly query did not return its selected assembly descriptor/);
+  assert.deepEqual(failures, [
+    "The platform assembly query did not return its selected assembly descriptor.",
+  ]);
+  assert.deepEqual(
+    resident.assemblies.map(candidate => candidate.name),
+    residentAssemblyNames);
+  assert.deepEqual(
+    resident.types.map(candidate => candidate.id),
+    residentTypeIds);
+  assert.deepEqual(
+    resident.accessibility.map(descriptor => ({
+      id: descriptor.id,
+      count: descriptor.count,
+    })),
+    residentAccessibility);
+  assert.equal(resident.totalMembers, residentTotalMembers);
+  assert.equal(resident.totalTypes, residentTotalTypes);
+});
+
 test("package acquisition publishes only current results", async () => {
   const events: string[] = [];
   const replacedPackage = createNuGetPackageModel(packageSurface({

@@ -85,10 +85,8 @@ export function createRuntimePackageModel(
 
 function createRuntimeAssemblyPackageModel(
   result: BrowserPackageSurface,
+  assembly: BrowserAssemblySurface,
 ): AppPackage {
-  const assembly = defaultAssembly(
-    result,
-    "The platform assembly query did not return its selected assembly descriptor.");
   return createRuntimePackageModelForAssembly(
     result,
     assembly,
@@ -306,6 +304,9 @@ export function createPackageAcquisition(
             assemblyFileName,
             pack || ""));
         if (!isCurrent()) return null;
+        const assembly = defaultAssembly(
+          result,
+          "The platform assembly query did not return its selected assembly descriptor.");
         dependencies.refreshPackageStats();
         const existing = dependencies.runtimePackage();
         if (existing
@@ -314,7 +315,7 @@ export function createPackageAcquisition(
               === requestedFramework.toLowerCase())) {
           return mergeRuntimePackageSurface(existing, result);
         }
-        const packageModel = createRuntimeAssemblyPackageModel(result);
+        const packageModel = createRuntimeAssemblyPackageModel(result, assembly);
         dependencies.retainPackage(packageModel, existing);
         return packageModel;
       });
