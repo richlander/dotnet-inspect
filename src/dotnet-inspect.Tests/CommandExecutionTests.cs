@@ -10016,11 +10016,12 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("@Source")]
-    [InlineData("*")]
-    [InlineData("PDB Source")]
+    [InlineData("@Source", false)]
+    [InlineData("*", false)]
+    [InlineData("PDB Source", true)]
     public async Task Member_DeferredLookup_PreservesExactSelectorProvenance(
-        string selector)
+        string selector,
+        bool exactSourceSection)
     {
         string[] commonArguments =
         [
@@ -10029,17 +10030,35 @@ public partial class CommandExecutionTests
             "-S",
             selector,
             "--json",
-            "--offline",
             "--tips",
             "q"
         ];
 
         var direct = await RunAppAsync(
-            ["member", "System.String", "Clone:1", .. commonArguments]);
+            ["member", "System.String", "Clone", .. commonArguments]);
         var deferred = await RunAppAsync(
             ["member", "System.String.Clone", .. commonArguments]);
 
         Assert.Equal(direct, deferred);
+        if (exactSourceSection)
+        {
+            Assert.Equal(1, deferred.Exit);
+            Assert.Empty(deferred.Output);
+            Assert.Contains(
+                ApiCommand.NoPdbSourceMappingReason,
+                deferred.Error);
+            Assert.Contains(
+                "cannot represent this code-section failure",
+                deferred.Error);
+            return;
+        }
+
+        Assert.Equal(0, deferred.Exit);
+        Assert.Empty(deferred.Error);
+        using var document = JsonDocument.Parse(deferred.Output);
+        Assert.Equal(
+            "String",
+            document.RootElement.GetProperty("name").GetString());
     }
 
     [Theory]
