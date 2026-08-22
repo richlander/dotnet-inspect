@@ -709,6 +709,89 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
+    public void Emit_DoesNotApplyDictionarySemanticsToLookalikeType()
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+        var lookalikeDictionary = new ApiTypeReferenceIdentity(
+            new ApiAssemblyIdentity(
+                "Lookalikes",
+                new Version(1, 0, 0, 0),
+                culture: null,
+                publicKeyToken: null),
+            "System.Collections.Generic.Dictionary`2");
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records =
+            [
+                new ApiType
+                {
+                    Name = "Root",
+                    Members =
+                    [
+                        new ApiMember
+                        {
+                            Name = "Values",
+                            Kind = "property",
+                            HasGetter = true,
+                            ReturnType =
+                                "System.Collections.Generic.Dictionary<string, string>",
+                            SignatureModel = new ApiSignature
+                            {
+                                ReturnType =
+                                    "System.Collections.Generic.Dictionary<string, string>",
+                                ReturnTypeReferences =
+                                    [lookalikeDictionary],
+                            },
+                        },
+                    ],
+                },
+            ],
+        };
+
+        string dts = DtsEmitter.Emit(surface, diagnostics);
+
+        Assert.Contains("  Values: unknown;", dts, StringComparison.Ordinal);
+        Assert.Single(diagnostics.UnmappedTypes);
+    }
+
+    [Fact]
+    public void Emit_DoesNotApplyTaskSemanticsToLookalikeType()
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Functions =
+            [
+                new JsExportFunction
+                {
+                    DeclaringType = "Exports",
+                    Name = "GetValue",
+                    ReturnType =
+                        "System.Threading.Tasks.Task<string>",
+                    ReturnTypeReferences =
+                    [
+                        new(
+                            new ApiAssemblyIdentity(
+                                "Lookalikes",
+                                new Version(1, 0, 0, 0),
+                                culture: null,
+                                publicKeyToken: null),
+                            "System.Threading.Tasks.Task`1"),
+                    ],
+                },
+            ],
+        };
+
+        string dts = DtsEmitter.Emit(surface, diagnostics);
+
+        Assert.Contains(
+            "export declare function getValue(): unknown;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Single(diagnostics.UnmappedTypes);
+    }
+
+    [Fact]
     public void Emit_WithIncludeAllKeepsJsonIncludeNonPublicProperty()
     {
         string dts = EmitFixtureDts(includeAll: true);

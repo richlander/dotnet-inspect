@@ -44,6 +44,13 @@ static class TsTypeMapper
         IReadOnlySet<string>? blockedAliases = null)
     {
         string trimmed = csharpType.Trim();
+        if (IsBlockedType(trimmed, blockedAliases))
+        {
+            diagnostics?.ReportUnmappedType(
+                location ?? trimmed,
+                trimmed);
+            return "unknown";
+        }
 
         if (TryUnwrapGeneric(trimmed, "System.Threading.Tasks.Task", out string? taskArg)
             || TryUnwrapGeneric(trimmed, "Task", out taskArg))
@@ -99,6 +106,13 @@ static class TsTypeMapper
         IReadOnlySet<string>? blockedAliases = null)
     {
         string trimmed = csharpType.Trim();
+        if (IsBlockedType(trimmed, blockedAliases))
+        {
+            diagnostics?.ReportUnmappedType(
+                location ?? trimmed,
+                trimmed);
+            return "unknown";
+        }
         string dtoType = Map(
             wireDtoName,
             recordNames,
@@ -107,7 +121,30 @@ static class TsTypeMapper
             blockedAliases);
 
         if (IsJsonEnvelopeReturnType(trimmed))
+        {
+            string envelopeType = trimmed;
+            if (TryUnwrapGeneric(
+                    trimmed,
+                    "System.Threading.Tasks.Task",
+                    out string? taskArg)
+                || TryUnwrapGeneric(trimmed, "Task", out taskArg)
+                || TryUnwrapGeneric(
+                    trimmed,
+                    "System.Threading.Tasks.ValueTask",
+                    out taskArg)
+                || TryUnwrapGeneric(trimmed, "ValueTask", out taskArg))
+            {
+                envelopeType = taskArg!;
+            }
+            if (IsBlockedType(envelopeType, blockedAliases))
+            {
+                diagnostics?.ReportUnmappedType(
+                    location ?? envelopeType,
+                    envelopeType);
+                return "unknown";
+            }
             return IsAsyncReturnType(trimmed) ? $"Promise<{dtoType}>" : dtoType;
+        }
 
         return MapReturnType(
             csharpType,
@@ -138,6 +175,13 @@ static class TsTypeMapper
         IReadOnlySet<string>? blockedAliases)
     {
         string trimmed = csharpType.Trim();
+        if (IsBlockedType(trimmed, blockedAliases))
+        {
+            diagnostics?.ReportUnmappedType(
+                location ?? trimmed,
+                trimmed);
+            return "unknown";
+        }
 
         if (trimmed.EndsWith("[]", StringComparison.Ordinal))
         {
@@ -326,5 +370,19 @@ static class TsTypeMapper
 
         argument = null;
         return false;
+    }
+
+    static bool IsBlockedType(
+        string typeName,
+        IReadOnlySet<string>? blockedAliases)
+    {
+        if (blockedAliases is null)
+            return false;
+        if (blockedAliases.Contains(typeName))
+            return true;
+
+        int genericStart = typeName.IndexOf('<');
+        return genericStart > 0
+            && blockedAliases.Contains(typeName[..genericStart]);
     }
 }

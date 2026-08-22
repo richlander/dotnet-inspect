@@ -687,6 +687,15 @@ public static class ApiSurfaceExtractor
                     reader,
                     jsonTypeAttributes,
                     observeDecodeWork);
+            apiType.JsonSerializableRoots =
+                AttributeReader.ReadJsonSerializableRoots(
+                    reader,
+                    jsonTypeAttributes,
+                    currentAssemblyIdentity,
+                    out int jsonSerializableAttributeCount,
+                    observeDecodeWork);
+            apiType.JsonSerializableAttributeCount =
+                jsonSerializableAttributeCount;
             if (apiType.Kind == "enum")
             {
                 apiType.IsFlagsEnum = AttributeReader.HasFlagsAttribute(
@@ -4630,6 +4639,12 @@ public static class ApiSurfaceExtractor
         AddText(ref count, type.BaseType);
         AddText(ref count, type.BaseTypeReference?.Assembly);
         AddText(ref count, type.BaseTypeReference?.FullName);
+        foreach (ApiJsonSerializableRoot root
+            in type.JsonSerializableRoots)
+        {
+            AddText(ref count, root.ElementType.Assembly);
+            AddText(ref count, root.ElementType.FullName);
+        }
         AddText(ref count, type.Interfaces);
         foreach (FilteredJsonPropertyNameFact fact
             in type.FilteredJsonPropertyNameFacts)

@@ -442,7 +442,9 @@ static class DtsEmitter
                 diagnostics,
                 $"{function.Name} return",
                 BlockedAliases(
-                    function.ReturnWireTypeReferences,
+                    function.ReturnWireTypeReferences
+                        .Concat(function.ReturnTypeReferences)
+                        .ToArray(),
                     knownTypeNames,
                     knownTypeIdentities))
             : TsTypeMapper.MapReturnType(
@@ -482,22 +484,83 @@ static class DtsEmitter
     {
         if (references is null || references.Count == 0)
             return null;
-        if (knownTypeIdentities.Count == 0)
-            return null;
 
         var blocked = new HashSet<string>(StringComparer.Ordinal);
         foreach (ApiTypeReferenceIdentity reference in references)
         {
-            if (knownTypeIdentities.Contains(reference))
-                continue;
-
             string simpleName = LastSegment(reference.FullName);
-            if (knownTypeNames.Contains(reference.FullName))
-                blocked.Add(reference.FullName);
-            if (knownTypeNames.Contains(simpleName))
-                blocked.Add(simpleName);
+            if (knownTypeIdentities.Count > 0
+                && !knownTypeIdentities.Contains(reference))
+            {
+                if (knownTypeNames.Contains(reference.FullName))
+                    blocked.Add(reference.FullName);
+                if (knownTypeNames.Contains(simpleName))
+                    blocked.Add(simpleName);
+            }
+
+            if (!PlatformKeys.IsPlatform(
+                    reference.Assembly.PublicKeyToken))
+            {
+                AddFrameworkMappingAliases(blocked, reference.FullName);
+            }
         }
         return blocked.Count == 0 ? null : blocked;
+    }
+
+    static void AddFrameworkMappingAliases(
+        HashSet<string> blocked,
+        string fullName)
+    {
+        string? keyword = fullName switch
+        {
+            "System.String" => "string",
+            "System.Char" => "char",
+            "System.Boolean" => "bool",
+            "System.Byte" => "byte",
+            "System.SByte" => "sbyte",
+            "System.Int16" => "short",
+            "System.UInt16" => "ushort",
+            "System.Int32" => "int",
+            "System.UInt32" => "uint",
+            "System.Int64" => "long",
+            "System.UInt64" => "ulong",
+            "System.Single" => "float",
+            "System.Double" => "double",
+            "System.Decimal" => "decimal",
+            "System.Void" => "void",
+            _ => null,
+        };
+        if (keyword is not null)
+        {
+            blocked.Add(fullName);
+            blocked.Add(keyword);
+            return;
+        }
+
+        string? renderedDefinition = fullName switch
+        {
+            "System.Nullable`1" => "System.Nullable",
+            "System.Threading.Tasks.Task`1" =>
+                "System.Threading.Tasks.Task",
+            "System.Threading.Tasks.Task" =>
+                "System.Threading.Tasks.Task",
+            "System.Threading.Tasks.ValueTask`1" =>
+                "System.Threading.Tasks.ValueTask",
+            "System.Threading.Tasks.ValueTask" =>
+                "System.Threading.Tasks.ValueTask",
+            "System.Collections.Generic.Dictionary`2" =>
+                "System.Collections.Generic.Dictionary",
+            "System.Collections.Generic.IReadOnlyDictionary`2" =>
+                "System.Collections.Generic.IReadOnlyDictionary",
+            "System.Text.Json.JsonElement" =>
+                "System.Text.Json.JsonElement",
+            _ => null,
+        };
+        if (renderedDefinition is null)
+            return;
+
+        blocked.Add(renderedDefinition);
+        blocked.Add(LastSegment(renderedDefinition));
     }
 
     static string LastSegment(string typeName)

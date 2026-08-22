@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 
 namespace ILInspector.JsExportSurface.Tests;
 
@@ -148,3 +149,14 @@ internal enum ControlPropertyNameEnumFixture
 [JsonSerializable(typeof(ControlFieldPropertyNameFixture))]
 [JsonSerializable(typeof(SourceGeneratedJsonIncludeAccessibilityFixture))]
 internal sealed partial class ControlPropertyNameFixtureJsonContext : JsonSerializerContext;
+
+internal sealed partial class ControlPropertyNameFixtureJsonContext
+{
+    public JsonTypeInfo<HandwrittenContextPropertyFixture> Handwritten =>
+        throw new NotSupportedException();
+}
+
+internal sealed class HandwrittenContextPropertyFixture
+{
+    public string Value { get; set; } = "";
+}

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -24,6 +25,8 @@ public static partial class AttributeReader
         "System.Runtime.InteropServices.JavaScript";
     private const string JsonStringEnumMemberNameAttributeName =
         "System.Text.Json.Serialization.JsonStringEnumMemberNameAttribute";
+    private const string JsonSerializableAttributeName =
+        "System.Text.Json.Serialization.JsonSerializableAttribute";
     private const string FlagsAttributeName = "System.FlagsAttribute";
     private const string JsonIncludeAttributeName = "System.Text.Json.Serialization.JsonIncludeAttribute";
     private const string JsonIgnoreAttributeName = "System.Text.Json.Serialization.JsonIgnoreAttribute";
@@ -394,14 +397,24 @@ public static partial class AttributeReader
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
         Action<int>? beforeMaterialize = null)
-        => HasAttribute(reader, attributes, FlagsAttributeName, beforeMaterialize);
+        => HasAuthenticatedMarkerAttribute(
+            reader,
+            attributes,
+            FlagsAttributeName,
+            assemblyName: null,
+            beforeMaterialize);
 
     /// <summary>Checks if the member has the <c>[JsonInclude]</c> attribute.</summary>
     public static bool HasJsonIncludeAttribute(
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
         Action<int>? beforeMaterialize = null)
-        => HasAttribute(reader, attributes, JsonIncludeAttributeName, beforeMaterialize);
+        => HasAuthenticatedMarkerAttribute(
+            reader,
+            attributes,
+            JsonIncludeAttributeName,
+            SystemTextJsonAssemblyName,
+            beforeMaterialize);
 
     public static int CountJsonConverterAttributes(
         MetadataReader reader,
@@ -466,7 +479,21 @@ public static partial class AttributeReader
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
         Action<int>? beforeMaterialize = null)
-        => HasAttribute(reader, attributes, JsonIgnoreAttributeName, beforeMaterialize);
+    {
+        foreach (CustomAttributeHandle attrHandle in attributes)
+        {
+            CustomAttribute attr = reader.GetCustomAttribute(attrHandle);
+            if (IsValidJsonIgnoreAttribute(
+                    reader,
+                    attr,
+                    beforeMaterialize,
+                    out _))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 
     public static bool HasJsonIgnoreNeverAttribute(
         MetadataReader reader,
@@ -477,39 +504,24 @@ public static partial class AttributeReader
         foreach (CustomAttributeHandle attrHandle in attributes)
         {
             CustomAttribute attr = reader.GetCustomAttribute(attrHandle);
-            if (GetAttributeTypeName(
+            if (!IsFrameworkAttributeType(
                     reader,
                     attr.Constructor,
+                    JsonIgnoreAttributeName,
+                    SystemTextJsonAssemblyName,
                     beforeMaterialize)
-                != JsonIgnoreAttributeName)
+                || !IsValidJsonIgnoreAttribute(
+                    reader,
+                    attr,
+                    beforeMaterialize,
+                    out int? condition))
             {
                 continue;
             }
 
-            if (found
-                || AttributeDecoder.TryDecode(
-                    reader,
-                    attr,
-                    beforeMaterialize) is not
-                    {
-                        FixedArguments.Length: 0,
-                        NamedArguments.Length: 1,
-                    } decoded)
-            {
+            if (found || condition != 0)
                 return false;
-            }
-
             found = true;
-            CustomAttributeNamedArgument<string> condition =
-                decoded.NamedArguments[0];
-            if (condition.Kind != CustomAttributeNamedArgumentKind.Property
-                || condition.Name != "Condition"
-                || condition.Type != JsonIgnoreConditionTypeName
-                || !TryReadInt32(condition.Value, out int rawValue)
-                || rawValue != 0)
-            {
-                return false;
-            }
         }
 
         return found;
@@ -524,8 +536,17 @@ public static partial class AttributeReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrName = GetAttributeTypeName(reader, attr.Constructor, beforeMaterialize);
-            if (attrName != JsonPropertyNameAttributeName)
+            if (!IsFrameworkAttributeType(
+                    reader,
+                    attr.Constructor,
+                    JsonPropertyNameAttributeName,
+                    SystemTextJsonAssemblyName,
+                    beforeMaterialize)
+                || !HasExpectedConstructor(
+                    reader,
+                    attr.Constructor,
+                    FrameworkConstructorKind.String,
+                    beforeMaterialize))
                 continue;
 
             propertyNames.Add(
@@ -550,11 +571,17 @@ public static partial class AttributeReader
         foreach (CustomAttributeHandle attrHandle in attributes)
         {
             CustomAttribute attr = reader.GetCustomAttribute(attrHandle);
-            if (GetAttributeTypeName(
+            if (!IsFrameworkAttributeType(
                     reader,
                     attr.Constructor,
+                    JsonStringEnumMemberNameAttributeName,
+                    SystemTextJsonAssemblyName,
                     beforeMaterialize)
-                != JsonStringEnumMemberNameAttributeName)
+                || !HasExpectedConstructor(
+                    reader,
+                    attr.Constructor,
+                    FrameworkConstructorKind.String,
+                    beforeMaterialize))
             {
                 continue;
             }
@@ -582,8 +609,22 @@ public static partial class AttributeReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrName = GetAttributeTypeName(reader, attr.Constructor, beforeMaterialize);
-            if (attrName != JsonSourceGenerationOptionsAttributeName)
+            if (!IsFrameworkAttributeType(
+                    reader,
+                    attr.Constructor,
+                    JsonSourceGenerationOptionsAttributeName,
+                    SystemTextJsonAssemblyName,
+                    beforeMaterialize)
+                || !HasExpectedConstructor(
+                        reader,
+                        attr.Constructor,
+                        FrameworkConstructorKind.Marker,
+                        beforeMaterialize)
+                    && !HasExpectedConstructor(
+                        reader,
+                        attr.Constructor,
+                        FrameworkConstructorKind.JsonSerializerDefaults,
+                        beforeMaterialize))
                 continue;
 
             JsonWireNamingPolicy current =
@@ -654,10 +695,176 @@ public static partial class AttributeReader
         return false;
     }
 
+    public static List<ApiJsonSerializableRoot>
+        ReadJsonSerializableRoots(
+            MetadataReader reader,
+            CustomAttributeHandleCollection attributes,
+            ApiAssemblyIdentity? currentAssemblyIdentity,
+            out int attributeCount,
+            Action<int>? beforeMaterialize = null)
+    {
+        attributeCount = 0;
+        var roots = new List<ApiJsonSerializableRoot>();
+        foreach (CustomAttributeHandle attrHandle in attributes)
+        {
+            CustomAttribute attr = reader.GetCustomAttribute(attrHandle);
+            if (!IsFrameworkAttributeType(
+                    reader,
+                    attr.Constructor,
+                    JsonSerializableAttributeName,
+                    SystemTextJsonAssemblyName,
+                    beforeMaterialize))
+            {
+                continue;
+            }
+
+            attributeCount++;
+            if (!HasExpectedConstructor(
+                    reader,
+                    attr.Constructor,
+                    FrameworkConstructorKind.SystemType,
+                    beforeMaterialize)
+                || AttributeDecoder
+                    .TryDecodePreservingSerializedTypeNames(
+                        reader,
+                        attr,
+                        beforeMaterialize) is not
+                    {
+                        FixedArguments.Length: 1,
+                    } decoded
+                || decoded.FixedArguments[0].Value
+                    is not string serializedTypeName
+                || !HasSupportedJsonSerializableNamedArguments(
+                    decoded.NamedArguments))
+            {
+                continue;
+            }
+
+            ApiAssemblyIdentity? assemblyIdentity;
+            string? typeName;
+            if (TryReadSerializedTypeIdentity(
+                    serializedTypeName,
+                    out string? parsedTypeName,
+                    out ApiAssemblyIdentity? parsedAssemblyIdentity))
+            {
+                typeName = parsedTypeName;
+                assemblyIdentity = parsedAssemblyIdentity;
+            }
+            else
+            {
+                typeName = serializedTypeName.Trim();
+                assemblyIdentity = currentAssemblyIdentity;
+            }
+
+            if (!string.IsNullOrEmpty(typeName)
+                && assemblyIdentity is not null)
+            {
+                bool isArray = typeName.EndsWith(
+                    "[]",
+                    StringComparison.Ordinal);
+                if (isArray)
+                    typeName = typeName[..^2];
+                if (typeName.IndexOfAny(['[', ']', '`', '*', '&']) >= 0)
+                    continue;
+                roots.Add(new(
+                    new(
+                        assemblyIdentity,
+                        typeName.Replace('+', '.')),
+                    isArray));
+            }
+        }
+        return roots;
+    }
+
+    static bool HasSupportedJsonSerializableNamedArguments(
+        ImmutableArray<CustomAttributeNamedArgument<string>> arguments)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (CustomAttributeNamedArgument<string> argument in arguments)
+        {
+            if (argument.Kind != CustomAttributeNamedArgumentKind.Property
+                || !names.Add(argument.Name!))
+            {
+                return false;
+            }
+
+            switch (argument.Name)
+            {
+                case "GenerationMode":
+                    if (argument.Type
+                            != "System.Text.Json.Serialization.JsonSourceGenerationMode"
+                        || !TryReadInt32(argument.Value, out int mode)
+                        || mode is < 0 or > 3)
+                    {
+                        return false;
+                    }
+                    break;
+                case "TypeInfoPropertyName":
+                    if (argument.Type != "string"
+                        || argument.Value is not string)
+                    {
+                        return false;
+                    }
+                    break;
+                default:
+                    return false;
+            }
+        }
+        return true;
+    }
+
+    static bool IsValidJsonIgnoreAttribute(
+        MetadataReader reader,
+        CustomAttribute attribute,
+        Action<int>? beforeMaterialize,
+        out int? condition)
+    {
+        condition = null;
+        if (!IsFrameworkAttributeType(
+                reader,
+                attribute.Constructor,
+                JsonIgnoreAttributeName,
+                SystemTextJsonAssemblyName,
+                beforeMaterialize)
+            || !HasExpectedConstructor(
+                reader,
+                attribute.Constructor,
+                FrameworkConstructorKind.Marker,
+                beforeMaterialize)
+            || AttributeDecoder.TryDecode(
+                reader,
+                attribute,
+                beforeMaterialize) is not
+                {
+                    FixedArguments.Length: 0,
+                } decoded)
+        {
+            return false;
+        }
+
+        if (decoded.NamedArguments.Length == 0)
+            return true;
+        if (decoded.NamedArguments is not [var argument]
+            || argument.Kind
+                != CustomAttributeNamedArgumentKind.Property
+            || argument.Name != "Condition"
+            || argument.Type != JsonIgnoreConditionTypeName
+            || !TryReadInt32(argument.Value, out int rawValue)
+            || rawValue is < 0 or > 3)
+        {
+            return false;
+        }
+
+        condition = rawValue;
+        return true;
+    }
+
     enum FrameworkConstructorKind
     {
         Marker,
         SystemType,
+        String,
+        JsonSerializerDefaults,
     }
 
     static bool HasExpectedConstructor(
@@ -746,6 +953,23 @@ public static partial class AttributeReader
                         NamedTypeNode
                         {
                             Name: "System.Type",
+                            AssemblyIdentity: { } identity,
+                        },
+                    ]
+                    && PlatformKeys.IsPlatform(
+                        identity.PublicKeyToken),
+                FrameworkConstructorKind.String =>
+                    signature.ParameterTypes is
+                    [
+                        PrimitiveTypeNode { Name: "string" },
+                    ],
+                FrameworkConstructorKind.JsonSerializerDefaults =>
+                    signature.ParameterTypes is
+                    [
+                        NamedTypeNode
+                        {
+                            Name:
+                                "System.Text.Json.JsonSerializerDefaults",
                             AssemblyIdentity: { } identity,
                         },
                     ]
@@ -855,6 +1079,89 @@ public static partial class AttributeReader
             return identity.Name == assemblyName
                 && PlatformKeys.IsPlatform(
                     identity.PublicKeyToken);
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException)
+        {
+            return false;
+        }
+    }
+
+    static bool HasAuthenticatedMarkerAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        string fullTypeName,
+        string? assemblyName,
+        Action<int>? beforeMaterialize)
+    {
+        foreach (CustomAttributeHandle attrHandle in attributes)
+        {
+            CustomAttribute attr = reader.GetCustomAttribute(attrHandle);
+            bool authentic = assemblyName is null
+                ? IsPlatformAttributeType(
+                    reader,
+                    attr.Constructor,
+                    fullTypeName,
+                    beforeMaterialize)
+                : IsFrameworkAttributeType(
+                    reader,
+                    attr.Constructor,
+                    fullTypeName,
+                    assemblyName,
+                    beforeMaterialize);
+            if (authentic
+                && HasExpectedConstructor(
+                    reader,
+                    attr.Constructor,
+                    FrameworkConstructorKind.Marker,
+                    beforeMaterialize)
+                && HasMarkerValueBlob(reader, attr))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool IsPlatformAttributeType(
+        MetadataReader reader,
+        EntityHandle constructor,
+        string fullTypeName,
+        Action<int>? beforeMaterialize)
+    {
+        try
+        {
+            ApiAssemblyIdentity identity;
+            if (constructor.Kind == HandleKind.MethodDefinition
+                && AttributeDecoder.GetAttributeTypeName(
+                    reader,
+                    constructor,
+                    beforeMaterialize) == fullTypeName)
+            {
+                identity = ApiAssemblyIdentity.FromDefinition(
+                    reader,
+                    beforeMaterialize);
+            }
+            else if (AttributeDecoder
+                .TryGetAttributeTypeAssemblyReference(
+                    reader,
+                    constructor,
+                    fullTypeName,
+                    out AssemblyReferenceHandle assemblyReference,
+                    beforeMaterialize))
+            {
+                identity = ApiAssemblyIdentity.FromReference(
+                    reader,
+                    assemblyReference,
+                    beforeMaterialize);
+            }
+            else
+            {
+                return false;
+            }
+
+            return PlatformKeys.IsPlatform(identity.PublicKeyToken);
         }
         catch (Exception ex) when (
             ex is BadImageFormatException

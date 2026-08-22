@@ -42,8 +42,12 @@ Record shapes are therefore discovered from the assembly's authentic,
 framework-signed `JsonSerializerContext`-derived type: each
 `[JsonSerializable(typeof(T))]` on that type compiles to a property whose
 `JsonTypeInfo<T>` definition is likewise authenticated to System.Text.Json.
-Both checks use typed metadata identity rather than matching those names as
-text. This list is not a heuristic — System.Text.Json's fast (non-reflection)
+The property is accepted as a root only when its `T` identity matches an
+authenticated `[JsonSerializable]` row; an unrelated handwritten
+`JsonTypeInfo<T>` property on the same partial context is not a registration.
+These checks use typed metadata identity rather than matching names as text.
+`JsExportSurfaceBuilderTests.Build_DoesNotDiscoverHandwrittenContextProperties`
+gates that correspondence. This list is not a heuristic — System.Text.Json's fast (non-reflection)
 serialization path requires every (de)serialized type to be registered there,
 so it is exactly the set of shapes that can flow across the `[JSExport]`
 boundary via this pattern.
@@ -93,6 +97,16 @@ wire-shaping rejection, byte-backed `ReadCommentHandling` decoding, supported
 peer options, and the ordinary single-row case.
 `DtsEmitterTests.Emit_BlocksEnumWithUnsupportedContextOptions` gates the enum
 path.
+
+Wire-shaping framework attributes are trusted only with their platform-signed
+assembly identity and expected constructor/value shape. This applies to
+`[Flags]`, `[JsonInclude]`, `[JsonIgnore]`, `[JsonPropertyName]`,
+`[JsonStringEnumMemberName]`, and `[JsonSourceGenerationOptions]`; a same-name
+attribute from another assembly cannot alter the projected contract.
+`JsonPropertyNameAttributeTests.SameNameAttributeFromUntrustedAssemblyIsIgnored`
+and
+`JsonSourceGenerationOptionsAttributeTests.SameNameOptionsAttributeFromUntrustedAssemblyIsIgnored`
+gate the cross-assembly boundary.
 
 Type- or member-level custom `[JsonConverter]` attributes can replace the
 entire inferred wire shape. Types using an unsupported converter are emitted
@@ -146,7 +160,13 @@ edge points. Identifier acceptance is pinned to the TypeScript 7.0.2 scanner
 rather than the runtime's newer Unicode tables. Qualified CLR type identities must match a discovered local identity by
 complete ECMA assembly identity and qualified name; an unrelated external type
 with the same assembly simple name, simple type name, or namespace-qualified
-name becomes diagnosed `unknown`, not an alias. Empty string-converted enums
+name becomes diagnosed `unknown`, not an alias. Built-in mappings such as
+`Task<T>`, `Dictionary<TKey, TValue>`, primitives, and `JsonElement` likewise
+require a platform-signed framework identity; same-name external types become
+diagnosed `unknown`.
+`DtsEmitterTests.Emit_DoesNotApplyDictionarySemanticsToLookalikeType` and
+`Emit_DoesNotApplyTaskSemanticsToLookalikeType` gate this framework boundary.
+Empty string-converted enums
 are rejected before output. Property keys use the broader `IdentifierName` grammar,
 where reserved words remain valid and do not require quoting;
 `DtsEmitterTests.Emit_DoesNotQuoteReservedWordsUsedAsPropertyKeys` gates that

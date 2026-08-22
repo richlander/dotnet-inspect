@@ -752,6 +752,13 @@ public class ApiType
     [JsonIgnore]
     public int JsonConverterAttributeCount { get; set; }
 
+    [JsonIgnore]
+    public int JsonSerializableAttributeCount { get; set; }
+
+    [JsonIgnore]
+    public List<ApiJsonSerializableRoot> JsonSerializableRoots
+        { get; set; } = [];
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public JsonWireNamingPolicy? JsonPropertyNamingPolicy { get; set; }
 
@@ -1219,3 +1226,7 @@ public sealed class ApiAssemblyIdentity : IEquatable<ApiAssemblyIdentity>
 public sealed record ApiTypeReferenceIdentity(
     ApiAssemblyIdentity Assembly,
     string FullName);
+
+public sealed record ApiJsonSerializableRoot(
+    ApiTypeReferenceIdentity ElementType,
+    bool IsArray);

@@ -132,6 +132,18 @@ public static class JsExportSurfaceBuilder
             {
                 continue;
             }
+            if (surface.AssemblyIdentity is not null
+                && type.JsonSerializableAttributeCount
+                    != type.JsonSerializableRoots.Count)
+            {
+                throw new UnsupportedJsExportSurfaceException(
+                    type.FullName,
+                    "JsonSerializable metadata is malformed or unsupported");
+            }
+            HashSet<ApiJsonSerializableRoot>? registeredRoots =
+                surface.AssemblyIdentity is null
+                    ? null
+                    : type.JsonSerializableRoots.ToHashSet();
 
             foreach (ApiMember member in type.Members)
             {
@@ -165,6 +177,27 @@ public static class JsExportSurfaceBuilder
                         JsonTypeInfoMetadataName))
                 {
                     continue;
+                }
+                if (registeredRoots is not null)
+                {
+                    ApiTypeReferenceIdentity[] propertyRoots =
+                        references?
+                            .Where(reference =>
+                                !IsTrustedSystemTextJsonType(
+                                    reference,
+                                    JsonTypeInfoMetadataName))
+                            .Distinct()
+                            .ToArray()
+                        ?? [];
+                    if (propertyRoots.Length != 1
+                        || !registeredRoots.Contains(new(
+                            propertyRoots[0],
+                            rootTypeName.EndsWith(
+                                "[]",
+                                StringComparison.Ordinal))))
+                    {
+                        continue;
+                    }
                 }
 
                 if (references?.Count > 0)

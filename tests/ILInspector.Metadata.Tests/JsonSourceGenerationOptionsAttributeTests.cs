@@ -192,6 +192,27 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
         Assert.Equal(JsonWireNamingPolicy.Unsupported, policy);
     }
 
+    [Fact]
+    public void SameNameOptionsAttributeFromUntrustedAssemblyIsIgnored()
+    {
+        byte[] image = BuildSingleRow(
+            metadata => PolicyValue(metadata, 1),
+            trustedAssembly: false);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition type = reader.GetTypeDefinition(
+            MetadataTokens.TypeDefinitionHandle(2));
+
+        bool found =
+            AttributeReader.TryGetJsonSourceGenerationPropertyNamingPolicy(
+                reader,
+                type.GetCustomAttributes(),
+                out _);
+
+        Assert.False(found);
+    }
+
     static JsonWireNamingPolicy? ReadPolicy(byte[] image)
     {
         using var stream = new MemoryStream(image, writable: false);
@@ -233,17 +254,20 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
             });
 
     static byte[] BuildSingleRow(
-        Func<MetadataBuilder, BlobHandle> valueFactory)
+        Func<MetadataBuilder, BlobHandle> valueFactory,
+        bool trustedAssembly = true)
         => BuildImageCore(
             (metadata, target, constructor) =>
                 metadata.AddCustomAttribute(
                     target,
                     constructor,
-                    valueFactory(metadata)));
+                    valueFactory(metadata)),
+            trustedAssembly);
 
     static byte[] BuildImageCore(
         Action<MetadataBuilder, TypeDefinitionHandle, MemberReferenceHandle>
-            addAttributes)
+            addAttributes,
+        bool trustedAssembly = true)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -263,7 +287,14 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
             metadata.GetOrAddString("System.Text.Json"),
             new Version(10, 0, 0, 0),
             default,
-            default,
+            trustedAssembly
+                ? metadata.GetOrAddBlob(
+                    new byte[]
+                    {
+                        0xcc, 0x7b, 0x13, 0xff,
+                        0xcd, 0x2d, 0xdd, 0x51,
+                    })
+                : default,
             default,
             default);
         TypeReferenceHandle attributeType = metadata.AddTypeReference(

@@ -368,6 +368,19 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     [Fact]
+    public void Build_DoesNotDiscoverHandwrittenContextProperties()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildFixtureSurface(includeAll: true);
+
+        Assert.DoesNotContain(
+            surface.Records,
+            record =>
+                record.Name
+                == nameof(HandwrittenContextPropertyFixture));
+    }
+
+    [Fact]
     public void Build_RoutesEnumRootsToEnumsNotRecords()
     {
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
