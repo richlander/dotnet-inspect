@@ -350,6 +350,79 @@ public class LibraryFindingConsumerTests
     }
 
     [Fact]
+    public void OptimizationOpportunitiesQueryProjection_PreservesIdentityUntilInertViewBoundary()
+    {
+        const string MethodName = "Method\u202EName";
+        const string Evidence = "allocates\u202E\n| injected |";
+        const string Allocation = "Type\u202EName";
+        var method = new MethodIdentity(
+            "Hostile",
+            Guid.Parse("11111111-2222-3333-4444-555555555555"),
+            TypeRef.Definition("Hostile", "Namespace", "Type\u202EName"),
+            MethodName,
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            IsStatic: true);
+        var opportunity = new OptimizationOpportunity(
+            method,
+            "small-array",
+            Evidence,
+            "Use stack allocation.",
+            "high",
+            InLoop: false,
+            ILOffset: 0,
+            Caveat: null,
+            RootReach: 3)
+        {
+            RuntimeAllocationType = Allocation,
+        };
+        var result = new OptimizationOpportunitiesResult.Available(
+            [opportunity],
+            [],
+            ImmutableHashSet<TypeRef>.Empty,
+            [new AnalysisDiagnostic(0x06000001, MethodName, "decode failed")]);
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ApplyOptimizationOpportunitiesResult(
+            "hostile.dll",
+            inspection,
+            new VerboseLogger(enabled: false),
+            result);
+
+        var available =
+            Assert.IsType<OptimizationOpportunitiesResult.Available>(
+                inspection.OptimizationOpportunitiesQueryResult);
+        OptimizationOpportunity queryOpportunity =
+            Assert.Single(available.Opportunities);
+        OptimizationOpportunity selectedOpportunity =
+            Assert.Single(inspection.PerformanceTriageOpportunities);
+        OptimizationOpportunitySummary summary =
+            Assert.Single(inspection.OptimizationOpportunities!);
+        PerformanceRow row = Assert.Single(
+            new LibraryInspectionView(inspection).PerformanceArraysSection!);
+
+        Assert.Same(opportunity, queryOpportunity);
+        Assert.Same(opportunity, selectedOpportunity);
+        Assert.Same(method, queryOpportunity.Method);
+        Assert.Contains(MethodName, summary.Member, StringComparison.Ordinal);
+        Assert.Equal(method.ModuleVersionId, summary.ModuleVersionId);
+        Assert.Equal(Evidence, summary.Evidence);
+        Assert.Equal(Allocation, summary.Allocation);
+        Assert.Equal(result.Diagnostics, available.Diagnostics);
+
+        Assert.DoesNotContain('\u202E', row.Member);
+        Assert.DoesNotContain('\u202E', row.Evidence);
+        Assert.DoesNotContain('\u202E', row.Allocation!);
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Member));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Evidence));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Allocation!));
+        Assert.StartsWith("<code>", row.Member, StringComparison.Ordinal);
+        Assert.StartsWith("<code>", row.Evidence, StringComparison.Ordinal);
+        Assert.StartsWith("<code>", row.Allocation, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void UnsafeEvidenceQueryProjection_UsesDistinctPerMethodFindingSubjects()
     {
         static MethodIdentity Method(string name, int token) => new(

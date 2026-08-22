@@ -900,18 +900,20 @@ public class LibraryInspectionView
     // Each section is absent when its kind has no findings (il-offset context-section model).
     private List<PerformanceRow>? PerformanceRowsFor(string section)
     {
-        var rows = _data.OptimizationOpportunities?
+        var rows = _data.PerformanceTriageOpportunities
             .Where(o => PerformanceKinds.SectionForShape(o.Shape) == section)
             .Select(o => new PerformanceRow(
-                MarkoutInline.CodeText(LibraryViewText.Field(o.Member)),
+                MarkoutInline.CodeText(LibraryViewText.Field(
+                    LibraryMetadataService.FormatMethod(o.Method))),
                 MarkoutInline.CodeText(LibraryViewText.Field(o.Evidence)),
-                o.Allocation is null
+                o.RuntimeAllocationType is null
                     ? null
-                    : MarkoutInline.CodeText(LibraryViewText.Field(o.Allocation)),
-                string.IsNullOrEmpty(o.Loop) ? null : o.Loop,
+                    : MarkoutInline.CodeText(
+                        LibraryViewText.Field(o.RuntimeAllocationType)),
+                LibraryMetadataService.IteratesInLoop(o) ? "loop" : null,
                 LibraryViewText.Field(o.RootReach.ToString()),
                 o.Weight,
-                o.Priority,
+                LibraryMetadataService.TriagePriority(o),
                 o.Confidence))
             .ToList();
         return rows is { Count: > 0 } ? rows : null;
@@ -922,27 +924,30 @@ public class LibraryInspectionView
     internal List<PerformanceGroupRow> PerformanceGroupRows(IReadOnlyCollection<string> selectedSections)
     {
         var rows = new List<PerformanceGroupRow>();
-        foreach (var opportunity in _data.OptimizationOpportunities ?? [])
+        foreach (var opportunity in _data.PerformanceTriageOpportunities)
         {
             var section = PerformanceKinds.SectionForShape(opportunity.Shape);
             if (!selectedSections.Contains(section))
                 continue;
             rows.Add(new PerformanceGroupRow(
                 LibraryViewText.Field(PerformanceKinds.KindLabel(section)),
-                MarkoutInline.CodeText(LibraryViewText.Field(opportunity.Member)),
+                MarkoutInline.CodeText(LibraryViewText.Field(
+                    LibraryMetadataService.FormatMethod(opportunity.Method))),
                 MarkoutInline.CodeText(LibraryViewText.Field(opportunity.Evidence)),
-                opportunity.Allocation is null
+                opportunity.RuntimeAllocationType is null
                     ? null
                     : MarkoutInline.CodeText(
-                        LibraryViewText.Field(opportunity.Allocation)),
-                string.IsNullOrEmpty(opportunity.Loop)
-                    ? null
-                    : LibraryViewText.Field(opportunity.Loop),
+                        LibraryViewText.Field(
+                            opportunity.RuntimeAllocationType)),
+                LibraryMetadataService.IteratesInLoop(opportunity)
+                    ? LibraryViewText.Field("loop")
+                    : null,
                 LibraryViewText.Field(opportunity.RootReach.ToString()),
                 opportunity.Weight is null
                     ? null
                     : LibraryViewText.Field(opportunity.Weight),
-                LibraryViewText.Field(opportunity.Priority),
+                LibraryViewText.Field(
+                    LibraryMetadataService.TriagePriority(opportunity)),
                 LibraryViewText.Field(opportunity.Confidence)));
         }
         return rows;

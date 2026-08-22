@@ -133,6 +133,26 @@ public static class ResearchMatch
     }
 
     /// <summary>
+    /// Opens <paramref name="assemblyPath"/> and compares two of its methods by structural clone
+    /// equivalence. Keeps <c>PEReader</c> construction inside this Research-owned entry point so
+    /// callers outside the metadata layers (in particular <c>dotnet-inspect</c>) never need their
+    /// own raw metadata reader to reach this capability.
+    /// </summary>
+    public static ResearchMatchResult Compare(
+        string assemblyPath,
+        MethodDefinitionHandle left,
+        MethodDefinitionHandle right,
+        StructuralCloneComparisonLimits? limits = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(assemblyPath);
+
+        using var stream = File.OpenRead(assemblyPath);
+        using var image = new PEReader(stream);
+        return Compare(Path.GetFileName(assemblyPath), image, left, right, limits);
+    }
+
+
+    /// <summary>
     /// Projects an already-produced comparison document onto the discrete
     /// <see cref="ResearchMatchOutcome"/> model, without recomputing or re-verifying it.
     /// </summary>
