@@ -150,15 +150,45 @@ BodyEvidenceTargetSet
   All                    unscoped same-reader physical enumeration
   Scoped(BodyEvidenceTarget*)
 
-ResolvedBodyEvidenceEntry
-  Address                participant-scoped MetadataMethodAddress
-  Key                    validated MemberBodyKey
+BodyEvidenceParticipantKey
+  AssemblyIdentity       name + culture + public-key token; version omitted
+  AssetSlot              version-neutral acquisition coordinate
+  Occurrence             deterministic ordinal within equal identity/slot
+
+BodyEvidenceParticipantAddress
+  Key                    cross-side BodyEvidenceParticipantKey
+  Registration           side-local AssemblyAcquisitionRegistration
+  Mvid                   side-local module identity
+
+BodyEvidenceParticipantScope
+  Participant            BodyEvidenceParticipantAddress
+  Targets                BodyEvidenceTargetSet
+
+BodyEvidenceCoordinate
+  Participant            BodyEvidenceParticipantKey
+  Key                    MemberBodyKey
   Role                   Method | Getter | Setter | Adder | Remover
-  PresentationAnchor     label/grouping only
+
+ResolvedBodyEvidenceEntry
+  Coordinate             cross-side body correspondence
+  Participant            side-local participant address
+  Address                participant-scoped MetadataMethodAddress
 
 ResolvedBodyEvidenceIndex
-  Entries                immutable unique-key entries
+  Entries                private coordinate-keyed entries
   Failures               typed per-target resolution failures
+
+BodyEvidenceComparisonPlan
+  Coordinates            union of old/new BodyEvidenceCoordinate
+  Before/After           private resolved entries per coordinate
+  Project                total per-coordinate mechanism callback
+
+BodyEvidenceMechanismLedger<T>
+  Mechanism              requested mechanism descriptor
+  Dispositions           exactly one Compared/Absent/Failed per coordinate
+
+BodyEvidencePresentationMap
+  Labels                 exactly one inert label/group per coordinate
 
 MetadataBodySelector
   Name                   metadata MethodDef name
@@ -344,19 +374,53 @@ never sends one bare token to whichever participant source is later opened.
 source MVID to one exact address before calling Research.
 
 Every multi-member body, source, search, or implementation-diff scope uses
-`BodyEvidenceTargetSet`. `Scoped` contains only complete exact addresses or
-carried structural targets. `All` is the explicit unscoped exception: the
-consumer may enumerate MethodDef handles while one reader remains open and
-immediately mint exact addresses. There is no scoped token, handle, ordinal,
-`ApiMember`, `MemberAnchor`, stable-selector string, `ResearchSubjectKey`, raw
-key, or body fingerprint variant. A consumer resolves each carried target once
-per participant and passes the resulting address/key through every evidence
-mechanism. Presentation identities may be derived afterward but never recover,
-filter, pair, or cross-validate body evidence.
+`BodyEvidenceParticipantScope`. `Scoped` contains only complete exact addresses
+or carried structural targets for that participant. `All` is the explicit
+unscoped exception: the consumer may enumerate MethodDef handles while one
+reader remains open and immediately mint exact addresses. There is no scoped
+token, handle, ordinal, `ApiMember`, `MemberAnchor`, stable-selector string,
+`ResearchSubjectKey`, raw key, or body fingerprint variant. A consumer resolves
+each carried target once per participant and passes the resulting coordinate
+through every evidence mechanism.
+
+The acquisition owner mints `BodyEvidenceParticipantKey` before body selection.
+Its assembly identity deliberately omits version so old/new versions can pair.
+Its version-neutral asset slot preserves package id plus TFM/RID and normalized
+ref/lib/runtime asset location below the package-version root; project
+acquisition id plus TFM/RID; platform framework slot; or the deterministic
+designated/local input slot. `Occurrence` preserves repeated equal participants
+inside one identity/asset slot, so adding a different TFM/RID or assembly does
+not renumber an unrelated participant. The input query carries the original
+`ResolvedAssemblyReference` and structured acquisition provenance into
+comparison; it never recreates a local reference from a path. A provenance that
+cannot mint its typed slot fails participant correspondence visibly. Path and
+MVID are side-local acquisition/address evidence, not cross-side participant
+correspondence.
+
 Index construction validates every exact target against its participant and
 every carried target through `MemberBodyTargetResolver`. Duplicate target
-requests may coalesce only after exact address, key, and role agree; duplicate
-keys naming different addresses or roles are typed ambiguous failures.
+requests may coalesce only after participant, exact address, key, and role
+agree. Duplicate keys naming different addresses or roles are typed ambiguous
+failures only within one participant. Equal body keys in different
+participants are distinct coordinates and pair only when their participant
+keys also match. Added/removed participants produce one-sided coordinates
+rather than guesses.
+
+The resolved index does not expose an `IEnumerable` of entries.
+`BodyEvidenceComparisonPlan.Project` privately walks the complete coordinate
+union and requires one typed disposition from each requested mechanism for
+every coordinate. Its internal constructor rejects a missing, extra, or
+duplicate disposition. `BodyEvidencePresentationMap` is built only after those
+ledgers validate and contains no address, target, or body key from which to
+reselect evidence. Research may derive changed-only rows, subject groups, and
+windowed output from a validated ledger, but those are presentation projections
+and cannot change the retained mechanism population.
+The ledger is a completeness envelope around producer-owned C#, IL, Finding,
+and authored-source results, not another generic evidence-row hierarchy.
+`ResearchComparison` and `ImplementationDiffResult` retain the comparison plan,
+every requested ledger, and the total presentation map; their existing native
+payloads and `Changes`/`Members` projections remain the mechanism and display
+contracts.
 
 `AssemblyMemberSourceRequest` also carries `MemberBodyTarget`, not
 `ApiMember.MetadataToken` plus `MemberAnchor`. After opening the selected
@@ -513,6 +577,9 @@ and diagnostic.
 
 After successful classification, the projector reads the MethodDef body
 status once.
+This precedence is absolute: address resolution, async classification, then
+body status. An RVA-zero or abstract method with malformed or contradictory
+async metadata is `ClassificationFailed(DEC0015)`, never `Bodyless`.
 An abstract, extern, interface, or other RVA-zero method is
 `Resolved(..., Classified(..., Bodyless))`: address and metadata
 classification remain available, but there is no import, stage, outcome,
@@ -931,19 +998,25 @@ projection:
   may carry its seam-independent local acknowledgment/application outcome.
 - The whole physical C# evidence pipeline shares that selection, not only the
   renderer. `ImplementationComparisonInput` and `ImplementationDiffOptions`
-  carry one `BodyEvidenceTargetSet` per participant.
+  carry one `BodyEvidenceParticipantScope` per participant.
   `CSharpBodyDiff`, `CSharpFindings`, body-signal Findings, retained Finding
   comparisons, `ResearchDiff` divergence checks, and authored-source enrichment
-  consume the same resolved per-side index entries. Each entry retains
-  `MemberBodyKey`, `MetadataMethodAddress`, role, and presentation anchor.
-  Filtering and pairing use only the key/address; `ResearchSubjectKey`,
-  `MemberAnchor`, and stable selectors group or label already-selected
-  evidence. `DiffCommand` never re-resolves a grouped subject through
-  `LibraryBodyIndex` to acquire authored source. It uses the same exact
-  per-side address that produced the C#/IL evidence. Native IL comparison keeps
-  its own typed rows and physical decoder, but a scoped Implementation Diff
-  receives its member population from the same resolved index rather than a
-  separately reconstructed subject set. A missing, malformed, or
+  project the same opaque `BodyEvidenceComparisonPlan`. Each mechanism returns
+  one coordinate-complete ledger. The evidence entry carries participant,
+  body key, role, and exact address but no presentation identity.
+  `ResearchSubjectKey`, `MemberAnchor`, and stable selectors exist only in the
+  total presentation map built after ledger validation. `DiffCommand` never
+  re-resolves a grouped subject through `LibraryBodyIndex` to acquire authored
+  source. It uses the same exact per-side address that produced the C#/IL
+  evidence. Native IL comparison keeps its own typed rows and physical decoder,
+  but a scoped Implementation Diff receives its population from the same plan
+  rather than a separately reconstructed subject set.
+  `ImplementationDiff.FromResearchComparison` becomes presentation over the
+  validated ledgers and accepts no selector-bearing
+  `ImplementationDiffOptions`; member/type selection runs before plan
+  construction, and its current post-comparison member-target `.Where` is
+  removed. Separately typed changed-only/window presentation options may hide
+  rows but cannot remove ledger dispositions. A missing, malformed, or
   ambiguous target is one typed per-member failure shared by every requested
   mechanism, never a reason for one mechanism to silently select another body.
 - `PipelineStages` is an orchestration exception to the projector front
@@ -980,23 +1053,26 @@ The diff nevertheless resolves selection and cross-side correspondence before
 physical rendering. A resolved `MemberTargetSelector` supplies the matching
 per-side `MemberBodyTarget`; an exact API supplies per-side
 `MetadataMethodAddress` values. The implementation-diff coordinator resolves
-the per-side `BodyEvidenceTargetSet` once against its owning readers and builds
-one immutable body-evidence index keyed with the same complete
-`MethodStructuralSignature`-backed `MemberBodyKey`. It never converts the
+the per-participant scopes once against their owning readers and builds one
+opaque per-side index keyed by
+`BodyEvidenceParticipantKey` plus the same complete
+`MethodStructuralSignature`-backed `MemberBodyKey` and role. The comparison plan
+pairs only equal participant/member coordinates. It never converts the
 target to `MemberAnchor.StableSelector`, reconstructs a signature from
 `SignatureModel`, or treats a signature-blob digest as correspondence.
 Constraint, custom-modifier, calling-convention, function-pointer, or by-ref
 drift is remove/add, not a silently paired body. Missing or ambiguous
-per-side identity is a typed diff failure. `CSharpBodyDiff` and
-`CSharpFindings.CompareMethodIndexes` consume that index rather than building
-or filtering independent anchor-keyed populations.
-`ResearchDiff.AddCSharpDiff` retains the selected entries on semantic rows,
-display failures, and native Finding comparisons; its retained-comparison and
-divergence paths cannot post-filter by anchor-derived subject.
-Authored-source acquisition consumes the same entries rather than resolving a
-`ResearchSubjectKey` through `LibraryBodyIndex`. Once selected and paired, each
-MethodDef still imports and renders through the null foreign-body seam, so line
-origins and offsets remain strictly physical.
+per-side identity is a typed diff failure. `CSharpBodyDiff`,
+`CSharpFindings.CompareMethodIndexes`, body-signal comparison, native IL
+comparison, and authored-source acquisition are total plan projections rather
+than independent index builders or filters.
+`ResearchDiff.AddCSharpDiff` retains each coordinate disposition on semantic
+rows, display failures, and native Finding comparisons; retained-comparison and
+divergence validation compare complete ledgers before subject projection.
+Authored-source acquisition consumes the same exact entries rather than
+resolving a `ResearchSubjectKey` through `LibraryBodyIndex`. Once selected and
+paired, each MethodDef still imports and renders through the null foreign-body
+seam, so line origins and offsets remain strictly physical.
 
 The diff therefore remains a named seam-free physical-evidence projection. It
 can display the physical kickoff because it neither prints a declaration nor
@@ -1022,25 +1098,30 @@ The identity migrations are explicit:
 | `BodyShapeSearch.SearchCore` scoped `IReadOnlySet<int>` | Resolved exact entries from `BodyEvidenceTargetSet`; only unscoped `All` enumerates same-reader handles |
 | `MatchCommand.ResolvedSelector.Token` / path-equality check | Carried targets resolved to two exact same-MVID addresses; paths are locators only |
 | `ResearchMatch.Compare(MethodDefinitionHandle, MethodDefinitionHandle)` | One live source plus two validated `MetadataMethodAddress` values |
-| `DiffCommand.AddResolvedIdentities` / `ResearchMemberIdentity.TryAddTargetIdentity` | Per-side `BodyEvidenceTargetSet`, never strings |
-| `ResearchDiffOptions.MemberTargetIdentities` / `ImplementationComparisonInput` / `BodySignalComparisonInput` / `ImplementationDiffOptions` | Per-side typed target sets resolved once into a shared body-evidence index |
+| `DiffCommand.CreateImplementationAssemblyInput` path-local acquisition | Preserve the original `ResolvedAssemblyReference` plus a version-neutral `BodyEvidenceParticipantKey` from the assembly-set acquisition owner |
+| `DiffCommand.AddResolvedIdentities` / `ResearchMemberIdentity.TryAddTargetIdentity` | Per-participant typed target scopes, never strings |
+| `ResearchDiffOptions.TypeFilters` / `MemberTargetIdentities`, `ImplementationComparisonInput`, `BodySignalComparisonInput`, and `ImplementationDiffOptions` | Resolve user type/member selection into per-participant scopes before one opaque comparison plan |
 | `CSharpBodyDiff.CreateMethodEntryWithoutFingerprint` | Mint the complete `MemberBodyKey` from the MethodDef |
-| `CSharpBodyDiff.CreateMethodIndex` / `CompareMethodIndexes` | Key, pair, and filter by typed body key/address with typed missing/ambiguous failures |
-| `CSharpFindings.CompareMethodIndexes` | Consume the shared selected body-evidence index; no `MemberAnchor.StableSelector` filtering |
-| `ResearchDiff.AddCSharpDiff` rows, failures, retained comparisons, and divergence | Retain and compare shared index entry identity; subject is presentation/grouping only |
-| `ImplementationDiff` scoped IL/body evidence | Select exact addresses from the shared per-side index; retain native IL rows and coordinates |
-| `DiffCommand` authored-source enrichment | Acquire by the shared exact per-side address; no `ResearchSubjectKey` → `LibraryBodyIndex` re-resolution |
+| `CSharpBodyDiff` assembly occurrence/raw-key index | Typed participant/member coordinates preserving stable assembly occurrence correspondence; duplicate body keys fail only within one participant |
+| `CSharpBodyDiff.CreateMethodIndex` / `CompareMethodIndexes` | Project every comparison-plan coordinate with typed missing/ambiguous disposition |
+| `CSharpFindings.CompareMethodIndexes` | Project the shared plan to a coordinate-complete ledger; no `MemberAnchor.StableSelector` filtering |
+| `ResearchDiff.AddCSharpDiff` rows, failures, retained comparisons, and divergence | Compare complete ledgers; subject is later presentation/grouping only |
+| `ImplementationDiff.FromResearchComparison` selector-bearing options/member filters | Remove semantic selectors from this surface; move selection before plan construction and derive separately typed changed-only/window presentation from validated ledgers |
+| `ImplementationDiff` scoped IL/body evidence | Project every shared-plan coordinate; retain native IL rows and coordinates |
+| `DiffCommand` authored-source enrichment | Project every shared-plan coordinate by exact per-side address; no `ResearchSubjectKey` → `LibraryBodyIndex` re-resolution |
 
-`MemberAnchor`, `RawKey`, `DuplicateDiscriminator`, and reconstructed
-`SignatureModel` identities remain available for API display or unrelated
-inventory, but none participates in physical body selection or correspondence.
+`MemberAnchor`, raw method keys, duplicate signature discriminators, and
+reconstructed `SignatureModel` identities remain available for API display or
+unrelated inventory, but none participates in physical body selection or
+correspondence. The existing assembly occurrence concept remains, promoted to
+the typed participant coordinate rather than encoded in display strings.
 
 The declaration rule uses the exact facts:
 
 | Metadata fact | Resolved/body stage state | Declaration `async` |
 | --- | --- | --- |
 | Unavailable | `ClassificationFailed` | No declaration/body is emitted; failure is visible |
-| Any classification | `Bodyless` | `false`; declaration/skeleton only |
+| Successful classification | `Bodyless` | `false`; declaration/skeleton only |
 | `RuntimeAsync` | Any body-bearing state or failure | Preserve metadata `true` |
 | `IsClassicAsync = Yes` | Body-bearing import failure with no stage | Preserve metadata `true`; failure is visible |
 | `IsClassicAsync = Yes` | `Unavailable(ImportInternalError)` | Preserve metadata `true`; DEC0001/importer marker is visible |
@@ -1276,8 +1357,9 @@ the decompiler library and corpus.
    with its existing importer marker. `NotClassic` is impossible only
    when `IsClassicAsync = Yes`; it is required for async iterators.
    `Bodyless` has no classic outcome and stays a declaration/skeleton
-   without `async`, even if malformed metadata carries an async
-   attribute. `ClassificationFailed` emits no plausible declaration or
+   without `async`, but exists only after successful classification.
+   Malformed or contradictory async metadata is `ClassificationFailed` even
+   on an RVA-zero/abstract method; it emits no plausible declaration or
    modifier and remains a typed visible failure.
 2. **Every declined classic body gets an `UnsupportedNode` marker.**
    A narrow compiler handoff is replaced by the marker
@@ -1366,26 +1448,28 @@ the decompiler library and corpus.
    participant target resolution. Only the existing zero-based physical
    name/ordinal branch of `MemberProjectionRequest` enters the metadata-order
    selector path.
-   Multi-member scopes use `BodyEvidenceTargetSet`: CLI Original Source and
-   Source Diff, `match`, scoped Body Shape, Implementation Diff, body-signal and
-   physical C# Findings, retained-comparison divergence, and authored-source
-   enrichment resolve one exact/carried per-side population and keep it through
-   every mechanism.
-   Presentation anchors and subjects may label or group that population but
-   never reconstruct, filter, pair, or reacquire it.
+   Multi-member scopes use `BodyEvidenceParticipantScope`: CLI Original Source
+   and Source Diff, `match`, scoped Body Shape, Implementation Diff,
+   body-signal and physical C# Findings, retained-comparison divergence, and
+   authored-source enrichment resolve one exact/carried population keyed by
+   participant, body key, and role. Every requested mechanism projects the
+   opaque comparison plan totally before presentation exists.
+   Presentation anchors and subjects may label or group validated dispositions
+   but never reconstruct, filter, pair, or reacquire evidence.
    A stale or cross-reader hint resolves by structural body-key
    correspondence, never name/ordinal, and missing/ambiguous resolution
    is typed and visible.
-   Abstract methods and accessors are not filtered before projection. A
-   resolved bodyless method is typed `Bodyless`, not `ImportFailed` or a
-   failed stage: typed body production returns `Absent`,
+   Abstract methods and accessors are not filtered before projection.
+   Classification always precedes body status. A successfully classified
+   bodyless method is typed `Bodyless`, not `ImportFailed` or a failed stage:
+   typed body production returns `Absent`,
    whole-member/type output remains declaration-only, C# body output is
    absent while existing CLI/Research absence diagnostics remain visible,
    and Body Shape silently skips it.
    Annotated Source Document and Fact Row line mapping are part of the Research
    set. `CSharpBodyDiff` is the explicit seam-free physical-rendering exception,
-   not an identity exception: it consumes the shared resolved index and uses
-   `MemberBodyKey` correspondence before rendering physical MethodDefs.
+   not an identity exception: it projects the shared plan and uses participant
+   plus `MemberBodyKey` correspondence before rendering physical MethodDefs.
    `PipelineStages` is the explicit canonical-pipeline diagnostic exception.
 8. **Evidence runs the same classic policy.** A seam-enabled
    `CSharpPrinter.PrintRaised`, `PipelineStages`, corpus profile, or
@@ -1413,8 +1497,11 @@ role; `match` trusts paths or independently constructed handles instead of two
 exact same-MVID addresses; a physical selector bypasses preparation;
 Implementation Diff, body-signal/physical C# Findings, retained-comparison
 divergence, or authored-source enrichment filters, pairs, or reacquires bodies
-through display/anchor/subject identity; an abstract member
-or accessor is filtered before classification; replay loses companion
+through display/anchor/subject identity; equal body keys from different
+assembly participants collide or pair; a requested mechanism omits a coordinate
+without final-ledger rejection; an abstract member or accessor is filtered
+before classification; malformed async metadata on an RVA-zero method becomes
+`Bodyless` instead of `ClassificationFailed`; replay loses companion
 type facts or aliases mutable snapshot state; an outer decision reaches
 a nested function; a Lowered render applies a byte-divergent style lens
 or loses interleaved IL; a bodyless member loses its existing visible
@@ -1593,12 +1680,14 @@ another raise. Do not invent more `TryBuild*` methods.
 | `MoveNext` → declared source | Analysis (`ResolveDeclaredMethod`) |
 | Research annotation, document, overlay, and Fact Row presentation | Research over Decompiler-prepared clones |
 | Assembly-context authored/decompiled member source identity | Queries over one participant-resolved `MemberBodyTarget` / `MetadataMethodAddress`; anchor is presentation only |
-| Scoped body/source/search/diff target currency | Metadata `BodyEvidenceTargetSet`; exact or structurally carried only |
+| Scoped body/source/search/diff target currency | Metadata `BodyEvidenceTargetSet` within Research/Queries `BodyEvidenceParticipantScope`; exact or structurally carried only |
+| Cross-side participant correspondence | Acquisition owner mints version-neutral assembly/asset/occurrence key; Research retains side-local registration/MVID |
 | CLI member presentation | CLI |
 | CLI Original Source / Source Diff identity | CLI over one Metadata-resolved participant address for authored and decompiled paths |
 | Same-reader structural body match identity | CLI selection through Metadata carried targets; Research comparison over exact same-MVID addresses |
 | Body Shape scope | Decompiler over one resolved target set; same-reader handle enumeration only for explicit `All` |
-| Implementation body-evidence selection/correspondence | Research coordination over one per-side resolved index; Metadata `MemberBodyKey`; never `MemberAnchor` or reconstructed display identity |
+| Implementation body-evidence selection/correspondence | Research opaque comparison plan and total mechanism ledgers over participant + Metadata body key + role |
+| Implementation presentation identity | Research total coordinate-to-label map after evidence-ledger validation |
 | Seam-free physical C# body evidence | Decompiler `CSharpBodyDiff` after typed correspondence (no kickoff outcome; local support acknowledgment allowed) |
 | Corpus / library `MoveNext` rendering | Decompiler |
 
@@ -1615,12 +1704,14 @@ predicate. They must not assume current kickoffs are Full.
 | Classification policy ownership | Source-architecture test `DeclaredSourceAsyncClassificationUsesProjector` | A declared-source consumer classifies the resolved MethodDef, catches its decode failure, or derives a body modifier outside `MetadataBodyProjector` and the typed projection; exact non-source metadata inventories remain named exceptions |
 | Body-status policy ownership | Source-architecture test `DeclaredSourceBodyStatusUsesProjector` | A declared-source consumer uses RVA/`HasBody`/null import or semantic `ApiMember.IsAbstract` filtering to choose `Bodyless`, suppress a method/accessor, skip classification, or map state to a carrier; the exact retained body-reference/semantic-policy manifest differs, or any named migration site remains |
 | Body-target identity architecture | Metadata + Decompiler + Research + Queries + CLI source-architecture/product tests, including Research request records, graph callers, assembly-context member-source callers, CLI source and `match`, Body Shape, and implementation-diff callers with same-token/same-anchor but body-key-different participants | A body-facing request retains any integral raw token field, nullable or non-nullable; a token is treated as exact without its originating MVID; graph focus fails to mint a same-source address; an assembly-context request pairs one token/anchor with a later-opened participant; `AssemblyMemberSourceRequest` lacks a carried target; authored acquisition and decompiled fallback resolve different identities; `MemberAnchor` participates in acceptance rather than presentation; a carried API member/accessor falls back to name/ordinal or either anchor spelling; an accessor is identified by ordinal rather than role; path equality authenticates a raw token; target resolution parses declaration/display text, reads bodies, or reads custom attributes; an unsupported/legacy body key guesses; or duplicate/unavailable structural correspondence selects a candidate |
-| Body-evidence selection currency | Source-architecture test `BodyEvidenceSelectionUsesTypedTargets`, plus exact set-equality manifests over all product evidence entry points and sink calls | A scoped body/source/search/diff parameter or field carries a token, handle, ordinal, `ApiMember`, anchor, stable-selector/subject/raw-key string, or fingerprint instead of `BodyEvidenceTargetSet`; a call to body projection, physical C# indexing/findings, Body Shape, Portable PDB/SourceLink acquisition, or authored-source enrichment cannot be traced to one resolved exact/carried entry; a selected entry is re-resolved from presentation identity; a new occurrence is absent from the file/member/reason manifest; or a same-reader physical-token exception is not the explicit unscoped `All` enumeration, low-level import/decode, raw IL evidence, or legacy `MetadataBodySelector` path named by the gate |
+| Body-evidence selection currency | Source-architecture test `BodyEvidenceSelectionUsesTypedTargets`, plus exact set-equality manifests over all product evidence entry points and sink calls | A scoped body/source/search/diff parameter or field carries a token, handle, ordinal, `ApiMember`, anchor, stable-selector/subject/raw-key string, or fingerprint instead of `BodyEvidenceParticipantScope`; a call to body projection, physical C# indexing/findings, Body Shape, Portable PDB/SourceLink acquisition, or authored-source enrichment cannot be traced to one resolved exact/carried coordinate; a selected entry is re-resolved from presentation identity; a new occurrence is absent from the file/member/reason manifest; or a same-reader physical-token exception is not the explicit unscoped `All` enumeration, low-level import/decode, raw IL evidence, or legacy `MetadataBodySelector` path named by the gate |
+| Multi-participant evidence correspondence | Research + Queries tests over package `--tfm all`, RID/runtime copies, directory/framework sides, repeated equal assembly identities, byte-identical copies, added/removed/reordered participants, and same type/member keys across different assemblies | Input acquisition provenance is reconstructed from a path; assembly version, path, or MVID becomes cross-side participant identity; an asset slot or occurrence is lost; equal member keys in different participants collide; a duplicate within one participant is accepted; participant insertion shifts an unrelated typed slot; or pairing crosses participant keys |
+| Total body-evidence population | `BodyEvidenceComparisonPlan`/`BodyEvidenceMechanismLedger` product and architecture tests, including `ImplementationDiff_DroppedDispositionIsRejected` and presentation-filter mutations at `FromResearchComparison` | The plan exposes an enumerable entry population; a requested mechanism returns missing, extra, or duplicate coordinates; evidence entries expose presentation identity; a member/type filter runs after plan construction; C#, IL, Findings, divergence, or authored source evaluates a different coordinate set; final envelope construction does not validate every requested ledger; or changed-only/group/window presentation mutates the retained ledgers |
 | Selector currency boundary | CLI/API + Metadata architecture/product tests over display/metadata order disagreement, protected overloads, case aliases, `this[]`, property/event accessor ordinals, generic/non-generic overloads in both orders, digests, explicit extensions/generic receivers/static-helper near misses, malformed ExtensionAttribute, and physical bodyless rows | Any `MemberTargetSelector` is converted to `MetadataBodySelector`; display ordinal is arithmetically treated as a MethodDef ordinal; digest, generic arity, alias, accessor, or extension semantics are dropped/reimplemented by the body resolver; a resolved user/API target does not enter as `Carried(MemberBodyTarget)`; extension attachment is duplicated or stores the receiver instead of the actual static holder; malformed/budget-exhausted API selection reaches body projection; or an existing zero-based `MemberProjectionRequest` differs from the legacy exact-name/visibility/metadata-order physical walk |
 | Modifier-complete body-key contract | Metadata key/schema tests deriving specimens from `MethodStructuralSignature`, including safety-limit and hash-collision near cases | API extraction and live carried-key resolution produce different keys for one MethodDef; version or exact declaring type is omitted; a hash-only fingerprint is authoritative; structural safety limits are bypassed or collapsed to missing; API JSON loses the target/key or accessor-specific targets; an attached extension stores the receiver instead of its holder; a legacy missing/unknown version is accepted cross-reader; `modreq`/`modopt`, calling convention, generic constraint, function-pointer, or by-ref drift compares equal; surface/metadata `MemberAnchor` spelling affects the body key; or the optional key changes API anchor/diff/order/presentation identity |
 | Exact/carried/physical-selector address parity | Metadata resolver + Decompiler projector with same-module exact, persisted-key JSON round trip, legacy missing-key failure, stale-MVID, valid-wrong-row token, hidden same-name overload drift, modreq/modopt drift, API-carried true extension/static-helper, overloaded indexer/event accessors, bodyless physical selector, and malformed/contradictory attribute rows | A same-source preferred address fails body-key/role validation; a carried target selects by order; stale or cross-reader identity resolves another MethodDef; custom-modifier drift is accepted; getter/setter or adder/remover roles swap; a persisted key does not round-trip or a legacy missing key guesses; a user selector enters the physical path; fresh zero-based physical selection differs from the existing exact-name/visibility/metadata-order walk; bodyless candidates disappear from physical ordinal counting; exact/carried/physical-selector classification/state/outcome/render/diagnostic differ after resolving the same MethodDef; or missing/ambiguous correspondence becomes plausible output |
 | Resolved bodyless lifecycle | Decompiler + `RenderStyleConfigTests.NoBodyMethod_ProducesResultWithoutOutput_SoNoStyledSource` + `FidelityCauseSectionTests.BuildInspection_DistinguishesNoBodyFromImporterFailure` + `AnnotatedSourceDocumentProjectionTests.BodylessMemberDocumentFailureKeepsSiblingProjection` + whole-member/type + Body Shape, including abstract methods and property/indexer/event accessors | Exact/carried/selector bodyless results differ; an abstract body-backed request is filtered to N/A before projection; typed body is not `Absent` with its existing absence diagnostic; CLI/Research loses its standard visible absence failure, emits C# body output, marks style consumed, or changes Fidelity Causes from `Absent`; a marker or modifier appears; whole-member is not `Complete` declaration-only text; whole-type is not diagnostic-free declaration-only; a compact property/event form hides a typed accessor state; or Body Shape counts it as inspected/incomplete/failure |
-| Resolved classification-failure lifecycle | Decompiler projector plus CLI, Research, public typed body, whole-member/type, and Body Shape over concrete and abstract ordinary methods and property/indexer/event accessors with malformed async-attribute constructor/type references and each pair of contradictory runtime/classic/iterator evidence | The resolved address or stable `DEC0015` diagnostic is lost; expected metadata decode/conflict failure escapes or is called `AddressFailed`; exact/carried/physical-selector differ; an abstract or compact-syntax path filters before classification; import or a pass runs; a classification, modifier, outcome, declaration, or plausible body appears; diagnostics are mutable/shared; CLI/Research is success-shaped or marks style consumed; Fidelity Causes is not `Failed`; typed/whole-member production does not fail visibly; whole-type presents a decompiled member; or Body Shape increments `MethodsInspected` |
+| Resolved classification-failure lifecycle | Decompiler projector plus CLI, Research, public typed body, whole-member/type, and Body Shape over body-bearing and RVA-zero concrete/abstract methods and property/indexer/event accessors with malformed async-attribute constructor/type references and each pair of contradictory runtime/classic/iterator evidence | The resolved address or stable `DEC0015` diagnostic is lost; expected metadata decode/conflict failure escapes, is called `AddressFailed`, or becomes `Bodyless`; exact/carried/physical-selector differ; body status or an abstract/compact-syntax path runs before classification; import or a pass runs; a classification, modifier, outcome, declaration, or plausible body appears; diagnostics are mutable/shared; CLI/Research is success-shaped or marks style consumed; Fidelity Causes is not `Failed`; typed/whole-member production does not fail visibly; whole-type presents a decompiled member; or Body Shape increments `MethodsInspected` |
 | Import observation totality | Decompiler projector tests with clean, nonfatal DEC0004/DEC0005, DEC0001 crash-function, and null-import seams | A non-null function is not `Imported`; import-time diagnostics change after a pass; `HasInternalError` is inferred from later diagnostics; or a null import has a stage |
 | Importer-crash cross-surface preservation | Existing `CommandExecutionTests.Member_SelectedOverload_SelectFidelityCauses_ImporterCrashIsFailed` plus CLI Decompiled Source/style latch, public typed body, whole-member/type, and Body Shape rows over one malformed classic-classified fixture | The crash marker/DEC0001 disappears; CLI output ceases to be a successful body render or style consumption changes; Fidelity Causes ceases to be `Failed`; `ProduceBody` ceases to be `Complete`; whole-member ceases to fail; whole-type loses the marker body; Body Shape increments `MethodsInspected`; the stage is not `Unavailable`; a classic outcome/marker is added; or metadata `async` is omitted |
 | Complete classic application replay | Decompiler pass/projector tests with accepted interface-fact + declined diagnostic fixtures | A second prepared stage recognizes again; supplied replay differs in body, local state, type facts, diagnostics, provenance/fidelity, modifier state, or outcome; an application is absent; or a supplied decision applies to a different host |
@@ -1656,7 +1747,7 @@ predicate. They must not assume current kickoffs are Full.
 | CLI source identity coherence | CLI + Queries tests with overloaded indexers/accessors whose display order differs from MethodDef order, implementation/reference assemblies with token reuse and body-key drift, extension holders, and same-path/different-MVID fixtures | Original and Decompiled Source resolve independently; a selected accessor loses its role; display ordinal becomes a metadata ordinal; path equality authorizes a token; Source Diff combines different MethodDefs; or missing/ambiguous carried correspondence falls back instead of failing visibly |
 | Same-reader structural match identity | CLI + Research tests with forwarded types, overloaded accessors, token reuse across MVIDs, two paths/aliases for one MVID, and same-path replacement fixtures | `match` reimplements user selection; a selector becomes a raw token; path equality or inequality decides method identity; two handles are compared without one live-MVID validation; accessor role is guessed; or a carried target silently falls back |
 | Body Shape source projection | Decompiler + CLI product tests with classification failure, bodyless, null import, imported DEC0001, imported nonfatal diagnostic, post-import stage/render failure, overloaded accessor display/metadata-order disagreement, extension holder, same-token cross-participant body-key drift, and custom-modifier drift fixtures | Search creates a second classic decision, retains the broad classic-or-async-iterator heuristic, scopes through a raw token or display ordinal, loses accessor role/extension holder, resolves against a different participant, records `ClassificationFailed` or `Bodyless` as inspected, records `Bodyless` as incomplete/failure, counts null import or imported DEC0001 as inspected, skips an imported nonfatal diagnostic, or fails to count a later stage/render failure as inspected |
-| Physical implementation evidence identity and C# boundary | `ImplementationDiff`, native IL scope, `CSharpBodyDiff`, `CSharpFindings`, and `ResearchDiff` product tests over exact and API-selected methods/accessors, generic-constraint and modreq/modopt drift, display/metadata-order disagreement, duplicate body keys, same-anchor/token cross-participant drift, authored-source enrichment, kickoff, ordinary, classic support, and async-iterator support MethodDefs | CLI/API selection reaches any physical mechanism as `MemberAnchor`, reconstructed signature text, subject/identity strings, or raw tokens instead of per-side target sets; mechanisms resolve or filter separate member populations; rows, failures, retained comparisons, or divergence checks lose body key/address identity; authored source re-resolves a grouped subject; correspondence uses `StableSelector`, `SignatureModel`, raw keys, or signature-blob digests instead of `MemberBodyKey`; structural drift is silently paired; missing/ambiguous identity guesses; C# diff wires `importMethodBody`, admits foreign MethodDef origins, gives a kickoff any classic outcome/marker, drops or invents the local support acknowledgment/application, or changes unrelated lines/offsets |
+| Physical implementation evidence identity and C# boundary | `ImplementationDiff`, native IL scope, `CSharpBodyDiff`, `CSharpFindings`, and `ResearchDiff` product tests over exact and API-selected methods/accessors, generic-constraint and modreq/modopt drift, display/metadata-order disagreement, repeated participants, duplicate body keys within one participant, same-anchor/token cross-participant drift, authored-source enrichment, kickoff, ordinary, classic support, and async-iterator support MethodDefs | CLI/API selection reaches any physical mechanism as `MemberAnchor`, reconstructed signature text, subject/identity strings, or raw tokens instead of participant scopes; mechanisms resolve or filter separate member populations; rows, failures, retained comparisons, or divergence checks lose participant/body coordinate identity; authored source re-resolves a grouped subject; correspondence uses `StableSelector`, `SignatureModel`, raw keys, or signature-blob digests instead of participant plus `MemberBodyKey`; structural drift is silently paired; missing/ambiguous identity guesses; C# diff wires `importMethodBody`, admits foreign MethodDef origins, gives a kickoff any classic outcome/marker, drops or invents the local support acknowledgment/application, or changes unrelated lines/offsets |
 | `DecompilerResult` value semantics | Decompiler tests | Results differing only by outcome/reason/decline disposition/support acknowledgment compare equal, hash inconsistently, or lose outcome through `with` |
 | Exact support MethodDefs | Decompiler library (CLI type surface omits `d__` types) | Any classic or async-iterator `MoveNext`/`SetStateMachine` loses distinctive calls, stores, locals, or other physical logic; or an acknowledged host lacks its replayable no-edit support application |
 | Whole-type listing of `AsyncFixtures` | `MemberBodyProducer` | `NoAwait` still spelled `async` over the stub without the marker |
@@ -1800,8 +1891,8 @@ retained declaration facts, physical IL, analysis, provenance, or
 Original Source evidence.
 
 `BodyEvidenceSelectionUsesTypedTargets` closes the wider identity boundary that
-field-name bans missed. It is two exact source-architecture set equalities over
-Metadata, Decompiler, Research, Queries, Services, and CLI product projects:
+field-name bans missed. It enforces three boundaries over Metadata, Decompiler,
+Research, Queries, Services, and CLI product projects:
 
 1. The **entry inventory** finds every parameter, record/property field, and
    collection used to scope a MethodDef-backed body, authored source, body
@@ -1809,9 +1900,10 @@ Metadata, Decompiler, Research, Queries, Services, and CLI product projects:
    integral tokens/handles, ordinals, `ApiMember`, `MemberAnchor`,
    `ResearchSubjectKey`, stable-selector/raw-key strings, and body fingerprints
    unless the occurrence is a pinned presentation-only or low-level
-   same-reader exception. Every scoped entry must be
-   `BodyEvidenceTargetSet`; single-member entries must be
-   `MetadataBodyRequest`, `MemberBodyTarget`, or `MetadataMethodAddress`.
+   same-reader exception. Every multi-participant scoped entry must be
+   `BodyEvidenceParticipantScope`; single-participant and single-member entries
+   must use the corresponding target set or
+   `MetadataBodyRequest`/`MemberBodyTarget`/`MetadataMethodAddress`.
 2. The **sink inventory** finds every product call that imports/projects or
    renders a selected body, creates/filters/pairs a physical C# method index,
    performs structural body matching, searches Body Shape, acquires Portable
@@ -1820,6 +1912,17 @@ Metadata, Decompiler, Research, Queries, Services, and CLI product projects:
    consumed typed entry, and reason. The expected set is generated from
    references to the named sink APIs and must equal the reviewed manifest;
    adding, removing, or moving a wrapper cannot silently escape review.
+3. The **population-ownership gate** makes `BodyEvidenceComparisonPlan.Project`
+   the only product enumerator of resolved comparison entries. Source
+   architecture pins every `Project` call and asserts that resolved entries
+   expose no presentation identity, the index/plan expose no enumerable
+   collection, and mechanism-ledger/final-envelope constructors remain
+   Research-owned. Product non-vacuity tests remove one disposition, add one,
+   duplicate one, and apply the current member-target `.Where` to mechanism
+   dispositions before ledger construction; each construction must fail exact
+   coordinate-set validation.
+   Presentation filtering after a valid envelope may alter rendered rows only;
+   retained ledgers and their coordinate sets remain unchanged.
 
 The only accepted physical-identity exceptions are separately named:
 `All` enumeration while one reader remains open, low-level importer/body
@@ -1832,6 +1935,8 @@ request wrappers, `MemberCommand`/`ApiCommand` source resolution,
 `ResearchDiffOptions`, `ImplementationComparisonInput`,
 `BodySignalComparisonInput`, `ImplementationDiffOptions`, `CSharpBodyDiff`,
 `CSharpFindings`, `ResearchDiff`, and `DiffCommand` authored-source enrichment
-are all mandatory sink rows. This gate therefore fails both a newly named
-raw-token field and an innocently named wrapper that re-resolves or filters
-selected evidence through presentation identity.
+are all mandatory sink rows. The acquisition manifest also pins every
+participant-key minting site and rejects path-local reconstruction of a
+`ResolvedAssemblyReference`. Together the entry/sink manifests catch newly
+named authority or wrappers, while the opaque total-projection contract catches
+population reduction after a known sink.
