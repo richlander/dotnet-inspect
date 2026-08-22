@@ -6201,6 +6201,108 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_ExplicitPlatformIdentity_WithTypePositional_PreservesTypeInspection()
+    {
+        string[] arguments =
+        [
+            "System.Text.Json",
+            "JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "-S",
+            "Type Info",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(
+            "type",
+            "JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "-S",
+            "Type Info",
+            "--tips",
+            "q");
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains(
+            "# System.Text.Json.JsonSerializer",
+            routed.Output);
+        Assert.Contains("## Type Info", routed.Output);
+        Assert.Contains("| Source | Platform |", routed.Output);
+        Assert.DoesNotContain("| Package |", routed.Output);
+        Assert.Empty(routed.Error);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitPlatformIdentity_WithDottedTarget_PreservesDeferredMemberRouting()
+    {
+        string[] arguments =
+        [
+            "System.Text.Json",
+            "JsonSerializer.Deserialize",
+            "--platform",
+            "System.Text.Json",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(
+            "JsonSerializer.Deserialize",
+            "--platform",
+            "System.Text.Json",
+            "--tips",
+            "q");
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains(
+            "# System.Text.Json.JsonSerializer",
+            routed.Output);
+        Assert.Contains("## Methods", routed.Output);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitPlatformIdentity_WithTypeOption_PreservesTypeInspection()
+    {
+        string[] arguments =
+        [
+            "System.Text.Json",
+            "JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "-t",
+            "JsonSerializer",
+            "-S",
+            "Type Info",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(
+            "type",
+            "JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "-t",
+            "JsonSerializer",
+            "-S",
+            "Type Info",
+            "--tips",
+            "q");
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("| Source | Platform |", routed.Output);
+        Assert.DoesNotContain("| Package |", routed.Output);
+    }
+
+    [Fact]
     public async Task Router_PrefixBrowse_ExplicitLibrarySection_MatchesTypeCommand()
     {
         string[] arguments =
@@ -6297,16 +6399,19 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Fact]
-    public async Task Router_AttachedEmptyLibraryValue_PreservesBoundedParseError()
+    [Theory]
+    [InlineData("--library=")]
+    [InlineData("--library:")]
+    public async Task Router_AttachedEmptyLibraryValue_PreservesBoundedParseError(
+        string libraryOption)
     {
         var direct = await RunAppAsync(
             "type",
             "System.String",
-            "--library=");
+            libraryOption);
         var routed = await RunAppAsync(
             "System.String",
-            "--library=");
+            libraryOption);
 
         Assert.Equal(direct, routed);
         Assert.Equal(1, routed.Exit);
@@ -6322,6 +6427,7 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData("--library=-missing.dll")]
+    [InlineData("--library:-missing.dll")]
     public async Task Router_AttachedLibraryValue_UsesTypeParser(
         string libraryOption)
     {
@@ -6338,6 +6444,69 @@ public partial class CommandExecutionTests
 
         Assert.Equal(direct, routed);
         Assert.Equal(1, routed.Exit);
+    }
+
+    [Fact]
+    public async Task Router_ColonAttachedLibraryValue_MatchesTypeCommand()
+    {
+        string[] arguments =
+        [
+            "DotnetInspector.CommandLineBuilder",
+            $"--library:{typeof(CommandLineBuilder).Assembly.Location}",
+            "-S",
+            "Type Info",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("# DotnetInspector.CommandLineBuilder", routed.Output);
+    }
+
+    [Fact]
+    public async Task Router_ColonAttachedPlatformValue_MatchesTypeCommand()
+    {
+        string[] arguments =
+        [
+            "System.String",
+            "--platform:System.Runtime",
+            "-S",
+            "Type Info",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("# System.String", routed.Output);
+    }
+
+    [Fact]
+    public async Task Router_ColonAttachedPackageValue_MatchesTypeCommand()
+    {
+        string[] arguments =
+        [
+            "JsonConvert",
+            "--package:Newtonsoft.Json@13.0.4",
+            "-S",
+            "Type Info",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("# Newtonsoft.Json.JsonConvert", routed.Output);
     }
 
     [Fact]
@@ -6383,6 +6552,29 @@ public partial class CommandExecutionTests
         Assert.Equal(1, routed.Exit);
         Assert.Contains("File not found:", routed.Error);
         Assert.DoesNotContain("Package", routed.Error);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitPlatformWithLibraryValue_UsesTypeParser()
+    {
+        string[] arguments =
+        [
+            "System.String",
+            "--platform",
+            "System.Runtime",
+            "--library",
+            "System.Private.CoreLib.dll",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Contains("File not found:", routed.Error);
+        Assert.DoesNotContain("Unrecognized option '--platform'", routed.Error);
     }
 
     [Fact]
@@ -21921,6 +22113,101 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("best-effort prefix matches", error);
     }
 
+    [Theory]
+    [InlineData("lib/net6.0/Newtonsoft.Json.dll")]
+    [InlineData(@"lib\net6.0\Newtonsoft.Json.dll")]
+    public async Task Router_VersionedPackageLibrarySubpath_PreservesPackageInspection(
+        string libraryPath)
+    {
+        string[] arguments =
+        [
+            "Newtonsoft.Json@13.0.4",
+            "--library",
+            libraryPath,
+            "-S",
+            "Library Info",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["package", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("# Newtonsoft.Json.dll", routed.Output);
+        Assert.Contains("## Library Info", routed.Output);
+    }
+
+    [Fact]
+    public async Task Router_VersionedPackageLibrarySubpath_IsIndependentOfCurrentDirectory()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"router-library-subpath-{Guid.NewGuid():N}");
+        var localLibrary = Path.Combine(
+            tempDir,
+            "lib",
+            "net6.0",
+            "Newtonsoft.Json.dll");
+        Directory.CreateDirectory(Path.GetDirectoryName(localLibrary)!);
+        File.WriteAllText(localLibrary, "not an assembly");
+        try
+        {
+            string[] arguments =
+            [
+                "Newtonsoft.Json@13.0.4",
+                "--library",
+                "lib/net6.0/Newtonsoft.Json.dll",
+                "-S",
+                "Library Info",
+                "--tips",
+                "q"
+            ];
+
+            var direct = await RunAppInDirectoryAsync(
+                tempDir,
+                ["package", .. arguments]);
+            var routed = await RunAppInDirectoryAsync(
+                tempDir,
+                arguments);
+
+            Assert.Equal(direct, routed);
+            Assert.Equal(0, routed.Exit);
+            Assert.Contains("# Newtonsoft.Json.dll", routed.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("./missing/Newtonsoft.Json.dll")]
+    [InlineData(@"..\missing\Newtonsoft.Json.dll")]
+    [InlineData("/missing/Newtonsoft.Json.dll")]
+    [InlineData(@"\missing\Newtonsoft.Json.dll")]
+    [InlineData(@"C:\missing\Newtonsoft.Json.dll")]
+    public async Task Router_VersionedPackageRootedLibraryPath_UsesTypeParser(
+        string libraryPath)
+    {
+        string[] arguments =
+        [
+            "Newtonsoft.Json@13.0.4",
+            "--library",
+            libraryPath,
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Contains("File not found:", routed.Error);
+    }
+
     [Fact]
     public async Task Router_LibraryValue_IsIndependentOfCurrentDirectory()
     {
@@ -22008,6 +22295,141 @@ public partial class CommandExecutionTests
         Assert.Equal(0, routed.Exit);
         Assert.Contains("# Newtonsoft.Json", routed.Output);
         Assert.Contains("## Package Info", routed.Output);
+    }
+
+    [Fact]
+    public async Task Router_ColonAttachedPackageIdentity_PreservesPackageInspection()
+    {
+        string[] arguments =
+        [
+            "Newtonsoft.Json@13.0.4",
+            "--package:Newtonsoft.Json@13.0.4",
+            "-S",
+            "Package Info",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(
+            "package",
+            "Newtonsoft.Json@13.0.4",
+            "-S",
+            "Package Info",
+            "--tips",
+            "q");
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("# Newtonsoft.Json", routed.Output);
+        Assert.Contains("## Package Info", routed.Output);
+    }
+
+    [Fact]
+    public async Task Router_ColonAttachedPackageIdentity_WithTypePositional_PreservesTypeInspection()
+    {
+        string[] arguments =
+        [
+            "Newtonsoft.Json@13.0.4",
+            "JsonConvert",
+            "--package:Newtonsoft.Json@13.0.4",
+            "-S",
+            "Type Info",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(
+            "type",
+            "JsonConvert",
+            "--package",
+            "Newtonsoft.Json@13.0.4",
+            "-S",
+            "Type Info",
+            "--tips",
+            "q");
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("# Newtonsoft.Json.JsonConvert", routed.Output);
+        Assert.Contains("| Source | NuGet |", routed.Output);
+    }
+
+    [Theory]
+    [InlineData("13.0.4")]
+    [InlineData("13")]
+    [InlineData("13-beta")]
+    public async Task Router_ExplicitPackageIdentity_WithVersionPositional_PreservesPackageRouting(
+        string version)
+    {
+        string[] arguments =
+        [
+            "Newtonsoft.Json",
+            version,
+            "--package",
+            "Newtonsoft.Json",
+            "-S",
+            "Package Info",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(
+            "package",
+            "Newtonsoft.Json",
+            version,
+            "-S",
+            "Package Info",
+            "--tips",
+            "q");
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Contains(
+            "Multiple package output requires --json or a row format",
+            routed.Error);
+        Assert.DoesNotContain("Type Info", routed.Error);
+    }
+
+    [Fact]
+    public async Task Router_ColonAttachedPackageIdentity_WithMemberOption_PreservesMemberInspection()
+    {
+        string[] arguments =
+        [
+            "Newtonsoft.Json@13.0.4",
+            "JsonConvert",
+            "--package:Newtonsoft.Json@13.0.4",
+            "-m",
+            "SerializeObject",
+            "--index",
+            "1",
+            "-S",
+            "Signature",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(
+            "member",
+            "JsonConvert",
+            "--package",
+            "Newtonsoft.Json@13.0.4",
+            "-m",
+            "SerializeObject",
+            "--index",
+            "1",
+            "-S",
+            "Signature",
+            "--tips",
+            "q");
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("## Signature", routed.Output);
+        Assert.Contains("Package: Newtonsoft.Json", routed.Output);
     }
 
     [Fact]

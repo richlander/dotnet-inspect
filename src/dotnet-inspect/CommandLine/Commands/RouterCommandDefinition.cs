@@ -10,6 +10,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using NuGet.Versioning;
 
 namespace DotnetInspector.CommandLine;
 
@@ -223,6 +224,28 @@ public static class RouterCommandDefinition
                 || ContainsOption(tail, "--platform")
                 || ContainsOption(tail, "--project")
                 || hasLibraryValue;
+            var hasVersionQuery = ContainsOption(tokens, "--version")
+                || ContainsOption(tokens, "--latest-version")
+                || ContainsOption(tokens, "--versions")
+                || ContainsOption(tokens, "--versions-with-feed");
+            if (TryRouteExplicitSourceTarget(
+                    target,
+                    tail,
+                    "--package",
+                    hasTypeOption,
+                    hasMemberOption,
+                    out var explicitSourceRoute)
+                || TryRouteExplicitSourceTarget(
+                    target,
+                    tail,
+                    "--platform",
+                    hasTypeOption,
+                    hasMemberOption,
+                    out explicitSourceRoute))
+            {
+                return explicitSourceRoute;
+            }
+
             if (hasTypeOption && hasExplicitApiSource)
             {
                 return ["type", target, .. tail];
@@ -269,7 +292,12 @@ public static class RouterCommandDefinition
             if (hasLibraryValue
                 && !hasExplicitGenericNotation
                 && !ContainsOption(tail, "--package")
-                && IsPackageRelativeLibraryValue(libraryValue))
+                && !ContainsOption(tail, "--platform")
+                && !ContainsOption(tail, "--project")
+                && IsPackageRelativeLibraryValue(
+                    target,
+                    libraryValue,
+                    hasVersionQuery))
             {
                 return ["package", .. tokens];
             }
@@ -291,10 +319,6 @@ public static class RouterCommandDefinition
                 return ["type", tokens[1], "--package", target, .. tokens[2..]];
             }
 
-            var hasVersionQuery = ContainsOption(tokens, "--version")
-                || ContainsOption(tokens, "--latest-version")
-                || ContainsOption(tokens, "--versions")
-                || ContainsOption(tokens, "--versions-with-feed");
             if (hasVersionQuery || target.Contains('@'))
                 return ["package", .. tokens];
 
@@ -500,7 +524,10 @@ public static class RouterCommandDefinition
 
         private static bool ContainsOption(string[] tokens, string option)
             => tokens.Any(token => token.Equals(option, StringComparison.Ordinal)
-                                   || token.StartsWith(option + "=", StringComparison.Ordinal));
+                                   || TryGetAttachedOptionValue(
+                                       token,
+                                       option,
+                                       out _));
 
         private static bool IsStaticSchemaDiscovery(string[] tokens)
             => (ContainsOption(tokens, "--discover")
@@ -513,11 +540,12 @@ public static class RouterCommandDefinition
         {
             for (var i = 0; i < tokens.Length; i++)
             {
-                if (tokens[i].StartsWith(
-                        option + "=",
-                        StringComparison.Ordinal))
+                if (TryGetAttachedOptionValue(
+                        tokens[i],
+                        option,
+                        out var attachedValue))
                 {
-                    return tokens[i][(option.Length + 1)..];
+                    return attachedValue;
                 }
 
                 if (tokens[i].Equals(option, StringComparison.Ordinal)
@@ -852,11 +880,11 @@ public static class RouterCommandDefinition
         {
             for (var i = 0; i < tokens.Length; i++)
             {
-                if (tokens[i].StartsWith(
-                        "--library=",
-                        StringComparison.Ordinal))
+                if (TryGetAttachedOptionValue(
+                        tokens[i],
+                        "--library",
+                        out value))
                 {
-                    value = tokens[i]["--library=".Length..];
                     return true;
                 }
 
@@ -879,22 +907,41 @@ public static class RouterCommandDefinition
             RootCommand rootCommand,
             string token)
         {
-            var optionName = token.Split(['=', ':'], 2)[0];
+            var optionName = GetOptionName(token);
             return rootCommand.Options
                 .Concat(rootCommand.Subcommands.SelectMany(
                     static command => command.Options))
-                .Any(option =>
-                    option.Name.Equals(
-                        optionName,
-                        StringComparison.OrdinalIgnoreCase)
-                    || option.Aliases.Contains(
-                        optionName,
-                        StringComparer.OrdinalIgnoreCase));
+                .Any(option => MatchesOption(option, optionName));
         }
 
-        private static bool IsPackageRelativeLibraryValue(string value) =>
-            !value.StartsWith('-')
-            && SourceResolver.IsLibrarySelector(value, package: null);
+        private static bool IsPackageRelativeLibraryValue(
+            string target,
+            string value,
+            bool hasVersionQuery)
+        {
+            if (value.StartsWith('-'))
+                return false;
+
+            if (SourceResolver.IsLibrarySelector(value, package: null))
+                return true;
+
+            return (target.Contains('@') || hasVersionQuery)
+                && value.EndsWith(
+                    ".dll",
+                    StringComparison.OrdinalIgnoreCase)
+                && !IsExplicitLibraryPath(value);
+        }
+
+        private static bool IsExplicitLibraryPath(string value) =>
+            Path.IsPathRooted(value)
+            || (value.Length > 0 && value[0] is '/' or '\\')
+            || value.StartsWith("./", StringComparison.Ordinal)
+            || value.StartsWith(@".\", StringComparison.Ordinal)
+            || value.StartsWith("../", StringComparison.Ordinal)
+            || value.StartsWith(@"..\", StringComparison.Ordinal)
+            || (value.Length >= 2
+                && char.IsAsciiLetter(value[0])
+                && value[1] == ':');
 
         private static bool IsExplicitSourceIdentity(
             string target,
@@ -902,6 +949,75 @@ public static class RouterCommandDefinition
             string option) =>
             GetOptionValue(tokens, option) is { Length: > 0 } source
             && target.Equals(source, StringComparison.OrdinalIgnoreCase);
+
+        private static bool TryRouteExplicitSourceTarget(
+            string target,
+            string[] tokens,
+            string option,
+            bool hasTypeOption,
+            bool hasMemberOption,
+            out string[] rewritten)
+        {
+            rewritten = [];
+            if (!IsExplicitSourceIdentity(target, tokens, option)
+                || tokens.Length == 0
+                || tokens[0].StartsWith('-')
+                || NuGetVersion.TryParse(tokens[0], out _))
+            {
+                return false;
+            }
+
+            var withoutSourceIdentity =
+                RemoveOptionWithValue(tokens, option, target);
+            if (withoutSourceIdentity.Length == 0
+                || !withoutSourceIdentity[0].Equals(
+                    tokens[0],
+                    StringComparison.Ordinal))
+                return false;
+
+            var targetToken = withoutSourceIdentity[0];
+            string[] sourceTail =
+            [
+                option,
+                target,
+                .. withoutSourceIdentity[1..]
+            ];
+
+            if (hasTypeOption)
+            {
+                rewritten = ["type", targetToken, .. sourceTail];
+                return true;
+            }
+
+            if (hasMemberOption)
+            {
+                rewritten = ["member", targetToken, .. sourceTail];
+                return true;
+            }
+
+            rewritten = targetToken.Contains('.')
+                ? RouteDeferredTypeOrMember(targetToken, sourceTail)
+                : ["type", targetToken, .. sourceTail];
+            return true;
+        }
+
+        private static string GetOptionName(string token)
+        {
+            var separator = token.AsSpan().IndexOfAny('=', ':');
+            return separator < 0
+                ? token
+                : token[..separator];
+        }
+
+        private static bool MatchesOption(
+            Option option,
+            string optionName) =>
+            option.Name.Equals(
+                optionName,
+                StringComparison.OrdinalIgnoreCase)
+            || option.Aliases.Contains(
+                optionName,
+                StringComparer.OrdinalIgnoreCase);
 
         private static string[] RemoveOptionWithValue(
             string[] tokens,
@@ -924,12 +1040,12 @@ public static class RouterCommandDefinition
                     continue;
                 }
 
-                var attachedPrefix = $"{option}=";
                 if (!removed
-                    && tokens[i].StartsWith(
-                        attachedPrefix,
-                        StringComparison.Ordinal)
-                    && tokens[i][attachedPrefix.Length..].Equals(
+                    && TryGetAttachedOptionValue(
+                        tokens[i],
+                        option,
+                        out var attachedValue)
+                    && attachedValue.Equals(
                         value,
                         StringComparison.OrdinalIgnoreCase))
                 {
@@ -941,6 +1057,23 @@ public static class RouterCommandDefinition
             }
 
             return [.. rewritten];
+        }
+
+        private static bool TryGetAttachedOptionValue(
+            string token,
+            string option,
+            out string value)
+        {
+            if (token.Length > option.Length
+                && token.StartsWith(option, StringComparison.Ordinal)
+                && token[option.Length] is '=' or ':')
+            {
+                value = token[(option.Length + 1)..];
+                return true;
+            }
+
+            value = "";
+            return false;
         }
 
         private static string[] FrameworkArgsUnlessSpecified(
