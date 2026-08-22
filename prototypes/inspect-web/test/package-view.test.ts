@@ -66,7 +66,10 @@ function recordingActions(calls: string[]): PackageViewBindingActions {
 test("package view bindings decode navigation controls without eager work", () => {
   const root = new FakeRoot();
   const group = new FakeElement({ depGroup: "2" });
-  const defaultGroup = new FakeElement();
+  const invalidGroups = [
+    new FakeElement(),
+    new FakeElement({ depGroup: "1.5" }),
+  ];
   const open = new FakeElement({ depOpen: "Example@1.0.0::net10.0" });
   const secondOpen = new FakeElement({ depOpen: "Other@2.0.0::net9.0" });
   const emptyOpen = new FakeElement({ depOpen: "" });
@@ -92,15 +95,19 @@ test("package view bindings decode navigation controls without eager work", () =
     perfAssembly: "Example.dll",
     perfType: "Example.Type",
   });
-  const defaultPerformance = new FakeElement();
-  root.addAll("[data-dep-group]", group, defaultGroup);
+  const invalidPerformance = new FakeElement({
+    perfToken: "0x06000002",
+    perfAssembly: "",
+    perfType: "Example.Type",
+  });
+  root.addAll("[data-dep-group]", group, ...invalidGroups);
   root.addAll("[data-dep-open]", open, secondOpen, emptyOpen);
   root.addAll("[data-dep-load]", load, defaultVersion, emptyLoad);
   root.addAll("[data-kind-jump]", kind, defaultKind);
   root.addAll("[data-namespace-jump]", namespace, defaultNamespace);
   root.addAll("[data-lib-scope]", library, defaultLibrary);
   root.addAll("[data-graph-type]", graphType, defaultGraphType);
-  root.addAll("[data-perf-token]", performance, defaultPerformance);
+  root.addAll("[data-perf-token]", performance, invalidPerformance);
   const calls: string[] = [];
 
   bindPackageView(
@@ -109,7 +116,7 @@ test("package view bindings decode navigation controls without eager work", () =
 
   assert.deepEqual(calls, []);
   group.dispatch("click");
-  defaultGroup.dispatch("click");
+  for (const invalidGroup of invalidGroups) invalidGroup.dispatch("click");
   open.dispatch("click");
   secondOpen.dispatch("click");
   emptyOpen.dispatch("click");
@@ -125,11 +132,10 @@ test("package view bindings decode navigation controls without eager work", () =
   graphType.dispatch("click");
   defaultGraphType.dispatch("click");
   performance.dispatch("click");
-  defaultPerformance.dispatch("click");
+  invalidPerformance.dispatch("click");
 
   assert.deepEqual(calls, [
     "dependency-group:2",
-    "dependency-group:NaN",
     "dependency-open:Example@1.0.0::net10.0",
     "dependency-open:Other@2.0.0::net9.0",
     "dependency-load:Other.Package@[2.0.0,)",
@@ -142,8 +148,7 @@ test("package view bindings decode navigation controls without eager work", () =
     "library:undefined:",
     "graph-type:System.String",
     "graph-type:",
-    "performance:0x06000001:Example.dll:Example.Type",
-    "performance:::",
+    "performance:100663297:Example.dll:Example.Type",
   ]);
 });
 

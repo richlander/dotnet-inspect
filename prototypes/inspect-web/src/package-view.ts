@@ -1,3 +1,8 @@
+import {
+  parseMetadataToken,
+  parseNonNegativeInteger,
+} from "./dom-data.ts";
+
 // DOM bindings for package-level navigation surfaces. The application root owns
 // package, filter, graph, and inspection state transitions behind these callbacks.
 
@@ -7,7 +12,7 @@ export interface PackageDependencyBindingActions {
 }
 
 export interface PackagePerformanceTarget {
-  metadataToken: string;
+  metadataToken: number;
   assembly: string;
   typeId: string;
 }
@@ -48,9 +53,10 @@ export function bindPackageView(
   actions: PackageViewBindingActions,
 ) {
   root.querySelectorAll<HTMLElement>("[data-dep-group]").forEach(button =>
-    button.addEventListener(
-      "click",
-      () => actions.onDependencyGroupSelect(Number(button.dataset.depGroup))));
+    button.addEventListener("click", () => {
+      const index = parseNonNegativeInteger(button.dataset.depGroup);
+      if (index !== null) actions.onDependencyGroupSelect(index);
+    }));
   bindPackageDependencyList(root, actions);
   root.querySelectorAll<HTMLElement>("[data-kind-jump]").forEach(button =>
     button.addEventListener(
@@ -71,9 +77,15 @@ export function bindPackageView(
       "click",
       () => actions.onGraphTypeSelect(button.dataset.graphType ?? "")));
   root.querySelectorAll<HTMLElement>("[data-perf-token]").forEach(button =>
-    button.addEventListener("click", () => actions.onPerformanceMemberSelect({
-      metadataToken: button.dataset.perfToken ?? "",
-      assembly: button.dataset.perfAssembly ?? "",
-      typeId: button.dataset.perfType ?? "",
-    })));
+    button.addEventListener("click", () => {
+      const metadataToken = parseMetadataToken(button.dataset.perfToken);
+      const assembly = button.dataset.perfAssembly;
+      const typeId = button.dataset.perfType;
+      if (metadataToken === null || !assembly || !typeId) return;
+      actions.onPerformanceMemberSelect({
+        metadataToken,
+        assembly,
+        typeId,
+      });
+    }));
 }

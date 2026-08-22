@@ -2,8 +2,15 @@ import type { BrowserAnnotatedSource } from "./inspect-web-engine.d.ts";
 import type {
   AnnotatedSourceDocument,
   AnnotatedViewState,
+  SourceMedium,
 } from "./annotated-source-view.ts";
-import { buildAnnotatedView, MEDIA, MEDIUM_LABELS } from "./annotated-source-view.ts";
+import {
+  buildAnnotatedView,
+  isSourceMedium,
+  MEDIA,
+  MEDIUM_LABELS,
+} from "./annotated-source-view.ts";
+import { parseNonNegativeInteger } from "./dom-data.ts";
 
 // BrowserAnnotatedSource's "document" field is generated as `unknown` because tsbindgen doesn't
 // model the wire shape of the annotated-source document graph, only which fields are DTO
@@ -31,7 +38,7 @@ export interface AnnotatedSourceBindingActions {
   onClearSelection: () => void;
   onCopy: () => void;
   onFactSelect: (factId: number) => void;
-  onMediumToggle: (medium: string) => void;
+  onMediumToggle: (medium: SourceMedium) => void;
   onOffsetSelect: (offset: number) => void;
 }
 
@@ -43,17 +50,20 @@ export function bindAnnotatedSource(
     "click",
     actions.onCopy);
   root.querySelectorAll<HTMLElement>("[data-annotated-medium]").forEach(button =>
-    button.addEventListener(
-      "click",
-      () => actions.onMediumToggle(button.dataset.annotatedMedium ?? "")));
+    button.addEventListener("click", () => {
+      const medium = button.dataset.annotatedMedium;
+      if (isSourceMedium(medium)) actions.onMediumToggle(medium);
+    }));
   root.querySelectorAll<HTMLElement>("[data-annotated-fact]").forEach(button =>
-    button.addEventListener(
-      "click",
-      () => actions.onFactSelect(Number(button.dataset.annotatedFact))));
+    button.addEventListener("click", () => {
+      const factId = parseNonNegativeInteger(button.dataset.annotatedFact);
+      if (factId !== null) actions.onFactSelect(factId);
+    }));
   root.querySelectorAll<HTMLElement>("[data-annotated-offset]").forEach(span =>
-    span.addEventListener(
-      "click",
-      () => actions.onOffsetSelect(Number(span.dataset.annotatedOffset))));
+    span.addEventListener("click", () => {
+      const offset = parseNonNegativeInteger(span.dataset.annotatedOffset);
+      if (offset !== null) actions.onOffsetSelect(offset);
+    }));
   root.querySelector("#annotated-clear")?.addEventListener(
     "click",
     actions.onClearSelection);

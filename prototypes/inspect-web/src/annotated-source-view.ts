@@ -75,6 +75,13 @@ export interface AnnotatedView {
 
 export const MEDIA = ["CSharp", "Il"] as const satisfies readonly SourceMedium[];
 
+export function isSourceMedium(
+  value: string | null | undefined,
+): value is SourceMedium {
+  return typeof value === "string"
+    && MEDIA.some(medium => medium === value);
+}
+
 export const MEDIUM_LABELS: Readonly<Record<SourceMedium, string>> = {
   CSharp: "C#",
   Il: "IL",

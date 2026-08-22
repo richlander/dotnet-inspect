@@ -274,10 +274,12 @@ test("graph pan, zoom, keyboard, controls, and call-node clicks stay coordinated
   const zoomIn = new FakeElement();
   const zoomOut = new FakeElement();
   const reset = new FakeElement();
+  const invalid = new FakeElement();
   zoomIn.dataset.zoom = "in";
   zoomOut.dataset.zoom = "out";
   reset.dataset.zoom = "reset";
-  const container = new FakeContainer([zoomIn, zoomOut, reset]);
+  invalid.dataset.zoom = "sideways";
+  const container = new FakeContainer([zoomIn, zoomOut, reset, invalid]);
   const calls: string[] = [];
   const keybindings = new KeybindingRegistry();
 
@@ -325,6 +327,8 @@ test("graph pan, zoom, keyboard, controls, and call-node clicks stay coordinated
   assert.ok(zoomed.scale > 1);
   assert.ok(zoomed.x < 50);
   assert.ok(zoomed.y < 25);
+  invalid.dispatch("click");
+  assert.deepEqual(graphTransform(svg), zoomed);
   zoomOut.dispatch("click");
   const zoomedOut = graphTransform(svg);
   assert.ok(zoomedOut.scale < zoomed.scale);

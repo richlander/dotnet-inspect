@@ -619,6 +619,9 @@ Closed workspace scopes, type and package lenses, member sections, and
 Spotlight scopes are literal unions derived from their UI catalogs. DOM and URL
 tokens are decoded before they reach typed state or actions; the scope-bar and
 workspace-navigation tests gate rejection of unknown values.
+Numeric DOM payloads accept only non-negative safe decimal integers; metadata
+tokens additionally accept hexadecimal UInt32 notation. The `dom-data` and
+owning binding tests gate malformed-value rejection.
 
 Oxlint checks both checked-in tsbindgen outputs as consumer contracts:
 `src/inspect-web-engine.d.ts` receives the TypeScript rules, while

@@ -28,6 +28,16 @@ export interface DependencyGraphNodeBinding {
   onSelect: () => void;
 }
 
+const graphZoomModes = ["in", "out", "reset"] as const;
+type GraphZoomMode = (typeof graphZoomModes)[number];
+
+function isGraphZoomMode(
+  value: string | null | undefined,
+): value is GraphZoomMode {
+  return typeof value === "string"
+    && graphZoomModes.some(mode => mode === value);
+}
+
 export function bindGraphBack(
   root: ParentNode,
   actions: GraphBackBindingActions,
@@ -183,8 +193,9 @@ export function bindGraphPanZoom(
   container.querySelectorAll<HTMLElement>(".graph-controls button")
     .forEach(button => {
       button.addEventListener("click", () => {
-        const rect = viewport.getBoundingClientRect();
         const mode = button.dataset.zoom;
+        if (!isGraphZoomMode(mode)) return;
+        const rect = viewport.getBoundingClientRect();
         if (mode === "in")
           zoomAt(rect.width / 2, rect.height / 2, 1.25);
         else if (mode === "out")

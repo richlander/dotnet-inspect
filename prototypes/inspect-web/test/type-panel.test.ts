@@ -381,8 +381,16 @@ test("type panel bindings dispatch the rendered member navigation controls", () 
   const secondMember = new FakeElement({ navMember: "M:Count" });
   const overload = new FakeElement({ navOverload: "2" });
   const secondOverload = new FakeElement({ navOverload: "0" });
+  const invalidOverloads = [
+    new FakeElement(),
+    new FakeElement({ navOverload: "-1" }),
+  ];
   root.addAll("[data-nav-member]", member, secondMember);
-  root.addAll("[data-nav-overload]", overload, secondOverload);
+  root.addAll(
+    "[data-nav-overload]",
+    overload,
+    secondOverload,
+    ...invalidOverloads);
   const showTypes = root.add("#nav-to-types", new FakeElement());
   const typeList = root.add("#type-list", new FakeElement());
   const calls: string[] = [];
@@ -392,6 +400,8 @@ test("type panel bindings dispatch the rendered member navigation controls", () 
   secondMember.dispatch("click");
   overload.dispatch("click");
   secondOverload.dispatch("click");
+  for (const invalidOverload of invalidOverloads)
+    invalidOverload.dispatch("click");
   showTypes.dispatch("click");
   dispatchKey(keybindings, typeList, keyboardEvent("Home"));
 
@@ -416,14 +426,17 @@ test("type panel bindings dispatch member composition and detail controls", () =
   const member = new FakeElement({ member: "M:Parse" });
   const defaultMember = new FakeElement();
   const overload = new FakeElement({ overload: "2" });
-  const defaultOverload = new FakeElement();
+  const invalidOverloads = [
+    new FakeElement(),
+    new FakeElement({ overload: "2.5" }),
+  ];
   const anchor = new FakeElement({ copyAnchor: "digest" });
   const invalidAnchor = new FakeElement({ copyAnchor: "unknown" });
   root.addAll("[data-member-jump-kind]", jumpKind, defaultJumpKind);
   root.addAll("[data-member-jump-access]", jumpAccess, defaultJumpAccess);
   root.addAll("[data-member-jump-trait]", jumpTrait, defaultJumpTrait);
   root.addAll("[data-member]", member, defaultMember);
-  root.addAll("[data-overload]", overload, defaultOverload);
+  root.addAll("[data-overload]", overload, ...invalidOverloads);
   root.addAll("[data-copy-anchor]", anchor, invalidAnchor);
   const back = root.add("#member-back", new FakeElement());
   const copyName = root.add("#copy-name", new FakeElement());
@@ -444,7 +457,8 @@ test("type panel bindings dispatch member composition and detail controls", () =
   member.dispatch("click");
   defaultMember.dispatch("click");
   overload.dispatch("click");
-  defaultOverload.dispatch("click");
+  for (const invalidOverload of invalidOverloads)
+    invalidOverload.dispatch("click");
   back.dispatch("click");
   copyName.dispatch("click");
   copySignature.dispatch("click");
@@ -463,12 +477,10 @@ test("type panel bindings dispatch member composition and detail controls", () =
     "member-open:M:Parse",
     "member-open:",
     "member-overload:2",
-    "member-overload:NaN",
     "member-back",
     "copy-name",
     "copy-signature",
     "copy-anchor:digest",
-    "copy-anchor:undefined",
     "copy-member-source",
     "copy-type-source",
   ]);

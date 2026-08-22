@@ -4,6 +4,7 @@ import {
   type CommandContext,
   type CommandPaletteResult,
 } from "./command-bar.ts";
+import { parseNonNegativeInteger } from "./dom-data.ts";
 import type { KeybindingRegistry } from "./keybinding-registry.ts";
 import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
 
@@ -496,7 +497,8 @@ export function createSpotlight(options: SpotlightOptions) {
   function bindResultClicks(root: ParentNode): void {
     root.querySelectorAll<HTMLElement>("[data-sl-index]").forEach(item => {
       item.addEventListener("click", () => {
-        const index = Number(item.dataset.slIndex);
+        const index = parseNonNegativeInteger(item.dataset.slIndex);
+        if (index === null) return;
         const result = renderedResults[index];
         if (result) pick(result);
       });

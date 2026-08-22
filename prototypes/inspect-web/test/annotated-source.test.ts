@@ -104,26 +104,33 @@ test("annotated source bindings dispatch every rendered control", () => {
   ]);
 });
 
-test("annotated source bindings preserve malformed dataset values", () => {
+test("annotated source bindings ignore malformed dataset values", () => {
   const root = new FakeRoot();
-  const medium = new FakeElement();
-  root.addAll("[data-annotated-medium]", medium);
-  const fact = new FakeElement();
-  root.addAll("[data-annotated-fact]", fact);
-  const offset = new FakeElement();
-  root.addAll("[data-annotated-offset]", offset);
+  const media = [
+    new FakeElement(),
+    new FakeElement({ annotatedMedium: "VisualBasic" }),
+  ];
+  root.addAll("[data-annotated-medium]", ...media);
+  const facts = [
+    new FakeElement(),
+    new FakeElement({ annotatedFact: "-1" }),
+  ];
+  root.addAll("[data-annotated-fact]", ...facts);
+  const offsets = [
+    new FakeElement(),
+    new FakeElement({ annotatedOffset: "1.5" }),
+  ];
+  root.addAll("[data-annotated-offset]", ...offsets);
   const calls: string[] = [];
   bindAnnotatedSource(
     fakeDom.parentNode(root),
     recordingActions(calls));
 
   assert.deepEqual(calls, []);
-  medium.dispatch("click");
-  assert.deepEqual(calls, ["medium:"]);
-  fact.dispatch("click");
-  assert.deepEqual(calls, ["medium:", "fact:NaN"]);
-  offset.dispatch("click");
-  assert.deepEqual(calls, ["medium:", "fact:NaN", "offset:NaN"]);
+  for (const medium of media) medium.dispatch("click");
+  for (const fact of facts) fact.dispatch("click");
+  for (const offset of offsets) offset.dispatch("click");
+  assert.deepEqual(calls, []);
 });
 
 function escapeHtml(value: unknown) {

@@ -90,6 +90,7 @@ import {
   type WorkspaceUrlState,
   type WorkspaceView,
 } from "./workspace-navigation.ts";
+import { parseNonNegativeInteger } from "./dom-data.ts";
 import {
   createWorkbenchKeybindings,
   WORKBENCH_KEYBINDING_PRIORITY,
@@ -521,10 +522,6 @@ interface Diagnostics {
   transfer: number;
   decoded: number;
   assets: number;
-}
-
-function isAnnotatedMedium(value: string): value is (typeof MEDIA)[number] {
-  return MEDIA.some(medium => medium === value);
 }
 
 let spotlightCache: SpotlightCache | null = null;
@@ -2762,7 +2759,7 @@ function patchDependenciesGroup() {
   document.querySelectorAll<HTMLElement>("#dep-tfm-chips [data-dep-group]").forEach(button =>
     button.classList.toggle(
       "active",
-      Number(button.dataset.depGroup) === selectedGroupIndex));
+      parseNonNegativeInteger(button.dataset.depGroup) === selectedGroupIndex));
   listSection.outerHTML = dependencyListSectionHtml(groups, selectedGroupIndex);
   bindPackageDependencyListEvents();
   observeAsync(renderDependencyGraph(), "Rendering the dependency graph");
@@ -3408,8 +3405,11 @@ function bindMetadataViewerEvents() {
             loadExplorerHeap(entry.target.dataset.mdeHeapNeedsLoad),
             "Loading metadata heap rows");
         } else {
+          const index = parseNonNegativeInteger(
+            entry.target.dataset.mdeNeedsLoad);
+          if (index === null) continue;
           observeAsync(
-            loadExplorerWindow(Number(entry.target.dataset.mdeNeedsLoad)),
+            loadExplorerWindow(index),
             "Loading metadata table rows");
         }
       }
@@ -3456,15 +3456,14 @@ function ensureExplorerResizeListener() {
 
 // is joined against the same public API surface the nav pane renders, so the member,
 // its overload, and its declaring type are all resolvable client-side.
-function drillToPerfMember(token: string, assembly: string, typeId: string) {
+function drillToPerfMember(token: number, assembly: string, typeId: string) {
   const pkg = currentPackage();
-  const numeric = Number(token);
   const targetType = pkg.types.find(type =>
     type.id === typeId
     && type.assembly === assembly
-    && (type.api || []).some(member => member.metadataToken === numeric));
+    && (type.api || []).some(member => member.metadataToken === token));
   if (!targetType) return;
-  const member = targetType.api.find(candidate => candidate.metadataToken === numeric);
+  const member = targetType.api.find(candidate => candidate.metadataToken === token);
   if (!member) return;
 
   state.atPackageRoot = false;
@@ -3477,7 +3476,7 @@ function drillToPerfMember(token: string, assembly: string, typeId: string) {
   state.selectedMemberKey = key;
   const group = memberGroups(targetType).find(candidate => candidate.key === key);
   const overloadIndex = group && group.overloads.length > 1
-    ? group.overloads.findIndex(overload => overload.metadataToken === numeric)
+    ? group.overloads.findIndex(overload => overload.metadataToken === token)
     : -1;
   state.selectedOverloadIndex = overloadIndex >= 0 ? overloadIndex : null;
   resetMemberSectionState();
@@ -4329,7 +4328,7 @@ function bindTypePanelEvents() {
         digest: overload?.anchorDigest,
         canonical: overload?.canonicalSignature
       };
-      const value = anchor ? values[anchor] : undefined;
+      const value = values[anchor];
       if (value) void copyText(value, `${anchor} copied`);
     },
     onCopyMemberSource: () => {
@@ -4615,11 +4614,9 @@ function bindAnnotatedSourceEvents() {
       render();
     },
     onMediumToggle: medium => {
-      if (!isAnnotatedMedium(medium)) return;
-      const typedMedium = medium;
       const next = {
         ...state.memberAnnotatedMedia,
-        [typedMedium]: !state.memberAnnotatedMedia[typedMedium],
+        [medium]: !state.memberAnnotatedMedia[medium],
       };
       // Both media off would look like a successful empty result.
       if (!MEDIA.some(candidate => next[candidate])) return;

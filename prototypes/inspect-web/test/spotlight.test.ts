@@ -30,6 +30,7 @@ interface HarnessOptions {
   query?: string;
   commandContext?: CommandContext | null;
   focusAfterDismiss?: () => void;
+  pickResult?: (result: SpotlightResult) => void;
   searchResults?: () => SpotlightResult[];
   lenses?: () => readonly (readonly [string, string])[];
 }
@@ -56,6 +57,8 @@ interface MockInputElement {
 
 interface MockElement {
   classList?: { toggle(className: string, force?: boolean): void };
+  dataset?: Record<string, string | undefined>;
+  addEventListener?(name: string, listener: EventListener): void;
   scrollIntoView?(): void;
   setAttribute?(): void;
 }
@@ -70,6 +73,7 @@ function createHarness({
   query = "",
   commandContext = null,
   focusAfterDismiss = () => {},
+  pickResult = () => {},
   searchResults = () => [],
   lenses = () => [["api", "API"], ["metadata", "Metadata"]],
 }: HarnessOptions = {}) {
@@ -90,7 +94,7 @@ function createHarness({
     highlightRanges: (value) => escapeHtml(value),
     kindIcon: () => "C",
     searchResults,
-    pickResult: () => {},
+    pickResult,
     executeCommand: () => undefined,
     reportCommandError: () => {},
     commandContext: () => commandContext,
@@ -197,6 +201,60 @@ test("Spotlight keeps the selected result when async rows are inserted before it
   assert.match(
     html,
     /id="spotlight-result-2" class="spotlight-item selected"[^>]*data-sl-type="Example\.Selected"/);
+});
+
+test("Spotlight result bindings ignore malformed indexes", () => {
+  const pkg = { id: "Example.Package", version: "1.0.0" };
+  const result: SpotlightResult = {
+    kind: "type",
+    pkg,
+    type: { id: "Example.Type", name: "Type", kind: "class" },
+    ranges: [],
+  };
+  const picked: SpotlightResult[] = [];
+  const { spotlight } = createHarness({
+    query: "Example",
+    pickResult: item => picked.push(item),
+    searchResults: () => [result],
+  });
+  spotlight.inlineHtml(false);
+
+  function resultRow(slIndex?: string) {
+    let click: EventListener | null = null;
+    const element: MockElement = {
+      dataset: slIndex === undefined ? {} : { slIndex },
+      addEventListener(name, listener) {
+        if (name === "click") click = listener;
+      },
+    };
+    return {
+      element,
+      dispatch() {
+        click?.(new Event("click"));
+      },
+    };
+  }
+
+  const rows = [
+    resultRow(),
+    resultRow("-1"),
+    resultRow("0.5"),
+    resultRow("not-an-index"),
+    resultRow("0"),
+  ];
+  const root: MockParentNode = {
+    querySelector: () => null,
+    querySelectorAll: selector =>
+      selector === "[data-sl-index]"
+        ? rows.map(row => row.element)
+        : [],
+  };
+  // The root implements the exact ParentNode query surface Spotlight consumes.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  spotlight.bind(root as unknown as ParentNode, "inline");
+  for (const row of rows) row.dispatch();
+
+  assert.deepEqual(picked, [result]);
 });
 
 test("modal arrow navigation reuses rendered results", () => {

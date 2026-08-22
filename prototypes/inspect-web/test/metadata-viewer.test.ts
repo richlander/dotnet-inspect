@@ -129,7 +129,8 @@ test("overview bindings dispatch explorer navigation from the wall controls", ()
   const back = root.add("#mde-hist-back", new FakeElement());
   const forward = root.add("#mde-hist-fwd", new FakeElement());
   const chip = new FakeElement({ mdeChip: "3" });
-  root.addAll("[data-mde-chip]", chip);
+  const invalidChip = new FakeElement({ mdeChip: "3.5" });
+  root.addAll("[data-mde-chip]", chip, invalidChip);
   const heapChip = new FakeElement({ mdeHeapChip: "String" });
   const emptyHeapChip = new FakeElement({ mdeHeapChip: "" });
   root.addAll("[data-mde-heap-chip]", heapChip, emptyHeapChip);
@@ -137,10 +138,14 @@ test("overview bindings dispatch explorer navigation from the wall controls", ()
   const tableCard = new FakeElement({ mdeIndex: "6" });
   const tableHead = new FakeElement().withClosest(".mde-card", tableCard);
   const orphanTableHead = new FakeElement();
+  const invalidTableHead = new FakeElement().withClosest(
+    ".mde-card",
+    new FakeElement({ mdeIndex: "-1" }));
   root.addAll(
     ".mde-wall .mde-card[data-mde-index] .mde-card-head",
     tableHead,
-    orphanTableHead);
+    orphanTableHead,
+    invalidTableHead);
   const heapCard = new FakeElement({ mdeHeap: "Blob" });
   const heapHead = new FakeElement().withClosest(".mde-heap-card", heapCard);
   const emptyHeapHead = new FakeElement().withClosest(
@@ -163,10 +168,12 @@ test("overview bindings dispatch explorer navigation from the wall controls", ()
   back.dispatch("click");
   forward.dispatch("click");
   chip.dispatch("click");
+  invalidChip.dispatch("click");
   heapChip.dispatch("click");
   emptyHeapChip.dispatch("click");
   tableHead.dispatch("click");
   orphanTableHead.dispatch("click");
+  invalidTableHead.dispatch("click");
   heapHead.dispatch("click");
   emptyHeapHead.dispatch("click");
   row.dispatch("click");

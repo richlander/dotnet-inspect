@@ -1,3 +1,5 @@
+import { parseNonNegativeInteger } from "./dom-data.ts";
+
 // The Metadata lens (the image-level summary of each assembly — format stamp, heap sizes,
 // ECMA-335 table row counts, PE/CLI headers) and the Metadata Explorer (the spatial
 // "browse the metadata like a database" table/heap drill-down) as pure,
@@ -214,17 +216,9 @@ export interface MetadataExplorerBindingActions {
 function parseExplorerCoordinates(value: string | undefined): [number, number] | null {
   const parts = value?.split(":");
   if (!parts || parts.length !== 2) return null;
-  const indexText = parts[0];
-  const rowIdText = parts[1];
-  if (!indexText || !rowIdText
-    || !/^\d+$/.test(indexText) || !/^\d+$/.test(rowIdText)) {
-    return null;
-  }
-  const index = Number(indexText);
-  const rowId = Number(rowIdText);
-  return Number.isSafeInteger(index) && Number.isSafeInteger(rowId)
-    ? [index, rowId]
-    : null;
+  const index = parseNonNegativeInteger(parts[0]);
+  const rowId = parseNonNegativeInteger(parts[1]);
+  return index !== null && rowId !== null ? [index, rowId] : null;
 }
 
 export function bindMetadataExplorer(
@@ -242,10 +236,8 @@ export function bindMetadataExplorer(
   root.querySelectorAll<HTMLElement>("[data-mde-open]").forEach(button =>
     button.addEventListener("click", () => {
       const assembly = button.dataset.mdeAssembly ?? "";
-      const tableIndex = button.dataset.mdeOpen ?? "";
-      if (!assembly || !/^\d+$/.test(tableIndex)) return;
-      const index = Number(tableIndex);
-      if (Number.isSafeInteger(index)) actions.onOpenTable(assembly, index);
+      const index = parseNonNegativeInteger(button.dataset.mdeOpen);
+      if (assembly && index !== null) actions.onOpenTable(assembly, index);
     }));
   root.querySelectorAll<HTMLElement>("[data-mde-open-heap]").forEach(button =>
     button.addEventListener("click", () => {
@@ -256,9 +248,10 @@ export function bindMetadataExplorer(
   if (!explorer) return;
 
   root.querySelectorAll<HTMLElement>("[data-mde-chip]").forEach(chip =>
-    chip.addEventListener(
-      "click",
-      () => actions.onTableFocus(Number(chip.dataset.mdeChip), 0)));
+    chip.addEventListener("click", () => {
+      const index = parseNonNegativeInteger(chip.dataset.mdeChip);
+      if (index !== null) actions.onTableFocus(index, 0);
+    }));
   root.querySelectorAll<HTMLElement>("[data-mde-jump]").forEach(button =>
     button.addEventListener("click", event => {
       event.stopPropagation();
@@ -286,7 +279,8 @@ export function bindMetadataExplorer(
       ".mde-wall .mde-card[data-mde-index] .mde-card-head",
     ).forEach(head => head.addEventListener("click", () => {
       const card = head.closest<HTMLElement>(".mde-card");
-      if (card) actions.onTableFocus(Number(card.dataset.mdeIndex), 0);
+      const index = parseNonNegativeInteger(card?.dataset.mdeIndex);
+      if (index !== null) actions.onTableFocus(index, 0);
     }));
     root.querySelectorAll<HTMLElement>(
       ".mde-wall .mde-heap-card[data-mde-heap] .mde-card-head",

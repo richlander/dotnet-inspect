@@ -1,6 +1,17 @@
 import { pdbSourceLimitationHtml } from "./data.ts";
+import { parseNonNegativeInteger } from "./dom-data.ts";
 import type { KeybindingRegistry } from "./keybinding-registry.ts";
 import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
+
+const copyAnchors = ["selector", "digest", "canonical"] as const;
+export type CopyAnchor = (typeof copyAnchors)[number];
+
+function isCopyAnchor(
+  value: string | null | undefined,
+): value is CopyAnchor {
+  return typeof value === "string"
+    && copyAnchors.some(anchor => anchor === value);
+}
 
 // The type selector (the "PUBLIC TYPES" / "MEMBERS" nav pane) and the type viewer (the
 // type heading, metadata, and source sections shown for the "type" scope) as pure,
@@ -87,9 +98,7 @@ type EscapeHtml = (value: unknown) => string;
 
 export interface TypePanelBindingActions {
   onClearFilters: () => void;
-  onCopyAnchor: (
-    anchor: "selector" | "digest" | "canonical" | undefined,
-  ) => void;
+  onCopyAnchor: (anchor: CopyAnchor) => void;
   onCopyMemberSource: () => void;
   onCopyName: () => void;
   onCopySignature: () => void;
@@ -139,9 +148,10 @@ export function bindTypePanel(
       "click",
       () => actions.onMemberSelect(button.dataset.navMember)));
   root.querySelectorAll<HTMLElement>("[data-nav-overload]").forEach(button =>
-    button.addEventListener(
-      "click",
-      () => actions.onOverloadSelect(Number(button.dataset.navOverload))));
+    button.addEventListener("click", () => {
+      const index = parseNonNegativeInteger(button.dataset.navOverload);
+      if (index !== null) actions.onOverloadSelect(index);
+    }));
   root.querySelectorAll<HTMLElement>("[data-member-jump-kind]")
     .forEach(button =>
       button.addEventListener(
@@ -165,9 +175,10 @@ export function bindTypePanel(
       "click",
       () => actions.onMemberGroupOpen(button.dataset.member ?? "")));
   root.querySelectorAll<HTMLElement>("[data-overload]").forEach(button =>
-    button.addEventListener(
-      "click",
-      () => actions.onMemberOverloadOpen(Number(button.dataset.overload))));
+    button.addEventListener("click", () => {
+      const index = parseNonNegativeInteger(button.dataset.overload);
+      if (index !== null) actions.onMemberOverloadOpen(index);
+    }));
   root.querySelectorAll<HTMLElement>("[data-member-kind-filter]")
     .forEach(button =>
       button.addEventListener(
@@ -207,10 +218,7 @@ export function bindTypePanel(
   root.querySelectorAll<HTMLElement>("[data-copy-anchor]").forEach(button =>
     button.addEventListener("click", () => {
       const anchor = button.dataset.copyAnchor;
-      actions.onCopyAnchor(
-        anchor === "selector" || anchor === "digest" || anchor === "canonical"
-          ? anchor
-          : undefined);
+      if (isCopyAnchor(anchor)) actions.onCopyAnchor(anchor);
     }));
   root.querySelector("#copy-source")?.addEventListener(
     "click",
