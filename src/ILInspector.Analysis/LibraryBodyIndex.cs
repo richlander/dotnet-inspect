@@ -385,6 +385,7 @@ public sealed class LibraryBodyIndex
         {
             Finding<AllocationOccurrence>? allocation = null;
             Finding<DirectCall>? callSite = null;
+            Finding<DirectCall>? supportingCallSite = null;
             bool attachFinding =
                 opportunity.Shape != "generic-parameter-object-box";
             if (attachFinding && opportunity.ILOffset is { } offset)
@@ -438,6 +439,29 @@ public sealed class LibraryBodyIndex
                 }
             }
 
+            if (opportunity.SupportingCallSite is { } supportSite
+                && physicalCallsByCaller.TryGetValue(
+                    supportSite.EvidenceMethodToken,
+                    out var supportingCalls))
+            {
+                if (!callSiteFindings.TryGetValue(
+                        supportSite.EvidenceMethodToken,
+                        out var findings))
+                {
+                    findings = AnalysisFindings.InspectCallSites(
+                        supportingCalls,
+                        FindingSubjectFor(
+                            supportingCalls[0].Caller));
+                    callSiteFindings[
+                        supportSite.EvidenceMethodToken] =
+                        findings;
+                }
+                supportingCallSite = SingleFindingAtOffset(
+                    findings,
+                    supportSite.ILOffset,
+                    static call => call.ILOffset);
+            }
+
             string? sourceFinding = allocation?.Descriptor.Id ?? callSite?.Descriptor.Id ?? opportunity.SourceFinding;
             FindingKey? findingKey = allocation?.Key ?? callSite?.Key;
             int? ordinal = allocation?.Ordinal ?? callSite?.Ordinal;
@@ -471,6 +495,22 @@ public sealed class LibraryBodyIndex
                     ? CallOperation(callSite?.Payload)
                     : AllocationOperation(allocation.Payload),
                 OperandToken = allocation?.Payload.OperandToken ?? callSite?.Payload.OperandToken,
+                SupportingCallSite =
+                    opportunity.SupportingCallSite is not
+                        { } supportCoordinate
+                        ? null
+                        : supportCoordinate with
+                        {
+                            SourceFinding =
+                                supportingCallSite
+                                    ?.Descriptor.Id,
+                            Operation = CallOperation(
+                                supportingCallSite
+                                    ?.Payload),
+                            OperandToken =
+                                supportingCallSite
+                                    ?.Payload.OperandToken,
+                        },
                 Provenance = opportunity.Provenance != PerformanceTriageProvenance.Unknown
                     ? opportunity.Provenance
                     : sourceFinding is not null

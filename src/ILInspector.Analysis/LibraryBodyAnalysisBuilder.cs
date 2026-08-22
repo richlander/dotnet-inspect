@@ -575,19 +575,12 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         LibraryBodyAnalysisResult analysis = accumulator.Build(results);
         if (!plan.ScopeExpansionDiagnostics.IsDefaultOrEmpty)
         {
-            var fallbackDiagnostics =
-                analysis.Diagnostics.ToBuilder();
-            var unique = new HashSet<AnalysisDiagnostic>(
-                analysis.Diagnostics);
-            foreach (AnalysisDiagnostic diagnostic
-                in plan.ScopeExpansionDiagnostics)
-            {
-                if (unique.Add(diagnostic))
-                    fallbackDiagnostics.Add(diagnostic);
-            }
             analysis = analysis with
             {
-                Diagnostics = fallbackDiagnostics.ToImmutable(),
+                Diagnostics = AnalysisDiagnosticAggregation
+                    .MergeInMetadataOrder(
+                        analysis.Diagnostics,
+                        plan.ScopeExpansionDiagnostics),
             };
         }
         if (!includeMethodEvidence)
