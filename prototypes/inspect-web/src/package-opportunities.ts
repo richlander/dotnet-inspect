@@ -3,7 +3,7 @@ import type {
   BrowserPackageOpportunities,
 } from "./inspect-web-engine.d.ts";
 
-type OpportunityItem = BrowserOpportunityItem;
+export type OpportunityItem = BrowserOpportunityItem;
 type PackageOpportunities = Pick<
   BrowserPackageOpportunities,
   "categories" | "totalOpportunities" | "inspectionError"

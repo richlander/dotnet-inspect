@@ -141,10 +141,12 @@ function acquisitionDependencies(
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>(accept => {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((accept, fail) => {
     resolve = accept;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 test("NuGet projection selects the declared assembly and preserves package totals", () => {
@@ -320,6 +322,76 @@ test("queued runtime work rechecks cancellation before invoking the engine", asy
     error: null,
   });
   assert.equal(assemblyCalls, 0);
+});
+
+test("multiple queued runtime assemblies execute one at a time", async () => {
+  const fullPack = deferred<string>();
+  const firstAssembly = deferred<string>();
+  const secondAssembly = deferred<string>();
+  const secondAssemblyStarted = deferred<void>();
+  const calls: string[] = [];
+  const status: string[] = [];
+  let resident: AppPackage | null = null;
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    loadRuntimePack: async () => {
+      calls.push("pack");
+      return fullPack.promise;
+    },
+    loadRuntimePackAssembly: async (_framework, assemblyFileName) => {
+      calls.push(assemblyFileName);
+      if (assemblyFileName === "System.B.dll") secondAssemblyStarted.resolve();
+      return assemblyFileName === "System.A.dll"
+        ? firstAssembly.promise
+        : secondAssembly.promise;
+    },
+    runtimePackage: () => resident,
+    retainPackage: packageModel => {
+      resident = packageModel;
+    },
+    beginRuntimeLoad: () => status.push("begin"),
+    failRuntimeLoad: error =>
+      status.push(error instanceof Error ? `fail:${error.message}` : "fail"),
+    endRuntimeLoad: () => status.push("end"),
+  }));
+
+  const packRequest = acquisition.loadRuntimePack("net10.0");
+  const firstRequest = acquisition.loadRuntimePackAssembly(
+    "net10.0",
+    "System.A.dll",
+    "netcore.app");
+  const secondRequest = acquisition.loadRuntimePackAssembly(
+    "net10.0",
+    "System.B.dll",
+    "netcore.app");
+
+  assert.deepEqual(calls, ["pack"]);
+  fullPack.resolve(JSON.stringify(
+    runtimeSurface("corelib", "System.Private.CoreLib", "System.Object")));
+  assert.ok((await packRequest).packageModel);
+  assert.deepEqual(calls, ["pack", "System.A.dll"]);
+
+  firstAssembly.reject(new Error("first assembly failed"));
+  const firstResult = await firstRequest;
+  assert.match(
+    firstResult.error instanceof Error
+      ? String(firstResult.error)
+      : "",
+    /first assembly failed/);
+  await secondAssemblyStarted.promise;
+  assert.deepEqual(calls, ["pack", "System.A.dll", "System.B.dll"]);
+  assert.deepEqual(status, [
+    "begin",
+    "end",
+    "begin",
+    "fail:first assembly failed",
+    "end",
+    "begin",
+  ]);
+
+  secondAssembly.resolve(JSON.stringify(
+    runtimeSurface("b", "System.B", "System.B.Widget")));
+  assert.ok((await secondRequest).packageModel);
+  assert.equal(status.at(-1), "end");
 });
 
 test("stale runtime results do not publish after the engine returns", async () => {

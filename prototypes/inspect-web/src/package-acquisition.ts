@@ -221,17 +221,23 @@ export interface PackageAcquisition {
 export function createPackageAcquisition(
   dependencies: PackageAcquisitionDependencies,
 ): PackageAcquisition {
-  let runtimeOperation: Promise<AppPackage | null> | null = null;
+  let runtimeTail: Promise<void> | null = null;
 
-  const waitForRuntimeOperation = async () => {
-    for (;;) {
-      const pending = runtimeOperation;
-      if (!pending) return;
-      try {
-        await pending;
-      } catch {
-        // The operation owner reports its failure before the next request starts.
-      }
+  const enqueueRuntimeRequest = async (
+    operation: () => Promise<RuntimeAcquisitionResult>,
+  ): Promise<RuntimeAcquisitionResult> => {
+    const predecessor = runtimeTail;
+    let release!: () => void;
+    const slot = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    runtimeTail = slot;
+    if (predecessor) await predecessor;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (runtimeTail === slot) runtimeTail = null;
     }
   };
 
@@ -239,11 +245,9 @@ export function createPackageAcquisition(
     operation: () => Promise<AppPackage | null>,
   ): Promise<RuntimeAcquisitionResult> => {
     dependencies.beginRuntimeLoad();
-    const pending = operation();
-    runtimeOperation = pending;
     try {
       return {
-        packageModel: await pending,
+        packageModel: await operation(),
         error: null,
       };
     } catch (error) {
@@ -253,7 +257,6 @@ export function createPackageAcquisition(
         error,
       };
     } finally {
-      if (runtimeOperation === pending) runtimeOperation = null;
       dependencies.endRuntimeLoad();
     }
   };
@@ -276,40 +279,41 @@ export function createPackageAcquisition(
     },
 
     async loadRuntimePack(framework, isCurrent = () => true) {
-      if (runtimeOperation) await waitForRuntimeOperation();
-      if (!isCurrent()) return { packageModel: null, error: null };
-      const requestedFramework = framework || "";
-      const existing = dependencies.runtimePackage();
-      if (existing
-        && runtimePackIsResident(existing)
-        && (!requestedFramework
-          || existing.activeFramework.toLowerCase()
-            === requestedFramework.toLowerCase())) {
-        return { packageModel: existing, error: null };
-      }
-
-      return runRuntimeOperation(async () => {
-        const result = dependencies.parseRuntimeSurface(
-          await dependencies.loadRuntimePack(requestedFramework));
-        if (!isCurrent()) return null;
-        dependencies.refreshPackageStats();
-        const packageModel = createRuntimePackageModel(result);
-        const current = dependencies.runtimePackage();
-        if (current
+      return enqueueRuntimeRequest(async () => {
+        if (!isCurrent()) return { packageModel: null, error: null };
+        const requestedFramework = framework || "";
+        const existing = dependencies.runtimePackage();
+        if (existing
+          && runtimePackIsResident(existing)
           && (!requestedFramework
-            || current.activeFramework.toLowerCase()
+            || existing.activeFramework.toLowerCase()
               === requestedFramework.toLowerCase())) {
-          mergeRuntimePackageSurface(current, result);
-          current.version = packageModel.version;
-          current.frameworks = packageModel.frameworks;
-          current.activeFramework = packageModel.activeFramework;
-          current.assembly = packageModel.assembly;
-          current.assemblyId = packageModel.assemblyId;
-          current.assemblyAsset = packageModel.assemblyAsset;
-          return current;
+          return { packageModel: existing, error: null };
         }
-        dependencies.retainPackage(packageModel, existing);
-        return packageModel;
+
+        return runRuntimeOperation(async () => {
+          const result = dependencies.parseRuntimeSurface(
+            await dependencies.loadRuntimePack(requestedFramework));
+          if (!isCurrent()) return null;
+          dependencies.refreshPackageStats();
+          const packageModel = createRuntimePackageModel(result);
+          const current = dependencies.runtimePackage();
+          if (current
+            && (!requestedFramework
+              || current.activeFramework.toLowerCase()
+                === requestedFramework.toLowerCase())) {
+            mergeRuntimePackageSurface(current, result);
+            current.version = packageModel.version;
+            current.frameworks = packageModel.frameworks;
+            current.activeFramework = packageModel.activeFramework;
+            current.assembly = packageModel.assembly;
+            current.assemblyId = packageModel.assemblyId;
+            current.assemblyAsset = packageModel.assemblyAsset;
+            return current;
+          }
+          dependencies.retainPackage(packageModel, existing);
+          return packageModel;
+        });
       });
     },
 
@@ -319,42 +323,44 @@ export function createPackageAcquisition(
       pack,
       isCurrent = () => true,
     ) {
-      if (runtimeOperation) await waitForRuntimeOperation();
-      if (!isCurrent()) return { packageModel: null, error: null };
-      const requestedFramework = framework || "";
-      const requestedAssembly = String(assemblyFileName)
-        .replace(/\.dll$/i, "");
-      const resident = dependencies.runtimePackage();
-      if (resident
-        && (!requestedFramework
-          || resident.activeFramework.toLowerCase()
-            === requestedFramework.toLowerCase())
-        && resident.assemblies.some(assembly =>
-          assembly.name.toLowerCase()
-            === requestedAssembly.toLowerCase())) {
-        return { packageModel: resident, error: null };
-      }
-
-      return runRuntimeOperation(async () => {
-        const result = dependencies.parseRuntimeSurface(
-          await dependencies.loadRuntimePackAssembly(
-            requestedFramework,
-            assemblyFileName,
-            pack || ""));
-        if (!isCurrent()) return null;
-        dependencies.refreshPackageStats();
-        const existing = dependencies.runtimePackage();
-        if (existing
+      return enqueueRuntimeRequest(async () => {
+        if (!isCurrent()) return { packageModel: null, error: null };
+        const requestedFramework = framework || "";
+        const requestedAssembly = assemblyFileName
+          .replace(/\.dll$/i, "");
+        const resident = dependencies.runtimePackage();
+        if (resident
           && (!requestedFramework
-            || existing.activeFramework.toLowerCase()
+            || resident.activeFramework.toLowerCase()
               === requestedFramework.toLowerCase())) {
-          return mergeRuntimePackageSurface(existing, result);
+          if (resident.assemblies.some(assembly =>
+            assembly.name.toLowerCase()
+              === requestedAssembly.toLowerCase())) {
+            return { packageModel: resident, error: null };
+          }
         }
-        const packageModel = createRuntimeAssemblyPackageModel(
-          result,
-          requestedAssembly);
-        dependencies.retainPackage(packageModel, existing);
-        return packageModel;
+
+        return runRuntimeOperation(async () => {
+          const result = dependencies.parseRuntimeSurface(
+            await dependencies.loadRuntimePackAssembly(
+              requestedFramework,
+              assemblyFileName,
+              pack || ""));
+          if (!isCurrent()) return null;
+          dependencies.refreshPackageStats();
+          const existing = dependencies.runtimePackage();
+          if (existing
+            && (!requestedFramework
+              || existing.activeFramework.toLowerCase()
+                === requestedFramework.toLowerCase())) {
+            return mergeRuntimePackageSurface(existing, result);
+          }
+          const packageModel = createRuntimeAssemblyPackageModel(
+            result,
+            requestedAssembly);
+          dependencies.retainPackage(packageModel, existing);
+          return packageModel;
+        });
       });
     },
   };

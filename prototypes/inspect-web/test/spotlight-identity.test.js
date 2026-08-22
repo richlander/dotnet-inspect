@@ -839,6 +839,18 @@ test("lens-scoped Platform library changes reset type-specific member state", ()
     /function normalizeLibrarySelection\(\) \{[\s\S]*state\.selectedTypeId = first\?\.id \|\| "";[\s\S]*state\.selectedMemberKey = "";[\s\S]*state\.selectedOverloadIndex = null;[\s\S]*resetMemberFilters\(\)[\s\S]*function afterLibraryScopeChange\(\) \{\s*normalizeLibrarySelection\(\);\s*render\(\)/);
 });
 
+test("Platform Spotlight distinguishes resident content from core readiness", () => {
+  const results =
+    appSource.match(/function spotlightResults\(\): SpotlightResult\[\] \{[\s\S]*?\n}\n\ninterface NugetSearchResult/)?.[0]
+    ?? "";
+  assert.match(
+    results,
+    /if \(platformSurfaceLoaded\(\)\) \{[\s\S]*spotlightTypeMatches\(query\)/);
+  assert.match(
+    results,
+    /if \(!roster\.length && !runtimePackLoaded\(\)\)/);
+});
+
 test("authoritative location restore clears filters and applies aggregate Platform scope", () => {
   assert.match(
     appSource,

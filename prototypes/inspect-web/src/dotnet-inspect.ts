@@ -2,7 +2,6 @@ import {
   activeSourceOperationKind,
   assemblyDescriptorForType,
   callGraphDiagnosticsMessage,
-  callGraphTargetMatchesType,
   callGraphTargetTypeId,
   createDependencyGraphPendingState,
   createDependencyGraphRenderSequence,
@@ -11,7 +10,6 @@ import {
   dependencyGraphRenderSignature,
   graphTargetNavigationDisposition,
   graphMemberSelection,
-  lenses,
   MARKDOWN_SANITIZE_OPTIONS,
   MAX_WORKSPACE_PACKAGES,
   memberRequestKey,
@@ -4763,7 +4761,7 @@ function spotlightResults(): SpotlightResult[] {
     }
     // Once a pack is resident, blend its type/member matches so drilled-in
     // platform content stays searchable alongside the library roster.
-    if (runtimePackLoaded()) {
+    if (platformSurfaceLoaded()) {
       const typeSource = query ? spotlightTypeMatches(query) : [];
       for (const match of typeSource.filter(item => item.pkg?.isRuntimePack).slice(0, 50)) {
         results.push({ ...match, kind: "type" });
@@ -7341,6 +7339,10 @@ async function loadPackage(
 
 function runtimePackLoaded() {
   return runtimePackIsResident(runtimePackPackage());
+}
+
+function platformSurfaceLoaded() {
+  return runtimePackPackage() !== null;
 }
 
 function runtimePackPackage() {

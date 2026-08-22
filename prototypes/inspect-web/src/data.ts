@@ -68,9 +68,12 @@ export function assemblyDescriptorForType(
     || assembly.name === `${bare}.dll`) ?? null;
 }
 
-export function mergeInspectionErrors(current: unknown, next: unknown): string {
+export function mergeInspectionErrors(
+  current: string | null | undefined,
+  next: string | null | undefined,
+): string {
   const messages = [current, next]
-    .map(value => String(value || "").trim())
+    .map(value => (value ?? "").trim())
     .filter(Boolean);
   return [...new Set(messages)].join("; ");
 }
@@ -102,18 +105,18 @@ export function platformPackFromProvenance(
 ): PlatformPack {
   const exact = platformPackToken(exactPack);
   if (exact) return exact;
-  const normalized = String(assembly || "").replace(/\.dll$/i, "");
+  const normalized = assembly.replace(/\.dll$/i, "");
   const loaded = (loadedAssemblies || []).find(candidate =>
-    String(candidate.name || "").replace(/\.dll$/i, "")
+    (candidate.name ?? "").replace(/\.dll$/i, "")
       .toLowerCase() === normalized.toLowerCase());
   const loadedPack = platformPackToken(loaded?.platformPack);
   if (loadedPack) return loadedPack;
   const indexed = (roster || []).find(entry =>
-    String(entry.assembly || "").toLowerCase() === normalized.toLowerCase());
+    (entry.assembly ?? "").toLowerCase() === normalized.toLowerCase());
   const indexedPack = platformPackToken(indexed?.pack);
   if (indexedPack) return indexedPack;
   const remembered = (recent || []).find(entry =>
-    String(entry.assembly || "").toLowerCase() === normalized.toLowerCase());
+    (entry.assembly ?? "").toLowerCase() === normalized.toLowerCase());
   const rememberedPack = platformPackToken(remembered?.pack);
   if (rememberedPack) return rememberedPack;
   return "netcore.app";
@@ -637,13 +640,12 @@ export function resolvePlatformGraphTargetType<
 ): TType | null {
   const typeId = callGraphTargetTypeId(target);
   if (!pack || !typeId || !target?.assembly) return null;
-  const targetAssembly = String(target.assembly)
+  const targetAssembly = target.assembly
     .replace(/\.dll$/i, "")
     .toLowerCase();
   const matches = (pack.types ?? []).filter(type => {
     const descriptor = assemblyDescriptorForType(pack.assemblies, type);
-    const assembly = String(
-      type.assemblyName ?? descriptor?.name ?? type.assembly ?? "")
+    const assembly = (type.assemblyName ?? descriptor?.name ?? type.assembly ?? "")
       .replace(/\.dll$/i, "")
       .toLowerCase();
     return assembly === targetAssembly
@@ -664,10 +666,10 @@ export function resolveOpportunitySourceType<
 ): TType | null {
   if (!opportunity?.sourceDefinitionId) return null;
   return resolvePlatformGraphTargetType(pack, {
-    assembly: opportunity.sourceAssembly,
-    assemblyVersion: opportunity.sourceAssemblyVersion,
-    assemblyCulture: opportunity.sourceAssemblyCulture,
-    assemblyPublicKeyToken: opportunity.sourceAssemblyPublicKeyToken,
+    assembly: opportunity.sourceAssembly ?? null,
+    assemblyVersion: opportunity.sourceAssemblyVersion ?? null,
+    assemblyCulture: opportunity.sourceAssemblyCulture ?? null,
+    assemblyPublicKeyToken: opportunity.sourceAssemblyPublicKeyToken ?? null,
     typeDefinitionId: opportunity.sourceDefinitionId
   });
 }
