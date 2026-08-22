@@ -488,12 +488,16 @@ either preserve sequencing or surface unexpected rejection visibly. The exact
 `node:test` `test` call is the only configured safe promise-returning call
 because the test runner owns and observes that returned promise.
 
-Oxlint excludes only the generated `src/inspect-web-engine.d.ts` surface, which
-remains covered by TypeScript and the generated-surface drift check. The
-configuration disables four non-correctness rules: underscore spelling,
-function relocation, listener API preference, and `Array.prototype.sort`.
-Those rules prescribe naming/layout churn or, for sorting, the ES2023
-`toSorted` API while this project targets ES2022.
+Oxlint checks both checked-in tsbindgen outputs as consumer contracts:
+`src/inspect-web-engine.d.ts` receives the TypeScript rules, while
+`engine/wwwroot/inspect-web-engine.js` receives the JavaScript correctness and
+suspicious rules described below. TypeScript compilation and the generated
+surface drift gate provide independent declaration coverage. The toolchain
+test pins both generated lint inputs so a generator change cannot silently
+leave analysis coverage. The configuration disables four non-correctness
+rules: underscore spelling, function relocation, listener API preference, and
+`Array.prototype.sort`. Those rules prescribe naming/layout churn or, for
+sorting, the ES2023 `toSorted` API while this project targets ES2022.
 
 Existing JavaScript tests and verification scripts remain covered by Oxlint's
 correctness and suspicious rules, but not by its unsafe-operation type rules:
@@ -505,7 +509,8 @@ Knip checks authored source, every TypeScript and JavaScript test, and
 build/verification scripts for unused files, exports, and dependencies.
 `knip.json` excludes only `engine/wwwroot/inspect-web-engine.js`: that generated
 publish artifact imports `./_framework/dotnet.js`, which exists only after Wasm
-publish.
+publish. The exclusion is specific to Knip reachability; Oxlint still checks
+the generated module.
 
 The tsgolint semantic backend publishes native binaries for x64 and arm64 hosts
 running macOS, Linux (glibc or musl), or Windows. Those are the supported

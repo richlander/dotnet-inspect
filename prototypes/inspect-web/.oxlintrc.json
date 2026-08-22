@@ -8,9 +8,6 @@
     "browser": true,
     "es2022": true
   },
-  "ignorePatterns": [
-    "src/inspect-web-engine.d.ts"
-  ],
   "options": {
     "denyWarnings": true,
     "reportUnusedDisableDirectives": "error",
