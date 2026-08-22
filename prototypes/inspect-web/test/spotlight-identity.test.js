@@ -414,9 +414,21 @@ test("typed type panel owns its rendered control bindings", () => {
 });
 
 test("typed scope bar owns its rendered control bindings", () => {
+  const rootEventBinder =
+    appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
+    ?? "";
   assert.match(
     appSource,
     /function bindScopeBarEvents\(\) \{\s*bindScopeBar\(document, \{/);
+  assert.equal(
+    appSource.match(/\bbindScopeBarEvents\b/g)?.length,
+    2);
+  assert.equal(
+    rootEventBinder.match(/\bbindScopeBarEvents\(\)/g)?.length,
+    1);
+  assert.match(
+    rootEventBinder,
+    /bindTypePanelEvents\(\);\s*bindScopeBarEvents\(\);/);
   assert.match(
     scopeBarSource,
     /export function bindScopeBar\([\s\S]*\[data-scope\][\s\S]*\[data-package-lens\][\s\S]*\[data-lens\][\s\S]*\[data-member-section\]/);
