@@ -298,7 +298,7 @@ public class MemberCallGraphSectionTests
         {
             TypeName = "Missing.Type.Member",
             AssemblyPath = Path.Combine(Path.GetTempPath(), "missing-member-selection.dll"),
-            Select = [SectionNames.DecompiledSource, SectionNames.OriginalSource],
+            Select = [SectionNames.DecompiledSource, SectionNames.PdbSource],
             Count = true,
             TipLevel = TipLevel.Quiet,
         }));
