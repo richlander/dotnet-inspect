@@ -360,6 +360,45 @@ public enum DirectCallResultUse
     Discarded,
 }
 
+/// <summary>
+/// The terminal consumer of a value returned by a direct call.
+/// </summary>
+public enum MethodResultSinkKind
+{
+    /// <summary>A physical <c>ret</c> instruction.</summary>
+    MethodReturn,
+
+    /// <summary>The single argument supplied to a direct call.</summary>
+    SingleArgumentCall,
+}
+
+/// <summary>
+/// Conservative, physical-body evidence for the direct-call producers of a
+/// method-result sink.
+/// </summary>
+/// <param name="Caller">
+/// Declared method attributed to the body. This can differ from
+/// <paramref name="EvidenceMethod"/> for an async state-machine body.
+/// </param>
+/// <param name="EvidenceMethod">Physical method body containing the sink.</param>
+/// <param name="ILOffset">Physical IL offset of the sink instruction.</param>
+/// <param name="Kind">Whether the sink is a return or a single-argument call.</param>
+/// <param name="SourceCallOffsets">
+/// Physical IL offsets of every directly proven call-result source. Empty is
+/// valid only when <paramref name="IsComplete"/> is false.
+/// </param>
+/// <param name="IsComplete">
+/// Whether every reaching definition of the sink value was proven to be a
+/// direct non-void call result. Unknown or non-call definitions remain false.
+/// </param>
+public sealed record MethodResultSink(
+    MethodIdentity Caller,
+    MethodIdentity EvidenceMethod,
+    int ILOffset,
+    MethodResultSinkKind Kind,
+    ImmutableArray<int> SourceCallOffsets,
+    bool IsComplete);
+
 public sealed record CalledTypeSummary(
     TypeRef Type,
     string Assembly,

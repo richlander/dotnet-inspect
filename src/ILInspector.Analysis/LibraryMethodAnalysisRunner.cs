@@ -125,6 +125,7 @@ internal sealed class LibraryMethodAnalysisResult
     public bool HasBody;
     public ImmutableArray<UnsafeEvidence> UnsafeEvidence;
     public ImmutableArray<DirectCall> Calls;
+    public ImmutableArray<MethodResultSink> ResultSinks;
     public ImmutableArray<AllocationOccurrence> Allocations;
     public ImmutableArray<UnsafetyOccurrence> Unsafety;
     public ImmutableArray<OptimizationOpportunity> Opportunities;
@@ -185,6 +186,8 @@ internal sealed class LibraryMethodAnalysisRunner(
             ImmutableArray.CreateBuilder<UnsafeEvidence>();
         var calls =
             ImmutableArray.CreateBuilder<DirectCall>();
+        var resultSinks =
+            ImmutableArray.CreateBuilder<MethodResultSink>();
         MetadataReader reader = _infrastructure.Reader;
         LeakTriageFailureKind leakFailureKind =
             LeakTriageFailureKind.MethodMetadata;
@@ -537,7 +540,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                 includeIndirectOpcodes:
                     hasUnsafeApiMember
                     || hasUnsafeSignature
-                    || hasUnsafeLocals);
+                    || hasUnsafeLocals,
+                resultSinks: resultSinks);
             if (collectScopedOpportunities)
             {
                 MethodIdentity? asyncSource = null;
@@ -613,6 +617,7 @@ internal sealed class LibraryMethodAnalysisRunner(
             // emitted before a recoverable failure remain visible.
             result.UnsafeEvidence = evidence.ToImmutable();
             result.Calls = calls.ToImmutable();
+            result.ResultSinks = resultSinks.ToImmutable();
         }
         return result;
     }

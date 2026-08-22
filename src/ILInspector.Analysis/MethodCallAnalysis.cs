@@ -36,7 +36,8 @@ internal static class MethodCallAnalysis
         Func<int, AllocationMultiplicity> multiplicityAt,
         ImmutableArray<DirectCall>.Builder calls,
         ImmutableArray<UnsafeEvidence>.Builder unsafeEvidence,
-        bool includeIndirectOpcodes)
+        bool includeIndirectOpcodes,
+        ImmutableArray<MethodResultSink>.Builder? resultSinks = null)
     {
         var caller = context.Method;
         ReachingDefinitionsResult? reaching = null;
@@ -128,6 +129,9 @@ internal static class MethodCallAnalysis
                     break;
             }
         }
+
+        if (resultSinks is not null)
+            CollectResultSinks(context, calls, resultSinks, ref reaching);
     }
 
     static string FormatCallOpcode(ILOpCode opcode) => opcode switch
@@ -226,4 +230,137 @@ internal static class MethodCallAnalysis
     readonly record struct DirectCallResult(
         DirectCallResultUse Use,
         int? ConsumerOffset);
+
+    static void CollectResultSinks(
+        MethodBodyAnalysisContext context,
+        ImmutableArray<DirectCall>.Builder calls,
+        ImmutableArray<MethodResultSink>.Builder resultSinks,
+        ref ReachingDefinitionsResult? reaching)
+    {
+        var callsByOffset = calls.ToDictionary(call => call.ILOffset);
+        foreach (DecodedInstruction instruction
+            in context.Instructions.Instructions)
+        {
+            MethodResultSinkKind kind;
+            if (instruction.OpCode == ILOpCode.Ret)
+            {
+                kind = MethodResultSinkKind.MethodReturn;
+            }
+            else if (instruction.OpCode is ILOpCode.Call or ILOpCode.Callvirt
+                && callsByOffset.TryGetValue(
+                    instruction.Offset,
+                    out DirectCall? call)
+                && call.Callee.ParameterTypes.Length == 1)
+            {
+                kind = MethodResultSinkKind.SingleArgumentCall;
+            }
+            else
+            {
+                continue;
+            }
+
+            SinkSources sources = ResolveSinkSources(
+                context,
+                instruction,
+                callsByOffset,
+                ref reaching);
+            resultSinks.Add(new MethodResultSink(
+                context.Method,
+                context.Method,
+                instruction.Offset,
+                kind,
+                sources.CallOffsets,
+                sources.IsComplete));
+        }
+    }
+
+    static SinkSources ResolveSinkSources(
+        MethodBodyAnalysisContext context,
+        DecodedInstruction sink,
+        IReadOnlyDictionary<int, DirectCall> callsByOffset,
+        ref ReachingDefinitionsResult? reaching)
+    {
+        DecodedInstruction? value = PreviousNonNop(context, sink.Offset);
+        if (value is not { } valueInstruction)
+            return new([], IsComplete: false);
+
+        if (callsByOffset.TryGetValue(
+                valueInstruction.Offset,
+                out DirectCall? call)
+            && IsNonVoid(call))
+        {
+            return new([call.ILOffset], IsComplete: true);
+        }
+
+        if (!MethodInstructionFacts.TryReadLocalSlot(
+                valueInstruction,
+                out LocalSlotAccess access)
+            || access.IsStore
+            || access.IsArgument)
+        {
+            return new([], IsComplete: false);
+        }
+
+        int argumentSlotCount =
+            context.Method.ParameterTypes.Length
+            + (context.Method.IsStatic ? 0 : 1);
+        reaching ??= ReachingDefinitions.Analyze(
+            context.Instructions,
+            argumentSlotCount);
+        if (!reaching.IsComplete)
+            return new([], IsComplete: false);
+
+        LocalUse? use = reaching.Uses.FirstOrDefault(candidate =>
+            !candidate.IsArgument
+            && candidate.Slot == access.Slot
+            && candidate.Offset == valueInstruction.Offset);
+        if (use is null
+            || use.Address
+            || use.ReachingDefinitions.IsEmpty)
+        {
+            return new([], IsComplete: false);
+        }
+
+        var sourceOffsets = new SortedSet<int>();
+        foreach (LocalDefinition definition in use.ReachingDefinitions)
+        {
+            DecodedInstruction? source = PreviousNonNop(context, definition.Offset);
+            if (source is not { } sourceInstruction
+                || !callsByOffset.TryGetValue(
+                    sourceInstruction.Offset,
+                    out DirectCall? sourceCall)
+                || !IsNonVoid(sourceCall))
+            {
+                return new([], IsComplete: false);
+            }
+
+            sourceOffsets.Add(sourceCall.ILOffset);
+        }
+
+        return new([.. sourceOffsets], IsComplete: true);
+    }
+
+    static DecodedInstruction? PreviousNonNop(
+        MethodBodyAnalysisContext context,
+        int offset)
+    {
+        ImmutableArray<DecodedInstruction> instructions =
+            context.Instructions.Instructions;
+        int index = context.IndexAtOrAfter(offset) - 1;
+        while (index >= 0
+            && instructions[index].OpCode == ILOpCode.Nop)
+        {
+            index--;
+        }
+
+        return index >= 0 ? instructions[index] : null;
+    }
+
+    static bool IsNonVoid(DirectCall call)
+        => !call.Callee.ReturnType.Equals(
+            TypeRef.CoreLib("System", "Void"));
+
+    readonly record struct SinkSources(
+        ImmutableArray<int> CallOffsets,
+        bool IsComplete);
 }

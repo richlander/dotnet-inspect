@@ -627,21 +627,13 @@ public static class ApiSurfaceExtractor
                     baseTypeName,
                     observeText,
                     observeDecodeWork);
-                ApiAssemblyIdentity? baseAssembly =
-                    ResolveTypeAssemblyIdentity(
+                apiType.BaseTypeReference =
+                    DecodeTypeDefinitionReference(
                         reader,
                         typeDef.BaseType,
-                        currentAssemblyIdentity,
+                        typeContext,
+                        observeText,
                         observeDecodeWork);
-                if (baseAssembly is not null)
-                {
-                    RetainAssemblyIdentity(
-                        baseAssembly,
-                        observeText);
-                    apiType.BaseTypeReference = new(
-                        baseAssembly,
-                        baseTypeName);
-                }
 
                 apiType.Kind = baseTypeName switch
                 {
@@ -3846,6 +3838,39 @@ public static class ApiSurfaceExtractor
         return resolved;
     }
 
+    static ApiTypeReferenceIdentity? DecodeTypeDefinitionReference(
+        MetadataReader reader,
+        EntityHandle handle,
+        GenericContext context,
+        Action<string>? beforeRetainText,
+        Action<int>? beforeDecodeWork)
+    {
+        var provider = new TypeNodeProvider(
+            beforeRetainText,
+            beforeDecodeWork);
+        TypeNode node = handle.Kind switch
+        {
+            HandleKind.TypeDefinition => provider.GetTypeFromDefinition(
+                reader,
+                (TypeDefinitionHandle)handle,
+                rawTypeKind: 0),
+            HandleKind.TypeReference => provider.GetTypeFromReference(
+                reader,
+                (TypeReferenceHandle)handle,
+                rawTypeKind: 0),
+            HandleKind.TypeSpecification => GuardedProviderDecode.TypeSpec(
+                reader,
+                (TypeSpecificationHandle)handle,
+                provider,
+                context,
+                (TypeNode)new DegradedTypeNode()),
+            _ => new DegradedTypeNode(),
+        };
+        return node.IsDegraded
+            ? null
+            : node.DefinitionReference();
+    }
+
     private static void AddInspectionFailure(
         ApiSurface surface,
         ExtractionBudget? budget,
@@ -4656,6 +4681,7 @@ public static class ApiSurfaceExtractor
         AddText(ref count, type.BaseType);
         AddText(ref count, type.BaseTypeReference?.Assembly);
         AddText(ref count, type.BaseTypeReference?.FullName);
+        AddText(ref count, type.BaseTypeReference?.DefinitionName);
         foreach (ApiJsonSerializableRoot root
             in type.JsonSerializableRoots)
         {

@@ -540,14 +540,85 @@ static class DtsEmitter
                     blocked.Add(simpleName);
             }
 
-            if (!PlatformKeys.IsPlatform(
-                    reference.Assembly.PublicKeyToken))
+            if (!IsAuthenticFrameworkMapping(reference))
             {
                 AddFrameworkMappingAliases(blocked, reference.FullName);
             }
         }
         return blocked.Count == 0 ? null : blocked;
     }
+
+    static bool IsAuthenticFrameworkMapping(
+        ApiTypeReferenceIdentity reference)
+    {
+        if (!PlatformKeys.IsPlatform(
+                reference.Assembly.PublicKeyToken))
+        {
+            return false;
+        }
+
+        string assembly = reference.Assembly.Name;
+        return reference.FullName switch
+        {
+            "System.String"
+                or "System.Char"
+                or "System.Boolean"
+                or "System.Byte"
+                or "System.SByte"
+                or "System.Int16"
+                or "System.UInt16"
+                or "System.Int32"
+                or "System.UInt32"
+                or "System.Int64"
+                or "System.UInt64"
+                or "System.Single"
+                or "System.Double"
+                or "System.Decimal"
+                or "System.Void"
+                or "System.Nullable`1"
+                or "System.Threading.Tasks.Task`1"
+                or "System.Threading.Tasks.Task"
+                or "System.Threading.Tasks.ValueTask`1"
+                or "System.Threading.Tasks.ValueTask" =>
+                    IsCoreContractAssembly(assembly),
+            "System.Collections.Generic.Dictionary`2"
+                or "System.Collections.Generic.IReadOnlyDictionary`2" =>
+                    IsCoreContractAssembly(assembly)
+                    || assembly == "System.Collections",
+            "System.Text.Json.JsonElement" =>
+                assembly == "System.Text.Json",
+            "String"
+                or "Char"
+                or "Boolean"
+                or "Byte"
+                or "SByte"
+                or "Int16"
+                or "UInt16"
+                or "Int32"
+                or "UInt32"
+                or "Int64"
+                or "UInt64"
+                or "Single"
+                or "Double"
+                or "Decimal"
+                or "Void"
+                or "Nullable`1"
+                or "Task`1"
+                or "Task"
+                or "ValueTask`1"
+                or "ValueTask"
+                or "Dictionary`2"
+                or "IReadOnlyDictionary`2"
+                or "JsonElement" => false,
+            _ => true,
+        };
+    }
+
+    static bool IsCoreContractAssembly(string assembly) =>
+        assembly is "System.Private.CoreLib"
+            or "System.Runtime"
+            or "mscorlib"
+            or "netstandard";
 
     static void AddFrameworkMappingAliases(
         HashSet<string> blocked,

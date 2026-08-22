@@ -21,17 +21,39 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     [Fact]
+    public void Extract_CapturesStructuredSerializerContextBaseIdentity()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(FixtureExports).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType context = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == "FixtureJsonContext");
+
+        Assert.Equal(
+            TopLevelDefinitionName(
+                "System.Text.Json.Serialization",
+                "JsonSerializerContext"),
+            context.BaseTypeReference?.DefinitionName);
+    }
+
+    [Fact]
     public void Build_DiscoversAllJsExportFunctions()
     {
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
         var names = surface.Functions.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(16, surface.Functions.Count);
+        Assert.Equal(18, surface.Functions.Count);
         Assert.Contains("GetWidget", names);
         Assert.Contains("GetWidgetAsync", names);
         Assert.Contains("Ping", names);
         Assert.Contains("RenameWidget", names);
         Assert.Contains("GetWidgetOrOwner", names);
+        Assert.Contains("GetWidgetOrRawOk", names);
+        Assert.Contains("GetWidgetFromEitherJsonBranch", names);
         Assert.Contains("GetWidgetArray", names);
         Assert.Contains("GetWidgetSummary", names);
         Assert.Contains("GetWidgetPermissionSummary", names);
@@ -1044,7 +1066,10 @@ public sealed class JsExportSurfaceBuilderTests
                     culture: null,
                     publicKeyToken:
                         "cc7b13ffcd2ddd51"),
-                "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1"),
+                "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1",
+                TopLevelDefinitionName(
+                    "System.Text.Json.Serialization.Metadata",
+                    "JsonTypeInfo`1")),
             ReturnTypeReferences =
             [
                 new(
@@ -1054,7 +1079,10 @@ public sealed class JsExportSurfaceBuilderTests
                         culture: null,
                         publicKeyToken:
                             "cc7b13ffcd2ddd51"),
-                    "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1"),
+                    "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1",
+                    TopLevelDefinitionName(
+                        "System.Text.Json.Serialization.Metadata",
+                        "JsonTypeInfo`1")),
                 new(
                     new ApiAssemblyIdentity(
                         "Local",
@@ -1071,7 +1099,10 @@ public sealed class JsExportSurfaceBuilderTests
                 new Version(11, 0, 0, 0),
                 culture: null,
                 publicKeyToken: "cc7b13ffcd2ddd51"),
-            "System.Text.Json.Serialization.JsonSerializerContext");
+            "System.Text.Json.Serialization.JsonSerializerContext",
+            TopLevelDefinitionName(
+                "System.Text.Json.Serialization",
+                "JsonSerializerContext"));
         var apiSurface = new ApiSurface
         {
             AssemblyIdentity = new ApiAssemblyIdentity(
@@ -1126,7 +1157,10 @@ public sealed class JsExportSurfaceBuilderTests
             spoofBaseType
                 ? lookalikeSystemTextJson
                 : authenticSystemTextJson,
-            "System.Text.Json.Serialization.JsonSerializerContext");
+            "System.Text.Json.Serialization.JsonSerializerContext",
+            TopLevelDefinitionName(
+                "System.Text.Json.Serialization",
+                "JsonSerializerContext"));
         context.Members[0].SignatureModel = new ApiSignature
         {
             ReturnType = context.Members[0].ReturnType,
@@ -1134,17 +1168,26 @@ public sealed class JsExportSurfaceBuilderTests
                 spoofBaseType
                     ? authenticSystemTextJson
                     : lookalikeSystemTextJson,
-                "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1"),
+                "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1",
+                TopLevelDefinitionName(
+                    "System.Text.Json.Serialization.Metadata",
+                    "JsonTypeInfo`1")),
             ReturnTypeReferences =
             [
                 new(
                     spoofBaseType
                         ? authenticSystemTextJson
                         : lookalikeSystemTextJson,
-                    "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1"),
+                    "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1",
+                    TopLevelDefinitionName(
+                        "System.Text.Json.Serialization.Metadata",
+                        "JsonTypeInfo`1")),
                 new(
                     authenticSystemTextJson,
-                    "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1"),
+                    "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1",
+                    TopLevelDefinitionName(
+                        "System.Text.Json.Serialization.Metadata",
+                        "JsonTypeInfo`1")),
                 new(localAssembly, "Mine.Result"),
             ],
         };
@@ -1168,6 +1211,124 @@ public sealed class JsExportSurfaceBuilderTests
         Assert.Empty(surface.Records);
     }
 
+    [Fact]
+    public void Build_DoesNotTrustNestedSerializerContextIdentity()
+    {
+        var localAssembly = new ApiAssemblyIdentity(
+            "Local",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: "0011223344556677");
+        var systemTextJson = new ApiAssemblyIdentity(
+            "System.Text.Json",
+            new Version(11, 0, 0, 0),
+            culture: null,
+            publicKeyToken: "cc7b13ffcd2ddd51");
+        MetadataTypeDefinitionName resultName =
+            TopLevelDefinitionName("Mine", "Result");
+        var resultIdentity = new ApiTypeReferenceIdentity(
+            localAssembly,
+            "Mine.Result",
+            resultName);
+        ApiType context = CreateSerializerContext(
+            "Context",
+            "Mine.Result",
+            JsonWireNamingPolicy.None);
+        context.BaseTypeReference = new(
+            systemTextJson,
+            "System.Text.Json.Serialization.JsonSerializerContext",
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "System.Text.Json",
+                    ["Serialization", "JsonSerializerContext"]))
+                .Name);
+        context.JsonSerializableAttributeCount = 1;
+        context.JsonSerializableRoots = [new(resultIdentity, IsArray: false)];
+        context.Members[0].SignatureModel = new ApiSignature
+        {
+            ReturnType = context.Members[0].ReturnType,
+            ReturnTypeDefinitionReference = new(
+                systemTextJson,
+                "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1",
+                TopLevelDefinitionName(
+                    "System.Text.Json.Serialization.Metadata",
+                    "JsonTypeInfo`1")),
+            ReturnTypeReferences =
+            [
+                new(
+                    systemTextJson,
+                    "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1",
+                    TopLevelDefinitionName(
+                        "System.Text.Json.Serialization.Metadata",
+                        "JsonTypeInfo`1")),
+                resultIdentity,
+            ],
+        };
+        var apiSurface = new ApiSurface
+        {
+            AssemblyIdentity = localAssembly,
+            Types =
+            [
+                context,
+                new ApiType
+                {
+                    Namespace = "Mine",
+                    Name = "Result",
+                    DefinitionName = resultName,
+                },
+            ],
+        };
+
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            JsExportSurfaceBuilder.Build(apiSurface);
+
+        Assert.Empty(surface.Records);
+    }
+
+    [Fact]
+    public void Build_MalformedContextUsesContainedTokenLocation()
+    {
+        var systemTextJson = new ApiAssemblyIdentity(
+            "System.Text.Json",
+            new Version(11, 0, 0, 0),
+            culture: null,
+            publicKeyToken: "cc7b13ffcd2ddd51");
+        ApiType context = CreateSerializerContext(
+            "Context\u000BInjected",
+            "Mine.Result",
+            JsonWireNamingPolicy.None);
+        context.MetadataToken = 0x02000002;
+        context.BaseTypeReference = new(
+            systemTextJson,
+            "System.Text.Json.Serialization.JsonSerializerContext",
+            TopLevelDefinitionName(
+                "System.Text.Json.Serialization",
+                "JsonSerializerContext"));
+        context.JsonSerializableAttributeCount = 1;
+        var apiSurface = new ApiSurface
+        {
+            AssemblyIdentity = new(
+                "Local",
+                new Version(1, 0, 0, 0),
+                culture: null,
+                publicKeyToken: "0011223344556677"),
+            Types = [context],
+        };
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(apiSurface));
+
+        Assert.StartsWith(
+            "type 0x02000002:",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "\u000B",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
     private static ApiType CreateSerializerContext(
         string name,
         string recordName,
@@ -1188,4 +1349,12 @@ public sealed class JsExportSurfaceBuilderTests
                 },
             ],
         };
+
+    static MetadataTypeDefinitionName TopLevelDefinitionName(
+        string @namespace,
+        string name) =>
+        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                @namespace,
+                [name])).Name;
 }

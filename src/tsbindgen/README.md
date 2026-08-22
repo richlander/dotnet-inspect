@@ -45,9 +45,14 @@ framework-signed `JsonSerializerContext`-derived type: each
 The property is accepted as a root only when its `T` identity matches an
 authenticated `[JsonSerializable]` row; an unrelated handwritten
 `JsonTypeInfo<T>` property on the same partial context is not a registration.
-These checks use typed metadata identity rather than matching names as text.
+These checks use assembly-scoped, structured metadata identity rather than
+matching flattened names as text; a nested type cannot alias an expected
+top-level System.Text.Json definition.
 `JsExportSurfaceBuilderTests.Build_DoesNotDiscoverHandwrittenContextProperties`
-gates that correspondence. This list is not a heuristic — System.Text.Json's fast (non-reflection)
+gates registration correspondence, while
+`Build_DoesNotTrustNestedSerializerContextIdentity` and
+`Extract_CapturesStructuredSerializerContextBaseIdentity` gate the structured
+authentication and extraction path. This list is not a heuristic — System.Text.Json's fast (non-reflection)
 serialization path requires every (de)serialized type to be registered there,
 so it is exactly the set of shapes that can flow across the `[JSExport]`
 boundary via this pattern.
@@ -67,7 +72,9 @@ incomplete TypeScript shape;
 plus `DtsEmitterTests.Emit_MatchesSourceGeneratedJsonIncludeAccessibility`
 gate that shared-rule invariant against the real source generator, while
 `DtsEmitterTests.Emit_IncludesPropertyWithJsonIgnoreNever` gates the explicit
-`Never` exception.
+`Never` exception and
+`JsonPropertyNameAttributeTests.CurrentDirectionalJsonIgnoreConditionsArePreserved`
+gates the current `WhenWriting` and `WhenReading` values.
 
 Inherited class members and the wire semantics of `[JsonNumberHandling]`,
 `[JsonPolymorphic]`, `[JsonDerivedType]`, and `[JsonExtensionData]` are not yet
@@ -111,7 +118,10 @@ gates that output boundary.
 A DTO whose serializer contexts declare conflicting property-naming policies
 is emitted as `unknown`, without guessing a policy, and the diagnostic keeps
 generation red until the wire contract is corrected. The same rule applies to
-enum roots. Duplicate or malformed context-options rows are also unsupported
+enum roots. Supported snake-case and kebab-case policies delegate to
+System.Text.Json's own Unicode-aware implementations;
+`JsonNamingPoliciesTests.PoliciesMatchSystemTextJson` gates that wire-name
+equivalence. Duplicate or malformed context-options rows are also unsupported
 rather than resolved by metadata order. Non-default context options that change
 serialized wire shape are unsupported until the object model projects their
 semantics; formatting and read-only options remain accepted.
@@ -134,8 +144,10 @@ attribute from another assembly cannot alter the projected contract.
 and
 `JsonPropertyNameAttributeTests.AuthenticAttributeWithMalformedConstructorProducesRowMarker`
 plus
+`JsonPropertyNameAttributeTests.LocallyDefinedFrameworkNamedAttributeInModuleIsUnauthenticated`
+and
 `JsonSourceGenerationOptionsAttributeTests.SameNameOptionsAttributeFromUntrustedAssemblyIsIgnored`
-gate the cross-assembly boundary.
+gate the cross-assembly and manifest-less-module boundaries.
 
 Type- or member-level custom `[JsonConverter]` attributes can replace the
 entire inferred wire shape. Types using an unsupported converter are emitted
@@ -193,10 +205,13 @@ display projection is identical. An unrelated external type with the same
 assembly simple name, simple type name, or namespace-qualified name becomes
 diagnosed `unknown`, not an alias. Built-in mappings such as
 `Task<T>`, `Dictionary<TKey, TValue>`, primitives, and `JsonElement` likewise
-require a platform-signed framework identity; same-name external types become
-diagnosed `unknown`.
+require both a platform signature and an allowed defining or contract assembly
+for that exact mapping; same-name external types and references that merely
+claim a platform token become diagnosed `unknown`.
 `DtsEmitterTests.Emit_DoesNotApplyDictionarySemanticsToLookalikeType` and
-`Emit_DoesNotApplyTaskSemanticsToLookalikeType` gate this framework boundary;
+`Emit_DoesNotApplyTaskSemanticsToLookalikeType` plus
+`Emit_DoesNotTrustClaimedPlatformTokenFromWrongAssembly` gate this framework
+boundary;
 `Emit_NestedIdentityCannotAliasNamespaceQualifiedType` gates structured type
 identity.
 Empty string-converted enums
@@ -225,7 +240,8 @@ unrelated methods remain irrelevant.
 `TsBindGenCommandTests.Invoke_IncompleteExtractionFailsWithoutOutput` and
 `JsExportSurfaceBuilderTests.Build_InvalidExportUsesContainedFailure` plus the
 `Build_RejectsDegraded*` and
-`Build_RejectsOnlyExportScopedBodyDiagnostics` tests gate those boundaries.
+`Build_RejectsOnlyExportScopedBodyDiagnostics` plus
+`Build_MalformedContextUsesContainedTokenLocation` gate those boundaries.
 `JsonWireContractResolverTests.Build_RejectsRealAsyncStateMachineAnalysisFailure`
 corrupts a compiled `MoveNext` body and gates production source-method
 attribution. `Build_IgnoresLookalikeJsExportAttribute` and

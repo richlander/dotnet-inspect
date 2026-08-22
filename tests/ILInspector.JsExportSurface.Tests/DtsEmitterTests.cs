@@ -849,6 +849,44 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
+    public void Emit_DoesNotTrustClaimedPlatformTokenFromWrongAssembly()
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Functions =
+            [
+                new JsExportFunction
+                {
+                    DeclaringType = "Exports",
+                    Name = "GetValue",
+                    ReturnType =
+                        "System.Threading.Tasks.Task<string>",
+                    ReturnTypeReferences =
+                    [
+                        new(
+                            new ApiAssemblyIdentity(
+                                "Lookalikes",
+                                new Version(1, 0, 0, 0),
+                                culture: null,
+                                publicKeyToken:
+                                    "b03f5f7f11d50a3a"),
+                            "System.Threading.Tasks.Task`1"),
+                    ],
+                },
+            ],
+        };
+
+        string dts = DtsEmitter.Emit(surface, diagnostics);
+
+        Assert.Contains(
+            "export declare function getValue(): unknown;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Single(diagnostics.UnmappedTypes);
+    }
+
+    [Fact]
     public void Emit_WithIncludeAllKeepsJsonIncludeNonPublicProperty()
     {
         string dts = EmitFixtureDts(includeAll: true);

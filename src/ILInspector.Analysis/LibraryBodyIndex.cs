@@ -63,6 +63,7 @@ public sealed class LibraryBodyIndex
         DeclaredMethods = analysis.Methods.DeclaredMethods;
         Methods = analysis.Methods.Methods;
         DirectCalls = analysis.Methods.DirectCalls;
+        ResultSinks = analysis.Methods.ResultSinks;
         _physicalDirectCalls =
         [
             .. DirectCalls.Select(static call =>
@@ -120,6 +121,11 @@ public sealed class LibraryBodyIndex
     /// contract and its iterator non-action boundary.
     /// </summary>
     public ImmutableArray<DirectCall> DirectCalls { get; }
+    /// <summary>
+    /// Conservative physical return and single-argument call sinks, with
+    /// reaching-definition-backed direct-call provenance for their values.
+    /// </summary>
+    public ImmutableArray<MethodResultSink> ResultSinks { get; }
     readonly ImmutableArray<DirectCall> _physicalDirectCalls;
     public ImmutableArray<UnsafeEvidence> UnsafeEvidence { get; }
     public ImmutableArray<AnalysisDiagnostic> Diagnostics { get; }
@@ -978,14 +984,17 @@ public sealed class LibraryBodyIndex
         ImmutableArray<UnsafeEvidence> unsafeEvidence,
         IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>>? allocationOccurrences = null,
         IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>>? unsafetyOccurrences = null,
-        ImmutableArray<AnalysisDiagnostic> diagnostics = default)
+        ImmutableArray<AnalysisDiagnostic> diagnostics = default,
+        ImmutableArray<DirectCall> directCalls = default,
+        ImmutableArray<MethodResultSink> resultSinks = default)
         => new(
             path: "",
             analysis: new(
                 Methods: new(
                     DeclaredMethods: methods,
                     Methods: methods,
-                    DirectCalls: [],
+                    DirectCalls: directCalls.IsDefault ? [] : directCalls,
+                    ResultSinks: resultSinks.IsDefault ? [] : resultSinks,
                     BodySignals: new Dictionary<int, BodySignals>(),
                     InAssemblyTypeIsException:
                         new Dictionary<(string Namespace, string Name), bool>(),

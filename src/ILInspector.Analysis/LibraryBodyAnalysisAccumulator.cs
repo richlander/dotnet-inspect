@@ -41,6 +41,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
             new Dictionary<MethodIdentity, MethodIdentity>();
         var unsafeLeverageMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
         var calls = ImmutableArray.CreateBuilder<DirectCall>();
+        var resultSinks = ImmutableArray.CreateBuilder<MethodResultSink>();
         var unsafeEvidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
         var diagnostics = ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
         var optimizationOpportunities = ImmutableArray.CreateBuilder<OptimizationOpportunity>();
@@ -125,6 +126,20 @@ internal sealed class LibraryBodyAnalysisAccumulator
                             : call with { Caller = declared };
                     }));
             }
+            if (!r.ResultSinks.IsDefaultOrEmpty)
+            {
+                resultSinks.AddRange(
+                    r.ResultSinks.Select(sink =>
+                    {
+                        MethodIdentity declared =
+                            ResolveDeclaredMethod(
+                                sink.Caller,
+                                declaredMethodsByBody);
+                        return declared == sink.Caller
+                            ? sink
+                            : sink with { Caller = declared };
+                    }));
+            }
             if (!r.Allocations.IsDefaultOrEmpty)
                 allocationOccurrences[r.Token] = r.Allocations;
             if (!r.Unsafety.IsDefaultOrEmpty)
@@ -163,6 +178,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 DeclaredMethods: declaredMethods.ToImmutable(),
                 Methods: methodArray,
                 DirectCalls: directCalls,
+                ResultSinks: resultSinks.ToImmutable(),
                 BodySignals: bodySignals,
                 InAssemblyTypeIsException: _includeMethodEvidence
                     ? BuildInAssemblyExceptionMap()

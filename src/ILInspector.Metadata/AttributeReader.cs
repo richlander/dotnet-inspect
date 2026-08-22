@@ -914,7 +914,7 @@ public static partial class AttributeReader
             || argument.Name != "Condition"
             || argument.Type != JsonIgnoreConditionTypeName
             || !TryReadInt32(argument.Value, out int rawValue)
-            || rawValue is < 0 or > 3)
+            || rawValue is < 0 or > 5)
         {
             return false;
         }
@@ -1130,6 +1130,8 @@ public static partial class AttributeReader
                     beforeMaterialize)
                     == fullTypeName)
             {
+                if (!reader.IsAssembly)
+                    return false;
                 identity = ApiAssemblyIdentity.FromDefinition(
                     reader,
                     beforeMaterialize);
@@ -1282,6 +1284,8 @@ public static partial class AttributeReader
                     constructor,
                     beforeMaterialize) == fullTypeName)
             {
+                if (!reader.IsAssembly)
+                    return false;
                 identity = ApiAssemblyIdentity.FromDefinition(
                     reader,
                     beforeMaterialize);

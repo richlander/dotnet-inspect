@@ -383,6 +383,13 @@ public sealed class ApiSurfaceExtractorBoundsTests
         const string culture = "en-US";
         const string token = "0011223344556677";
         const string fullName = "Dependency.ReallyLongBaseType";
+        const string typeNamespace = "Dependency";
+        const string typeName = "ReallyLongBaseType";
+        MetadataTypeDefinitionName definitionName = Assert.IsType<
+            MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                typeNamespace,
+                [typeName])).Name;
         var withoutReference = new ApiType();
         var withReference = new ApiType
         {
@@ -392,14 +399,17 @@ public sealed class ApiSurfaceExtractorBoundsTests
                     new Version(1, 2, 3, 4),
                     culture,
                     token),
-                fullName),
+                fullName,
+                definitionName),
         };
 
         Assert.Equal(
             assemblyName.Length
                 + culture.Length
                 + token.Length
-                + fullName.Length,
+                + fullName.Length
+                + typeNamespace.Length
+                + typeName.Length,
             ApiSurfaceExtractor.CountRetainedText(withReference)
                 - ApiSurfaceExtractor.CountRetainedText(withoutReference));
     }

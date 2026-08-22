@@ -138,7 +138,7 @@ public static class JsExportSurfaceBuilder
                     != type.JsonSerializableRoots.Count)
             {
                 throw new UnsupportedJsExportSurfaceException(
-                    type.FullName,
+                    FormatTypeLocation(type),
                     "JsonSerializable metadata is malformed or unsupported");
             }
             HashSet<ApiJsonSerializableRoot>? registeredRoots =
@@ -308,6 +308,11 @@ public static class JsExportSurfaceBuilder
     static bool HasJsExportAttribute(ApiMember member) =>
         member.HasRuntimeJsExport;
 
+    static string FormatTypeLocation(ApiType type) =>
+        type.MetadataToken is { } token
+            ? $"type 0x{token:X8}"
+            : "serializer context";
+
     static string FormatMemberLocation(ApiType type, ApiMember member) =>
         member.MetadataToken is { } memberToken
             ? $"member 0x{memberToken:X8}"
@@ -320,9 +325,30 @@ public static class JsExportSurfaceBuilder
         string fullName) =>
         reference is not null
         && reference.FullName == fullName
+        && HasTopLevelDefinitionName(
+            reference.DefinitionName,
+            fullName)
         && reference.Assembly.Name == SystemTextJsonAssemblyName
         && PlatformKeys.IsPlatform(
             reference.Assembly.PublicKeyToken);
+
+    static bool HasTopLevelDefinitionName(
+        MetadataTypeDefinitionName? definitionName,
+        string fullName)
+    {
+        if (definitionName is null)
+            return false;
+        int separator = fullName.LastIndexOf('.');
+        string expectedNamespace = separator < 0
+            ? ""
+            : fullName[..separator];
+        string expectedName = separator < 0
+            ? fullName
+            : fullName[(separator + 1)..];
+        return definitionName.Namespace == expectedNamespace
+            && definitionName.Segments is [var segment]
+            && segment == expectedName;
+    }
 
     static IEnumerable<string> ExtractCandidateTypeNames(JsExportFunction function)
     {

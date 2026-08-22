@@ -29,11 +29,13 @@ namespace ILInspector.JsExportSurface;
 /// This is a residual gap, not a silent guess.
 /// </para>
 /// <para>
-/// A <c>Serialize&lt;T&gt;</c> call contributes a return DTO only when Analysis proves its result
-/// reaches the physical method return or an authentic
-/// <c>AsyncTaskMethodBuilder&lt;T&gt;.SetResult</c> sink. Discarded and unresolved result flows are
-/// ignored. A body with more than one distinct proven return DTO (e.g. different DTOs serialized
-/// on different branches) remains ambiguous: <see cref="Attach"/> leaves
+/// A return DTO is resolved only when Analysis proves complete envelope coverage: every
+/// synchronous physical <c>ret</c>, or every authentic async
+/// <c>AsyncTaskMethodBuilder&lt;T&gt;.SetResult</c> sink, is fed exclusively by an exact,
+/// authenticated <c>Serialize&lt;T&gt;</c> call for one structural DTO identity. Discarded,
+/// raw, non-serializer, and unresolved sources therefore leave the wire type unset. A body with
+/// more than one distinct proven return DTO (e.g. different DTOs serialized on different branches)
+/// remains ambiguous: <see cref="Attach"/> leaves
 /// <see cref="JsExportFunction.ReturnWireType"/> unset rather than guessing. "Distinct" is judged
 /// by assembly-scoped structural identity, preventing an external type from aliasing an unrelated
 /// discovered local DTO that shares its qualified name.
@@ -59,11 +61,6 @@ public static class JsonWireContractResolver
         JsExportFunction function,
         int metadataToken)
     {
-        // Every distinct Serialize<T> DTO found for the return position, in call-site order.
-        // Kept as a list (not folded into a single "first wins" value) so ambiguity between
-        // multiple distinct DTOs can be detected and left unresolved rather than guessed — see
-        // remarks above.
-        var returnTypes = new List<TypeRef>();
         var parameterTypes = new List<TypeRef>();
 
         foreach (DirectCall call in bodyIndex.DirectCalls)
@@ -80,28 +77,15 @@ public static class JsonWireContractResolver
                 continue;
             }
 
-            TypeRef? dto = ResolveJsonTypeInfoArgument(call.Callee);
-            if (dto is null)
-            {
-                continue;
-            }
-
-            if (call.Callee.Name == SerializeMethodName
-                && IsTrustedSystemString(call.Callee.ReturnType)
-                && ResultFlowsToExportReturn(call, bodyIndex))
-            {
-                if (!returnTypes.Any(existing =>
-                    WireTypesEqual(existing, dto)))
-                {
-                    returnTypes.Add(dto);
-                }
-            }
-            else if (call.Callee.Name == DeserializeMethodName)
+            if (ResolveDeserializeDto(call.Callee) is { } dto)
             {
                 parameterTypes.Add(dto);
             }
         }
 
+        TypeRef? returnType = ResolveCompleteReturnWireType(
+            bodyIndex,
+            metadataToken);
         return new JsExportFunction
         {
             DeclaringType = function.DeclaringType,
@@ -110,11 +94,11 @@ public static class JsonWireContractResolver
             ReturnTypeReferences =
                 function.ReturnTypeReferences,
             Parameters = function.Parameters,
-            ReturnWireType = returnTypes.Count == 1
-                ? returnTypes[0].ToQualifiedDisplayString()
+            ReturnWireType = returnType is not null
+                ? returnType.ToQualifiedDisplayString()
                 : null,
-            ReturnWireTypeReferences = returnTypes.Count == 1
-                ? [.. ReferencedTypes(returnTypes[0]).Distinct()]
+            ReturnWireTypeReferences = returnType is not null
+                ? [.. ReferencedTypes(returnType).Distinct()]
                 : [],
             ParameterWireTypes =
                 [.. parameterTypes.Select(
@@ -122,37 +106,97 @@ public static class JsonWireContractResolver
         };
     }
 
-    static bool ResultFlowsToExportReturn(
-        DirectCall serialize,
-        LibraryBodyIndex bodyIndex)
+    static TypeRef? ResolveCompleteReturnWireType(
+        LibraryBodyIndex bodyIndex,
+        int metadataToken)
     {
-        if (serialize.ResultUse == DirectCallResultUse.MethodReturn)
-            return true;
-        if (serialize.ResultUse != DirectCallResultUse.CallArgument
-            || serialize.ResultConsumerOffset is not { } consumerOffset)
+        var sinks = new List<MethodResultSink>();
+        foreach (MethodResultSink sink in bodyIndex.ResultSinks)
         {
-            return false;
+            if (sink.Caller.MetadataToken != metadataToken)
+                continue;
+
+            if (sink.Kind == MethodResultSinkKind.MethodReturn)
+            {
+                if (sink.EvidenceMethod.MetadataToken == metadataToken
+                    && IsTrustedSystemString(
+                        sink.EvidenceMethod.ReturnType))
+                {
+                    sinks.Add(sink);
+                }
+                continue;
+            }
+
+            if (sink.Kind != MethodResultSinkKind.SingleArgumentCall)
+                continue;
+
+            DirectCall? consumer = CallAt(
+                bodyIndex,
+                sink.EvidenceMethod,
+                sink.ILOffset);
+            if (consumer is not null
+                && IsTrustedAsyncResultSink(consumer.Callee))
+            {
+                sinks.Add(sink);
+            }
         }
 
-        DirectCall? consumer = bodyIndex.DirectCalls.FirstOrDefault(call =>
-            call.EvidenceMethod == serialize.EvidenceMethod
-            && call.ILOffset == consumerOffset);
-        return consumer is not null
-            && IsTrustedAsyncResultSink(consumer.Callee)
-            && consumer.Callee.ParameterTypes.Length == 1
-            && consumer.Callee.ReturnType.Equals(
-                TypeRef.CoreLib("System", "Void"));
+        if (sinks.Count == 0)
+            return null;
+
+        TypeRef? dto = null;
+        foreach (MethodResultSink sink in sinks)
+        {
+            if (!sink.IsComplete
+                || sink.SourceCallOffsets.IsDefaultOrEmpty)
+            {
+                return null;
+            }
+
+            foreach (int sourceOffset in sink.SourceCallOffsets)
+            {
+                DirectCall? source = CallAt(
+                    bodyIndex,
+                    sink.EvidenceMethod,
+                    sourceOffset);
+                TypeRef? sourceDto = source is null
+                    ? null
+                    : ResolveSerializeDto(source.Callee);
+                if (sourceDto is null)
+                    return null;
+                if (dto is null)
+                {
+                    dto = sourceDto;
+                }
+                else if (!WireTypesEqual(dto, sourceDto))
+                {
+                    return null;
+                }
+            }
+        }
+
+        return dto;
     }
 
     static bool IsTrustedAsyncResultSink(MemberRef callee)
     {
         if (callee.Name != "SetResult")
             return false;
-        TypeRef identity =
-            callee.DeclaringType.Kind == TypeRefKind.GenericInstance
-                && callee.DeclaringType.ElementType is { } element
-                ? element
-                : callee.DeclaringType;
+        if (!callee.HasThis
+            || callee.GenericArity != 0
+            || !callee.TypeArguments.IsEmpty
+            || callee.ParameterTypes.Length != 1
+            || !callee.ReturnType.Equals(
+                TypeRef.CoreLib("System", "Void"))
+            || callee.DeclaringType.Kind != TypeRefKind.GenericInstance
+            || callee.DeclaringType.ElementType is not { } identity
+            || callee.DeclaringType.TypeArguments.Length != 1
+            || !WireTypesEqual(
+                callee.DeclaringType.TypeArguments[0],
+                callee.ParameterTypes[0]))
+        {
+            return false;
+        }
         return identity.Name is "AsyncTaskMethodBuilder`1"
                 or "AsyncValueTaskMethodBuilder`1"
             && IsTrustedFrameworkType(
@@ -162,6 +206,14 @@ public static class JsonWireContractResolver
                 "System.Runtime");
     }
 
+    static DirectCall? CallAt(
+        LibraryBodyIndex bodyIndex,
+        MethodIdentity evidenceMethod,
+        int offset)
+        => bodyIndex.DirectCalls.FirstOrDefault(call =>
+            call.EvidenceMethod == evidenceMethod
+            && call.ILOffset == offset);
+
     internal static bool WireTypesEqual(
         TypeRef left,
         TypeRef right) =>
@@ -169,37 +221,92 @@ public static class JsonWireContractResolver
         && ReferencedTypes(left).SequenceEqual(
             ReferencedTypes(right));
 
-    static TypeRef? ResolveJsonTypeInfoArgument(MemberRef callee)
+    internal static TypeRef? ResolveSerializeDto(MemberRef callee)
     {
-        foreach (TypeRef parameter in callee.ParameterTypes)
+        if (!IsTrustedJsonSerializerType(callee.DeclaringType)
+            || !HasExactStaticGenericShape(
+                callee,
+                SerializeMethodName,
+                parameterCount: 2)
+            || !IsTrustedSystemString(callee.ReturnType)
+            || !IsTrustedSystemString(callee.OpenSignatureReturn))
         {
-            if (parameter.Kind == TypeRefKind.GenericInstance
-                && parameter.ElementType is { } elementType
-                && elementType.Name == JsonTypeInfoName
-                && elementType.Namespace == JsonTypeInfoNamespace
-                && IsTrustedSystemTextJsonType(
-                    elementType,
-                    JsonTypeInfoNamespace,
-                    JsonTypeInfoName)
-                && parameter.TypeArguments.Length == 1)
-            {
-                // ToDisplayString (not .Name) so a container DTO — e.g. WidgetDto[] — renders as
-                // C#-syntax text rather than the empty string TypeRef.Name carries for
-                // non-Definition kinds (GenericInstance/SzArray/Array). TsTypeMapper's Map already
-                // parses this exact array ("[]") syntax for every other signature-derived type
-                // string in this pipeline, so an array-of-DTO return resolves to a correct TS
-                // array type instead of silently collapsing to "unknown". This does not extend
-                // support to arbitrary generic containers (List<T>, Dictionary<K,V>): Map has
-                // never parsed C# generic-argument syntax for any type in this pipeline (see its
-                // WidgetCatalog.OwnersByKey property, which already renders "unknown" for exactly
-                // this reason, independent of this resolver). Recovering the correct display text
-                // here does not change that pre-existing, system-wide boundary.
-                return parameter.TypeArguments[0];
-            }
+            return null;
         }
 
-        return null;
+        TypeRef dto = callee.TypeArguments[0];
+        return WireTypesEqual(callee.ParameterTypes[0], dto)
+            && IsTrustedJsonTypeInfoOf(callee.ParameterTypes[1], dto)
+            && IsMethodGenericParameterZero(
+                callee.OpenSignatureParameters[0])
+            && IsJsonTypeInfoOfMethodGenericParameter(
+                callee.OpenSignatureParameters[1])
+            ? dto
+            : null;
     }
+
+    internal static TypeRef? ResolveDeserializeDto(MemberRef callee)
+    {
+        if (!IsTrustedJsonSerializerType(callee.DeclaringType)
+            || !HasExactStaticGenericShape(
+                callee,
+                DeserializeMethodName,
+                parameterCount: 2)
+            || !IsTrustedSystemString(callee.ParameterTypes[0])
+            || !IsTrustedSystemString(
+                callee.OpenSignatureParameters[0]))
+        {
+            return null;
+        }
+
+        TypeRef dto = callee.TypeArguments[0];
+        return WireTypesEqual(callee.ReturnType, dto)
+            && IsMethodGenericParameterZero(callee.OpenSignatureReturn)
+            && IsTrustedJsonTypeInfoOf(callee.ParameterTypes[1], dto)
+            && IsJsonTypeInfoOfMethodGenericParameter(
+                callee.OpenSignatureParameters[1])
+            ? dto
+            : null;
+    }
+
+    static bool HasExactStaticGenericShape(
+        MemberRef callee,
+        string name,
+        int parameterCount)
+        => callee.Kind == MemberKind.Method
+            && callee.Name == name
+            && !callee.HasThis
+            && callee.GenericArity == 1
+            && callee.TypeArguments.Length == 1
+            && callee.ParameterTypes.Length == parameterCount
+            && callee.OpenSignatureParameters.Length == parameterCount
+            && (callee.SignatureHeader & 0x1F) == 0x10;
+
+    static bool IsTrustedJsonTypeInfoOf(
+        TypeRef type,
+        TypeRef dto)
+        => type.Kind == TypeRefKind.GenericInstance
+            && type.ElementType is { } elementType
+            && IsTrustedSystemTextJsonType(
+                elementType,
+                JsonTypeInfoNamespace,
+                JsonTypeInfoName)
+            && type.TypeArguments.Length == 1
+            && WireTypesEqual(type.TypeArguments[0], dto);
+
+    static bool IsJsonTypeInfoOfMethodGenericParameter(TypeRef type)
+        => type.Kind == TypeRefKind.GenericInstance
+            && type.ElementType is { } elementType
+            && IsTrustedSystemTextJsonType(
+                elementType,
+                JsonTypeInfoNamespace,
+                JsonTypeInfoName)
+            && type.TypeArguments.Length == 1
+            && IsMethodGenericParameterZero(type.TypeArguments[0]);
+
+    static bool IsMethodGenericParameterZero(TypeRef type)
+        => type.Kind == TypeRefKind.MethodGenericParameter
+            && type.GenericParameterIndex == 0;
 
     static IEnumerable<ApiTypeReferenceIdentity> ReferencedTypes(
         TypeRef type)

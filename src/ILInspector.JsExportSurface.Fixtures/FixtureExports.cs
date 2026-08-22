@@ -53,6 +53,24 @@ public static partial class FixtureExports
                 new WidgetDto("widget", 0, [], null), FixtureJsonContext.Default.WidgetDto);
 
     [JSExport]
+    public static string GetWidgetOrRawOk(bool asJson) =>
+        asJson
+            ? JsonSerializer.Serialize(
+                new WidgetDto("widget", 0, [], null),
+                FixtureJsonContext.Default.WidgetDto)
+            : "ok";
+
+    [JSExport]
+    public static string GetWidgetFromEitherJsonBranch(bool first) =>
+        first
+            ? JsonSerializer.Serialize(
+                new WidgetDto("first", 0, [], null),
+                FixtureJsonContext.Default.WidgetDto)
+            : JsonSerializer.Serialize(
+                new WidgetDto("second", 0, [], null),
+                FixtureJsonContext.Default.WidgetDto);
+
+    [JSExport]
     public static string GetWidgetArray() =>
         JsonSerializer.Serialize(
             new WidgetDto[] { new("widget", 0, [], null) },

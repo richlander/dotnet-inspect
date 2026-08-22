@@ -82,6 +82,16 @@ or otherwise unresolved flows stay `Unknown`.
 `ClassifiesSingleLocalUseAsCallArgument` gate the projection and its conservative
 boundary.
 
+For consumers that must prove a complete result envelope rather than one
+successful call-result path, Analysis also exposes `MethodResultSink`: every
+physical `ret` and each single-argument call has either all directly proven
+call-result sources or an explicit incomplete result. This remains an
+Analysis-owned Layer-1 interpretation over reaching definitions; raw,
+non-call, merged-unresolved, and incomplete sources never become a
+success-shaped producer list.
+`MethodCallAnalysisTests.ClassifiesReturnSinkSourcesAndIncompleteCoverage`
+gates both the multi-branch complete case and the raw-return incomplete boundary.
+
 ## dotnet/runtime heritage and upstream tracking
 
 The byte reader is **ported from `dotnet/runtime`** — the same

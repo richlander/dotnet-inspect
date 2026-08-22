@@ -361,6 +361,41 @@ public sealed class MethodCallAnalysisTests
         Assert.Equal(7, producer.ResultConsumerOffset);
     }
 
+    [Fact]
+    public void ClassifiesReturnSinkSourcesAndIncompleteCoverage()
+    {
+        byte[] sharedLocalReturn =
+        [
+        0x16,
+        0x2C, 0x08,
+        0x28, 0x01, 0x00, 0x00, 0x0A,
+        0x0A,
+        0x2B, 0x06,
+        0x72, 0x02, 0x00, 0x00, 0x70,
+        0x0A,
+        0x06,
+        0x2A,
+        ];
+        byte[] serializedBranches = (byte[])sharedLocalReturn.Clone();
+        serializedBranches[11] = 0x28;
+        serializedBranches[12] = 0x01;
+        serializedBranches[13] = 0x00;
+        serializedBranches[14] = 0x00;
+        serializedBranches[15] = 0x0A;
+
+        MethodResultSink incomplete = Assert.Single(
+        CollectResultSinks(sharedLocalReturn));
+        MethodResultSink complete = Assert.Single(
+        CollectResultSinks(serializedBranches));
+
+        Assert.Equal(MethodResultSinkKind.MethodReturn, incomplete.Kind);
+        Assert.Equal(18, incomplete.ILOffset);
+        Assert.Empty(incomplete.SourceCallOffsets);
+        Assert.False(incomplete.IsComplete);
+        Assert.Equal([3, 11], complete.SourceCallOffsets);
+        Assert.True(complete.IsComplete);
+    }
+
     static DirectCall CollectSingle(byte[] il)
     {
         var calls = ImmutableArray.CreateBuilder<DirectCall>();
@@ -373,6 +408,22 @@ public sealed class MethodCallAnalysisTests
             evidence,
             includeIndirectOpcodes: false);
         return Assert.Single(calls);
+    }
+
+    static ImmutableArray<MethodResultSink> CollectResultSinks(byte[] il)
+    {
+        var calls = ImmutableArray.CreateBuilder<DirectCall>();
+        var evidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
+        var resultSinks = ImmutableArray.CreateBuilder<MethodResultSink>();
+        MethodCallAnalysis.Collect(
+            Context(il),
+            new Resolver(returningFirst: true),
+            _ => AllocationMultiplicity.Once,
+            calls,
+            evidence,
+            includeIndirectOpcodes: false,
+            resultSinks: resultSinks);
+        return resultSinks.ToImmutable();
     }
 
     static void AssertCall(

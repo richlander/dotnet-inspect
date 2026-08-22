@@ -68,6 +68,116 @@ public sealed class JsonWireContractResolverTests
                 lookalike));
     }
 
+    [Fact]
+    public void SourceGeneratedSerializerOverloadsRequireExactGenericShapes()
+    {
+        TypeRef dto = ExternalType(
+            "Fixture",
+            "Fixtures",
+            "WidgetDto",
+            "0011223344556677");
+        TypeRef otherDto = ExternalType(
+            "Fixture",
+            "Fixtures",
+            "OtherDto",
+            "0011223344556677");
+        MemberRef serialize = SourceGeneratedSerialize(dto);
+        MemberRef deserialize = SourceGeneratedDeserialize(dto);
+
+        Assert.True(JsonWireContractResolver.WireTypesEqual(
+            dto,
+            Assert.IsType<TypeRef>(
+                JsonWireContractResolver.ResolveSerializeDto(
+                    serialize))));
+        Assert.True(JsonWireContractResolver.WireTypesEqual(
+            dto,
+            Assert.IsType<TypeRef>(
+                JsonWireContractResolver.ResolveDeserializeDto(
+                    deserialize))));
+
+        MemberRef[] forgedSerializeShapes =
+        [
+            serialize with
+            {
+                ParameterTypes = [JsonTypeInfo(dto), dto],
+            },
+            serialize with
+            {
+                ParameterTypes = [dto],
+            },
+            serialize with
+            {
+                ParameterTypes = [otherDto, JsonTypeInfo(dto)],
+            },
+            serialize with
+            {
+                ParameterTypes = [dto, JsonTypeInfo(otherDto)],
+            },
+            serialize with
+            {
+                TypeArguments = [otherDto],
+            },
+            serialize with
+            {
+                ReturnType = dto,
+            },
+            serialize with
+            {
+                GenericArity = 0,
+                TypeArguments = [],
+                SignatureHeader = 0,
+            },
+            serialize with
+            {
+                OpenParameterTypes = [dto, JsonTypeInfo(dto)],
+            },
+            serialize with
+            {
+                HasThis = true,
+                SignatureHeader = 0x30,
+            },
+            MemberRef.Unsupported("unresolved serializer signature"),
+        ];
+        Assert.All(
+            forgedSerializeShapes,
+            shape => Assert.Null(
+                JsonWireContractResolver.ResolveSerializeDto(shape)));
+
+        MemberRef[] forgedDeserializeShapes =
+        [
+            deserialize with
+            {
+                ParameterTypes = [JsonTypeInfo(dto), SystemString()],
+            },
+            deserialize with
+            {
+                ParameterTypes = [SystemString()],
+            },
+            deserialize with
+            {
+                ParameterTypes = [SystemString(), JsonTypeInfo(otherDto)],
+            },
+            deserialize with
+            {
+                ReturnType = otherDto,
+            },
+            deserialize with
+            {
+                GenericArity = 0,
+                TypeArguments = [],
+                SignatureHeader = 0,
+            },
+            deserialize with
+            {
+                OpenReturnType = dto,
+            },
+        ];
+        Assert.All(
+            forgedDeserializeShapes,
+            shape => Assert.Null(
+                JsonWireContractResolver.ResolveDeserializeDto(shape)));
+    }
+
     static TypeRef ScopedType(string publicKeyToken)
         => ExternalType(
             "Shared",
@@ -100,6 +210,73 @@ public sealed class JsonWireContractResolverTests
                 new TypeReferenceOrigin.AssemblyReference(
                     assembly),
                 name));
+    }
+
+    static TypeRef SystemString()
+        => ExternalType(
+            "System.Private.CoreLib",
+            "System",
+            "String",
+            "7cec85d7bea7798e");
+
+    static TypeRef JsonSerializer()
+        => ExternalType(
+            "System.Text.Json",
+            "System.Text.Json",
+            "JsonSerializer",
+            "cc7b13ffcd2ddd51");
+
+    static TypeRef JsonTypeInfo(TypeRef dto)
+        => TypeRef.GenericInstance(
+            ExternalType(
+                "System.Text.Json",
+                "System.Text.Json.Serialization.Metadata",
+                "JsonTypeInfo`1",
+                "cc7b13ffcd2ddd51"),
+            [dto]);
+
+    static MemberRef SourceGeneratedSerialize(TypeRef dto)
+    {
+        TypeRef typeParameter = TypeRef.MethodGenericParameter(0, "TValue");
+        return new(
+            JsonSerializer(),
+            "Serialize",
+            [dto, JsonTypeInfo(dto)],
+            SystemString(),
+            MemberKind.Method)
+        {
+                TypeArguments = [dto],
+                GenericArity = 1,
+                SignatureHeader = 0x10,
+                OpenParameterTypes =
+                [
+                    typeParameter,
+                    JsonTypeInfo(typeParameter),
+                ],
+                OpenReturnType = SystemString(),
+        };
+    }
+
+    static MemberRef SourceGeneratedDeserialize(TypeRef dto)
+    {
+        TypeRef typeParameter = TypeRef.MethodGenericParameter(0, "TValue");
+        return new(
+            JsonSerializer(),
+            "Deserialize",
+            [SystemString(), JsonTypeInfo(dto)],
+            dto,
+            MemberKind.Method)
+        {
+                TypeArguments = [dto],
+                GenericArity = 1,
+                SignatureHeader = 0x10,
+                OpenParameterTypes =
+                [
+                    SystemString(),
+                    JsonTypeInfo(typeParameter),
+                ],
+                OpenReturnType = typeParameter,
+        };
     }
 
     private static ILInspector.JsExportSurface.JsExportSurface BuildFixtureSurfaceWithWireContracts()
@@ -183,6 +360,32 @@ public sealed class JsonWireContractResolverTests
             surface.Functions,
             f => f.Name == "GetWidgetOrOwner");
         Assert.Null(fn.ReturnWireType);
+    }
+
+    [Fact]
+    public void Build_LeavesReturnWireTypeUnsetWhenAnyPhysicalReturnIsRaw()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildFixtureSurfaceWithWireContracts();
+
+        JsExportFunction fn = Assert.Single(
+            surface.Functions,
+            function => function.Name == "GetWidgetOrRawOk");
+
+        Assert.Null(fn.ReturnWireType);
+    }
+
+    [Fact]
+    public void Build_ResolvesReturnWireTypeForSameDtoSerializerBranches()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildFixtureSurfaceWithWireContracts();
+
+        JsExportFunction fn = Assert.Single(
+            surface.Functions,
+            function => function.Name == "GetWidgetFromEitherJsonBranch");
+
+        Assert.Equal(FixtureNamespace + "WidgetDto", fn.ReturnWireType);
     }
 
     [Fact]

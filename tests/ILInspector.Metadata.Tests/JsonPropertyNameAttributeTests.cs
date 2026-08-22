@@ -2,12 +2,54 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text.Json.Serialization;
 using ILInspector.Metadata;
 
 namespace ILInspector.Metadata.Tests;
 
 public sealed class JsonPropertyNameAttributeTests
 {
+    [Theory]
+    [InlineData(nameof(JsonIgnoreConditionProbe.WhenWriting))]
+    [InlineData(nameof(JsonIgnoreConditionProbe.WhenReading))]
+    public void CurrentDirectionalJsonIgnoreConditionsArePreserved(
+        string propertyName)
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(JsonIgnoreConditionProbe).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType probe = Assert.Single(
+            surface.Types,
+            type => type.Name == nameof(JsonIgnoreConditionProbe));
+        ApiMember property = Assert.Single(
+            probe.Members,
+            member => member.Name == propertyName);
+
+        Assert.True(property.HasJsonIgnore);
+        Assert.False(property.HasJsonIgnoreNever);
+    }
+
+    [Fact]
+    public void LocallyDefinedFrameworkNamedAttributeInModuleIsUnauthenticated()
+    {
+        using var stream = new MemoryStream(
+            BuildModuleWithLocalFlagsAttribute(),
+            writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition target = reader.GetTypeDefinition(
+            MetadataTokens.TypeDefinitionHandle(3));
+
+        Assert.False(reader.IsAssembly);
+        Assert.False(
+            AttributeReader.HasFlagsAttribute(
+                reader,
+                target.GetCustomAttributes()));
+    }
+
     [Fact]
     public void UnexpectedNamedArgumentProducesMalformedRowMarker()
     {
@@ -286,4 +328,82 @@ public sealed class JsonPropertyNameAttributeTests
         pe.Serialize(image);
         return image.ToArray();
     }
+
+    static byte[] BuildModuleWithLocalFlagsAttribute()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Probe.netmodule"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+
+        var constructorSignature = new BlobBuilder();
+        new BlobEncoder(constructorSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+            0,
+            returnType => returnType.Void(),
+            _ => { });
+        MethodDefinitionHandle constructor =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.RTSpecialName,
+                MethodImplAttributes.Runtime,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(constructorSignature),
+                bodyOffset: -1,
+                parameterList:
+                    MetadataTokens.ParameterHandle(1));
+
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            constructor);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("FlagsAttribute"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            constructor);
+        TypeDefinitionHandle target = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Target"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+        metadata.AddCustomAttribute(
+            target,
+            constructor,
+            metadata.GetOrAddBlob(
+                new byte[] { 0x01, 0x00, 0x00, 0x00 }));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+}
+
+public sealed class JsonIgnoreConditionProbe
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
+    public string WhenWriting { get; set; } = "";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenReading)]
+    public string WhenReading { get; set; } = "";
 }
