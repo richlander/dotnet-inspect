@@ -180,6 +180,30 @@ public class SourceTextDiffRendererTests
     }
 
     [Fact]
+    public void ReviewerSizedDiff_BoundsEmittedFragmentsFromOversizedHunks()
+    {
+        string[] before = Enumerable.Range(1, 210).Select(index => $"line-{index}").ToArray();
+        string[] after = [.. before];
+        foreach (int index in Enumerable.Range(10, 50)
+            .Concat(Enumerable.Range(80, 50))
+            .Concat(Enumerable.Range(150, 50)))
+        {
+            after[index] = $"changed-{index + 1}";
+        }
+
+        string actual = SourceTextDiffRenderer.CreateUnifiedDiff(
+            Join(before),
+            Join(after),
+            "Original",
+            "After",
+            reviewerSized: true);
+
+        Assert.Equal(5, actual.Split('\n').Count(line => line.StartsWith("@@ ", StringComparison.Ordinal)));
+        Assert.Contains("# ... 66 diff lines omitted from this hunk ...", actual);
+        Assert.Contains("118 lines within shown hunks", actual);
+    }
+
+    [Fact]
     public void CompleteDiff_RetainsTheWholeDocument()
     {
         string[] before = Enumerable.Range(1, 100).Select(index => $"before-{index}").ToArray();

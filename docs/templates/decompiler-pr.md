@@ -142,10 +142,11 @@ from the C# transition.
 
 The Source Diff is PDB Source → After text convergence, not structural
 correspondence. Its comments name the PDB-selected document and checksum
-agreement without claiming independent build provenance. If its normal
-projection reports `Partial`, either retain that explicit limit or rerun with
-`-v:d` for complete line evidence. Record compile-back status beside it as an
-independent oracle; do not infer fidelity from textual similarity.
+agreement, including whether CR/LF normalization was required, without claiming
+independent build provenance. If its normal projection reports `Partial`,
+either retain that explicit limit or rerun with `-v:d` for complete line
+evidence. Record compile-back status beside it as an independent oracle; do not
+infer fidelity from textual similarity.
 
 If the generated review reports `Partial`, explicitly determine whether the
 claimed changed structure has a unique matched row. Incidental matched rows do

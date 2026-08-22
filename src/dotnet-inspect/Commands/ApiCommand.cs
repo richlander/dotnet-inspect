@@ -1556,11 +1556,17 @@ public class ApiCommand
             // so the remote SourceLink URL would 404 or differ. The checksum authenticates the on-disk
             // bytes against the portable PDB; remote SourceLink is the fallback for reproducible builds.
             string? content = null;
+            SourceChecksumVerification checksumVerification =
+                SourceChecksumVerification.Unavailable;
             var localBytes = DotnetInspector.Services.PdbSourceAcquisition.TryReadVerifiedLocalSource(
                 methodInfo.FilePath, methodInfo.ChecksumAlgorithm, methodInfo.Checksum);
             byte[]? repoBytes;
             if (localBytes != null)
             {
+                checksumVerification = PdbSourceAcquisition.VerifyChecksum(
+                    methodInfo.ChecksumAlgorithm,
+                    methodInfo.Checksum,
+                    localBytes);
                 content = NormalizePdbSourceLineEndings(
                     DotnetInspector.Services.PdbSourceAcquisition.DecodeSourceText(localBytes));
             }
@@ -1572,6 +1578,10 @@ public class ApiCommand
                     methodInfo.SourceUrl, methodInfo.ChecksumAlgorithm, methodInfo.Checksum,
                     options.SourceRepositories)) != null)
             {
+                checksumVerification = PdbSourceAcquisition.VerifyChecksum(
+                    methodInfo.ChecksumAlgorithm,
+                    methodInfo.Checksum,
+                    repoBytes);
                 content = NormalizePdbSourceLineEndings(
                     DotnetInspector.Services.PdbSourceAcquisition.DecodeSourceText(repoBytes));
             }
@@ -1586,6 +1596,7 @@ public class ApiCommand
                 content = fetch.Text is null
                     ? null
                     : NormalizePdbSourceLineEndings(fetch.Text);
+                checksumVerification = fetch.ChecksumVerification;
                 if (fetch.Failure is not null)
                     logger.LogWarning(fetch.Failure);
             }
@@ -1608,7 +1619,8 @@ public class ApiCommand
                 pdbPath,
                 methodInfo.SequencePointStartLines,
                 methodInfo.ChecksumAlgorithm,
-                methodInfo.Checksum);
+                methodInfo.Checksum,
+                checksumVerification);
         }
         catch (Exception ex)
         {
@@ -1634,7 +1646,9 @@ public class ApiCommand
         string? pdbPath,
         IReadOnlyList<int>? visibleSequencePointStartLines = null,
         string? checksumAlgorithm = null,
-        byte[]? checksum = null)
+        byte[]? checksum = null,
+        SourceChecksumVerification checksumVerification =
+            SourceChecksumVerification.Unavailable)
     {
         try
         {
@@ -1657,7 +1671,8 @@ public class ApiCommand
                         sourceCode,
                         sourceLocation,
                         checksumAlgorithm,
-                        checksum is null ? null : Convert.ToHexString(checksum)),
+                        checksum is null ? null : Convert.ToHexString(checksum),
+                        checksumVerification),
                     pdbPath);
         }
         catch (CSharpTextComplexityException)
@@ -3014,8 +3029,17 @@ public class ApiCommand
                 source.ChecksumAlgorithm!);
             string checksum = CSharpText.CSharpIdentifier.ContainRenderedText(
                 source.Checksum!);
+            string integrity = source.ChecksumVerification switch
+            {
+                SourceChecksumVerification.Exact =>
+                    $"PDB source document bytes match portable-PDB {algorithm} checksum {checksum}.",
+                SourceChecksumVerification.LineEndingNormalized =>
+                    $"PDB source document matches portable-PDB {algorithm} checksum {checksum} "
+                    + "after CR/LF normalization.",
+                _ => throw new InvalidOperationException("Checksum evidence requires a successful verification."),
+            };
             diff = $"# PDB source: {location}\n"
-                + $"# Integrity: content matches portable-PDB {algorithm} checksum {checksum}.\n"
+                + $"# Integrity: {integrity}\n"
                 + diff;
         }
 

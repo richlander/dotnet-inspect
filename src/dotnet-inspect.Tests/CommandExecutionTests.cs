@@ -10692,8 +10692,16 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain(ILInspector.Decompiler.Annotations.AnnotationCaret.HoistMarker, output);
     }
 
-    [Fact]
-    public async Task Member_SelectedOverload_SelectSourceDiff_RendersPdbSourceVsDecompiledDiff()
+    [Theory]
+    [InlineData(
+        SourceChecksumVerification.Exact,
+        "# Integrity: PDB source document bytes match portable-PDB SHA256 checksum 0123456789ABCDEF.")]
+    [InlineData(
+        SourceChecksumVerification.LineEndingNormalized,
+        "# Integrity: PDB source document matches portable-PDB SHA256 checksum 0123456789ABCDEF after CR/LF normalization.")]
+    public async Task Member_SelectedOverload_SelectSourceDiff_RendersPdbSourceVsDecompiledDiff(
+        SourceChecksumVerification checksumVerification,
+        string expectedIntegrity)
     {
         using var stream = File.OpenRead(TestAssemblyPath);
         using var peReader = new PEReader(stream);
@@ -10719,7 +10727,8 @@ public partial class CommandExecutionTests
                 """,
                 SourceUrl: "https://raw.githubusercontent.com/example/repo/0123456789abcdef/Fixture.cs",
                 ChecksumAlgorithm: "SHA256",
-                Checksum: "0123456789ABCDEF")
+                Checksum: "0123456789ABCDEF",
+                ChecksumVerification: checksumVerification)
         };
 
         var (exit, output, error) = await ConsoleCapture.RunAsync(
@@ -10732,9 +10741,7 @@ public partial class CommandExecutionTests
         Assert.Contains(
             "# PDB source: https://raw.githubusercontent.com/example/repo/0123456789abcdef/Fixture.cs",
             output);
-        Assert.Contains(
-            "# Integrity: content matches portable-PDB SHA256 checksum 0123456789ABCDEF.",
-            output);
+        Assert.Contains(expectedIntegrity, output);
         Assert.Contains("--- PDB Source", output);
         Assert.Contains("+++ Decompiled Source", output);
         Assert.Contains("-    return value + 2;", output);
@@ -10775,7 +10782,8 @@ public partial class CommandExecutionTests
                 authored,
                 "https://raw.githubusercontent.com/example/repo/0123456789abcdef/Fixture.cs",
                 "SHA256",
-                "0123456789ABCDEF"),
+                "0123456789ABCDEF",
+                SourceChecksumVerification.Exact),
         };
 
         var (normalExit, normalOutput, normalError) = await ConsoleCapture.RunAsync(

@@ -392,9 +392,14 @@ public record MethodSourceContext(
     string SourceCode,
     string? SourceUrl,
     string? ChecksumAlgorithm = null,
-    string? Checksum = null)
+    string? Checksum = null,
+    DotnetInspector.Services.SourceChecksumVerification ChecksumVerification =
+        DotnetInspector.Services.SourceChecksumVerification.Unavailable)
 {
     public bool HasChecksumEvidence =>
         !string.IsNullOrWhiteSpace(ChecksumAlgorithm)
-        && !string.IsNullOrWhiteSpace(Checksum);
+        && !string.IsNullOrWhiteSpace(Checksum)
+        && ChecksumVerification is
+            DotnetInspector.Services.SourceChecksumVerification.Exact
+            or DotnetInspector.Services.SourceChecksumVerification.LineEndingNormalized;
 }

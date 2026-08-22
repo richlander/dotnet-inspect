@@ -69,27 +69,42 @@ internal static class SourceTextDiffRenderer
             $"+++ {afterLabel}",
         };
 
-        int omittedHunks = Math.Max(0, hunks.Count - MaximumReviewHunks);
-        int omittedHunkLines = hunks
-            .Skip(MaximumReviewHunks)
-            .Sum(static hunk => hunk.End - hunk.Start);
+        int omittedHunks = 0;
+        int omittedHunkLines = 0;
         int omittedShownHunkLines = 0;
+        int shownHunks = 0;
 
-        foreach (var hunk in hunks.Take(MaximumReviewHunks))
+        foreach (var hunk in hunks)
         {
             int length = hunk.End - hunk.Start;
+            if (shownHunks == MaximumReviewHunks)
+            {
+                omittedHunks++;
+                omittedHunkLines += length;
+                continue;
+            }
+
             if (length <= MaximumReviewLinesPerHunk)
             {
                 AddHunk(output, diff, hunk.Start, hunk.End);
+                shownHunks++;
                 continue;
             }
 
             int leading = MaximumReviewLinesPerHunk / 2;
-            int trailing = MaximumReviewLinesPerHunk - leading;
-            int omitted = length - MaximumReviewLinesPerHunk;
             AddHunk(output, diff, hunk.Start, hunk.Start + leading);
+            shownHunks++;
+
+            int trailing = shownHunks < MaximumReviewHunks
+                ? MaximumReviewLinesPerHunk - leading
+                : 0;
+            int omitted = length - leading - trailing;
             output.Add($"# ... {omitted} diff lines omitted from this hunk ...");
-            AddHunk(output, diff, hunk.End - trailing, hunk.End);
+            if (trailing > 0)
+            {
+                AddHunk(output, diff, hunk.End - trailing, hunk.End);
+                shownHunks++;
+            }
             omittedShownHunkLines += omitted;
         }
 

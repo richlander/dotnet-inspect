@@ -588,13 +588,13 @@ hidden-fact comments and interleaved IL), `Annotated Source Document` (the same
 rendering as a machine payload), `PDB Source` (Portable-PDB-selected,
 checksum-verified source acquired locally or through SourceLink),
 `Source Diff` (PDB Source compared with Decompiled Source), and `IL`.
-`Source Diff` names the PDB-selected document and its checksum agreement in
-diff comments without claiming independent build provenance. Normal output uses
-bounded unified hunks for review; if it reports a partial presentation, use
-`-v:d` to emit complete line evidence. Source convergence remains independent
-of compile-back fidelity: similar text does not prove equivalent IL, and
-different text does not prove incorrect behavior. The decompiler is
-exception-safe by construction and degrades
+`Source Diff` names the PDB-selected document and whether its bytes matched the
+checksum exactly or after CR/LF normalization, without claiming independent
+build provenance. Normal output uses bounded unified hunks for review; if it
+reports a partial presentation, use `-v:d` to emit complete line evidence.
+Source convergence remains independent of compile-back fidelity: similar text
+does not prove equivalent IL, and different text does not prove incorrect
+behavior. The decompiler is exception-safe by construction and degrades
 honestly: IL with no faithful C# spelling renders as a visible comment and
 lowers the result's fidelity level (`Full` → `Partial` → `StructuredOnly` →
 `IlOnly` → `Failed`) instead of emitting plausible-but-wrong source, with a

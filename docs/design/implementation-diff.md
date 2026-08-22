@@ -173,26 +173,33 @@ the Portable PDB declaration, not that they were the physical syntax tree that
 produced the MethodDef.
 
 Normal verbosity renders standard unified hunks with three context lines,
-retains at most five hunk examples and 80 lines per hunk, and reports
-`Partial` with the omitted counts when either bound is crossed. Detailed
+retains at most five emitted hunk examples and 80 lines per logical hunk, and
+reports `Partial` with the omitted counts when either bound is crossed. A
+logical hunk split around omitted middle lines consumes two emitted examples;
+the five-example budget still applies. Detailed
 verbosity (`-v:d`) retains the complete line stream. Both forms identify the
-PDB source location and portable-PDB checksum matched by the content.
+PDB source location and distinguish exact document-byte checksum agreement
+from agreement after CR/LF normalization.
 `SourceTextDiffRendererTests.
 ReviewerSizedDiff_OmitsDistantUnchangedLinesButRetainsEveryChange` and
 `ReviewerSizedDiff_BoundsHunksAndLargeHunksWithVisibleDisclosure`, plus
-`ReviewerSizedDiff_BoundsTheNumberOfHunkExamples`, gate the bounded projection.
+`ReviewerSizedDiff_BoundsTheNumberOfHunkExamples` and
+`ReviewerSizedDiff_BoundsEmittedFragmentsFromOversizedHunks`, gate the bounded
+projection.
 `CommandExecutionTests.
 Member_SourceDiff_DetailedVerbosityPreservesCompleteLineEvidence` gates the
 normal/detailed boundary, and
 `Member_SourceDiff_UsesRequestedVerbosityBeforeSectionPromotion` gates the real
 CLI path after explicit section selection promotes effective verbosity.
 `Member_SelectedOverload_SelectSourceDiff_RendersPdbSourceVsDecompiledDiff`
-gates visible PDB source identity and checksum evidence. The acquisition side
-is gated by
+gates visible PDB source identity and exact/normalized checksum evidence. The
+acquisition side is gated by
 `VerifiedLocalSourceReadTests.ReturnsBytes_WhenChecksumMatches`,
 `VerifiedLocalSourceReadTests.ReturnsNull_WhenChecksumMismatches`, and
 `PdbSourceAcquisitionTests.
-FromContent_MismatchedChecksumProducesFailedInspection`; a source context is
+FromContent_MismatchedChecksumProducesFailedInspection`, while
+`FetchVerifiedSourceText_PreservesLineEndingNormalizationEvidence` gates the
+network result's typed verification. A source context is
 published only after one of the local, repository, or fetched paths accepts the
 content against the portable-PDB checksum.
 
