@@ -684,6 +684,54 @@ test("another member starts while an annotated request is in flight", async () =
   assert.equal(state.memberAnnotatedLoading, false);
 });
 
+test("an older A request cannot replace a newer A result after A to B to A navigation", async () => {
+  const firstA = deferred<AnnotatedSourceResult>();
+  const requestB = deferred<AnnotatedSourceResult>();
+  const secondA = deferred<AnnotatedSourceResult>();
+  const olderA = {
+    ...annotatedResult(),
+    document: { ...annotatedResult().document },
+  };
+  const newerA = {
+    ...annotatedResult(),
+    document: { ...annotatedResult().document },
+  };
+  let aRequests = 0;
+  let current = "A";
+  const state = inspectionState();
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryAnnotated: request => {
+        if (request.signature === "B") return requestB.promise;
+        return ++aRequests === 1 ? firstA.promise : secondA.promise;
+      },
+    }));
+  const request = (signature: string) => annotatedRequest({
+    signature,
+    isCurrent: () => current === signature,
+  });
+
+  const firstLoad = coordinator.loadAnnotated(request("A"));
+  current = "B";
+  const bLoad = coordinator.loadAnnotated(request("B"));
+  current = "A";
+  const secondLoad = coordinator.loadAnnotated(request("A"));
+
+  secondA.resolve(newerA);
+  await secondLoad;
+  const openExplorer = { prepared: { document: newerA.document } };
+  state.annotatedExplorer = openExplorer;
+  firstA.resolve(olderA);
+  await firstLoad;
+
+  assert.equal(state.memberAnnotated, newerA);
+  assert.equal(state.annotatedExplorer, openExplorer);
+  assert.equal(openExplorer.prepared.document, state.memberAnnotated.document);
+
+  requestB.resolve(annotatedResult());
+  await bLoad;
+});
+
 test("current annotated rejection remains visible", async () => {
   let focusRenders = 0;
   const state = inspectionState();

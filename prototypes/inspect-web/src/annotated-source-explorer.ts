@@ -26,6 +26,13 @@ export interface AnnotatedSourceExplorerState {
   selectedKind: string;
 }
 
+export interface AnnotatedSourceExplorerRenderState {
+  codeScroll: number;
+  codeScrollLeft: number;
+  inspectorScroll: number;
+  focusSelector: string;
+}
+
 export type AnnotatedSourceExplorerAction =
   | { type: "toggle-medium"; medium: SourceMedium }
   | { type: "select-fact"; factId: number }
@@ -49,6 +56,38 @@ export interface AnnotatedSourceExplorerOptions extends AnnotatedSourceEntryOpti
 
 const MAX_SELECTION_DETAILS = 50;
 const preparedDocuments = new WeakMap<AnnotatedSourceDocument, PreparedAnnotatedView>();
+
+export class AnnotatedSourceExplorerRenderCoordinator {
+  #pendingState: AnnotatedSourceExplorerRenderState | null = null;
+  #generation = 0;
+
+  get generation(): number {
+    return this.#generation;
+  }
+
+  begin(renderState: AnnotatedSourceExplorerRenderState | null): number {
+    if (this.#pendingState === null && renderState !== null) {
+      this.#pendingState = renderState;
+    }
+    return ++this.#generation;
+  }
+
+  invalidate(): void {
+    this.#generation++;
+    this.#pendingState = null;
+  }
+
+  isCurrent(generation: number): boolean {
+    return generation === this.#generation;
+  }
+
+  consume(generation: number): AnnotatedSourceExplorerRenderState | null {
+    if (!this.isCurrent(generation)) return null;
+    const renderState = this.#pendingState;
+    this.#pendingState = null;
+    return renderState;
+  }
+}
 
 export function createAnnotatedSourceExplorerState(
   document: AnnotatedSourceDocument,

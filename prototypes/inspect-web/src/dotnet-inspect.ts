@@ -100,11 +100,13 @@ import {
   buildTypeGraphMermaid
 } from "./graph-mermaid.ts";
 import {
+  AnnotatedSourceExplorerRenderCoordinator,
   createAnnotatedSourceExplorerState,
   reduceAnnotatedSourceExplorerState,
   renderAnnotatedSourceEntry,
   renderAnnotatedSourceExplorer as renderAnnotatedSourceExplorerMarkup,
   type AnnotatedSourceExplorerAction,
+  type AnnotatedSourceExplorerRenderState,
   type AnnotatedSourceExplorerState,
   type AnnotatedSourceResult,
 } from "./annotated-source-explorer.ts";
@@ -605,6 +607,8 @@ interface StateOverrides {
 type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides;
 
 const state = initialState as AppState;
+const annotatedSourceExplorerRenderCoordinator =
+  new AnnotatedSourceExplorerRenderCoordinator();
 const sourceInspection = createSourceInspectionCoordinator({
   state,
   queryMemberSource: request => inspectMemberSource(
@@ -1865,6 +1869,9 @@ function typeDisplayName(
 
 function render() {
   sourceInspection.cancelHiddenRequest();
+  if (state.settings || state.explorer?.open || !state.annotatedExplorer) {
+    annotatedSourceExplorerRenderCoordinator.invalidate();
+  }
 
   // The Settings page is a modal-style full view layered over whatever the user came from
   // (home or a package). It owns no URL — it's a preferences panel, not shareable content —
@@ -3539,7 +3546,9 @@ function renderAnnotatedSourceExplorer() {
     return;
   }
 
-  const renderState = captureAnnotatedSourceExplorerRenderState();
+  const renderGeneration = annotatedSourceExplorerRenderCoordinator.begin(
+    captureAnnotatedSourceExplorerRenderState(),
+  );
   try {
     app.innerHTML = renderAnnotatedSourceExplorerMarkup({
       ...context,
@@ -3553,7 +3562,7 @@ function renderAnnotatedSourceExplorer() {
     </div>`;
   }
   bindAnnotatedSourceExplorerEvents();
-  restoreAnnotatedSourceExplorerRenderState(renderState);
+  restoreAnnotatedSourceExplorerRenderState(renderGeneration);
 }
 
 function updateAnnotatedSourceExplorer(
@@ -3567,7 +3576,9 @@ function updateAnnotatedSourceExplorer(
     state.annotatedExplorer,
     action);
   render();
+  const renderGeneration = annotatedSourceExplorerRenderCoordinator.generation;
   requestAnimationFrame(() => {
+    if (!annotatedSourceExplorerRenderCoordinator.isCurrent(renderGeneration)) return;
     const focused = document.querySelector<HTMLElement>(focusSelector);
     focused?.focus({ preventScroll: true });
     if (focused?.closest(".ase-inspector")) {
@@ -3658,7 +3669,8 @@ function bindAnnotatedSourceExplorerEvents() {
   });
 }
 
-function captureAnnotatedSourceExplorerRenderState() {
+function captureAnnotatedSourceExplorerRenderState():
+  AnnotatedSourceExplorerRenderState | null {
   if (!document.querySelector(".annotated-explorer")) return null;
   return {
     codeScroll: document.querySelector(".ase-code-scroll")?.scrollTop ?? 0,
@@ -3668,18 +3680,13 @@ function captureAnnotatedSourceExplorerRenderState() {
   };
 }
 
-interface AnnotatedSourceExplorerRenderState {
-  codeScroll: number;
-  codeScrollLeft: number;
-  inspectorScroll: number;
-  focusSelector: string;
-}
-
 function restoreAnnotatedSourceExplorerRenderState(
-  renderState: AnnotatedSourceExplorerRenderState | null,
+  renderGeneration: number,
 ) {
-  if (!renderState) return;
   requestAnimationFrame(() => {
+    const renderState =
+      annotatedSourceExplorerRenderCoordinator.consume(renderGeneration);
+    if (!renderState) return;
     const code = document.querySelector<HTMLElement>(".ase-code-scroll");
     const inspector = document.querySelector<HTMLElement>(".ase-inspector");
     if (code) code.scrollTop = renderState.codeScroll;

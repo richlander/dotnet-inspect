@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
+  AnnotatedSourceExplorerRenderCoordinator,
   createAnnotatedSourceExplorerState,
   reduceAnnotatedSourceExplorerState,
   renderAnnotatedSourceEntry,
@@ -204,14 +205,44 @@ test("addressable source uses one tab stop and roving keyboard navigation", () =
 
 test("all explorer renders preserve focus and scroll while home invalidates the context", () => {
   assert.match(appSource, /captureAnnotatedSourceExplorerRenderState\(\)/);
-  assert.match(appSource, /restoreAnnotatedSourceExplorerRenderState\(renderState\)/);
+  assert.match(appSource, /annotatedSourceExplorerRenderCoordinator\.begin/);
+  assert.match(appSource, /restoreAnnotatedSourceExplorerRenderState\(renderGeneration\)/);
   assert.match(appSource, /code\.scrollTop = renderState\.codeScroll/);
   assert.match(appSource, /code\.scrollLeft = renderState\.codeScrollLeft/);
   assert.match(
     appSource,
     /document\.querySelector<HTMLElement>\(renderState\.focusSelector\)\?\.focus/,
   );
+  assert.match(
+    appSource,
+    /annotatedSourceExplorerRenderCoordinator\.isCurrent\(renderGeneration\)/,
+  );
   assert.match(appSource, /!state\.annotatedExplorer \|\| state\.home/);
+});
+
+test("back-to-back renders retain the pre-replacement scroll snapshot", () => {
+  const coordinator = new AnnotatedSourceExplorerRenderCoordinator();
+  const preserved = {
+    codeScroll: 123,
+    codeScrollLeft: 45,
+    inspectorScroll: 87,
+    focusSelector: "#ase-exit",
+  };
+  const reset = {
+    codeScroll: 0,
+    codeScrollLeft: 0,
+    inspectorScroll: 0,
+    focusSelector: "",
+  };
+
+  const firstGeneration = coordinator.begin(preserved);
+  const secondGeneration = coordinator.begin(reset);
+
+  assert.equal(coordinator.consume(firstGeneration), null);
+  assert.deepEqual(coordinator.consume(secondGeneration), preserved);
+  assert.equal(coordinator.isCurrent(secondGeneration), true);
+  coordinator.invalidate();
+  assert.equal(coordinator.isCurrent(secondGeneration), false);
 });
 
 test("action focus remains visible when inspector content changes height", () => {

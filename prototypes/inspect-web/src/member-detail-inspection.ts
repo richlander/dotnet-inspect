@@ -121,6 +121,7 @@ export function createMemberDetailInspectionCoordinator(
   dependencies: MemberDetailInspectionDependencies,
 ): MemberDetailInspectionCoordinator {
   const { state } = dependencies;
+  let annotatedLoadGeneration = 0;
 
   return {
     async loadDocumentation(request) {
@@ -188,6 +189,7 @@ export function createMemberDetailInspectionCoordinator(
         return;
       }
 
+      const generation = ++annotatedLoadGeneration;
       state.memberAnnotatedKey = request.signature;
       state.memberAnnotated = null;
       state.memberAnnotatedLoading = true;
@@ -198,17 +200,20 @@ export function createMemberDetailInspectionCoordinator(
       const preservedFocus = dependencies.renderPreservingMemberFocus();
       try {
         const result = await dependencies.queryAnnotated(request);
-        if (request.isCurrent()
+        if (generation === annotatedLoadGeneration
+          && request.isCurrent()
           && state.memberAnnotatedKey === request.signature) {
           state.memberAnnotated = result;
         }
       } catch (error) {
-        if (request.isCurrent()
+        if (generation === annotatedLoadGeneration
+          && request.isCurrent()
           && state.memberAnnotatedKey === request.signature) {
           state.memberAnnotatedError = dependencies.describeError(error);
         }
       } finally {
-        if (state.memberAnnotatedKey === request.signature) {
+        if (generation === annotatedLoadGeneration
+          && state.memberAnnotatedKey === request.signature) {
           state.memberAnnotatedLoading = false;
           if (request.isCurrent()) {
             dependencies.renderPreservingMemberFocus(preservedFocus);
