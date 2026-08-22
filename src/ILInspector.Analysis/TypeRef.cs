@@ -323,6 +323,132 @@ public sealed class TypeRef : IEquatable<TypeRef>
 
     public override bool Equals(object? obj) => Equals(obj as TypeRef);
 
+    internal static bool ExactSignatureEquals(
+        TypeRef left,
+        TypeRef right)
+    {
+        ArgumentNullException.ThrowIfNull(left);
+        ArgumentNullException.ThrowIfNull(right);
+
+        var pending = new Stack<(TypeRef Left, TypeRef Right)>();
+        var visited = new HashSet<(TypeRef Left, TypeRef Right)>(
+            TypeRefPairReferenceComparer.Instance);
+        pending.Push((left, right));
+        while (pending.Count > 0)
+        {
+            (TypeRef currentLeft, TypeRef currentRight) =
+                pending.Pop();
+            if (ReferenceEquals(currentLeft, currentRight)
+                || !visited.Add((currentLeft, currentRight)))
+            {
+                continue;
+            }
+
+            if (currentLeft.Kind != currentRight.Kind
+                || !StringComparer.OrdinalIgnoreCase.Equals(
+                    currentLeft.Assembly,
+                    currentRight.Assembly)
+                || currentLeft.Namespace != currentRight.Namespace
+                || !SameNameIdentity(currentLeft, currentRight)
+                || currentLeft.Rank != currentRight.Rank
+                || currentLeft.GenericParameterIndex
+                    != currentRight.GenericParameterIndex
+                || currentLeft.RawTypeKind
+                    != currentRight.RawTypeKind
+                || currentLeft.UnsupportedReason
+                    != currentRight.UnsupportedReason
+                || !currentLeft.ArraySizes.AsSpan()
+                    .SequenceEqual(currentRight.ArraySizes.AsSpan())
+                || !currentLeft.ArrayLowerBounds.AsSpan()
+                    .SequenceEqual(
+                        currentRight.ArrayLowerBounds.AsSpan())
+                || currentLeft.IsRequiredModifier
+                    != currentRight.IsRequiredModifier
+                || (currentLeft.ElementType is null)
+                    != (currentRight.ElementType is null)
+                || (currentLeft.ModifierType is null)
+                    != (currentRight.ModifierType is null)
+                || (currentLeft.UnmodifiedType is null)
+                    != (currentRight.UnmodifiedType is null)
+                || currentLeft.TypeArguments.Length
+                    != currentRight.TypeArguments.Length
+                || !FunctionPointersMatch(
+                    currentLeft.FunctionPointerSignature,
+                    currentRight.FunctionPointerSignature,
+                    pending))
+            {
+                return false;
+            }
+
+            if (currentLeft.ElementType is not null)
+            {
+                pending.Push((
+                    currentLeft.ElementType,
+                    currentRight.ElementType!));
+            }
+            if (currentLeft.ModifierType is not null)
+            {
+                pending.Push((
+                    currentLeft.ModifierType,
+                    currentRight.ModifierType!));
+            }
+            if (currentLeft.UnmodifiedType is not null)
+            {
+                pending.Push((
+                    currentLeft.UnmodifiedType,
+                    currentRight.UnmodifiedType!));
+            }
+            for (int i = 0;
+                i < currentLeft.TypeArguments.Length;
+                i++)
+            {
+                pending.Push((
+                    currentLeft.TypeArguments[i],
+                    currentRight.TypeArguments[i]));
+            }
+        }
+
+        return true;
+    }
+
+    static bool FunctionPointersMatch(
+        MethodSignature<TypeRef>? left,
+        MethodSignature<TypeRef>? right,
+        Stack<(TypeRef Left, TypeRef Right)> pending)
+    {
+        if (left is null || right is null)
+            return left is null && right is null;
+
+        MethodSignature<TypeRef> leftSignature = left.Value;
+        MethodSignature<TypeRef> rightSignature = right.Value;
+        if (leftSignature.Header.RawValue
+                != rightSignature.Header.RawValue
+            || leftSignature.GenericParameterCount
+                != rightSignature.GenericParameterCount
+            || leftSignature.RequiredParameterCount
+                != rightSignature.RequiredParameterCount
+            || leftSignature.ParameterTypes.IsDefault
+                != rightSignature.ParameterTypes.IsDefault
+            || leftSignature.ParameterTypes.Length
+                != rightSignature.ParameterTypes.Length)
+        {
+            return false;
+        }
+
+        pending.Push((
+            leftSignature.ReturnType,
+            rightSignature.ReturnType));
+        for (int i = 0;
+            i < leftSignature.ParameterTypes.Length;
+            i++)
+        {
+            pending.Push((
+                leftSignature.ParameterTypes[i],
+                rightSignature.ParameterTypes[i]));
+        }
+        return true;
+    }
+
     public override int GetHashCode()
     {
         int fastPathBudget = 64;

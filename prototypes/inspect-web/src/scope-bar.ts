@@ -1,6 +1,6 @@
 type LensDefinition = readonly [id: string, label: string];
 
-export type Scope = "package" | "type" | "member";
+type Scope = "package" | "type" | "member";
 
 export interface RenderScopeBarOptions {
   scope: Scope;
@@ -10,6 +10,36 @@ export interface RenderScopeBarOptions {
   showMemberScope?: boolean;
   emptyStripLabel?: string;
   escapeHtml: (value: unknown) => string;
+}
+
+export interface ScopeBarBindingActions {
+  onMemberSectionSelect: (section: string | undefined) => void;
+  onPackageLensSelect: (lens: string) => void;
+  onScopeSelect: (scope: string | undefined) => void;
+  onTypeLensSelect: (lens: string) => void;
+}
+
+export function bindScopeBar(
+  root: ParentNode,
+  actions: ScopeBarBindingActions,
+) {
+  root.querySelectorAll<HTMLElement>("[data-scope]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onScopeSelect(button.dataset.scope)));
+  root.querySelectorAll<HTMLElement>("[data-package-lens]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onPackageLensSelect(
+        button.dataset.packageLens ?? "overview")));
+  root.querySelectorAll<HTMLElement>("[data-lens]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onTypeLensSelect(button.dataset.lens ?? "api")));
+  root.querySelectorAll<HTMLElement>("[data-member-section]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onMemberSectionSelect(button.dataset.memberSection)));
 }
 
 function lensButton(

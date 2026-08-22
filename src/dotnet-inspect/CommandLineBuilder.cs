@@ -178,6 +178,10 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(InspectionCommandDefinitions.CreateDiffCommand(opts));
         rootCommand.Subcommands.Add(InspectionCommandDefinitions.CreateTimelineCommand(opts));
 
+        // Inspection graph command
+        rootCommand.Subcommands.Add(
+            InspectionGraphCommandDefinitions.CreateGraphCommand(opts));
+
         // Depends command
         rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateDependsCommand(opts));
 
@@ -207,6 +211,9 @@ public static class CommandLineBuilder
 
         // Skill command
         rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateSkillCommand(opts));
+
+        // Product home demos (run closed section presets)
+        rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateDemoCommand(opts));
 
         // Override S.CL's built-in --help to use our own renderer
         var helpOption = rootCommand.Options.OfType<System.CommandLine.Help.HelpOption>().FirstOrDefault();

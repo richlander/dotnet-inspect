@@ -13,7 +13,6 @@ import {
   restoreLibraryScope,
   restoreMemberHistoryState,
 } from "../src/member-filtering.ts";
-import type { BodyTarget } from "../src/member-filtering.ts";
 
 test("body targets must identify the selected overload or one of its accessor bodies", () => {
   const member = { name: "Value" };
@@ -44,7 +43,7 @@ test("body targets must identify the selected overload or one of its accessor bo
       member,
       overload),
     false);
-  assert.equal(bodyTargetMatchesOverload({} as BodyTarget, member, overload), false);
+  assert.equal(bodyTargetMatchesOverload({}, member, overload), false);
 });
 
 test("body targets round-trip through the compact rich-packet tuple", () => {

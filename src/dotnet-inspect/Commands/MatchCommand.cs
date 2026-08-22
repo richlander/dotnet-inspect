@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using DotnetInspector.Inspectors;
@@ -6,6 +7,7 @@ using DotnetInspector.Output;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using ILInspector.Analysis;
+using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 using ILInspector.Research;
 using Markout;
@@ -32,6 +34,17 @@ public static class MatchCommand
         {
             CommandError.Write("match requires two method selectors (Type.Member).");
             CommandError.WriteLine("Usage: dotnet-inspect match <Type.MemberA> <Type.MemberB> --package <pkg>");
+            return 1;
+        }
+
+        // The Implementation Diff section renders one C#/IL side-by-side row set, the same
+        // "one section at a time" restriction diff already enforces for tabular/TSV/JSONL output
+        // (issue #4304 Slice 4).
+        if (options.IncludeImplementation && (options.Tabular || options.Tsv || options.Jsonl))
+        {
+            CommandError.Write(
+                "--implementation cannot be combined with --table, --tsv, or --jsonl; "
+                    + "render Markdown (the default) or --json instead.");
             return 1;
         }
 
@@ -85,17 +98,33 @@ public static class MatchCommand
                 MetadataTokens.MethodDefinitionHandle(left.Token!.Value),
                 MetadataTokens.MethodDefinitionHandle(right.Token!.Value));
 
+            ImplementationDiffView? implementationView = options.IncludeImplementation
+                ? BuildImplementationDiffView(left, right)
+                : null;
+
             if (options.JsonOutput)
             {
-                JsonOutputHelper.Write(
-                    result.Document,
-                    StructuralCloneComparisonDocumentJsonContext.Default.StructuralCloneComparisonDocument,
-                    StructuralCloneComparisonDocumentCompactJsonContext.Default.StructuralCloneComparisonDocument,
-                    options.CompactJson);
+                if (implementationView is null)
+                {
+                    JsonOutputHelper.Write(
+                        result.Document,
+                        StructuralCloneComparisonDocumentJsonContext.Default.StructuralCloneComparisonDocument,
+                        StructuralCloneComparisonDocumentCompactJsonContext.Default.StructuralCloneComparisonDocument,
+                        options.CompactJson);
+                }
+                else
+                {
+                    var envelope = new MatchImplementationDocument(result.Document, implementationView);
+                    JsonOutputHelper.Write(
+                        envelope,
+                        MatchImplementationDocumentJsonContext.Default.MatchImplementationDocument,
+                        MatchImplementationDocumentCompactJsonContext.Default.MatchImplementationDocument,
+                        options.CompactJson);
+                }
             }
             else
             {
-                WriteMarkoutOutput(left.Display!, right.Display!, result, options);
+                WriteMarkoutOutput(left.Display!, right.Display!, result, implementationView, options);
             }
 
             return 0;
@@ -204,7 +233,46 @@ public static class MatchCommand
         return new ResolvedSelector(MethodToken(candidates[0]), $"{apiType.FullName}.{memberName}", originAssemblyPath, null);
     }
 
-    static void WriteMarkoutOutput(string leftDisplay, string rightDisplay, ResearchMatchResult result, MatchOptions options)
+    /// <summary>
+    /// Independently decompiles both selectors' method bodies and projects a C#/IL side-by-side
+    /// implementation-diff view, reusing <see cref="ImplementationDiff.CompareMembers"/> and
+    /// <see cref="DiffOutputFormatter.BuildImplementationDiffView"/> exactly as <c>diff</c>'s
+    /// Implementation Diff section does (issue #4304 Slice 4). <c>CompareMembers</c> makes no
+    /// identity assumption about its two handles, so it applies unchanged to match's
+    /// non-identity-matched pair.
+    /// </summary>
+    static ImplementationDiffView BuildImplementationDiffView(ResolvedSelector left, ResolvedSelector right)
+    {
+        using var source = MetadataSource.Open(left.OriginAssemblyPath!);
+        var memberDiff = ImplementationDiff.CompareMembers(
+            source,
+            MetadataTokens.MethodDefinitionHandle(left.Token!.Value),
+            source,
+            MetadataTokens.MethodDefinitionHandle(right.Token!.Value));
+
+        var member = new ImplementationDiffMember(memberDiff.Subject, memberDiff.Changes)
+        {
+            SourceComparison = memberDiff.SourceComparison,
+        };
+        // BuildImplementationDiffView only reads diff.Members; this ResearchComparison is a
+        // type-satisfying formality, not a second, independently meaningful comparison result.
+        var diff = new ImplementationDiffResult(
+            [member],
+            new ResearchComparison(memberDiff.Changes.ToImmutableArray()));
+
+        return DiffOutputFormatter.BuildImplementationDiffView(
+            $"{left.Display} vs {right.Display}",
+            diff,
+            left.Display!,
+            right.Display!);
+    }
+
+    static void WriteMarkoutOutput(
+        string leftDisplay,
+        string rightDisplay,
+        ResearchMatchResult result,
+        ImplementationDiffView? implementationView,
+        MatchOptions options)
     {
         var view = MatchOutputFormatter.BuildView(leftDisplay, rightDisplay, result);
 
@@ -219,7 +287,17 @@ public static class MatchCommand
         else
         {
             OutputFormatter.WriteWindowedMarkdown(Console.Out, options.Rows,
-                opts => MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts));
+                opts =>
+                {
+                    var text = MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts);
+                    if (implementationView is not null)
+                    {
+                        var implementationText = DiffOutputFormatter.RenderImplementationDiffView(implementationView, opts);
+                        text = $"{text}\n\n{implementationText}";
+                    }
+
+                    return text;
+                });
         }
     }
 }

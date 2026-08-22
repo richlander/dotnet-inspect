@@ -18,7 +18,7 @@ export interface MemberGroupFilters {
 }
 
 /** The overload fields the filter predicates and body-target matching read. */
-export interface FilterableMemberOverload extends MemberOverloadSummary {
+interface FilterableMemberOverload extends MemberOverloadSummary {
   accessibility?: string;
   isStatic?: boolean;
   isUnsafe?: boolean;
@@ -37,7 +37,7 @@ export function memberGroupMatches(
   group: FilterableMemberGroup,
   filters: MemberGroupFilters,
 ): boolean {
-  const query = String(filters.query || "").trim().toLowerCase();
+  const query = (filters.query ?? "").trim().toLowerCase();
   if (filters.kind && filters.kind !== "all" && group.kind !== filters.kind) {
     return false;
   }
@@ -55,7 +55,7 @@ export function memberGroupMatches(
     }
     return !query
       || group.name.toLowerCase().includes(query)
-      || String(overload.signature || "").toLowerCase().includes(query);
+      || overload.signature.toLowerCase().includes(query);
   });
 }
 
@@ -137,7 +137,7 @@ export interface BodyTarget {
   metadataToken: number | null;
 }
 
-export interface BodySelectorLike {
+interface BodySelectorLike {
   memberName: string;
   selectorKey: string;
   token: number;
@@ -154,7 +154,7 @@ export interface BodyTargetMember {
 }
 
 export function bodyTargetMatchesOverload(
-  target: BodyTarget | null | undefined,
+  target: Partial<BodyTarget> | null | undefined,
   member: BodyTargetMember | null | undefined,
   overload: BodyTargetOverload | null | undefined,
 ): boolean {
@@ -190,16 +190,19 @@ export function encodeBodyTarget(target: BodyTarget | null | undefined): Encoded
 
 export function decodeBodyTarget(value: unknown): BodyTarget | null {
   if (!Array.isArray(value) || value.length !== 3) return null;
-  const [memberNameValue, selectorKeyValue, metadataTokenValue] = value;
+  const values: unknown[] = value;
+  const [memberNameValue, selectorKeyValue, metadataTokenValue] = values;
   if ((memberNameValue != null && typeof memberNameValue !== "string")
     || (selectorKeyValue != null && typeof selectorKeyValue !== "string")
-    || (metadataTokenValue != null && !Number.isInteger(metadataTokenValue))) {
+    || (metadataTokenValue != null
+      && (typeof metadataTokenValue !== "number"
+        || !Number.isInteger(metadataTokenValue)))) {
     return null;
   }
   const target: BodyTarget = {
     memberName: memberNameValue || null,
     selectorKey: selectorKeyValue || null,
-    metadataToken: metadataTokenValue,
+    metadataToken: metadataTokenValue ?? null,
   };
   return target.memberName || target.selectorKey || target.metadataToken != null
     ? target
