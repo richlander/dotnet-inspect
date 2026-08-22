@@ -45,12 +45,9 @@ formed before you stopped can describe a world that no longer exists.
   you were gone. Do not pull or rebase a pushed branch to "catch up"; reconcile
   it the way this file already requires.
 - **Re-check PR state** per [Canonical round flow](#canonical-round-flow).
-- **Name your window — not the session.** `tmux rename-window pr-<number>`, or
-  an equally short issue-scoped name when no PR exists yet, so the work can be
-  found from outside. A tmux session is shared by every window on that host, so
-  renaming it identifies nothing; `rename-window` is the same per-window name
-  `C-b ,` sets. Keep it short — the status bar truncates long names, and a
-  truncated name reads as a corrupted one.
+- **Re-announce yourself.** A resumed window has lost whatever it had on
+  screen, so nothing identifies it. Rename it and restate your PR per
+  [Making your work findable](#making-your-work-findable).
 
 ### Then act on where you stopped
 
@@ -75,6 +72,78 @@ else.
 If you cannot tell which of the three applies, that is the fourth case: say so,
 summarize what the transcript claims and what git shows, and wait rather than
 guessing.
+
+## Making your work findable
+
+Work runs in many concurrent agent windows across several machines. Whoever is
+watching must be able to tell, without attaching to any of them, which PR each
+window is on and which one needs a person. Three conventions carry that. Use
+them.
+
+### Name the window for identity
+
+`tmux rename-window pr<number>` — not the session. A tmux session is shared by
+every window on that host, so renaming it identifies nothing; `rename-window`
+sets the same per-window name that `C-b ,` sets. Without a PR yet, use the
+issue: `i<number>`.
+
+Keep the name short and stable. The status bar truncates, and a truncated name
+reads as a corrupted one. Do not encode changing state in it — your terminal
+title already carries that, updates itself, and costs nothing.
+
+The one exception is a state a person must act on. Append a single token then,
+and remove it when it clears:
+
+| suffix | means |
+| --- | --- |
+| `-blocked` | waiting on a human decision |
+| `-conflict` | in conflict recovery |
+
+`pr4405-conflict` is worth the eight characters. `pr4405-round-6-of-adversarial-review` is not.
+
+### Announce PR identity in your output
+
+State which PR you are on, in your visible output, in a form a reader and a
+script can both parse. Either pattern below is sufficient and both is fine; what
+matters is that the literal token `PR #<number>` or `PR <number>` appears, and
+the branch name where it is relevant.
+
+Beginning or continuing work:
+
+> Continue PR #4405 readiness for frozen expected head `595e5d4b…` on branch
+> `browser-platform-workspace` after conflict recovery.
+
+Completing a round:
+
+> Round 6 is complete for PR 4463.
+> - Review models GPT-5.6 Sol and Claude Opus 5 were used for adversarial review.
+> - Review feedback is: converging.
+> - Round start / end / duration.
+>
+> Fix description: …
+
+Restate it after every resume and at the start of every round, not once at the
+beginning. A window that has scrolled past its only mention of the PR is a
+window nobody can identify.
+
+### Asking for help is best effort
+
+When you are blocked on a person, you may send one transient notification:
+
+```sh
+tmux display-message -d 10000 'PR #4405 needs a decision'
+```
+
+**It is best effort and probably will not be seen.** Nobody may be attached; the
+person may be in another window, on another machine, or asleep. The message is
+transient and takes over the status line while it shows, so keep it rare and
+short.
+
+It is a nudge, never a handoff. A sent notification is not a delivered
+question and never an answered one. You must still stop at your prompt and
+wait, and restate the request in full when resumed. Do not use it for progress,
+for completion, or to announce a resume — only for something you are blocked
+on. One per block, not one per reminder.
 
 ## User-directed workflow adjustments
 
