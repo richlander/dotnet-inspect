@@ -25,6 +25,54 @@ Keep the peer-checkout `ProjectReference` edits local and unpushed. After
 Markout lands and releases, restore `PackageReference` and only then raise the
 dotnet-inspect PR.
 
+## Session resume
+
+Your process can be replaced without your work being finished — a machine
+reboot, a lost terminal, a session resumed from disk. This section covers that.
+It is distinct from a round restart, which
+[Canonical round flow](#canonical-round-flow) governs.
+
+A resume restores your transcript and nothing else. Time has passed: the base
+has moved, CI has run, reviewers or the user may have posted, and your restored
+plan may describe a state that no longer exists. Treat the transcript as
+history, not as current fact.
+
+### First, re-establish the world
+
+- **Position comes from git, not from the transcript.** Confirm the worktree,
+  branch, and head. Fetch, and determine whether the effective base moved while
+  you were gone. Do not pull or rebase a pushed branch to "catch up"; reconcile
+  it the way this file already requires.
+- **Re-read the PR conversation** from where you stopped. Anything posted while
+  you were gone is current and outranks your restored plan.
+- **Re-check PR state** per [Canonical round flow](#canonical-round-flow).
+- **Name your window** so the session can be found from outside:
+  `tmux rename-window pr-<number>`, or the issue number when no PR exists yet.
+
+### Then act on where you stopped
+
+Exactly one of these applies. Say which, in one line, before doing anything
+else.
+
+- **Mid-stream — continue.** Pick the work back up. The re-check above takes
+  precedence: a conflict, a failed gate, or a moved base supersedes your
+  restored plan and is handled first. Conflict recovery remains the first
+  priority. If nothing changed, do not re-litigate decisions already made in
+  the transcript; carry on from them.
+- **Waiting on the user — restate the request.** Never assume the question was
+  seen or answered while you were gone. Restate it in full, including the
+  context needed to answer it and the options you were choosing between; a
+  pointer to an earlier message is not a restatement, because the user may be
+  looking at a fresh window with none of that history on screen. Then wait.
+- **Task complete — report and propose.** State what landed and what proves it.
+  Then either propose the next piece of work, with a reason it is the right
+  next thing, or ask for a task. Propose; do not start. Inventing scope after a
+  resume is how a finished PR grows changes nobody asked for.
+
+If you cannot tell which of the three applies, that is the fourth case: say so,
+summarize what the transcript claims and what git shows, and wait rather than
+guessing.
+
 ## User-directed workflow adjustments
 
 The workflow gates in this file establish the default safe sequencing. A user
