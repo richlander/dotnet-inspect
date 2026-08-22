@@ -22114,14 +22114,17 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("lib/net6.0/Newtonsoft.Json.dll")]
-    [InlineData(@"lib\net6.0\Newtonsoft.Json.dll")]
-    public async Task Router_VersionedPackageLibrarySubpath_PreservesPackageInspection(
+    [InlineData("Newtonsoft.Json", "lib/net6.0/Newtonsoft.Json.dll")]
+    [InlineData("Newtonsoft.Json", @"lib\net6.0\Newtonsoft.Json.dll")]
+    [InlineData("Newtonsoft.Json@13.0.4", "lib/net6.0/Newtonsoft.Json.dll")]
+    [InlineData("Newtonsoft.Json@13.0.4", @"lib\net6.0\Newtonsoft.Json.dll")]
+    public async Task Router_PackageLibrarySubpath_PreservesPackageInspection(
+        string package,
         string libraryPath)
     {
         string[] arguments =
         [
-            "Newtonsoft.Json@13.0.4",
+            package,
             "--library",
             libraryPath,
             "-S",
@@ -22139,8 +22142,11 @@ public partial class CommandExecutionTests
         Assert.Contains("## Library Info", routed.Output);
     }
 
-    [Fact]
-    public async Task Router_VersionedPackageLibrarySubpath_IsIndependentOfCurrentDirectory()
+    [Theory]
+    [InlineData("Newtonsoft.Json")]
+    [InlineData("Newtonsoft.Json@13.0.4")]
+    public async Task Router_PackageLibrarySubpath_IsIndependentOfCurrentDirectory(
+        string package)
     {
         var tempDir = Path.Combine(
             Path.GetTempPath(),
@@ -22156,7 +22162,7 @@ public partial class CommandExecutionTests
         {
             string[] arguments =
             [
-                "Newtonsoft.Json@13.0.4",
+                package,
                 "--library",
                 "lib/net6.0/Newtonsoft.Json.dll",
                 "-S",
@@ -22182,6 +22188,52 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Fact]
+    public async Task Router_UnpinnedPackageColonAttachedLibrarySubpath_PreservesPackageInspection()
+    {
+        string[] arguments =
+        [
+            "Newtonsoft.Json",
+            "--library:lib/net6.0/Newtonsoft.Json.dll",
+            "-S",
+            "Library Info",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["package", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("# Newtonsoft.Json.dll", routed.Output);
+        Assert.Contains("## Library Info", routed.Output);
+    }
+
+    [Theory]
+    [InlineData("ref/net6.0/Missing.dll")]
+    [InlineData("tools/net6.0/Missing.dll")]
+    [InlineData("runtimes/linux-x64/lib/net6.0/Missing.dll")]
+    public async Task Router_PackageAssetLibraryPath_RoutesPackage(
+        string libraryPath)
+    {
+        string[] arguments =
+        [
+            "Newtonsoft.Json",
+            "--library",
+            libraryPath,
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["package", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Contains("not found in package", routed.Error);
+    }
+
     [Theory]
     [InlineData("./missing/Newtonsoft.Json.dll")]
     [InlineData(@"..\missing\Newtonsoft.Json.dll")]
@@ -22194,6 +22246,33 @@ public partial class CommandExecutionTests
         string[] arguments =
         [
             "Newtonsoft.Json@13.0.4",
+            "--library",
+            libraryPath,
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Contains("File not found:", routed.Error);
+    }
+
+    [Theory]
+    [InlineData("directory/lib/net8.0/missing.dll")]
+    [InlineData("lib/Debug/missing.dll")]
+    [InlineData("lib/x/lib/net8.0/missing.dll")]
+    [InlineData("tools/sub/lib/net8.0/missing.dll")]
+    [InlineData("runtimes/linux-x64/native/missing.dll")]
+    [InlineData("runtimes/lib/net8.0/missing.dll")]
+    public async Task Router_NestedPackageLikeLibraryPath_UsesTypeParser(
+        string libraryPath)
+    {
+        string[] arguments =
+        [
+            "System.String",
             "--library",
             libraryPath,
             "--tips",
