@@ -407,7 +407,7 @@ test("global workbench shortcuts respect the topmost modal", () => {
     /state\.spotlightOpen[\s\S]*event\.key === "Escape"[\s\S]*closeSpotlight\(\)/);
   assert.match(
     appSource,
-    /function openSpotlight\(seed = "", scope = "all"\) \{\s*if \(state\.loading \|\| state\.error\) return;\s*state\.tasteOpen = false;/);
+    /function openSpotlight\(seed = "", spotlightScope = "all"\) \{\s*if \(state\.loading \|\| state\.error\) return;\s*state\.tasteOpen = false;/);
   assert.match(
     spotlightSource,
     /function bind\(root: ParentNode, mode: "modal" \| "inline"\)[\s\S]*if \(mode === "modal"\)[\s\S]*focus\(\);/);
@@ -448,7 +448,7 @@ test("Spotlight navigation waits for selection data before restoring focus", () 
     /let spotlightFocusGeneration = 0[\s\S]*function focusTypeList\(generation = spotlightFocusGeneration\)[\s\S]*generation !== spotlightFocusGeneration[\s\S]*isTextEntry\(\)/);
   assert.match(
     spotlightSource,
-    /const generation = interactionGeneration;[\s\S]*Promise\.resolve\(execution\)\.then\(\(\) => \{\s*if \(generation === interactionGeneration\)/);
+    /const generation = interactionGeneration;[\s\S]*const focusAfterExecution = \(\) => \{[\s\S]*generation === interactionGeneration[\s\S]*Promise\.resolve\(execution\)\.then\(\s*focusAfterExecution,\s*\(error: unknown\) => \{\s*options\.reportCommandError\(error\);\s*focusAfterExecution\(\)/);
 });
 
 test("dependency graph render identity includes truncation and navigation", () => {
@@ -536,7 +536,7 @@ test("bare home paints before wasm engine download", () => {
     /state\.retryAction = \(\) => window\.location\.reload\(\)/);
   assert.match(
     errorPackageRecovery,
-    /if \(!state\.engineReady\) \{[\s\S]*window\.location\.assign\(url\);[\s\S]*return;[\s\S]*\}\s*loadPackage\(packageId, version, ""\)/);
+    /if \(!state\.engineReady\) \{[\s\S]*window\.location\.assign\(url\);[\s\S]*return;[\s\S]*\}\s*observeAsync\(loadPackage\(packageId, version, ""\)/);
   assert.match(
     loadingView,
     /#error-package-query[\s\S]*openPackageFromError\(packageId, version\)/);
@@ -631,7 +631,9 @@ test("shared member views retain scope and filter state", () => {
   assert.match(encoder, /packet\.k = state\.memberKindFilter/);
   assert.match(encoder, /packet\.e = state\.memberAccessibilityFilter/);
   assert.match(encoder, /packet\.r = state\.memberTraitFilter/);
-  assert.match(encoder, /packet\.d = encodeBodyTarget\(state\.selectedBodyTarget\)/);
+  assert.match(
+    encoder,
+    /const encodedBodyTarget = encodeBodyTarget\(state\.selectedBodyTarget\);[\s\S]*if \(encodedBodyTarget\) packet\.d = encodedBodyTarget/);
   assert.match(decoder, /memberBrowse: raw\.b === 1/);
   assert.match(decoder, /bodyTarget: decodeBodyTarget\(raw\.d\)/);
   assert.match(capture, /selectedBodyTarget: state\.selectedBodyTarget/);
@@ -698,7 +700,7 @@ test("home demos restore the complete parsed location", () => {
   assert.match(runHomeDemo, /restoreWorkspaceFromLocation\(loc, loc\)/);
   assert.doesNotMatch(runHomeDemo, /type: loc\.type/);
   const restoreWorkspace =
-    appSource.match(/async function restoreWorkspaceFromLocation\([\s\S]*?\n}\n\n\/\/ Restores the full open-tab/)?.[0]
+    appSource.match(/async function restoreWorkspaceFromLocation\([\s\S]*?\n}\n\nfunction applyLocationView/)?.[0]
     ?? "";
   assert.match(
     restoreWorkspace,
@@ -719,7 +721,7 @@ test("home demos restore the complete parsed location", () => {
     platformHistory,
     /await applyPlatformLibraryScope\([\s\S]*applyLocationView\(loc\);\s*applyDeepLink\(loc\)/);
   const runtimeHistory =
-    appSource.match(/async function restoreRuntimePackFromHistory\([\s\S]*?\n}\n\nbootstrap\(\);/)?.[0]
+    appSource.match(/async function restoreRuntimePackFromHistory\([\s\S]*?\n}\n\nobserveAsync\(bootstrap\(\)/)?.[0]
     ?? "";
   assert.match(
     runtimeHistory,
@@ -764,7 +766,7 @@ test("authoritative location restore clears filters and applies aggregate Platfo
     ?? "";
   assert.match(popstate, /if \(bareHome\)[\s\S]*resetLocationFilters\(\);\s*const deep = loc/);
   const runtimeHistory =
-    appSource.match(/async function restoreRuntimePackFromHistory\([\s\S]*?\n}\n\nbootstrap\(\);/)?.[0]
+    appSource.match(/async function restoreRuntimePackFromHistory\([\s\S]*?\n}\n\nobserveAsync\(bootstrap\(\)/)?.[0]
     ?? "";
   assert.match(
     runtimeHistory,
@@ -1017,7 +1019,7 @@ test("stale dependency graph cleanup preserves a replacement with the same signa
 test("dependency graph binds navigation to generated node identities", () => {
   assert.match(
     graphSource,
-    /const nodeInfoById = new Map\(\s+keys\.map\(key => \[idOf\.get\(key\), nodeInfo\.get\(key\)\]\)\)/);
+    /const nodeInfoById = new Map<string, DependencyGraphNodeInfo>\(\);[\s\S]*for \(const key of keys\)[\s\S]*if \(id && info\) nodeInfoById\.set\(id, info\)/);
   assert.match(
     appSource,
     /const nodeId = dataId \|\| idMatch\?\.\[1\];\s*const info = nodeId \? built\.nodeInfoById\.get\(nodeId\) : null/);
@@ -1836,7 +1838,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /clearWorkspacePackages\(\);\s+render\(\);/);
   assert.match(
     appSource,
-    /if \(loc\.tabs\?\.length && !workspaceCoordinatesMatch\(state\.packages, loc\.tabs\)\) \{\s+restoreWorkspaceFromLocation/);
+    /if \(loc\.tabs\?\.length && !workspaceCoordinatesMatch\(state\.packages, loc\.tabs\)\) \{\s+observeAsync\(\s*restoreWorkspaceFromLocation/);
   assert.match(
     appSource,
     /for \(const packageModel of discarded\)\s+releasePackageModelCaches\(packageModel\);/);
@@ -1851,7 +1853,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /state\.error = "";\s+state\.errorTitle = "";\s+state\.errorDetail = "";\s+state\.retryAction = null;\s+state\.home = true;/);
   assert.match(
     appSource,
-    /\(\) => \(state\.retryAction \?\? bootstrap\)\(\)/);
+    /\(\) => observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\)/);
   assert.match(
     appSource,
     /state\.retryAction = openRuntimePackFromHome/);
