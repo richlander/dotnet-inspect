@@ -331,7 +331,24 @@ public static class ResearchProjectionProbe
 {
     public static object BoxInt(int value) => value;
 
+    public static bool GenericObjectEqualsInLocal<T>(
+        T left,
+        T right)
+    {
+        return EqualsCore(left, right);
+
+        static bool EqualsCore(T x, T y) =>
+            x!.Equals(y);
+    }
+
+    public static object BoxedValue => 42;
+
     public static int Overloaded(int value) => value + 1;
 
     public static int Overloaded(string value) => value.Length;
+
+    public static class Nested
+    {
+        public static object BoxNested(int value) => value;
+    }
 }

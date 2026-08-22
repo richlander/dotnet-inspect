@@ -4,29 +4,37 @@ import {
   type PackageIdentity,
 } from "./data.ts";
 import type {
+  BrowserMemberSurface,
   BrowserPackageDependencies,
   BrowserPackageIntegrations,
   BrowserPackageOpportunities,
+  BrowserPackagePerformance,
+  BrowserPerformanceMember,
+  BrowserTypeSurface,
 } from "./inspect-web-engine.d.ts";
 import type { PackageMetadata } from "./metadata-viewer.ts";
 import type { AppPackage } from "./package-acquisition.ts";
 
-export interface PackagePerformanceMember {
-  assembly: string;
-  typeId: string;
-  memberName: string;
-  metadataToken: number;
-  opportunityCount: number;
-  inLoopCount: number;
-  shapes: string[];
-  confidence: string;
+export type PackagePerformance = BrowserPackagePerformance;
+
+export interface ResolvedPackagePerformanceMember {
+  type: BrowserTypeSurface;
+  member: BrowserMemberSurface;
 }
 
-export interface PackagePerformance {
-  members: PackagePerformanceMember[];
-  inspectionError?: string;
-  nonPublicOpportunities: number;
-  totalOpportunities: number;
+export function resolvePackagePerformanceMember(
+  packageModel: AppPackage,
+  performanceMember: Pick<
+    BrowserPerformanceMember,
+    "assembly" | "typeId" | "stableSelector"
+  >,
+): ResolvedPackagePerformanceMember | null {
+  const type = packageModel.types.find(candidate =>
+    candidate.assembly === performanceMember.assembly
+    && candidate.definitionId === performanceMember.typeId);
+  const member = type?.api.find(candidate =>
+    candidate.stableSelector === performanceMember.stableSelector);
+  return type && member ? { type, member } : null;
 }
 
 export interface PackageInspectionState {

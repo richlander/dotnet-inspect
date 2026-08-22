@@ -64,7 +64,10 @@ public static class OptimizationOpportunityRanking
         [
             .. OrderMembers(
                 opportunities
-                    .GroupBy(opportunity => opportunity.Method)
+                    .GroupBy(
+                        opportunity =>
+                            opportunity.SourceOwner
+                                ?? opportunity.Method)
                     .Select(CreateMemberRanking)),
         ];
     }

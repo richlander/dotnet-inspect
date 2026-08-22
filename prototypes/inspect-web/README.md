@@ -362,10 +362,13 @@ over implementation participants, falling back to the surface group only for a
 reference-only package. Analysis owns opportunity priority, semantic loop
 classification, member aggregation, and deterministic order. The query owns
 body-index lifetime, binding-contained sibling resolution, public API
-attribution, and typed failures. The browser preserves the returned public-member
-order while adapting it to the existing wire contract; non-public opportunities
-remain visible in the aggregate count, and the presentation retains its
-200-member display bound.
+attribution, and typed failures. Lifted evidence aggregates under its source
+owner. Exact metadata type identity and stable member selectors bridge
+implementation evidence to the reference-preferred navigation surface without
+treating MethodDef tokens as cross-image identities. The browser preserves the
+returned public-member order while adapting it to the existing wire contract;
+non-public opportunities remain visible in the aggregate count, and the
+presentation retains its 200-member display bound.
 
 `QueryPackageDependencies` asks the package-content query for every dependency
 group in manifest order and an exact-framework selection outcome. A missing

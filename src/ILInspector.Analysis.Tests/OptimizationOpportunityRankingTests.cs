@@ -89,6 +89,29 @@ public sealed class OptimizationOpportunityRankingTests
                 repeated));
     }
 
+    [Fact]
+    public void RankMembers_AttributesLiftedBodiesToTheirSourceOwner()
+    {
+        OptimizationOpportunity lifted = Opportunity(
+            "<PublicOwner>g__Local|0_0",
+            "box-value-type",
+            "high",
+            rootReach: 1) with
+        {
+            SourceOwner = Method(
+                "PublicOwner",
+                metadataToken: 0x06000002),
+        };
+
+        OptimizationOpportunityMemberRanking ranking =
+            Assert.Single(
+                OptimizationOpportunityRanking.RankMembers(
+                    [lifted]));
+
+        Assert.Equal("PublicOwner", ranking.Method.Name);
+        Assert.Same(lifted, Assert.Single(ranking.Opportunities));
+    }
+
     static OptimizationOpportunity Opportunity(
         string name,
         string shape,
@@ -96,15 +119,7 @@ public sealed class OptimizationOpportunityRankingTests
         int rootReach,
         int metadataToken = 0x06000001)
     {
-        var method = new MethodIdentity(
-            "Ranking",
-            Guid.Empty,
-            TypeRef.Definition("Ranking", "Example", "Probe"),
-            name,
-            [],
-            TypeRef.CoreLib("System", "Void"),
-            metadataToken,
-            IsStatic: true);
+        MethodIdentity method = Method(name, metadataToken);
         return new OptimizationOpportunity(
             method,
             shape,
@@ -116,4 +131,17 @@ public sealed class OptimizationOpportunityRankingTests
             Caveat: null,
             rootReach);
     }
+
+    static MethodIdentity Method(
+        string name,
+        int metadataToken) =>
+        new(
+            "Ranking",
+            Guid.Empty,
+            TypeRef.Definition("Ranking", "Example", "Probe"),
+            name,
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            metadataToken,
+            IsStatic: true);
 }

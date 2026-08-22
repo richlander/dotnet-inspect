@@ -2,13 +2,15 @@ using System.Collections.Immutable;
 
 using ILInspector.Analysis;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace DotnetInspector.Queries;
 
 public sealed record OptimizationOpportunityPublicMember(
     string Type,
     string Member,
-    int MetadataToken);
+    string StableSelector,
+    int BodyToken);
 
 public sealed record AssemblyOptimizationOpportunityMember(
     OptimizationOpportunityMemberRanking Ranking,
@@ -219,11 +221,10 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
                 {
                     members.TryAdd(
                         selector.BodyToken,
-                        new OptimizationOpportunityPublicMember(
-                            type.FullName,
-                            member.Name,
-                            member.MetadataToken
-                                ?? selector.BodyToken));
+                        PublicMember(
+                            type,
+                            member,
+                            selector.BodyToken));
                 }
             }
         }
@@ -231,6 +232,22 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
         return new AssemblyOptimizationPublicMembers(
             members,
             [.. surface.InspectionFailures]);
+    }
+
+    static OptimizationOpportunityPublicMember PublicMember(
+        ApiType type,
+        ApiMember member,
+        int bodyToken)
+    {
+        MemberAnchor anchor =
+            ApiMemberIdentity.GetMemberAnchor(type, member);
+        return
+            new OptimizationOpportunityPublicMember(
+                AssemblyContextApiSurfaceQuery
+                    .MetadataTypeIdentity(type),
+                member.Name,
+                anchor.StableSelector,
+                bodyToken);
     }
 
     static ImmutableArray<

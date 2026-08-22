@@ -23,6 +23,13 @@ public sealed class BrowserEngineBoundaryTests
 
     public static object PerformanceBoxingProbe(int value) => value;
 
+    public static object PerformanceBoxingProperty => 42;
+
+    public static class PerformanceNestedProbe
+    {
+        public static object Box(int value) => value;
+    }
+
     [Fact]
     public void MemberProjection_CarriesFilterFactsWithoutSignatureParsing()
     {
@@ -1145,6 +1152,12 @@ public sealed class BrowserEngineBoundaryTests
             culture.ValueKind is JsonValueKind.Null or JsonValueKind.String);
         Assert.False(string.IsNullOrWhiteSpace(
             reference.GetProperty("publicKeyToken").GetString()));
+        Assert.Equal(
+            JsonValueKind.Null,
+            root.GetProperty("dependencyGroupError").ValueKind);
+        Assert.Equal(
+            JsonValueKind.Null,
+            root.GetProperty("assemblyReferenceError").ValueKind);
     }
 
     [Fact]
@@ -1183,15 +1196,46 @@ public sealed class BrowserEngineBoundaryTests
             typeof(BrowserEngineBoundaryTests)
                 .GetMethod(nameof(PerformanceBoxingProbe))!
                 .MetadataToken,
-            member.GetProperty("metadataToken").GetInt32());
+            member.GetProperty("bodyToken").GetInt32());
+        Assert.StartsWith(
+            $"{nameof(PerformanceBoxingProbe)}~",
+            member.GetProperty("stableSelector").GetString());
         Assert.Contains(
             member.GetProperty("shapes").EnumerateArray(),
             shape => shape.GetString() == "box-value-type");
         Assert.True(
             member.GetProperty("opportunityCount").GetInt32()
             > 0);
-        Assert.False(root.TryGetProperty("dependencyGroupError", out _));
-        Assert.False(root.TryGetProperty("assemblyReferenceError", out _));
+        Assert.True(
+            !root.TryGetProperty(
+                "inspectionError",
+                out JsonElement inspectionError)
+            || inspectionError.ValueKind == JsonValueKind.Null);
+
+        JsonElement property = Assert.Single(
+            root.GetProperty("members").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("memberName").GetString()
+                == nameof(PerformanceBoxingProperty));
+        Assert.StartsWith(
+            $"{nameof(PerformanceBoxingProperty)}~",
+            property.GetProperty("stableSelector").GetString());
+        Assert.Equal(
+            typeof(BrowserEngineBoundaryTests)
+                .GetProperty(nameof(PerformanceBoxingProperty))!
+                .GetMethod!
+                .MetadataToken,
+            property.GetProperty("bodyToken").GetInt32());
+
+        JsonElement nested = Assert.Single(
+            root.GetProperty("members").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("memberName").GetString()
+                == nameof(PerformanceNestedProbe.Box));
+        Assert.Equal(
+            $"{typeof(BrowserEngineBoundaryTests).FullName}+"
+                + nameof(PerformanceNestedProbe),
+            nested.GetProperty("typeId").GetString());
     }
 
     [Fact]

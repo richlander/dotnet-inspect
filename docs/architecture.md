@@ -937,14 +937,15 @@ Research overlay bridge, and the application layer:
   `PerformanceTriage_DocumentJsonRejectsUnsupportedAnalysis` gates the
   unsupported document shape.
   `OptimizationOpportunityRanking` owns opportunity priority, semantic loop
-  classification, per-member aggregation, and stable triage ordering. Both the
-  CLI compatibility projection and
+  classification, source-owner aggregation for lifted bodies, and stable
+  triage ordering. Both the CLI compatibility projection and
   `AssemblyContextOptimizationOpportunitiesQuery` consume that policy rather
   than sorting or classifying Analysis evidence in their hosts. The group query
   opens optimization-only indexes over workspace-retained snapshots,
   constrains reference resolution to binding-selected siblings in the same
-  group, attributes analyzed bodies to owning public API members, and carries
-  participant, Analysis, and API-projection failures in its typed result. It
+  group, attributes analyzed bodies to owning public API members with exact
+  metadata type identity and stable member selectors, and carries participant,
+  Analysis, and API-projection failures in its typed result. It
   executes participants sequentially so whole-group ranking remains available
   on single-threaded Browser/Wasm. `OptimizationOpportunityRankingTests` and
   `AssemblyContextOptimizationOpportunitiesQueryTests` gate these ownership,

@@ -65,6 +65,7 @@ import {
 } from "./package-acquisition.ts";
 import {
   createPackageInspectionCoordinator,
+  resolvePackagePerformanceMember,
   workspaceDependencyKey,
   type PackagePerformance,
 } from "./package-inspection.ts";
@@ -2466,12 +2467,10 @@ const packageInspection = createPackageInspectionCoordinator({
         framework,
         assemblyFileName,
         pack)),
-  queryPackagePerformance: async packageModel =>
-    parseEngineJson<PackagePerformance>(
-      await inspectPackagePerformance(
-        packageModel.id,
-        packageModel.version,
-        packageModel.activeFramework)),
+  queryPackagePerformance: packageModel => inspectPackagePerformance(
+    packageModel.id,
+    packageModel.version,
+    packageModel.activeFramework),
   queryPlatformPerformance: async (framework, assemblyFileName, pack) =>
     parseEngineJson<PackagePerformance>(
       await inspectPlatformPerformance(
@@ -2718,7 +2717,7 @@ function renderPackagePerformance() {
     const shapes = member.shapes.map(shape => `<span class="perf-shape">${escapeHtml(shape)}</span>`).join("");
     const loopBadge = member.inLoopCount > 0 ? `<span class="perf-loop" title="${member.inLoopCount} in a loop">↻ ${member.inLoopCount}</span>` : "";
     return `
-      <button class="perf-row" data-perf-token="${member.metadataToken}" data-perf-assembly="${escapeHtml(member.assembly)}" data-perf-type="${escapeHtml(member.typeId)}" title="${escapeHtml(member.typeId)}.${escapeHtml(member.memberName)} — open Facts">
+      <button class="perf-row" data-perf-selector="${escapeHtml(member.stableSelector)}" data-perf-assembly="${escapeHtml(member.assembly)}" data-perf-type="${escapeHtml(member.typeId)}" title="${escapeHtml(member.typeId)}.${escapeHtml(member.memberName)} — open Facts">
         <span class="perf-count">${member.opportunityCount}</span>
         <span class="perf-member"><span class="perf-name">${display}</span><span class="perf-shapes">${shapes}</span></span>
         <span class="perf-meta">${loopBadge}<span class="perf-confidence perf-${escapeHtml((member.confidence || "").toLowerCase())}">${escapeHtml(member.confidence || "—")}</span></span>
@@ -3150,18 +3149,21 @@ function ensureExplorerResizeListener() {
 }
 
 
-// is joined against the same public API surface the nav pane renders, so the member,
-// its overload, and its declaring type are all resolvable client-side.
-function drillToPerfMember(token: string, assembly: string, typeId: string) {
+// Stable product identities bridge implementation-body evidence to the
+// reference-preferred surface the navigation pane renders.
+function drillToPerfMember(
+  stableSelector: string,
+  assembly: string,
+  typeId: string,
+) {
   const pkg = currentPackage();
-  const numeric = Number(token);
-  const targetType = pkg.types.find(type =>
-    type.id === typeId
-    && type.assembly === assembly
-    && (type.api || []).some(member => member.metadataToken === numeric));
-  if (!targetType) return;
-  const member = targetType.api.find(candidate => candidate.metadataToken === numeric);
-  if (!member) return;
+  const target = resolvePackagePerformanceMember(pkg, {
+    assembly,
+    typeId,
+    stableSelector,
+  });
+  if (!target) return;
+  const { type: targetType, member } = target;
 
   state.atPackageRoot = false;
   state.selectedTypeId = targetType.id;
@@ -3173,7 +3175,8 @@ function drillToPerfMember(token: string, assembly: string, typeId: string) {
   state.selectedMemberKey = key;
   const group = memberGroups(targetType).find(candidate => candidate.key === key);
   const overloadIndex = group && group.overloads.length > 1
-    ? group.overloads.findIndex(overload => overload.metadataToken === numeric)
+    ? group.overloads.findIndex(
+      overload => overload.stableSelector === stableSelector)
     : -1;
   state.selectedOverloadIndex = overloadIndex >= 0 ? overloadIndex : null;
   resetMemberSectionState();
@@ -3843,9 +3846,9 @@ function bindEvents() {
   document.querySelectorAll<HTMLElement>("[data-graph-type]").forEach(button => button.addEventListener("click", () => {
     navigateToTypeByName(button.dataset.graphType ?? "");
   }));
-  document.querySelectorAll<HTMLElement>("[data-perf-token]").forEach(button => button.addEventListener("click", () => {
+  document.querySelectorAll<HTMLElement>("[data-perf-selector]").forEach(button => button.addEventListener("click", () => {
     drillToPerfMember(
-      button.dataset.perfToken ?? "",
+      button.dataset.perfSelector ?? "",
       button.dataset.perfAssembly ?? "",
       button.dataset.perfType ?? "");
   }));
