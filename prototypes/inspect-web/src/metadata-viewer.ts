@@ -225,16 +225,16 @@ export function bindMetadataExplorer(
     actions.onHistoryForward);
   root.querySelectorAll<HTMLElement>("[data-mde-open]").forEach(button =>
     button.addEventListener("click", () => {
-      const [assembly = "", tableIndex = ""] =
-        (button.dataset.mdeOpen ?? "").split("|");
+      const assembly = button.dataset.mdeAssembly ?? "";
+      const tableIndex = button.dataset.mdeOpen ?? "";
       if (!assembly || !/^\d+$/.test(tableIndex)) return;
       const index = Number(tableIndex);
       if (Number.isSafeInteger(index)) actions.onOpenTable(assembly, index);
     }));
   root.querySelectorAll<HTMLElement>("[data-mde-open-heap]").forEach(button =>
     button.addEventListener("click", () => {
-      const [assembly = "", heap = ""] =
-        (button.dataset.mdeOpenHeap ?? "").split("|");
+      const assembly = button.dataset.mdeAssembly ?? "";
+      const heap = button.dataset.mdeOpenHeap ?? "";
       if (assembly && heap) actions.onOpenHeap(assembly, heap);
     }));
   if (!explorer) return;
@@ -444,7 +444,7 @@ export function renderAssemblyMetadataBlock(asm: MetadataAssembly, helpers: Meta
   const heapRows = (asm.heaps || [])
     .filter(heap => heap.sizeInBytes > 0)
     .map(heap => `
-      <button type="button" class="meta-heap" data-mde-open-heap="${escapeHtml(asm.assembly)}|${escapeHtml(heap.name)}" title="Browse ${escapeHtml(heapStreamName(heap.name))} in the metadata explorer">
+      <button type="button" class="meta-heap" data-mde-open-heap="${escapeHtml(heap.name)}" data-mde-assembly="${escapeHtml(asm.assembly)}" title="Browse ${escapeHtml(heapStreamName(heap.name))} in the metadata explorer">
         <span class="meta-heap-name">${escapeHtml(heapStreamName(heap.name))}</span>
         <span class="meta-heap-size">${fmtBytes(heap.sizeInBytes)}</span>
         <span class="meta-heap-addr">${escapeHtml(heap.addressing === "Index" ? "index" : "byte offset")} · max ${heap.maxAddress}</span>
@@ -452,7 +452,7 @@ export function renderAssemblyMetadataBlock(asm: MetadataAssembly, helpers: Meta
 
   const tables = (asm.tables || []).slice().sort((a, b) => b.rowCount - a.rowCount);
   const tableRows = tables.map(table => `
-    <button type="button" class="meta-table-row ${table.isProjected ? "" : "meta-table-unprojected"}" data-mde-open="${escapeHtml(asm.assembly)}|${table.index}" title="${table.isProjected ? "Open in the metadata explorer" : "Present in the image but not modeled by the projection"}">
+    <button type="button" class="meta-table-row ${table.isProjected ? "" : "meta-table-unprojected"}" data-mde-open="${table.index}" data-mde-assembly="${escapeHtml(asm.assembly)}" title="${table.isProjected ? "Open in the metadata explorer" : "Present in the image but not modeled by the projection"}">
       <span class="meta-table-name">${escapeHtml(table.name)}</span>
       <span class="meta-table-count">${table.rowCount.toLocaleString()}</span>
       <span class="meta-table-go">→</span>

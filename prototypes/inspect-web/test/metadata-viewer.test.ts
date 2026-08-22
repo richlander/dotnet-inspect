@@ -234,21 +234,50 @@ test("focus bindings dispatch lightbox controls and keep inner clicks contained"
 
 test("metadata lens bindings open table and heap explorer views", () => {
   const root = new FakeRoot();
-  const table = new FakeElement({ mdeOpen: "Contoso.dll|6" });
-  const tableZero = new FakeElement({ mdeOpen: "Contoso.dll|0" });
+  const table = new FakeElement({
+    mdeAssembly: "Contoso.dll",
+    mdeOpen: "6",
+  });
+  const tableZero = new FakeElement({
+    mdeAssembly: "Contoso.dll",
+    mdeOpen: "0",
+  });
+  const pipeAssemblyTable = new FakeElement({
+    mdeAssembly: "A|6|B.dll",
+    mdeOpen: "2",
+  });
   const invalidTables = [
-    new FakeElement({ mdeOpen: "|6" }),
-    new FakeElement({ mdeOpen: "Contoso.dll|" }),
-    new FakeElement({ mdeOpen: "Contoso.dll|NaN" }),
-    new FakeElement({ mdeOpen: "Contoso.dll|9007199254740992" }),
+    new FakeElement({ mdeAssembly: "", mdeOpen: "6" }),
+    new FakeElement({ mdeAssembly: "Contoso.dll", mdeOpen: "" }),
+    new FakeElement({ mdeAssembly: "Contoso.dll", mdeOpen: "NaN" }),
+    new FakeElement({
+      mdeAssembly: "Contoso.dll",
+      mdeOpen: "9007199254740992",
+    }),
   ];
-  root.addAll("[data-mde-open]", table, tableZero, ...invalidTables);
-  const heap = new FakeElement({ mdeOpenHeap: "Contoso.dll|String" });
+  root.addAll(
+    "[data-mde-open]",
+    table,
+    tableZero,
+    pipeAssemblyTable,
+    ...invalidTables);
+  const heap = new FakeElement({
+    mdeAssembly: "Contoso.dll",
+    mdeOpenHeap: "String",
+  });
+  const pipeAssemblyHeap = new FakeElement({
+    mdeAssembly: "A|6|B.dll",
+    mdeOpenHeap: "Blob",
+  });
   const invalidHeaps = [
-    new FakeElement({ mdeOpenHeap: "|String" }),
-    new FakeElement({ mdeOpenHeap: "Contoso.dll|" }),
+    new FakeElement({ mdeAssembly: "", mdeOpenHeap: "String" }),
+    new FakeElement({ mdeAssembly: "Contoso.dll", mdeOpenHeap: "" }),
   ];
-  root.addAll("[data-mde-open-heap]", heap, ...invalidHeaps);
+  root.addAll(
+    "[data-mde-open-heap]",
+    heap,
+    pipeAssemblyHeap,
+    ...invalidHeaps);
   const chip = new FakeElement({ mdeChip: "3" });
   root.addAll("[data-mde-chip]", chip);
   const calls: string[] = [];
@@ -259,15 +288,19 @@ test("metadata lens bindings open table and heap explorer views", () => {
 
   table.dispatch("click");
   tableZero.dispatch("click");
+  pipeAssemblyTable.dispatch("click");
   for (const invalidTable of invalidTables) invalidTable.dispatch("click");
   heap.dispatch("click");
+  pipeAssemblyHeap.dispatch("click");
   for (const invalidHeap of invalidHeaps) invalidHeap.dispatch("click");
   chip.dispatch("click");
 
   assert.deepEqual(calls, [
     "open-table:Contoso.dll:6",
     "open-table:Contoso.dll:0",
+    "open-table:A|6|B.dll:2",
     "open-heap:Contoso.dll:String",
+    "open-heap:A|6|B.dll:Blob",
   ]);
   assert.equal(root.queriedSelectors.has("[data-mde-chip]"), false);
 });
@@ -387,12 +420,14 @@ test("an assembly block lists non-empty heaps and tables sorted by row count", (
   assert.match(html, /#Strings/);
   assert.match(html, /#GUID/);
   assert.doesNotMatch(html, /#Blob/);
-  assert.match(html, /data-mde-open-heap="Contoso\.dll\|String"/);
+  assert.match(
+    html,
+    /data-mde-open-heap="String" data-mde-assembly="Contoso\.dll"/);
 
   const typeDefAt = html.indexOf("TypeDef");
   const methodDefAt = html.indexOf("MethodDef");
   assert.ok(methodDefAt > 0 && methodDefAt < typeDefAt, "tables sort by descending row count");
-  assert.match(html, /data-mde-open="Contoso\.dll\|2"/);
+  assert.match(html, /data-mde-open="2" data-mde-assembly="Contoso\.dll"/);
   assert.match(html, /meta-table-unprojected/);
   assert.match(html, /2\/3 populated/);
   assert.match(html, /v2\.5 · ILOnly · entry 0x6000001/);
