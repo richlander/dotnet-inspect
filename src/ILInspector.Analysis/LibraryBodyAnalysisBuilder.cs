@@ -259,12 +259,20 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             context.Method,
             methodDefinition,
             typeSourceGenerated);
-        return asyncSource is null
-            ? []
-            : CollectAsyncSiblingOpportunities(
-                context,
-                calls,
-                asyncSource);
+        if (asyncSource is null)
+            return [];
+        if (CompilerGeneratedNames
+                .IsLocalFunctionOrLambda(asyncSource.Name)
+            && !TryResolveUltimateLiftedOwner(
+                asyncSource,
+                out _))
+        {
+            return [];
+        }
+        return CollectAsyncSiblingOpportunities(
+            context,
+            calls,
+            asyncSource);
     }
     bool ILibraryMethodAnalysisInfrastructure.TryResolveLiftedSourceOwner(
         MethodDefinitionHandle liftedHandle,
@@ -632,10 +640,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         var declaredSources = new Dictionary<int, MethodIdentity>(
             analysis.Methods.DeclaredSources);
         var publicationDiagnostics =
-            analysis.Diagnostics.ToBuilder();
-        var uniquePublicationDiagnostics =
-            new HashSet<AnalysisDiagnostic>(
-                analysis.Diagnostics);
+            ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
         foreach ((int token, MethodIdentity source) in asyncSources)
         {
             try
@@ -670,18 +675,15 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                         sourceHandle),
                     $"{ex.GetType().Name}: {ex.Message}",
                     DeclaringType: source.DeclaringType);
-                if (uniquePublicationDiagnostics.Add(
-                        diagnostic))
-                {
-                    publicationDiagnostics.Add(
-                        diagnostic);
-                }
+                publicationDiagnostics.Add(diagnostic);
             }
         }
         return analysis with
         {
-            Diagnostics =
-                publicationDiagnostics.ToImmutable(),
+            Diagnostics = AnalysisDiagnosticAggregation
+                .MergeInMetadataOrder(
+                    analysis.Diagnostics,
+                    publicationDiagnostics.ToImmutable()),
             Methods = analysis.Methods with
             {
                 DeclaredSources = declaredSources,

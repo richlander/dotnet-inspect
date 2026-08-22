@@ -850,6 +850,9 @@ Research overlay bridge, and the application layer:
   physical caller rather than becoming logical attribution. Lifted-owner
   groups authenticate state-machine claims across the complete owner
   candidate set in every scope without acquiring unselected owner bodies.
+  Ownership-derived recommendations require an authenticated ultimate owner
+  in full, method, and type scopes; unresolved ownership retains physical
+  evidence and body-intrinsic opportunities but fails closed for attribution.
   A recoverable ownership failure cannot abort final publication or discard
   physical calls collected before opportunity projection.
   `DirectCalls_AsyncLiftedMoveNextComposesToDeclaredOwner` gates full,
@@ -875,6 +878,11 @@ Research overlay bridge, and the application layer:
   `DirectCalls_ScopedMalformedLiftedOwnerFailsClosed` gate recoverable
   publication, feature-stable physical calls, and scope-stable group
   authentication.
+  `OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes`
+  gates fail-closed ownership-derived recommendations while preserving
+  full-scope body-intrinsic opportunities.
+  `ScopeDiagnosticAggregation_FinalPublicationRetainsMetadataOrder` gates
+  ordered aggregation of recoverable final-publication failures.
   `LiftedOwners_RejectUnauthenticatedIteratorExecution` gates explicit
   synchronous-iterator implementations with named decoys, duplicate iterator
   source claims, and async-iterator claims over classic-only state machines,

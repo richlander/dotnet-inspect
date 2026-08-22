@@ -283,8 +283,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                     return result;
             }
             MethodIdentity? opportunityDeclaredMethod = null;
-            bool opportunityDeclaredMethodResolved =
-                bodyTypeScope is null;
+            bool opportunityOwnershipResolved = true;
             try
             {
                 bool directlySelectedBody =
@@ -330,20 +329,21 @@ internal sealed class LibraryMethodAnalysisRunner(
                 if (ownerResolution
                     == DeclaredOwnerResolution.Resolved)
                     result.DeclaredSource = ultimateOwner;
+                opportunityOwnershipResolved =
+                    ownerResolution
+                        != DeclaredOwnerResolution.Unresolved;
                 if (bodyTypeScope is not null)
                 {
                     // Evidence admission follows the selected type, but a
                     // recommendation belongs to the ultimate declared owner.
                     opportunityDeclaredMethod =
                         ultimateOwner;
-                    opportunityDeclaredMethodResolved =
-                        ownerResolution
-                            != DeclaredOwnerResolution.Unresolved;
                 }
             }
             catch (Exception ex)
                 when (IsRecoverableMethodFailure(ex))
             {
+                opportunityOwnershipResolved = false;
                 result.Diagnostic = new AnalysisDiagnostic(
                     MetadataTokens.GetToken(methodHandle),
                     MethodLabel(
@@ -454,7 +454,7 @@ internal sealed class LibraryMethodAnalysisRunner(
             bool collectScopedOpportunities =
                 includeOpportunities
                 && (bodyTypeScope is null
-                    || opportunityDeclaredMethodResolved
+                    || opportunityOwnershipResolved
                         && (opportunityDeclaredMethod is null
                             || bodyTypeScope(
                                 opportunityDeclaredMethod
@@ -559,7 +559,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                 }
             }
 
-            if (collectScopedOpportunities)
+            if (collectScopedOpportunities
+                && opportunityOwnershipResolved)
             {
                 MethodIdentity? asyncSource = null;
                 try

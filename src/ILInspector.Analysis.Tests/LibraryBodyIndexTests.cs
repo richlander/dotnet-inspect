@@ -4615,7 +4615,7 @@ public class LibraryBodyIndexTests
 
     [Fact]
     public void
-        OptimizationOpportunities_ScopedUnresolvedLiftedSourceFailsClosed()
+        OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes()
     {
         byte[] image =
             BuildMalformedAsyncSourceAssembly(
@@ -4639,6 +4639,14 @@ public class LibraryBodyIndexTests
                 full.Methods,
                 method => method.Name
                     == "<Outer>b__0_0");
+            var methodScoped = LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+                bodyScope: new HashSet<int>
+                {
+                    kickoff.MetadataToken,
+                });
             var scoped = LibraryBodyIndex.Open(
                 path,
                 LibraryBodyAnalysisFeatures
@@ -4652,7 +4660,7 @@ public class LibraryBodyIndexTests
                 opportunity => opportunity.Shape == "small-array"
                     && opportunity.Method.MetadataToken
                         == moveNext.MetadataToken);
-            Assert.Contains(
+            Assert.DoesNotContain(
                 full.OptimizationOpportunities,
                 opportunity => opportunity.Shape
                         == "sync-call-in-async"
@@ -4666,6 +4674,15 @@ public class LibraryBodyIndexTests
                 call => call.EvidenceMethod == moveNext
                     && call.Callee.Name == "Read"
                     && call.Caller == moveNext);
+            Assert.DoesNotContain(
+                methodScoped.OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method == kickoff
+                    && opportunity.EvidenceMethodToken
+                        == moveNext.MetadataToken);
+            Assert.Null(
+                methodScoped.ResolveDeclaredMethod(moveNext));
             Assert.Contains(
                 scoped.GetAllocationOccurrences(),
                 pair => pair.Key == moveNext.MetadataToken);
@@ -11397,6 +11414,56 @@ public class LibraryBodyIndexTests
             diagnostic => diagnostic.Message.Contains(
                 "state-machine source",
                 StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void
+        ScopeDiagnosticAggregation_FinalPublicationRetainsMetadataOrder()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(ClassicAsyncSiblingFixture)
+                .Assembly.Location);
+        const string Owner =
+            "ScopedIteratorAsyncLocalAllocationOwner";
+        CorruptStateMachineClaim(
+            image,
+            Owner);
+
+        LibraryBodyIndex full =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "OrderedMalformedIteratorClaim.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity moveNext = Assert.Single(
+            full.DeclaredMethods,
+            method => method.Name == "MoveNext"
+                && method.DeclaringType
+                    .ToQualifiedDisplayString()
+                    .Contains(
+                        $"<{Owner}>g__BuildAsync",
+                        StringComparison.Ordinal));
+        LibraryBodyIndex scoped =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "OrderedMalformedIteratorClaim.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyScope: new HashSet<int>
+                {
+                    moveNext.MetadataToken,
+                });
+
+        Assert.True(
+            scoped.Diagnostics.Length >= 2,
+            string.Join(
+                Environment.NewLine,
+                scoped.Diagnostics.Select(
+                    diagnostic =>
+                        $"0x{diagnostic.MethodToken:X8} "
+                        + diagnostic.Method)));
+        Assert.Equal(
+            scoped.Diagnostics
+                .OrderBy(diagnostic => diagnostic.MethodToken),
+            scoped.Diagnostics);
     }
 
     [Fact]
