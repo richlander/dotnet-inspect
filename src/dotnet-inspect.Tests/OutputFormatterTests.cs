@@ -180,8 +180,8 @@ public class OutputFormatterTests
             new("2.0.0", Listed: true),
             new("1.0.0-preview.1", Listed: false),
         ];
-        var withHeader = new StringWriter();
-        var withoutHeader = new StringWriter();
+        var withHeader = new StringWriter { NewLine = "\n" };
+        var withoutHeader = new StringWriter { NewLine = "\n" };
 
         OutputFormatter.WriteVersionListings(
             versions,
