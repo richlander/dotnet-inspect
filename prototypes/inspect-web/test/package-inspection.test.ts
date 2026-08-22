@@ -57,10 +57,7 @@ function inspectionState(
     packageIntegrationsLoading: false,
     packageIntegrationsError: "",
     packageIntegrationsKey: "",
-    packageOpportunities: null,
-    packageOpportunitiesLoading: false,
-    packageOpportunitiesError: "",
-    packageOpportunitiesKey: "",
+    packageOpportunities: { status: "idle" },
     packagePerformance: null,
     packagePerformanceLoading: false,
     packagePerformanceError: "",
@@ -402,10 +399,16 @@ test("package lens loaders reuse cached results without querying or clearing the
       name: "opportunities",
       cached: opportunities,
       state: inspectionState({
-        packageOpportunitiesKey: "cached",
-        packageOpportunities: opportunities,
+        packageOpportunities: {
+          status: "ready",
+          key: "cached",
+          data: opportunities,
+        },
       }),
-      read: (state: PackageInspectionState) => state.packageOpportunities,
+      read: (state: PackageInspectionState) =>
+        state.packageOpportunities.status === "ready"
+          ? state.packageOpportunities.data
+          : null,
       load: (coordinator: ReturnType<typeof createPackageInspectionCoordinator>) =>
         coordinator.loadOpportunities(packageItem, "cached", null),
     },
@@ -531,23 +534,6 @@ test("every package lens preserves its complete request lifecycle", async () => 
     setError: (state, error) => { state.packageIntegrationsError = error; },
   });
   await verifyPackageLensLifecycle({
-    name: "opportunities",
-    result: opportunitiesResult(),
-    createCoordinator: (state, query, render = () => {}) =>
-      createPackageInspectionCoordinator(
-        inspectionDependencies(state, {
-          queryPackageOpportunities: async () => query(),
-          render,
-        })),
-    load: (coordinator, signature) =>
-      coordinator.loadOpportunities(packageItem, signature, null),
-    readResult: state => state.packageOpportunities,
-    readLoading: state => state.packageOpportunitiesLoading,
-    readError: state => state.packageOpportunitiesError,
-    setKey: (state, key) => { state.packageOpportunitiesKey = key; },
-    setError: (state, error) => { state.packageOpportunitiesError = error; },
-  });
-  await verifyPackageLensLifecycle({
     name: "performance",
     result: performanceResult(),
     createCoordinator: (state, query, render = () => {}) =>
@@ -580,6 +566,76 @@ test("every package lens preserves its complete request lifecycle", async () => 
     readError: state => state.packageMetadataError,
     setKey: (state, key) => { state.packageMetadataKey = key; },
     setError: (state, error) => { state.packageMetadataError = error; },
+  });
+});
+
+test("opportunity requests occupy one explicit lifecycle state", async () => {
+  const packageItem = packageModel();
+  const request = deferred<BrowserPackageOpportunities>();
+  let queries = 0;
+  const state = inspectionState();
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPackageOpportunities: async () => {
+        queries++;
+        return request.promise;
+      },
+    }));
+
+  const load = coordinator.loadOpportunities(packageItem, "current", null);
+  assert.deepEqual(state.packageOpportunities, {
+    status: "loading",
+    key: "current",
+  });
+
+  await coordinator.loadOpportunities(packageItem, "current", null);
+  assert.equal(queries, 1);
+
+  const result = opportunitiesResult();
+  request.resolve(result);
+  await load;
+  assert.deepEqual(state.packageOpportunities, {
+    status: "ready",
+    key: "current",
+    data: result,
+  });
+
+  await coordinator.loadOpportunities(packageItem, "next", null);
+  assert.deepEqual(state.packageOpportunities, {
+    status: "ready",
+    key: "next",
+    data: result,
+  });
+});
+
+test("opportunity failures and stale results preserve request ownership", async () => {
+  const packageItem = packageModel();
+  const request = deferred<BrowserPackageOpportunities>();
+  const state = inspectionState();
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPackageOpportunities: async ({ id }) => {
+        if (id === packageItem.id) return request.promise;
+        throw new Error("newer failure");
+      },
+    }));
+
+  const staleLoad =
+    coordinator.loadOpportunities(packageItem, "first", null);
+  const newerPackage = packageModel({ id: "Example.Newer" });
+  await coordinator.loadOpportunities(newerPackage, "second", null);
+  assert.deepEqual(state.packageOpportunities, {
+    status: "failed",
+    key: "second",
+    error: "newer failure",
+  });
+
+  request.resolve(opportunitiesResult());
+  await staleLoad;
+  assert.deepEqual(state.packageOpportunities, {
+    status: "failed",
+    key: "second",
+    error: "newer failure",
   });
 });
 
@@ -905,7 +961,7 @@ test("scoped package lenses route platform coordinates and suppress stale result
     "metadata:Example.Package",
   ]);
   assert.ok(state.packageIntegrations);
-  assert.ok(state.packageOpportunities);
+  assert.equal(state.packageOpportunities.status, "ready");
   assert.equal(state.packagePerformance, null);
   assert.equal(state.packagePerformanceError, "analysis unavailable");
   assert.equal(state.packagePerformanceLoading, false);
@@ -994,16 +1050,21 @@ test("package lens results clear before a different request completes", async ()
   {
     const query = deferred<BrowserPackageOpportunities>();
     const state = inspectionState({
-      packageOpportunitiesKey: "old",
-      packageOpportunities: opportunitiesResult(),
+      packageOpportunities: {
+        status: "ready",
+        key: "old",
+        data: opportunitiesResult(),
+      },
     });
     const coordinator = createPackageInspectionCoordinator(
       inspectionDependencies(state, {
         queryPackageOpportunities: async () => query.promise,
       }));
     const load = coordinator.loadOpportunities(packageItem, "new", null);
-    assert.equal(state.packageOpportunities, null);
-    assert.equal(state.packageOpportunitiesLoading, true);
+      assert.deepEqual(state.packageOpportunities, {
+        status: "loading",
+        key: "new",
+      });
     query.resolve(opportunitiesResult());
     await load;
   }
@@ -1069,11 +1130,16 @@ test("package lens results require their current request key", async () => {
         queryPackageOpportunities: async () => query.promise,
       }));
     const load = coordinator.loadOpportunities(packageItem, "first", null);
-    state.packageOpportunitiesKey = "second";
-    query.resolve(opportunitiesResult());
-    await load;
-    assert.equal(state.packageOpportunities, null);
-    assert.equal(state.packageOpportunitiesLoading, true);
+      state.packageOpportunities = {
+        status: "loading",
+        key: "second",
+      };
+      query.resolve(opportunitiesResult());
+      await load;
+      assert.deepEqual(state.packageOpportunities, {
+        status: "loading",
+        key: "second",
+      });
   }
 
   {
@@ -1130,7 +1196,7 @@ test("runtime package lenses wait for an explicit library scope", async () => {
   assert.equal(queries, 0);
   assert.equal(renders, 0);
   assert.equal(state.packageIntegrationsKey, "");
-  assert.equal(state.packageOpportunitiesKey, "");
+  assert.equal(state.packageOpportunities.status, "idle");
   assert.equal(state.packagePerformanceKey, "");
   assert.equal(state.packageMetadataKey, "");
 });

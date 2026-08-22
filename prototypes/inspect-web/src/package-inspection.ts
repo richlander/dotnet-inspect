@@ -1,5 +1,6 @@
 import {
   packageIdentityKey,
+  type AsyncResource,
   type DependencyGroupData,
   type PackageLens,
   type PackageIdentity,
@@ -45,10 +46,7 @@ export interface PackageInspectionState {
   packageIntegrationsLoading: boolean;
   packageIntegrationsError: string;
   packageIntegrationsKey: string;
-  packageOpportunities: BrowserPackageOpportunities | null;
-  packageOpportunitiesLoading: boolean;
-  packageOpportunitiesError: string;
-  packageOpportunitiesKey: string;
+  packageOpportunities: AsyncResource<BrowserPackageOpportunities>;
   packagePerformance: PackagePerformance | null;
   packagePerformanceLoading: boolean;
   packagePerformanceError: string;
@@ -299,15 +297,13 @@ export function createPackageInspectionCoordinator(
 
     async loadOpportunities(packageModel, signature, scopedLibrary) {
       if (packageModel.isRuntimePack && !scopedLibrary) return;
-      if (state.packageOpportunitiesKey === signature
-        && (state.packageOpportunities || state.packageOpportunitiesError)) {
+      if (state.packageOpportunities.status !== "idle"
+        && state.packageOpportunities.key === signature) {
         dependencies.render();
         return;
       }
-      state.packageOpportunitiesKey = signature;
-      state.packageOpportunities = null;
-      state.packageOpportunitiesError = "";
-      state.packageOpportunitiesLoading = true;
+      const pending = { status: "loading", key: signature } as const;
+      state.packageOpportunities = pending;
       dependencies.render();
       try {
         const coordinates = packageModel.isRuntimePack
@@ -319,17 +315,22 @@ export function createPackageInspectionCoordinator(
               coordinates.assemblyFileName,
               coordinates.pack)
           : await dependencies.queryPackageOpportunities(packageModel);
-        if (state.packageOpportunitiesKey === signature) {
-          state.packageOpportunities = result;
+        if (state.packageOpportunities === pending) {
+          state.packageOpportunities = {
+            status: "ready",
+            key: signature,
+            data: result,
+          };
         }
       } catch (error) {
-        if (state.packageOpportunitiesKey === signature) {
-          state.packageOpportunitiesError = dependencies.describeError(error);
+        if (state.packageOpportunities === pending) {
+          state.packageOpportunities = {
+            status: "failed",
+            key: signature,
+            error: dependencies.describeError(error),
+          };
         }
       } finally {
-        if (state.packageOpportunitiesKey === signature) {
-          state.packageOpportunitiesLoading = false;
-        }
         dependencies.render();
       }
     },

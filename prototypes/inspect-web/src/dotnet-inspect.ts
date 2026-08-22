@@ -1,6 +1,7 @@
 import {
   accessibilityFilterIncludingType,
   activeSourceOperationKind,
+  asyncResourceKey,
   assemblyDescriptorForType,
   assertNever,
   pdbSourceLimitationHtml,
@@ -19,6 +20,7 @@ import {
   graphMemberSelection,
   graphMemberTargetFromShare,
   graphOnlyBodyTarget,
+  idleAsyncResource,
   MARKDOWN_SANITIZE_OPTIONS,
   MAX_WORKSPACE_PACKAGES,
   memberRequestKey,
@@ -584,10 +586,7 @@ const initialState = {
   packageIntegrationsLoading: false,
   packageIntegrationsError: "",
   packageIntegrationsKey: "",
-  packageOpportunities: null,
-  packageOpportunitiesLoading: false,
-  packageOpportunitiesError: "",
-  packageOpportunitiesKey: "",
+  packageOpportunities: idleAsyncResource<BrowserPackageOpportunities>(),
   packagePerformance: null,
   packagePerformanceLoading: false,
   packagePerformanceError: "",
@@ -699,7 +698,6 @@ interface StateOverrides {
   workspaceDependencyErrors: Record<string, string>;
   workspaceDependencyLoads: Set<string>;
   packageIntegrations: BrowserPackageIntegrations | null;
-  packageOpportunities: BrowserPackageOpportunities | null;
   packagePerformance: PackagePerformance | null;
   packageMetadata: PackageMetadata | null;
   explorer: AppExplorerState | null;
@@ -2986,10 +2984,8 @@ function renderPackageOpportunities() {
     scopedLibrary: scopedLib,
     activeFramework: pkg.activeFramework,
     picker,
-    fresh: state.packageOpportunitiesKey === current,
-    loading: state.packageOpportunitiesLoading,
-    error: state.packageOpportunitiesError,
-    data: state.packageOpportunities,
+    signature: current,
+    resource: state.packageOpportunities,
     escapeHtml,
   });
 }
@@ -3006,7 +3002,9 @@ async function loadPackageOpportunities() {
 function maybeAutoLoadPackageOpportunities() {
   if (!state.atPackageRoot || state.packageLens !== "opportunities") return;
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
-  if (state.packageOpportunitiesKey === packageScopeSignature()) return;
+  if (asyncResourceKey(state.packageOpportunities) === packageScopeSignature()) {
+    return;
+  }
   observeAsync(loadPackageOpportunities(), "Loading package opportunities");
 }
 

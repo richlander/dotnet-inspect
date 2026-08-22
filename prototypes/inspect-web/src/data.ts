@@ -1406,6 +1406,22 @@ export interface ScopedRequestState {
   error: string;
 }
 
+export type AsyncResource<T> =
+  | { status: "idle" }
+  | { status: "loading"; key: string }
+  | { status: "ready"; key: string; data: T }
+  | { status: "failed"; key: string; error: string };
+
+export function idleAsyncResource<T>(): AsyncResource<T> {
+  return { status: "idle" };
+}
+
+export function asyncResourceKey<T>(
+  resource: AsyncResource<T>,
+): string | null {
+  return resource.status === "idle" ? null : resource.key;
+}
+
 export function scopedRequestState(
   activeKey: string,
   requestKey: string,

@@ -2,6 +2,7 @@ import type {
   BrowserOpportunityItem,
   BrowserPackageOpportunities,
 } from "./inspect-web-engine.d.ts";
+import type { AsyncResource } from "./data.ts";
 
 export type OpportunityItem = BrowserOpportunityItem;
 type PackageOpportunities = Pick<
@@ -14,10 +15,8 @@ export interface RenderPackageOpportunitiesOptions {
   scopedLibrary: string | null;
   activeFramework: string;
   picker: string;
-  fresh: boolean;
-  loading: boolean;
-  error: string;
-  data: PackageOpportunities | null;
+  signature: string;
+  resource: AsyncResource<PackageOpportunities>;
   escapeHtml: (value: unknown) => string;
 }
 
@@ -142,19 +141,30 @@ function renderOpportunityRow(item: OpportunityItem, escapeHtml: (value: unknown
 }
 
 export function renderPackageOpportunities(options: RenderPackageOpportunitiesOptions): string {
-  const { isPlatform, scopedLibrary, activeFramework, picker, fresh, loading, error, data, escapeHtml } = options;
+  const {
+    isPlatform,
+    scopedLibrary,
+    activeFramework,
+    picker,
+    signature,
+    resource,
+    escapeHtml,
+  } = options;
 
   if (isPlatform && !scopedLibrary) {
     return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Pick a library to scan</h2><p>Choose a .NET platform library above to compare its public surface against ecosystem integration patterns.</p></section>`;
   }
   const scanScope = isPlatform ? `${escapeHtml(scopedLibrary)} · ${escapeHtml(activeFramework)}` : escapeHtml(activeFramework);
-  if (loading && fresh) {
+  const fresh = resource.status !== "idle" && resource.key === signature;
+  if (fresh && resource.status === "loading") {
     return `${picker}<section class="document-section source-progress"><span class="loader"></span><h2>Scanning opportunities…</h2><p>Comparing the public surface against ecosystem integration patterns.</p></section>`;
   }
-  if (fresh && error) {
-    return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Opportunity scan failed</h2><p>${escapeHtml(error)}</p></section>`;
+  if (fresh && resource.status === "failed") {
+    return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Opportunity scan failed</h2><p>${escapeHtml(resource.error)}</p></section>`;
   }
-  const resolved = fresh ? data : null;
+  const resolved = fresh && resource.status === "ready"
+    ? resource.data
+    : null;
   if (!resolved) {
     return `${picker}<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
   }
