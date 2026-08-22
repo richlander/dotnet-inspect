@@ -1,5 +1,9 @@
 using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.Metadata;
@@ -83,10 +87,7 @@ public sealed class JsExportSurfaceBuilderTests
                             SignatureModel = isUnsafe
                                 ? new ApiSignature()
                                 : null,
-                            Attributes =
-                            [
-                                "System.Runtime.InteropServices.JavaScript.JSExport",
-                            ],
+                            HasRuntimeJsExport = true,
                         },
                     ],
                 },
@@ -125,10 +126,7 @@ public sealed class JsExportSurfaceBuilderTests
                             {
                                 ReturnType = "object",
                             },
-                            Attributes =
-                            [
-                                "System.Runtime.InteropServices.JavaScript.JSExport",
-                            ],
+                            HasRuntimeJsExport = true,
                         },
                     ],
                 },
@@ -167,6 +165,32 @@ public sealed class JsExportSurfaceBuilderTests
             JsExportSurfaceBuilder.Build(apiSurface);
 
         Assert.Empty(surface.Functions);
+    }
+
+    [Fact]
+    public void Extract_DoesNotTrustSameNameJsExportFromAnotherAssembly()
+    {
+        using var stream = new MemoryStream(
+            BuildFakeJsExportImage(),
+            writable: false);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType fixture = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == "FakeJsExportFixture");
+        ApiMember method = Assert.Single(
+            fixture.Members,
+            member => member.Name == "NotAnExport");
+
+        Assert.Contains(
+            "System.Runtime.InteropServices.JavaScript.JSExport",
+            method.Attributes);
+        Assert.False(method.HasRuntimeJsExport);
+        Assert.DoesNotContain(
+            JsExportSurfaceBuilder.Build(apiSurface).Functions,
+            function => function.Name == "NotAnExport");
     }
 
     [Theory]
@@ -630,6 +654,27 @@ public sealed class JsExportSurfaceBuilderTests
             value.JsonStringEnumMemberNameAttributeValues);
     }
 
+    [Fact]
+    public void Extract_RejectsStringEnumConverterForAnotherEnum()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(MismatchedStringEnumConverterFixture).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType enumType = Assert.Single(
+            apiSurface.Types,
+            type => type.Name
+                == nameof(MismatchedStringEnumConverterFixture));
+
+        Assert.Equal(1, enumType.JsonConverterAttributeCount);
+        Assert.False(enumType.HasJsonStringEnumConverter);
+        Assert.Throws<InvalidOperationException>(
+            () => JsonSerializer.Serialize(
+                MismatchedStringEnumConverterFixture.Value));
+    }
+
     static ApiSurface ExportSurface(int token) =>
         new()
         {
@@ -650,15 +695,109 @@ public sealed class JsExportSurfaceBuilderTests
                             {
                                 ReturnType = "void",
                             },
-                            Attributes =
-                            [
-                                "System.Runtime.InteropServices.JavaScript.JSExport",
-                            ],
+                            HasRuntimeJsExport = true,
                         },
                     ],
                 },
             ],
         };
+
+    static byte[] BuildFakeJsExportImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Fake.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Fake"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        AssemblyReferenceHandle fakeAssembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString(
+                    "System.Runtime.InteropServices.JavaScript"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle fakeAttribute =
+            metadata.AddTypeReference(
+                fakeAssembly,
+                metadata.GetOrAddString(
+                    "System.Runtime.InteropServices.JavaScript"),
+                metadata.GetOrAddString("JSExportAttribute"));
+        var attributeConstructorSignature = new BlobBuilder();
+        new BlobEncoder(attributeConstructorSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+            0,
+            returnType => returnType.Void(),
+            _ => { });
+        MemberReferenceHandle attributeConstructor =
+            metadata.AddMemberReference(
+                fakeAttribute,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(
+                    attributeConstructorSignature));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString(
+                "ILInspector.JsExportSurface.Tests"),
+            metadata.GetOrAddString("FakeJsExportFixture"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var methodSignature = new BlobBuilder();
+        new BlobEncoder(methodSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: false).Parameters(
+            0,
+            returnType => returnType.Void(),
+            _ => { });
+        MethodDefinitionHandle method = metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static,
+            MethodImplAttributes.Runtime,
+            metadata.GetOrAddString("NotAnExport"),
+            metadata.GetOrAddBlob(methodSignature),
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
+        var attributeValue = new BlobBuilder();
+        attributeValue.WriteUInt16(1);
+        attributeValue.WriteUInt16(0);
+        metadata.AddCustomAttribute(
+            method,
+            attributeConstructor,
+            metadata.GetOrAddBlob(attributeValue));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
 
     [Fact]
     public void Build_CapturesJsonPropertyNameAndJsonIgnoreFacts()
@@ -770,6 +909,41 @@ public sealed class JsExportSurfaceBuilderTests
             JsExportSurfaceBuilder.Build(apiSurface);
 
         Assert.Equal(["Root"], surface.Records.Select(type => type.Name));
+    }
+
+    [Fact]
+    public void Build_DoesNotAliasExternalContextRootToLocalType()
+    {
+        ApiType context = CreateSerializerContext(
+            "Context",
+            "Mine.Result",
+            JsonWireNamingPolicy.None);
+        context.Members[0].SignatureModel = new ApiSignature
+        {
+            ReturnType = context.Members[0].ReturnType,
+            ReturnTypeReferences =
+            [
+                new("External", "Mine.Result"),
+            ],
+        };
+        var apiSurface = new ApiSurface
+        {
+            AssemblyName = "Local",
+            Types =
+            [
+                context,
+                new ApiType
+                {
+                    Namespace = "Mine",
+                    Name = "Result",
+                },
+            ],
+        };
+
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            JsExportSurfaceBuilder.Build(apiSurface);
+
+        Assert.Empty(surface.Records);
     }
 
     private static ApiType CreateSerializerContext(

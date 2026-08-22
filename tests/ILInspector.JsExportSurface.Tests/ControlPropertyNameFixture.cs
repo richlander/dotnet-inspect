@@ -128,6 +128,17 @@ internal enum NamedEnumFixture
     SecondDuplicate,
 }
 
+internal enum OtherEnumFixture
+{
+    Value,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<OtherEnumFixture>))]
+internal enum MismatchedStringEnumConverterFixture
+{
+    Value,
+}
+
 internal enum ControlPropertyNameEnumFixture
 {
     [JsonPropertyName("enum\nbreak\r\t\u0001")]

@@ -1,3 +1,5 @@
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
@@ -39,6 +41,13 @@ public sealed class JsonWireContractResolverTests
         Assert.Equal(
             FixtureNamespace + "WidgetDto",
             getWidget.ReturnWireType);
+        Assert.Equal(
+            [
+                new ApiTypeReferenceIdentity(
+                    "ILInspector.JsExportSurface.Fixtures",
+                    FixtureNamespace + "WidgetDto"),
+            ],
+            getWidget.ReturnWireTypeReferences);
         Assert.Empty(getWidget.ParameterWireTypes);
     }
 
@@ -131,5 +140,98 @@ public sealed class JsonWireContractResolverTests
 
         Assert.All(surface.Functions, f => Assert.Null(f.ReturnWireType));
         Assert.All(surface.Functions, f => Assert.Empty(f.ParameterWireTypes));
+    }
+
+    [Fact]
+    public void Build_RejectsRealAsyncStateMachineAnalysisFailure()
+    {
+        string sourcePath = typeof(FixtureExports).Assembly.Location;
+        byte[] image = File.ReadAllBytes(sourcePath);
+        int exportToken;
+        int moveNextToken;
+        int moveNextRva;
+        using (var stream = new MemoryStream(image, writable: false))
+        using (var peReader = new PEReader(stream))
+        {
+            MetadataReader reader = peReader.GetMetadataReader();
+            TypeDefinition fixtureType = reader.TypeDefinitions
+                .Select(reader.GetTypeDefinition)
+                .Single(type => reader.GetString(type.Name)
+                    == nameof(FixtureExports));
+            MethodDefinitionHandle exportHandle =
+                fixtureType.GetMethods().Single(handle =>
+                    reader.GetString(
+                        reader.GetMethodDefinition(handle).Name)
+                        == "GetWidgetAsync");
+            exportToken = MetadataTokens.GetToken(exportHandle);
+
+            TypeDefinition stateMachine = reader.TypeDefinitions
+                .Select(reader.GetTypeDefinition)
+                .Single(type => reader.GetString(type.Name)
+                    .StartsWith(
+                        "<GetWidgetAsync>d__",
+                        StringComparison.Ordinal));
+            MethodDefinitionHandle moveNextHandle =
+                stateMachine.GetMethods().Single(handle =>
+                    reader.GetString(
+                        reader.GetMethodDefinition(handle).Name)
+                        == "MoveNext");
+            MethodDefinition moveNext =
+                reader.GetMethodDefinition(moveNextHandle);
+            moveNextToken = MetadataTokens.GetToken(moveNextHandle);
+            moveNextRva = moveNext.RelativeVirtualAddress;
+
+            int bodyOffset = RvaToFileOffset(
+                peReader.PEHeaders,
+                moveNextRva);
+            image[bodyOffset] = 0x01;
+        }
+
+        string corruptedPath = Path.Combine(
+            Path.GetTempPath(),
+            $"tsbindgen-async-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(corruptedPath, image);
+            LibraryBodyIndex bodyIndex =
+                LibraryBodyIndex.Open(corruptedPath);
+            AnalysisDiagnostic diagnostic = Assert.Single(
+                bodyIndex.Diagnostics,
+                candidate => candidate.MethodToken == moveNextToken);
+            Assert.Equal(exportToken, diagnostic.SourceMethodToken);
+
+            using FileStream source = File.OpenRead(sourcePath);
+            using var sourceReader = new PEReader(source);
+            ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+                sourceReader,
+                includeAll: false);
+
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    apiSurface,
+                    bodyIndex));
+        }
+        finally
+        {
+            File.Delete(corruptedPath);
+        }
+    }
+
+    static int RvaToFileOffset(PEHeaders headers, int rva)
+    {
+        foreach (SectionHeader section in headers.SectionHeaders)
+        {
+            int size = Math.Max(section.VirtualSize, section.SizeOfRawData);
+            if (rva >= section.VirtualAddress
+                && rva < section.VirtualAddress + size)
+            {
+                return section.PointerToRawData
+                    + rva
+                    - section.VirtualAddress;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"RVA 0x{rva:X8} is not in a PE section.");
     }
 }

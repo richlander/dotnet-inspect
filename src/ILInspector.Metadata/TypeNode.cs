@@ -52,6 +52,29 @@ internal abstract class TypeNode
     internal virtual string StructuralIdentity()
         => CSharpText.XmlDocumentationNotation.NormalizeParameterType(RenderCanonical());
 
+    internal IEnumerable<ApiTypeReferenceIdentity> ReferencedTypes()
+    {
+        if (this is NamedTypeNode named)
+        {
+            yield return new(named.AssemblyName, named.Name);
+        }
+        else if (this is GenericTypeNode generic)
+        {
+            yield return new(
+                generic.DefinitionAssemblyName,
+                generic.BaseName);
+        }
+
+        foreach (TypeNode child in TypeChildren(this))
+        {
+            foreach (ApiTypeReferenceIdentity reference
+                in child.ReferencedTypes())
+            {
+                yield return reference;
+            }
+        }
+    }
+
     /// <summary>Renders this type to a C# display string with nullability annotations,
     /// including C# tuple syntax (<c>(int count, string name)</c>) for
     /// <c>System.ValueTuple</c> instantiations.</summary>
@@ -277,9 +300,11 @@ internal sealed class PrimitiveTypeNode(string name, bool isReferenceType) : Typ
 internal sealed class NamedTypeNode(
     string name,
     bool isReferenceType,
-    MetadataTypeNameParts? metadataName = null) : TypeNode
+    MetadataTypeNameParts? metadataName = null,
+    string assemblyName = "") : TypeNode
 {
     public string Name => name;
+    public string AssemblyName => assemblyName;
     public MetadataTypeNameParts? MetadataName => metadataName;
     public override bool IsReferenceType => isReferenceType;
     public override long EstimatedRenderedLength => name.Length + 1L;
@@ -308,12 +333,14 @@ internal sealed class GenericTypeNode(
     string nestedSuffix = "",
     bool degradedGenericType = false,
     MetadataTypeNameParts? metadataName = null,
-    string? structuralMetadataName = null) : TypeNode
+    string? structuralMetadataName = null,
+    string definitionAssemblyName = "") : TypeNode
 {
     readonly long estimatedRenderedLength =
         EstimateRenderedLength(baseName, arguments, nestedSuffix);
 
     public string BaseName => baseName;
+    public string DefinitionAssemblyName => definitionAssemblyName;
     public ImmutableArray<TypeNode> Arguments => arguments;
     public override bool IsReferenceType => isReferenceType;
     public override bool IsDegraded => degradedGenericType || arguments.Any(argument => argument.IsDegraded);

@@ -132,6 +132,9 @@ public class ApiSurface
     int _constraintResolutionSummaryIndex = -1;
     int _suppressedConstraintResolutionFailureCount;
 
+    [JsonIgnore]
+    public string? AssemblyName { get; set; }
+
     /// <summary>
     /// Package or assembly name.
     /// </summary>
@@ -543,6 +546,9 @@ public class ApiSignature
     /// injective.
     /// </summary>
     public string? StructuralReturnType { get; set; }
+
+    [JsonIgnore]
+    public List<ApiTypeReferenceIdentity> ReturnTypeReferences { get; set; } = [];
 
     public List<string> ReturnAttributes { get; set; } = [];
     public string? MemberName { get; set; }
@@ -974,6 +980,9 @@ public class ApiMember
     public int JsonConverterAttributeCount { get; set; }
 
     [JsonIgnore]
+    public bool HasRuntimeJsExport { get; set; }
+
+    [JsonIgnore]
     public string? JsonStringEnumMemberName { get; set; }
 
     [JsonIgnore]
@@ -1046,3 +1055,7 @@ public class ApiMember
     // Documentation (populated with --docs)
     public DocComment Documentation { get; set; } = new();
 }
+
+public sealed record ApiTypeReferenceIdentity(
+    string AssemblyName,
+    string FullName);

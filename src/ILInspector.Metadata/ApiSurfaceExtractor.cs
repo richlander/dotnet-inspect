@@ -172,6 +172,13 @@ public static class ApiSurfaceExtractor
     {
         var surface = new ApiSurface();
         var reader = peReader.GetMetadataReader();
+        string currentAssemblyName = reader.IsAssembly
+            ? DecodeString(
+                reader,
+                reader.GetAssemblyDefinition().Name,
+                beforeDecodeWork: null)
+            : "";
+        surface.AssemblyName = currentAssemblyName;
         var extensionReceiverDefinitions =
             new Dictionary<ApiMember, MetadataTypeDefinitionName>();
 
@@ -475,6 +482,13 @@ public static class ApiSurfaceExtractor
             ? null
             : materializationContext.Observe;
         Action<int> observeAttributeMaterialize = materializationContext.Observe;
+        string currentAssemblyName = reader.IsAssembly
+            ? DecodeString(
+                reader,
+                reader.GetAssemblyDefinition().Name,
+                observeDecodeWork)
+            : "";
+        surface.AssemblyName = currentAssemblyName;
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
@@ -653,10 +667,13 @@ public static class ApiSurfaceExtractor
                     reader,
                     jsonTypeAttributes,
                     observeDecodeWork);
-                apiType.HasJsonStringEnumConverter = AttributeReader.HasJsonStringEnumConverterAttribute(
-                    reader,
-                    jsonTypeAttributes,
-                    observeDecodeWork);
+                apiType.HasJsonStringEnumConverter =
+                    AttributeReader.HasJsonStringEnumConverterAttribute(
+                        reader,
+                        jsonTypeAttributes,
+                        apiType.FullName,
+                        currentAssemblyName,
+                        observeDecodeWork);
             }
 
             if (AttributeReader.TryGetJsonSourceGenerationPropertyNamingPolicy(
@@ -874,6 +891,11 @@ public static class ApiSurfaceExtractor
                     Accessibility = isExplicitInterfaceImplementation && !isOperator ? null : GetAccessibility(methodAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
+                    HasRuntimeJsExport =
+                        AttributeReader.HasRuntimeJsExportAttribute(
+                            reader,
+                            method.GetCustomAttributes(),
+                            observeDecodeWork),
                     Attributes = RenderMemberAttributes(
                         reader,
                         method.GetCustomAttributes(),
@@ -985,6 +1007,7 @@ public static class ApiSurfaceExtractor
                         prop.Name,
                         observeDecodeWork),
                     Kind = "property",
+                    MetadataToken = MetadataTokens.GetToken(propHandle),
                     Signature = propertySignature.Text,
                     SignatureModel = propertySignature.Model,
                     SignatureDecodeStatus = propertySignature.IsDegraded
@@ -1156,6 +1179,7 @@ public static class ApiSurfaceExtractor
                 // source, so they do not need a field declaration type.
                 string? fieldType = null;
                 bool fieldSignatureDegraded = false;
+                List<ApiTypeReferenceIdentity> fieldTypeReferences = [];
                 if (isEnum)
                 {
                     if (fieldName == "value__")
@@ -1169,7 +1193,8 @@ public static class ApiSurfaceExtractor
                 }
                 else
                 {
-                    (fieldType, fieldSignatureDegraded) = DecodeFieldType(
+                    (fieldType, fieldSignatureDegraded, fieldTypeReferences) =
+                        DecodeFieldType(
                         reader,
                         typeContext,
                         field,
@@ -1182,11 +1207,13 @@ public static class ApiSurfaceExtractor
                 {
                     Name = fieldName,
                     Kind = "field",
+                    MetadataToken = MetadataTokens.GetToken(fieldHandle),
                     ReturnType = fieldType,
                     SignatureModel = fieldType is null ? null : new ApiSignature
                     {
                         ReturnType = fieldType,
-                        MemberName = fieldName
+                        MemberName = fieldName,
+                        ReturnTypeReferences = fieldTypeReferences,
                     },
                     SignatureDecodeStatus = fieldSignatureDegraded
                         ? SignatureDecodeStatus.Degraded
@@ -1952,7 +1979,10 @@ public static class ApiSurfaceExtractor
                 reader.GetString(reader.GetTypeDefinition(current).Name)));
     }
 
-    private static (string Text, bool IsDegraded) DecodeFieldType(
+    private static (
+        string Text,
+        bool IsDegraded,
+        List<ApiTypeReferenceIdentity> References) DecodeFieldType(
         MetadataReader reader,
         GenericContext context,
         FieldDefinition field,
@@ -1986,7 +2016,10 @@ public static class ApiSurfaceExtractor
                 reader,
                 field.GetCustomAttributes(),
                 beforeDecodeWork));
-        return (fieldNode.Render(), fieldNode.IsDegraded);
+        return (
+            fieldNode.Render(),
+            fieldNode.IsDegraded,
+            [.. fieldNode.ReferencedTypes().Distinct()]);
     }
 
     /// <summary>
@@ -3092,6 +3125,8 @@ public static class ApiSurfaceExtractor
             StructuralReturnType = treeSignature.ReturnType.HasStructuralPayload
                 ? treeSignature.ReturnType.StructuralIdentity()
                 : null,
+            ReturnTypeReferences =
+                [.. treeSignature.ReturnType.ReferencedTypes().Distinct()],
             ReturnAttributes = returnAttributes,
             MemberName = methodName,
             TypeParameters = methodTypeParameters,
@@ -4193,6 +4228,8 @@ public static class ApiSurfaceExtractor
             StructuralReturnType = treeSignature.ReturnType.HasStructuralPayload
                 ? treeSignature.ReturnType.StructuralIdentity()
                 : null,
+            ReturnTypeReferences =
+                [.. treeSignature.ReturnType.ReferencedTypes().Distinct()],
             MemberName = indexerParameters.Count > 0 ? "this[]" : name,
             IsRequired = isRequired,
             Parameters = parameterModels,
@@ -4654,6 +4691,12 @@ public static class ApiSurfaceExtractor
         AddText(ref count, signature.ReturnType);
         AddText(ref count, signature.CanonicalReturnType);
         AddText(ref count, signature.StructuralReturnType);
+        foreach (ApiTypeReferenceIdentity reference
+            in signature.ReturnTypeReferences)
+        {
+            AddText(ref count, reference.AssemblyName);
+            AddText(ref count, reference.FullName);
+        }
         AddText(ref count, signature.ReturnAttributes);
         AddText(ref count, signature.MemberName);
         AddText(ref count, signature.ExtensionReceiverType);

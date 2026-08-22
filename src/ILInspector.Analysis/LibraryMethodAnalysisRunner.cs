@@ -592,7 +592,11 @@ internal sealed class LibraryMethodAnalysisRunner(
                     typeHandle,
                     methodHandle),
                 $"{ex.GetType().Name}: {ex.Message}",
-                DeclaringType: result.Caller?.DeclaringType);
+                SourceMethodToken:
+                    result.DeclaredSource?.MetadataToken,
+                DeclaringType: result.Caller?.DeclaringType,
+                SourceDeclaringType:
+                    result.DeclaredSource?.DeclaringType);
             if (includeLeakTriage
                 && result.LeakTriage is null)
             {

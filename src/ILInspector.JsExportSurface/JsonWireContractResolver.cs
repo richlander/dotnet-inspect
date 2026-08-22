@@ -1,4 +1,5 @@
 using ILInspector.Analysis;
+using ILInspector.Metadata;
 
 namespace ILInspector.JsExportSurface;
 
@@ -33,8 +34,8 @@ namespace ILInspector.JsExportSurface;
 /// branches) has no principled way to pick "the" return DTO. Rather than silently guess the first
 /// one found, <see cref="Attach"/> leaves <see cref="JsExportFunction.ReturnWireType"/> unset
 /// whenever more than one distinct DTO is found for the return position. "Distinct" is judged by
-/// qualified structural identity. That prevents an external type from aliasing
-/// an unrelated discovered local DTO that shares its simple name.
+/// assembly-scoped structural identity. That prevents an external type from
+/// aliasing an unrelated discovered local DTO that shares its qualified name.
 /// </para>
 /// </remarks>
 public static class JsonWireContractResolver
@@ -60,8 +61,8 @@ public static class JsonWireContractResolver
         // Kept as a list (not folded into a single "first wins" value) so ambiguity between
         // multiple distinct DTOs can be detected and left unresolved rather than guessed — see
         // remarks above.
-        var returnTypes = new List<string>();
-        var parameterTypes = new List<string>();
+        var returnTypes = new List<TypeRef>();
+        var parameterTypes = new List<TypeRef>();
 
         foreach (DirectCall call in bodyIndex.DirectCalls)
         {
@@ -72,7 +73,7 @@ public static class JsonWireContractResolver
                 continue;
             }
 
-            string? dto = ResolveJsonTypeInfoArgument(call.Callee);
+            TypeRef? dto = ResolveJsonTypeInfoArgument(call.Callee);
             if (dto is null)
             {
                 continue;
@@ -80,7 +81,7 @@ public static class JsonWireContractResolver
 
             if (call.Callee.Name == SerializeMethodName)
             {
-                if (!returnTypes.Contains(dto, StringComparer.Ordinal))
+                if (!returnTypes.Contains(dto))
                 {
                     returnTypes.Add(dto);
                 }
@@ -97,12 +98,19 @@ public static class JsonWireContractResolver
             Name = function.Name,
             ReturnType = function.ReturnType,
             Parameters = function.Parameters,
-            ReturnWireType = returnTypes.Count == 1 ? returnTypes[0] : null,
-            ParameterWireTypes = parameterTypes,
+            ReturnWireType = returnTypes.Count == 1
+                ? returnTypes[0].ToQualifiedDisplayString()
+                : null,
+            ReturnWireTypeReferences = returnTypes.Count == 1
+                ? [.. ReferencedTypes(returnTypes[0]).Distinct()]
+                : [],
+            ParameterWireTypes =
+                [.. parameterTypes.Select(
+                    type => type.ToQualifiedDisplayString())],
         };
     }
 
-    static string? ResolveJsonTypeInfoArgument(MemberRef callee)
+    static TypeRef? ResolveJsonTypeInfoArgument(MemberRef callee)
     {
         foreach (TypeRef parameter in callee.ParameterTypes)
         {
@@ -123,10 +131,39 @@ public static class JsonWireContractResolver
                 // WidgetCatalog.OwnersByKey property, which already renders "unknown" for exactly
                 // this reason, independent of this resolver). Recovering the correct display text
                 // here does not change that pre-existing, system-wide boundary.
-                return parameter.TypeArguments[0].ToQualifiedDisplayString();
+                return parameter.TypeArguments[0];
             }
         }
 
         return null;
+    }
+
+    static IEnumerable<ApiTypeReferenceIdentity> ReferencedTypes(
+        TypeRef type)
+    {
+        if (type.Kind == TypeRefKind.Definition)
+        {
+            yield return new(
+                type.Assembly,
+                type.ToQualifiedDisplayString());
+        }
+
+        if (type.ElementType is not null)
+        {
+            foreach (ApiTypeReferenceIdentity reference
+                in ReferencedTypes(type.ElementType))
+            {
+                yield return reference;
+            }
+        }
+
+        foreach (TypeRef argument in type.TypeArguments)
+        {
+            foreach (ApiTypeReferenceIdentity reference
+                in ReferencedTypes(argument))
+            {
+                yield return reference;
+            }
+        }
     }
 }

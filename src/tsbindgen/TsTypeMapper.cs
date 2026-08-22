@@ -40,20 +40,31 @@ static class TsTypeMapper
         string csharpType,
         IReadOnlySet<string> recordNames,
         TsBindGenDiagnostics? diagnostics = null,
-        string? location = null)
+        string? location = null,
+        IReadOnlySet<string>? blockedAliases = null)
     {
         string trimmed = csharpType.Trim();
 
         if (TryUnwrapGeneric(trimmed, "System.Threading.Tasks.Task", out string? taskArg)
             || TryUnwrapGeneric(trimmed, "Task", out taskArg))
         {
-            return $"Promise<{Map(taskArg!, recordNames, diagnostics, location)}>";
+            return $"Promise<{Map(
+                taskArg!,
+                recordNames,
+                diagnostics,
+                location,
+                blockedAliases)}>";
         }
 
         if (TryUnwrapGeneric(trimmed, "System.Threading.Tasks.ValueTask", out string? valueTaskArg)
             || TryUnwrapGeneric(trimmed, "ValueTask", out valueTaskArg))
         {
-            return $"Promise<{Map(valueTaskArg!, recordNames, diagnostics, location)}>";
+            return $"Promise<{Map(
+                valueTaskArg!,
+                recordNames,
+                diagnostics,
+                location,
+                blockedAliases)}>";
         }
 
         if (trimmed is "System.Threading.Tasks.Task" or "Task"
@@ -62,7 +73,12 @@ static class TsTypeMapper
             return "Promise<void>";
         }
 
-        return Map(trimmed, recordNames, diagnostics, location);
+        return Map(
+            trimmed,
+            recordNames,
+            diagnostics,
+            location,
+            blockedAliases);
     }
 
     /// <summary>
@@ -79,36 +95,59 @@ static class TsTypeMapper
         string wireDtoName,
         IReadOnlySet<string> recordNames,
         TsBindGenDiagnostics? diagnostics = null,
-        string? location = null)
+        string? location = null,
+        IReadOnlySet<string>? blockedAliases = null)
     {
         string trimmed = csharpType.Trim();
-        string dtoType = Map(wireDtoName, recordNames, diagnostics, location);
+        string dtoType = Map(
+            wireDtoName,
+            recordNames,
+            diagnostics,
+            location,
+            blockedAliases);
 
         if (IsJsonEnvelopeReturnType(trimmed))
             return IsAsyncReturnType(trimmed) ? $"Promise<{dtoType}>" : dtoType;
 
-        return MapReturnType(csharpType, recordNames, diagnostics, location);
+        return MapReturnType(
+            csharpType,
+            recordNames,
+            diagnostics,
+            location,
+            blockedAliases);
     }
 
     public static string MapParameterType(
         string csharpType,
         IReadOnlySet<string> recordNames,
         TsBindGenDiagnostics? diagnostics = null,
-        string? location = null) =>
-        Map(csharpType.Trim(), recordNames, diagnostics, location);
+        string? location = null,
+        IReadOnlySet<string>? blockedAliases = null) =>
+        Map(
+            csharpType.Trim(),
+            recordNames,
+            diagnostics,
+            location,
+            blockedAliases);
 
     static string Map(
         string csharpType,
         IReadOnlySet<string> recordNames,
         TsBindGenDiagnostics? diagnostics,
-        string? location)
+        string? location,
+        IReadOnlySet<string>? blockedAliases)
     {
         string trimmed = csharpType.Trim();
 
         if (trimmed.EndsWith("[]", StringComparison.Ordinal))
         {
             string element = trimmed[..^2];
-            string mappedElement = Map(element, recordNames, diagnostics, location);
+            string mappedElement = Map(
+                element,
+                recordNames,
+                diagnostics,
+                location,
+                blockedAliases);
             return mappedElement.Contains(" | ", StringComparison.Ordinal)
                 ? $"({mappedElement})[]"
                 : $"{mappedElement}[]";
@@ -117,22 +156,45 @@ static class TsTypeMapper
         if (trimmed.EndsWith("?", StringComparison.Ordinal))
         {
             string inner = trimmed[..^1];
-            return $"{Map(inner, recordNames, diagnostics, location)} | null";
+            return $"{Map(
+                inner,
+                recordNames,
+                diagnostics,
+                location,
+                blockedAliases)} | null";
         }
 
         if (TryUnwrapGeneric(trimmed, "System.Nullable", out string? nullableArg)
             || TryUnwrapGeneric(trimmed, "Nullable", out nullableArg))
         {
-            return $"{Map(nullableArg!, recordNames, diagnostics, location)} | null";
+            return $"{Map(
+                nullableArg!,
+                recordNames,
+                diagnostics,
+                location,
+                blockedAliases)} | null";
         }
 
-        if (TryMapDictionary(trimmed, recordNames, diagnostics, location, out string? dictionaryType))
+        if (TryMapDictionary(
+                trimmed,
+                recordNames,
+                diagnostics,
+                location,
+                blockedAliases,
+                out string? dictionaryType))
         {
             return dictionaryType!;
         }
 
         if (recordNames.Contains(trimmed))
         {
+            if (blockedAliases?.Contains(trimmed) == true)
+            {
+                diagnostics?.ReportUnmappedType(
+                    location ?? trimmed,
+                    trimmed);
+                return "unknown";
+            }
             return LastSegment(trimmed);
         }
 
@@ -171,6 +233,7 @@ static class TsTypeMapper
         IReadOnlySet<string> recordNames,
         TsBindGenDiagnostics? diagnostics,
         string? location,
+        IReadOnlySet<string>? blockedAliases,
         out string? mappedType)
     {
         if (!TryUnwrapGeneric(typeName, "System.Collections.Generic.Dictionary", out string? dictionaryArgs)
@@ -189,8 +252,18 @@ static class TsTypeMapper
             return true;
         }
 
-        string mappedKey = Map(keyType!, recordNames, diagnostics, location);
-        string mappedValue = Map(valueType!, recordNames, diagnostics, location);
+        string mappedKey = Map(
+            keyType!,
+            recordNames,
+            diagnostics,
+            location,
+            blockedAliases);
+        string mappedValue = Map(
+            valueType!,
+            recordNames,
+            diagnostics,
+            location,
+            blockedAliases);
         if (mappedKey != "string")
         {
             diagnostics?.ReportUnmappedType(location ?? typeName, typeName);

@@ -8,7 +8,6 @@ namespace ILInspector.JsExportSurface;
 /// </summary>
 public static class JsExportSurfaceBuilder
 {
-    const string JsExportAttributeName = "System.Runtime.InteropServices.JavaScript.JSExport";
     const string JsonTypeInfoPrefix = "System.Text.Json.Serialization.Metadata.JsonTypeInfo<";
     const string JsonSerializerContextBaseType = "System.Text.Json.Serialization.JsonSerializerContext";
 
@@ -30,6 +29,19 @@ public static class JsExportSurfaceBuilder
                 group => group.Key,
                 group => group.First().Type,
                 StringComparer.Ordinal);
+        var typesByScopedIdentity = surface.Types
+            .Select(type => (
+                Identity: new ApiTypeReferenceIdentity(
+                    surface.AssemblyName ?? "",
+                    type.FullName),
+                Type: type))
+            .GroupBy(candidate => candidate.Identity)
+            .Where(group => group.Select(candidate => candidate.Type)
+                .Distinct()
+                .Count() == 1)
+            .ToDictionary(
+                group => group.Key,
+                group => group.First().Type);
 
         var incompleteBodyTokens = new HashSet<int>();
         if (bodyIndex is not null)
@@ -95,7 +107,10 @@ public static class JsExportSurfaceBuilder
         var enums = new List<ApiType>();
         var discovered = new HashSet<ApiType>();
         var policiesByType = new Dictionary<ApiType, HashSet<JsonWireNamingPolicy>>();
-        var queue = new Queue<(string Name, JsonWireNamingPolicy Policy)>();
+        var queue = new Queue<(
+            string? Name,
+            ApiTypeReferenceIdentity? Identity,
+            JsonWireNamingPolicy Policy)>();
 
         foreach (ApiType type in surface.Types)
         {
@@ -122,15 +137,38 @@ public static class JsExportSurfaceBuilder
                 }
 
                 string rootTypeName = returnType[JsonTypeInfoPrefix.Length..^1];
-                foreach (string candidate in ExtractCandidateTypeNames(rootTypeName))
-                    queue.Enqueue((candidate, type.JsonPropertyNamingPolicy ?? JsonWireNamingPolicy.None));
+                JsonWireNamingPolicy policy =
+                    type.JsonPropertyNamingPolicy
+                        ?? JsonWireNamingPolicy.None;
+                if (member.SignatureModel?.ReturnTypeReferences.Count > 0)
+                {
+                    foreach (ApiTypeReferenceIdentity reference
+                        in member.SignatureModel.ReturnTypeReferences)
+                    {
+                        queue.Enqueue((null, reference, policy));
+                    }
+                }
+                else
+                {
+                    foreach (string candidate
+                        in ExtractCandidateTypeNames(rootTypeName))
+                    {
+                        queue.Enqueue((candidate, null, policy));
+                    }
+                }
             }
         }
 
         while (queue.Count > 0)
         {
-            (string name, JsonWireNamingPolicy namingPolicy) = queue.Dequeue();
-            if (!typesByIdentity.TryGetValue(name, out ApiType? type))
+            (string? name, ApiTypeReferenceIdentity? identity,
+                JsonWireNamingPolicy namingPolicy) = queue.Dequeue();
+            ApiType? type = null;
+            if (identity is not null)
+                typesByScopedIdentity.TryGetValue(identity, out type);
+            else if (name is not null)
+                typesByIdentity.TryGetValue(name, out type);
+            if (type is null)
                 continue;
 
             if (!policiesByType.TryGetValue(type, out HashSet<JsonWireNamingPolicy>? policies))
@@ -172,16 +210,36 @@ public static class JsExportSurfaceBuilder
                 }
 
                 string? propertyType = member.SignatureModel?.ReturnType ?? member.ReturnType;
-                foreach (string candidate in ExtractCandidateTypeNames(propertyType))
-                    queue.Enqueue((candidate, namingPolicy));
+                if (member.SignatureModel?.ReturnTypeReferences.Count > 0)
+                {
+                    foreach (ApiTypeReferenceIdentity reference
+                        in member.SignatureModel.ReturnTypeReferences)
+                    {
+                        queue.Enqueue((null, reference, namingPolicy));
+                    }
+                }
+                else
+                {
+                    foreach (string candidate
+                        in ExtractCandidateTypeNames(propertyType))
+                    {
+                        queue.Enqueue((candidate, null, namingPolicy));
+                    }
+                }
             }
         }
 
-        return new JsExportSurface { Functions = functions, Records = records, Enums = enums };
+        return new JsExportSurface
+        {
+            AssemblyName = surface.AssemblyName,
+            Functions = functions,
+            Records = records,
+            Enums = enums,
+        };
     }
 
     static bool HasJsExportAttribute(ApiMember member) =>
-        member.Attributes.Any(a => a == JsExportAttributeName);
+        member.HasRuntimeJsExport;
 
     static string FormatMemberLocation(ApiType type, ApiMember member) =>
         member.MetadataToken is { } memberToken

@@ -96,12 +96,18 @@ Type- or member-level custom `[JsonConverter]` attributes can replace the
 entire inferred wire shape. Types using an unsupported converter are emitted
 as diagnosed `unknown`; individual serialized members using one have an
 `unknown` TypeScript type. Ignored members remain irrelevant. Exactly one
-`JsonStringEnumConverter` on an enum remains supported, while duplicate,
-malformed, or other converter metadata is not guessed.
+framework-signed `JsonStringEnumConverter` on an enum remains supported; its
+generic argument, when present, must identify that exact enum. Duplicate,
+malformed, mismatched, spoofed, or other converter metadata is not guessed.
+Once a type-level converter makes the CLR member shape irrelevant, well-formed
+member wire names cannot turn that diagnosed `unknown` into a fatal result;
+malformed attribute rows remain fatal.
 `DtsEmitterTests.Emit_BlocksUnsupportedTypeAndMemberConverters`,
 `Emit_AllowsExactlyOneSupportedStringEnumConverter`, and
+`Emit_ConverterControlledTypeIgnoresResolvedMemberNames` plus
 `JsExportSurfaceBuilderTests.Extract_CapturesJsonConverterAndEnumWireNameFacts`
-gate these boundaries against both direct models and compiled metadata.
+and `Extract_RejectsStringEnumConverterForAnotherEnum` gate these boundaries
+against both direct models and compiled metadata.
 
 For string-converted enums, `[JsonStringEnumMemberName]` supplies the emitted
 wire value. Arbitrary values are safely escaped, equal wire values are
@@ -135,11 +141,11 @@ strict-mode names and collisions with the wrapper's generated `dotnet`,
 identifiers remain supported, including TypeScript's measured continuation-only
 edge points. Identifier acceptance is pinned to the TypeScript 7.0.2 scanner
 rather than the runtime's newer Unicode tables. Qualified CLR type identities
-must match a discovered local identity exactly; an unrelated external type with
-the same simple name becomes diagnosed `unknown`, not an alias. Empty
-string-converted enums are rejected before output. Property keys use the
-broader `IdentifierName` grammar, where reserved words remain valid and do not
-require quoting;
+must match a discovered local identity by assembly scope and qualified name;
+an unrelated external type with the same simple or namespace-qualified name
+becomes diagnosed `unknown`, not an alias. Empty string-converted enums are
+rejected before output. Property keys use the broader `IdentifierName` grammar,
+where reserved words remain valid and do not require quoting;
 `DtsEmitterTests.Emit_DoesNotQuoteReservedWordsUsedAsPropertyKeys` gates that
 distinction.
 `DtsEmitterTests.Emit_RefusesInvalidJsExportIdentifiers`,
@@ -148,7 +154,9 @@ distinction.
 `DtsEmitterTests.Emit_RefusesParameterThatShadowsItsExportSlot` gate the export
 path. `DtsEmitterTests.Emit_RefusesIdentifiersNewerThanPinnedTypeScriptUnicode`,
 `TsTypeMapperTests.Map_QualifiedExternalTypeDoesNotAliasLocalRecord`, and
-`DtsEmitterTests.Emit_RefusesEmptyStringConvertedEnumBeforeOutput` gate the
+`DtsEmitterTests.Emit_ExternalEnvelopeCannotAliasLocalQualifiedType` plus
+`JsExportSurfaceBuilderTests.Build_DoesNotAliasExternalContextRootToLocalType`
+and `DtsEmitterTests.Emit_RefusesEmptyStringConvertedEnumBeforeOutput` gate the
 remaining declaration boundaries. Incomplete metadata extraction and unsafe,
 signature-less, or degraded JS-export/wire signatures stop before declaration
 or file output and report only token-based locations; incomplete extraction is
@@ -160,9 +168,14 @@ unrelated methods remain irrelevant.
 `JsExportSurfaceBuilderTests.Build_InvalidExportUsesContainedFailure` plus the
 `Build_RejectsDegraded*` and
 `Build_RejectsOnlyExportScopedBodyDiagnostics` tests gate those boundaries.
-`Build_IgnoresLookalikeJsExportAttribute` gates exact
-`System.Runtime.InteropServices.JavaScript.JSExport` identity. Artifact-derived
-text in diagnostics is visually contained before it reaches stderr.
+`JsonWireContractResolverTests.Build_RejectsRealAsyncStateMachineAnalysisFailure`
+corrupts a compiled `MoveNext` body and gates production source-method
+attribution. `Build_IgnoresLookalikeJsExportAttribute` and
+`Extract_DoesNotTrustSameNameJsExportFromAnotherAssembly` gate exact,
+framework-signed `System.Runtime.InteropServices.JavaScript.JSExport` identity.
+Property and field metadata tokens identify the precise offending row in fatal
+messages. Artifact-derived text in diagnostics is visually contained before it
+reaches stderr.
 `DtsEmitterTests.Emit_AcceptsUnicodeTypeScriptIdentifiers`,
 `DtsEmitterTests.Emit_RefusesUnicodePatternSyntaxAsIdentifierStart`,
 `DtsEmitterTests.Emit_RefusesForbiddenTypeDeclarationNames`,

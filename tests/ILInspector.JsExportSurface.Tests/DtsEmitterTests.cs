@@ -502,6 +502,143 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
+    public void Emit_BlocksMismatchedStringEnumConverter()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(MismatchedStringEnumConverterFixture).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType enumType = Assert.Single(
+            apiSurface.Types,
+            type => type.Name
+                == nameof(MismatchedStringEnumConverterFixture));
+        var diagnostics = new TsBindGenDiagnostics();
+
+        string dts = DtsEmitter.Emit(
+            new ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyName = apiSurface.AssemblyName,
+                Enums = [enumType],
+            },
+            diagnostics);
+
+        Assert.Contains(
+            "export type MismatchedStringEnumConverterFixture = unknown;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Single(diagnostics.UnmappedTypes);
+    }
+
+    [Fact]
+    public void Emit_ConverterControlledTypeIgnoresResolvedMemberNames()
+    {
+        var blocked = new ApiType
+        {
+            Name = "Blocked",
+            JsonConverterAttributeCount = 1,
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "First",
+                    Kind = "property",
+                    HasGetter = true,
+                    JsonPropertyName = "same\nname",
+                    JsonPropertyNameAttributeValues = ["same\nname"],
+                },
+                new ApiMember
+                {
+                    Name = "Second",
+                    Kind = "property",
+                    HasGetter = true,
+                    JsonPropertyName = "same\nname",
+                    JsonPropertyNameAttributeValues = ["same\nname"],
+                },
+            ],
+        };
+
+        string dts = DtsEmitter.Emit(
+            new ILInspector.JsExportSurface.JsExportSurface
+            {
+                Records = [blocked],
+            });
+
+        Assert.Contains(
+            "export type Blocked = unknown;",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_ConverterControlledTypeStillRejectsMalformedNameRows()
+    {
+        var blocked = new ApiType
+        {
+            Name = "Blocked",
+            JsonConverterAttributeCount = 1,
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    HasGetter = true,
+                    JsonPropertyNameAttributeValues = [null],
+                },
+            ],
+        };
+
+        Assert.Throws<UnsupportedWireContractException>(
+            () => DtsEmitter.Emit(
+                new ILInspector.JsExportSurface.JsExportSurface
+                {
+                    Records = [blocked],
+                }));
+    }
+
+    [Fact]
+    public void Emit_ExternalEnvelopeCannotAliasLocalQualifiedType()
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            AssemblyName = "Local",
+            Records =
+            [
+                new ApiType
+                {
+                    Namespace = "Mine",
+                    Name = "Result",
+                },
+            ],
+            Functions =
+            [
+                new JsExportFunction
+                {
+                    DeclaringType = "Exports",
+                    Name = "GetResult",
+                    ReturnType = "string",
+                    ReturnWireType = "Mine.Result",
+                    ReturnWireTypeReferences =
+                    [
+                        new("External", "Mine.Result"),
+                    ],
+                },
+            ],
+        };
+
+        string dts = DtsEmitter.Emit(surface, diagnostics);
+
+        Assert.Contains(
+            "export declare function getResult(): unknown;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Single(diagnostics.UnmappedTypes);
+    }
+
+    [Fact]
     public void Emit_WithIncludeAllKeepsJsonIncludeNonPublicProperty()
     {
         string dts = EmitFixtureDts(includeAll: true);
@@ -541,7 +678,7 @@ public sealed class DtsEmitterTests
             candidate => candidate.Name == "Value");
 
         Assert.Equal(
-            $"type 0x{record.MetadataToken:X8} member "
+            $"member 0x{member.MetadataToken:X8} "
                 + "[JsonPropertyName]: control-character JSON property names "
                 + "are not supported.",
             exception.Message);
@@ -1228,7 +1365,7 @@ public sealed class DtsEmitterTests
             enumType.Members,
             candidate => candidate.Name == "Value");
         Assert.Equal(
-            $"type 0x{enumType.MetadataToken:X8} member [JsonPropertyName]: "
+            $"member 0x{member.MetadataToken:X8} [JsonPropertyName]: "
                 + "control-character JSON property names are not supported.",
             exception.Message);
     }

@@ -112,6 +112,57 @@ public static class AttributeDecoder
         return null;
     }
 
+    internal static bool TryGetAttributeTypeAssemblyReference(
+        MetadataReader reader,
+        EntityHandle constructorHandle,
+        string fullTypeName,
+        out AssemblyReferenceHandle assemblyReference,
+        Action<int>? beforeMaterialize = null)
+    {
+        assemblyReference = default;
+        if (GetAttributeTypeName(
+                reader,
+                constructorHandle,
+                beforeMaterialize)
+            != fullTypeName)
+        {
+            return false;
+        }
+
+        EntityHandle declaringType = constructorHandle.Kind switch
+        {
+            HandleKind.MemberReference =>
+                reader.GetMemberReference(
+                    (MemberReferenceHandle)constructorHandle).Parent,
+            HandleKind.MethodDefinition =>
+                reader.GetMethodDefinition(
+                    (MethodDefinitionHandle)constructorHandle)
+                    .GetDeclaringType(),
+            _ => default,
+        };
+        if (declaringType.IsNil)
+            return false;
+
+        if (declaringType.Kind != HandleKind.TypeReference)
+            return false;
+
+        Span<TypeReferenceHandle> chain =
+            stackalloc TypeReferenceHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        bool resolved = MetadataRelationshipTraversal
+                .TryWalkTypeReferenceResolutionScope(
+                    reader,
+                    (TypeReferenceHandle)declaringType,
+                    chain,
+                    out _,
+                    out EntityHandle terminal,
+                    out _)
+            && terminal.Kind == HandleKind.AssemblyReference;
+        if (resolved)
+            assemblyReference = (AssemblyReferenceHandle)terminal;
+        return resolved;
+    }
+
     /// <summary>
     /// Decodes an attribute's fixed and named arguments to typed values, or null
     /// when the blob cannot be decoded. Argument <c>Type</c> strings are C#

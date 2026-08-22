@@ -67,6 +67,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
             name,
             rejection,
             metadataName,
+            CurrentAssemblyName(reader),
             materializationWork);
         Cache(reader, handle, read);
         return ReadNamedType(read, rawTypeKind);
@@ -133,6 +134,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
             name,
             rejection,
             metadataName,
+            ReferencedAssemblyName(reader, handle),
             materializationWork);
         Cache(reader, handle, read);
         return ReadNamedType(read, rawTypeKind);
@@ -145,11 +147,14 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         if (read.Resolved)
         {
             _beforeRetain?.Invoke(read.Name!);
+            if (read.AssemblyName.Length > 0)
+                _beforeRetain?.Invoke(read.AssemblyName);
             bool isRef = rawTypeKind != 0x11; // 0x11 = ELEMENT_TYPE_VALUETYPE
             return new NamedTypeNode(
                 read.Name!,
                 isRef,
-                read.MetadataName);
+                read.MetadataName,
+                read.AssemblyName);
         }
 
         ArgumentNullException.ThrowIfNull(read.Rejection);
@@ -196,7 +201,55 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         string? Name,
         RelationshipTraversalRejection? Rejection,
         MetadataTypeNameParts? MetadataName,
+        string AssemblyName,
         int MaterializationWork);
+
+    string CurrentAssemblyName(MetadataReader reader) =>
+        reader.IsAssembly
+            ? ReadString(
+                reader,
+                reader.GetAssemblyDefinition().Name)
+            : "";
+
+    string ReferencedAssemblyName(
+        MetadataReader reader,
+        TypeReferenceHandle handle)
+    {
+        Span<TypeReferenceHandle> chain =
+            stackalloc TypeReferenceHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal
+                .TryWalkTypeReferenceResolutionScope(
+                    reader,
+                    handle,
+                    chain,
+                    out _,
+                    out EntityHandle terminal,
+                    out _))
+        {
+            return "";
+        }
+
+        return terminal.Kind switch
+        {
+            HandleKind.AssemblyReference =>
+                ReadString(
+                    reader,
+                    reader.GetAssemblyReference(
+                        (AssemblyReferenceHandle)terminal).Name),
+            HandleKind.ModuleDefinition or HandleKind.ModuleReference =>
+                CurrentAssemblyName(reader),
+            _ when terminal.IsNil => CurrentAssemblyName(reader),
+            _ => "",
+        };
+    }
+
+    string ReadString(MetadataReader reader, StringHandle handle)
+    {
+        _beforeMaterialize?.Invoke(
+            reader.GetBlobReader(handle).Length);
+        return reader.GetString(handle);
+    }
 
     void ReplayMaterializationWork(int amount)
     {
@@ -222,6 +275,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
                 foreach (string segment in structured.Segments)
                     characters += segment.Length;
             }
+            characters += read.AssemblyName.Length;
             if (characters
                 > SignatureDecoder.MaxAcceptedNameCacheCharacters
                     - _retainedCharacters)
@@ -294,7 +348,9 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
                 genericType.IsReferenceType,
                 typeArguments,
                 degradedGenericType: genericType.IsDegraded,
-                metadataName: metadataName);
+                metadataName: metadataName,
+                definitionAssemblyName:
+                    ((NamedTypeNode)genericType).AssemblyName);
         }
         else
         {
@@ -321,7 +377,9 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
                     rawName,
                     genericType.IsReferenceType,
                     typeArguments,
-                    structuralMetadataName: rawName);
+                    structuralMetadataName: rawName,
+                    definitionAssemblyName:
+                        (genericType as NamedTypeNode)?.AssemblyName ?? "");
             }
             else
             {
@@ -334,7 +392,9 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
                     typeArguments,
                     nestedSuffix,
                     genericType.IsDegraded,
-                    structuralMetadataName: rawName);
+                    structuralMetadataName: rawName,
+                    definitionAssemblyName:
+                        (genericType as NamedTypeNode)?.AssemblyName ?? "");
             }
         }
 

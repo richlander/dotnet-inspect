@@ -23,6 +23,13 @@ static class DtsEmitter
                     .Where(identity => !string.IsNullOrEmpty(identity))
                     .Select(identity => identity!)),
             StringComparer.Ordinal);
+        var knownTypeIdentities = surface.AssemblyName is { } assemblyName
+            ? new HashSet<ApiTypeReferenceIdentity>(
+                declarationTypes.Select(type =>
+                    new ApiTypeReferenceIdentity(
+                        assemblyName,
+                        type.FullName)))
+            : [];
 
         var sb = new StringBuilder();
 
@@ -30,13 +37,23 @@ static class DtsEmitter
             EmitEnum(sb, enumType, diagnostics);
 
         foreach (ApiType record in surface.Records.OrderBy(r => r.Name, StringComparer.Ordinal))
-            EmitRecord(sb, record, knownTypeNames, diagnostics);
+            EmitRecord(
+                sb,
+                record,
+                knownTypeNames,
+                knownTypeIdentities,
+                diagnostics);
 
         sb.Append(
             "export declare function initializeEngine(onStatus?: (status: string) => void): Promise<unknown>;\n");
 
         foreach (JsExportFunction function in surface.Functions.OrderBy(f => f.Name, StringComparer.Ordinal))
-            EmitFunction(sb, function, knownTypeNames, diagnostics);
+            EmitFunction(
+                sb,
+                function,
+                knownTypeNames,
+                knownTypeIdentities,
+                diagnostics);
 
         return sb.ToString();
     }
@@ -86,6 +103,7 @@ static class DtsEmitter
         StringBuilder sb,
         ApiType record,
         IReadOnlySet<string> knownTypeNames,
+        IReadOnlySet<ApiTypeReferenceIdentity> knownTypeIdentities,
         TsBindGenDiagnostics? diagnostics)
     {
         JsonWireNamingPolicy namingPolicy = record.JsonPropertyNamingPolicy ?? JsonWireNamingPolicy.None;
@@ -128,7 +146,11 @@ static class DtsEmitter
                     propertyType,
                     knownTypeNames,
                     diagnostics,
-                    location);
+                    location,
+                    BlockedAliases(
+                        member.SignatureModel?.ReturnTypeReferences,
+                        knownTypeNames,
+                        knownTypeIdentities));
             }
             sb.Append("  ").Append(tsName).Append(": ").Append(tsType).Append(";\n");
         }
@@ -140,12 +162,15 @@ static class DtsEmitter
     {
         foreach (ApiType type in types)
         {
+            bool converterControlled =
+                HasUnsupportedJsonConverter(type);
             foreach (ApiMember member in type.Members)
             {
                 ValidatePropertyNameAttributes(
                     $"{FormatMemberLocation(type, member)} [JsonPropertyName]",
                     member.JsonPropertyNameAttributeValues,
-                    member.JsonPropertyName);
+                    member.JsonPropertyName,
+                    validateName: !converterControlled);
             }
 
             foreach (FilteredJsonPropertyNameFact fact
@@ -154,7 +179,8 @@ static class DtsEmitter
                 ValidatePropertyNameAttributes(
                     FormatFilteredPropertyNameLocation(fact),
                     fact.PropertyNames,
-                    legacyPropertyName: null);
+                    legacyPropertyName: null,
+                    validateName: !converterControlled);
             }
 
             if (type.Kind == "enum")
@@ -164,13 +190,19 @@ static class DtsEmitter
                         member => member.Kind == "field" && member.IsConst)];
                 foreach (ApiMember member in members)
                 {
-                    ValidatePropertyName(
-                        FormatMemberLocation(type, member),
-                        member.Name);
                     ValidateEnumMemberNameAttributes(
                         $"{FormatMemberLocation(type, member)} "
                             + "[JsonStringEnumMemberName]",
                         member.JsonStringEnumMemberNameAttributeValues);
+                }
+                if (converterControlled)
+                    continue;
+
+                foreach (ApiMember member in members)
+                {
+                    ValidatePropertyName(
+                        FormatMemberLocation(type, member),
+                        member.Name);
                 }
                 if (type.JsonPropertyNamingPolicy
                         != JsonWireNamingPolicy.Unsupported
@@ -184,6 +216,9 @@ static class DtsEmitter
                 }
                 continue;
             }
+
+            if (converterControlled)
+                continue;
 
             if (type.JsonPropertyNamingPolicy == JsonWireNamingPolicy.Unsupported)
                 continue;
@@ -296,11 +331,12 @@ static class DtsEmitter
     static void ValidatePropertyNameAttributes(
         string location,
         IReadOnlyList<string?> propertyNames,
-        string? legacyPropertyName)
+        string? legacyPropertyName,
+        bool validateName = true)
     {
         if (propertyNames.Count == 0)
         {
-            if (legacyPropertyName is not null)
+            if (validateName && legacyPropertyName is not null)
                 ValidatePropertyName(location, legacyPropertyName);
             return;
         }
@@ -312,7 +348,8 @@ static class DtsEmitter
                 "duplicate or malformed JsonPropertyName attributes are not supported");
         }
 
-        ValidatePropertyName(location, propertyName);
+        if (validateName)
+            ValidatePropertyName(location, propertyName);
     }
 
     static void ValidateEnumMemberNameAttributes(
@@ -394,10 +431,20 @@ static class DtsEmitter
         StringBuilder sb,
         JsExportFunction function,
         IReadOnlySet<string> knownTypeNames,
+        IReadOnlySet<ApiTypeReferenceIdentity> knownTypeIdentities,
         TsBindGenDiagnostics? diagnostics)
     {
         string returnType = function.ReturnWireType is { } returnWireType
-            ? TsTypeMapper.MapReturnEnvelope(function.ReturnType, returnWireType, knownTypeNames, diagnostics, $"{function.Name} return")
+            ? TsTypeMapper.MapReturnEnvelope(
+                function.ReturnType,
+                returnWireType,
+                knownTypeNames,
+                diagnostics,
+                $"{function.Name} return",
+                BlockedAliases(
+                    function.ReturnWireTypeReferences,
+                    knownTypeNames,
+                    knownTypeIdentities))
             : TsTypeMapper.MapReturnType(function.ReturnType, knownTypeNames, diagnostics, $"{function.Name} return");
 
         var parameters = function.Parameters.Select(p =>
@@ -410,6 +457,37 @@ static class DtsEmitter
           .Append("): ")
           .Append(returnType)
           .Append(";\n");
+    }
+
+    static IReadOnlySet<string>? BlockedAliases(
+        IReadOnlyList<ApiTypeReferenceIdentity>? references,
+        IReadOnlySet<string> knownTypeNames,
+        IReadOnlySet<ApiTypeReferenceIdentity> knownTypeIdentities)
+    {
+        if (references is null || references.Count == 0)
+            return null;
+        if (knownTypeIdentities.Count == 0)
+            return null;
+
+        var blocked = new HashSet<string>(StringComparer.Ordinal);
+        foreach (ApiTypeReferenceIdentity reference in references)
+        {
+            if (knownTypeIdentities.Contains(reference))
+                continue;
+
+            string simpleName = LastSegment(reference.FullName);
+            if (knownTypeNames.Contains(reference.FullName))
+                blocked.Add(reference.FullName);
+            if (knownTypeNames.Contains(simpleName))
+                blocked.Add(simpleName);
+        }
+        return blocked.Count == 0 ? null : blocked;
+    }
+
+    static string LastSegment(string typeName)
+    {
+        int dot = typeName.LastIndexOf('.');
+        return dot >= 0 ? typeName[(dot + 1)..] : typeName;
     }
 
     static string ApplyNamingPolicy(string name, JsonWireNamingPolicy namingPolicy) => namingPolicy switch

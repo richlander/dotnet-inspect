@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using ILInspector.Metadata;
 
 namespace ILInspector.JsExportSurface;
@@ -12,6 +13,9 @@ namespace ILInspector.JsExportSurface;
 /// </summary>
 public sealed class JsExportSurface
 {
+    [JsonIgnore]
+    public string? AssemblyName { get; init; }
+
     public IReadOnlyList<JsExportFunction> Functions { get; init; } = [];
 
     public IReadOnlyList<ApiType> Records { get; init; } = [];
@@ -49,6 +53,10 @@ public sealed class JsExportFunction
     /// left unresolved rather than guessed — see <see cref="JsonWireContractResolver"/> remarks).
     /// </summary>
     public string? ReturnWireType { get; init; }
+
+    [JsonIgnore]
+    public IReadOnlyList<ApiTypeReferenceIdentity> ReturnWireTypeReferences
+        { get; init; } = [];
 
     /// <summary>
     /// DTO type(s) this method's own body deserializes from a JSON-string argument, resolved from

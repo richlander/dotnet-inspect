@@ -15,7 +15,12 @@ public static partial class AttributeReader
     private const string ExtensionMarkerNameAttributeName = "System.Runtime.CompilerServices.ExtensionMarkerNameAttribute";
     private const string ObsoleteAttributeName = "System.ObsoleteAttribute";
     private const string JsonConverterAttributeName = "System.Text.Json.Serialization.JsonConverterAttribute";
+    private const string SystemTextJsonAssemblyName = "System.Text.Json";
     private const string JsonStringEnumConverterTypeName = "System.Text.Json.Serialization.JsonStringEnumConverter";
+    private const string RuntimeJsExportAttributeName =
+        "System.Runtime.InteropServices.JavaScript.JSExportAttribute";
+    private const string RuntimeJavaScriptAssemblyName =
+        "System.Runtime.InteropServices.JavaScript";
     private const string JsonStringEnumMemberNameAttributeName =
         "System.Text.Json.Serialization.JsonStringEnumMemberNameAttribute";
     private const string FlagsAttributeName = "System.FlagsAttribute";
@@ -406,16 +411,38 @@ public static partial class AttributeReader
         foreach (CustomAttributeHandle attrHandle in attributes)
         {
             CustomAttribute attr = reader.GetCustomAttribute(attrHandle);
-            if (GetAttributeTypeName(
+            if (IsFrameworkAttributeType(
                     reader,
                     attr.Constructor,
-                    beforeMaterialize)
-                == JsonConverterAttributeName)
+                    JsonConverterAttributeName,
+                    SystemTextJsonAssemblyName,
+                    beforeMaterialize))
             {
                 count++;
             }
         }
         return count;
+    }
+
+    public static bool HasRuntimeJsExportAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize = null)
+    {
+        foreach (CustomAttributeHandle attrHandle in attributes)
+        {
+            CustomAttribute attr = reader.GetCustomAttribute(attrHandle);
+            if (IsFrameworkAttributeType(
+                    reader,
+                    attr.Constructor,
+                    RuntimeJsExportAttributeName,
+                    RuntimeJavaScriptAssemblyName,
+                    beforeMaterialize))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
 
@@ -574,29 +601,226 @@ public static partial class AttributeReader
     public static bool HasJsonStringEnumConverterAttribute(
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
+        string enumFullName,
+        string enumAssemblyName,
         Action<int>? beforeMaterialize = null)
     {
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrName = GetAttributeTypeName(
+            bool isJsonConverter = IsFrameworkAttributeType(
                 reader,
                 attr.Constructor,
+                JsonConverterAttributeName,
+                SystemTextJsonAssemblyName,
                 beforeMaterialize);
-            if (attrName != JsonConverterAttributeName)
+            if (!isJsonConverter)
                 continue;
             if (AttributeDecoder.TryDecodePreservingSerializedTypeNames(reader, attr)
                     is not { FixedArguments.Length: 1 } decoded
                 || decoded.FixedArguments[0].Value is not string converterTypeName)
                 continue;
-            // Strip generic arity (`1) and any nested/assembly-qualified suffix before comparing, since
-            // the serialized name preserves those (e.g. "System.Text.Json.Serialization.JsonStringEnumConverter`1[[...]]").
-            int genericMarker = converterTypeName.IndexOfAny(['`', '[', ',']);
-            string baseName = genericMarker < 0
-                ? converterTypeName
-                : converterTypeName[..genericMarker];
-            if (baseName == JsonStringEnumConverterTypeName)
+            if (IsSupportedJsonStringEnumConverter(
+                    converterTypeName,
+                    enumFullName,
+                    enumAssemblyName))
                 return true;
+        }
+        return false;
+    }
+
+    static bool IsFrameworkAttributeType(
+        MetadataReader reader,
+        EntityHandle constructor,
+        string fullTypeName,
+        string assemblyName,
+        Action<int>? beforeMaterialize)
+    {
+        try
+        {
+            AssemblyReferenceIdentity identity;
+            if (constructor.Kind == HandleKind.MethodDefinition
+                && AttributeDecoder.GetAttributeTypeName(
+                    reader,
+                    constructor,
+                    beforeMaterialize)
+                    == fullTypeName)
+            {
+                identity =
+                    AssemblyReferenceIdentity.FromAssemblyDefinition(
+                        reader);
+            }
+            else if (AttributeDecoder
+                .TryGetAttributeTypeAssemblyReference(
+                    reader,
+                    constructor,
+                    fullTypeName,
+                    out AssemblyReferenceHandle assemblyReference,
+                    beforeMaterialize))
+            {
+                identity = AssemblyReferenceIdentity.From(
+                    reader,
+                    assemblyReference);
+            }
+            else
+            {
+                return false;
+            }
+
+            return identity.Name == assemblyName
+                && PlatformKeys.IsPlatform(
+                    identity.PublicKeyToken);
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException)
+        {
+            return false;
+        }
+    }
+
+    static bool IsSupportedJsonStringEnumConverter(
+        string serializedName,
+        string enumFullName,
+        string enumAssemblyName)
+    {
+        const string genericPrefix =
+            JsonStringEnumConverterTypeName + "`1[";
+        if (serializedName.StartsWith(
+                genericPrefix,
+                StringComparison.Ordinal))
+        {
+            int outerArgumentEnd = FindMatchingBracket(
+                serializedName,
+                genericPrefix.Length - 1);
+            if (outerArgumentEnd < 0)
+                return false;
+
+            string serializedArgument = serializedName[
+                genericPrefix.Length..outerArgumentEnd];
+            if (serializedArgument.Length >= 2
+                && serializedArgument[0] == '['
+                && serializedArgument[^1] == ']')
+            {
+                serializedArgument = serializedArgument[1..^1];
+            }
+
+            bool hasArgumentAssembly = TryReadSerializedTypeIdentity(
+                    serializedArgument,
+                    out string? argumentType,
+                    out string? argumentAssembly);
+            if (!hasArgumentAssembly)
+            {
+                argumentType = serializedArgument.Trim();
+                argumentAssembly = enumAssemblyName;
+            }
+
+            if (argumentType!.Replace('+', '.')
+                    != enumFullName
+                || argumentAssembly != enumAssemblyName)
+            {
+                return false;
+            }
+
+            int outerAssemblyStart = outerArgumentEnd + 1;
+            return outerAssemblyStart < serializedName.Length
+                && serializedName[outerAssemblyStart] == ','
+                && IsTrustedSerializedAssembly(
+                    serializedName[(outerAssemblyStart + 1)..]);
+        }
+
+        int assemblySeparator = serializedName.IndexOf(',');
+        return assemblySeparator > 0
+            && serializedName[..assemblySeparator].Trim()
+                == JsonStringEnumConverterTypeName
+            && IsTrustedSerializedAssembly(
+                serializedName[(assemblySeparator + 1)..]);
+    }
+
+    static int FindMatchingBracket(
+        string serializedName,
+        int openBracket)
+    {
+        int depth = 1;
+        for (int i = openBracket + 1; i < serializedName.Length; i++)
+        {
+            switch (serializedName[i])
+            {
+                case '[':
+                    depth++;
+                    break;
+                case ']':
+                    depth--;
+                    if (depth == 0)
+                        return i;
+                    break;
+            }
+        }
+        return -1;
+    }
+
+    static bool TryReadSerializedTypeIdentity(
+        string serializedName,
+        out string? typeName,
+        out string? assemblyName)
+    {
+        int depth = 0;
+        for (int i = 0; i < serializedName.Length; i++)
+        {
+            switch (serializedName[i])
+            {
+                case '[':
+                    depth++;
+                    break;
+                case ']':
+                    depth--;
+                    if (depth < 0)
+                    {
+                        typeName = null;
+                        assemblyName = null;
+                        return false;
+                    }
+                    break;
+                case ',' when depth == 0:
+                    typeName = serializedName[..i].Trim();
+                    assemblyName =
+                        ReadAssemblySimpleName(serializedName[(i + 1)..]);
+                    return typeName.Length > 0
+                        && assemblyName.Length > 0;
+            }
+        }
+
+        typeName = null;
+        assemblyName = null;
+        return false;
+    }
+
+    static string ReadAssemblySimpleName(string assemblyIdentity)
+    {
+        ReadOnlySpan<char> trimmed = assemblyIdentity.AsSpan().Trim();
+        int comma = trimmed.IndexOf(',');
+        return (comma >= 0 ? trimmed[..comma] : trimmed).Trim().ToString();
+    }
+
+    static bool IsTrustedSerializedAssembly(string assemblyIdentity)
+    {
+        if (ReadAssemblySimpleName(assemblyIdentity)
+            != SystemTextJsonAssemblyName)
+        {
+            return false;
+        }
+
+        foreach (string component in assemblyIdentity.Split(','))
+        {
+            ReadOnlySpan<char> trimmed = component.AsSpan().Trim();
+            const string prefix = "PublicKeyToken=";
+            if (trimmed.StartsWith(
+                    prefix,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return PlatformKeys.IsPlatform(
+                    trimmed[prefix.Length..].ToString());
+            }
         }
         return false;
     }
