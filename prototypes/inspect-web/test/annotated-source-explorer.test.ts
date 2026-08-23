@@ -159,7 +159,7 @@ test("drag selection does not activate an addressable source segment", () => {
   assert.deepEqual(calls, [17, 17]);
 });
 
-test("CodeLens press previews its node only until release", () => {
+test("CodeLens activation retains its node preview until the six-second animation ends", () => {
   const lens = new FakeElement({ aseCodelensNode: "7" });
   const target = new FakeElement({ aseNodeIds: "7" });
   const toggle = new FakeElement();
@@ -188,17 +188,22 @@ test("CodeLens press previews its node only until release", () => {
     onOffsetSelect: () => {},
   });
 
-  lens.dispatch("pointerdown", fakeDom.event({ button: 0, pointerId: 3 }));
+  lens.dispatch("click");
   assert.equal(lens.classList.contains("previewing"), true);
   assert.equal(target.classList.contains("codelens-preview"), true);
-  lens.dispatch("pointerup", fakeDom.event({ pointerId: 3 }));
+  target.dispatch("animationend", fakeDom.event({
+    animationName: "ase-codelens-preview",
+  }));
   assert.equal(lens.classList.contains("previewing"), false);
   assert.equal(target.classList.contains("codelens-preview"), false);
 
-  lens.dispatch("keydown", fakeDom.keyboardEvent({ key: "Enter", preventDefault() {} }));
+  lens.dispatch("click");
   assert.equal(target.classList.contains("codelens-preview"), true);
-  lens.dispatch("keyup", fakeDom.keyboardEvent({ key: "Enter" }));
-  assert.equal(target.classList.contains("codelens-preview"), false);
+  assert.match(
+    styles,
+    /\.annotated-span\.codelens-preview\s*\{[^}]*animation:\s*ase-codelens-preview 6\.6s/,
+  );
+  assert.match(styles, /0%, 90\.909%/);
 
   toggle.dispatch("click");
   assert.equal(toggles, 1);

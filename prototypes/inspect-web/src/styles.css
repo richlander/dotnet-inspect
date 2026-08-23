@@ -2037,7 +2037,7 @@ kbd {
 .annotated-line-medium { flex: none; width: 4ch; color: var(--dim); font-size: 10px; text-align: right; user-select: none; }
 .annotated-line-text { flex: 1; min-width: 0; }
 .annotated-codelens-row { display: flex; align-items: center; gap: 12px; min-height: 1.45em; padding: 2px 14px 1px; white-space: pre; }
-.annotated-codelens-row button { margin: 0; padding: 1px 5px; border: 1px solid color-mix(in srgb, var(--blue) 34%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--blue) 5%, transparent); color: color-mix(in srgb, var(--blue) 74%, var(--text)); font: 10px/1.35 var(--mono); cursor: pointer; }
+.annotated-codelens-row button { margin: 0 0 0 -6px; padding: 1px 5px; border: 1px solid color-mix(in srgb, var(--blue) 34%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--blue) 5%, transparent); color: color-mix(in srgb, var(--blue) 74%, var(--text)); font: 10px/1.35 var(--mono); cursor: pointer; }
 .annotated-codelens-row button:hover,
 .annotated-codelens-row button.previewing { border-color: var(--blue); background: color-mix(in srgb, var(--blue) 12%, transparent); color: var(--text); }
 .annotated-node-caret { display: flex; gap: 12px; min-height: 1.2em; padding: 0 14px; color: var(--blue); font: inherit; line-height: 1.2; white-space: pre; }
@@ -2073,7 +2073,14 @@ kbd {
 .annotated-span.selected.capture { background: color-mix(in srgb, #b89ac6 28%, transparent); box-shadow: inset 0 -2px 0 #b89ac6; color: var(--text); }
 .annotated-span.selected.structural,
 .annotated-region.selected { background: transparent; box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--blue) 70%, transparent); color: var(--text); text-shadow: 0 0 7px color-mix(in srgb, var(--blue) 30%, transparent); }
-.annotated-span.codelens-preview { background: color-mix(in srgb, var(--blue) 10%, transparent); box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--blue) 80%, transparent); color: var(--text); font-weight: 700; text-shadow: 0 0 5px color-mix(in srgb, var(--blue) 28%, transparent); }
+.annotated-span.codelens-preview { color: var(--text); font-weight: 700; animation: ase-codelens-preview 6.6s linear forwards; }
+@keyframes ase-codelens-preview {
+  0%, 90.909% { background: color-mix(in srgb, var(--blue) 10%, transparent); box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--blue) 80%, transparent); text-shadow: 0 0 5px color-mix(in srgb, var(--blue) 28%, transparent); }
+  100% { background: transparent; box-shadow: inset 0 -1px 0 transparent; text-shadow: 0 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .annotated-span.codelens-preview { animation-duration: 6.01s; animation-timing-function: step-end; }
+}
 .annotated-span.has-fact:has(.annotated-region.selected) { box-shadow: none; }
 .ase-inspector { min-width: 0; min-height: 0; overflow: auto; background: var(--panel); }
 .ase-inspector-section { border-bottom: 1px solid var(--line); }

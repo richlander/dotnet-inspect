@@ -145,28 +145,26 @@ export function bindAnnotatedSourceExplorer(
       () => actions.onNodeSelect(Number(button.dataset.aseNode))));
   root.querySelectorAll<HTMLElement>("[data-ase-codelens-node]").forEach(button => {
     const nodeId = Number(button.dataset.aseCodelensNode);
-    const setPreview = (active: boolean) => {
-      root.querySelectorAll<HTMLElement>(`[data-ase-node-ids~="${nodeId}"]`)
-        .forEach(span => span.classList.toggle("codelens-preview", active));
-      button.classList.toggle("previewing", active);
-    };
-    button.addEventListener("pointerdown", event => {
-      if (event.button !== 0) return;
-      button.setPointerCapture(event.pointerId);
-      setPreview(true);
+    const targets = [...root.querySelectorAll<HTMLElement>(
+      `[data-ase-node-ids~="${nodeId}"]`,
+    )];
+    targets.forEach(target => {
+      target.addEventListener("animationend", event => {
+        if (event.animationName !== "ase-codelens-preview") return;
+        target.classList.toggle("codelens-preview", false);
+        if (!targets.some(span => span.classList.contains("codelens-preview"))) {
+          button.classList.toggle("previewing", false);
+        }
+      });
     });
-    for (const eventName of ["pointerup", "pointercancel", "lostpointercapture"]) {
-      button.addEventListener(eventName, () => setPreview(false));
-    }
-    button.addEventListener("keydown", event => {
-      if (event.key !== " " && event.key !== "Enter") return;
-      event.preventDefault();
-      setPreview(true);
+    button.addEventListener("click", () => {
+      for (const target of targets) {
+        target.classList.toggle("codelens-preview", false);
+        void target.offsetWidth;
+        target.classList.toggle("codelens-preview", true);
+      }
+      button.classList.toggle("previewing", targets.length > 0);
     });
-    button.addEventListener("keyup", event => {
-      if (event.key === " " || event.key === "Enter") setPreview(false);
-    });
-    button.addEventListener("blur", () => setPreview(false));
   });
   root.querySelectorAll<HTMLElement>("[data-ase-offset]").forEach(button =>
     button.addEventListener(
@@ -546,7 +544,7 @@ export function renderAnnotatedSourceExplorer(
           `<div class="annotated-codelens-row">
             <span class="annotated-line-number"></span>
             ${showMediumGutter ? `<span class="annotated-line-medium"></span>` : ""}
-            <span class="annotated-line-text">${escapeHtml(annotation.prefix)}<button type="button" data-ase-codelens-node="${annotation.nodeId}" title="Press and hold to preview ${escapeHtml(annotation.label)}">${escapeHtml(annotation.label)}</button></span>
+            <span class="annotated-line-text">${escapeHtml(annotation.prefix)}<button type="button" data-ase-codelens-node="${annotation.nodeId}" title="Preview ${escapeHtml(annotation.label)} for six seconds">${escapeHtml(annotation.label)}</button></span>
           </div>`,
         ).join("") ?? ""
       : "";
@@ -603,7 +601,7 @@ export function renderAnnotatedSourceExplorer(
               <div><span>Structural plane</span><strong>CodeLens</strong></div>
               <button type="button" data-ase-codelens-toggle aria-pressed="${state.codeLens}">${state.codeLens ? "on" : "off"}</button>
             </div>
-            <p class="ase-structure-help">Unnumbered annotations identify multi-line source constructs. Press and hold a chip to preview its exact span.</p>
+            <p class="ase-structure-help">Unnumbered annotations identify multi-line source constructs. Activate a chip to preview its exact span for six seconds.</p>
           </section>
           ${captureSectionHtml(view.captures, nodeById, kindLabels, escapeHtml)}
           <section class="ase-inspector-section">

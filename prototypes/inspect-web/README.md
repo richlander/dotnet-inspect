@@ -546,12 +546,14 @@ gates that separation.
 Product-owned body-kind vocabulary supplies inline CodeLens labels for
 multi-line source constructs. CodeLens is globally on or off; its unnumbered
 rows do not alter canonical coordinates or source line numbering. Pressing and
-holding a CodeLens chip temporarily bolds and shades exactly the product-issued
-node spans, and releasing it removes that preview without changing persistent
-selection. Large syntax constructs use this leading annotation rather than
-emitting caret rows across the construct. The `CodeLens press previews its node
-only until release` and `product labels render as toggleable structural
-CodeLens annotations` tests gate those interactions.
+activating a CodeLens chip bolds and shades exactly the product-issued node
+spans for six seconds, then fades the preview without changing persistent
+selection. The chip's text aligns with the first source character it describes;
+its border extends around that shared column. Large syntax constructs use this
+leading annotation rather than emitting caret rows across the construct. The
+`CodeLens activation retains its node preview until the six-second animation
+ends` and `product labels render as toggleable structural CodeLens annotations`
+tests gate those interactions.
 
 The merged view labels only C# and IL transitions rather than repeating a
 medium on every line; a single-medium view removes that label lane entirely.
