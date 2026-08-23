@@ -677,6 +677,12 @@ resolution-aware API surface, and
 `OperatorRelationship_PreservesSourceLocalGenericArgumentIdentity` gates the
 decompiler resolver. Both pair a prohibited matching-argument conversion with
 a valid distinct-argument conversion.
+`OperatorRelationshipDistinguishesConstructedArgumentsWithSameDefinition`
+requires matching generic definitions to continue through their constructed
+arguments, while
+`OperatorRelationshipUsesSubstitutedArgumentResolutionOrigin` requires every
+substituted node to retain its reader-independent resolution request, including
+when its source module has an empty MVID.
 
 Operator signature encoding consistency is recursive through arrays, pointers,
 and function pointers.
@@ -698,7 +704,10 @@ valid declaring-type parameter live.
 ReturnToSender's fidelity skeleton must not promote a non-public
 assignment-shaped `SpecialName` method into a public C# operator declaration.
 `SkeletonPreservesProtectedAssignmentShapedMetadataMethod` is the whole-module
-compile-back gate.
+compile-back gate. Existing operator requirements must also retain their
+metadata tokens so `Full` body policy can attach the required sibling bodies;
+`CompileBackTargets_FullBodiesIncludeCalledEqualityOperatorPair` gates that
+closure.
 
 Exact increment and decrement selectors remain exact across normalization and
 reparse. `GetCandidates_IncrementTokenIncludesStaticAndInstanceShapes` requires

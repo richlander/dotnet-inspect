@@ -1456,6 +1456,77 @@ public class ConstraintResolutionHardeningTests
     }
 
     [Fact]
+    public void OperatorRelationshipDistinguishesConstructedArgumentsWithSameDefinition()
+    {
+        byte[] dependencyImage =
+            BuildGenericOperatorDependency();
+        byte[] sourceImage =
+            BuildGenericOperatorConsumer(nestedArguments: true);
+        ResolvedAssemblyReference source = Descriptor(sourceImage);
+        ResolvedAssemblyReference dependency =
+            Descriptor(dependencyImage);
+        using var pe = Reader(sourceImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MappingPolicy(dependency));
+
+        ApiType holder = Assert.Single(
+            surface.Types,
+            static type => type.Name == "Holder");
+        Assert.False(
+            Assert.Single(
+                holder.Members,
+                static member =>
+                    member.Name == "op_Implicit")
+                .CSharpOperatorDeclaration);
+        Assert.True(
+            Assert.Single(
+                holder.Members,
+                static member =>
+                    member.Name == "op_Explicit")
+                .CSharpOperatorDeclaration);
+        Assert.Empty(surface.InspectionFailures);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void OperatorRelationshipUsesSubstitutedArgumentResolutionOrigin(
+        bool emptyModuleVersionId)
+    {
+        byte[] dependencyImage =
+            BuildCrossReaderOperatorDependency(emptyModuleVersionId);
+        byte[] sourceImage =
+            BuildCrossReaderOperatorConsumer(emptyModuleVersionId);
+        ResolvedAssemblyReference source = Descriptor(sourceImage);
+        ResolvedAssemblyReference dependency =
+            Descriptor(dependencyImage);
+        using var pe = Reader(sourceImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MappingPolicy(dependency));
+
+        ApiType holder = Assert.Single(
+            surface.Types,
+            static type => type.Name == "Holder");
+        Assert.True(
+            Assert.Single(
+                holder.Members,
+                static member =>
+                    member.Name == "op_Explicit")
+                .CSharpOperatorDeclaration);
+        Assert.Empty(surface.InspectionFailures);
+    }
+
+    [Fact]
     public void MultiHopKindFailureRemainsVisibleAndPreservesResolvedIdentity()
     {
         byte[] terminalImage =
@@ -2137,7 +2208,8 @@ public class ConstraintResolutionHardeningTests
         return Serialize(metadata);
     }
 
-    static byte[] BuildGenericOperatorConsumer()
+    static byte[] BuildGenericOperatorConsumer(
+        bool nestedArguments = false)
     {
         MetadataBuilder metadata =
             NewMetadata("GenericOperatorConsumer");
@@ -2158,14 +2230,23 @@ public class ConstraintResolutionHardeningTests
             AddType(metadata, "LocalArgument");
         TypeDefinitionHandle otherArgument =
             AddType(metadata, "OtherArgument");
+        TypeDefinitionHandle wrapper =
+            AddType(metadata, "Wrapper`1");
         TypeDefinitionHandle holder =
             AddType(
                 metadata,
                 "Holder",
-                AddConstructedClass(
-                    metadata,
-                    externalDerived,
-                    localArgument));
+                nestedArguments
+                    ? AddNestedConstructedClass(
+                        metadata,
+                        externalDerived,
+                        wrapper,
+                        localArgument)
+                    : AddConstructedClass(
+                        metadata,
+                        externalDerived,
+                        localArgument));
+        AddGenericParameter(metadata, wrapper);
 
         AddConversion(
             "op_Implicit",
@@ -2182,10 +2263,27 @@ public class ConstraintResolutionHardeningTests
             var signature = new BlobBuilder();
             signature.WriteByte(0x00);
             signature.WriteCompressedInteger(1);
-            WriteConstructedClass(
-                signature,
-                externalBase,
-                argument);
+            if (nestedArguments)
+            {
+                signature.WriteByte(
+                    (byte)SignatureTypeCode.GenericTypeInstance);
+                signature.WriteByte(
+                    (byte)SignatureTypeKind.Class);
+                signature.WriteCompressedInteger(
+                    EncodeTypeDefOrRef(externalBase));
+                signature.WriteCompressedInteger(1);
+                WriteConstructedClass(
+                    signature,
+                    wrapper,
+                    argument);
+            }
+            else
+            {
+                WriteConstructedClass(
+                    signature,
+                    externalBase,
+                    argument);
+            }
             signature.WriteByte(
                 (byte)SignatureTypeKind.Class);
             signature.WriteCompressedInteger(
@@ -2200,6 +2298,102 @@ public class ConstraintResolutionHardeningTests
                 bodyOffset: 0,
                 MetadataTokens.ParameterHandle(1));
         }
+    }
+
+    static byte[] BuildCrossReaderOperatorDependency(
+        bool emptyModuleVersionId)
+    {
+        MetadataBuilder metadata =
+            NewMetadata(
+                "CrossReaderOperatorDependency",
+                moduleVersionId:
+                    emptyModuleVersionId ? Guid.Empty : null);
+        AddModule(metadata);
+        AddType(metadata, "Target");
+        TypeDefinitionHandle externalBase =
+            AddType(metadata, "ExternalBase`1");
+        var baseSignature = new BlobBuilder();
+        baseSignature.WriteByte(
+            (byte)SignatureTypeCode.GenericTypeInstance);
+        baseSignature.WriteByte(
+            (byte)SignatureTypeKind.Class);
+        baseSignature.WriteCompressedInteger(
+            EncodeTypeDefOrRef(externalBase));
+        baseSignature.WriteCompressedInteger(1);
+        baseSignature.WriteByte(
+            (byte)SignatureTypeCode.GenericTypeParameter);
+        baseSignature.WriteCompressedInteger(0);
+        TypeDefinitionHandle externalDerived =
+            AddType(
+                metadata,
+                "ExternalDerived`1",
+                metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(baseSignature)));
+        AddGenericParameter(metadata, externalBase);
+        AddGenericParameter(metadata, externalDerived);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildCrossReaderOperatorConsumer(
+        bool emptyModuleVersionId)
+    {
+        MetadataBuilder metadata =
+            NewMetadata(
+                "CrossReaderOperatorConsumer",
+                moduleVersionId:
+                    emptyModuleVersionId ? Guid.Empty : null);
+        AssemblyReferenceHandle dependency =
+            AddReference(
+                metadata,
+                "CrossReaderOperatorDependency");
+        TypeReferenceHandle externalBase =
+            metadata.AddTypeReference(
+                dependency,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("ExternalBase`1"));
+        TypeReferenceHandle externalDerived =
+            metadata.AddTypeReference(
+                dependency,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("ExternalDerived`1"));
+        TypeReferenceHandle target =
+            metadata.AddTypeReference(
+                dependency,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Target"));
+        AddModule(metadata);
+        TypeDefinitionHandle localArgument =
+            AddType(metadata, "LocalArgument");
+        TypeDefinitionHandle holder =
+            AddType(
+                metadata,
+                "Holder",
+                AddConstructedClass(
+                    metadata,
+                    externalDerived,
+                    localArgument));
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(
+            (byte)SignatureTypeKind.Class);
+        signature.WriteCompressedInteger(
+            EncodeTypeDefOrRef(holder));
+        WriteConstructedClass(
+            signature,
+            externalBase,
+            target);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.SpecialName,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("op_Explicit"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
     }
 
     static byte[] BuildSameImageConstructedBaseHop(
@@ -2797,13 +2991,15 @@ public class ConstraintResolutionHardeningTests
 
     static MetadataBuilder NewMetadata(
         string assemblyName,
-        byte[]? publicKey = null)
+        byte[]? publicKey = null,
+        Guid? moduleVersionId = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             0,
             metadata.GetOrAddString($"{assemblyName}.dll"),
-            metadata.GetOrAddGuid(Guid.NewGuid()),
+            metadata.GetOrAddGuid(
+                moduleVersionId ?? Guid.NewGuid()),
             default,
             default);
         metadata.AddAssembly(
@@ -2899,6 +3095,28 @@ public class ConstraintResolutionHardeningTests
             signature,
             type,
             argument);
+        return metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(signature));
+    }
+
+    static TypeSpecificationHandle AddNestedConstructedClass(
+        MetadataBuilder metadata,
+        EntityHandle type,
+        EntityHandle argumentType,
+        EntityHandle nestedArgument)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(
+            (byte)SignatureTypeCode.GenericTypeInstance);
+        signature.WriteByte(
+            (byte)SignatureTypeKind.Class);
+        signature.WriteCompressedInteger(
+            EncodeTypeDefOrRef(type));
+        signature.WriteCompressedInteger(1);
+        WriteConstructedClass(
+            signature,
+            argumentType,
+            nestedArgument);
         return metadata.AddTypeSpecification(
             metadata.GetOrAddBlob(signature));
     }

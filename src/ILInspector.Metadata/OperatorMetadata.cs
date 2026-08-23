@@ -915,6 +915,12 @@ public static class OperatorMetadata
             init;
         }
 
+        internal TypeResolutionRequest? ResolutionRequest
+        {
+            get;
+            init;
+        }
+
         static MetadataTypeDefinitionAddress? DefinitionAddressFor(
             MetadataReader reader,
             TypeDefinitionHandle handle)

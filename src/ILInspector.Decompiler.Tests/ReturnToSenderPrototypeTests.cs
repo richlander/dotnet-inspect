@@ -3427,6 +3427,57 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_FullBodiesIncludeCalledEqualityOperatorPair()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Row
+            {
+                public static bool operator ==(Row left, Row right) => true;
+                public static bool operator !=(Row left, Row right) => false;
+                public override bool Equals(object obj) => obj is Row;
+                public override int GetHashCode() => 0;
+            }
+
+            public static class Consumer
+            {
+                public static bool Same(Row left, Row right) => left == right;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Consumer", "Same", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.BodyComplete,
+                string.Join(
+                    Environment.NewLine,
+                    result.FullBodies.Select(
+                        body =>
+                            $"{body.Member}: {body.Status}: {body.Failure}")));
+            Assert.Equal(
+                MemberBodyProductionStatus.Complete,
+                Assert.Single(
+                    result.FullBodies,
+                    static body =>
+                        body.Member == "Row.op_Equality").Status);
+            Assert.Equal(
+                MemberBodyProductionStatus.Complete,
+                Assert.Single(
+                    result.FullBodies,
+                    static body =>
+                        body.Member == "Row.op_Inequality").Status);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_ClosureSelectsConversionByReturnType()
     {
         var assemblyPath = CompileFixture("""

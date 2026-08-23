@@ -5541,12 +5541,6 @@ public static class CompileBackSourceComposer
                 }
 
                 bool isConstructor = name == ".ctor";
-                if (!isConstructor
-                    && method.Attributes.HasFlag(
-                        MethodAttributes.SpecialName))
-                {
-                    continue;
-                }
                 string identifierName = MemberIdentifierName(name, isConstructor);
                 var memberKind = MethodKind(
                     reader,
@@ -5563,6 +5557,12 @@ public static class CompileBackSourceComposer
                     {
                         MetadataToken = existing.MetadataToken ?? MetadataTokens.GetToken(methodHandle),
                     };
+                    continue;
+                }
+                if (!isConstructor
+                    && method.Attributes.HasFlag(
+                        MethodAttributes.SpecialName))
+                {
                     continue;
                 }
                 if (requirement.RequiredKind == CompileBackTypeKind.Interface && method.Attributes.HasFlag(MethodAttributes.Static))

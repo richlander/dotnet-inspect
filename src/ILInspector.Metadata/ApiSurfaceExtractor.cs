@@ -4802,6 +4802,14 @@ public static class ApiSurfaceExtractor
         {
             ResolvedAssemblyReference candidateOrigin = _source;
             MetadataReader candidateReader = reader;
+            candidate = AddResolutionRequests(
+                candidateReader,
+                candidate,
+                candidateOrigin);
+            requiredBase = AddResolutionRequests(
+                reader,
+                requiredBase,
+                _source);
             var visited = new HashSet<MetadataTypeDefinitionAddress>();
             for (int depth = 0; depth < 64; depth++)
             {
@@ -4836,9 +4844,12 @@ public static class ApiSurfaceExtractor
                 if (typeDefinition.BaseType.IsNil)
                     return OperatorMetadata.TypeRelationship.No;
                 var baseType =
-                    OperatorMetadata.ReadSignatureType(
+                    AddResolutionRequests(
                         resolvedReader,
-                        typeDefinition.BaseType);
+                        OperatorMetadata.ReadSignatureType(
+                            resolvedReader,
+                            typeDefinition.BaseType),
+                        definition.Assembly.Assembly);
                 if (candidate.IsGenericInstantiation)
                 {
                     baseType = baseType.Instantiate(
@@ -4877,17 +4888,16 @@ public static class ApiSurfaceExtractor
             }
             if (left.IsNonNamedType || right.IsNonNamedType)
                 return OperatorMetadata.TypeRelationship.Unknown;
-            if (left.DefinitionAddress is { } leftAddress
-                && right.DefinitionAddress is { } rightAddress)
-            {
-                return leftAddress == rightAddress
-                    ? OperatorMetadata.TypeRelationship.Yes
-                    : OperatorMetadata.TypeRelationship.No;
-            }
             if (left.IsGenericInstantiation
                 != right.IsGenericInstantiation
                 || left.TypeArguments.Length
                     != right.TypeArguments.Length)
+            {
+                return OperatorMetadata.TypeRelationship.No;
+            }
+            if (left.DefinitionAddress is { } leftAddress
+                && right.DefinitionAddress is { } rightAddress
+                && leftAddress != rightAddress)
             {
                 return OperatorMetadata.TypeRelationship.No;
             }
@@ -4957,7 +4967,8 @@ public static class ApiSurfaceExtractor
             ResolvedAssemblyReference origin)
         {
             TypeResolutionRequest? request =
-                CreateRequest(reader, type, origin);
+                type.ResolutionRequest
+                ?? CreateRequest(reader, type, origin);
             if (Plan.ResolveRequest(request, _operatorSubject)
                 is not TypeResolutionOutcome.Resolved resolved)
             {
@@ -4972,6 +4983,25 @@ public static class ApiSurfaceExtractor
             }
             return resolved.Definition;
         }
+
+        static OperatorMetadata.OperatorSignatureType AddResolutionRequests(
+            MetadataReader reader,
+            OperatorMetadata.OperatorSignatureType type,
+            ResolvedAssemblyReference origin)
+            => type with
+            {
+                ResolutionRequest =
+                    type.ResolutionRequest
+                    ?? CreateRequest(reader, type, origin),
+                TypeArguments =
+                [
+                    .. type.TypeArguments.Select(
+                        argument => AddResolutionRequests(
+                            reader,
+                            argument,
+                            origin)),
+                ],
+            };
 
         static bool KnownKind(ResolvedTypeDefinition definition)
             => definition.HasKnownKind;
