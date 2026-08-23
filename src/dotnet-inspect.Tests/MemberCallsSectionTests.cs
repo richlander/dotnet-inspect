@@ -258,10 +258,13 @@ public abstract class MemberAbstractPropertyCallsFixture
 
 public static class MemberOnlyPropertyCallsFixture
 {
-    public static int Solo => 1;
+    public static int Solo { get; set; }
 }
 
 public static class MemberOnlyPropertyCallerFixture
 {
     public static int CallsSolo() => MemberOnlyPropertyCallsFixture.Solo;
+
+    public static void WritesSolo() =>
+        MemberOnlyPropertyCallsFixture.Solo = 1;
 }

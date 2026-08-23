@@ -14689,6 +14689,28 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_BareSolePropertyNameCallerScope_AggregatesAccessorOverloads()
+    {
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberOnlyPropertyCallsFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(MemberOnlyPropertyCallsFixture.Solo),
+            "--bin", testDirectory,
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            nameof(MemberOnlyPropertyCallerFixture.CallsSolo),
+            output);
+        Assert.Contains(
+            nameof(MemberOnlyPropertyCallerFixture.WritesSolo),
+            output);
+        Assert.Contains("## Callers", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task Member_BareSelectSingleOverloadCallerScope_DoesNotAnalyzeOtherMembers()
     {
         var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
