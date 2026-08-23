@@ -1256,7 +1256,7 @@ and
 `HttpRetryHelperTests.HeaderFirstBodyRead_FailureLogsCarryNoUrlOrExceptionText`.
 
 Every product consumer that renders or derives output from fetched source now
-uses `AuthoredSourceAcquisition.FetchVerifiedSourceTextAsync`. Original Source,
+uses `PdbSourceAcquisition.FetchVerifiedSourceTextAsync`. PDB Source,
 printed Source Files and Source Locations, IL-offset source lines, and
 documentation/sample enrichment all require the portable-PDB checksum before
 using network content. `SourceAvailabilityService` and
@@ -1267,9 +1267,9 @@ without final-origin evidence cannot satisfy the new path.
 
 Checksum evidence follows the portable-PDB document row rather than a display
 or canonical path. Direct member, type, and IL-offset projections join on row
-identity and verify the authored path; path-only heuristic projections attach a
-checksum only when that path names one document row. This is gated by
-`AuthoredSourceAcquisitionTests.SelectMappedDocument_UsesDocumentRowWhenPathsAreDuplicated`,
+identity and verify the PDB document path; path-only heuristic projections
+attach a checksum only when that path names one document row. This is gated by
+`PdbSourceAcquisitionTests.SelectMappedDocument_UsesDocumentRowWhenPathsAreDuplicated`,
 `...SelectMappedDocument_RejectsAMismatchedRowPathPair`, and
 `MetadataSourceFindingsTests.DocumentChecksumIndexes_PreserveRowsAndRejectAmbiguousPathFallback`.
 
@@ -1279,7 +1279,7 @@ The fetch-origin grammar is gated by
 `...FetchOrigin_UnknownSourceLinkHostCarriesNoOriginClaim`. The Services gate
 exercises the response boundary, pre-fix cache invalidation, and the
 availability/integrity projections in
-`AuthoredSourceAcquisitionTests.FetchSourceBytes_RejectsRedirectOutsideAttributedOrigin`,
+`PdbSourceAcquisitionTests.FetchSourceBytes_RejectsRedirectOutsideAttributedOrigin`,
 `...FetchSourceBytes_IgnoresPreOriginValidationCache`,
 `HttpRetryHelperTests.HeaderFirstBodyRead_TimesOutAndRetriesAStalledBody`,
 `...HeaderFirstBodyRead_CapsAChunkedBodyByDecodedBytes`,
@@ -1317,19 +1317,19 @@ Browser-Wasm cannot perform the DNS-level checks that
 `SharedUntrustedFetch` performs. Its source host instead supplies an
 `ISourceFetchPolicy` that authorizes a narrow set of HTTPS source hosts before
 dispatch, omits credentials, and configures Fetch to reject redirects. A
-destination outside that set is an authored-source limitation and may fall back
-to decompilation; it is never probed. The shared `SourceFetcher` applies that
-host policy before its memory or content-store caches and before creating the
-request. `AuthoredSourceAcquisitionTests.FetchSourceBytes_PolicyRejectsDestinationBeforeDispatch`
+destination outside that set is a PDB-source acquisition limitation and may
+fall back to decompilation; it is never probed. The shared `SourceFetcher`
+applies that host policy before its memory or content-store caches and before
+creating the request. `PdbSourceAcquisitionTests.FetchSourceBytes_PolicyRejectsDestinationBeforeDispatch`
 and
 `BrowserEngineBoundaryTests.SourceFetchPolicy_OmitsCredentialsAndRefusesRedirects`
 gate those rules.
 
 Checksums from portable PDB documents authenticate source content when the
-workflow claims authored-source integrity. A reachable URL without a matching
+workflow claims PDB-source integrity. A reachable URL without a matching
 checksum is not equivalent to verified source.
 
-### Authored-source lexing is complexity-bounded
+### PDB-source lexing is complexity-bounded
 
 The source byte limit is not by itself a memory bound. A punctuation-dense file
 can produce nearly one retained lexical token per byte, and each token costs
@@ -1352,7 +1352,7 @@ cross product, and refuses PDB correlation when a recognized `#line` directive
 can remap the coordinates. CSharpText applies only caller-selected branch
 objects produced by the same index; it blanks unselected half-open ranges with
 one difference array and rebuilds over the line-preserving projection. Before
-slicing the checksum-verified original text, the slicer refuses a selected
+slicing the checksum-verified PDB-mapped text, the slicer refuses a selected
 group that crosses exactly one boundary of the projected declaration. A group
 wholly inside the declaration is removed from a second, boundary-only
 projection; CSharpText must still vouch for the same declaration and slice
@@ -1399,9 +1399,9 @@ Limit exhaustion is a visible extraction failure, not an absent declaration.
 token emission boundary, while
 `DeclarationIndexTests.LineLimit_StopsLineDenseInputBeforeSplitting` gates the
 pre-allocation line boundary, and
-`AuthoredSourceAcquisitionTests.FromContent_TokenDenseSourceProducesVisibleFailedEvidence`
+`PdbSourceAcquisitionTests.FromContent_TokenDenseSourceProducesVisibleFailedEvidence`
 gates the Findings-facing result, while
-`CommandExecutionTests.OriginalSource_TokenDenseInputCarriesAVisibleFailureState`
+`CommandExecutionTests.PdbSource_TokenDenseInputCarriesAVisibleFailureState`
 gates the member-command result.
 `DeclarationIndexTests.TheBodySlicerCannotAccessLexerInternals` gates the
 one-pass ownership boundary.
