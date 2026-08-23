@@ -279,6 +279,7 @@ review the new head, and ask again.
 | Implementation structure | the relevant section of `docs/architecture.md` |
 | Layering and consumer boundaries | `docs/design/inspection-layers.md` |
 | Artifact acquisition and workspace composition | `docs/design/artifact-acquisition-and-workspaces.md` |
+| Platform composition, overlays, and core-library entitlement | `docs/design/platform-composition-and-overlays.md` |
 | Command defaults and disclosure | `docs/design/progressive-disclosure.md` |
 | Output data shapes | `docs/design/output-shapes.md` |
 | Output style | `docs/design/style-guide.md` |
