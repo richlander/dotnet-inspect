@@ -255,13 +255,13 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task PlatformWorkspace_CarriesAspNetPackWithoutStaticIndex()
+    public async Task PlatformWorkspace_UsesMetadataIdentityForPackMembership()
     {
         const string packageId =
             "microsoft.aspnetcore.app.runtime.linux-x64";
         const string version = "11.0.0";
         byte[] nupkg = PlatformPackage(
-            ("InspectWeb.Engine.Tests.dll",
+            ("Misleading.dll",
                 File.ReadAllBytes(
                     typeof(BrowserEngineBoundaryTests).Assembly.Location)));
         var handler = new PlatformVersionHandler(
@@ -414,6 +414,14 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Equal(2, reacquisitionDownloads);
         Assert.True(pressureBlocked);
         Assert.Equal(2, reacquired.Scope.Members.Length);
+        Assert.Equal(
+            "netcore.app",
+            reacquired.Scope.PlatformPackForAssembly(
+                "System.Private.CoreLib"));
+        Assert.Equal(
+            "aspnetcore.app",
+            reacquired.Scope.PlatformPackForAssembly(
+                "InspectWeb.Engine.Tests"));
     }
 
     [Fact]
@@ -472,7 +480,63 @@ public sealed class BrowserEngineBoundaryTests
         Assert.False(BrowserPackageWorkspace.IsScopeRetained(first.Scope));
         Assert.Throws<ObjectDisposedException>(() => first.Scope.Members);
 
+        using BrowserPlatformScopeResolution reused =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                "net11.0-lease-replacement",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        Assert.Same(replacement.Scope, reused.Scope);
+        Assert.Equal(2, reused.Scope.Members.Length);
+
         replacement.Dispose();
+    }
+
+    [Fact]
+    public async Task PlatformWorkspace_EvictionRemovesRetainedTargetState()
+    {
+        const string packageId =
+            "microsoft.netcore.app.runtime.linux-x64";
+        const string version = "11.0.4";
+        byte[] nupkg = PlatformPackage(
+            ("System.Private.CoreLib.dll",
+                File.ReadAllBytes(typeof(object).Assembly.Location)));
+        var handler = new PlatformVersionHandler(
+            packageId,
+            version,
+            nupkg);
+        using var client = new HttpClient(handler);
+        var authorization =
+            new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
+        string[] frameworks =
+        [
+            "net11.0-platform-retention-a",
+            "net11.0-platform-retention-b",
+            "net11.0-platform-retention-c",
+            "net11.0-platform-retention-d",
+            "net11.0-platform-retention-e",
+        ];
+
+        foreach (string framework in frameworks)
+        {
+            using BrowserPlatformScopeResolution resolution =
+                await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                    framework,
+                    client,
+                    authorization,
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+        }
+
+        var targets = Assert.IsAssignableFrom<System.Collections.IDictionary>(
+            typeof(BrowserPlatformWorkspace)
+                .GetField(
+                    "Targets",
+                    BindingFlags.Static | BindingFlags.NonPublic)!
+                .GetValue(null));
+        Assert.False(targets.Contains(frameworks[0]));
+        Assert.True(targets.Contains(frameworks[^1]));
     }
 
     [Theory]

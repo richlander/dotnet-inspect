@@ -121,22 +121,28 @@ replace the old scope with one cumulative binding-consistent group, so runtime
 and ASP.NET Core libraries never drift across versions or feeds and call
 graphs can lazily acquire a selected target and see every resident platform
 assembly. Surfaces and graph targets carry the pack membership recorded from
-those acquired implementation archives, so navigation does not depend on the
-optional static index knowing the active framework. Reuse updates both the
-shared scope LRU and its archive recency. Eviction severs the disposed scope's
-loaded context as well as removing it from the registry, releasing the package
-content closures whose archives leave cache accounting. Every archive is
+those acquired implementation archives from the product loader's
+metadata-derived identities in its selected asset universe, so navigation does
+not depend on archive filenames or on the optional static index knowing the
+active framework. Reuse updates both the shared scope LRU and its archive
+recency. Eviction severs the disposed scope's loaded context, removes its
+scope reference, and removes it from the registry, releasing the package
+content closures whose archives leave cache accounting. Exact coordinates
+remain in a lightweight four-target LRU so an evicted cumulative workspace can
+be re-acquired without version drift or lost participants. Every archive is
 temporarily leased as soon as acquisition returns it and until the cumulative
 candidate is registered or abandoned, so a later family download cannot evict
 bytes that the unregistered candidate still holds. Shared links carry the
 selected library's exact pack token, and initial member graphs use the same
-escaped definition identity as subsequent graph descent. The Platform workspace
-admits at most 256 selected assemblies and retains at most 64 MB of opened
-images.
+escaped definition identity as subsequent graph descent. A selected Platform
+coordinate that matches multiple full metadata identities fails typed rather
+than choosing by archive order. The Platform workspace admits at most 256
+realized assemblies and retains at most 64 MB of opened images.
 `BrowserEngineBoundaryTests.PlatformWorkspace_PinsAndAccumulatesSelectedAssemblies`,
-`PlatformWorkspace_CarriesAspNetPackWithoutStaticIndex`,
+`PlatformWorkspace_UsesMetadataIdentityForPackMembership`,
 `PlatformWorkspace_LeasesArchivesUntilCandidateRegistration`,
 `PlatformWorkspace_ReuseTouchesTheSharedScopeLru`,
+`PlatformWorkspace_EvictionRemovesRetainedTargetState`,
 `PlatformWorkspace_CanceledQueueEntryPreservesSerialization`,
 `PlatformWorkspace_RejectsInvalidSelectionsBeforeNetwork`, and
 `PlatformWorkspace_RejectsAssemblyCountAboveBrowserBound` gate those host

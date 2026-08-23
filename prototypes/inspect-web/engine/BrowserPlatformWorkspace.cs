@@ -132,11 +132,13 @@ internal static class BrowserPlatformWorkspace
     const string RuntimePack = "netcore.app";
     const string AspNetCorePack = "aspnetcore.app";
     const string DefaultRuntimeAssembly = "System.Private.CoreLib";
+    const int MaxRetainedTargets = BrowserPackageWorkspace.MaxOpenScopes;
 
     static readonly Dictionary<string, TargetState> Targets =
         new(StringComparer.Ordinal);
     static readonly Dictionary<string, Task> TargetTails =
         new(StringComparer.Ordinal);
+    static long _targetClock;
 
     internal static Task<BrowserPlatformScopeResolution> OpenRuntimeAsync(
         string targetFramework,
@@ -230,6 +232,7 @@ internal static class BrowserPlatformWorkspace
             new BrowserPackageWorkspace.PackageLeaseSet();
         Targets.TryGetValue(targetKey, out TargetState? state);
         state ??= new TargetState();
+        state.LastAccess = ++_targetClock;
 
         RealizedMemberCoordinate.Platform? requested =
             state.Coordinates.FirstOrDefault(candidate =>
@@ -324,7 +327,8 @@ internal static class BrowserPlatformWorkspace
             BrowserPackageWorkspace.RegisterScope(
                 scopeKey,
                 candidate,
-                packageKeys);
+                packageKeys,
+                ForgetScope);
         WorkspaceContextMember participant =
             registered.Participant(family, assembly);
         BrowserScopeLease<BrowserPlatformScope> lease =
@@ -333,6 +337,7 @@ internal static class BrowserPlatformWorkspace
         state.Coordinates = coordinates;
         state.Scope = registered;
         Targets[targetKey] = state;
+        TrimTargetStates();
         if (previous is not null
             && !ReferenceEquals(previous, registered))
         {
@@ -378,8 +383,7 @@ internal static class BrowserPlatformWorkspace
             return (
                 Scope(
                     workspace,
-                    outcome,
-                    store.PlatformPacks),
+                    outcome),
                 store.PackageKeys);
         }
         catch
@@ -410,8 +414,7 @@ internal static class BrowserPlatformWorkspace
             return (
                 Scope(
                     workspace,
-                    outcome,
-                    store.PlatformPacks),
+                    outcome),
                 store.PackageKeys);
         }
         catch
@@ -442,20 +445,63 @@ internal static class BrowserPlatformWorkspace
 
     static BrowserPlatformScope Scope(
         InspectionWorkspace workspace,
-        WorkspaceContextLoadOutcome outcome,
-        IReadOnlyDictionary<string, string> platformPacks) =>
-        outcome switch
+        WorkspaceContextLoadOutcome outcome)
+    {
+        if (outcome is WorkspaceContextLoadOutcome.Failed failed)
+            throw Failure(failed);
+
+        if (outcome is not WorkspaceContextLoadOutcome.Loaded loaded)
         {
-            WorkspaceContextLoadOutcome.Loaded loaded =>
-                new BrowserPlatformScope(
-                    workspace,
-                    loaded,
-                    platformPacks),
-            WorkspaceContextLoadOutcome.Failed failed =>
-                throw Failure(failed),
-            _ => throw new InvalidOperationException(
-                "Platform workspace loading returned an unknown outcome."),
-        };
+            throw new InvalidOperationException(
+                "Platform workspace loading returned an unknown outcome.");
+        }
+
+        EnsureAssemblyCapacity(loaded.Members.Length);
+        return new BrowserPlatformScope(
+            workspace,
+            loaded,
+            PlatformPacks(loaded.AvailablePlatformAssemblies));
+    }
+
+    static ImmutableDictionary<string, string> PlatformPacks(
+        ImmutableArray<RealizedMemberCoordinate.Platform> assemblies)
+    {
+        var platformPacks =
+            new Dictionary<string, string>(
+                StringComparer.OrdinalIgnoreCase);
+        var ambiguousAssemblies =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (RealizedMemberCoordinate.Platform assembly in assemblies)
+        {
+            if (assembly.Assembly is null
+                || ambiguousAssemblies.Contains(assembly.Assembly))
+            {
+                continue;
+            }
+
+            string pack = assembly.Family switch
+            {
+                RuntimeFamily => RuntimePack,
+                AspNetCoreFamily => AspNetCorePack,
+                _ => throw new InvalidOperationException(
+                    "The workspace loader returned an unknown platform family."),
+            };
+            if (platformPacks.TryGetValue(
+                    assembly.Assembly,
+                    out string? existing)
+                && !existing.Equals(pack, StringComparison.Ordinal))
+            {
+                platformPacks.Remove(assembly.Assembly);
+                ambiguousAssemblies.Add(assembly.Assembly);
+                continue;
+            }
+
+            platformPacks[assembly.Assembly] = pack;
+        }
+
+        return platformPacks.ToImmutableDictionary(
+            StringComparer.OrdinalIgnoreCase);
+    }
 
     static InvalidOperationException Failure(
         WorkspaceContextLoadOutcome.Failed failed) =>
@@ -638,6 +684,33 @@ internal static class BrowserPlatformWorkspace
         }
     }
 
+    static void ForgetScope(BrowserPlatformScope scope)
+    {
+        TargetState? state = Targets.Values.FirstOrDefault(
+            candidate => ReferenceEquals(candidate.Scope, scope));
+        if (state is not null)
+            state.Scope = null;
+    }
+
+    static void TrimTargetStates()
+    {
+        while (Targets.Count > MaxRetainedTargets)
+        {
+            string? oldest = Targets
+                .Where(entry => entry.Value.Scope is null)
+                .OrderBy(entry => entry.Value.LastAccess)
+                .Select(entry => entry.Key)
+                .FirstOrDefault();
+            if (oldest is null)
+            {
+                throw new InvalidOperationException(
+                    "The Platform target-state limit cannot evict an active workspace.");
+            }
+
+            Targets.Remove(oldest);
+        }
+    }
+
     sealed class TargetState
     {
         internal ImmutableArray<RealizedMemberCoordinate.Platform> Coordinates
@@ -647,6 +720,8 @@ internal static class BrowserPlatformWorkspace
         } = [];
 
         internal BrowserPlatformScope? Scope { get; set; }
+
+        internal long LastAccess { get; set; }
     }
 
     static Host ProductionHost { get; } =
@@ -664,19 +739,9 @@ internal static class BrowserPlatformWorkspace
     {
         readonly ImmutableHashSet<string>.Builder _packageKeys =
             ImmutableHashSet.CreateBuilder<string>(StringComparer.Ordinal);
-        readonly HashSet<string> _recordedPackageKeys =
-            new(StringComparer.Ordinal);
-        readonly Dictionary<string, string> _platformPacks =
-            new(StringComparer.OrdinalIgnoreCase);
-        readonly HashSet<string> _ambiguousAssemblies =
-            new(StringComparer.OrdinalIgnoreCase);
 
         internal ImmutableHashSet<string> PackageKeys =>
             _packageKeys.ToImmutable();
-
-        internal ImmutableDictionary<string, string> PlatformPacks =>
-            _platformPacks.ToImmutableDictionary(
-                StringComparer.OrdinalIgnoreCase);
 
         public IPackageContent? TryGetCached(
             string packageName,
@@ -697,10 +762,6 @@ internal static class BrowserPlatformWorkspace
                     version);
                 _packageKeys.Add(packageKey);
                 packageLeases.Lease(packageKey);
-                RecordPlatformAssemblies(
-                    packageKey,
-                    packageName,
-                    content);
             }
 
             return content;
@@ -724,10 +785,6 @@ internal static class BrowserPlatformWorkspace
                 packageName,
                 version);
             _packageKeys.Add(packageKey);
-            RecordPlatformAssemblies(
-                packageKey,
-                packageName,
-                content);
             return content;
         }
 
@@ -741,65 +798,6 @@ internal static class BrowserPlatformWorkspace
                     transfer.Coordinate.PackageId,
                     transfer.Coordinate.Version),
                 packageLeases);
-        }
-
-        void RecordPlatformAssemblies(
-            string packageKey,
-            string packageName,
-            IPackageContent content)
-        {
-            if (!_recordedPackageKeys.Add(packageKey))
-                return;
-
-            string? pack = packageName.StartsWith(
-                    "microsoft.netcore.app.runtime.",
-                    StringComparison.OrdinalIgnoreCase)
-                ? RuntimePack
-                : packageName.StartsWith(
-                    "microsoft.aspnetcore.app.runtime.",
-                    StringComparison.OrdinalIgnoreCase)
-                    ? AspNetCorePack
-                    : null;
-            if (pack is null)
-                return;
-
-            foreach (string path in content.EnumerateEntries())
-            {
-                if (!path.StartsWith(
-                        "runtimes/",
-                        StringComparison.OrdinalIgnoreCase)
-                    || !path.Contains(
-                        "/lib/",
-                        StringComparison.OrdinalIgnoreCase)
-                    || !path.EndsWith(
-                        ".dll",
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                int separator = path.LastIndexOf('/');
-                string assembly = path[(separator + 1)..^4];
-                if (!RealizedMemberCoordinate.IsAssemblySimpleName(assembly)
-                    || _ambiguousAssemblies.Contains(assembly))
-                {
-                    continue;
-                }
-
-                if (_platformPacks.TryGetValue(
-                        assembly,
-                        out string? existing)
-                    && !existing.Equals(
-                        pack,
-                        StringComparison.Ordinal))
-                {
-                    _platformPacks.Remove(assembly);
-                    _ambiguousAssemblies.Add(assembly);
-                    continue;
-                }
-
-                _platformPacks[assembly] = pack;
-            }
         }
 
         sealed class LeasingPackageReservation(

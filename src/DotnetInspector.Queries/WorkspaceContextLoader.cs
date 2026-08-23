@@ -218,6 +218,8 @@ public static class WorkspaceContextLoader
 
         var realized =
             ImmutableArray.CreateBuilder<RealizedMember>();
+        var availablePlatformAssemblies =
+            new HashSet<RealizedMemberCoordinate.Platform>();
         foreach (WorkspaceMemberCoordinate member in members)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -249,6 +251,8 @@ public static class WorkspaceContextLoader
             if (realization.Failure is { } failure)
                 return new WorkspaceContextLoadOutcome.Failed([failure]);
 
+            availablePlatformAssemblies.UnionWith(
+                realization.AvailablePlatformAssemblies);
             foreach (ResolvedAssemblyReference assembly
                 in realization.Assemblies)
             {
@@ -262,7 +266,13 @@ public static class WorkspaceContextLoader
             }
         }
 
-        return CreateGroup(workspace, realized, options, framework, rid);
+        return CreateGroup(
+            workspace,
+            realized,
+            availablePlatformAssemblies,
+            options,
+            framework,
+            rid);
     }
 
     /// <summary>
@@ -377,6 +387,8 @@ public static class WorkspaceContextLoader
         }
 
         var realized = ImmutableArray.CreateBuilder<RealizedMember>();
+        var availablePlatformAssemblies =
+            new HashSet<RealizedMemberCoordinate.Platform>();
         foreach (RealizedMemberCoordinate coordinate in distinct)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -408,6 +420,8 @@ public static class WorkspaceContextLoader
             if (realization.Failure is { } failure)
                 return new WorkspaceContextLoadOutcome.Failed([failure]);
 
+            availablePlatformAssemblies.UnionWith(
+                realization.AvailablePlatformAssemblies);
             foreach (ResolvedAssemblyReference assembly
                 in realization.Assemblies)
             {
@@ -419,7 +433,13 @@ public static class WorkspaceContextLoader
             }
         }
 
-        return CreateGroup(workspace, realized, options, framework, rid);
+        return CreateGroup(
+            workspace,
+            realized,
+            availablePlatformAssemblies,
+            options,
+            framework,
+            rid);
     }
 
     /// <summary>
@@ -916,6 +936,8 @@ public static class WorkspaceContextLoader
     static WorkspaceContextLoadOutcome CreateGroup(
         InspectionWorkspace workspace,
         ImmutableArray<RealizedMember>.Builder realized,
+        HashSet<RealizedMemberCoordinate.Platform>
+            availablePlatformAssemblies,
         WorkspaceContextLoadOptions options,
         string? framework,
         string? runtimeIdentifier)
@@ -973,6 +995,14 @@ public static class WorkspaceContextLoader
         return new WorkspaceContextLoadOutcome.Loaded(
             group,
             members.MoveToImmutable(),
+            [
+                .. availablePlatformAssemblies
+                    .OrderBy(assembly => assembly.Family, StringComparer.Ordinal)
+                    .ThenBy(assembly => assembly.Version, StringComparer.Ordinal)
+                    .ThenBy(assembly => assembly.Producer, StringComparer.Ordinal)
+                    .ThenBy(assembly => assembly.Framework, StringComparer.Ordinal)
+                    .ThenBy(assembly => assembly.Assembly, StringComparer.Ordinal),
+            ],
             framework,
             runtimeIdentifier);
     }
@@ -1436,7 +1466,8 @@ public static class WorkspaceContextLoader
 
         return new MemberRealization(
             coordinate,
-            realization.Assemblies);
+            realization.Assemblies,
+            realization.AvailablePlatformAssemblies);
     }
 
     static async Task<IReadOnlyDictionary<
@@ -1533,6 +1564,16 @@ public static class WorkspaceContextLoader
                 WorkspaceContextLoadFailureKind.PlatformProducerUnavailable,
                 $"Platform family '{pinned.Family}' was served by a producer other than the one its realized coordinate names.");
         }
+        if (!string.Equals(
+                acquired.Coordinate.Version,
+                pinned.Version,
+                StringComparison.Ordinal))
+        {
+            return FailPlatformMembers(
+                members,
+                WorkspaceContextLoadFailureKind.PlatformProducerUnavailable,
+                $"Platform family '{pinned.Family}' was served at a version other than the one its realized coordinate names.");
+        }
 
         return RealizeAcquiredPlatforms(
             members,
@@ -1594,6 +1635,11 @@ public static class WorkspaceContextLoader
         var assembliesByMember = members.ToDictionary(
             member => member,
             _ => ImmutableArray.CreateBuilder<ResolvedAssemblyReference>());
+        var availablePlatformAssemblies = new Dictionary<
+            string,
+            RealizedMemberCoordinate.Platform>(
+            StringComparer.OrdinalIgnoreCase);
+        RealizedMemberCoordinate.Platform pack = members[0];
         foreach (PackageAssetEntry asset in selected.Universe.Assets)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -1607,6 +1653,19 @@ public static class WorkspaceContextLoader
                         provenance);
                 if (assembly is null)
                     continue;
+
+                if (RealizedMemberCoordinate.IsAssemblySimpleName(
+                        assembly.Identity.Name))
+                {
+                    availablePlatformAssemblies.TryAdd(
+                        assembly.Identity.Name,
+                        new RealizedMemberCoordinate.Platform(
+                            family,
+                            pack.Version,
+                            pack.Producer,
+                            pack.Framework,
+                            assembly.Identity.Name));
+                }
 
                 if (allAssemblies is not null)
                 {
@@ -1645,8 +1704,13 @@ public static class WorkspaceContextLoader
         var realizations = new Dictionary<
             RealizedMemberCoordinate.Platform,
             MemberRealization>();
-        foreach (RealizedMemberCoordinate.Platform member in members)
+        ImmutableArray<RealizedMemberCoordinate.Platform> available =
+        [
+            .. availablePlatformAssemblies.Values
+        ];
+        for (int index = 0; index < members.Length; index++)
         {
+            RealizedMemberCoordinate.Platform member = members[index];
             ImmutableArray<ResolvedAssemblyReference>.Builder assemblies =
                 assembliesByMember[member];
             realizations.Add(
@@ -1663,9 +1727,23 @@ public static class WorkspaceContextLoader
                             member.Assembly is null
                                 ? $"Platform family '{family}' carries no managed assembly for target framework '{framework}'."
                                 : $"Platform family '{family}' does not carry assembly '{member.Assembly}' for target framework '{framework}'."))
+                    : member.Assembly is not null
+                        && assemblies
+                            .Select(assembly => assembly.Identity)
+                            .Distinct(
+                                AssemblyReferenceIdentity.EquivalentComparer)
+                            .Skip(1)
+                            .Any()
+                        ? new MemberRealization(
+                            Failure(
+                                WorkspaceContextLoadFailureKind
+                                    .PlatformAssemblyAmbiguous,
+                                Declare(member),
+                                $"Platform family '{family}' carries more than one assembly identity named '{member.Assembly}' for target framework '{framework}'."))
                     : new MemberRealization(
                         member,
-                        assemblies.ToImmutable()));
+                        assemblies.ToImmutable(),
+                        available));
         }
 
         return realizations;
@@ -2266,9 +2344,19 @@ public static class WorkspaceContextLoader
         internal MemberRealization(
             RealizedMemberCoordinate realized,
             ImmutableArray<ResolvedAssemblyReference> assemblies)
+            : this(realized, assemblies, [])
+        {
+        }
+
+        internal MemberRealization(
+            RealizedMemberCoordinate realized,
+            ImmutableArray<ResolvedAssemblyReference> assemblies,
+            ImmutableArray<RealizedMemberCoordinate.Platform>
+                availablePlatformAssemblies)
         {
             Realized = realized;
             Assemblies = assemblies;
+            AvailablePlatformAssemblies = availablePlatformAssemblies;
             Failure = null;
         }
 
@@ -2276,11 +2364,14 @@ public static class WorkspaceContextLoader
         {
             Realized = null;
             Assemblies = [];
+            AvailablePlatformAssemblies = [];
             Failure = failure;
         }
 
         internal RealizedMemberCoordinate? Realized { get; }
         internal ImmutableArray<ResolvedAssemblyReference> Assemblies { get; }
+        internal ImmutableArray<RealizedMemberCoordinate.Platform>
+            AvailablePlatformAssemblies { get; }
         internal WorkspaceContextLoadFailure? Failure { get; }
     }
 

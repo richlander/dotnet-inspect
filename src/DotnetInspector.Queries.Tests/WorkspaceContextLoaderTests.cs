@@ -204,7 +204,9 @@ public sealed class WorkspaceContextLoaderTests
             new MemoryStream(
                 Archive(
                     ($"runtimes/linux-x64/lib/{Framework}/Misleading.dll",
-                        File.ReadAllBytes(CallerPath)))),
+                        File.ReadAllBytes(CallerPath)),
+                    ("runtimes/linux-x64/lib/net9.0/Unrelated.dll",
+                        File.ReadAllBytes(TargetPath)))),
             TestContext.Current.CancellationToken);
         using var client = new HttpClient(new FailingHandler());
 
@@ -233,7 +235,57 @@ public sealed class WorkspaceContextLoaderTests
             assemblyName,
             Assert.IsType<RealizedMemberCoordinate.Platform>(
                 member.Realized).Assembly);
+        Assert.Equal(
+            assemblyName,
+            Assert.Single(loaded.AvailablePlatformAssemblies).Assembly);
         _ = InspectionGraphPackageBoundary.Create(loaded);
+    }
+
+    [Fact]
+    public async Task PlatformMember_DuplicateSimpleNameFailsTyped()
+    {
+        string assemblyName = Path.GetFileNameWithoutExtension(TargetPath);
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            RuntimePackPackageId,
+            RuntimePackVersion,
+            Producer(NuGetOrg),
+            new MemoryStream(
+                Archive(
+                    ($"runtimes/linux-x64/lib/{Framework}/v1.dll",
+                        File.ReadAllBytes(TargetPath)),
+                    ($"runtimes/linux-x64/lib/{Framework}/v2.dll",
+                        File.ReadAllBytes(TargetV2Path)))),
+            TestContext.Current.CancellationToken);
+        using var client = new HttpClient(new FailingHandler());
+        using var workspace = new InspectionWorkspace();
+
+        var failed = Failed(
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Platform(
+                            "runtime",
+                            assemblyName,
+                            RuntimePackVersion),
+                    ],
+                },
+                Options(client, store),
+                TestContext.Current.CancellationToken));
+
+        WorkspaceContextLoadFailure failure =
+            Assert.Single(failed.Failures);
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.PlatformAssemblyAmbiguous,
+            failure.Kind);
+        Assert.Equal(
+            assemblyName,
+            Assert.IsType<WorkspaceMemberCoordinate.PlatformMember>(
+                failure.Member).Assembly);
     }
 
     [Fact]

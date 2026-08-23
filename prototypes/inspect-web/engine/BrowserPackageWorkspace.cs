@@ -67,7 +67,7 @@ internal static class BrowserPackageWorkspace
 {
     const int MaxCachedPackages = 12;
     const long MaxCachedPackageBytes = 128L * 1024 * 1024;
-    const int MaxOpenScopes = 4;
+    internal const int MaxOpenScopes = 4;
     internal static TimeSpan PackageOperationTimeout { get; } =
         TimeSpan.FromSeconds(30);
     internal static TimeSpan GalleryOperationTimeout { get; } =
@@ -123,7 +123,8 @@ internal static class BrowserPackageWorkspace
         ImmutableHashSet<string> PackageKeys,
         long LastAccess,
         int ActiveLeases,
-        bool RemovalRequested);
+        bool RemovalRequested,
+        Action<IDisposable>? OnDisposed);
 
     public static BrowserPackageCacheStats Stats() =>
         new(
@@ -343,7 +344,8 @@ internal static class BrowserPackageWorkspace
     internal static T RegisterScope<T>(
         string key,
         T scope,
-        ImmutableHashSet<string> packageKeys)
+        ImmutableHashSet<string> packageKeys,
+        Action<T>? onDisposed = null)
         where T : class, IDisposable
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
@@ -393,8 +395,7 @@ internal static class BrowserPackageWorkspace
                 throw new InvalidOperationException(
                     "The browser workspace limit cannot evict an active inspection.");
             }
-            Scopes[oldest].Scope.Dispose();
-            Scopes.Remove(oldest);
+            DisposeRegisteredScope(oldest, Scopes[oldest]);
         }
 
         Scopes[key] = new ScopeEntry(
@@ -402,7 +403,10 @@ internal static class BrowserPackageWorkspace
             packageKeys,
             ++_clock,
             ActiveLeases: 0,
-            RemovalRequested: false);
+            RemovalRequested: false,
+            onDisposed is null
+                ? null
+                : disposed => onDisposed((T)disposed));
         return scope;
     }
 
@@ -446,8 +450,7 @@ internal static class BrowserPackageWorkspace
             return;
         }
 
-        registered.Value.Scope.Dispose();
-        Scopes.Remove(registered.Key);
+        DisposeRegisteredScope(registered.Key, registered.Value);
     }
 
     /// <summary>
@@ -493,8 +496,7 @@ internal static class BrowserPackageWorkspace
         int activeLeases = entry.ActiveLeases - 1;
         if (activeLeases == 0 && entry.RemovalRequested)
         {
-            entry.Scope.Dispose();
-            Scopes.Remove(scopeKey);
+            DisposeRegisteredScope(scopeKey, entry);
         }
         else
         {
@@ -991,12 +993,24 @@ internal static class BrowserPackageWorkspace
                 .Select(entry => entry.Key),
         ];
         foreach (string scopeKey in retainedScopes)
-        {
-            Scopes[scopeKey].Scope.Dispose();
-            Scopes.Remove(scopeKey);
-        }
+            DisposeRegisteredScope(scopeKey, Scopes[scopeKey]);
 
         Cache.Remove(packageKey);
+    }
+
+    static void DisposeRegisteredScope(
+        string scopeKey,
+        ScopeEntry entry)
+    {
+        Scopes.Remove(scopeKey);
+        try
+        {
+            entry.OnDisposed?.Invoke(entry.Scope);
+        }
+        finally
+        {
+            entry.Scope.Dispose();
+        }
     }
 
     internal static PackageDownloadReservation ReservePackageDownload(
