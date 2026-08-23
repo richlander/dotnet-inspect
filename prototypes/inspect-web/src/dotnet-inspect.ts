@@ -156,6 +156,7 @@ import {
 import {
   createDocumentInspectionCoordinator,
   docViewerOptions,
+  isDocViewerOpen,
   type DocumentViewerState,
 } from "./document-inspection.ts";
 import {
@@ -1288,12 +1289,12 @@ function isInteractiveElement(element: Element | null) {
 function focusTypeList(generation = spotlightFocusGeneration) {
   if (generation !== spotlightFocusGeneration
       || state.spotlightOpen || state.graphSourceOpen
-      || state.docViewer.status !== "closed"
+      || isDocViewerOpen(state.docViewer)
       || isTextEntry()) return;
   requestAnimationFrame(() => {
     if (generation !== spotlightFocusGeneration
         || state.spotlightOpen || state.graphSourceOpen
-        || state.docViewer.status !== "closed"
+        || isDocViewerOpen(state.docViewer)
         || isTextEntry()) return;
     document.querySelector<HTMLElement>("#type-list")?.focus();
   });
@@ -2399,7 +2400,7 @@ function render() {
       }, escapeHtml)}
       ${state.spotlightOpen ? spotlight.modalHtml() : ""}
       ${state.graphSourceOpen ? renderGraphSource() : ""}
-      ${state.docViewer.status !== "closed" ? renderDocViewer() : ""}
+      ${isDocViewerOpen(state.docViewer) ? renderDocViewer() : ""}
       ${state.tasteOpen ? renderTastePopoverHtml() : ""}
     </div>`;
 
@@ -5810,7 +5811,7 @@ function workbenchOverlayOwnsFocus() {
 function workbenchModalOwnsFocus() {
   return state.spotlightOpen
     || state.graphSourceOpen
-    || state.docViewer.status !== "closed";
+    || isDocViewerOpen(state.docViewer);
 }
 
 function captureWorkspaceUrlState(): WorkspaceUrlState | null {
@@ -8756,7 +8757,7 @@ function workspaceKeyboardContextIsActive(): boolean {
     && !state.loading
     && !state.error
     && !state.graphSourceOpen
-    && state.docViewer.status === "closed"
+    && !isDocViewerOpen(state.docViewer)
     && !state.spotlightOpen;
 }
 
@@ -8765,7 +8766,7 @@ const workspaceModalContextIsAvailable = () =>
 const graphSourceContextIsActive = () =>
   workspaceModalContextIsAvailable() && state.graphSourceOpen;
 const documentViewerContextIsActive = () =>
-  workspaceModalContextIsAvailable() && state.docViewer.status !== "closed";
+  workspaceModalContextIsAvailable() && isDocViewerOpen(state.docViewer);
 const spotlightContextIsActive = () =>
   workspaceModalContextIsAvailable() && state.spotlightOpen;
 

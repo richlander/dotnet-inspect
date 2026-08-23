@@ -823,13 +823,7 @@ const projectionRequest = {
 test("a loading document projects as loading, with nothing else claimed", () => {
   assert.deepEqual(
     docViewerOptions({ status: "loading", request: projectionRequest }),
-    {
-      doc: projectionDocument,
-      meta: null,
-      loading: true,
-      error: "",
-      html: "",
-    });
+    { doc: projectionDocument, body: { status: "loading" } });
 });
 
 test("a ready document projects its html and metadata", () => {
@@ -843,10 +837,7 @@ test("a ready document projects its html and metadata", () => {
     }),
     {
       doc: projectionDocument,
-      meta,
-      loading: false,
-      error: "",
-      html: "<p>body</p>",
+      body: { status: "ready", meta, html: "<p>body</p>" },
     });
 });
 
@@ -856,11 +847,10 @@ test("a failed document projects its error and claims no content", () => {
     request: projectionRequest,
     error: "the document could not be read",
   });
-  // The error has to survive the projection, or the renderer takes its success branch and
-  // shows an empty article instead of the failure.
-  assert.equal(options.error, "the document could not be read");
-  assert.equal(options.loading, false);
-  // And it must not simultaneously offer content, which would render *both* as a success.
-  assert.equal(options.html, "");
-  assert.equal(options.meta, null);
+  // The projection carries the status through rather than flattening it, so "failed with
+  // no content" is one value instead of a combination of four fields that could disagree.
+  assert.deepEqual(options.body, {
+    status: "failed",
+    error: "the document could not be read",
+  });
 });

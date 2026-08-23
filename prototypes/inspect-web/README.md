@@ -1021,11 +1021,15 @@ open, close, and bare-backdrop bindings. `src/document-inspection.ts` owns its
 request-owned `closed`/`loading`/`ready`/`failed` state, visible failure, and
 frontmatter projection. The loading object is the request-ownership token, so a
 stale completion cannot publish into a newer open or closed state and result,
-metadata, and error fields exist only on their applicable variants.
+metadata, and error fields exist only on their applicable variants. The renderer
+receives that status rather than four flattened fields, so it cannot re-derive
+"this failed" from a string being empty: a failure with no message renders as a
+failure, and an empty document renders as a document. `isDocViewerOpen` is the
+one place that decides what counts as open.
 `dotnet-inspect.ts` validates the selected package document and supplies the
 engine, sanitized Markdown-rendering, state, and render ports.
 `test/doc-viewer.test.ts` gates the closed/no-document fallback, loading and
-error presentation, the
+error presentation, both halves of the empty-message/empty-document pair, the
 frontmatter card's presence and fields, and title/subtitle/frontmatter-name
 escaping, package-document list output, open dispatch, and button/backdrop
 close dispatch;

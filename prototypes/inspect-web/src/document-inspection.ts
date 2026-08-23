@@ -33,6 +33,17 @@ export type DocumentViewerState =
 export type OpenDocumentViewerState =
   Exclude<DocumentViewerState, { status: "closed" }>;
 
+// Five call sites asked "is the viewer open?" by spelling `status !== "closed"`, and round
+// 2 review (Claude Opus 5) pointed out that a new *closed-like* member -- dismissed,
+// cancelled -- would be silently treated as open at all five, with no compile error to
+// prompt a decision. `Exclude` absorbs it the same way. One predicate makes that a single
+// place to review instead of five identical literals to find.
+export function isDocViewerOpen(
+  viewer: DocumentViewerState,
+): viewer is OpenDocumentViewerState {
+  return viewer.status !== "closed";
+}
+
 // The union guarantees that `error` and `html` exist only on the variants that own them,
 // but nothing about that stops a projection from declining to pass the error along. That
 // is a real gap rather than a hypothetical one: adversarial review mutated the previous
@@ -51,17 +62,11 @@ export function docViewerOptions(
   const doc = viewer.request.document;
   switch (viewer.status) {
     case "loading":
-      return { doc, meta: null, loading: true, error: "", html: "" };
+      return { doc, body: { status: "loading" } };
     case "ready":
-      return {
-        doc,
-        meta: viewer.meta,
-        loading: false,
-        error: "",
-        html: viewer.html,
-      };
+      return { doc, body: { status: "ready", meta: viewer.meta, html: viewer.html } };
     case "failed":
-      return { doc, meta: null, loading: false, error: viewer.error, html: "" };
+      return { doc, body: { status: "failed", error: viewer.error } };
     default:
       return assertNever(viewer, "DocumentViewerState");
   }

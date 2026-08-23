@@ -161,10 +161,7 @@ test("package document list stays absent when the package ships no documents", (
 test("closed viewer with no document falls back to a generic title and empty subtitle", () => {
   const html = renderDocViewer({
     doc: null,
-    meta: null,
-    loading: false,
-    error: "",
-    html: "",
+    body: { status: "ready", meta: null, html: "" },
     escapeHtml,
   });
 
@@ -174,38 +171,29 @@ test("closed viewer with no document falls back to a generic title and empty sub
 test("loading state shows a loading status scoped to the document title, not the body", () => {
   const html = renderDocViewer({
     doc,
-    meta: null,
-    loading: true,
-    error: "unused while loading",
-    html: "<p>unused while loading</p>",
+    body: { status: "loading" },
     escapeHtml,
   });
 
   assert.match(html, /doc-viewer-status">Loading CHANGELOG\.md…/);
-  assert.doesNotMatch(html, /unused while loading/);
+  assert.doesNotMatch(html, /markdown-body/);
 });
 
 test("error state reports the error instead of loading or body content", () => {
   const html = renderDocViewer({
     doc,
-    meta: null,
-    loading: false,
-    error: "network error",
-    html: "<p>unused on error</p>",
+    body: { status: "failed", error: "network error" },
     escapeHtml,
   });
 
   assert.match(html, /doc-viewer-status error">network error/);
-  assert.doesNotMatch(html, /unused on error/);
+  assert.doesNotMatch(html, /markdown-body/);
 });
 
 test("loaded state without frontmatter renders the body with no frontmatter card", () => {
   const html = renderDocViewer({
     doc,
-    meta: null,
-    loading: false,
-    error: "",
-    html: "<p>Body content.</p>",
+    body: { status: "ready", meta: null, html: "<p>Body content.</p>" },
     escapeHtml,
   });
 
@@ -216,10 +204,15 @@ test("loaded state without frontmatter renders the body with no frontmatter card
 test("loaded state with frontmatter renders the name, version, and description", () => {
   const html = renderDocViewer({
     doc,
-    meta: { name: "Changelog", version: "1.2.3", descriptionHtml: "<p>What changed.</p>" },
-    loading: false,
-    error: "",
-    html: "<p>Body content.</p>",
+    body: {
+      status: "ready",
+      meta: {
+        name: "Changelog",
+        version: "1.2.3",
+        descriptionHtml: "<p>What changed.</p>",
+      },
+      html: "<p>Body content.</p>",
+    },
     escapeHtml,
   });
 
@@ -232,10 +225,11 @@ test("loaded state with frontmatter renders the name, version, and description",
 test("frontmatter without a version omits the version badge", () => {
   const html = renderDocViewer({
     doc,
-    meta: { name: "Changelog", version: "", descriptionHtml: "" },
-    loading: false,
-    error: "",
-    html: "<p>Body content.</p>",
+    body: {
+      status: "ready",
+      meta: { name: "Changelog", version: "", descriptionHtml: "" },
+      html: "<p>Body content.</p>",
+    },
     escapeHtml,
   });
 
@@ -246,10 +240,7 @@ test("frontmatter without a version omits the version badge", () => {
 test("the document title and subtitle are escaped", () => {
   const html = renderDocViewer({
     doc: { name: "<script>alert(1)</script>", path: "<b>path</b>" },
-    meta: null,
-    loading: false,
-    error: "",
-    html: "",
+    body: { status: "ready", meta: null, html: "" },
     escapeHtml,
   });
 
@@ -262,14 +253,48 @@ test("the document title and subtitle are escaped", () => {
 test("frontmatter name is escaped but the description HTML passes through unescaped", () => {
   const html = renderDocViewer({
     doc,
-    meta: { name: "<script>alert(1)</script>", version: "", descriptionHtml: "<p>trusted markdown</p>" },
-    loading: false,
-    error: "",
-    html: "",
+    body: {
+      status: "ready",
+      meta: {
+        name: "<script>alert(1)</script>",
+        version: "",
+        descriptionHtml: "<p>trusted markdown</p>",
+      },
+      html: "",
+    },
     escapeHtml,
   });
 
   assert.doesNotMatch(html, /<script>alert/);
   assert.match(html, /&lt;script&gt;alert/);
   assert.match(html, /<p>trusted markdown<\/p>/);
+});
+
+test("a failure with no message still renders as a failure, not an empty document", () => {
+  // Round 2 review (Claude Opus 5) showed this rendering as a *successful empty
+  // document*: the renderer asked whether the error string was truthy, so an
+  // undescribable rejection -- which `errorMessage` reports as "" -- was indistinguishable
+  // from a document that loaded and had no content. `describeError` returning "" is
+  // reachable in the real wiring, for `undefined`, `null`, an array, a Symbol, or an
+  // `Error` whose message is empty.
+  const html = renderDocViewer({
+    doc,
+    body: { status: "failed", error: "" },
+    escapeHtml,
+  });
+
+  assert.match(html, /doc-viewer-status error">The document could not be loaded\./);
+  assert.doesNotMatch(html, /markdown-body/);
+});
+
+test("an empty document renders as a document, not as a failure", () => {
+  // The close negative case: emptiness on the success side must stay success-shaped.
+  const html = renderDocViewer({
+    doc,
+    body: { status: "ready", meta: null, html: "" },
+    escapeHtml,
+  });
+
+  assert.match(html, /<article class="markdown-body"><\/article>/);
+  assert.doesNotMatch(html, /doc-viewer-status/);
 });
