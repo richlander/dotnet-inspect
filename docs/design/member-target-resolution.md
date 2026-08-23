@@ -156,7 +156,12 @@ AssemblyRef-version-only drift and equivalent full-key/token representation can
 therefore pair. Constraint, custom-modifier, calling-convention,
 function-pointer, by-ref, assembly-name/culture/token, or any other flag drift
 remains remove/add. A normalized-key collision within one participant is typed
-ambiguity; occurrence or metadata order cannot select a winner.
+ambiguity; occurrence or metadata order cannot select a winner. The
+correspondence projection returns the complete side-local collision bucket.
+Implementation Diff assigns that bucket one scope/participant/side-scoped
+ambiguity work item retaining every resolved attempt and taints every dependent
+opposite-side correspondence or absence claim; it never converts the collision
+to target-resolution failure or an unkeyed plan-construction exception.
 
 `Bodyless` still names a successfully resolved MethodDef. It retains the exact
 address, relationship role, strict key, and correspondence key needed to enter
@@ -185,7 +190,7 @@ The target architecture remains unverified until these gates exist:
 | `MemberBodyTargetRoundTripsStructuralKey` | API extraction and live resolution produce different strict keys; JSON loses key version or accessor role; an exact target omits or misstates its role; or a same-source exact/preferred address bypasses key/role validation |
 | `BodyTargetResolutionNeverUsesPresentation` | A carried target falls back to name, ordinal, anchor, display signature, path, or raw token; legacy/unknown keys guess; or duplicate candidates select one |
 | `BodyCorrespondenceNormalizationIsExact` | Strict keys erase AssemblyRef version/raw representation; correspondence retains version or `PublicKey`; clears another flag; drops name/culture/token or non-scope structure; or the two policies use different builders/budgets |
-| `BodyCorrespondenceCollisionIsAmbiguous` | Two normalized candidates in one participant pair by occurrence/order, or equal keys in different paired participants collide |
+| `BodyCorrespondenceCollisionIsAmbiguous` | Two normalized candidates in one participant pair by occurrence/order; the collision bucket loses a candidate or lacks a retained ambiguity work item; a dependent opposite candidate becomes semantic evidence; or equal keys in different paired participants collide |
 | `BodyCorrespondence_UsesIndependentSideLocalTargets` | One side's strict target is fanned into the other side; AssemblyRef-version-only drift fails before correspondence; or remove/add shares a target request |
 | `BodylessResolution_RetainsComparisonCoordinate` | A validated bodyless MethodDef becomes a target failure, loses its strict/correspondence identity, makes a bodyless/bodyful transition `Absent`, permits failed-counterpart add/remove, or prevents `Absent(NoBody)` when neither side has a body |
 
