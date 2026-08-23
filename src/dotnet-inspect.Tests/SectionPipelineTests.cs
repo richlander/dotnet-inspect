@@ -1752,6 +1752,7 @@ public class SectionPipelineTests
                 ExtensionMethodsQuery.Definition,
                 MetadataImageQuery.Definition,
                 OptimizationOpportunitiesQuery.Definition,
+                ResourceTriageQuery.Definition,
                 ResourcesQuery.Definition,
                 SourceAvailabilityQuery.Definition,
                 SourceIntegrityQuery.Definition,
