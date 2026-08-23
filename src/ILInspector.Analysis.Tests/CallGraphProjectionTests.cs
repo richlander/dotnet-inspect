@@ -176,6 +176,50 @@ public class CallGraphProjectionTests
     }
 
     [Fact]
+    public void ConflictingDefinitionAndResolutionAssembliesAreWithheld()
+    {
+        MemberRef repeated = Member("Svc", "Do");
+        GraphNodeEvidence repeatedEvidence = Evidence(2);
+        var first = new AssemblyReferenceIdentity(
+            "First",
+            new Version(1, 0),
+            null,
+            null);
+        var second = new AssemblyReferenceIdentity(
+            "Second",
+            new Version(1, 0),
+            null,
+            null);
+        CallTreeNode root = Node(
+            Member("Target", "Run"),
+            CallTreeStatus.Expanded,
+            [
+                Leaf(repeated) with
+                {
+                    GraphEvidence = repeatedEvidence,
+                    DefinitionAssemblyIdentity = first,
+                    ResolutionAssemblyIdentity = first,
+                },
+                Leaf(repeated) with
+                {
+                    GraphEvidence = repeatedEvidence,
+                    DefinitionAssemblyIdentity = second,
+                    ResolutionAssemblyIdentity = second,
+                },
+            ]) with
+        {
+            GraphEvidence = Evidence(1),
+        };
+
+        CallGraphNode projected = Assert.Single(
+            CallGraphProjection.FromCallees(root).Nodes,
+            node => node.Member.Name == repeated.Name);
+
+        Assert.Null(projected.DefinitionAssemblyIdentity);
+        Assert.Null(projected.ResolutionAssemblyIdentity);
+    }
+
+    [Fact]
     public void FindNodePrefersExactDefinitionEvidence()
     {
         MemberRef repeated = Member("Svc", "Do");
