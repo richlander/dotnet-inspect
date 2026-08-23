@@ -136,18 +136,33 @@ implementation does not deliver**; the second holds today.
   corpus candidates and resolution walks them in registration order, so the
   platform copy is offered first. (`CandidateTier` does not rank anything; it
   is used only for tier-boundary handling.) Whether the overlay is reached at
-  all then depends on configuration rather than on the caller's intent. It is
-  reached only when the platform candidate fails the *effective identity
-  policy* — `MatchesCandidate` weighs version, culture, and public key token,
-  and its version test is relaxed by `IgnoreAssemblyVersion` and, in platform
-  scope, by `AllowPlatformAssemblyVersionRollForward` — **and** the scope
-  permits continuing across the tier boundary. Non-platform scope does not: on
-  crossing from the platform tier to the corpus tier it abandons the resolution
-  and reports the reference unresolved, so in the common case an overlay is
-  never reached *and the reference does not resolve at all*. A version mismatch
-  is the most likely cause of the first condition, not the whole of it.
-  Composition is therefore **emergent**, falling out of options and
-  registration order. This is the same defect as
+  all then depends on configuration rather than on the caller's intent.
+
+  If no earlier candidate matches that *filename*, the overlay is simply used:
+  it is the first candidate seen, no tier boundary is crossed, and nothing
+  below applies. The interesting case is when something does precede it, and
+  then reaching the overlay requires all of:
+
+  1. **Every** earlier candidate fails the *effective identity policy* —
+     `MatchesCandidate` weighs version, culture, and public key token, and its
+     version test is relaxed by `IgnoreAssemblyVersion` and, in platform scope,
+     by `AllowPlatformAssemblyVersionRollForward`. One earlier match ends the
+     search there.
+  2. None of them failed to **open**. An unreadable candidate records a
+     failure, and a recorded failure turns the next tier crossing into an
+     abandonment — in platform scope too, not only outside it.
+  3. The scope permits crossing a tier boundary at all. Non-platform scope
+     never does, and this is broader than platform-versus-corpus: resolution is
+     effectively confined to the **first tier that had a filename match**. A
+     sibling or package candidate that matches the filename and fails the
+     identity policy is enough to abandon the whole resolution before either
+     the platform copy or the overlay is considered.
+
+  The overlay must then open and match on its own account. A version mismatch
+  is the most likely way to satisfy the first condition, not the whole of it.
+  Composition is therefore **emergent**, falling out of options, registration
+  order, and whether unrelated candidates happened to be readable. This is the
+  same defect as
   [precedence](#precedence-between-entitled-candidates) below, and it is
   **#4593**.
 - **The overlay does not extend its authority beyond that filename.** It does
@@ -210,12 +225,15 @@ both can satisfy the same reference.
 
 Today the winner falls out of the order in which candidates are registered:
 platform is registered before corpus, so platform is offered first. Worse, the
-outcome **turns on configuration** — when the platform candidate fails the
-effective identity policy (version, culture, or public key token, as relaxed by
-`IgnoreAssemblyVersion` or platform-scope roll-forward) and the scope allows
-continuing past the tier boundary, the designated copy wins instead. So the
-selected assembly changes with option settings and version equality, with no
-signal in either direction.
+outcome **turns on configuration** — the designated copy wins only when every
+earlier candidate fails the effective identity policy (version, culture, or
+public key token, as relaxed by `IgnoreAssemblyVersion` or platform-scope
+roll-forward), none of them failed to open, and the scope allows crossing a
+tier boundary at all. Non-platform scope does not, which confines resolution to
+the first tier that matched the filename. Otherwise the platform copy wins or
+the reference does not resolve at all. So the selected assembly changes with
+option settings, version equality, and even whether an unrelated candidate
+happened to be readable, with no signal in any direction.
 
 The rule is that **precedence must be stated rather than emergent**, and that an
 unstated tie is a diagnostic rather than a silent pick. Tracked as **#4593**.

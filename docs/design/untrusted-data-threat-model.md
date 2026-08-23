@@ -445,8 +445,10 @@ gates the resolver half, since a core-library `TypeRef` forces
 able to satisfy it;
 `PlantedCoreLibraryIdentityTests.DesignatedAcquisition_KeepsCoreLibraryIdentity`
 gates the build-layout and corpus workflow;
-`PlantedCoreLibraryIdentityTests.DiscoveredSibling_IsDenied` gates the loose
-sibling; and
+`PlantedCoreLibraryIdentityTests.DiscoveredSibling_IsDenied` gates the denial
+of a resolved `LocalAsset`, injecting that provenance directly rather than
+exercising the resolver's classification of a discovered sibling, which is
+ungated; and
 `PlantedCoreLibraryIdentityTests.PackagesAndUploads_AreDenied` gates the
 package and embedded provenances, so no future opt-in can reach them by
 accident.
