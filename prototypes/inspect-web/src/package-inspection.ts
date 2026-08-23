@@ -234,24 +234,25 @@ export function createPackageInspectionCoordinator(
   const inFlight = new Map<
     string,
     {
-      key: string;
       resource: AsyncResource<unknown>;
       promise: Promise<void>;
       settle: () => void;
     }>();
 
-  // Join on the identity of the pending resource, not on its key. A request that has
-  // lost ownership -- because a newer request or a scope change overwrote the slot --
-  // will discard its own result when it lands, so joining it would leave the caller
-  // awaiting a request that publishes nothing. Two requests for one scope can carry the
-  // same key while only one of them still owns the state, so key equality cannot tell
-  // them apart and object identity can.
-  // Identity alone is not enough: it says the in-flight request still owns the state, not
-  // that it is the request this caller wants. Restacking onto the opportunities slice
-  // showed why -- its A->B->A tests deadlocked here, because a caller for a *different*
+  // Joining takes both halves, and neither one alone is sufficient.
+  //
+  // Identity is what makes the in-flight request the *live* one. A request that has lost
+  // ownership -- because a newer request or a scope change overwrote the slot -- will
+  // discard its own result when it lands, so joining it would leave the caller awaiting a
+  // request that publishes nothing. Two requests for one scope can carry the same key
+  // while only one still owns the state, and key equality cannot tell them apart.
+  //
+  // The key is what makes it the request this caller *wants*. Identity alone says the in-flight request still owns the state, not
+  // that. Restacking onto the opportunities slice
+  // showed why: its A->B->A tests deadlocked here, because a caller for a *different*
   // scope matched on identity, joined the running request, and returned without ever
-  // starting its own. The key comparison is what makes this "the same request", and the
-  // identity comparison is what makes it "still the live one".
+  // starting its own. The pending resource carries its own key, so this reads that rather
+  // than storing a second copy that could drift from it.
   function joinInFlight(
     lens: string,
     live: AsyncResource<unknown>,
@@ -274,12 +275,11 @@ export function createPackageInspectionCoordinator(
   // settling after an awaited call inside its own `finally`.
   //
   // Taking the body removes the window rather than narrowing it: there is no way to
-  // register an entry without this `finally`. `test/in-flight-settlement.test.ts` drives
+  // register an entry without this `finally`. `test/package-inspection.test.ts` drives
   // every lens with a render callback that throws on the nth call, for every n, and proves
   // a later same-key caller still settles.
   function runInFlight(
     lens: string,
-    key: string,
     resource: AsyncResource<unknown>,
     body: () => Promise<void>,
   ): Promise<void> {
@@ -287,7 +287,7 @@ export function createPackageInspectionCoordinator(
     const promise = new Promise<void>(resolve => {
       settle = resolve;
     });
-    const entry = { key, resource, promise, settle };
+    const entry = { resource, promise, settle };
     inFlight.set(lens, entry);
     return (async () => {
       try {
