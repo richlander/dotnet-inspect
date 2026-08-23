@@ -98,6 +98,26 @@ public static class MetadataSafetyPolicy
     public const int MaxRelationshipNodes = 256;
 
     /// <summary>
+    /// Maximum nested comparison steps entered while deciding one override
+    /// return/parameter compatibility question. Active-handle cycle detection
+    /// alone does not bound a constraint <em>chain</em>, which recurses once
+    /// per link on the native stack. Gated by
+    /// <c>SameAssemblyOverrideSlot_DeepGenericParameterChainFailsClosed</c> and
+    /// <c>SameAssemblyOverrideSlot_DeepGenericParameterChainDoesNotCrashProcess</c>.
+    /// </summary>
+    public const int MaxOverrideCompatibilityDepth = MaxRelationshipNodes;
+
+    /// <summary>
+    /// Maximum comparison steps charged cumulatively across one override-slot
+    /// authentication, covering every parameter and the return. Active-path
+    /// cycle detection admits a constraint <em>DAG</em> whose distinct paths
+    /// grow exponentially in its width, so depth alone does not bound the
+    /// work. Gated by
+    /// <c>SameAssemblyOverrideSlot_WideGenericParameterDagFailsClosedWithinBudget</c>.
+    /// </summary>
+    public const int MaxOverrideCompatibilityWork = 16 * MaxRelationshipNodes;
+
+    /// <summary>
     /// Maximum characters in one structured type name: its namespace plus every root-to-leaf
     /// segment, plus one delimiter per segment boundary.
     /// </summary>

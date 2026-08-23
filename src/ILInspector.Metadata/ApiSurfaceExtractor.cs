@@ -3627,7 +3627,7 @@ public static class ApiSurfaceExtractor
     }
 
     /// <summary>True when <paramref name="typeHandle"/> resolves to <c>System.Object</c>.</summary>
-    private static bool IsSystemObjectType(
+    internal static bool IsSystemObjectType(
         MetadataReader reader,
         EntityHandle typeHandle,
         Action<int>? beforeDecodeWork = null)

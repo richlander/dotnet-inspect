@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -475,6 +476,192 @@ public static class MetadataDeclarationQuery
     }
 
     /// <summary>
+    /// The ordered same-image base classes of
+    /// <paramref name="derivedTypeHandle"/>, nearest first. A constructed
+    /// generic base is followed through its <c>TypeSpec</c> to the definition
+    /// it instantiates, which a walk restricted to <c>TypeDef</c> bases cannot
+    /// do. The walk stops at the first base that leaves this image, is not a
+    /// constructed instantiation of a same-image definition, cannot be
+    /// decoded, or repeats, and is bounded by
+    /// <see cref="MetadataSafetyPolicy.MaxRelationshipNodes"/>.
+    /// </summary>
+    public static IReadOnlyList<TypeDefinitionHandle> GetSameAssemblyBaseChain(
+        MetadataReader reader,
+        TypeDefinitionHandle derivedTypeHandle)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        return
+        [
+            .. OverrideBaseChain
+                .SameAssemblyBases(reader, derivedTypeHandle)
+                .Select(step => step.Definition),
+        ];
+    }
+
+    /// <summary>
+    /// The same-image class definition instantiated by
+    /// <paramref name="derivedType"/>'s constructed generic base, when it has
+    /// one.
+    ///
+    /// A compiler encodes <c>Derived : Base&lt;string&gt;</c> and
+    /// <c>Derived&lt;T&gt; : Base&lt;T&gt;</c> as a <c>TypeSpec</c> base, so a
+    /// consumer that only reads a <c>TypeDef</c> base cannot see the definition
+    /// the base instantiates. This resolves exactly that one step and keeps the
+    /// exact definition token; it never matches a rendered name.
+    ///
+    /// Fails closed: a base that is not a <c>TypeSpec</c>, a <c>TypeSpec</c>
+    /// that is not a generic instantiation of a definition in this image, and
+    /// an undecodable or over-budget signature all return
+    /// <see langword="false"/>.
+    /// </summary>
+    /// <summary>
+    /// True when <paramref name="typeDef"/> declares a member that occupies a
+    /// virtual slot it did not introduce: a virtual method that is not
+    /// <see cref="MethodAttributes.NewSlot"/>, or the body of a
+    /// <c>MethodImpl</c> row. A base type owns such a slot, so a shell that
+    /// drops the base must drop the member's <c>override</c> with it.
+    ///
+    /// Read from method attribute flags and <c>MethodImpl</c> rows only; no
+    /// name or rendered signature participates. A malformed row fails closed to
+    /// <see langword="false"/>, which is the drop-the-base answer.
+    /// </summary>
+    public static bool ReusesInheritedVirtualSlot(MetadataReader reader, TypeDefinition typeDef)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        try
+        {
+            if (typeDef.GetMethodImplementations().Count != 0)
+                return true;
+
+            foreach (var methodHandle in typeDef.GetMethods())
+            {
+                var attributes = reader.GetMethodDefinition(methodHandle).Attributes;
+                if ((attributes & MethodAttributes.Virtual) != 0
+                    && (attributes & MethodAttributes.NewSlot) == 0)
+                {
+                    return true;
+                }
+            }
+        }
+        catch (Exception exception)
+            when (exception is BadImageFormatException
+                or ArgumentException
+                or InvalidOperationException)
+        {
+            return false;
+        }
+
+        return false;
+    }
+
+    public static bool TryGetSameAssemblyConstructedBaseDefinition(
+        MetadataReader reader,
+        TypeDefinition derivedType,
+        out TypeDefinitionHandle baseTypeHandle)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        baseTypeHandle = default;
+        if (derivedType.BaseType.Kind != HandleKind.TypeSpecification)
+            return false;
+
+        return OverrideBaseChain.TryReadConstructedBase(
+            reader,
+            (TypeSpecificationHandle)derivedType.BaseType,
+            derivedType,
+            substitution: null,
+            out baseTypeHandle,
+            out _);
+    }
+
+    /// <summary>
+    /// True when <paramref name="methodHandle"/> reuses a virtual slot that
+    /// authenticated inheritance evidence proves is declared by
+    /// <c>System.Object</c>.
+    ///
+    /// Three facts must all hold. The method reuses an inherited slot rather
+    /// than declaring a new one; its signature is exactly one of the three
+    /// object intrinsics, read from primitive element types rather than from
+    /// any rendered or referenced type name; and every base link from its
+    /// declaring type up to <c>System.Object</c> stays inside this image, with
+    /// the root authenticated as the real <c>System.Object</c> of a recognized
+    /// core library.
+    ///
+    /// The chain requirement is the load-bearing one. Any external base on the
+    /// chain may declare its own <c>NewSlot</c> virtual with the same name and
+    /// signature, so a name-and-signature match alone would silently rebind
+    /// that base's slot to <c>System.Object</c> whenever a consumer flattens
+    /// the external base away. Local metadata cannot prove which slot such a
+    /// method occupies, so this refuses rather than guessing.
+    /// </summary>
+    public static bool IsAuthenticatedObjectSlotOverride(
+        MetadataReader reader,
+        TypeDefinitionHandle declaringTypeHandle,
+        MethodDefinitionHandle methodHandle)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        MethodDefinition method = reader.GetMethodDefinition(methodHandle);
+        if ((method.Attributes & MethodAttributes.Static) != 0
+            || (method.Attributes & MethodAttributes.Virtual) == 0
+            || (method.Attributes & MethodAttributes.NewSlot) != 0
+            || method.GetGenericParameters().Count != 0)
+        {
+            return false;
+        }
+
+        if (!MatchesObjectIntrinsicSlot(reader, declaringTypeHandle, method))
+            return false;
+
+        return OverrideBaseChain.ReachesAuthenticatedObjectRoot(
+            reader,
+            declaringTypeHandle);
+    }
+
+    /// <summary>
+    /// True when <paramref name="method"/> has the exact name and signature of
+    /// one of <c>System.Object</c>'s three overridable members. Every type
+    /// position is read as a primitive element type, so a hostile image cannot
+    /// satisfy this with a type reference that merely renders as
+    /// <c>string</c>, <c>int</c>, <c>bool</c>, or <c>object</c>.
+    /// </summary>
+    static bool MatchesObjectIntrinsicSlot(
+        MetadataReader reader,
+        TypeDefinitionHandle declaringTypeHandle,
+        MethodDefinition method)
+    {
+        GuardedProviderDecode.DecodeResult<MethodSignature<TypeNode>> decoded =
+            GuardedProviderDecode.MethodResult(
+                reader,
+                method,
+                new TypeNodeProvider(
+                    scopeNamedTypeIdentity: true,
+                    requireScopedNamedTypeIdentity: true),
+                GenericContext.ForMethod(
+                    reader,
+                    reader.GetTypeDefinition(declaringTypeHandle),
+                    method),
+                (TypeNode)new DegradedTypeNode());
+        if (decoded.IsDegraded)
+            return false;
+
+        MethodSignature<TypeNode> signature = decoded.Value;
+        return reader.GetString(method.Name) switch
+        {
+            "ToString" => signature.ParameterTypes.Length == 0
+                && IsPrimitive(signature.ReturnType, "string"),
+            "GetHashCode" => signature.ParameterTypes.Length == 0
+                && IsPrimitive(signature.ReturnType, "int"),
+            "Equals" => signature.ParameterTypes.Length == 1
+                && IsPrimitive(signature.ReturnType, "bool")
+                && IsPrimitive(signature.ParameterTypes[0], "object"),
+            _ => false,
+        };
+
+        static bool IsPrimitive(TypeNode node, string name)
+            => node is PrimitiveTypeNode primitive
+                && primitive.Name == name;
+    }
+
+    /// <summary>
     /// Locates the nearest same-assembly virtual slot reused by
     /// <paramref name="methodHandle"/>, including a source override encoded as
     /// <c>NewSlot</c> with a class <c>MethodImpl</c>. Returns
@@ -521,12 +708,10 @@ public static class MetadataDeclarationQuery
 
         var methodShape = GetOverrideSlotShape(reader, method, methodSignature);
 
-        var baseTypeHandle = declaringType.BaseType;
-        var visited = new HashSet<TypeDefinitionHandle>();
-        while (baseTypeHandle.Kind == HandleKind.TypeDefinition
-            && visited.Add((TypeDefinitionHandle)baseTypeHandle))
+        foreach (OverrideBaseInstantiation baseStep
+            in OverrideBaseChain.SameAssemblyBases(reader, declaringTypeHandle))
         {
-            var baseDefinitionHandle = (TypeDefinitionHandle)baseTypeHandle;
+            var baseDefinitionHandle = baseStep.Definition;
             var baseDefinition = reader.GetTypeDefinition(baseDefinitionHandle);
             foreach (var candidateHandle in baseDefinition.GetMethods())
             {
@@ -551,16 +736,25 @@ public static class MetadataDeclarationQuery
                     continue;
                 }
 
+                if (!TryGetSubstitutedOverrideSlotShape(
+                        reader,
+                        candidate,
+                        candidateSignature,
+                        baseStep.TypeArguments,
+                        declaringTypeHandle,
+                        out OverrideSlotShape candidateShape))
+                {
+                    continue;
+                }
+
                 if (MatchesOverrideSlotShape(
                     reader,
                     methodShape,
-                    GetOverrideSlotShape(reader, candidate, candidateSignature)))
+                    candidateShape))
                 {
                     return new MetadataOverrideSlot(baseDefinitionHandle, candidateHandle);
                 }
             }
-
-            baseTypeHandle = baseDefinition.BaseType;
         }
 
         return null;
@@ -599,24 +793,29 @@ public static class MetadataDeclarationQuery
         }
 
         var methodShape = GetOverrideSlotShape(reader, method, methodSignature);
+        List<OverrideBaseInstantiation> bases =
+            OverrideBaseChain.SameAssemblyBases(reader, declaringTypeHandle);
         MetadataOverrideSlot? match = null;
         foreach (var implementationHandle in declaringType.GetMethodImplementations())
         {
             var implementation = reader.GetMethodImplementation(implementationHandle);
-            if (implementation.MethodBody != methodHandle
-                || implementation.MethodDeclaration.Kind != HandleKind.MethodDefinition)
+            if (implementation.MethodBody != methodHandle)
+                continue;
+
+            if (!TryResolveSameAssemblyOverrideDeclaration(
+                    reader,
+                    implementation.MethodDeclaration,
+                    declaringType,
+                    bases,
+                    out MethodDefinitionHandle declarationHandle,
+                    out ImmutableArray<TypeNode>? substitution))
             {
                 continue;
             }
 
-            var declarationHandle = (MethodDefinitionHandle)implementation.MethodDeclaration;
             var declaration = reader.GetMethodDefinition(declarationHandle);
             var declarationTypeHandle = declaration.GetDeclaringType();
-            if (!IsStrictSameAssemblyBase(
-                    reader,
-                    declaringType,
-                    declarationTypeHandle)
-                || (reader.GetTypeDefinition(declarationTypeHandle).Attributes & TypeAttributes.Interface) != 0
+            if ((reader.GetTypeDefinition(declarationTypeHandle).Attributes & TypeAttributes.Interface) != 0
                 || reader.GetString(declaration.Name) != methodName
                 || (declaration.Attributes & MethodAttributes.Virtual) == 0
                 || (declaration.Attributes & MethodAttributes.Final) != 0
@@ -635,10 +834,17 @@ public static class MetadataDeclarationQuery
                 declaration,
                 PositionalGenericContext(declarationType, declaration))
                 .TryGetValue(out var declarationSignature)
+                || !TryGetSubstitutedOverrideSlotShape(
+                    reader,
+                    declaration,
+                    declarationSignature,
+                    substitution,
+                    declaringTypeHandle,
+                    out OverrideSlotShape declarationShape)
                 || !MatchesOverrideSlotShape(
                     reader,
                     methodShape,
-                    GetOverrideSlotShape(reader, declaration, declarationSignature)))
+                    declarationShape))
             {
                 continue;
             }
@@ -652,25 +858,280 @@ public static class MetadataDeclarationQuery
         return match;
     }
 
-    static bool IsStrictSameAssemblyBase(
+    /// <summary>
+    /// Resolves a <c>MethodImpl</c> declaration token to the exact same-image
+    /// base <c>MethodDef</c> it names, together with the instantiation of the
+    /// base that the derived type actually extends. A <c>MethodDef</c>
+    /// declaration must name a type on the authenticated base chain. A
+    /// <c>MemberRef</c> declaration must be rooted in a constructed generic
+    /// <c>TypeSpec</c> whose definition token and whose exact generic
+    /// arguments both equal a chain step's, which is what authenticates the
+    /// slot rather than the spelling of the reference; the referenced member
+    /// is then resolved to a unique <c>MethodDef</c> by structural signature
+    /// correspondence. Any other token kind, any off-chain base, any
+    /// mismatched instantiation, and any ambiguity are refused.
+    /// </summary>
+    static bool TryResolveSameAssemblyOverrideDeclaration(
         MetadataReader reader,
+        EntityHandle declarationToken,
         TypeDefinition declaringType,
-        TypeDefinitionHandle candidateHandle)
+        List<OverrideBaseInstantiation> bases,
+        out MethodDefinitionHandle declarationHandle,
+        out ImmutableArray<TypeNode>? substitution)
     {
-        var baseType = declaringType.BaseType;
-        var visited = new HashSet<TypeDefinitionHandle>();
-        while (baseType.Kind == HandleKind.TypeDefinition
-            && visited.Add((TypeDefinitionHandle)baseType))
+        declarationHandle = default;
+        substitution = null;
+        if (declarationToken.Kind == HandleKind.MethodDefinition)
         {
-            var baseHandle = (TypeDefinitionHandle)baseType;
-            if (baseHandle == candidateHandle)
-                return true;
+            var candidate = (MethodDefinitionHandle)declarationToken;
+            TypeDefinitionHandle owner =
+                reader.GetMethodDefinition(candidate).GetDeclaringType();
+            foreach (OverrideBaseInstantiation step in bases)
+            {
+                if (step.Definition != owner)
+                    continue;
 
-            baseType = reader.GetTypeDefinition(baseHandle).BaseType;
+                declarationHandle = candidate;
+                substitution = step.TypeArguments;
+                return true;
+            }
+
+            return false;
         }
 
-        return false;
+        if (declarationToken.Kind != HandleKind.MemberReference)
+            return false;
+
+        MemberReference reference =
+            reader.GetMemberReference((MemberReferenceHandle)declarationToken);
+        if (reference.GetKind() != MemberReferenceKind.Method
+            || reference.Parent.Kind != HandleKind.TypeSpecification)
+        {
+            return false;
+        }
+
+        TypeDefinition? containing = null;
+        foreach (OverrideBaseInstantiation step in bases)
+        {
+            if (step.TypeArguments is not { } stepArguments
+                || !OverrideBaseChain.TryReadConstructedBase(
+                    reader,
+                    (TypeSpecificationHandle)reference.Parent,
+                    declaringType,
+                    null,
+                    out TypeDefinitionHandle referencedDefinition,
+                    out ImmutableArray<TypeNode> referencedArguments))
+            {
+                continue;
+            }
+
+            if (referencedDefinition != step.Definition
+                || referencedArguments.Length != stepArguments.Length)
+            {
+                continue;
+            }
+
+            bool argumentsMatch = true;
+            for (int index = 0; index < stepArguments.Length; index++)
+            {
+                if (!TypeNodesCorrespond(
+                    reader,
+                    referencedArguments[index],
+                    stepArguments[index]))
+                {
+                    argumentsMatch = false;
+                    break;
+                }
+            }
+
+            if (!argumentsMatch)
+                continue;
+
+            containing = reader.GetTypeDefinition(step.Definition);
+            substitution = stepArguments;
+            break;
+        }
+
+        if (containing is not { } containingType)
+            return false;
+
+        return TryResolveMemberReferenceToUniqueMethod(
+            reader,
+            reference,
+            containingType,
+            out declarationHandle);
     }
+
+    /// <summary>
+    /// Finds the single <c>MethodDef</c> in <paramref name="containingType"/>
+    /// that <paramref name="reference"/> names. The reference signature is
+    /// written in the generic type definition's own scope, so both sides are
+    /// decoded positionally and compared structurally; no rendered name
+    /// participates beyond the exact metadata member name. Ambiguity or an
+    /// undecodable signature fails closed.
+    /// </summary>
+    static bool TryResolveMemberReferenceToUniqueMethod(
+        MetadataReader reader,
+        MemberReference reference,
+        TypeDefinition containingType,
+        out MethodDefinitionHandle resolved)
+    {
+        resolved = default;
+        string referenceName = reader.GetString(reference.Name);
+        int referenceMethodArity = GuardedProviderDecode.MemberRefMethod(
+            reader,
+            reference,
+            new SignatureArityProbe(),
+            default(GenericContext?),
+            (byte)0)
+            .GenericParameterCount;
+        MethodSignature<TypeNode> referenceSignature =
+            GuardedProviderDecode.MemberRefMethod(
+                reader,
+                reference,
+                new TypeNodeProvider(
+                    scopeNamedTypeIdentity: true,
+                    requireScopedNamedTypeIdentity: true),
+                PositionalGenericContext(
+                    containingType.GetGenericParameters().Count,
+                    referenceMethodArity),
+                (TypeNode)new DegradedTypeNode());
+
+        if (referenceSignature.ReturnType.IsDegraded
+            || referenceSignature.ParameterTypes.Any(
+                parameter => parameter.IsDegraded))
+        {
+            return false;
+        }
+
+        bool found = false;
+        foreach (MethodDefinitionHandle candidateHandle
+            in containingType.GetMethods())
+        {
+            MethodDefinition candidate =
+                reader.GetMethodDefinition(candidateHandle);
+            if (reader.GetString(candidate.Name) != referenceName)
+                continue;
+
+            MethodSignature<TypeNode> candidateSignature =
+                GuardedProviderDecode.Method(
+                    reader,
+                    candidate,
+                    new TypeNodeProvider(
+                        scopeNamedTypeIdentity: true,
+                        requireScopedNamedTypeIdentity: true),
+                    PositionalGenericContext(
+                        containingType.GetGenericParameters().Count,
+                        candidate.GetGenericParameters().Count),
+                    (TypeNode)new DegradedTypeNode());
+            if (!MethodSignaturesCorrespond(
+                reader,
+                referenceSignature,
+                candidateSignature))
+            {
+                continue;
+            }
+
+            if (found)
+                return false;
+
+            found = true;
+            resolved = candidateHandle;
+        }
+
+        return found;
+    }
+
+    static bool MethodSignaturesCorrespond(
+        MetadataReader reader,
+        MethodSignature<TypeNode> reference,
+        MethodSignature<TypeNode> candidate)
+    {
+        if (reference.Header.RawValue != candidate.Header.RawValue
+            || reference.GenericParameterCount
+                != candidate.GenericParameterCount
+            || reference.RequiredParameterCount
+                != candidate.RequiredParameterCount
+            || reference.ParameterTypes.Length
+                != candidate.ParameterTypes.Length
+            || candidate.ReturnType.IsDegraded
+            || !TypeNodesCorrespond(
+                reader,
+                reference.ReturnType,
+                candidate.ReturnType))
+        {
+            return false;
+        }
+
+        for (int index = 0;
+            index < reference.ParameterTypes.Length;
+            index++)
+        {
+            if (candidate.ParameterTypes[index].IsDegraded
+                || !TypeNodesCorrespond(
+                    reader,
+                    reference.ParameterTypes[index],
+                    candidate.ParameterTypes[index]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Reads only the arity of a method signature blob so a
+    /// <c>MemberRef</c> can be decoded with a positional context of the right
+    /// size. Every type position collapses to a single sentinel because no
+    /// type identity is consumed from this probe.
+    /// </summary>
+    sealed class SignatureArityProbe
+        : ISignatureTypeProvider<byte, GenericContext?>
+    {
+        public byte GetArrayType(byte elementType, ArrayShape shape) => 0;
+        public byte GetByReferenceType(byte elementType) => 0;
+        public byte GetFunctionPointerType(MethodSignature<byte> signature) => 0;
+        public byte GetGenericInstantiation(
+            byte genericType,
+            ImmutableArray<byte> typeArguments) => 0;
+        public byte GetGenericMethodParameter(
+            GenericContext? context,
+            int index) => 0;
+        public byte GetGenericTypeParameter(
+            GenericContext? context,
+            int index) => 0;
+        public byte GetModifiedType(
+            byte modifier,
+            byte unmodifiedType,
+            bool isRequired) => 0;
+        public byte GetPinnedType(byte elementType) => 0;
+        public byte GetPointerType(byte elementType) => 0;
+        public byte GetPrimitiveType(PrimitiveTypeCode typeCode) => 0;
+        public byte GetSZArrayType(byte elementType) => 0;
+        public byte GetTypeFromDefinition(
+            MetadataReader reader,
+            TypeDefinitionHandle handle,
+            byte rawTypeKind) => 0;
+        public byte GetTypeFromReference(
+            MetadataReader reader,
+            TypeReferenceHandle handle,
+            byte rawTypeKind) => 0;
+        public byte GetTypeFromSpecification(
+            MetadataReader reader,
+            GenericContext? context,
+            TypeSpecificationHandle handle,
+            byte rawTypeKind) => 0;
+    }
+
+    static GenericContext PositionalGenericContext(
+        int typeParameterCount,
+        int methodParameterCount)
+        => new(
+            [.. Enumerable.Range(0, typeParameterCount)
+                .Select(index => $"!{index}")],
+            [.. Enumerable.Range(0, methodParameterCount)
+                .Select(index => $"!!{index}")]);
 
     static GenericContext PositionalGenericContext(
         TypeDefinition type,
@@ -732,6 +1193,74 @@ public static class MetadataDeclarationQuery
                 requireScopedNamedTypeIdentity: true),
             context,
             (TypeNode)new DegradedTypeNode());
+        return BuildOverrideSlotShape(
+            reader,
+            method,
+            textSignature,
+            nodeSignature,
+            context,
+            typeDef);
+    }
+
+    /// <summary>
+    /// Produces the slot shape of a base declaration as the derived type sees
+    /// it. When the base is reached through a constructed generic
+    /// <c>TypeSpec</c>, every type-parameter position in the declaration's
+    /// signature is replaced by the exact argument that instantiates it, so
+    /// the resulting shape is expressed in the derived type's own generic
+    /// scope and compares against the deriving method without any name
+    /// matching. Returns <see langword="false"/> when the recorded
+    /// instantiation does not match the declaring definition's arity.
+    /// </summary>
+    static bool TryGetSubstitutedOverrideSlotShape(
+        MetadataReader reader,
+        MethodDefinition method,
+        MethodSignature<string> textSignature,
+        ImmutableArray<TypeNode>? substitution,
+        TypeDefinitionHandle derivedTypeHandle,
+        out OverrideSlotShape shape)
+    {
+        if (substitution is not { } arguments)
+        {
+            shape = GetOverrideSlotShape(reader, method, textSignature);
+            return true;
+        }
+
+        TypeDefinition declarationType =
+            reader.GetTypeDefinition(method.GetDeclaringType());
+        if (declarationType.GetGenericParameters().Count
+            != arguments.Length)
+        {
+            shape = default;
+            return false;
+        }
+
+        TypeDefinition derivedType =
+            reader.GetTypeDefinition(derivedTypeHandle);
+        var nodeSignature = GuardedProviderDecode.Method(
+            reader,
+            method,
+            SubstitutedTypeParameterProvider.Create(arguments),
+            GenericContext.ForMethod(reader, declarationType, method),
+            (TypeNode)new DegradedTypeNode());
+        shape = BuildOverrideSlotShape(
+            reader,
+            method,
+            textSignature,
+            nodeSignature,
+            GenericContext.ForMethod(reader, derivedType, method),
+            derivedType);
+        return true;
+    }
+
+    static OverrideSlotShape BuildOverrideSlotShape(
+        MetadataReader reader,
+        MethodDefinition method,
+        MethodSignature<string> textSignature,
+        MethodSignature<TypeNode> nodeSignature,
+        GenericContext context,
+        TypeDefinition typeDef)
+    {
         IReadOnlyList<ApiParameter> parameters =
             MethodParameters(reader, method, textSignature);
         bool isDegraded =
@@ -772,32 +1301,89 @@ public static class MetadataDeclarationQuery
             isDegraded);
     }
 
+    /// <summary>
+    /// Deterministic cumulative work and recursion-depth accounting for one
+    /// override-slot authentication. Active-handle cycle detection alone
+    /// bounds neither a constraint DAG, whose distinct paths grow
+    /// exponentially in its width, nor a constraint chain, which recurses once
+    /// per link on the native stack. Exhaustion is sticky and fails closed:
+    /// every comparison declines and the caller refuses the slot outright, so
+    /// an over-budget decision can never be read as a retained relationship.
+    /// </summary>
+    sealed class OverrideCompatibilityBudget
+    {
+        int remainingWork =
+            MetadataSafetyPolicy.MaxOverrideCompatibilityWork;
+        int depth;
+
+        internal bool IsExhausted { get; private set; }
+
+        internal bool TryEnter()
+        {
+            if (IsExhausted
+                || remainingWork == 0
+                || depth
+                    >= MetadataSafetyPolicy.MaxOverrideCompatibilityDepth)
+            {
+                IsExhausted = true;
+                return false;
+            }
+
+            remainingWork--;
+            depth++;
+            return true;
+        }
+
+        internal void Exit() => depth--;
+
+        internal bool TryCharge()
+        {
+            if (IsExhausted || remainingWork == 0)
+            {
+                IsExhausted = true;
+                return false;
+            }
+
+            remainingWork--;
+            return true;
+        }
+    }
+
     static bool MatchesOverrideSlotShape(
         MetadataReader reader,
         OverrideSlotShape method,
         OverrideSlotShape candidate)
-        => !method.IsDegraded
-            && !candidate.IsDegraded
-            && ParametersMatch(
+    {
+        if (method.IsDegraded || candidate.IsDegraded)
+            return false;
+
+        var budget = new OverrideCompatibilityBudget();
+        bool matches = ParametersMatch(
                 reader,
                 method.Parameters,
-                candidate.Parameters)
+                candidate.Parameters,
+                budget)
             && ReturnTypesAreOverrideCompatible(
                 reader,
                 method,
-                candidate);
+                candidate,
+                budget);
+        return matches && !budget.IsExhausted;
+    }
 
     static bool ParametersMatch(
         MetadataReader reader,
         IReadOnlyList<OverrideParameterShape> methodParameters,
-        IReadOnlyList<OverrideParameterShape> candidateParameters)
+        IReadOnlyList<OverrideParameterShape> candidateParameters,
+        OverrideCompatibilityBudget budget)
     {
         if (methodParameters.Count != candidateParameters.Count)
             return false;
 
         for (var index = 0; index < methodParameters.Count; index++)
         {
-            if (methodParameters[index].Modifier
+            if (!budget.TryCharge()
+                || methodParameters[index].Modifier
                     != candidateParameters[index].Modifier
                 || !TypeNodesCorrespond(
                     reader,
@@ -814,7 +1400,8 @@ public static class MetadataDeclarationQuery
     static bool ReturnTypesAreOverrideCompatible(
         MetadataReader reader,
         OverrideSlotShape method,
-        OverrideSlotShape candidate)
+        OverrideSlotShape candidate,
+        OverrideCompatibilityBudget budget)
     {
         if (method.ReturnModifier != candidate.ReturnModifier)
             return false;
@@ -843,7 +1430,8 @@ public static class MetadataDeclarationQuery
                     method.TypeContext,
                     candidate.ReturnTypeNode,
                     candidate.TypeContext,
-                    [])
+                    [],
+                    budget)
                 != OverrideCompatibility.Incompatible;
         }
 
@@ -870,7 +1458,8 @@ public static class MetadataDeclarationQuery
                 method.ReturnTypeNode,
                 method.TypeContext,
                 candidate.ReturnTypeNode,
-                candidate.TypeContext);
+                candidate.TypeContext,
+                budget);
         if (structuredCompatibility
             != OverrideCompatibility.Unknown)
         {
@@ -929,7 +1518,35 @@ public static class MetadataDeclarationQuery
         TypeNode method,
         OverrideTypeContext methodContext,
         TypeNode candidate,
-        OverrideTypeContext candidateContext)
+        OverrideTypeContext candidateContext,
+        OverrideCompatibilityBudget budget)
+    {
+        if (!budget.TryEnter())
+            return OverrideCompatibility.Incompatible;
+
+        try
+        {
+            return CompareStructuredReturnTypesCore(
+                reader,
+                method,
+                methodContext,
+                candidate,
+                candidateContext,
+                budget);
+        }
+        finally
+        {
+            budget.Exit();
+        }
+    }
+
+    static OverrideCompatibility CompareStructuredReturnTypesCore(
+        MetadataReader reader,
+        TypeNode method,
+        OverrideTypeContext methodContext,
+        TypeNode candidate,
+        OverrideTypeContext candidateContext,
+        OverrideCompatibilityBudget budget)
     {
         if (TypeNodesCorrespond(
                 reader,
@@ -955,7 +1572,8 @@ public static class MetadataDeclarationQuery
                     methodModified.Inner,
                     methodContext,
                     candidateModified.Inner,
-                    candidateContext)
+                    candidateContext,
+                    budget)
                 : OverrideCompatibility.Incompatible;
         }
 
@@ -969,7 +1587,8 @@ public static class MetadataDeclarationQuery
                     methodPinned.Inner,
                     methodContext,
                     candidatePinned.Inner,
-                    candidateContext)
+                    candidateContext,
+                    budget)
                 : OverrideCompatibility.Incompatible;
         }
 
@@ -982,7 +1601,8 @@ public static class MetadataDeclarationQuery
                 methodContext,
                 candidate,
                 candidateContext,
-                []);
+                [],
+                budget);
         }
 
         if (candidate is GenericParameterNode)
@@ -1009,7 +1629,8 @@ public static class MetadataDeclarationQuery
                 methodSz.ElementType,
                 methodContext,
                 candidateSz.ElementType,
-                candidateContext);
+                candidateContext,
+                budget);
         }
 
         if (method is MDArrayTypeNode
@@ -1033,7 +1654,8 @@ public static class MetadataDeclarationQuery
                     methodMd.ElementType,
                     methodContext,
                     candidateMd.ElementType,
-                    candidateContext)
+                    candidateContext,
+                    budget)
                 : OverrideCompatibility.Incompatible;
         }
 
@@ -1084,6 +1706,9 @@ public static class MetadataDeclarationQuery
                 methodGeneric.Arguments[index];
             TypeNode candidateArgument =
                 candidateGeneric.Arguments[index];
+            if (!budget.TryCharge())
+                return OverrideCompatibility.Incompatible;
+
             GenericParameterAttributes variance =
                 genericParameters[index].Attributes
                 & GenericParameterAttributes.VarianceMask;
@@ -1103,14 +1728,16 @@ public static class MetadataDeclarationQuery
                             methodArgument,
                             methodContext,
                             candidateArgument,
-                            candidateContext),
+                            candidateContext,
+                            budget),
                     GenericParameterAttributes.Contravariant =>
                         CompareVariantTypeArguments(
                             reader,
                             candidateArgument,
                             candidateContext,
                             methodArgument,
-                            methodContext),
+                            methodContext,
+                            budget),
                     _ => OverrideCompatibility.Incompatible,
                 };
             if (argumentCompatibility
@@ -1132,15 +1759,20 @@ public static class MetadataDeclarationQuery
         TypeNode method,
         OverrideTypeContext methodContext,
         TypeNode candidate,
-        OverrideTypeContext candidateContext)
+        OverrideTypeContext candidateContext,
+        OverrideCompatibilityBudget budget)
     {
+        if (!budget.TryCharge())
+            return OverrideCompatibility.Incompatible;
+
         OverrideCompatibility structured =
             CompareStructuredReturnTypes(
                 reader,
                 method,
                 methodContext,
                 candidate,
-                candidateContext);
+                candidateContext,
+                budget);
         if (structured != OverrideCompatibility.Unknown)
             return structured;
 
@@ -1183,7 +1815,37 @@ public static class MetadataDeclarationQuery
         OverrideTypeContext methodContext,
         TypeNode candidate,
         OverrideTypeContext candidateContext,
-        HashSet<GenericParameterHandle> visited)
+        HashSet<GenericParameterHandle> visited,
+        OverrideCompatibilityBudget budget)
+    {
+        if (!budget.TryEnter())
+            return OverrideCompatibility.Incompatible;
+
+        try
+        {
+            return CompareGenericParameterReturnCore(
+                reader,
+                method,
+                methodContext,
+                candidate,
+                candidateContext,
+                visited,
+                budget);
+        }
+        finally
+        {
+            budget.Exit();
+        }
+    }
+
+    static OverrideCompatibility CompareGenericParameterReturnCore(
+        MetadataReader reader,
+        GenericParameterNode method,
+        OverrideTypeContext methodContext,
+        TypeNode candidate,
+        OverrideTypeContext candidateContext,
+        HashSet<GenericParameterHandle> visited,
+        OverrideCompatibilityBudget budget)
     {
         if (TypeNodesCorrespond(
                 reader,
@@ -1227,6 +1889,9 @@ public static class MetadataDeclarationQuery
             foreach (GenericParameterConstraintHandle constraintHandle
                 in parameter.GetConstraints())
             {
+                if (!budget.TryCharge())
+                    return OverrideCompatibility.Incompatible;
+
                 GenericParameterConstraint constraint =
                     reader.GetGenericParameterConstraint(
                         constraintHandle);
@@ -1246,7 +1911,8 @@ public static class MetadataDeclarationQuery
                             methodContext,
                             candidate,
                             candidateContext,
-                            visited)
+                            visited,
+                            budget)
                             == OverrideCompatibility.Compatible)
                     {
                         return OverrideCompatibility.Compatible;
@@ -1260,7 +1926,8 @@ public static class MetadataDeclarationQuery
                         constraintType,
                         methodContext,
                         candidate,
-                        candidateContext);
+                        candidateContext,
+                        budget);
                 if (constraintCompatibility
                     == OverrideCompatibility.Compatible)
                 {

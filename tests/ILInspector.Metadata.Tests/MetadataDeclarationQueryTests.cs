@@ -407,6 +407,258 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void SameAssemblyOverrideSlot_AuthenticatesConstructedGenericBaseCovariantMethodImpl()
+    {
+        var derivedHandle = GetTypeDefinitionHandle(
+            typeof(MetadataDeclarationQueryFixtures
+                .ConstructedGenericCovariantReturnDerived<>));
+        var derived = Reader.GetTypeDefinition(derivedHandle);
+        var methodHandle = GetMethodHandle(derived, "Value");
+        var implementation = Reader.GetMethodImplementation(
+            Assert.Single(derived.GetMethodImplementations()));
+
+        // The shape this gate exists for: Roslyn writes the base as a
+        // TypeSpec and the MethodImpl declaration as a MemberRef rooted in it.
+        Assert.Equal(
+            HandleKind.TypeSpecification,
+            derived.BaseType.Kind);
+        Assert.Equal(
+            HandleKind.MemberReference,
+            implementation.MethodDeclaration.Kind);
+
+        var slot = Assert.IsType<MetadataOverrideSlot>(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                Reader,
+                derivedHandle,
+                methodHandle));
+
+        var baseHandle = GetTypeDefinitionHandle(
+            typeof(MetadataDeclarationQueryFixtures
+                .ConstructedGenericCovariantReturnBase<>));
+        Assert.Equal(baseHandle, slot.DeclaringType);
+        Assert.Equal(
+            GetMethodHandle(
+                Reader.GetTypeDefinition(baseHandle),
+                "Value"),
+            slot.Method);
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_AuthenticatesConstructedGenericBaseSubstitutedParameter()
+    {
+        var derivedHandle = GetTypeDefinitionHandle(
+            typeof(MetadataDeclarationQueryFixtures
+                .ConstructedGenericSubstitutionDerived));
+        var derived = Reader.GetTypeDefinition(derivedHandle);
+        var methodHandle = GetMethodHandle(derived, "Describe");
+
+        // A plain override on a constructed generic base carries no
+        // MethodImpl, so the slot is reachable only by walking the TypeSpec
+        // base and substituting string for the base's type parameter.
+        Assert.Equal(
+            HandleKind.TypeSpecification,
+            derived.BaseType.Kind);
+        Assert.Empty(derived.GetMethodImplementations());
+
+        var slot = Assert.IsType<MetadataOverrideSlot>(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                Reader,
+                derivedHandle,
+                methodHandle));
+
+        var baseHandle = GetTypeDefinitionHandle(
+            typeof(MetadataDeclarationQueryFixtures
+                .ConstructedGenericSubstitutionBase<>));
+        Assert.Equal(baseHandle, slot.DeclaringType);
+        Assert.Equal(
+            GetMethodHandle(
+                Reader.GetTypeDefinition(baseHandle),
+                "Describe"),
+            slot.Method);
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_AuthenticatesSyntheticConstructedGenericMethodImpl()
+    {
+        using var stream = new MemoryStream(
+            BuildConstructedGenericMethodImplImage(
+                ConstructedGenericMethodImplShape.MatchingInstantiation));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        var slot = Assert.IsType<MetadataOverrideSlot>(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+
+        Assert.Equal(
+            "Base`1",
+            reader.GetString(
+                reader.GetTypeDefinition(slot.DeclaringType).Name));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_DeclinesConstructedGenericMethodImplWithMismatchedInstantiation()
+    {
+        using var stream = new MemoryStream(
+            BuildConstructedGenericMethodImplImage(
+                ConstructedGenericMethodImplShape.MismatchedInstantiation));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.Null(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_DeclinesConstructedGenericMethodImplRootedInExternalDefinition()
+    {
+        using var stream = new MemoryStream(
+            BuildConstructedGenericMethodImplImage(
+                ConstructedGenericMethodImplShape.ExternalDefinition));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.Null(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_WideGenericParameterDagFailsClosedWithinBudget()
+    {
+        using var stream = new MemoryStream(
+            BuildGenericParameterConstraintGraphImage(
+                parameterCount: 64,
+                GenericParameterConstraintGraph.Dag));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        // Path count in this DAG grows like the Fibonacci numbers, so 64
+        // parameters is roughly 10^13 distinct constraint paths. Only a
+        // cumulative work bound can answer at all.
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        var slot = MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+            reader,
+            derivedHandle,
+            methodHandle);
+        elapsed.Stop();
+
+        Assert.Null(slot);
+        Assert.True(
+            elapsed.Elapsed < TimeSpan.FromSeconds(30),
+            $"Bounded DAG traversal took {elapsed.Elapsed}.");
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_DeepGenericParameterChainFailsClosed()
+    {
+        using var stream = new MemoryStream(
+            BuildGenericParameterConstraintGraphImage(
+                parameterCount: 2_000,
+                GenericParameterConstraintGraph.Chain));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.Null(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_DeepGenericParameterChainDoesNotCrashProcess()
+    {
+        using var stream = new MemoryStream(
+            BuildGenericParameterConstraintGraphImage(
+                parameterCount: 60_000,
+                GenericParameterConstraintGraph.Chain));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        // A recursion-per-link walk overflows the native stack here, which no
+        // managed catch can contain: reaching the assertion at all is the
+        // evidence, because a stack overflow would take this process down.
+        Assert.Null(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Fact]
+    public void AuthenticatedObjectSlotOverride_AcceptsSameImageChainToObject()
+    {
+        var derivedHandle = GetTypeDefinitionHandle(
+            typeof(MetadataDeclarationQueryFixtures
+                .SameImageObjectSlotDerived));
+        var derived = Reader.GetTypeDefinition(derivedHandle);
+
+        foreach (string name in (string[])
+            ["ToString", "GetHashCode", "Equals"])
+        {
+            Assert.True(
+                MetadataDeclarationQuery.IsAuthenticatedObjectSlotOverride(
+                    Reader,
+                    derivedHandle,
+                    GetMethodHandle(derived, name)),
+                name);
+        }
+    }
+
+    [Fact]
+    public void AuthenticatedObjectSlotOverride_DeclinesOverrideOfExternalBase()
+    {
+        var derivedHandle = GetTypeDefinitionHandle(
+            typeof(MetadataDeclarationQueryFixtures.ExternalOverride));
+        var derived = Reader.GetTypeDefinition(derivedHandle);
+
+        // System.Exception declares its own ToString slot, so local metadata
+        // cannot tell whether this method occupies Object's slot or the
+        // external base's; a flattening consumer must not rebind it.
+        Assert.Equal(HandleKind.TypeReference, derived.BaseType.Kind);
+        Assert.False(
+            MetadataDeclarationQuery.IsAuthenticatedObjectSlotOverride(
+                Reader,
+                derivedHandle,
+                GetMethodHandle(derived, "ToString")));
+    }
+
+    [Fact]
+    public void AuthenticatedObjectSlotOverride_DeclinesNewSlotObjectShapedVirtual()
+    {
+        var declarerHandle = GetTypeDefinitionHandle(
+            typeof(MetadataDeclarationQueryFixtures
+                .NewSlotToStringDeclarer));
+        var declarer = Reader.GetTypeDefinition(declarerHandle);
+
+        Assert.False(
+            MetadataDeclarationQuery.IsAuthenticatedObjectSlotOverride(
+                Reader,
+                declarerHandle,
+                GetMethodHandle(declarer, "ToString")));
+    }
+
+    [Fact]
     public void SameAssemblyOverrideSlot_AllowsExplicitGenericBaseConstraint()
     {
         var derivedHandle = GetTypeDefinitionHandle(
@@ -1286,6 +1538,291 @@ public sealed class MetadataDeclarationQueryTests
             derived,
             Assert.Single(
                 reader.GetTypeDefinition(derived).GetMethods()));
+    }
+
+    enum ConstructedGenericMethodImplShape
+    {
+        MatchingInstantiation,
+        MismatchedInstantiation,
+        ExternalDefinition,
+    }
+
+    /// <summary>
+    /// Builds <c>Derived : Base&lt;Animal&gt;</c> where <c>Base&lt;T&gt;</c>
+    /// declares <c>T Value()</c> and <c>Derived</c> declares
+    /// <c>Dog Value()</c> with a class <c>MethodImpl</c> whose declaration is a
+    /// <c>MemberRef</c> rooted in a <c>TypeSpec</c>. The shape controls which
+    /// instantiation that <c>MemberRef</c> names, so a match can only come from
+    /// substituting the exact base arguments rather than from the member's
+    /// spelling.
+    /// </summary>
+    static byte[] BuildConstructedGenericMethodImplImage(
+        ConstructedGenericMethodImplShape shape)
+    {
+        MetadataBuilder metadata =
+            CreateSyntheticMetadata("ConstructedGenericMethodImpl");
+        AssemblyReferenceHandle runtime =
+            AddSyntheticAssemblyReference(metadata, "System.Runtime");
+        TypeReferenceHandle objectType =
+            metadata.AddTypeReference(
+                runtime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+        TypeReferenceHandle externalBase =
+            metadata.AddTypeReference(
+                runtime,
+                metadata.GetOrAddString("External"),
+                metadata.GetOrAddString("Base`1"));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle animal =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Animal"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle dog =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Dog"),
+                animal,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle baseType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Base`1"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+
+        TypeSpecificationHandle extendsSpec =
+            shape == ConstructedGenericMethodImplShape.ExternalDefinition
+                ? AddSyntheticConstructedTypeSpec(
+                    metadata,
+                    externalBase,
+                    animal)
+                : AddSyntheticConstructedTypeSpec(
+                    metadata,
+                    baseType,
+                    animal);
+        TypeDefinitionHandle derivedType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Derived"),
+                extendsSpec,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        metadata.AddGenericParameter(
+            baseType,
+            GenericParameterAttributes.ReferenceTypeConstraint,
+            metadata.GetOrAddString("T"),
+            index: 0);
+
+        MethodAttributes attributes =
+            MethodAttributes.Public
+            | MethodAttributes.Virtual
+            | MethodAttributes.NewSlot;
+        metadata.AddMethodDefinition(
+            attributes,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Value"),
+            AddSyntheticGenericParameterReturnSignature(metadata),
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle derivedMethod =
+            metadata.AddMethodDefinition(
+                attributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Value"),
+                AddSyntheticMethodSignature(metadata, dog),
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+
+        EntityHandle declarationParent = shape switch
+        {
+            ConstructedGenericMethodImplShape.MismatchedInstantiation =>
+                AddSyntheticConstructedTypeSpec(metadata, baseType, dog),
+            ConstructedGenericMethodImplShape.ExternalDefinition =>
+                extendsSpec,
+            _ => extendsSpec,
+        };
+        MemberReferenceHandle declaration =
+            metadata.AddMemberReference(
+                declarationParent,
+                metadata.GetOrAddString("Value"),
+                AddSyntheticGenericParameterReturnSignature(metadata));
+        metadata.AddMethodImplementation(
+            derivedType,
+            derivedMethod,
+            declaration);
+        return SerializeSyntheticMetadata(metadata);
+    }
+
+    enum GenericParameterConstraintGraph
+    {
+        Chain,
+        Dag,
+    }
+
+    /// <summary>
+    /// Builds <c>Derived&lt;T0..Tn&gt; : Base</c> whose <c>Value()</c> returns
+    /// <c>!0</c> against a base slot returning <c>Animal</c>, with a
+    /// type-parameter constraint graph no path of which reaches <c>Animal</c>.
+    /// A chain forces one recursion per link; a DAG whose every parameter is
+    /// constrained by its next two neighbours has a path count that grows like
+    /// the Fibonacci numbers, so neither terminates in reasonable time or
+    /// stack without a cumulative bound.
+    /// </summary>
+    static byte[] BuildGenericParameterConstraintGraphImage(
+        int parameterCount,
+        GenericParameterConstraintGraph graph)
+    {
+        MetadataBuilder metadata =
+            CreateSyntheticMetadata("GenericParameterConstraintGraph");
+        AssemblyReferenceHandle runtime =
+            AddSyntheticAssemblyReference(metadata, "System.Runtime");
+        TypeReferenceHandle objectType =
+            metadata.AddTypeReference(
+                runtime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle animal =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Animal"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle baseType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Base"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle derivedType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Derived"),
+                baseType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        var parameters = new GenericParameterHandle[parameterCount];
+        for (int index = 0; index < parameterCount; index++)
+        {
+            parameters[index] = metadata.AddGenericParameter(
+                derivedType,
+                GenericParameterAttributes.ReferenceTypeConstraint,
+                metadata.GetOrAddString(
+                    string.Create(
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        $"T{index}")),
+                index);
+        }
+
+        var parameterSpecs = new TypeSpecificationHandle[parameterCount];
+        for (int index = 0; index < parameterCount; index++)
+        {
+            parameterSpecs[index] =
+                AddSyntheticGenericParameterTypeSpec(metadata, index);
+        }
+
+        int neighbours =
+            graph == GenericParameterConstraintGraph.Dag ? 2 : 1;
+        for (int index = 0; index < parameterCount; index++)
+        {
+            for (int step = 1; step <= neighbours; step++)
+            {
+                int target = index + step;
+                if (target >= parameterCount)
+                    continue;
+
+                metadata.AddGenericParameterConstraint(
+                    parameters[index],
+                    parameterSpecs[target]);
+            }
+        }
+
+        MethodAttributes attributes =
+            MethodAttributes.Public
+            | MethodAttributes.Virtual
+            | MethodAttributes.NewSlot;
+        MethodDefinitionHandle baseMethod =
+            metadata.AddMethodDefinition(
+                attributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Value"),
+                AddSyntheticMethodSignature(metadata, animal),
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle derivedMethod =
+            metadata.AddMethodDefinition(
+                attributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Value"),
+                AddSyntheticGenericParameterReturnSignature(metadata),
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodImplementation(
+            derivedType,
+            derivedMethod,
+            baseMethod);
+        return SerializeSyntheticMetadata(metadata);
+    }
+
+    static TypeSpecificationHandle AddSyntheticConstructedTypeSpec(
+        MetadataBuilder metadata,
+        EntityHandle definition,
+        EntityHandle argument)
+    {
+        var blob = new BlobBuilder();
+        new BlobEncoder(blob)
+            .TypeSpecificationSignature()
+            .GenericInstantiation(
+                definition,
+                genericArgumentCount: 1,
+                isValueType: false)
+            .AddArgument()
+            .Type(argument, isValueType: false);
+        return metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(blob));
+    }
+
+    static TypeSpecificationHandle AddSyntheticGenericParameterTypeSpec(
+        MetadataBuilder metadata,
+        int index)
+    {
+        var blob = new BlobBuilder();
+        new BlobEncoder(blob)
+            .TypeSpecificationSignature()
+            .GenericTypeParameter(index);
+        return metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(blob));
     }
 
     static byte[] BuildScopedSignatureCollisionImage(
@@ -3378,6 +3915,60 @@ public class MetadataDeclarationQueryFixtures
     public class ObjectCovariantReturnDerived : ObjectCovariantReturnBase
     {
         public override string Value() => "";
+    }
+
+    public class ConstructedGenericCovariantReturnBase<TItem>
+        where TItem : CovariantAnimal
+    {
+        public virtual CovariantAnimal Value() => new();
+    }
+
+    /// <summary>
+    /// Roslyn encodes this base as a <c>TypeSpec</c> and the covariant-return
+    /// <c>MethodImpl</c> declaration as a <c>MemberRef</c> rooted in that
+    /// <c>TypeSpec</c>, which is the compiler-produced shape same-image
+    /// override authentication has to read.
+    /// </summary>
+    public class ConstructedGenericCovariantReturnDerived<TItem>
+        : ConstructedGenericCovariantReturnBase<TItem>
+        where TItem : CovariantDog
+    {
+        public override TItem Value() => default!;
+    }
+
+    public class ConstructedGenericSubstitutionBase<TItem>
+    {
+        public virtual string Describe(TItem value) => "";
+    }
+
+    /// <summary>
+    /// A plain override on a constructed generic base. Roslyn emits no
+    /// <c>MethodImpl</c> here, so the slot is only reachable by walking the
+    /// <c>TypeSpec</c> base and substituting <c>string</c> for
+    /// <c>TItem</c> in the base signature.
+    /// </summary>
+    public class ConstructedGenericSubstitutionDerived
+        : ConstructedGenericSubstitutionBase<string>
+    {
+        public override string Describe(string value) => value;
+    }
+
+    public class SameImageObjectSlotBase
+    {
+    }
+
+    public class SameImageObjectSlotDerived : SameImageObjectSlotBase
+    {
+        public override string ToString() => nameof(SameImageObjectSlotDerived);
+
+        public override int GetHashCode() => 0;
+
+        public override bool Equals(object? obj) => false;
+    }
+
+    public class NewSlotToStringDeclarer
+    {
+        public new virtual string ToString() => "";
     }
 
     public class StaticShadowBase

@@ -430,36 +430,158 @@ public class ReturnToSenderPrototypeTests
     [Fact]
     public void CompileBackTargets_AllFullPreservesReferenceConstrainedGenericCovariantMethodImpl()
     {
+        // The base is a constructed generic, which is the shape a compiler
+        // actually emits: `extends` is a TypeSpec and the covariant-return
+        // MethodImpl declaration is a MemberRef rooted in that TypeSpec, not a
+        // MethodDef. Authenticating the slot therefore has to substitute the
+        // base's exact generic arguments rather than read a MethodDef token.
         var assemblyPath = CompileFixture("""
-            public class Base
+            public class Base<TItem>
+                where TItem : class
             {
-                public virtual object Value() => "base";
+                public virtual TItem Value() => default!;
             }
 
-            public class Derived<T> : Base
-                where T : class
+            public class Derived : Base<object>
             {
-                public override T Value() => default!;
+                public override string Value() => "derived";
 
                 public int Call() => 1;
             }
             """);
+        AssertConstructedGenericCovariantOverrideSlot(assemblyPath);
+        string? rebuiltPath = null;
         try
         {
             var result = Assert.Single(ReturnToSender.CompileBackTargets(
                 assemblyPath,
-                [new ReturnToSender.RequestedTarget("Derived`1", "Call", 0)],
+                [new ReturnToSender.RequestedTarget("Derived", "Call", 0)],
                 RoundTripScope.All,
                 RoundTripBodyPolicy.Full));
 
             Assert.True(
                 result.Status == FidelityCheck.CompileBackStatus.Exact,
                 $"{result.Source}{Environment.NewLine}{result.Detail}");
-            Assert.True(
-                result.Source.Contains("override T Value()", StringComparison.Ordinal),
-                result.Source);
+
+            // The engaged reconstruction has to carry this, not the sanitized
+            // compile-back floor: the floor drops the very slot under test, so
+            // a floored run would assert nothing about authentication.
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(
+                "override string Value()",
+                result.Source,
+                StringComparison.Ordinal);
             Assert.DoesNotContain(
-                "public virtual T Value()",
+                "virtual string Value()",
+                result.Source,
+                StringComparison.Ordinal);
+
+            // Compile the exact immutable source the run produced and read the
+            // rebuilt metadata back, so the claim is about the slot and base
+            // identity the rebuilt image really carries, not about spelling.
+            rebuiltPath = CompileFixture(result.Source);
+            AssertConstructedGenericCovariantOverrideSlot(rebuiltPath);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            if (rebuiltPath is not null)
+                DeleteFixture(rebuiltPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DoesNotRebindFlattenedExternalObjectShapedSlotToObject()
+    {
+        // The external base declares its own new virtual ToString, so
+        // `Derived.ToString` occupies that base's slot, not System.Object's.
+        // The base lives in a directory the recompile closure cannot see, so
+        // the shell has to drop it -- and dropping it must drop `override`
+        // too. Keeping `override` would silently rebind the member to
+        // System.Object's slot.
+        var fixtureDir = Path.Combine(
+            Path.GetTempPath(),
+            $"return-to-sender-{Guid.NewGuid():N}");
+        var referenceDir = Path.Combine(
+            Path.GetTempPath(),
+            $"return-to-sender-{Guid.NewGuid():N}");
+        var referencePath = CompileFixture(
+            """
+            namespace RtsExternalSlot
+            {
+                public class ExternalToStringBase
+                {
+                    public new virtual string ToString() => "external";
+                }
+            }
+            """,
+            directory: referenceDir,
+            assemblyName: "RtsExternalSlotContracts");
+        var assemblyPath = CompileFixture(
+            """
+            public class Derived : RtsExternalSlot.ExternalToStringBase
+            {
+                public override string ToString() => "derived";
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences:
+                [MetadataReference.CreateFromFile(referencePath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Derived", "ToString", 0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            if (!result.Source.Contains(
+                    "RtsExternalSlot.ExternalToStringBase",
+                    StringComparison.Ordinal))
+            {
+                Assert.DoesNotContain(
+                    "override string ToString()",
+                    result.Source,
+                    StringComparison.Ordinal);
+            }
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            if (Directory.Exists(referenceDir))
+                Directory.Delete(referenceDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DoesNotPlanMalformedConstructorNamedMethod()
+    {
+        // A static method literally named `.ctor` carries the constructor name
+        // and nothing else the CLI requires of a constructor. Classifying it by
+        // name would plan a constructor the source form cannot express.
+        var assemblyPath = EmitMalformedConstructorNamedMethod();
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "MalformedCtorHost",
+                    "Probe",
+                    0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.DoesNotContain(
+                "static MalformedCtorHost(",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                ".ctor",
                 result.Source,
                 StringComparison.Ordinal);
         }
@@ -12072,6 +12194,133 @@ public class ReturnToSenderPrototypeTests
 
         var emit = compilation.Emit(path);
         Assert.True(emit.Success, string.Join(Environment.NewLine, emit.Diagnostics));
+        return path;
+    }
+
+    /// <summary>
+    /// Asserts that <paramref name="assemblyPath"/> carries the
+    /// compiler-produced constructed-generic covariant override shape and
+    /// that the product authenticates the exact base slot from it: a
+    /// <c>TypeSpec</c> base over <c>Base`1</c>, a <c>MethodImpl</c> whose
+    /// declaration is a <c>MemberRef</c> rooted in that <c>TypeSpec</c>, and a
+    /// same-assembly override slot resolving to <c>Base`1.Value</c>.
+    /// </summary>
+    static void AssertConstructedGenericCovariantOverrideSlot(
+        string assemblyPath)
+    {
+        using var peReader = new PEReader(File.OpenRead(assemblyPath));
+        var reader = peReader.GetMetadataReader();
+        var baseHandle = reader.TypeDefinitions.Single(handle =>
+            reader.GetString(reader.GetTypeDefinition(handle).Name) == "Base`1");
+        var derivedHandle = reader.TypeDefinitions.Single(handle =>
+            reader.GetString(reader.GetTypeDefinition(handle).Name) == "Derived");
+        var derived = reader.GetTypeDefinition(derivedHandle);
+        var methodHandle = derived.GetMethods().Single(handle =>
+            reader.GetString(reader.GetMethodDefinition(handle).Name) == "Value");
+
+        Assert.Equal(HandleKind.TypeSpecification, derived.BaseType.Kind);
+        Assert.Equal(
+            baseHandle,
+            ConstructedTypeSpecDefinition(
+                reader,
+                (TypeSpecificationHandle)derived.BaseType));
+
+        var implementation = Assert.Single(
+            derived.GetMethodImplementations().Select(reader.GetMethodImplementation),
+            candidate => candidate.MethodBody == methodHandle);
+        Assert.Equal(
+            HandleKind.MemberReference,
+            implementation.MethodDeclaration.Kind);
+        var declaration = reader.GetMemberReference(
+            (MemberReferenceHandle)implementation.MethodDeclaration);
+        Assert.Equal(HandleKind.TypeSpecification, declaration.Parent.Kind);
+        Assert.Equal(
+            baseHandle,
+            ConstructedTypeSpecDefinition(
+                reader,
+                (TypeSpecificationHandle)declaration.Parent));
+
+        var slot = Assert.IsType<MetadataOverrideSlot>(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+        Assert.Equal(baseHandle, slot.DeclaringType);
+        Assert.Equal(
+            reader.GetTypeDefinition(baseHandle).GetMethods().Single(handle =>
+                reader.GetString(reader.GetMethodDefinition(handle).Name)
+                    == "Value"),
+            slot.Method);
+    }
+
+    /// <summary>
+    /// Reads the <c>TypeDef</c> a <c>GENERICINST</c> <c>TypeSpec</c>
+    /// instantiates straight from the blob, so the assertion compares tokens
+    /// rather than rendered names.
+    /// </summary>
+    static TypeDefinitionHandle ConstructedTypeSpecDefinition(
+        MetadataReader reader,
+        TypeSpecificationHandle handle)
+    {
+        var blob = reader.GetBlobReader(
+            reader.GetTypeSpecification(handle).Signature);
+        Assert.Equal(0x15, blob.ReadCompressedInteger());
+        Assert.Equal(0x12, blob.ReadCompressedInteger());
+        return (TypeDefinitionHandle)blob.ReadTypeHandle();
+    }
+
+    /// <summary>
+    /// Emits a type carrying a static, non-<c>RTSpecialName</c> method whose
+    /// metadata name is <c>.ctor</c> alongside a real constructor and an
+    /// ordinary method, which no C# compiler produces.
+    /// </summary>
+    static string EmitMalformedConstructorNamedMethod()
+    {
+        var assemblyName = new AssemblyName("MalformedConstructorName");
+        var assembly = new PersistedAssemblyBuilder(
+            assemblyName,
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        var host = module.DefineType(
+            "MalformedCtorHost",
+            TypeAttributes.Public);
+
+        var realConstructor = host.DefineConstructor(
+            MethodAttributes.Public,
+            CallingConventions.Standard,
+            Type.EmptyTypes);
+        var realIl = realConstructor.GetILGenerator();
+        realIl.Emit(OpCodes.Ldarg_0);
+        realIl.Emit(
+            OpCodes.Call,
+            typeof(object).GetConstructor(Type.EmptyTypes)!);
+        realIl.Emit(OpCodes.Ret);
+
+        var malformed = host.DefineMethod(
+            ".ctor",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(int),
+            Type.EmptyTypes);
+        var malformedIl = malformed.GetILGenerator();
+        malformedIl.Emit(OpCodes.Ldc_I4_7);
+        malformedIl.Emit(OpCodes.Ret);
+
+        var probe = host.DefineMethod(
+            "Probe",
+            MethodAttributes.Public,
+            typeof(int),
+            Type.EmptyTypes);
+        var probeIl = probe.GetILGenerator();
+        probeIl.Emit(OpCodes.Ldc_I4_3);
+        probeIl.Emit(OpCodes.Ret);
+        host.CreateType();
+
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"return-to-sender-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, $"{assemblyName.Name}.dll");
+        assembly.Save(path);
         return path;
     }
 

@@ -3777,11 +3777,10 @@ public static class CompileBackSourceComposer
         IReadOnlyList<PrimaryConstructorFieldStore>? prologue,
         string renderedBody)
     {
-        if (reader.GetString(method.Name) != ".ctor"
-            || method.Attributes.HasFlag(MethodAttributes.Static))
-            return null;
         var declaringHandle = method.GetDeclaringType();
         var declaringType = reader.GetTypeDefinition(declaringHandle);
+        if (!IsPlannableInstanceConstructor(reader, declaringType, method))
+            return null;
         if (CountInstanceConstructors(reader, declaringType) != 1
             || HasInAssemblyDerivedType(reader, declaringHandle))
             return null;
@@ -4086,12 +4085,31 @@ public static class CompileBackSourceComposer
         foreach (var methodHandle in typeDef.GetMethods())
         {
             var method = reader.GetMethodDefinition(methodHandle);
-            if (reader.GetString(method.Name) == ".ctor"
-                && !method.Attributes.HasFlag(MethodAttributes.Static))
+            if (IsPlannableInstanceConstructor(reader, typeDef, method))
                 count++;
         }
         return count;
     }
+
+    /// <summary>
+    /// True when <paramref name="method"/> is a complete CLI instance
+    /// constructor. Constructor discovery must never settle for the
+    /// <c>.ctor</c> name: the runtime also requires <c>SpecialName</c>,
+    /// <c>RTSpecialName</c>, instance-ness, non-generic arity, the default
+    /// calling convention, and a <c>void</c> return, and the Metadata layer
+    /// owns that complete predicate. A method that carries the name without
+    /// the rest is malformed, and planning it as a constructor would emit a
+    /// declaration the source form cannot express.
+    /// </summary>
+    static bool IsPlannableInstanceConstructor(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition method)
+        => MetadataDeclarationQuery.TryGetCliInstanceConstructorSignature(
+            reader,
+            typeDef,
+            method,
+            out _);
 
     static bool HasInAssemblyDerivedType(MetadataReader reader, TypeDefinitionHandle baseHandle)
     {
@@ -4637,8 +4655,11 @@ public static class CompileBackSourceComposer
                     methodHandle);
                 if (slot is null)
                 {
-                    if (IsIntrinsicObjectOverride(reader, declaringTypeHandle, methodHandle))
-                        continue;
+                    // No same-image base declares this slot, so there is no
+                    // base member for the plan to materialize. Whether the
+                    // shell may still spell `override` is decided later by
+                    // NormalizeOverrideMembers against product-authenticated
+                    // evidence.
                     continue;
                 }
                 if (!CanReconstructOverridePath(
@@ -4783,14 +4804,16 @@ public static class CompileBackSourceComposer
                 TypeDefinitionHandle derivedTypeHandle,
                 TypeDefinitionHandle slotDeclaringType)
             {
-                var currentHandle = derivedTypeHandle;
-                while (currentHandle != slotDeclaringType)
-                {
-                    var current = reader.GetTypeDefinition(currentHandle);
-                    if (current.BaseType.Kind != HandleKind.TypeDefinition)
-                        return;
+                if (derivedTypeHandle == slotDeclaringType)
+                    return;
 
-                    var baseHandle = (TypeDefinitionHandle)current.BaseType;
+                // Same product-owned chain the slot itself was authenticated
+                // against, so a constructed generic base is followed through
+                // its TypeSpec instead of stopping the walk.
+                foreach (var baseHandle in MetadataDeclarationQuery.GetSameAssemblyBaseChain(
+                    reader,
+                    derivedTypeHandle))
+                {
                     var baseType = reader.GetTypeDefinition(baseHandle);
                     var baseIdentity = CompileBackTypeIdentity.FromDefinition(reader, baseType);
                     if (!byName.ContainsKey(baseIdentity.MetadataFullName))
@@ -4805,7 +4828,8 @@ public static class CompileBackSourceComposer
                         byName.Add(baseIdentity.MetadataFullName, requirement);
                     }
 
-                    currentHandle = baseHandle;
+                    if (baseHandle == slotDeclaringType)
+                        return;
                 }
             }
         }
@@ -4874,7 +4898,19 @@ public static class CompileBackSourceComposer
                         method.GetDeclaringType(),
                         methodHandle);
                     if (fallbackSlot is null)
-                        return IsIntrinsicObjectOverride(reader, method.GetDeclaringType(), methodHandle);
+                    {
+                        // The only slot a shell can still spell `override`
+                        // against without a same-image base member is
+                        // System.Object's, and only when the product
+                        // authenticates the whole inheritance chain. A
+                        // name-and-signature guess would rebind a flattened
+                        // external base's own new virtual to System.Object.
+                        return MetadataDeclarationQuery
+                            .IsAuthenticatedObjectSlotOverride(
+                                reader,
+                                method.GetDeclaringType(),
+                                methodHandle);
+                    }
 
                     var slotType = reader.GetTypeDefinition(fallbackSlot.DeclaringType);
                     var slotIdentity = CompileBackTypeIdentity.FromDefinition(reader, slotType);
@@ -4905,8 +4941,15 @@ public static class CompileBackSourceComposer
             IReadOnlyDictionary<string, CompileBackTypeRequirement> requirementsByMetadataName)
         {
             var current = derivedType;
-            var visited = new HashSet<TypeDefinitionHandle>();
-            while (current != slotDeclaringType && visited.Add(current))
+            if (current == slotDeclaringType)
+                return true;
+
+            // The chain comes from the product so a constructed generic base
+            // is followed through its TypeSpec; a TypeDef-only walk stops at
+            // the first `Derived<T> : Base<T>` and cannot reach the slot.
+            foreach (var next in MetadataDeclarationQuery.GetSameAssemblyBaseChain(
+                reader,
+                derivedType))
             {
                 var type = reader.GetTypeDefinition(current);
                 var identity = CompileBackTypeIdentity.FromDefinition(reader, type);
@@ -4919,54 +4962,17 @@ public static class CompileBackSourceComposer
                     || TypeShellProducer.ReconstructedBaseTypeDisplay(
                         reader,
                         type,
-                        isClass: true) is null
-                    || type.BaseType.Kind != HandleKind.TypeDefinition)
+                        isClass: true) is null)
                 {
                     return false;
                 }
 
-                current = (TypeDefinitionHandle)type.BaseType;
+                current = next;
+                if (current == slotDeclaringType)
+                    return true;
             }
 
-            return current == slotDeclaringType;
-        }
-
-        static bool IsIntrinsicObjectOverride(
-            MetadataReader reader,
-            TypeDefinitionHandle declaringTypeHandle,
-            MethodDefinitionHandle methodHandle)
-        {
-            var method = reader.GetMethodDefinition(methodHandle);
-            if ((method.Attributes & MethodAttributes.Static) != 0
-                || method.GetGenericParameters().Count != 0)
-            {
-                return false;
-            }
-
-            var declaringType = reader.GetTypeDefinition(declaringTypeHandle);
-            MethodSignature<string> signature;
-            try
-            {
-                signature = GuardedSignatureText.MethodText(
-                    reader,
-                    method,
-                    GenericContext.ForMethod(reader, declaringType, method));
-            }
-            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
-            {
-                return false;
-            }
-
-            return reader.GetString(method.Name) switch
-            {
-                "ToString" => signature.ReturnType == "string"
-                    && signature.ParameterTypes.Length == 0,
-                "GetHashCode" => signature.ReturnType == "int"
-                    && signature.ParameterTypes.Length == 0,
-                "Equals" => signature.ReturnType == "bool"
-                    && signature.ParameterTypes is ["object"],
-                _ => false,
-            };
+            return false;
         }
 
         static IEnumerable<int> MemberMethodTokens(CompileBackMemberRequirement member)
@@ -5293,7 +5299,14 @@ public static class CompileBackSourceComposer
         {
             var method = reader.GetMethodDefinition(methodHandle);
             string name = reader.GetString(method.Name);
-            bool isConstructor = name == ".ctor";
+            bool namedConstructor = name == ".ctor";
+            if (namedConstructor
+                && !IsPlannableInstanceConstructor(reader, typeDef, method))
+            {
+                return null;
+            }
+
+            bool isConstructor = namedConstructor;
             if (name == ".cctor"
                 || (name.Contains('<', StringComparison.Ordinal)
                     && CSharpNaming.MethodName(name) == name)
@@ -5871,11 +5884,22 @@ public static class CompileBackSourceComposer
         static string? ReconstructedSameAssemblyBaseName(MetadataReader reader, TypeDefinitionHandle handle, CompileBackTypeKind kind)
         {
             var typeDef = reader.GetTypeDefinition(handle);
-            if (typeDef.BaseType.Kind != HandleKind.TypeDefinition)
-                return null;
             if (TypeShellProducer.ReconstructedBaseTypeDisplay(reader, typeDef, kind == CompileBackTypeKind.Class) is null)
                 return null;
-            var baseDef = reader.GetTypeDefinition((TypeDefinitionHandle)typeDef.BaseType);
+            TypeDefinitionHandle baseHandle;
+            if (typeDef.BaseType.Kind == HandleKind.TypeDefinition)
+            {
+                baseHandle = (TypeDefinitionHandle)typeDef.BaseType;
+            }
+            else if (!MetadataDeclarationQuery.TryGetSameAssemblyConstructedBaseDefinition(
+                reader,
+                typeDef,
+                out baseHandle))
+            {
+                return null;
+            }
+
+            var baseDef = reader.GetTypeDefinition(baseHandle);
             return CompileBackTypeIdentity.FromDefinition(reader, baseDef).MetadataFullName;
         }
 
@@ -6182,16 +6206,26 @@ public static class CompileBackSourceComposer
             {
                 var method = reader.GetMethodDefinition(methodHandle);
                 string name = reader.GetString(method.Name);
+                bool namedConstructor = name == ".ctor";
+                if (namedConstructor
+                    && !IsPlannableInstanceConstructor(reader, typeDef, method))
+                {
+                    diagnostics.Add(new CompileBackPlanningDiagnostic(
+                        "member surface",
+                        "malformed-constructor-skipped",
+                        name));
+                    continue;
+                }
                 if (accessorMethods.Contains(methodHandle)
                     || name == ".cctor"
                     || (name.Contains('<', StringComparison.Ordinal)
                         && CSharpNaming.MethodName(name) == name)
-                    || (name != ".ctor" && name.Contains('.', StringComparison.Ordinal)))
+                    || (!namedConstructor && name.Contains('.', StringComparison.Ordinal)))
                 {
                     continue;
                 }
 
-                bool isConstructor = name == ".ctor";
+                bool isConstructor = namedConstructor;
                 string identifierName = MemberIdentifierName(name, isConstructor);
                 int existingMethodIndex = members.FindIndex(member =>
                     member.Kind == (isConstructor ? CompileBackMemberKind.Constructor : CompileBackMemberKind.Method)

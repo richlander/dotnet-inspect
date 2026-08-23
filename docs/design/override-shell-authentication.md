@@ -101,6 +101,36 @@ or unavailable declaration does not materialize a class override slot.
 Metadata tokens deduplicate the target and synthesized slot first; structural
 shape is only the fallback when no shared token exists.
 
+The base-class chain is a metadata walk, not a `TypeDef` walk. A compiler emits
+`Derived : Base<string>` and `Derived<T> : Base<T>` with a `TypeSpec` `extends`
+row, and emits the covariant-return `MethodImpl` declaration as a `MemberRef`
+rooted in that `TypeSpec` rather than as a `MethodDef`. Metadata therefore walks
+same-image `TypeDef` and constructed-generic `TypeSpec` bases alike, carrying
+each step's exact generic arguments and substituting them into the declaration's
+decoded signature, so the slot is authenticated by definition token and
+substituted structural identity. A `TypeSpec` that is not a generic
+instantiation of a definition in this image, a `MemberRef` that does not resolve
+to exactly one method on an authenticated chain step, and an instantiation whose
+arguments do not correspond all decline. No step matches a rendered name.
+
+A reconstructed shell spells a same-assembly base reached directly, and one
+reached through a constructed generic `TypeSpec` when the same Metadata-owned
+traversal resolves it to a definition in this image *and* the derived type reuses
+a virtual slot it did not introduce. A constructed base is otherwise left
+dropped, because a closed instantiation whose only constructor is parameterized
+carries the same implicit-`base()` exposure an external base does. An external
+base is always dropped because the shell cannot own its construction, and
+dropping a base drops `override` from every member whose slot that base owned.
+
+An `Object` intrinsic slot is authenticated the same way. `ToString`,
+`GetHashCode`, and `Equals(object)` reuse `System.Object`'s slot only when the
+method is non-static, non-`NewSlot`, non-generic, its signature matches the
+intrinsic read from primitive element types rather than from a rendered name,
+and its same-image base chain terminates at the strong-name-authenticated
+corelib `System.Object`. A base that leaves the image is not proof of the
+`Object` slot, because that base may declare its own `NewSlot` virtual of the
+same shape.
+
 The full member-surface pass applies the same authentication to unselected
 members. Reconstructing only the selected target must not sever another
 authenticated slot needed for the type to compile.
@@ -195,8 +225,11 @@ constructor only when all of these hold:
 - the return type is `void`.
 
 The planner applies parameter and accessibility matching only after that
-predicate succeeds. A method with the right name or rendered parameters but an
-invalid constructor shape is not a constructor.
+predicate succeeds, on every path that discovers a constructor: primary
+constructor detection, instance-constructor counting, member requirements, and
+the full member-surface pass. A method with the right name or rendered
+parameters but an invalid constructor shape is not a constructor, and is skipped
+rather than reclassified as an ordinary method.
 
 External base-definition extraction exports only authenticated, non-generic,
 public-class facts and accessible parameterless-constructor availability.
@@ -231,6 +264,10 @@ and override predicates rather than restating their metadata rules.
 
 The harness does not:
 
+- decide from a name and signature that a member occupies an `Object` intrinsic
+  slot; that predicate is Metadata-owned, because a flattened external base can
+  declare its own `NewSlot` virtual of the same shape and keeping `override`
+  would silently rebind the member to `System.Object`;
 - infer a relationship from rendered text;
 - substitute a same-named type from another assembly;
 - repair malformed metadata into a plausible relationship;
@@ -247,7 +284,17 @@ as compile-back failure; it is not converted into a different shell.
 
 All traversals use SRM and repository safety bounds. Cycles, malformed rows,
 decode failures, ambiguous current-image definitions, and exhausted budgets
-decline authentication. API extraction retains unavailable `MethodImpl`
+decline authentication.
+
+Return-type compatibility is recursive over generic-parameter constraints, so
+active-path cycle detection alone is not a bound: a constraint graph that is a
+DAG rather than a cycle enumerates exponentially many acyclic paths, and a long
+acyclic chain exhausts the stack before any node repeats. The comparison
+therefore carries one budget for the whole comparison, charging cumulative
+relationship work and capping recursion depth. Exhausting either budget refuses
+the slot outright rather than yielding `Unknown`, because `Unknown` is the
+retain-and-let-the-compiler-decide state and would turn budget exhaustion into a
+success path. API extraction retains unavailable `MethodImpl`
 provenance and a typed inspection failure where that surface promises
 disclosure; the shell planner never converts unavailable evidence into a valid
 override or constructor.
@@ -270,6 +317,27 @@ assembly. Roslyn participates only in the tools-only compile-back experiment.
 - `SameAssemblyOverrideSlot_DeclinesIncompatibleStructuredReturn`
 - `CompileBackTargets_AllFullDoesNotDuplicateTargetedOverrideSlot`
 - `CompileBackTargets_AllFullPreservesUnrelatedCovariantMethodImpl`
+
+### Constructed generic bases and object intrinsic slots
+
+- `SameAssemblyOverrideSlot_AuthenticatesConstructedGenericBaseCovariantMethodImpl`
+- `SameAssemblyOverrideSlot_AuthenticatesConstructedGenericBaseSubstitutedParameter`
+- `SameAssemblyOverrideSlot_AuthenticatesSyntheticConstructedGenericMethodImpl`
+- `SameAssemblyOverrideSlot_DeclinesConstructedGenericMethodImplWithMismatchedInstantiation`
+- `SameAssemblyOverrideSlot_DeclinesConstructedGenericMethodImplRootedInExternalDefinition`
+- `AuthenticatedObjectSlotOverride_AcceptsSameImageChainToObject`
+- `AuthenticatedObjectSlotOverride_DeclinesOverrideOfExternalBase`
+- `AuthenticatedObjectSlotOverride_DeclinesNewSlotObjectShapedVirtual`
+- `CompileBackTargets_PrefersSameAssemblyToStringSlotOverIntrinsicObjectShortcut`
+- `CompileBackTargets_DoesNotRebindFlattenedExternalObjectShapedSlotToObject`
+- `CompileBackTargets_AllFullPreservesReferenceConstrainedGenericCovariantMethodImpl`
+- `CompileBackTargets_DoesNotReconstructGenericBaseClass`
+
+### Comparison boundedness
+
+- `SameAssemblyOverrideSlot_WideGenericParameterDagFailsClosedWithinBudget`
+- `SameAssemblyOverrideSlot_DeepGenericParameterChainFailsClosed`
+- `SameAssemblyOverrideSlot_DeepGenericParameterChainDoesNotCrashProcess`
 
 ### Wrappers, arrays, and local definition trust
 
@@ -312,6 +380,7 @@ assembly. Roslyn participates only in the tools-only compile-back experiment.
 - `CompileBackTargets_PreservesPrivateEnclosingBaseConstructorForNestedDerived`
 - `CompileBackTargets_DropsUnrelatedPrivateBaseConstructorInitializer`
 - `CompileBackTargets_RecordShellDropsExplicitBaseInitializerWithDroppedBaseList`
+- `CompileBackTargets_DoesNotPlanMalformedConstructorNamedMethod`
 
 ### Property traversal and malformed cycles
 

@@ -101,11 +101,13 @@ public static class TypeShellProducer
     /// be dropped (left to its compiler-implied default).
     ///
     /// Attributes always keep their <c>System.Attribute</c> base. Otherwise only a
-    /// same-assembly (<see cref="HandleKind.TypeDefinition"/>) non-generic plain
-    /// class base is reconstructed: external (TypeReference) and generic
-    /// instantiation (TypeSpecification) bases are dropped because the shell cannot
-    /// own their construction, and object-family / value-type / delegate bases are
-    /// left implicit to avoid conflicts. <paramref name="isClass"/> is the caller's
+    /// same-assembly plain class base is reconstructed, reached either directly
+    /// (<see cref="HandleKind.TypeDefinition"/>) or through a constructed generic
+    /// <see cref="HandleKind.TypeSpecification"/> that the Metadata-owned bounded
+    /// traversal resolves to a definition in this image and whose derived type
+    /// reuses an inherited virtual slot: external (TypeReference) bases are
+    /// dropped because the shell cannot own their construction, and object-family
+    /// / value-type / delegate bases are left implicit to avoid conflicts. <paramref name="isClass"/> is the caller's
     /// resolved kind (records/structs/enums/delegates pass <see langword="false"/>).
     /// </summary>
     public static string? ReconstructedBaseTypeName(MetadataReader reader, TypeDefinition typeDef, bool isClass)
@@ -130,13 +132,33 @@ public static class TypeShellProducer
         // Attributes must derive from System.Attribute (existing behavior).
         if (baseType is "System.Attribute")
             return baseType;
-        // Only reconstruct same-assembly base classes. External (TypeReference) and
-        // generic-instantiation (TypeSpecification) bases are dropped: the shell
-        // cannot own their construction, so an external base whose only constructor
-        // is parameterized would make the derived stub's implicit `: base()` fail
-        // (CS7036) where the baseline compiled without a base.
-        if (typeDef.BaseType.Kind != HandleKind.TypeDefinition)
+        // Only reconstruct same-assembly base classes. An external (TypeReference)
+        // base is dropped: the shell cannot own its construction, so an external
+        // base whose only constructor is parameterized would make the derived
+        // stub's implicit `: base()` fail (CS7036) where the baseline compiled
+        // without a base. A constructed generic (TypeSpecification) base stays
+        // dropped by default -- a closed instantiation whose only constructor is
+        // parameterized has the same CS7036 exposure -- and is reconstructed only
+        // when two things hold: the Metadata-owned bounded traversal resolves it
+        // to a definition in this image, and the type reuses a virtual slot it did
+        // not introduce. Dropping the base in that second case would sever the
+        // slot the member overrides, which is a worse answer than spelling a base
+        // this image owns.
+        if (typeDef.BaseType.Kind == HandleKind.TypeSpecification)
+        {
+            if (!MetadataDeclarationQuery.TryGetSameAssemblyConstructedBaseDefinition(
+                    reader,
+                    typeDef,
+                    out _)
+                || !MetadataDeclarationQuery.ReusesInheritedVirtualSlot(reader, typeDef))
+            {
+                return null;
+            }
+        }
+        else if (typeDef.BaseType.Kind != HandleKind.TypeDefinition)
+        {
             return null;
+        }
         // Only plain classes reconstruct a real base class; records/structs/enums/
         // delegates keep their compiler-implied base to avoid primary-constructor
         // and value-type conflicts. A generic type's base can reference its own type
