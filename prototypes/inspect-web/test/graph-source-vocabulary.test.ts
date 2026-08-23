@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { graphSourceStatuses, type GraphSourceStatus } from "../src/data.ts";
+import {
+  graphSourceIsOpen,
+  graphSourceStatuses,
+  type GraphSourceStatus,
+} from "../src/data.ts";
 import {
   graphSourceAutoLoad,
   type GraphSourceState,
@@ -64,6 +68,25 @@ test("the graph source union and its vocabulary describe the same statuses", () 
   assert.ok(
     graphSourceStatuses.includes("closed"),
     "a closed status the modal can return to");
+});
+
+test("the graph modal is open for every status except closed", () => {
+  const decisions = {
+    closed: false,
+    loading: true,
+    ready: true,
+    failed: true,
+    cancelled: true,
+  } satisfies Record<GraphSourceStatus, boolean>;
+
+  assert.equal(graphSourceIsOpen(null), false);
+  assert.equal(graphSourceIsOpen(undefined), false);
+  for (const status of graphSourceStatuses) {
+    assert.equal(
+      graphSourceIsOpen({ status }),
+      decisions[status],
+      `graphSourceIsOpen handles ${status}`);
+  }
 });
 
 // The auto-load decision, tested by outcome for every variant of the union.

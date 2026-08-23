@@ -117,6 +117,96 @@ test("hidden source work is cancelled through the shared engine boundary", () =>
   assert.equal(state.memberSourceLoading, true);
 });
 
+test("hiding an in-flight graph source preserves reloadable work", async () => {
+  const graphQuery = deferred<BrowserSource>();
+  let cancellations = 0;
+  const state = inspectionState();
+  const coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryGraphSource: async () => graphQuery.promise,
+      cancelEngineSourceRequest: () => cancellations++,
+    }));
+  const request = {
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    assembly: "Example.Package",
+    type: "Example.Widget",
+    member: "Build",
+    selectorKey: "method",
+    metadataToken: 42,
+  };
+
+  const load = coordinator.openGraphSource(request, "Example.Widget.Build");
+  state.settings = true;
+  coordinator.cancelHiddenRequest();
+
+  assert.equal(cancellations, 1);
+  assert.deepEqual(state.graphSource, {
+    status: "cancelled",
+    request,
+    title: "Example.Widget.Build",
+  });
+  assert.deepEqual(graphSourceAutoLoad(state.graphSource), {
+    request,
+    title: "Example.Widget.Build",
+  });
+
+  graphQuery.resolve(source("stale graph"));
+  await load;
+  assert.equal(state.graphSource.status, "cancelled");
+});
+
+test("competing source work preserves a cancelled graph request for reload", async () => {
+  const graphQuery = deferred<BrowserSource>();
+  const typeQuery = deferred<BrowserSource>();
+  const state = inspectionState();
+  const coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryGraphSource: async () => graphQuery.promise,
+      queryTypeSource: async () => typeQuery.promise,
+    }));
+  const request = {
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    assembly: "Example.Package",
+    type: "Example.Widget",
+    member: "Build",
+    selectorKey: "method",
+    metadataToken: 42,
+  };
+
+  const graphLoad = coordinator.openGraphSource(
+    request,
+    "Example.Widget.Build");
+  const typeLoad = coordinator.loadTypeSource({
+    signature: "type-signature",
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    assembly: "Example.Package",
+    type: "Example.Widget",
+    taste: "[]",
+    isVisible: () => true,
+  });
+
+  assert.deepEqual(state.graphSource, {
+    status: "cancelled",
+    request,
+    title: "Example.Widget.Build",
+  });
+  assert.deepEqual(graphSourceAutoLoad(state.graphSource), {
+    request,
+    title: "Example.Widget.Build",
+  });
+
+  graphQuery.resolve(source("stale graph"));
+  typeQuery.resolve(source("type"));
+  await Promise.all([graphLoad, typeLoad]);
+  assert.equal(state.graphSource.status, "cancelled");
+});
+
 test("member source publishes only for the current member selection", async () => {
   const query = deferred<BrowserSource>();
   const focusRenders: Array<string | null> = [];

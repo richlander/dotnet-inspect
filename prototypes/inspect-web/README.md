@@ -1090,9 +1090,10 @@ a settled resource rather than returning from ownerless loading state. It also
 projects every `AsyncResource` variant through `packageMetadataView`, deriving
 both rosters from the union declaration.
 `test/async-resource-state.test.ts` derives the converted lenses from their
-declared type and fails if one regains any parallel state field -- named,
-quoted, or carried in by a spread -- on either the coordinator state or the
-initial state.
+declared type and fails if one regains a lifecycle-prefixed parallel state
+field -- direct, inherited, named, quoted, or carried in by a spread -- on
+either the coordinator state or the initial state. It also rejects mutable
+coordinator-owned bindings outside that declared state.
 `test/package-opportunities.test.ts` gates the platform pick-a-library prompt,
 the idle/loading/ready/failed states (fresh versus stale scope), the
 no-opportunities and inspection-error banners, the category summary counts,

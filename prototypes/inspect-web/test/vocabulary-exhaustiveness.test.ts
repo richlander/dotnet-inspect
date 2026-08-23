@@ -188,25 +188,76 @@ function containsTypeQuery(node: Node): boolean {
 // `GraphSourceStatus` is gated that way: its union carries per-variant payloads, so it
 // cannot be generated from the catalog, and the pair is what keeps the two in step.
 //
-// This discovers that mechanism rather than exempting a name. Both directions are
-// required, so a single-direction pair does not count, and if this discovery ever stops
-// matching, the vocabulary it was covering becomes uncovered and the assertion below
-// fails -- the safe direction for a decayed anchor.
+// This discovers that mechanism rather than exempting a name. Only live `const` declarations
+// that assign `true` to the result count: a comment or an unused alias does not make the
+// compiler enforce anything. Both directions are required, so a single-direction pair does
+// not count, and if this discovery ever stops matching, the vocabulary it was covering
+// becomes uncovered and the assertion below fails -- the safe direction for a decayed anchor.
+function coversEvidence(
+  file: string,
+  source: string,
+): { directions: Set<string>; names: Set<string> } {
+  const directions = new Set<string>();
+  const names = new Set<string>();
+  const parsed = parseSync(file, source);
+  assert.deepEqual(
+    parsed.errors,
+    [],
+    `${file} must parse before Covers<> declarations can be inspected`);
+
+  function visit(node: Node): void {
+    if (node.type === "VariableDeclaration" && node.kind === "const") {
+      for (const declaration of node.declarations) {
+        const annotation = declaration.id.type === "Identifier"
+          ? declaration.id.typeAnnotation?.typeAnnotation
+          : null;
+        if (annotation?.type !== "TSTypeReference"
+          || annotation.typeName.type !== "Identifier"
+          || annotation.typeName.name !== "Covers"
+          || annotation.typeArguments?.params.length !== 2
+          || declaration.init?.type !== "Literal"
+          || declaration.init.value !== true) {
+          continue;
+        }
+        const [fromType, toType] = annotation.typeArguments.params;
+        assert.ok(fromType);
+        assert.ok(toType);
+        const from = source.slice(fromType.start, fromType.end).replaceAll(/\s/g, "");
+        const to = source.slice(toType.start, toType.end).replaceAll(/\s/g, "");
+        directions.add(`${from}=>${to}`);
+        for (const side of [fromType, toType]) {
+          if (side.type === "TSTypeReference"
+            && side.typeName.type === "Identifier"
+            && side.typeArguments == null) {
+            names.add(side.typeName.name);
+          }
+        }
+      }
+    }
+    for (const key of visitorKeys[node.type] ?? []) {
+      const child = Reflect.get(node, key) as unknown;
+      if (Array.isArray(child)) {
+        for (const candidate of child) {
+          if (isNode(candidate)) visit(candidate);
+        }
+      } else if (isNode(child)) {
+        visit(child);
+      }
+    }
+  }
+  visit(parsed.program);
+  return { directions, names };
+}
+
 function typeLevelCoveredVocabularies(): Set<string> {
   const directions = new Set<string>();
   const names = new Set<string>();
   for (const entry of readdirSync(join(projectRoot, "test"), { withFileTypes: true })) {
     if (!entry.isFile() || !entry.name.endsWith(".test.ts")) continue;
     const source = readFileSync(join(entry.parentPath, entry.name), "utf8");
-    for (const match of source.matchAll(/Covers<\s*([^,]+?)\s*,\s*([^>]+?)\s*>/g)) {
-      const from = match[1]?.trim();
-      const to = match[2]?.trim();
-      if (!from || !to) continue;
-      directions.add(`${from}=>${to}`);
-      for (const side of [from, to]) {
-        if (/^[A-Za-z_$][\w$]*$/.test(side)) names.add(side);
-      }
-    }
+    const evidence = coversEvidence(entry.name, source);
+    for (const direction of evidence.directions) directions.add(direction);
+    for (const name of evidence.names) names.add(name);
   }
   const covered = new Set<string>();
   for (const name of names) {
@@ -218,6 +269,19 @@ function typeLevelCoveredVocabularies(): Set<string> {
   }
   return covered;
 }
+
+test("Covers discovery counts only compiler-enforced directions", () => {
+  const evidence = coversEvidence("probe.ts", `
+    type Covers<A, B> = [A] extends [B] ? true : false;
+    const enforced: Covers<Left, Right> = true;
+    // Covers<Right, Left>
+    export type Unenforced = Covers<Right, Left>;
+    let Mutable: Covers<Third, Fourth> = true;
+    const FalseAssertion: Covers<Fifth, Sixth> = false;
+  `);
+  assert.deepEqual([...evidence.directions], ["Left=>Right"]);
+  assert.deepEqual([...evidence.names].sort(), ["Left", "Right"]);
+});
 
 function catalogTypeAliases(program: Program): TSTypeAliasDeclaration[] {
   return program.body.flatMap(node => {

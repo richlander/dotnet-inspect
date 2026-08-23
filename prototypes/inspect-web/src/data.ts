@@ -1463,7 +1463,18 @@ export interface GraphSourceStatusCarrier {
 export function graphSourceIsOpen(
   graphSource: GraphSourceStatusCarrier | null | undefined,
 ): boolean {
-  return graphSource != null && graphSource.status !== "closed";
+  if (graphSource == null) return false;
+  switch (graphSource.status) {
+    case "closed":
+      return false;
+    case "loading":
+    case "ready":
+    case "failed":
+    case "cancelled":
+      return true;
+    default:
+      return assertNever(graphSource.status, "GraphSourceStatus");
+  }
 }
 
 export interface SourceWorkbenchState {
