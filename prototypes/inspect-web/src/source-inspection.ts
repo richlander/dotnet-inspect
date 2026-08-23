@@ -42,9 +42,9 @@ export interface GraphSourceRequest extends SourceCoordinates {
 //
 // The `loading` object itself is the request-ownership token: `openGraphSource` keeps a
 // reference to the object it installed and only commits a result when `state.graphSource`
-// is still that exact object. That is strictly stronger than the sequence counter it
-// replaces, because an identity cannot collide -- closing and reopening the same member
-// rejects the first request's late result, which an equal-valued key would have accepted.
+// is still that exact object. It is a typed replacement for the prior monotonic sequence:
+// both distinguish repeated requests for the same member and reject a stale completion,
+// while object identity keeps ownership and visible lifecycle state in one value.
 //
 // `cancelled` exists because a competing member- or type-source request retires an in-flight
 // graph load while its modal is still open. It renders the same "No source was returned."
