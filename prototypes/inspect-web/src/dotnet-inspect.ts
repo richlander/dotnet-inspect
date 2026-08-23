@@ -161,7 +161,12 @@ import {
   typeMetadataSignature,
   typeSourceSignature,
 } from "./type-panel.ts";
-import { createPackageBar, type PackageBarPackage } from "./package-bar.ts";
+import {
+  createPackageBar,
+  findPackageTabForQuery,
+  type PackageBarPackage,
+  type ParsedPackageQuery,
+} from "./package-bar.ts";
 import {
   bindMetadataExplorer,
   cssEscape,
@@ -198,6 +203,11 @@ import {
   type DotnetRelease,
 } from "./catalog-requests.ts";
 import { bindStatusBar, fmtBytes, statusBarHtml } from "./status-bar.ts";
+import {
+  bindCreditsPanel,
+  isCreditsPath,
+  renderCreditsPage,
+} from "./credits-panel.ts";
 import type {
   BrowserBuildIdentity,
   BrowserCallGraph,
@@ -452,12 +462,16 @@ function isAnnotatedMedium(value: string): value is (typeof MEDIA)[number] {
 }
 
 let spotlightCache: SpotlightCache | null = null;
+const HOME_BOT_ANIMATION_DURATION_MS = 5500;
+let homeBotAnimationStartedAt: number | null = null;
+let homeReadyGlintPending = true;
 const initialState = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   statusBarExpanded: false,
   packages: [],
   package: null,
   home: false,
+  credits: false,
   platformIndex: null,
   queryNotice: "",
   queryNoticeRetryAction: null,
@@ -588,6 +602,7 @@ const initialState = {
   loadingMessage: "Starting browser inspection engine…",
   loadingSubtitle: "",
   engineReady: false,
+  engineStartupFailed: false,
   engineStatus: "Loading browser WebAssembly…",
   error: "",
   errorTitle: "",
@@ -959,7 +974,9 @@ const initialLocation = parseLocation();
 // A bare visit (no package, no shared workspace packet) lands on the intro/home page
 // instead of auto-loading a package. Any deep link or shared link skips home and restores
 // its workspace directly.
-state.home = !initialLocation.package && !(initialLocation.tabs && initialLocation.tabs.length);
+state.credits = isCreditsPath(location.pathname);
+state.home = state.credits
+  || (!initialLocation.package && !(initialLocation.tabs && initialLocation.tabs.length));
 state.queryNotice = initialLocation.workspaceNotice || "";
 if (initialLocation.package) {
   state.requestedPackage = initialLocation.package;
@@ -1152,8 +1169,7 @@ const packageBar = createPackageBar({
   closePackageTab,
   openRuntimePack: () =>
     observeAsync(openRuntimePackFromHome(), "Opening the .NET Platform"),
-  openPackage: (packageId, version) =>
-    observeAsync(loadPackage(packageId, version, ""), "Opening a package"),
+  openPackage: openPackageQuery,
   selectFramework: framework =>
     observeAsync(
       switchPackageFramework(framework),
@@ -1993,6 +2009,11 @@ function render() {
   if (state.explorer?.open) {
     loadingBotSrc = null;
     renderMetadataExplorer();
+    return;
+  }
+  if (state.credits) {
+    loadingBotSrc = null;
+    renderCreditsView();
     return;
   }
   // A loading/interstitial view holds one random bot for its whole appearance; any non-loading
@@ -4290,11 +4311,17 @@ function toggleTheme() {
   setTheme(state.theme === "dark" ? "light" : "dark");
 }
 
+function toggleCreditsTheme(): "light" | "dark" {
+  setTheme(state.theme === "dark" ? "light" : "dark", false);
+  return state.theme === "light" ? "light" : "dark";
+}
+
 // Apply and persist a specific theme, refreshing any live graphs whose colors are theme-bound.
-function setTheme(theme: "light" | "dark") {
+function setTheme(theme: "light" | "dark", renderView = true) {
   state.theme = theme === "light" ? "light" : "dark";
   localStorage.setItem("inspect-theme", state.theme);
   document.documentElement.dataset.theme = state.theme;
+  if (!renderView) return;
   render();
   if (state.memberCallGraph)
     observeAsync(renderMermaidCallGraph(), "Rendering the member call graph");
@@ -5599,6 +5626,15 @@ async function copyText(value: string, confirmation: string) {
 function renderHomeView() {
   document.title = "dotnet-inspect -- Inspect any NuGet package: types, methods, metadata, decompilation.";
   const enginePending = !state.engineReady;
+  const showReadyGlint = state.engineReady && homeReadyGlintPending;
+  if (showReadyGlint) homeReadyGlintPending = false;
+  if (state.engineReady && homeBotAnimationStartedAt === null) {
+    homeBotAnimationStartedAt = performance.now();
+  }
+  const botAnimationDelay = homeBotAnimationStartedAt === null
+    ? 0
+    : -((performance.now() - homeBotAnimationStartedAt)
+      % HOME_BOT_ANIMATION_DURATION_MS);
   app.innerHTML = `
     <div class="home">
       <header class="home-bar">
@@ -5621,9 +5657,8 @@ function renderHomeView() {
           <p class="home-kicker">Browser-native · WebAssembly · zero install</p>
           <h1 class="home-title">Inspect any NuGet package: types, methods, metadata, decompilation.</h1>
           <p class="home-lede">Explore NuGet packages and the .NET platform — types, members, public API surface, dependencies, call graphs, and decompiled C# — all computed locally in your browser. Nothing to install, nothing uploaded.</p>
-          <p class="home-availability">Also available as a <a href="https://www.nuget.org/packages/dotnet-inspect" target="_blank" rel="noreferrer">CLI tool</a> and <a href="https://github.com/richlander/dotnet-skills" target="_blank" rel="noreferrer">agent skill</a>.</p>
           <div class="home-search ${enginePending ? "engine-pending" : ""}" role="search" aria-busy="${enginePending}">
-            ${spotlight.inlineHtml(enginePending)}
+            ${spotlight.inlineHtml(enginePending, showReadyGlint)}
             ${enginePending
               ? `<div class="home-engine-status" role="status" aria-live="polite">
                   <span class="loader" aria-hidden="true"></span>
@@ -5631,6 +5666,8 @@ function renderHomeView() {
                 </div>`
               : ""}
           </div>
+          <p class="home-availability">Also available as a <a href="https://www.nuget.org/packages/dotnet-inspect" target="_blank" rel="noreferrer">CLI tool</a> and <a href="https://github.com/richlander/dotnet-skills" target="_blank" rel="noreferrer">agent skill</a>.</p>
+          <p class="home-attribution">Built with .NET 11, WebAssembly, TypeScript 7, NuGet, and System.Reflection.Metadata. <a id="home-credits" href="/credits">Credits</a></p>
           <div class="home-demos">
             <span class="home-demos-label">Or jump straight into a demo</span>
             <div class="home-demo-row">
@@ -5640,7 +5677,7 @@ function renderHomeView() {
             </div>
           </div>
         </div>
-        <aside class="home-art">${homeArtSvg()}</aside>
+        <aside class="home-art ${enginePending ? "engine-pending" : "engine-ready"}" style="--home-bot-animation-delay: ${botAnimationDelay}ms">${homeArtSvg()}</aside>
       </main>
       ${statusBarHtml({
         variant: "home",
@@ -5668,6 +5705,7 @@ const homeShellActions: HomeShellBindingActions = {
     state.queryNoticeRetryAction = null;
     render();
   },
+  onOpenCredits: openCredits,
   onToggleTheme: toggleTheme,
 };
 
@@ -5706,10 +5744,28 @@ function runHomeDemo(kind: keyof typeof HOME_DEMO_LINKS | "callgraph") {
 // Soft in-app navigation (pushState "/") so a refresh stays on home and Back returns to the
 // workbench; the home search reuses the still-resident package list.
 function goHome() {
+  state.credits = false;
   state.home = true;
   spotlight.reset();
   workspaceLocation.push("/");
   render();
+}
+
+function openCredits() {
+  state.credits = true;
+  state.home = true;
+  spotlight.reset();
+  workspaceLocation.push("/credits");
+  render();
+}
+
+function renderCreditsView() {
+  document.title = "Credits · dotnet-inspect";
+  app.innerHTML = renderCreditsPage(state.theme === "light" ? "light" : "dark");
+  bindCreditsPanel(document, {
+    onClose: goHome,
+    onToggleTheme: toggleCreditsTheme,
+  });
 }
 
 // Loads the resident runtime pack and lands on its package Overview (the runtime pack has no
@@ -5785,19 +5841,32 @@ function interstitialBotSrc(): string {
   return loadingBotSrc;
 }
 
-function openPackageFromError(packageId: string, version: string) {
+function openPackageQuery(query: ParsedPackageQuery) {
+  const packageTab = findPackageTabForQuery(state, query);
+  if (packageTab) {
+    state.loading = false;
+    state.error = "";
+    state.errorTitle = "";
+    state.errorDetail = "";
+    state.retryAction = null;
+    selectPackageTab(packageTab);
+    return;
+  }
+
   if (!state.engineReady) {
     const url = new URL("/", window.location.href);
-    url.searchParams.set("package", packageId);
-    url.searchParams.set("version", version);
+    url.searchParams.set("package", query.packageId);
+    url.searchParams.set("version", query.version);
     window.location.assign(url);
     return;
   }
-  observeAsync(loadPackage(packageId, version, ""), "Loading a package");
+  observeAsync(
+    loadPackage(query.packageId, query.version, ""),
+    "Loading a package");
 }
 
 const loadErrorShellActions: LoadErrorShellBindingActions = {
-  onOpenPackage: openPackageFromError,
+  onOpenPackage: openPackageQuery,
   onRetry: () =>
     observeAction(
       state.retryAction ?? bootstrap,
@@ -7458,6 +7527,7 @@ function isStyleOption(value: unknown): value is StyleOption {
 async function bootstrap() {
   state.loading = !state.home;
   state.engineReady = false;
+  state.engineStartupFailed = false;
   state.engineStatus = "Loading browser WebAssembly…";
   state.error = "";
   state.retryAction = null;
@@ -7469,7 +7539,7 @@ async function bootstrap() {
     const reportEngineStatus = (message: string) => {
       state.loadingMessage = message;
       state.engineStatus = message;
-      render();
+      if (!state.credits) render();
     };
     await initializeEngine(reportEngineStatus);
     reportEngineStatus("Reading package assemblies…");
@@ -7495,7 +7565,7 @@ async function bootstrap() {
       // Engine is warm and search is ready; show the intro/home page without loading a package.
       state.loading = false;
       state.diag = computeDiagnostics(tStart, tEngine, performance.now());
-      render();
+      if (!state.credits) render();
       return;
     }
     await restoreInitialWorkspace();
@@ -7505,6 +7575,7 @@ async function bootstrap() {
   } catch (error) {
     state.loading = false;
     state.engineReady = false;
+    state.engineStartupFailed = true;
     state.engineStatus = "";
     state.error = "Couldn’t start the inspection engine. Retry, or open a different package.";
     state.errorTitle = "Startup failed";
@@ -7512,7 +7583,7 @@ async function bootstrap() {
       ? error.stack || error.message
       : String(error);
     state.retryAction = () => window.location.reload();
-    render();
+    if (!state.credits) render();
   }
 }
 
@@ -7704,6 +7775,14 @@ document.addEventListener("mousedown", event => {
 // Re-apply state when the address bar changes underneath us (browser back/forward, or a
 // hand-edited URL). Within the loaded package we mutate selection directly; a different
 // package is (re)loaded with the URL selection queued as a deep link.
+function clearNavigationError() {
+  if (state.engineStartupFailed) return;
+  state.error = "";
+  state.errorTitle = "";
+  state.errorDetail = "";
+  state.retryAction = null;
+}
+
 window.addEventListener("popstate", () => {
   const navigationSeq = navigationSequence.begin();
   state.memberCallGraphSeq++;
@@ -7711,18 +7790,25 @@ window.addEventListener("popstate", () => {
   const loc = parseLocation();
   state.queryNotice = loc.workspaceNotice || "";
   state.queryNoticeRetryAction = null;
-  const bareHome = !loc.package && !(loc.tabs && loc.tabs.length);
-  if (bareHome) {
-    // Navigated back to the bare root — show the intro/home page (engine stays warm).
-    state.error = "";
-    state.errorTitle = "";
-    state.errorDetail = "";
-    state.retryAction = null;
+  if (isCreditsPath(location.pathname)) {
+    clearNavigationError();
+    state.credits = true;
     state.home = true;
     spotlight.reset();
     render();
     return;
   }
+  const bareHome = !loc.package && !(loc.tabs && loc.tabs.length);
+  if (bareHome) {
+    // Navigated back to the bare root — show the intro/home page (engine stays warm).
+    clearNavigationError();
+    state.credits = false;
+    state.home = true;
+    spotlight.reset();
+    render();
+    return;
+  }
+  state.credits = false;
   resetLocationFilters();
   const deep = loc;
   if (!state.package) {
