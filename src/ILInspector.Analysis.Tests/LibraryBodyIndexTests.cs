@@ -1753,7 +1753,8 @@ public class LibraryBodyIndexTests
                 new MemoryStream(image.ToArray()));
 
         Assert.False(
-            LibraryBodyAnalysisBuilder.TryTopLevelType(
+            LibraryBodyAsyncSiblingAccessibilityAnalyzer
+                .TryTopLevelType(
                 peReader.GetMetadataReader(),
                 cyclic,
                 out _));
@@ -1894,12 +1895,12 @@ public class LibraryBodyIndexTests
             [text]);
 
         Assert.True(
-            LibraryBodyAnalysisBuilder
+            LibraryBodyAsyncSiblingDispatchAnalyzer
                 .ConstructedTypeArgumentsMatch(
                     intReader,
                     intReader));
         Assert.False(
-            LibraryBodyAnalysisBuilder
+            LibraryBodyAsyncSiblingDispatchAnalyzer
                 .ConstructedTypeArgumentsMatch(
                     intReader,
                     stringReader));
@@ -3358,7 +3359,7 @@ public class LibraryBodyIndexTests
         };
 
         Assert.False(
-            LibraryBodyAnalysisBuilder
+            LibraryBodyAsyncSiblingDispatchAnalyzer
                 .SameMethodImplSignature(
                     body,
                     declaration));
@@ -8165,7 +8166,8 @@ public class LibraryBodyIndexTests
                 EmitAssemblyIdentity("UnsignedFriend", [])));
 
         Assert.False(
-            LibraryBodyAnalysisBuilder.FriendIdentityGrantsAccess(
+            LibraryBodyAsyncSiblingAccessibilityAnalyzer
+                .FriendIdentityGrantsAccess(
                 strongGrantor.GetMetadataReader(),
                 unsignedSource.GetMetadataReader(),
                 new AssemblyName("UnsignedFriend"),

@@ -1,0 +1,96 @@
+name: Publish package fixtures
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "publish" to publish the current immutable fixture version'
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-package-fixtures
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main' && inputs.confirm == 'publish'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Read fixture version
+        id: fixture
+        shell: bash
+        run: |
+          version=$(dotnet msbuild \
+            eng/package-fixtures/PackageFixtures.proj \
+            -getProperty:FixtureVersion)
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Validate fixture catalog
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/package-fixture-tests.xml"
+          dotnet run --project src/dotnet-inspect.Tests -c Release -- \
+            -class "DotnetInspector.Tests.PackageFixtureTests" \
+            -xml "$results"
+          if ! grep -Eq 'total="[1-9][0-9]*"' "$results"; then
+            echo "::error::Package fixture test filter selected no tests." >&2
+            exit 1
+          fi
+
+      - name: Pack fixture packages
+        shell: bash
+        env:
+          FIXTURE_VERSION: ${{ steps.fixture.outputs.version }}
+        run: |
+          dotnet pack eng/package-fixtures/PackageFixtures.proj \
+            -c Release \
+            -o artifacts/package-fixtures \
+            -p:FixturePackage=linux-x64 \
+            -p:FixtureRepositoryCommit="$GITHUB_SHA"
+          dotnet pack eng/package-fixtures/PackageFixtures.proj \
+            -c Release \
+            -o artifacts/package-fixtures \
+            -p:FixturePackage=pointer \
+            -p:FixtureRepositoryCommit="$GITHUB_SHA"
+          test -f \
+            "artifacts/package-fixtures/DotnetInspect.TestAssets.ToolV2.linux-x64.${FIXTURE_VERSION}.nupkg"
+          test -f \
+            "artifacts/package-fixtures/DotnetInspect.TestAssets.ToolV2.${FIXTURE_VERSION}.nupkg"
+          test "$(find artifacts/package-fixtures -name '*.nupkg' -type f | wc -l)" -eq 2
+
+      - name: Upload fixture packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: package-fixtures-${{ steps.fixture.outputs.version }}
+          path: artifacts/package-fixtures/*.nupkg
+          if-no-files-found: error
+
+      - name: Publish immutable fixture version
+        shell: bash
+        env:
+          FIXTURE_VERSION: ${{ steps.fixture.outputs.version }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          dotnet nuget push \
+            "artifacts/package-fixtures/DotnetInspect.TestAssets.ToolV2.linux-x64.${FIXTURE_VERSION}.nupkg" \
+            --source https://nuget.pkg.github.com/richlander/index.json \
+            --api-key "$GITHUB_TOKEN"
+          dotnet nuget push \
+            "artifacts/package-fixtures/DotnetInspect.TestAssets.ToolV2.${FIXTURE_VERSION}.nupkg" \
+            --source https://nuget.pkg.github.com/richlander/index.json \
+            --api-key "$GITHUB_TOKEN"

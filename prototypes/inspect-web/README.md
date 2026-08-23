@@ -57,11 +57,41 @@ shortening the selected assembly set.
    shared resolver, retry, response-body, archive-validation, and store paths;
    expiry is surfaced as a visible timeout instead of leaving the page behind
    an unbounded loading indicator.
-   Gallery version enumeration currently exposes raw flat-container versions
-   with unknown listing state. The version picker may display that partial
-   enumeration, but dependency wildcard and range selection fails closed until
-   registration-backed listing state is implemented; exact dependency pins
-   remain available.
+   Gallery version enumeration joins the flat-container list with bounded
+   SemVer2 registration metadata. Listed and unlisted versions remain visible
+   to the version picker, while dependency wildcard and range selection uses
+   listed versions only. A registration outage returns a typed partial list
+   with unknown state, keeps the picker available, and makes range selection
+   fail closed; exact dependency pins remain available.
+   `GalleryEnumerationJoinsAuthoritativeListingState`,
+   `GalleryExternalRegistrationPageIsValidatedAndRebased`,
+   `GalleryExternalPagesUseBoundedConcurrency`,
+   `GalleryRegistrationParserRetainsOnlyFlatCandidates`,
+   `GalleryRegistrationAggregateByteLimitIsTypedPartialEnumeration`,
+   `GalleryRegistrationDefaultAggregateCoversMeasuredMassTransitCanary`,
+   `GalleryRegistrationDefaultBatchExceedsPerResponseLimit`,
+   `GalleryRegistrationReservationWaitsForReturnedCapacity`,
+   `GalleryRegistrationMaterializationBudgetReturnsFailedAttemptCapacity`,
+   `GalleryLatePageDeadlineReturnsMaterializationCapacity`,
+   `GalleryCleanupFailureReturnsMaterializationCapacity`,
+   `GalleryRegistrationAggregateCountsFailedAttemptBytes`,
+   `GalleryRegistrationLeafLimitIsTypedPartialEnumeration`,
+   `GalleryRegistrationPageLimitIsTypedPartialEnumeration`,
+   `GalleryRegistrationTraversalHonorsCallerCancellation`,
+   `GalleryRegistrationTraversalUsesMonotonicDeadline`,
+   `RegistrationResourceLimitsMapToResponseRejected`,
+   `GalleryMalformedRegistrationIsTypedPartialEnumeration`,
+   `GalleryCorruptEncodedRegistrationIsTypedPartialEnumeration`,
+   `GalleryIncompleteRegistrationIsTypedPartialEnumeration`, and
+   `GalleryFinalListingProjectionExpiresToPartial` gate the source contract.
+   `GalleryCallerCancellationDuringRegistrationRemainsCancellation` and
+   `GalleryCallerCancellationOutranksConcurrentRegistrationFault` distinguish
+   actual caller cancellation from optional-registration fallback.
+   `DependencyRangeUsesAuthoritativeGalleryListingState`,
+   `DependencyRangeFailsClosedWhenGalleryRegistrationTimesOut`,
+   `BrowserGalleryDeadlineLeavesTimeForPartialRegistration`, and
+   `VersionPickerRetainsFlatListWhenRegistrationTimesOut` gate Browser
+   consumption.
 3. **Hand the group to a query.** The participants open one `InspectionWorkspace`
    and one binding-consistent `AssemblyContextGroup`. `BrowserInspectionScope`
    exposes exactly two hand-offs — `Use(group => query(group))` and
@@ -464,6 +494,16 @@ remain inert behind a loading indicator until the Wasm engine is ready; package
 and shared-workspace deep links retain the full loading interstitial. The `bare
 home paints before wasm engine download` JavaScript test gates this startup
 boundary.
+
+The home page identifies the browser stack below its search surface and links
+to the client-rendered `/credits` route. `src/credits-panel.ts` owns that page's
+markup, route recognition, and rendered control bindings. Azure Static Web Apps
+rewrites direct Credits requests to the non-cacheable `index.html`; the
+document's root base keeps SDK-generated framework imports valid on both
+`/credits` and `/credits/`. `scripts/verify-site-artifact.js` gates that base
+and its ordering in the Vite bundle and SDK-published site. Other application
+routes use the navigation fallback, while API, asset, and framework requests
+remain excluded.
 
 The .NET 11 preview Emscripten wrapper currently mishandles an SDK packs path
 that contains whitespace. If that applies to the local SDK installation, pass

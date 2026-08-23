@@ -33,6 +33,10 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         _liftedSourceOwnerResolver;
     readonly LibraryBodyAsyncSourceResolver
         _asyncSourceResolver;
+    readonly LibraryBodyAsyncSiblingDispatchAnalyzer
+        _asyncSiblingDispatchAnalyzer;
+    readonly LibraryBodyAsyncSiblingAccessibilityAnalyzer
+        _asyncSiblingAccessibilityAnalyzer;
     readonly LibraryBodyReferenceMetadataResolver? _referenceMetadataResolver;
     readonly AssemblyReferenceIdentity _assemblyIdentity;
     readonly object _asyncSiblingLookupCacheGate = new();
@@ -148,6 +152,17 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                     reader,
                     resolver,
                     rootSnapshot);
+        _asyncSiblingDispatchAnalyzer =
+            new LibraryBodyAsyncSiblingDispatchAnalyzer(
+                reader,
+                ResolveExternalAsyncSiblingTypeDefinition,
+                AsyncSiblingMethodsByName,
+                HasGenericConstraints);
+        _asyncSiblingAccessibilityAnalyzer =
+            new LibraryBodyAsyncSiblingAccessibilityAnalyzer(
+                reader,
+                _assemblyIdentity,
+                _asyncSiblingDispatchAnalyzer);
     }
 
     public void Dispose() =>
@@ -456,6 +471,21 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             identity,
             scope,
             type);
+
+    (MetadataReader DefiningReader, TypeDefinitionHandle Definition)?
+        ResolveExternalAsyncSiblingTypeDefinition(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope,
+            MetadataTypeDefinitionName type)
+    {
+        lock (_externalAsyncSiblingResolutionGate)
+        {
+            return TryResolveExternalTypeDefinition(
+                identity,
+                scope,
+                type);
+        }
+    }
 
     AssemblyResolutionScope ScopeForReference(
         AssemblyReferenceHandle handle) =>
