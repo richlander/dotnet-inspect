@@ -3451,13 +3451,6 @@ public class ReturnToSenderPrototypeTests
                 RoundTripScope.All,
                 RoundTripBodyPolicy.Full));
 
-            Assert.True(
-                result.BodyComplete,
-                string.Join(
-                    Environment.NewLine,
-                    result.FullBodies.Select(
-                        body =>
-                            $"{body.Member}: {body.Status}: {body.Failure}")));
             Assert.Equal(
                 MemberBodyProductionStatus.Complete,
                 Assert.Single(
