@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import {
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   unlinkSync,
@@ -9,6 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   supportedAnalysisHosts,
@@ -68,9 +71,9 @@ test("the strictness options this project relies on stay enabled", () => {
   // deliverable and nothing asserted it. Every guard written to satisfy it would still
   // compile without it, so its removal is silent and permanent.
   //
-  // A configuration value has nothing to derive from -- the config *is* the fact -- so
-  // this is a pin, and its whole job is to make removal fail. The test project inherits
-  // through `extends`, so pinning that link covers both compilers.
+  // This pin is the cheap half of that answer, and on its own it is only a restatement of
+  // the config. The test below is the half that actually holds, because it asserts the
+  // *effect* rather than the declaration.
   for (const option of ["strict", "noUncheckedIndexedAccess", "noImplicitReturns"]) {
     assert.equal(
       browserTsconfig.compilerOptions[option],
@@ -80,6 +83,95 @@ test("the strictness options this project relies on stay enabled", () => {
   assert.equal(testTsconfig.extends, "../tsconfig.json");
   assert.equal(testTsconfig.compilerOptions.noUncheckedIndexedAccess, undefined,
     "the test project must inherit the option rather than restate it");
+});
+
+// Round 6 review (GPT-5.6 Sol, converging with Claude Opus 5) defeated the pin above
+// without touching any value it reads: adding `"noCheck": true` leaves every pinned
+// option literally `true` while TypeScript stops checking anything at all, and the suite
+// stayed green with a genuinely unsafe indexed read restored. A per-file `// @ts-nocheck`
+// walked past it the same way.
+//
+// Enumerating the neutering options is the losing move -- `noCheck` was already the
+// second one found, and the compiler keeps adding surface. So this asserts the property
+// the project actually depends on: *this configuration rejects an unchecked indexed
+// read*. Anything that turns checking off, at any level, fails here regardless of how it
+// spells itself, because the fixture stops being rejected.
+//
+// Opus established that the remaining vector, narrowing `include`/`exclude` to drop files
+// from the program, is already caught by `npm run analyze`: oxlint's type-aware rules
+// lose their type information and fail. So this covers the vectors that gate leaves open.
+for (const [name, project] of [["browser", "tsconfig.json"], ["test", "test/tsconfig.json"]]) {
+  test(`the ${name} project rejects an unchecked indexed read`, () => {
+    const root = new URL("../", import.meta.url);
+    const probe = mkdtempSync(join(tmpdir(), "inspect-web-strictness-"));
+    try {
+      // An indexed read used without a presence test. Under `noUncheckedIndexedAccess`
+      // the element type includes `undefined`, so `.length` on it cannot compile.
+      writeFileSync(
+        join(probe, "probe.ts"),
+        "export function first(values: string[]): number {\n"
+          + "  return values[0].length;\n"
+          + "}\n",
+      );
+      writeFileSync(
+        join(probe, "tsconfig.json"),
+        JSON.stringify({
+          extends: fileURLToPath(new URL(project, root)),
+          compilerOptions: { noEmit: true, types: [] },
+          include: ["probe.ts"],
+        }),
+      );
+
+      const compile = spawnSync(
+        process.execPath,
+        [fileURLToPath(new URL("node_modules/typescript/bin/tsc", root)), "-p", probe],
+        { encoding: "utf8" },
+      );
+
+      assert.notEqual(
+        compile.status,
+        0,
+        `the ${name} project accepted an unchecked indexed read, so its strictness is not `
+          + `in effect however the options are spelled:\n${compile.stdout}`);
+      // Pin the reason as well as the failure. Any config error would also be non-zero,
+      // and would leave this passing while proving nothing about strictness.
+      assert.match(
+        compile.stdout,
+        /probe\.ts\(2,10\): error TS18048|probe\.ts\(2,10\): error TS2532/,
+        `the ${name} project failed for some reason other than the unchecked read:\n`
+          + compile.stdout);
+    } finally {
+      rmSync(probe, { recursive: true, force: true });
+    }
+  });
+}
+
+// The other half of the same vector: `noCheck` turns the compiler off for a project, and
+// `@ts-nocheck` turns it off for a file. The fixture above cannot see the second, because
+// it compiles a file of its own. Unlike a naming or roster ban, the set of suppression
+// directives is closed and owned by the compiler rather than by us, so listing them here
+// is not a restatement that can drift out of date.
+test("no source file suppresses type checking", () => {
+  const root = new URL("../", import.meta.url);
+  const files = [];
+  for (const directory of ["src", "test"]) {
+    for (const entry of readdirSync(new URL(directory, root), {
+      recursive: true,
+      withFileTypes: true,
+    })) {
+      if (entry.isFile() && entry.name.endsWith(".ts")) {
+        files.push(join(entry.parentPath, entry.name));
+      }
+    }
+  }
+
+  assert.ok(files.length > 50, `expected the TypeScript sources, found ${files.length}`);
+  const suppressed = files.filter(file =>
+    /@ts-nocheck|@ts-ignore/.test(readFileSync(file, "utf8")));
+  assert.deepEqual(
+    suppressed.map(file => file.slice(fileURLToPath(root).length)),
+    [],
+    "these files opt out of type checking; use a narrowing guard or @ts-expect-error");
 });
 
 test("static hosting serves direct credits links through the application entry point", () => {

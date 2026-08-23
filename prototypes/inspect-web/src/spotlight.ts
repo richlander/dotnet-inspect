@@ -103,7 +103,7 @@ export interface SpotlightState {
 
 interface SpotlightOptions {
   state: SpotlightState;
-  lenses: readonly LensDefinition[];
+  lenses: () => readonly LensDefinition[];
   escapeHtml: (value: unknown) => string;
   highlightRanges: (
     value: string,
@@ -257,7 +257,7 @@ export function createSpotlight(options: SpotlightOptions) {
     if (state.spotlightScope === "commands") {
       const context = options.commandContext();
       return context
-        ? commandPaletteResults(context, options.lenses)
+        ? commandPaletteResults(context, options.lenses())
         : [];
     }
     return options.searchResults();

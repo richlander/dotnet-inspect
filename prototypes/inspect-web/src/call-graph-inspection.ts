@@ -19,6 +19,10 @@ export interface MemberCallGraphRequest {
   version: string;
   framework: string;
   assembly: string;
+  platformPack: string;
+  platformAssemblyVersion: string | null;
+  platformAssemblyCulture: string | null;
+  platformAssemblyPublicKeyToken: string | null;
   typeIdentity: string;
   type: string;
   platformType: string;
@@ -34,6 +38,10 @@ export interface MemberCallGraphRequest {
 export interface PlatformDrillRequest {
   framework: string;
   assembly: string;
+  pack: string;
+  assemblyVersion: string | null;
+  assemblyCulture: string | null;
+  assemblyPublicKeyToken: string | null;
   type: string;
   member: string;
   selectorKey: string;
@@ -63,6 +71,10 @@ export interface CallGraphInspectionDependencies {
   queryPlatform(request: {
     framework: string;
     assembly: string;
+    pack: string;
+    assemblyVersion: string | null;
+    assemblyCulture: string | null;
+    assemblyPublicKeyToken: string | null;
     type: string;
     member: string;
     selectorKey: string;
@@ -108,6 +120,10 @@ export function createCallGraphInspectionCoordinator(
       const graph = await dependencies.queryPlatform({
         framework: request.framework,
         assembly: request.assembly,
+        pack: request.platformPack,
+        assemblyVersion: request.platformAssemblyVersion,
+        assemblyCulture: request.platformAssemblyCulture,
+        assemblyPublicKeyToken: request.platformAssemblyPublicKeyToken,
         type: request.platformType,
         member: request.member,
         selectorKey: request.selectorKey,

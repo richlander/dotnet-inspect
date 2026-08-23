@@ -2,8 +2,10 @@ import {
   lenses,
   normalizeShareTabs,
   packageLenses,
+  platformPackToken,
   replaceCurrentNavigationEntry,
   shareStateLengthError,
+  type PlatformPack,
   type WorkspaceTab,
 } from "./data.ts";
 import {
@@ -184,6 +186,7 @@ export interface WorkspaceUrlState {
   atPackageRoot: boolean;
   packageLens: string;
   library: string | null;
+  libraryPack: PlatformPack | null;
   selectedTypeId: string;
   selectedMemberKey: string;
   selectedOverloadIndex: number | null;
@@ -200,6 +203,7 @@ interface SharePacket {
   t: string[][];
   a: number;
   l?: string;
+  p?: PlatformPack;
   v?: string;
   y?: string;
   m?: string;
@@ -224,6 +228,7 @@ interface DecodedShareState {
   section: string | null;
   bodyTarget: BodyTarget | null;
   library: string | null;
+  libraryPack: PlatformPack | null;
   memberBrowse: boolean;
   memberTextFilter: string;
   memberKindFilter: string;
@@ -259,6 +264,7 @@ export function encodeWorkspaceShareState(state: WorkspaceUrlState): string {
     a: Math.max(0, state.active),
   };
   if (state.library) packet.l = state.library;
+  if (state.libraryPack) packet.p = state.libraryPack;
   if (state.atPackageRoot) {
     packet.v = state.packageLens && state.packageLens !== "overview"
       ? `pkg:${state.packageLens}`
@@ -304,6 +310,7 @@ function decodeWorkspaceShareState(value: string | null): ShareStateResult {
         section: null,
         bodyTarget: null,
         library: null,
+        libraryPack: null,
         memberBrowse: false,
         memberTextFilter: "",
         memberKindFilter: "all",
@@ -329,6 +336,7 @@ function decodeWorkspaceShareState(value: string | null): ShareStateResult {
         section: typeof raw.c === "string" ? raw.c : null,
         bodyTarget: decodeBodyTarget(raw.d),
         library: typeof raw.l === "string" ? raw.l : null,
+        libraryPack: platformPackToken(raw.p),
         memberBrowse: raw.b === 1,
         memberTextFilter: typeof raw.q === "string" ? raw.q : "",
         memberKindFilter: typeof raw.k === "string" ? raw.k : "all",
@@ -384,6 +392,7 @@ export function parseWorkspaceLocation(location: WorkspaceLocationSnapshot) {
   let tabs: WorkspaceTab[] = [];
   let active = 0;
   let library: string | null = null;
+  let libraryPack: PlatformPack | null = null;
   let memberBrowse = false;
   let memberTextFilter = "";
   let memberKindFilter = "all";
@@ -408,6 +417,7 @@ export function parseWorkspaceLocation(location: WorkspaceLocationSnapshot) {
       section = share.section;
       bodyTarget = share.bodyTarget;
       library = share.library;
+      libraryPack = share.libraryPack;
       memberBrowse = share.memberBrowse;
       memberTextFilter = share.memberTextFilter;
       memberKindFilter = share.memberKindFilter;
@@ -444,6 +454,7 @@ export function parseWorkspaceLocation(location: WorkspaceLocationSnapshot) {
     tabs,
     active,
     library,
+    libraryPack,
     memberBrowse,
     memberTextFilter,
     memberKindFilter,

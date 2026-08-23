@@ -1,3 +1,4 @@
+import { mergeInspectionErrors } from "./data.ts";
 import type {
   BrowserAccessibilityDescriptor,
   BrowserAssemblySurface,
@@ -30,6 +31,27 @@ export interface AppPackage {
   isRuntimePack: boolean;
 }
 
+const DEFAULT_RUNTIME_ASSEMBLY = "System.Private.CoreLib";
+
+export function runtimeAssemblyIsResident(
+  packageModel: Pick<AppPackage, "assemblies"> | null | undefined,
+  assemblyName: string,
+  platformPack: string,
+): boolean {
+  const normalized = assemblyName.replace(/\.dll$/i, "").toLowerCase();
+  return packageModel?.assemblies.some(assembly =>
+    assembly.name.toLowerCase() === normalized
+    && assembly.platformPack === platformPack) ?? false;
+}
+
+export function runtimePackIsResident(
+  packageModel: Pick<AppPackage, "assemblies"> | null | undefined,
+): boolean {
+  return packageModel?.assemblies.some(assembly =>
+    assembly.name.toLowerCase()
+      === DEFAULT_RUNTIME_ASSEMBLY.toLowerCase()) ?? false;
+}
+
 function packageTypes(result: BrowserPackageSurface): BrowserTypeSurface[] {
   return (result.types ?? []).map(type => ({
     ...type,
@@ -37,17 +59,51 @@ function packageTypes(result: BrowserPackageSurface): BrowserTypeSurface[] {
   }));
 }
 
-function defaultAssembly(
+// The two validations are separate because they belong on different paths, and round 6
+// review (GPT-5.6 Sol) showed what collapsing them costs.
+//
+// A *blank* identity is never legitimate: `defaultAssemblyId` is declared non-optional,
+// and a surface without one produces a package model with a blank identity whatever is
+// done with it. An *unmatched* identity is legitimate -- `InspectionEngine.cs` permits an
+// empty `assemblies` list whenever extraction truncates and then falls back to
+// `coordinate.DefaultAsset.Id`, an id matching no descriptor -- and those surfaces still
+// carry types worth merging.
+//
+// Round 5 moved the whole check after the merge branch to stop rejecting that truncated
+// surface, which also stopped rejecting blank identities on the resident-merge path.
+// Splitting the checks keeps both properties: identity is required everywhere, a matching
+// descriptor only where one is actually read.
+function requireAssemblyIdentity(
   result: BrowserPackageSurface,
   failureMessage: string,
-): BrowserAssemblySurface {
+): string {
   const defaultAssemblyId = result.defaultAssemblyId;
   if (typeof defaultAssemblyId !== "string"
     || defaultAssemblyId.trim().length === 0) {
     throw new Error(failureMessage);
   }
-  const assembly = (result.assemblies ?? [])
-    .find(candidate => candidate.id === defaultAssemblyId);
+  return defaultAssemblyId;
+}
+
+// The descriptor the surface's declared default names, or null when none matches.
+function selectedAssembly(
+  result: BrowserPackageSurface,
+): BrowserAssemblySurface | null {
+  const defaultAssemblyId = result.defaultAssemblyId;
+  if (typeof defaultAssemblyId !== "string"
+    || defaultAssemblyId.trim().length === 0) {
+    return null;
+  }
+  return (result.assemblies ?? [])
+    .find(candidate => candidate.id === defaultAssemblyId) ?? null;
+}
+
+function defaultAssembly(
+  result: BrowserPackageSurface,
+  failureMessage: string,
+): BrowserAssemblySurface {
+  requireAssemblyIdentity(result, failureMessage);
+  const assembly = selectedAssembly(result);
   if (!assembly) throw new Error(failureMessage);
   return assembly;
 }
@@ -90,12 +146,21 @@ export function createRuntimePackageModel(
 
 function createRuntimeAssemblyPackageModel(
   result: BrowserPackageSurface,
-  assembly: BrowserAssemblySurface,
+  requestedAssembly: string,
 ): AppPackage {
-  return createRuntimePackageModelForAssembly(
-    result,
-    assembly,
-    assembly.id);
+  // `requestedAssembly` and the no-descriptor failure come from main (#4405); selecting
+  // the descriptor the surface's *declared default* names comes from this slice.
+  // Projecting `assemblies[0]` while reporting `defaultAssemblyId` as the identity builds
+  // a model that names one assembly and identifies another. The two agree for every
+  // surface the engine emits today -- a runtime-pack assembly load returns the one
+  // assembly it was asked for -- which is why nothing caught it.
+  const assembly = selectedAssembly(result);
+  if (!assembly) {
+    throw new Error(
+      result.inspectionError
+      || `The platform query returned no descriptor for ${requestedAssembly}.`);
+  }
+  return createRuntimePackageModelForAssembly(result, assembly, assembly.id);
 }
 
 function createRuntimePackageModelForAssembly(
@@ -119,6 +184,7 @@ function createRuntimePackageModelForAssembly(
     totalTypes: types.length,
     totalMembers: result.totalMembers,
     documents: result.documents ?? [],
+    inspectionError: result.inspectionError || "",
     isRuntimePack: true,
   };
 }
@@ -133,9 +199,20 @@ export function mergeRuntimePackageSurface(
     if (!seenTypes.has(type.id)) existing.types.push(type);
   }
 
-  const seenAssemblies = new Set(existing.assemblies.map(assembly => assembly.name));
+  const assemblyKey = (assembly: BrowserAssemblySurface) => [
+    assembly.name.toLowerCase(),
+    assembly.version ?? "",
+    (assembly.culture ?? "").toLowerCase() === "neutral"
+      ? ""
+      : (assembly.culture ?? "").toLowerCase(),
+    (assembly.publicKeyToken ?? "").toLowerCase(),
+    assembly.platformPack ?? "",
+  ].join("\0");
+  const seenAssemblies = new Set(existing.assemblies.map(assemblyKey));
   for (const assembly of result.assemblies ?? []) {
-    if (!seenAssemblies.has(assembly.name)) existing.assemblies.push(assembly);
+    if (!seenAssemblies.has(assemblyKey(assembly))) {
+      existing.assemblies.push(assembly);
+    }
   }
 
   const descriptors = new Map(
@@ -150,7 +227,22 @@ export function mergeRuntimePackageSurface(
     .sort((left, right) => left.order - right.order);
   existing.totalTypes = existing.types.length;
   existing.totalMembers = (existing.totalMembers || 0) + (result.totalMembers || 0);
+  existing.inspectionError = mergeInspectionErrors(
+    existing.inspectionError,
+    result.inspectionError);
   return existing;
+}
+
+function promoteRuntimePackagePrimary(
+  existing: AppPackage,
+  primary: AppPackage,
+) {
+  existing.version = primary.version;
+  existing.frameworks = primary.frameworks;
+  existing.activeFramework = primary.activeFramework;
+  existing.assembly = primary.assembly;
+  existing.assemblyId = primary.assemblyId;
+  existing.assemblyAsset = primary.assemblyAsset;
 }
 
 export interface PackageAcquisitionDependencies {
@@ -205,17 +297,23 @@ export interface PackageAcquisition {
 export function createPackageAcquisition(
   dependencies: PackageAcquisitionDependencies,
 ): PackageAcquisition {
-  let runtimeOperation: Promise<AppPackage | null> | null = null;
+  let runtimeTail: Promise<void> | null = null;
 
-  const waitForRuntimeOperation = async () => {
-    for (;;) {
-      const pending = runtimeOperation;
-      if (!pending) return;
-      try {
-        await pending;
-      } catch {
-        // The operation owner reports its failure before the next request starts.
-      }
+  const enqueueRuntimeRequest = async (
+    operation: () => Promise<RuntimeAcquisitionResult>,
+  ): Promise<RuntimeAcquisitionResult> => {
+    const predecessor = runtimeTail;
+    let release!: () => void;
+    const slot = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    runtimeTail = slot;
+    if (predecessor) await predecessor;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (runtimeTail === slot) runtimeTail = null;
     }
   };
 
@@ -223,11 +321,9 @@ export function createPackageAcquisition(
     operation: () => Promise<AppPackage | null>,
   ): Promise<RuntimeAcquisitionResult> => {
     dependencies.beginRuntimeLoad();
-    const pending = operation();
-    runtimeOperation = pending;
     try {
       return {
-        packageModel: await pending,
+        packageModel: await operation(),
         error: null,
       };
     } catch (error) {
@@ -237,7 +333,6 @@ export function createPackageAcquisition(
         error,
       };
     } finally {
-      if (runtimeOperation === pending) runtimeOperation = null;
       dependencies.endRuntimeLoad();
     }
   };
@@ -260,25 +355,36 @@ export function createPackageAcquisition(
     },
 
     async loadRuntimePack(framework, isCurrent = () => true) {
-      if (runtimeOperation) await waitForRuntimeOperation();
-      if (!isCurrent()) return { packageModel: null, error: null };
-      const requestedFramework = framework || "";
-      const existing = dependencies.runtimePackage();
-      if (existing
-        && (!requestedFramework
-          || existing.activeFramework.toLowerCase()
-            === requestedFramework.toLowerCase())) {
-        return { packageModel: existing, error: null };
-      }
+      return enqueueRuntimeRequest(async () => {
+        if (!isCurrent()) return { packageModel: null, error: null };
+        const requestedFramework = framework || "";
+        const existing = dependencies.runtimePackage();
+        if (existing
+          && runtimePackIsResident(existing)
+          && (!requestedFramework
+            || existing.activeFramework.toLowerCase()
+              === requestedFramework.toLowerCase())) {
+          return { packageModel: existing, error: null };
+        }
 
-      return runRuntimeOperation(async () => {
-        const result = dependencies.parseRuntimeSurface(
-          await dependencies.loadRuntimePack(requestedFramework));
-        if (!isCurrent()) return null;
-        dependencies.refreshPackageStats();
-        const packageModel = createRuntimePackageModel(result);
-        dependencies.retainPackage(packageModel, existing);
-        return packageModel;
+        return runRuntimeOperation(async () => {
+          const result = dependencies.parseRuntimeSurface(
+            await dependencies.loadRuntimePack(requestedFramework));
+          if (!isCurrent()) return null;
+          dependencies.refreshPackageStats();
+          const packageModel = createRuntimePackageModel(result);
+          const current = dependencies.runtimePackage();
+          if (current
+            && (!requestedFramework
+              || current.activeFramework.toLowerCase()
+                === requestedFramework.toLowerCase())) {
+            mergeRuntimePackageSurface(current, result);
+            promoteRuntimePackagePrimary(current, packageModel);
+            return current;
+          }
+          dependencies.retainPackage(packageModel, existing);
+          return packageModel;
+        });
       });
     },
 
@@ -288,46 +394,69 @@ export function createPackageAcquisition(
       pack,
       isCurrent = () => true,
     ) {
-      if (runtimeOperation) await waitForRuntimeOperation();
-      if (!isCurrent()) return { packageModel: null, error: null };
-      const requestedFramework = framework || "";
-      const resident = dependencies.runtimePackage();
-      if (resident
-        && (!requestedFramework
-          || resident.activeFramework.toLowerCase()
-            === requestedFramework.toLowerCase())
-        && resident.assemblies.some(assembly =>
-          assembly.name.toLowerCase()
-            === assemblyFileName.toLowerCase())) {
-        return { packageModel: resident, error: null };
-      }
-
-      return runRuntimeOperation(async () => {
-        const result = dependencies.parseRuntimeSurface(
-          await dependencies.loadRuntimePackAssembly(
-            requestedFramework,
-            assemblyFileName,
-            pack || ""));
-        if (!isCurrent()) return null;
-        dependencies.refreshPackageStats();
-        const existing = dependencies.runtimePackage();
-        if (existing
+      return enqueueRuntimeRequest(async () => {
+        if (!isCurrent()) return { packageModel: null, error: null };
+        const requestedFramework = framework || "";
+        const requestedAssembly = assemblyFileName
+          .replace(/\.dll$/i, "");
+        const resident = dependencies.runtimePackage();
+        if (resident
           && (!requestedFramework
-            || existing.activeFramework.toLowerCase()
+            || resident.activeFramework.toLowerCase()
               === requestedFramework.toLowerCase())) {
-          // The merge reads types, assemblies, accessibility, and counts -- never the
-          // selected descriptor. Validating it here would reject a surface the merge
-          // handles correctly: the engine emits an empty `assemblies` list with an
-          // unmatched `defaultAssemblyId` whenever extraction truncates
-          // (`InspectionEngine.cs`), and that surface still carries types worth merging.
-          return mergeRuntimePackageSurface(existing, result);
+          if (runtimeAssemblyIsResident(
+            resident,
+            requestedAssembly,
+            pack)) {
+            return { packageModel: resident, error: null };
+          }
         }
-        const assembly = defaultAssembly(
-          result,
-          "The platform assembly query did not return its selected assembly descriptor.");
-        const packageModel = createRuntimeAssemblyPackageModel(result, assembly);
-        dependencies.retainPackage(packageModel, existing);
-        return packageModel;
+
+        return runRuntimeOperation(async () => {
+          const result = dependencies.parseRuntimeSurface(
+            await dependencies.loadRuntimePackAssembly(
+              requestedFramework,
+              assemblyFileName,
+              pack || ""));
+          if (!isCurrent()) return null;
+          dependencies.refreshPackageStats();
+          const existing = dependencies.runtimePackage();
+          // Identity is required on every path, including the merge. Round 6 review
+          // (GPT-5.6 Sol) showed that returning through the merge without it let a
+          // surface with an absent, empty, or whitespace `defaultAssemblyId` succeed --
+          // and mutate the resident package -- whenever a same-framework runtime package
+          // happened to be resident. A matching descriptor is still only required below,
+          // where one is actually read.
+          requireAssemblyIdentity(
+            result,
+            "The platform assembly query did not return its selected assembly identity.");
+          if (existing
+            && (!requestedFramework
+              || existing.activeFramework.toLowerCase()
+                === requestedFramework.toLowerCase())) {
+            const merged = mergeRuntimePackageSurface(existing, result);
+            const primary = result.assemblies?.[0];
+            // Promotion builds a package model, so it needs a descriptor. A truncated
+            // surface has none, and round 5 established that such a surface must still
+            // merge rather than fail the whole load -- so skip the promotion instead of
+            // letting the model construction throw.
+            if (selectedAssembly(result)
+              && primary?.name.toLowerCase()
+                === DEFAULT_RUNTIME_ASSEMBLY.toLowerCase()) {
+              promoteRuntimePackagePrimary(
+                merged,
+                createRuntimeAssemblyPackageModel(
+                  result,
+                  requestedAssembly));
+            }
+            return merged;
+          }
+          const packageModel = createRuntimeAssemblyPackageModel(
+            result,
+            requestedAssembly);
+          dependencies.retainPackage(packageModel, existing);
+          return packageModel;
+        });
       });
     },
   };
