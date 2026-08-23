@@ -36,6 +36,10 @@ public class FqnParserTests
     [InlineData("ReadOnlySpan<T>", "ReadOnlySpan`1")]
     [InlineData("List`1", "List`1")]
     [InlineData("Dictionary`2", "Dictionary`2")]
+    [InlineData("Action<(int,string)>", "Action`1")]
+    [InlineData("Dictionary<string,(int,int)>", "Dictionary`2")]
+    [InlineData("Task<(bool ok,string msg)>", "Task`1")]
+    [InlineData("List<((int,string) pair,int value)>", "List`1")]
     public void GenericType_NormalizesToBacktickNotation(string input, string expectedType)
     {
         var result = FqnParser.Parse(input);
@@ -80,7 +84,11 @@ public class FqnParserTests
     [InlineData("List<T.>")]
     [InlineData("List<T?*>")]
     [InlineData("List<T U?>")]
-    [InlineData("Action<(int,string)>")]
+    [InlineData("Action<(int)>")]
+    [InlineData("Action<(,)>")]
+    [InlineData("Action<(int,)>")]
+    [InlineData("Action<(int,,string)>")]
+    [InlineData("Action<(int string)>")]
     public void MalformedGenericType_IsNotNormalizedToValidMetadataIdentity(
         string input) =>
         Assert.Equal(input, FqnParser.NormalizeTypeName(input));

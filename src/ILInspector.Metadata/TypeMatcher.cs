@@ -288,8 +288,14 @@ public static class TypeMatcher
     {
         var matchPattern = GetTypeMatchPattern(pattern);
         if (IsTypeGlobPattern(pattern))
-            return MatchesGlob(fullName, matchPattern)
-                || MatchesGlob(GetSimpleName(fullName), matchPattern);
+        {
+            var normalizedFullName = NormalizeForLookup(fullName);
+            var normalizedPattern = matchPattern.Replace('+', '.');
+            return MatchesGlob(normalizedFullName, normalizedPattern)
+                || MatchesGlob(
+                    GetSimpleName(normalizedFullName),
+                    normalizedPattern);
+        }
         if (HasExplicitGenericNotation(pattern))
         {
             var normalizedFullName = NormalizeForLookup(fullName);

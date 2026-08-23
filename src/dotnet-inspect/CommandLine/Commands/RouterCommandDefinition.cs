@@ -252,10 +252,7 @@ public static class RouterCommandDefinition
                 return ["type", target, .. tail];
             }
 
-            if (hasMemberOption
-                && (!hasExplicitGenericNotation
-                    || (trailingSegmentHasGenericNotation
-                        && hasExplicitApiSource)))
+            if (hasMemberOption)
                 return ["member", target, .. tail];
 
             if (hasExplicitApiSource

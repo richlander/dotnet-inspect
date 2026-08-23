@@ -536,6 +536,20 @@ public static class FqnParser
                     pointerApplied = false;
                     break;
                 case '(':
+                    if (currentPartHasCore
+                        || coreCompleted
+                        || !typeParams[segmentStart..i].Trim().IsEmpty
+                        || !TryFindTupleClose(typeParams, i, out var tupleClose))
+                    {
+                        count = 0;
+                        return false;
+                    }
+
+                    i = tupleClose;
+                    currentPartHasCore = true;
+                    coreCompleted = true;
+                    hasPostfix = false;
+                    break;
                 case ')':
                     count = 0;
                     return false;
@@ -565,6 +579,126 @@ public static class FqnParser
         }
 
         return true;
+    }
+
+    private static bool TryFindTupleClose(
+        ReadOnlySpan<char> value,
+        int openIndex,
+        out int closeIndex)
+    {
+        closeIndex = -1;
+        var parenthesisDepth = 1;
+        var angleDepth = 0;
+        var bracketDepth = 0;
+        var elementStart = openIndex + 1;
+        var elementCount = 0;
+
+        for (var i = elementStart; i < value.Length; i++)
+        {
+            switch (value[i])
+            {
+                case '(':
+                    parenthesisDepth++;
+                    if (parenthesisDepth > MaxNestedGenericDepth)
+                        return false;
+                    break;
+                case ')':
+                    parenthesisDepth--;
+                    if (parenthesisDepth < 0)
+                        return false;
+                    if (parenthesisDepth != 0)
+                        break;
+                    if (angleDepth != 0
+                        || bracketDepth != 0
+                        || !IsValidTupleElement(value[elementStart..i]))
+                    {
+                        return false;
+                    }
+
+                    elementCount++;
+                    if (elementCount < 2)
+                        return false;
+                    closeIndex = i;
+                    return true;
+                case '<':
+                    angleDepth++;
+                    if (angleDepth > MaxNestedGenericDepth)
+                        return false;
+                    break;
+                case '>':
+                    if (--angleDepth < 0)
+                        return false;
+                    break;
+                case '[':
+                    bracketDepth++;
+                    break;
+                case ']':
+                    if (--bracketDepth < 0)
+                        return false;
+                    break;
+                case ',':
+                    if (parenthesisDepth != 1
+                        || angleDepth != 0
+                        || bracketDepth != 0)
+                    {
+                        break;
+                    }
+                    if (!IsValidTupleElement(value[elementStart..i]))
+                        return false;
+                    elementCount++;
+                    elementStart = i + 1;
+                    break;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsValidTupleElement(ReadOnlySpan<char> element)
+    {
+        element = element.Trim();
+        if (element.IsEmpty)
+            return false;
+        if (TryCountTypeParameters(
+                element,
+                out var elementTypeCount,
+                nestingValidated: true)
+            && elementTypeCount == 1)
+        {
+            return true;
+        }
+
+        var nameSeparator = -1;
+        for (var i = element.Length - 1; i >= 0; i--)
+        {
+            if (!char.IsWhiteSpace(element[i]))
+                continue;
+            nameSeparator = i;
+            break;
+        }
+        if (nameSeparator <= 0)
+            return false;
+
+        var elementType = element[..nameSeparator].TrimEnd();
+        var name = element[(nameSeparator + 1)..].Trim();
+        if (elementType.IsEmpty || name.IsEmpty)
+            return false;
+
+        var escaped = name[0] == '@';
+        var identifier = escaped ? name[1..] : name;
+        var identifierText = identifier.ToString();
+        if (!CSharpIdentifier.IsIdentifierLike(identifierText)
+            || (!escaped
+                && CSharpKeywords.RequiresDeclarationEscape(identifierText)))
+        {
+            return false;
+        }
+
+        return TryCountTypeParameters(
+                   elementType,
+                   out elementTypeCount,
+                   nestingValidated: true)
+               && elementTypeCount == 1;
     }
 
     private static bool HasSupportedGenericNesting(

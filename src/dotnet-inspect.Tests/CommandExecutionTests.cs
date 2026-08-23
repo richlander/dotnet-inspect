@@ -3249,7 +3249,6 @@ public partial class CommandExecutionTests
     [InlineData("System.Collections.Generic.List<.T>")]
     [InlineData("System.Collections.Generic.List<T?*>")]
     [InlineData("System.Collections.Generic.List<T U?>")]
-    [InlineData("System.Action<(int,string)>")]
     [InlineData("System.Threading.Tasks.Task<T1,T2>")]
     public async Task Router_ExplicitMissingGenericArity_DoesNotBroaden(
         string target)
@@ -3265,6 +3264,8 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData("System.Collections.Generic.Dictionary<List<T>?,string>")]
     [InlineData("System.Collections.Generic.Dictionary<List<T>[,],string>")]
+    [InlineData("System.Collections.Generic.List<(int,string)>")]
+    [InlineData("System.Action<(int,string)>")]
     public async Task Router_ValidNestedGenericSuffixResolvesExactType(
         string target)
     {
@@ -3283,6 +3284,31 @@ public partial class CommandExecutionTests
 
         Assert.Equal(direct, deferred);
         Assert.Equal(0, deferred.Exit);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitMemberOptionOwnsNestedGenericTarget()
+    {
+        const string target =
+            "System.Collections.Generic.List`1.Enumerator";
+        string[] tail =
+        [
+            "-m",
+            "MoveNext",
+            "--platform",
+            "System.Private.CoreLib",
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["member", target, .. tail]);
+        var routed = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Equal("1", routed.Output.Trim());
     }
 
     [Fact]
@@ -4198,6 +4224,33 @@ public partial class CommandExecutionTests
         Assert.Equal(0, qualified.Exit);
         Assert.Equal("6", qualified.Output.Trim());
         Assert.Empty(qualified.Error);
+    }
+
+    [Theory]
+    [InlineData(
+        "System.Collections.Generic.Dictionary`2.KeyCollection.CopyTo")]
+    [InlineData(
+        "System.Collections.Generic.Dictionary`2+KeyCollection.CopyTo")]
+    public async Task Member_GlobTypeTargetNormalizesQualifiedOwner(
+        string memberFilter)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Collections.Generic.Dictionary*.KeyCollection",
+            "--platform",
+            "System.Private.CoreLib",
+            "-m",
+            memberFilter,
+            "--all",
+            "-S",
+            "Member Index",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
     }
 
     [Fact]

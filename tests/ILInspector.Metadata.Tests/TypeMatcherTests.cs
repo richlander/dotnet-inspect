@@ -150,6 +150,24 @@ public class TypeMatcherTests
                 candidate,
                 "System.Action<T>"));
 
+    [Theory]
+    [InlineData(
+        "System.Collections.Generic.Dictionary`2+KeyCollection",
+        "System.Collections.Generic.Dictionary*.KeyCollection")]
+    [InlineData(
+        "System.Collections.Generic.Dictionary`2.KeyCollection",
+        "System.Collections.Generic.Dictionary*+KeyCollection")]
+    public void MatchesTypeFilter_GlobNormalizesNestedSeparators(
+        string candidate,
+        string pattern) =>
+        Assert.True(TypeMatcher.MatchesTypeFilter(candidate, pattern));
+
+    [Fact]
+    public void MatchesTypeFilter_GlobKeepsQualifiedNamespacesDistinct() =>
+        Assert.False(TypeMatcher.MatchesTypeFilter(
+            "Other.Collections.Generic.Dictionary`2+KeyCollection",
+            "System.Collections.Generic.Dictionary*.KeyCollection"));
+
     [Fact]
     public void Lookup_prefers_non_generic_type_when_pattern_has_no_generic_notation()
     {
