@@ -1,3 +1,4 @@
+import { pdbSourceLimitationHtml } from "./data.ts";
 import type { BrowserSource } from "./inspect-web-engine.d.ts";
 
 type GraphSourceResult = BrowserSource;
@@ -11,12 +12,30 @@ export interface RenderGraphSourceOptions {
   highlightCSharp: (value: string) => string;
 }
 
+export interface GraphSourceBindingActions {
+  onClose: () => void;
+}
+
+export function bindGraphSource(
+  root: ParentNode,
+  actions: GraphSourceBindingActions,
+) {
+  const backdrop =
+    root.querySelector<HTMLElement>("#graph-source-backdrop");
+  backdrop?.addEventListener("mousedown", event => {
+    if (event.target === backdrop) actions.onClose();
+  });
+  root.querySelector("#graph-source-close")?.addEventListener(
+    "click",
+    actions.onClose);
+}
+
 export function renderGraphSource(options: RenderGraphSourceOptions): string {
   const { title, loading, source, error, escapeHtml, highlightCSharp } = options;
   const body = loading
     ? `<div class="graph-source-status">Resolving source for ${escapeHtml(title)}…</div>`
     : source
-      ? `<div class="source-provenance"><strong>${source.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(source.provenance)}</span>${source.url ? `<a href="${escapeHtml(source.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}</div>
+      ? `<div class="source-provenance"><strong>${source.provider === "pdb" ? "PDB Source" : "Decompiled source"}</strong><span>${escapeHtml(source.provenance)}</span>${source.url ? `<a href="${escapeHtml(source.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}${pdbSourceLimitationHtml(source)}</div>
          <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(source.text)}</code></pre>`
       : `<div class="graph-source-status error">${escapeHtml(error || "No source was returned.")}</div>`;
   return `

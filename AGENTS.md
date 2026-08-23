@@ -82,10 +82,19 @@ them.
 
 ### Name the window for identity
 
-`tmux rename-window pr<number>` — not the session. A tmux session is shared by
-every window on that host, so renaming it identifies nothing; `rename-window`
-sets the same per-window name that `C-b ,` sets. Without a PR yet, use the
-issue: `i<number>`.
+```sh
+tmux rename-window -t "$TMUX_PANE" pr<number>
+```
+
+**The `-t "$TMUX_PANE"` is required, not decoration.** Bare `tmux rename-window`
+resolves to the session's *current* window, not the window you are running in —
+so without it you rename whichever window the operator happens to be viewing,
+and every agent overwrites every other agent's name. Verified: a rename issued
+from window 2 renamed window 0.
+
+Rename the window, never the session. A session is shared by every window on
+that host, so renaming it identifies nothing. Without a PR yet, use the issue:
+`i<number>`.
 
 Keep the name short and stable. The status bar truncates, and a truncated name
 reads as a corrupted one. Do not encode changing state in it — your terminal
@@ -126,28 +135,54 @@ Restate it after every resume and at the start of every round, not once at the
 beginning. A window that has scrolled past its only mention of the PR is a
 window nobody can identify.
 
-### Signal when you need a person
+### Publish your state where tooling can read it
 
-Whenever you stop and wait on a human decision, say so out of band as well as on
-screen. This is the standing convention during normal work, not an option:
+Set a window-scoped tmux option whenever your state changes. The bar renders it
+for whoever is viewing that window, and tooling reads it directly instead of
+scraping your output:
 
 ```sh
-tmux display-message -d 10000 'PR #4405 needs a decision'
+tmux set -w -t "$TMUX_PANE" @agent "round 6 on pr4405, waiting on CI"
+tmux set -w -t "$TMUX_PANE" -u @agent          # clear when it no longer holds
 ```
 
-Send it once, when you become blocked — not on a timer, and not again while
-waiting on the same question. Keep it to one short line naming the PR and what
-is needed; the message takes over the status line for as long as it shows.
+`-w -t "$TMUX_PANE"` scopes it to **your** window. `status-right` is a session
+option; writing it directly would overwrite every other agent, the same way bare
+`rename-window` did.
 
-**It is best effort and will often go unseen.** Nobody may be attached; the
-person may be in another window, on another machine, or asleep. So it is a
-nudge, never a handoff: a sent notification is not a delivered question and
-never an answered one. Stop at your prompt and wait exactly as you would have
-without it, and restate the request in full when resumed.
+Omit your window number from the value — the bar already knows where it is.
+Update on real transitions, not on a timer.
 
-Signal only for being blocked. Progress, completion, and resuming are not
-signals — they belong in your output, where they can be read whenever someone
-looks.
+### Signal when you need a person
+
+Whenever you stop and wait on a human decision, raise a flag that persists and
+send one nudge that does not:
+
+```sh
+tmux set -w -t "$TMUX_PANE" @agent "HELP: rebase pr4405 onto main, or close it?"
+tmux display-message -d 10000 -t "$TMUX_PANE" \
+  "HELP pr4405 in w#{window_index}: rebase onto main, or close it?"
+```
+
+The `HELP` prefix marks your window with `!` in the window list, so you are
+visible from any window, not only your own. `display-message` expands
+`#{window_index}` against `-t`, so the nudge names both the PR and where to find
+you — a notification that says only "something needs a decision" makes the
+operator hunt.
+
+Send the nudge once, on becoming blocked — not on a timer, and not again for the
+same question. Clear `@agent` when you are unblocked; a stale `HELP` is worse
+than none, because it spends attention on a question already answered.
+
+**The nudge is best effort and will often go unseen.** Nobody may be attached;
+the person may be in another window, on another machine, or asleep. That is what
+the flag is for: it waits. Neither is a handoff — a raised flag is not a
+delivered question and never an answered one. Stop at your prompt and wait
+exactly as you would have without it, and restate the request in full when
+resumed.
+
+Flag only for being blocked. Progress and completion belong in `@agent` as
+ordinary state and in your output; resuming is not a signal at all.
 
 ## User-directed workflow adjustments
 
@@ -244,6 +279,7 @@ review the new head, and ask again.
 | Implementation structure | the relevant section of `docs/architecture.md` |
 | Layering and consumer boundaries | `docs/design/inspection-layers.md` |
 | Artifact acquisition and workspace composition | `docs/design/artifact-acquisition-and-workspaces.md` |
+| Platform composition, overlays, and core-library entitlement | `docs/design/platform-composition-and-overlays.md` |
 | Command defaults and disclosure | `docs/design/progressive-disclosure.md` |
 | Output data shapes | `docs/design/output-shapes.md` |
 | Output style | `docs/design/style-guide.md` |

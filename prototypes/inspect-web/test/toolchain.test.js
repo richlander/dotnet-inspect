@@ -22,11 +22,21 @@ const packageLock = JSON.parse(
 const packageJson = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf8"),
 );
+const oxlintConfig = JSON.parse(
+  readFileSync(new URL("../.oxlintrc.json", import.meta.url), "utf8"),
+);
 const browserTsconfig = JSON.parse(
   readFileSync(new URL("../tsconfig.json", import.meta.url), "utf8"),
 );
 const testTsconfig = JSON.parse(
   readFileSync(new URL("tsconfig.json", import.meta.url), "utf8"),
+);
+const staticWebAppConfig = JSON.parse(
+  readFileSync(new URL("../staticwebapp.config.json", import.meta.url), "utf8"),
+);
+const siteIndexHtml = readFileSync(
+  new URL("../index.html", import.meta.url),
+  "utf8",
 );
 
 test("the package lock pins every registry artifact", () => {
@@ -50,6 +60,34 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
     packageJson.scripts.typecheck,
     "tsc --noEmit && tsc --noEmit -p test/tsconfig.json",
   );
+});
+
+test("static hosting serves direct credits links through the application entry point", () => {
+  const creditsRoutes = staticWebAppConfig.routes
+    .filter(route => route.route === "/credits" || route.route === "/credits/");
+
+  assert.deepEqual(creditsRoutes, [
+    {
+      route: "/credits",
+      rewrite: "/index.html",
+      headers: {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+      },
+    },
+    {
+      route: "/credits/",
+      rewrite: "/index.html",
+      headers: {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+      },
+    },
+  ]);
+  assert.equal(staticWebAppConfig.navigationFallback.rewrite, "/index.html");
+  assert.deepEqual(
+    staticWebAppConfig.navigationFallback.exclude,
+    ["/api/*", "/assets/*", "/_framework/*"],
+  );
+  assert.match(siteIndexHtml, /<base href="\/" \/>/);
 });
 
 const linuxLibcs = ["glibc", "musl"];
@@ -124,7 +162,19 @@ test("the analysis host check matches locked native packages and lint wiring", (
 
   assert.equal(
     packageJson.scripts.lint,
-    "node scripts/verify-analysis-host.js && oxlint src test scripts vite.config.js",
+    "node scripts/verify-analysis-host.js && oxlint src test scripts "
+      + "engine/wwwroot/inspect-web-engine.js vite.config.js",
+  );
+});
+
+test("the lint gate includes both generated tsbindgen outputs", () => {
+  assert.ok(
+    !(oxlintConfig.ignorePatterns ?? []).includes("src/inspect-web-engine.d.ts"),
+  );
+  assert.match(packageJson.scripts.lint, /(?:^| )src(?: |$)/);
+  assert.match(
+    packageJson.scripts.lint,
+    /(?:^| )engine\/wwwroot\/inspect-web-engine\.js(?: |$)/,
   );
 });
 
@@ -147,7 +197,10 @@ test("the site artifact rejects a missing Vite output", (context) => {
   writeFileSync(join(site, "manifest.json"), JSON.stringify(manifest));
   writeFileSync(
     join(site, "index.html"),
-    '<script type="module" src="/assets/index.js"></script>'
+    '<base href="/">'
+      + '<link rel="preload" href="/_framework/dotnet.js">'
+      + '<script type="importmap">{}</script>'
+      + '<script type="module" src="/assets/index.js"></script>'
       + '<link rel="stylesheet" href="/assets/index.css">',
   );
   writeFileSync(join(site, "assets/index.js"), "");
@@ -155,6 +208,48 @@ test("the site artifact rejects a missing Vite output", (context) => {
   writeFileSync(join(site, "assets/app.js"), "");
 
   assert.doesNotThrow(() => verifySiteArtifact(site));
+  writeFileSync(
+    join(site, "index.html"),
+    '<link rel="preload" href="/_framework/dotnet.js">'
+      + '<script type="importmap">{}</script>'
+      + '<script type="module" src="/assets/index.js"></script>'
+      + '<link rel="stylesheet" href="/assets/index.css">',
+  );
+  assert.throws(
+    () => verifySiteArtifact(site),
+    /index\.html is missing <base href="\/">/,
+  );
+  writeFileSync(
+    join(site, "index.html"),
+    '<link rel="preload" href="/_framework/dotnet.js">'
+      + '<script type="importmap">{}</script>'
+      + '<base href="/">'
+      + '<script type="module" src="/assets/index.js"></script>'
+      + '<link rel="stylesheet" href="/assets/index.css">',
+  );
+  assert.throws(
+    () => verifySiteArtifact(site),
+    /index\.html places <base href="\/"> after the runtime preload/,
+  );
+  writeFileSync(
+    join(site, "index.html"),
+    '<script type="importmap">{}</script>'
+      + '<base href="/">'
+      + '<script type="module" src="/assets/index.js"></script>'
+      + '<link rel="stylesheet" href="/assets/index.css">',
+  );
+  assert.throws(
+    () => verifySiteArtifact(site),
+    /index\.html places <base href="\/"> after the import map/,
+  );
+  writeFileSync(
+    join(site, "index.html"),
+    '<base href="/">'
+      + '<link rel="preload" href="/_framework/dotnet.js">'
+      + '<script type="importmap">{}</script>'
+      + '<script type="module" src="/assets/index.js"></script>'
+      + '<link rel="stylesheet" href="/assets/index.css">',
+  );
   delete manifest["src/dotnet-inspect.ts"];
   writeFileSync(join(site, "manifest.json"), JSON.stringify(manifest));
   assert.throws(

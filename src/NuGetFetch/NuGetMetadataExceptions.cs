@@ -33,6 +33,9 @@ public sealed class NuGetMetadataResponseTooLargeException : IOException
 internal sealed class NuGetRedirectLimitExceededException()
     : IOException("The package source response exceeded the redirect limit.");
 
+internal sealed class NuGetRegistrationResourceLimitExceededException(
+    string message) : IOException(message);
+
 /// <summary>
 /// Thrown when a NuGet metadata response body does not complete within its configured
 /// body-phase timeout.

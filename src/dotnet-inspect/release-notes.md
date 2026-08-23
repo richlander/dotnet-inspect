@@ -8,12 +8,15 @@
   selected methods in one retained assembly. It preserves exact, near,
   different, unsupported, failed, limit-reached, and
   ambiguous-correspondence results instead of collapsing incomplete
-  comparisons into matches (#4540).
+  comparisons into matches. Add `--implementation` for side-by-side decompiled
+  C# and IL views of both selected methods (#4540, #4555).
 - Adds `graph integrations` for inducing typed Integration relationships over
   an explicit, binding-consistent package set. Markdown, tree, Mermaid, count,
   and structured formats project the same logical edges, while missing peer
   packages remain visible as failures instead of silently shortening the graph
   (#4421).
+- Adds `demo` for listing and running closed product-home scenarios backed by
+  real section output rather than separate demonstration logic (#4463).
 - Fixes canonical metadata generic-arity handling across API identity,
   relationship traversal, type forwarding, PDB/source mapping, decompilation,
   and selector spelling. Nested and foreign generic types now retain their
@@ -23,7 +26,21 @@
   refresh those selectors from `Member Index`. Top-level member selectors are
   unaffected (#4233).
 
-### Package audit
+### Source and implementation evidence
+
+- Renames `Original Source` to `PDB Source` and the Implementation Diff
+  `--authored-source` flag to `--pdb-source`, reflecting that checksum and
+  SourceLink-origin evidence do not independently prove build provenance.
+  Both old spellings remain accepted as hidden compatibility aliases. The
+  Implementation Diff `Mechanism` value likewise changes from `Source` to
+  `PDB Source` in Markdown and structured output (#4385).
+- **Breaking:** exact `PDB Source` or `Source Diff` acquisition failures now
+  return a non-zero exit status in count, tabular, JSONL, and document JSON
+  output. Markdown, plaintext, bare, and print projections continue to render
+  the explanatory payload. PDB Source can also use checksum-verified local
+  documents without requiring a SourceLink map (#4385).
+
+### Package acquisition and audit
 
 - Adds the opt-in `Audit: Findings` package section for bounded scans of
   text-bearing package files and decoded SourceLink maps. Findings identify
@@ -34,6 +51,10 @@
   embedded hash and validates NuGet signer, repository, certificate, and
   accepted timestamp profiles before reporting valid provenance. Malformed
   signature entries and invalid profiles fail closed (#4408).
+- Uses authoritative Gallery registration metadata for package listing and
+  version state. Pagination, malformed responses, deadline exhaustion, and
+  rejected results remain explicit rather than being interpreted as complete
+  package history (#4486).
 
 ### Performance analysis
 
@@ -45,14 +66,22 @@
   coordinate in structured output. The support remains distinct from the
   aggregate Finding and candidate identity, enabling external runtime
   correlation without changing static priority or confidence (#4544).
+- Distinguishes unresolved scoped recommendation owners instead of assigning
+  async-alternative evidence to an unauthenticated source method (#4488).
 
-### Clone and diagnostic correctness
+### Analysis, decompiler, and trust correctness
 
 - Materializes complete stack-slot copy components and raises the bounded
   structural-clone comparison limit, improving coverage without emitting
   partial clone results (#4407, #4506).
 - Hardens scoped analysis diagnostic aggregation and aligns structural-review
   carets with their rendered evidence (#4499, #4374).
+- Matches exact conversion callers by return type and rejects malformed trusted
+  generic ownership rather than accepting ambiguous metadata identity (#4562,
+  #4561).
+- Grants core-platform status only to a provenance-backed coherent closure,
+  preventing unrelated assemblies from acquiring platform trust by name or
+  declaration alone (#4500).
 
 ## v0.21.0
 
@@ -267,13 +296,13 @@
 - Fixes fully qualified ASP.NET Core type and member routing when runtime
   catalogs span multiple shared frameworks or a namespace prefix names a
   non-owning assembly, while retaining real ambiguity errors (#4135).
-- Uses a bounded declaration index for authored `Original Source` and `Source
+- Uses a bounded declaration index for `PDB Source` and `Source
   Diff` slicing. Accessors now select their enclosing property or event,
   constructors retain their exact identity, and ambiguous or overly complex
   source boundaries fail visibly instead of returning fragments or empty
   output (#3927).
 - Uses document-scoped PDB sequence points to select live conditional branches
-  in authored source, and refuses invalid coordinates or unsafe declaration
+  in PDB-mapped source, and refuses invalid coordinates or unsafe declaration
   boundaries instead of leaking inactive sibling declarations (#4158).
 - Resolves assembly references by metadata identity rather than derived paths,
   preserving sibling/platform precedence, culture and token constraints, and
@@ -504,7 +533,7 @@
   raw URLs in the default agent-friendly URL mode.
 - Removes the standalone `source` command. Use `package`, `library`, and `type`
   `-S "Source Files"` for type-to-SourceLink URL rows, and use `member -S
-  "Source Locations"` / `member -S "Original Source"` for member-level source
+  "Source Locations"` / `member -S "PDB Source"` for member-level source
   evidence.
 - Adds `library --il-offset` for MethodDef token + IL offset source
   symbolication through coordinate-scoped sections such as `Source Location`.

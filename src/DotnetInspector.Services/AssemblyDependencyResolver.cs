@@ -438,11 +438,13 @@ public sealed class AssemblyDependencyResolver :
             targetPath,
             // Only returned as a binding when this file IS the core library
             // facade, and it is the caller's designated target either way.
-            // Reporting it as a local asset understated the acquisition, which
-            // matters now that core-library identity is granted on acquisition.
-            AssemblyResolutionProvenance.Platform(
-                "Platform",
-                frameworkVersion: null,
+            // Designation is the honest label: the caller named this exact
+            // file, which entitles it to core-library identity, but it says
+            // nothing about where the file came from. Reporting Platform would
+            // claim a coherent closure — a hive or pack — for what may be one
+            // loose file, and that claim is consumed beyond trust: it selects
+            // symbol-server PDB acquisition and is printed as ResolvedFrom.
+            AssemblyResolutionProvenance.Designated(
                 "intrinsic core library"));
         return target.Assembly is null
             ? AssemblyBindingSelection.CannotSelect(
