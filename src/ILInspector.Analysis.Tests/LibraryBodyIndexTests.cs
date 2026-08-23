@@ -1894,12 +1894,12 @@ public class LibraryBodyIndexTests
             [text]);
 
         Assert.True(
-            LibraryBodyAnalysisBuilder
+            LibraryBodyAsyncSiblingDispatchAnalyzer
                 .ConstructedTypeArgumentsMatch(
                     intReader,
                     intReader));
         Assert.False(
-            LibraryBodyAnalysisBuilder
+            LibraryBodyAsyncSiblingDispatchAnalyzer
                 .ConstructedTypeArgumentsMatch(
                     intReader,
                     stringReader));
@@ -3358,7 +3358,7 @@ public class LibraryBodyIndexTests
         };
 
         Assert.False(
-            LibraryBodyAnalysisBuilder
+            LibraryBodyAsyncSiblingDispatchAnalyzer
                 .SameMethodImplSignature(
                     body,
                     declaration));

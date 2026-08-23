@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LanguageTargets>$(MSBuildToolsPath)/Microsoft.CSharp.targets</LanguageTargets>
+    <UseArtifactsOutput>true</UseArtifactsOutput>
+    <ArtifactsPath>$(MSBuildProjectDirectory)/../../artifacts</ArtifactsPath>
+    <IncludeProjectNameInArtifactsPaths>true</IncludeProjectNameInArtifactsPaths>
+    <IsPackable>true</IsPackable>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <NoBuild>true</NoBuild>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <RestoreSources>$(MSBuildProjectDirectory)</RestoreSources>
+
+    <FixtureVersion>1.0.0</FixtureVersion>
+    <FixtureRepositoryCommit Condition="'$(FixtureRepositoryCommit)' == ''">0000000000000000000000000000000000000000</FixtureRepositoryCommit>
+    <FixtureRoot>$(MSBuildProjectDirectory)/tool-v2/$(FixtureVersion)</FixtureRoot>
+    <NuspecFile>$(FixtureRoot)/$(FixturePackage).nuspec</NuspecFile>
+    <NuspecBasePath>$(FixtureRoot)</NuspecBasePath>
+    <NuspecProperties>version=$(FixtureVersion);repositoryCommit=$(FixtureRepositoryCommit)</NuspecProperties>
+    <PackageOutputPath>$(ArtifactsPath)/package-fixtures/$(Configuration)</PackageOutputPath>
+  </PropertyGroup>
+
+  <Target Name="ValidateFixturePackage" BeforeTargets="GenerateNuspec">
+    <Error
+      Condition="'$(FixturePackage)' != 'pointer' and '$(FixturePackage)' != 'linux-x64'"
+      Text="FixturePackage must be 'pointer' or 'linux-x64'." />
+    <Error
+      Condition="!Exists('$(NuspecFile)')"
+      Text="Fixture nuspec does not exist: $(NuspecFile)" />
+    <Error
+      Condition="!Exists('$(FixtureRoot)/$(FixturePackage)/DotnetToolSettings.xml')"
+      Text="Fixture tool settings do not exist for $(FixturePackage)." />
+  </Target>
+</Project>

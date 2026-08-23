@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
 using NuGetFetch;
 
 namespace NuGetFetch.Tests;
@@ -11,6 +12,10 @@ public sealed class PackageSourceClientTests
         "https://azuresearch-usnc.nuget.org/query";
     private const string GalleryVersions =
         "https://globalcdn.nuget.org/v3-flatcontainer/contoso/index.json";
+    private const string GalleryRegistration =
+        "https://globalcdn.nuget.org/v3/registration5-gz-semver2/contoso/index.json";
+    private const string GalleryRegistrationPage =
+        "https://globalcdn.nuget.org/v3/registration5-gz-semver2/contoso/page/1.0.0/2.0.0.json";
     private const string GalleryPackage =
         "https://globalcdn.nuget.org/packages/contoso.1.0.0.nupkg";
     private const string GallerySymbols =
@@ -446,7 +451,9 @@ public sealed class PackageSourceClientTests
             Versions,
             request => new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StreamContent(new ImmediateIoFailureStream()),
+                Content = new StreamContent(
+                    new ImmediateReadFailureStream(
+                        new IOException("The response body ended."))),
                 RequestMessage = request,
             });
         HttpMessageHandler client = handler;
@@ -780,6 +787,22 @@ public sealed class PackageSourceClientTests
                 }
                 """,
             [GalleryVersions] = """{"versions":["1.0.0"]}""",
+            [GalleryRegistration] = """
+                {
+                  "items": [
+                    {
+                      "@id": "https://api.nuget.org/v3/registration5-gz-semver2/contoso/page/1.0.0/1.0.0.json#identity",
+                      "items": [
+                        {
+                          "catalogEntry": {
+                            "version": "1.0.0"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """,
             [GalleryPackage] = "package bytes",
             [GallerySymbols] = "symbol bytes",
         };
@@ -817,9 +840,9 @@ public sealed class PackageSourceClientTests
             Assert.Single(versions.Candidates);
         Assert.Equal("1.0.0", version.Coordinate.Version);
         Assert.Equal(
-            PackageListingState.Unknown,
+            PackageListingState.Listed,
             version.ListingState);
-        Assert.False(versions.HasAuthoritativeListingState);
+        Assert.True(versions.HasAuthoritativeListingState);
         PackageSourcePayload packagePayload = Succeeded(
             await runtime.GetPackageAsync(
                 "Contoso",
@@ -871,7 +894,12 @@ public sealed class PackageSourceClientTests
         Assert.Contains("prerelease=false", searchRequest);
         Assert.Contains("semVerLevel=2.0.0", searchRequest);
         Assert.Equal(
-            [GalleryVersions, GalleryPackage, GallerySymbols],
+            [
+                GalleryVersions,
+                GalleryRegistration,
+                GalleryPackage,
+                GallerySymbols,
+            ],
             handler.Requested.Where(
                 url => !url.StartsWith(
                     GallerySearch,
@@ -885,6 +913,1177 @@ public sealed class PackageSourceClientTests
                 Assert.DoesNotContain("Cookie", headers.Keys);
                 Assert.DoesNotContain("X-NuGet-ApiKey", headers.Keys);
             });
+    }
+
+    [Fact]
+    public async Task GalleryEnumerationJoinsAuthoritativeListingState()
+    {
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] =
+                """{"versions":["1.0.0","1.1.0","2.0.0-beta.1"]}""",
+            [GalleryRegistration] = """
+                {
+                  "items": [
+                    {
+                      "items": [
+                        {
+                          "catalogEntry": {
+                            "version": "1.0",
+                            "listed": true
+                          }
+                        },
+                        {
+                          "catalogEntry": {
+                            "version": "1.1.0",
+                            "listed": false
+                          }
+                        },
+                        {
+                          "catalogEntry": {
+                            "version": "2.0.0-beta.1"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """,
+        };
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        PackageVersionResult result = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.True(result.HasAuthoritativeListingState);
+        Assert.Equal(
+            [
+                ("1.0.0", PackageListingState.Listed),
+                ("1.1.0", PackageListingState.Unlisted),
+                ("2.0.0-beta.1", PackageListingState.Listed),
+            ],
+            result.Candidates.Select(candidate => (
+                candidate.Coordinate.Version,
+                candidate.ListingState)));
+        Assert.All(
+            result.Candidates,
+            candidate => Assert.Equal(
+                PackageDiscoveryContract.CompleteVersionEnumeration,
+                candidate.DiscoveryContract));
+        Assert.Equal(
+            [GalleryVersions, GalleryRegistration],
+            handler.Requested);
+    }
+
+    [Fact]
+    public async Task GalleryExternalRegistrationPageIsValidatedAndRebased()
+    {
+        const string externalPage =
+            "https://api.nuget.org/v3/registration5-gz-semver2/contoso/page/1.0.0/2.0.0.json";
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] =
+                """{"versions":["1.0.0","2.0.0"]}""",
+            [GalleryRegistration] = $$"""
+                {
+                  "items": [
+                    {
+                      "@id": "{{externalPage}}"
+                    }
+                  ]
+                }
+                """,
+            [GalleryRegistrationPage] = """
+                {
+                  "items": [
+                    {
+                      "catalogEntry": {
+                        "version": "1.0.0",
+                        "listed": false
+                      }
+                    },
+                    {
+                      "catalogEntry": {
+                        "version": "2.0.0",
+                        "listed": true
+                      }
+                    }
+                  ]
+                }
+                """,
+        };
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        PackageVersionResult result = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.True(result.HasAuthoritativeListingState);
+        Assert.Equal(
+            [
+                PackageListingState.Unlisted,
+                PackageListingState.Listed,
+            ],
+            result.Candidates.Select(candidate =>
+                candidate.ListingState));
+        Assert.Equal(
+            [
+                GalleryVersions,
+                GalleryRegistration,
+                GalleryRegistrationPage,
+            ],
+            handler.Requested);
+        Assert.DoesNotContain(externalPage, handler.Requested);
+    }
+
+    [Theory]
+    [InlineData("http://api.nuget.org/v3/registration5-gz-semver2/contoso/page/1.0.0/1.0.0.json")]
+    [InlineData("https://user@api.nuget.org/v3/registration5-gz-semver2/contoso/page/1.0.0/1.0.0.json")]
+    [InlineData("https://api.nuget.org/v3/registration5-gz-semver2/contoso/page/1.0.0/1.0.0.json?secret=x")]
+    [InlineData("https://api.nuget.org/v3/registration5-gz-semver2/contoso/page/1.0.0/1.0.0.json#fragment")]
+    [InlineData("https://api.nuget.org/v3/registration5-gz-semver2/other/page/1.0.0/1.0.0.json")]
+    [InlineData("https://api.nuget.org/v3/registration5-gz-semver2/%63ontoso/page/1.0.0/1.0.0.json")]
+    [InlineData("https://api.nuget.org/v3/registration5-gz-semver2/contoso/page/1%2E0%2E0/1.0.0.json")]
+    [InlineData("https://api.nuget.org/v3/registration5-gz-semver2/contoso/page/1.0.0%2F2.0.0/2.0.0.json")]
+    [InlineData("https://api.nuget.org/v3/registration5-gz-semver2/contoso/not-page/1.0.0/1.0.0.json")]
+    public async Task GalleryRejectsIneligibleExternalRegistrationPage(
+        string externalPage)
+    {
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] = """{"versions":["1.0.0"]}""",
+            [GalleryRegistration] = $$"""
+                {
+                  "items": [
+                    {
+                      "@id": "{{externalPage}}"
+                    }
+                  ]
+                }
+                """,
+        };
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        PackageVersionResult result = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.False(result.HasAuthoritativeListingState);
+        Assert.Equal(
+            PackageListingState.Unknown,
+            Assert.Single(result.Candidates).ListingState);
+        Assert.Equal(
+            [GalleryVersions, GalleryRegistration],
+            handler.Requested);
+    }
+
+    [Fact]
+    public async Task GalleryIncompleteRegistrationIsTypedPartialEnumeration()
+    {
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] =
+                """{"versions":["1.0.0","2.0.0"]}""",
+            [GalleryRegistration] = """
+                {
+                  "items": [
+                    {
+                      "items": [
+                        {
+                          "catalogEntry": {
+                            "version": "1.0.0",
+                            "listed": false
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """,
+        };
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        PackageVersionResult result = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.False(result.HasAuthoritativeListingState);
+        Assert.All(
+            result.Candidates,
+            candidate => Assert.Equal(
+                PackageListingState.Unknown,
+                candidate.ListingState));
+    }
+
+    [Theory]
+    [InlineData("""
+        {
+          "items": [
+            {
+              "items": [
+                {
+                  "catalogEntry": {
+                    "version": "1.0.0",
+                    "listed": "false"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+        """)]
+    [InlineData("""
+        {
+          "items": [
+            {
+              "items": [
+                {
+                  "catalogEntry": {
+                    "version": "1.0.0",
+                    "listed": true
+                  }
+                },
+                {
+                  "catalogEntry": {
+                    "version": "1.0",
+                    "listed": false
+                  }
+                }
+              ]
+            }
+          ]
+        }
+        """)]
+    [InlineData("""
+        {
+          "items": [
+            {
+              "items": [
+                {
+                  "catalogEntry": {
+                    "version": "1.0.0",
+                    "listed": false,
+                    "listed": true
+                  }
+                }
+              ]
+            }
+          ]
+        }
+        """)]
+    public async Task GalleryMalformedRegistrationIsTypedPartialEnumeration(
+        string registration)
+    {
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] = """{"versions":["1.0.0"]}""",
+            [GalleryRegistration] = registration,
+        };
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        PackageVersionResult result = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.False(result.HasAuthoritativeListingState);
+        Assert.Equal(
+            PackageListingState.Unknown,
+            Assert.Single(result.Candidates).ListingState);
+    }
+
+    [Fact]
+    public async Task GalleryCorruptEncodedVersionMetadataIsInvalidResponse()
+    {
+        var handler = new RecordingHandler();
+        handler.SetResponse(
+            GalleryVersions,
+            request => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(
+                    new ImmediateReadFailureStream(
+                        new InvalidDataException(
+                            "The encoded response body is corrupt."))),
+                RequestMessage = request,
+            });
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageSourceFailureKind.InvalidResponse,
+            failure.Kind);
+    }
+
+    [Fact]
+    public async Task GalleryCorruptEncodedRegistrationIsTypedPartialEnumeration()
+    {
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] = """{"versions":["1.0.0"]}""",
+        };
+        handler.SetResponse(
+            GalleryRegistration,
+            request => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(
+                    new ImmediateReadFailureStream(
+                        new InvalidDataException(
+                            "The encoded response body is corrupt."))),
+                RequestMessage = request,
+            });
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        PackageVersionResult result = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.False(result.HasAuthoritativeListingState);
+        Assert.Equal(
+            PackageListingState.Unknown,
+            Assert.Single(result.Candidates).ListingState);
+    }
+
+    [Fact]
+    public async Task GalleryMalformedExternalPageIsTypedPartialEnumeration()
+    {
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] = """{"versions":["1.0.0"]}""",
+            [GalleryRegistration] = """
+                {
+                  "items": [
+                    {
+                      "@id": "https://api.nuget.org/v3/registration5-gz-semver2/contoso/page/1.0.0/1.0.0.json"
+                    }
+                  ]
+                }
+                """,
+            [GalleryRegistrationPage] = """{"items":{}}""",
+        };
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        PackageVersionResult result = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.False(result.HasAuthoritativeListingState);
+        Assert.Equal(
+            PackageListingState.Unknown,
+            Assert.Single(result.Candidates).ListingState);
+    }
+
+    [Fact]
+    public async Task GalleryRegistrationParserRetainsOnlyFlatCandidates()
+    {
+        const string page = """
+            {
+              "items": [
+                {
+                  "catalogEntry": {
+                    "version": "1.0.0",
+                    "listed": false
+                  }
+                },
+                {
+                  "catalogEntry": {
+                    "version": "2.0.0",
+                    "listed": true
+                  }
+                }
+              ]
+            }
+            """;
+        using var json = new MemoryStream(Encoding.UTF8.GetBytes(page));
+        var candidates = new HashSet<string>(
+            ["1.0.0"],
+            StringComparer.OrdinalIgnoreCase);
+        var budget =
+            new NuGetGalleryRegistrationBudget(
+                candidates.Count,
+                NuGetFetchOptions.DefaultMaxMetadataResponseBytes);
+        using var operation = CreateRegistrationParserOperation(
+            TestContext.Current.CancellationToken);
+
+        IReadOnlyDictionary<string, PackageListingState> listings =
+            await NuGetGalleryRegistration.DeserializePageAsync(
+                json,
+                candidates,
+                budget,
+                operation,
+                TestContext.Current.CancellationToken);
+
+        KeyValuePair<string, PackageListingState> listing =
+            Assert.Single(listings);
+        Assert.Equal("1.0.0", listing.Key);
+        Assert.Equal(PackageListingState.Unlisted, listing.Value);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GalleryRegistrationTraversalHonorsCallerCancellation(
+        bool inline)
+    {
+        const int itemCount = 512;
+        string items = RegistrationItems(itemCount);
+        using var cancellation = new CancellationTokenSource();
+        var candidates = new InterruptingReadOnlySet(
+            itemCount,
+            cancellation.Cancel);
+        var budget =
+            new NuGetGalleryRegistrationBudget(
+                candidates.Count,
+                NuGetFetchOptions.DefaultMaxMetadataResponseBytes);
+        using var operation =
+            CreateRegistrationParserOperation(cancellation.Token);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => DeserializeRegistrationItemsAsync(
+                items,
+                inline,
+                candidates,
+                budget,
+                operation,
+                cancellation.Token));
+
+        Assert.Equal(128, candidates.ContainsCalls);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GalleryRegistrationTraversalUsesMonotonicDeadline(
+        bool inline)
+    {
+        const int itemCount = 512;
+        string items = RegistrationItems(itemCount);
+        var candidates = new InterruptingReadOnlySet(
+            itemCount,
+            () => Thread.Sleep(TimeSpan.FromMilliseconds(250)));
+        var budget =
+            new NuGetGalleryRegistrationBudget(
+                candidates.Count,
+                NuGetFetchOptions.DefaultMaxMetadataResponseBytes);
+        using var operation = new NuGetOperationDeadline(
+            new NuGetFetchOptions
+            {
+                RequestTimeout = TimeSpan.FromSeconds(5),
+                OperationTimeout = TimeSpan.FromMilliseconds(100),
+            },
+            Timeout.InfiniteTimeSpan,
+            TestContext.Current.CancellationToken);
+
+        NuGetOperationTimeoutException error =
+            await Assert.ThrowsAsync<NuGetOperationTimeoutException>(
+                () => DeserializeRegistrationItemsAsync(
+                    items,
+                    inline,
+                    candidates,
+                    budget,
+                    operation,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(TimeSpan.FromMilliseconds(100), error.Timeout);
+        Assert.Equal(128, candidates.ContainsCalls);
+    }
+
+    [Fact]
+    public async Task GalleryRegistrationLeafLimitIsTypedPartialEnumeration()
+    {
+        string extraItems = string.Join(
+            ",",
+            Enumerable.Range(
+                2,
+                NuGetGalleryRegistrationBudget.MinimumLeafCount)
+                .Select(version =>
+                    $$"""
+                      {
+                        "catalogEntry": {
+                          "version": "{{version}}.0.0"
+                        }
+                      }
+                      """));
+        string registration = $$"""
+            {
+              "items": [
+                {
+                  "items": [
+                    {
+                      "catalogEntry": {
+                        "version": "1.0.0"
+                      }
+                    },
+                    {{extraItems}}
+                  ]
+                }
+              ]
+            }
+            """;
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] = """{"versions":["1.0.0"]}""",
+            [GalleryRegistration] = registration,
+        };
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        PackageVersionResult result = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.False(result.HasAuthoritativeListingState);
+        Assert.Equal(
+            PackageListingState.Unknown,
+            Assert.Single(result.Candidates).ListingState);
+        Assert.Equal(
+            [GalleryVersions, GalleryRegistration],
+            handler.Requested);
+    }
+
+    [Fact]
+    public async Task GalleryRegistrationAggregateByteLimitIsTypedPartialEnumeration()
+    {
+        const int maximumBytes = 512;
+        const string firstPage =
+            "https://globalcdn.nuget.org/v3/registration5-gz-semver2/contoso/page/1.0.0/1.0.0.json";
+        const string secondPage =
+            "https://globalcdn.nuget.org/v3/registration5-gz-semver2/contoso/page/1.0.1/1.0.1.json";
+        string padding = new('a', 220);
+        string registration = $$"""
+            {
+              "items": [
+                {
+                  "@id": "{{firstPage}}"
+                },
+                {
+                  "@id": "{{secondPage}}"
+                }
+              ]
+            }
+            """;
+        string page = $$"""
+            {
+              "items": [
+                {
+                  "catalogEntry": {
+                    "version": "1.0.0",
+                    "padding": "{{padding}}"
+                  }
+                }
+              ]
+            }
+            """;
+        Assert.InRange(
+            Encoding.UTF8.GetByteCount(registration),
+            1,
+            maximumBytes);
+        Assert.InRange(
+            Encoding.UTF8.GetByteCount(page),
+            1,
+            maximumBytes);
+        Assert.True(
+            Encoding.UTF8.GetByteCount(registration)
+            + (2 * Encoding.UTF8.GetByteCount(page))
+            > maximumBytes);
+        Assert.True(
+            2 * Encoding.UTF8.GetByteCount(page)
+            < 1_024);
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] = """{"versions":["1.0.0"]}""",
+            [GalleryRegistration] = registration,
+            [firstPage] = page,
+            [secondPage] = page,
+        };
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(
+                handler,
+                new NuGetFetchOptions
+                {
+                    MaxMetadataResponseBytes = 1_024,
+                    MaxRegistrationMetadataBytes = maximumBytes,
+                });
+
+        PackageVersionResult result = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.False(result.HasAuthoritativeListingState);
+        Assert.Equal(
+            PackageListingState.Unknown,
+            Assert.Single(result.Candidates).ListingState);
+        Assert.Equal(
+            [
+                GalleryVersions,
+                GalleryRegistration,
+                firstPage,
+                secondPage,
+            ],
+            handler.Requested);
+    }
+
+    [Fact]
+    public async Task
+        GalleryRegistrationDefaultAggregateCoversMeasuredMassTransitCanary()
+    {
+        const int pageCount = 25;
+        const int measuredMassTransitBytes = 18_163_736;
+        string padding = new('a', 740_000);
+        string page = $$"""
+            {
+              "items": [
+                {
+                  "catalogEntry": {
+                    "version": "1.0.0",
+                    "padding": "{{padding}}"
+                  }
+                }
+              ]
+            }
+            """;
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] = """{"versions":["1.0.0"]}""",
+        };
+        var indexPages = new string[pageCount];
+        for (int i = 0; i < pageCount; i++)
+        {
+            string version = $"1.0.{i}";
+            string path =
+                "/v3/registration5-gz-semver2/contoso/page/"
+                + $"{version}/{version}.json";
+            indexPages[i] =
+                $$"""{"@id":"https://api.nuget.org{{path}}"}""";
+            handler[$"https://globalcdn.nuget.org{path}"] = page;
+        }
+
+        string registration =
+            $$"""{"items":[{{string.Join(",", indexPages)}}]}""";
+        long registrationBytes =
+            Encoding.UTF8.GetByteCount(registration)
+            + ((long)pageCount * Encoding.UTF8.GetByteCount(page));
+        Assert.True(
+            registrationBytes
+            > NuGetFetchOptions.DefaultMaxMetadataResponseBytes);
+        Assert.True(registrationBytes >= measuredMassTransitBytes);
+        Assert.True(
+            registrationBytes
+            < NuGetFetchOptions.DefaultMaxRegistrationMetadataBytes);
+        handler[GalleryRegistration] = registration;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        PackageVersionResult result = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.True(result.HasAuthoritativeListingState);
+        Assert.Equal(
+            PackageListingState.Listed,
+            Assert.Single(result.Candidates).ListingState);
+    }
+
+    [Fact]
+    public async Task
+        GalleryRegistrationDefaultBatchExceedsPerResponseLimit()
+    {
+        const int pageCount = 8;
+        string padding = new('a', 2_100_000);
+        string page = $$"""
+            {
+              "items": [
+                {
+                  "catalogEntry": {
+                    "version": "1.0.0",
+                    "padding": "{{padding}}"
+                  }
+                }
+              ]
+            }
+            """;
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] = """{"versions":["1.0.0"]}""",
+        };
+        var indexPages = new string[pageCount];
+        for (int i = 0; i < pageCount; i++)
+        {
+            string version = $"1.0.{i}";
+            string path =
+                "/v3/registration5-gz-semver2/contoso/page/"
+                + $"{version}/{version}.json";
+            indexPages[i] =
+                $$"""{"@id":"https://api.nuget.org{{path}}"}""";
+            handler[$"https://globalcdn.nuget.org{path}"] = page;
+        }
+
+        int pageBytes = Encoding.UTF8.GetByteCount(page);
+        long batchBytes = (long)pageCount * pageBytes;
+        Assert.True(
+            pageBytes
+            < NuGetFetchOptions.DefaultMaxMetadataResponseBytes);
+        Assert.True(
+            batchBytes
+            > NuGetFetchOptions.DefaultMaxMetadataResponseBytes);
+        Assert.True(
+            batchBytes
+            < NuGetFetchOptions.DefaultMaxRegistrationPageBatchBytes);
+        handler[GalleryRegistration] =
+            $$"""{"items":[{{string.Join(",", indexPages)}}]}""";
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        PackageVersionResult result = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.True(result.HasAuthoritativeListingState);
+    }
+
+    [Fact]
+    public async Task GalleryRegistrationReservationWaitsForReturnedCapacity()
+    {
+        var budget = new NuGetGalleryRegistrationBudget(
+            candidateCount: 1,
+            maximumBytes: 2);
+        byte[] buffer = new byte[1];
+        using Stream first = budget.LimitBytes(
+            new MemoryStream([(byte)'a']));
+        Assert.Equal(
+            1,
+            await first.ReadAsync(
+                buffer,
+                TestContext.Current.CancellationToken));
+        var blockedEof = new BlockingEofStream();
+        using Stream eof = budget.LimitBytes(blockedEof);
+        Task<int> eofRead = eof.ReadAsync(
+            buffer,
+            TestContext.Current.CancellationToken).AsTask();
+        await blockedEof.ReadStarted.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+        using Stream final = budget.LimitBytes(
+            new MemoryStream([(byte)'b']));
+        Task<int> finalRead = final.ReadAsync(
+            buffer,
+            TestContext.Current.CancellationToken).AsTask();
+        Assert.False(finalRead.IsCompleted);
+
+        blockedEof.Release.TrySetResult();
+
+        Assert.Equal(0, await eofRead);
+        Assert.Equal(1, await finalRead);
+    }
+
+    [Fact]
+    public async Task
+        GalleryRegistrationMaterializationBudgetReturnsFailedAttemptCapacity()
+    {
+        var budget = new NuGetGalleryRegistrationByteBudget(
+            maximumBytes: 2);
+
+        await Assert.ThrowsAsync<IOException>(
+            () => budget.MaterializeAsync(
+                new ReadThenFailureStream([(byte)'a', (byte)'b']),
+                TestContext.Current.CancellationToken));
+
+        using NuGetGalleryRegistrationByteBudget.Materialization
+            materialization = await budget.MaterializeAsync(
+            new MemoryStream([(byte)'c', (byte)'d']),
+            TestContext.Current.CancellationToken);
+        using MemoryStream destination = materialization.Commit();
+
+        Assert.Equal("cd", Encoding.UTF8.GetString(destination.ToArray()));
+
+        await Assert.ThrowsAsync<
+            NuGetRegistrationResourceLimitExceededException>(
+            () => budget.MaterializeAsync(
+                new MemoryStream([(byte)'e']),
+                TestContext.Current.CancellationToken));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task
+        GalleryLatePageDeadlineReturnsMaterializationCapacity(
+            bool metadataBodyDeadline)
+    {
+        const string page = """
+            {
+              "items": [
+                {
+                  "catalogEntry": {
+                    "version": "1.0.0"
+                  }
+                }
+              ]
+            }
+            """;
+        string registration = $$"""
+            {
+              "items": [
+                {
+                  "@id": "{{GalleryRegistrationPage}}"
+                }
+              ]
+            }
+            """;
+        byte[] pageBytes = Encoding.UTF8.GetBytes(page);
+        int pageRequests = 0;
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] = """{"versions":["1.0.0"]}""",
+            [GalleryRegistration] = registration,
+        };
+        handler.SetResponse(
+            GalleryRegistrationPage,
+            request => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = Interlocked.Increment(ref pageRequests) == 1
+                    ? new StreamContent(
+                        new LateEofStream(
+                            pageBytes,
+                            TimeSpan.FromMilliseconds(100)))
+                    : new ByteArrayContent(pageBytes),
+                RequestMessage = request,
+            });
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(
+                handler,
+                new NuGetFetchOptions
+                {
+                    MaxMetadataResponseBytes = Math.Max(
+                        pageBytes.Length,
+                        Encoding.UTF8.GetByteCount(registration)),
+                    MaxRegistrationPageBatchBytes = pageBytes.Length,
+                    MaxRegistrationMetadataBytes =
+                        Encoding.UTF8.GetByteCount(registration)
+                        + (2L * pageBytes.Length),
+                    RequestTimeout = metadataBodyDeadline
+                        ? TimeSpan.FromSeconds(1)
+                        : TimeSpan.FromMilliseconds(40),
+                    OperationTimeout = TimeSpan.FromSeconds(3),
+                    MetadataBodyTimeout = metadataBodyDeadline
+                        ? TimeSpan.FromMilliseconds(40)
+                        : Timeout.InfiniteTimeSpan,
+                });
+
+        PackageVersionResult result = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.True(result.HasAuthoritativeListingState);
+        Assert.Equal(2, pageRequests);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task
+        GalleryCleanupFailureReturnsMaterializationCapacity(
+            bool responseCleanup)
+    {
+        const string page = """
+            {
+              "items": [
+                {
+                  "catalogEntry": {
+                    "version": "1.0.0"
+                  }
+                }
+              ]
+            }
+            """;
+        string registration = $$"""
+            {
+              "items": [
+                {
+                  "@id": "{{GalleryRegistrationPage}}"
+                }
+              ]
+            }
+            """;
+        byte[] pageBytes = Encoding.UTF8.GetBytes(page);
+        int pageRequests = 0;
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] = """{"versions":["1.0.0"]}""",
+            [GalleryRegistration] = registration,
+        };
+        handler.SetResponse(
+            GalleryRegistrationPage,
+            request => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = Interlocked.Increment(ref pageRequests) == 1
+                    ? new CleanupFailureContent(
+                        pageBytes,
+                        responseCleanup)
+                    : new ByteArrayContent(pageBytes),
+                RequestMessage = request,
+            });
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(
+                handler,
+                new NuGetFetchOptions
+                {
+                    MaxMetadataResponseBytes = Math.Max(
+                        pageBytes.Length,
+                        Encoding.UTF8.GetByteCount(registration)),
+                    MaxRegistrationPageBatchBytes = pageBytes.Length,
+                    MaxRegistrationMetadataBytes =
+                        Encoding.UTF8.GetByteCount(registration)
+                        + (2L * pageBytes.Length),
+                    RequestTimeout = TimeSpan.FromSeconds(1),
+                    OperationTimeout = TimeSpan.FromSeconds(3),
+                });
+
+        PackageVersionResult result = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.True(result.HasAuthoritativeListingState);
+        Assert.Equal(2, pageRequests);
+    }
+
+    [Fact]
+    public async Task GalleryRegistrationAggregateCountsFailedAttemptBytes()
+    {
+        var budget = new NuGetGalleryRegistrationByteBudget(
+            maximumBytes: 2);
+
+        using (Stream failedAttempt = budget.LimitBytes(
+            new ReadThenFailureStream([(byte)'a'])))
+        {
+            await Assert.ThrowsAsync<IOException>(
+                () => failedAttempt.CopyToAsync(
+                    new MemoryStream(),
+                    TestContext.Current.CancellationToken));
+        }
+
+        using Stream retry = budget.LimitBytes(
+            new MemoryStream([(byte)'b', (byte)'c']));
+        await Assert.ThrowsAsync<
+            NuGetRegistrationResourceLimitExceededException>(
+            () => retry.CopyToAsync(
+                new MemoryStream(),
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task GalleryRegistrationPageLimitIsTypedPartialEnumeration()
+    {
+        const string externalPage =
+            """
+            {
+              "@id": "https://api.nuget.org/v3/registration5-gz-semver2/contoso/page/1.0.0/1.0.0.json"
+            }
+            """;
+        string pages = string.Join(
+            ",",
+            Enumerable.Repeat(
+                externalPage,
+                NuGetGalleryRegistrationBudget.MaximumPageCount + 1));
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] = """{"versions":["1.0.0"]}""",
+            [GalleryRegistration] = $$"""{"items":[{{pages}}]}""",
+            [GalleryRegistrationPage] = """
+                {
+                  "items": [
+                    {
+                      "catalogEntry": {
+                        "version": "1.0.0"
+                      }
+                    }
+                  ]
+                }
+                """,
+        };
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        PackageVersionResult result = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.False(result.HasAuthoritativeListingState);
+        Assert.Equal(
+            PackageListingState.Unknown,
+            Assert.Single(result.Candidates).ListingState);
+        Assert.Equal(
+            [GalleryVersions, GalleryRegistration],
+            handler.Requested);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task RegistrationResourceLimitsMapToResponseRejected(
+        bool pageLimit)
+    {
+        PackageSourceDescriptor descriptor =
+            PackageSourceDescriptor.NuGetGallery;
+        var budget = new NuGetGalleryRegistrationBudget(
+            candidateCount: 1,
+            maximumBytes: 1);
+
+        PackageSourceFailure failure = Failed(
+            await PackageSourceOperation.CaptureAsync(
+                descriptor.Identity,
+                descriptor.Kind,
+                PackageSourceCapabilities.VersionEnumeration,
+                () =>
+                {
+                    if (pageLimit)
+                    {
+                        budget.EnsurePageCount(
+                            NuGetGalleryRegistrationBudget.MaximumPageCount
+                            + 1);
+                    }
+                    else
+                    {
+                        for (int i = 0;
+                             i <= NuGetGalleryRegistrationBudget
+                                 .MinimumLeafCount;
+                             i++)
+                        {
+                            budget.ObserveLeaf();
+                        }
+                    }
+
+                    return Task.FromResult(0);
+                },
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageSourceFailureKind.ResponseRejected,
+            failure.Kind);
+    }
+
+    [Fact]
+    public async Task GalleryExternalPagesUseBoundedConcurrency()
+    {
+        var handler = new ConcurrentRegistrationHandler();
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        PackageVersionResult result = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.True(result.HasAuthoritativeListingState);
+        Assert.Equal(9, result.Candidates.Count);
+        Assert.Equal(9, handler.PageRequests);
+        Assert.Equal(8, handler.MaxActivePageRequests);
+    }
+
+    [Fact]
+    public async Task GalleryCallerCancellationDuringRegistrationRemainsCancellation()
+    {
+        var handler = new CancelableRegistrationHandler();
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+        using var cancellation = new CancellationTokenSource();
+        Task<PackageSourceOperationResult<PackageVersionResult>> operation =
+            runtime.GetVersionsAsync(
+                "contoso",
+                cancellation.Token);
+        await handler.RegistrationStarted.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => operation);
+    }
+
+    [Fact]
+    public async Task GalleryCallerCancellationOutranksConcurrentRegistrationFault()
+    {
+        var handler = new FaultAndCancelRegistrationHandler();
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+        using var cancellation = new CancellationTokenSource();
+        Task<PackageSourceOperationResult<PackageVersionResult>> operation =
+            runtime.GetVersionsAsync(
+                "contoso",
+                cancellation.Token);
+        await handler.BothPagesStarted.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+
+        cancellation.Cancel();
+        handler.ReleaseFault.TrySetResult();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => operation);
+    }
+
+    [Fact]
+    public void GalleryFinalListingProjectionExpiresToPartial()
+    {
+        var candidate = new PackageCandidateObservation(
+            PackageSourceCoordinate.Create("contoso", "1.0.0"),
+            PackageSourceIdentity.NuGetOrg,
+            PackageDiscoveryContract.CompleteVersionEnumeration,
+            PackageListingState.Unknown);
+        var partial = new PackageVersionResult(
+            new DelayedList<PackageCandidateObservation>(candidate),
+            hasAuthoritativeListingState: false);
+        var listings =
+            new Dictionary<string, PackageListingState>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                ["1.0.0"] = PackageListingState.Listed,
+            };
+        using var operation = new NuGetOperationDeadline(
+            new NuGetFetchOptions
+            {
+                RequestTimeout = TimeSpan.FromSeconds(1),
+                OperationTimeout = TimeSpan.FromMilliseconds(20),
+            },
+            Timeout.InfiniteTimeSpan,
+            TestContext.Current.CancellationToken);
+
+        PackageVersionResult result =
+            NuGetGalleryPackageSourceClient
+                .ApplyRegistrationListingsOrPartial(
+                    partial,
+                    listings,
+                    operation,
+                    TestContext.Current.CancellationToken);
+
+        Assert.Same(partial, result);
+        Assert.False(result.HasAuthoritativeListingState);
+        Assert.Equal(
+            PackageListingState.Unknown,
+            Assert.Single(result.Candidates).ListingState);
     }
 
     [Fact]
@@ -1051,7 +2250,7 @@ public sealed class PackageSourceClientTests
                 TestContext.Current.CancellationToken));
 
         Assert.Empty(versions.Candidates);
-        Assert.False(versions.HasAuthoritativeListingState);
+        Assert.True(versions.HasAuthoritativeListingState);
         Assert.Equal([GalleryVersions], handler.Requested);
     }
 
@@ -1390,6 +2589,52 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
+    public void GalleryDesktopTransportDecompressesSemVer2Registration()
+    {
+        using HttpClientHandler handler =
+            PackageSourceClientFactory.CreateGalleryTransportHandler(
+                isBrowser: false);
+
+        Assert.Equal(
+            DecompressionMethods.All,
+            handler.AutomaticDecompression);
+        Assert.False(handler.UseCookies);
+        Assert.False(handler.UseDefaultCredentials);
+        Assert.False(handler.PreAuthenticate);
+        Assert.False(handler.AllowAutoRedirect);
+    }
+
+    [Fact]
+    public void GalleryBrowserTransportAvoidsUnsupportedHandlerConfiguration()
+    {
+        using HttpClientHandler handler =
+            PackageSourceClientFactory.CreateGalleryTransportHandler(
+                isBrowser: true);
+
+        Assert.Equal(
+            DecompressionMethods.None,
+            handler.AutomaticDecompression);
+        Assert.True(handler.AllowAutoRedirect);
+    }
+
+    [Fact]
+    public async Task GalleryDesktopTransportFollowsSourceOwnedRedirects()
+    {
+        var handler = new GalleryRedirectHandler();
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        PackageSourcePayload payload = Succeeded(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+        await payload.Content.DisposeAsync();
+
+        Assert.Equal(2, handler.Requests);
+    }
+
+    [Fact]
     public async Task GalleryEscapesUnicodePackageIdsAsOneSegment()
     {
         const string versions =
@@ -1409,7 +2654,12 @@ public sealed class PackageSourceClientTests
                 .Candidates);
         Assert.Equal("caf\u00E9", candidate.Coordinate.PackageId);
         Assert.Equal("1.0.0", candidate.Coordinate.Version);
-        Assert.Equal([versions], handler.Requested);
+        Assert.Equal(
+            [
+                versions,
+                "https://globalcdn.nuget.org/v3/registration5-gz-semver2/caf%C3%A9/index.json",
+            ],
+            handler.Requested);
     }
 
     [Theory]
@@ -1488,7 +2738,7 @@ public sealed class PackageSourceClientTests
                     nameof(operation));
         }
 
-        Assert.Equal(2, handler.Requests);
+        Assert.Equal(2, handler.PrimaryRequests);
     }
 
     [Fact]
@@ -1505,7 +2755,7 @@ public sealed class PackageSourceClientTests
                     TestContext.Current.CancellationToken))
             .Candidates);
 
-        Assert.Equal(2, handler.Requests);
+        Assert.Equal(2, handler.PrimaryRequests);
     }
 
     [Fact]
@@ -1527,7 +2777,7 @@ public sealed class PackageSourceClientTests
                     "contoso",
                     TestContext.Current.CancellationToken))
             .Candidates);
-        Assert.Equal(2, handler.Requests);
+        Assert.Equal(2, handler.PrimaryRequests);
     }
 
     [Fact]
@@ -1638,6 +2888,88 @@ public sealed class PackageSourceClientTests
             GetEnumerator();
     }
 
+    private static NuGetOperationDeadline CreateRegistrationParserOperation(
+        CancellationToken cancellationToken) =>
+        new(
+            new NuGetFetchOptions
+            {
+                RequestTimeout = TimeSpan.FromSeconds(5),
+                OperationTimeout = TimeSpan.FromSeconds(5),
+            },
+            Timeout.InfiniteTimeSpan,
+            cancellationToken);
+
+    private static string RegistrationItems(int count) =>
+        string.Join(
+            ",",
+            Enumerable.Range(1, count)
+                .Select(version =>
+                    $$"""
+                      {
+                        "catalogEntry": {
+                          "version": "{{version}}.0.0"
+                        }
+                      }
+                      """));
+
+    private static async Task DeserializeRegistrationItemsAsync(
+        string items,
+        bool inline,
+        IReadOnlySet<string> candidates,
+        NuGetGalleryRegistrationBudget budget,
+        NuGetOperationDeadline operation,
+        CancellationToken cancellationToken)
+    {
+        string json = inline
+            ? $$"""{"items":[{"items":[{{items}}]}]}"""
+            : $$"""{"items":[{{items}}]}""";
+        using var stream =
+            new MemoryStream(Encoding.UTF8.GetBytes(json));
+        if (inline)
+        {
+            await NuGetGalleryRegistration.DeserializeIndexAsync(
+                stream,
+                candidates,
+                budget,
+                operation,
+                cancellationToken);
+        }
+        else
+        {
+            await NuGetGalleryRegistration.DeserializePageAsync(
+                stream,
+                candidates,
+                budget,
+                operation,
+                cancellationToken);
+        }
+    }
+
+    private sealed class InterruptingReadOnlySet
+        : HashSet<string>, IReadOnlySet<string>
+    {
+        private readonly Action _interrupt;
+        private int _containsCalls;
+
+        public InterruptingReadOnlySet(int count, Action interrupt)
+            : base(
+                Enumerable.Range(1, count)
+                    .Select(version => $"{version}.0.0"),
+                StringComparer.OrdinalIgnoreCase)
+        {
+            _interrupt = interrupt;
+        }
+
+        public int ContainsCalls => _containsCalls;
+
+        bool IReadOnlySet<string>.Contains(string item)
+        {
+            if (Interlocked.Increment(ref _containsCalls) == 1)
+                _interrupt();
+            return Contains(item);
+        }
+    }
+
     private sealed class RedirectRecordingHandler(
         HttpStatusCode redirectStatus,
         string redirectTarget)
@@ -1688,6 +3020,33 @@ public sealed class PackageSourceClientTests
 
             return Task.FromResult(
                 new HttpResponseMessage(HttpStatusCode.OK));
+        }
+    }
+
+    private sealed class GalleryRedirectHandler : HttpMessageHandler
+    {
+        public int Requests { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Requests++;
+            if (Requests == 1)
+            {
+                var redirect =
+                    new HttpResponseMessage(HttpStatusCode.Found);
+                redirect.Headers.Location =
+                    new Uri("/redirected", UriKind.Relative);
+                return Task.FromResult(redirect);
+            }
+
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent([1, 2, 3]),
+                });
         }
     }
 
@@ -1800,17 +3159,266 @@ public sealed class PackageSourceClientTests
         }
     }
 
+    private sealed class BlockingEofStream : Stream
+    {
+        public TaskCompletionSource ReadStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            ReadStarted.TrySetResult();
+            await Release.Task.WaitAsync(cancellationToken);
+            return 0;
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+        public override void Flush() =>
+            throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class ConcurrentRegistrationHandler : HttpMessageHandler
+    {
+        private const int ExpectedBatchSize = 8;
+        private readonly TaskCompletionSource _pageRequestsMayComplete =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _activePageRequests;
+        private int _maxActivePageRequests;
+        private int _pageRequests;
+
+        public int MaxActivePageRequests => _maxActivePageRequests;
+        public int PageRequests => _pageRequests;
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.AbsoluteUri;
+            if (url == GalleryVersions)
+            {
+                return Response(
+                    """{"versions":["1.0.0","2.0.0","3.0.0","4.0.0","5.0.0","6.0.0","7.0.0","8.0.0","9.0.0"]}""");
+            }
+
+            if (url == GalleryRegistration)
+            {
+                string pages = string.Join(
+                    ",",
+                    Enumerable.Range(1, 9).Select(version =>
+                        $$"""
+                          {
+                            "@id": "https://api.nuget.org/v3/registration5-gz-semver2/contoso/page/{{version}}.0.0/{{version}}.0.0.json"
+                          }
+                          """));
+                return Response($$"""{"items":[{{pages}}]}""");
+            }
+
+            int active = Interlocked.Increment(
+                ref _activePageRequests);
+            UpdateMaximum(active);
+            Interlocked.Increment(ref _pageRequests);
+            if (active == 1)
+            {
+                _ = ReleasePageRequestsAsync(
+                    TimeSpan.FromMilliseconds(200));
+            }
+
+            if (active == ExpectedBatchSize)
+            {
+                _ = ReleasePageRequestsAsync(
+                    TimeSpan.FromMilliseconds(50));
+            }
+
+            try
+            {
+                await _pageRequestsMayComplete.Task.WaitAsync(
+                    cancellationToken);
+                string version =
+                    request.RequestUri.Segments[^2].TrimEnd('/');
+                return Response(
+                    $$"""
+                      {
+                        "items": [
+                          {
+                            "catalogEntry": {
+                              "version": "{{version}}"
+                            }
+                          }
+                        ]
+                      }
+                      """);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _activePageRequests);
+            }
+        }
+
+        private async Task ReleasePageRequestsAsync(TimeSpan delay)
+        {
+            await Task.Delay(delay);
+            _pageRequestsMayComplete.TrySetResult();
+        }
+
+        private void UpdateMaximum(int active)
+        {
+            int observed;
+            do
+            {
+                observed = _maxActivePageRequests;
+                if (observed >= active)
+                    return;
+            }
+            while (Interlocked.CompareExchange(
+                ref _maxActivePageRequests,
+                active,
+                observed) != observed);
+        }
+
+        private static HttpResponseMessage Response(string json) =>
+            new(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json),
+            };
+    }
+
+    private sealed class CancelableRegistrationHandler : HttpMessageHandler
+    {
+        public TaskCompletionSource RegistrationStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (request.RequestUri!.AbsoluteUri == GalleryVersions)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content =
+                        new StringContent("""{"versions":["1.0.0"]}"""),
+                };
+            }
+
+            RegistrationStarted.TrySetResult();
+            await Task.Delay(
+                Timeout.InfiniteTimeSpan,
+                cancellationToken);
+            throw new InvalidOperationException(
+                "The registration stall completed without cancellation.");
+        }
+    }
+
+    private sealed class FaultAndCancelRegistrationHandler
+        : HttpMessageHandler
+    {
+        private int _pageRequests;
+
+        public TaskCompletionSource BothPagesStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseFault { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.AbsoluteUri;
+            if (url == GalleryVersions)
+            {
+                return Response(
+                    """{"versions":["1.0.0","2.0.0"]}""");
+            }
+
+            if (url == GalleryRegistration)
+            {
+                return Response(
+                    """
+                    {
+                      "items": [
+                        {
+                          "@id": "https://api.nuget.org/v3/registration5-gz-semver2/contoso/page/1.0.0/1.0.0.json"
+                        },
+                        {
+                          "@id": "https://api.nuget.org/v3/registration5-gz-semver2/contoso/page/2.0.0/2.0.0.json"
+                        }
+                      ]
+                    }
+                    """);
+            }
+
+            int page = Interlocked.Increment(ref _pageRequests);
+            if (page == 2)
+                BothPagesStarted.TrySetResult();
+            if (page == 1)
+            {
+                await ReleaseFault.Task;
+                throw new JsonException(
+                    "Simulated registration page failure.");
+            }
+
+            await Task.Delay(
+                Timeout.InfiniteTimeSpan,
+                cancellationToken);
+            throw new InvalidOperationException(
+                "The registration stall completed without cancellation.");
+        }
+
+        private static HttpResponseMessage Response(string json) =>
+            new(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json),
+            };
+    }
+
     private sealed class TransientGalleryHandler(
         bool statuslessFailure = false) : HttpMessageHandler
     {
         public int Requests { get; private set; }
+        public int PrimaryRequests { get; private set; }
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (Requests++ == 0)
+            Requests++;
+            string url = request.RequestUri!.AbsoluteUri;
+            if (url.StartsWith(
+                    "https://globalcdn.nuget.org/v3/registration5-gz-semver2/",
+                    StringComparison.Ordinal))
+            {
+                return Task.FromResult(
+                    new HttpResponseMessage(HttpStatusCode.NotFound));
+            }
+
+            if (PrimaryRequests++ == 0)
             {
                 if (statuslessFailure)
                 {
@@ -1824,7 +3432,6 @@ public sealed class PackageSourceClientTests
                     new HttpResponseMessage(HttpStatusCode.BadGateway));
             }
 
-            string url = request.RequestUri!.AbsoluteUri;
             HttpContent content = url.StartsWith(
                     GallerySearch,
                     StringComparison.Ordinal)
@@ -1842,7 +3449,8 @@ public sealed class PackageSourceClientTests
         }
     }
 
-    private sealed class ImmediateIoFailureStream : Stream
+    private sealed class ImmediateReadFailureStream(Exception failure)
+        : Stream
     {
         public override bool CanRead => true;
         public override bool CanSeek => false;
@@ -1858,13 +3466,12 @@ public sealed class PackageSourceClientTests
             byte[] buffer,
             int offset,
             int count) =>
-            throw new IOException("The response body ended.");
+            throw failure;
 
         public override ValueTask<int> ReadAsync(
             Memory<byte> buffer,
             CancellationToken cancellationToken = default) =>
-            ValueTask.FromException<int>(
-                new IOException("The response body ended."));
+            ValueTask.FromException<int>(failure);
 
         public override void Flush() =>
             throw new NotSupportedException();
@@ -1880,6 +3487,175 @@ public sealed class PackageSourceClientTests
             int offset,
             int count) =>
             throw new NotSupportedException();
+    }
+
+    private sealed class ReadThenFailureStream(byte[] content) : Stream
+    {
+        private int _position;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            if (_position < content.Length)
+            {
+                int copied = Math.Min(count, content.Length - _position);
+                content.AsSpan(_position, copied).CopyTo(
+                    buffer.AsSpan(offset, copied));
+                _position += copied;
+                return copied;
+            }
+
+            throw new IOException("The response body ended.");
+        }
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                return ValueTask.FromResult(
+                    Read(buffer.Span));
+            }
+            catch (Exception exception)
+            {
+                return ValueTask.FromException<int>(exception);
+            }
+        }
+
+        public override int Read(Span<byte> buffer)
+        {
+            if (_position < content.Length)
+            {
+                int copied = Math.Min(
+                    buffer.Length,
+                    content.Length - _position);
+                content.AsSpan(_position, copied).CopyTo(buffer);
+                _position += copied;
+                return copied;
+            }
+
+            throw new IOException("The response body ended.");
+        }
+
+        public override void Flush() =>
+            throw new NotSupportedException();
+
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class LateEofStream(
+        byte[] content,
+        TimeSpan eofDelay) : Stream
+    {
+        private int _position;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (_position < content.Length)
+            {
+                int copied = Math.Min(
+                    buffer.Length,
+                    content.Length - _position);
+                content.AsMemory(_position, copied).CopyTo(buffer);
+                _position += copied;
+                return copied;
+            }
+
+            await Task.Delay(eofDelay).ConfigureAwait(false);
+            return 0;
+        }
+
+        public override void Flush() =>
+            throw new NotSupportedException();
+
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class CleanupFailureContent(
+        byte[] content,
+        bool responseCleanup) : HttpContent
+    {
+        protected override async Task SerializeToStreamAsync(
+            Stream stream,
+            TransportContext? context)
+        {
+            await stream.WriteAsync(content);
+        }
+
+        protected override Task<Stream> CreateContentReadStreamAsync() =>
+            Task.FromResult<Stream>(
+                responseCleanup
+                    ? new MemoryStream(content, writable: false)
+                    : new AsyncDisposeFailureStream(content));
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = content.Length;
+            return true;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+            if (disposing && responseCleanup)
+            {
+                throw new IOException(
+                    "The response cleanup failed.");
+            }
+        }
+    }
+
+    private sealed class AsyncDisposeFailureStream(byte[] content)
+        : MemoryStream(content, writable: false)
+    {
+        public override ValueTask DisposeAsync() =>
+            ValueTask.FromException(
+                new IOException("The body cleanup failed."));
     }
 
     private sealed class LateOversizeStream(byte[] content) : Stream
