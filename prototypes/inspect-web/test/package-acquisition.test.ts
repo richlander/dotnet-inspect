@@ -5,6 +5,7 @@ import {
   createNuGetPackageModel,
   createPackageAcquisition,
   createRuntimePackageModel,
+  runtimeAssemblyIsResident,
   type AppPackage,
   type PackageAcquisitionDependencies,
 } from "../src/package-acquisition.ts";
@@ -486,6 +487,41 @@ test("resident runtime packs short-circuit without entering loading state", asyn
   });
   assert.equal(engineCalls, 0);
   assert.equal(loadingTransitions, 0);
+});
+
+test("platform assembly residency includes the requested pack", async () => {
+  const resident = createRuntimePackageModel(
+    runtimeSurface(
+      "shared-runtime",
+      "Shared",
+      "Shared.RuntimeType",
+      2,
+      "netcore.app"));
+  let engineCalls = 0;
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    loadRuntimePackAssembly: async () => {
+      engineCalls++;
+      throw new Error("cross-family duplicate rejected");
+    },
+    runtimePackage: () => resident,
+  }));
+
+  assert.equal(
+    runtimeAssemblyIsResident(resident, "Shared.dll", "netcore.app"),
+    true);
+  assert.equal(
+    runtimeAssemblyIsResident(resident, "Shared.dll", "aspnetcore.app"),
+    false);
+  const result = await acquisition.loadRuntimePackAssembly(
+    "net10.0",
+    "Shared.dll",
+    "aspnetcore.app");
+
+  assert.equal(engineCalls, 1);
+  assert.equal(result.packageModel, null);
+  assert.match(
+    result.error instanceof Error ? result.error.message : "",
+    /cross-family duplicate rejected/);
 });
 
 test("runtime pack acquisition fills the core family after an ASP.NET-first load", async () => {

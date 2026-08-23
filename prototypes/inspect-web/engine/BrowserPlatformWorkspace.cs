@@ -108,6 +108,10 @@ internal sealed record BrowserPlatformScopeResolution(
     public void Dispose() => ScopeLease.Dispose();
 }
 
+internal sealed record BrowserPlatformAssemblyRequest(
+    string AssemblyFileName,
+    string Pack);
+
 /// <summary>
 /// Browser adapter over <see cref="WorkspaceContextLoader"/> for lazily selected
 /// runtime and ASP.NET Core implementation-pack assemblies.
@@ -194,10 +198,109 @@ internal static class BrowserPlatformWorkspace
             operationTimeout,
             cancellationToken);
 
+    internal static Task<BrowserPlatformScopeResolution> OpenAssembliesAsync(
+        string targetFramework,
+        IReadOnlyList<BrowserPlatformAssemblyRequest> assemblies,
+        CancellationToken cancellationToken = default) =>
+        OpenAssembliesAsync(
+            targetFramework,
+            assemblies,
+            ProductionHost,
+            BrowserPackageWorkspace.PackageOperationTimeout,
+            cancellationToken);
+
+    internal static Task<BrowserPlatformScopeResolution> OpenAssembliesAsync(
+        string targetFramework,
+        IReadOnlyList<BrowserPlatformAssemblyRequest> assemblies,
+        HttpClient client,
+        IPackageSourceAuthorization sourceAuthorization,
+        TimeSpan operationTimeout,
+        CancellationToken cancellationToken = default) =>
+        OpenAssembliesAsync(
+            targetFramework,
+            assemblies,
+            new Host(client, sourceAuthorization),
+            operationTimeout,
+            cancellationToken);
+
     static Task<BrowserPlatformScopeResolution> OpenAsync(
         string targetFramework,
         string family,
         string assembly,
+        Host host,
+        TimeSpan operationTimeout,
+        CancellationToken cancellationToken)
+        => OpenAsync(
+            targetFramework,
+            [new PlatformSelection(family, assembly)],
+            host,
+            operationTimeout,
+            cancellationToken);
+
+    static Task<BrowserPlatformScopeResolution> OpenAssembliesAsync(
+        string targetFramework,
+        IReadOnlyList<BrowserPlatformAssemblyRequest> assemblies,
+        Host host,
+        TimeSpan operationTimeout,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(assemblies);
+        if (assemblies.Count == 0)
+        {
+            throw new ArgumentException(
+                "A Platform workspace expansion requires at least one assembly.",
+                nameof(assemblies));
+        }
+
+        var selections = ImmutableArray.CreateBuilder<PlatformSelection>();
+        foreach (BrowserPlatformAssemblyRequest request in assemblies)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            var selection = new PlatformSelection(
+                Family(request.Pack),
+                AssemblySimpleName(request.AssemblyFileName));
+            PlatformSelection[] otherFamilies =
+            [
+                .. selections.Where(candidate =>
+                    !candidate.Family.Equals(
+                        selection.Family,
+                        StringComparison.Ordinal)
+                    && candidate.Assembly.Equals(
+                        selection.Assembly,
+                        StringComparison.OrdinalIgnoreCase))
+                    .Take(1),
+            ];
+            if (otherFamilies.Length != 0)
+            {
+                throw new InvalidOperationException(
+                    $"Platform assembly '{selection.Assembly}' cannot be "
+                    + $"selected from both '{otherFamilies[0].Family}' and "
+                    + $"'{selection.Family}'.");
+            }
+
+            if (!selections.Any(candidate =>
+                    candidate.Family.Equals(
+                        selection.Family,
+                        StringComparison.Ordinal)
+                    && candidate.Assembly.Equals(
+                        selection.Assembly,
+                        StringComparison.OrdinalIgnoreCase)))
+            {
+                selections.Add(selection);
+            }
+        }
+
+        return OpenAsync(
+            targetFramework,
+            selections.ToImmutable(),
+            host,
+            operationTimeout,
+            cancellationToken);
+    }
+
+    static Task<BrowserPlatformScopeResolution> OpenAsync(
+        string targetFramework,
+        ImmutableArray<PlatformSelection> selections,
         Host host,
         TimeSpan operationTimeout,
         CancellationToken cancellationToken)
@@ -210,8 +313,7 @@ internal static class BrowserPlatformWorkspace
                 () => OpenCoreAsync(
                     targetKey,
                     targetFramework,
-                    family,
-                    assembly,
+                    selections,
                     host,
                     deadline),
                 deadline.Token),
@@ -222,8 +324,7 @@ internal static class BrowserPlatformWorkspace
     static async Task<BrowserPlatformScopeResolution> OpenCoreAsync(
         string targetKey,
         string targetFramework,
-        string family,
-        string assembly,
+        ImmutableArray<PlatformSelection> selections,
         Host host,
         BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline)
     {
@@ -234,20 +335,55 @@ internal static class BrowserPlatformWorkspace
         state ??= new TargetState();
         state.LastAccess = ++_targetClock;
 
+        foreach (PlatformSelection selection in selections)
+        {
+            RealizedMemberCoordinate.Platform? otherFamily =
+                state.Coordinates.FirstOrDefault(candidate =>
+                    !candidate.Family.Equals(
+                        selection.Family,
+                        StringComparison.Ordinal)
+                    && string.Equals(
+                        candidate.Assembly,
+                        selection.Assembly,
+                        StringComparison.OrdinalIgnoreCase));
+            if (otherFamily is not null)
+            {
+                throw new InvalidOperationException(
+                    $"Platform assembly '{selection.Assembly}' is already "
+                    + $"selected from family '{otherFamily.Family}' and "
+                    + $"cannot also be selected from '{selection.Family}'.");
+            }
+        }
+
+        PlatformSelection selected = selections[^1];
         RealizedMemberCoordinate.Platform? requested =
             state.Coordinates.FirstOrDefault(candidate =>
-                candidate.Family.Equals(family, StringComparison.Ordinal)
+                candidate.Family.Equals(
+                    selected.Family,
+                    StringComparison.Ordinal)
                 && string.Equals(
                     candidate.Assembly,
-                    assembly,
+                    selected.Assembly,
                     StringComparison.OrdinalIgnoreCase));
-        if (requested is not null
+        bool allRequested = selections.All(selection =>
+            state.Coordinates.Any(candidate =>
+                candidate.Family.Equals(
+                    selection.Family,
+                    StringComparison.Ordinal)
+                && string.Equals(
+                    candidate.Assembly,
+                    selection.Assembly,
+                    StringComparison.OrdinalIgnoreCase)));
+        if (allRequested
+            && requested is not null
             && state.Scope is { } retained
             && BrowserPackageWorkspace.IsScopeRetained(retained))
         {
             BrowserPackageWorkspace.TouchScope(retained);
             WorkspaceContextMember retainedParticipant =
-                retained.Participant(family, assembly);
+                retained.Participant(
+                    selected.Family,
+                    selected.Assembly);
             BrowserScopeLease<BrowserPlatformScope> retainedLease =
                 BrowserPackageWorkspace.LeaseScope(retained);
             return new BrowserPlatformScopeResolution(
@@ -261,36 +397,69 @@ internal static class BrowserPlatformWorkspace
             state.Coordinates;
         BrowserPlatformScope? candidate = null;
         ImmutableHashSet<string> packageKeys = [];
-        if (requested is null)
+        foreach (PlatformSelection selection in selections)
         {
+            RealizedMemberCoordinate.Platform? otherFamily =
+                coordinates.FirstOrDefault(candidate =>
+                    !candidate.Family.Equals(
+                        selection.Family,
+                        StringComparison.Ordinal)
+                    && string.Equals(
+                        candidate.Assembly,
+                        selection.Assembly,
+                        StringComparison.OrdinalIgnoreCase));
+            if (otherFamily is not null)
+            {
+                throw new InvalidOperationException(
+                    $"Platform assembly '{selection.Assembly}' is already "
+                    + $"selected from family '{otherFamily.Family}' and "
+                    + $"cannot also be selected from '{selection.Family}'.");
+            }
+
+            if (coordinates.Any(candidate =>
+                    candidate.Family.Equals(
+                        selection.Family,
+                        StringComparison.Ordinal)
+                    && string.Equals(
+                        candidate.Assembly,
+                        selection.Assembly,
+                        StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
             EnsureAssemblyCapacity(coordinates.Length + 1);
             RealizedMemberCoordinate.Platform? familyCoordinate =
                 coordinates.FirstOrDefault(candidate =>
-                    candidate.Family.Equals(family, StringComparison.Ordinal));
+                    candidate.Family.Equals(
+                        selection.Family,
+                        StringComparison.Ordinal));
             if (familyCoordinate is null)
             {
                 (BrowserPlatformScope Declared, ImmutableHashSet<string> PackageKeys) declared =
                     await LoadDeclaredAsync(
                         targetFramework,
-                        family,
-                        assembly,
+                        selection.Family,
+                        selection.Assembly,
                         host,
                         deadline,
                         packageLeases).ConfigureAwait(false);
                 try
                 {
-                    requested = AssertSingleCoordinate(
+                    RealizedMemberCoordinate.Platform realized =
+                        AssertSingleCoordinate(
                         declared.Declared,
-                        family,
-                        assembly);
+                        selection.Family,
+                        selection.Assembly);
+                    coordinates = coordinates.Add(realized);
                 }
                 catch
                 {
                     declared.Declared.Dispose();
                     throw;
                 }
-                coordinates = coordinates.Add(requested);
-                if (state.Coordinates.IsEmpty)
+                if (state.Coordinates.IsEmpty
+                    && selections.Length == 1)
                 {
                     candidate = declared.Declared;
                     packageKeys = declared.PackageKeys;
@@ -302,13 +471,13 @@ internal static class BrowserPlatformWorkspace
             }
             else
             {
-                requested = new RealizedMemberCoordinate.Platform(
+                coordinates = coordinates.Add(
+                    new RealizedMemberCoordinate.Platform(
                     familyCoordinate.Family,
                     familyCoordinate.Version,
                     familyCoordinate.Producer,
                     familyCoordinate.Framework,
-                    assembly);
-                coordinates = coordinates.Add(requested);
+                    selection.Assembly));
             }
         }
 
@@ -322,6 +491,14 @@ internal static class BrowserPlatformWorkspace
                     packageLeases).ConfigureAwait(false);
         }
 
+        requested = coordinates.Single(candidate =>
+            candidate.Family.Equals(
+                selected.Family,
+                StringComparison.Ordinal)
+            && string.Equals(
+                candidate.Assembly,
+                selected.Assembly,
+                StringComparison.OrdinalIgnoreCase));
         string scopeKey = ScopeKey(coordinates);
         BrowserPlatformScope registered =
             BrowserPackageWorkspace.RegisterScope(
@@ -330,7 +507,9 @@ internal static class BrowserPlatformWorkspace
                 packageKeys,
                 ForgetScope);
         WorkspaceContextMember participant =
-            registered.Participant(family, assembly);
+            registered.Participant(
+                selected.Family,
+                selected.Assembly);
         BrowserScopeLease<BrowserPlatformScope> lease =
             BrowserPackageWorkspace.LeaseScope(registered);
         BrowserPlatformScope? previous = state.Scope;
@@ -732,6 +911,10 @@ internal static class BrowserPlatformWorkspace
     sealed record Host(
         HttpClient Client,
         IPackageSourceAuthorization SourceAuthorization);
+
+    readonly record struct PlatformSelection(
+        string Family,
+        string Assembly);
 
     sealed class TrackingPackageStore(
         BrowserPackageWorkspace.PackageLeaseSet packageLeases)

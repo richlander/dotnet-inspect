@@ -204,22 +204,26 @@ public static partial class InspectionEngine
                     projection);
             }
 
-            foreach (AssemblyReferenceIdentity identity in required)
-            {
-                string targetPack =
+            BrowserPlatformAssemblyRequest[] requests =
+            [
+                .. required.Select(identity =>
+                {
+                    string targetPack =
                     current.Scope.PlatformPackForAssembly(
                         identity.Name)
                     ?? throw new InvalidOperationException(
                         $"Platform assembly '{identity.Name}' is required to "
                         + "resolve a call-graph target, but no authorized "
                         + "platform pack supplies it.");
-                owner.Replace(
-                    await BrowserPlatformWorkspace.OpenAssemblyAsync(
-                        targetFramework,
+                    return new BrowserPlatformAssemblyRequest(
                         $"{identity.Name}.dll",
-                        targetPack));
-                current = owner.Current;
-            }
+                        targetPack);
+                }),
+            ];
+            owner.Replace(
+                await BrowserPlatformWorkspace.OpenAssembliesAsync(
+                    targetFramework,
+                    requests));
         }
 
         throw new InvalidOperationException(

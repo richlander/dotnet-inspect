@@ -3,6 +3,7 @@ using System.IO.Compression;
 using System.Net;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Text;
 
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
@@ -3284,6 +3285,41 @@ public sealed class WorkspaceContextLoaderTests
     }
 
     [Fact]
+    public async Task BindingEquivalentAssemblyIdentityInOnePackage_CreatesNoGroup()
+    {
+        byte[] target = File.ReadAllBytes(TargetPath);
+        string assemblyName =
+            Path.GetFileNameWithoutExtension(TargetPath);
+        byte[] equivalent = ReplaceAscii(
+            target,
+            assemblyName,
+            assemblyName.ToUpperInvariant());
+        IPackageStore store = await CachedStoreAsync(
+            Version,
+            Archive(
+                ($"lib/{Framework}/original.dll", target),
+                ($"lib/{Framework}/equivalent.dll", equivalent)));
+        using var client = new HttpClient(new FailingHandler());
+        using var workspace = new InspectionWorkspace();
+
+        WorkspaceContextLoadOutcome outcome =
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members = [PackageMember(Version)],
+                },
+                Options(client, store),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.ConflictingAssemblyIdentity,
+            Assert.Single(Failed(outcome).Failures).Kind);
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
     public async Task DuplicateAssemblyIdentityAcrossProducers_CreatesNoGroup()
     {
         var handler = new PerFeedHandler();
@@ -3725,6 +3761,33 @@ public sealed class WorkspaceContextLoaderTests
                 assemblyPath,
                 AssemblyResolutionProvenance.Local("fixture identity"))
             .Identity.Version;
+
+    static byte[] ReplaceAscii(
+        byte[] source,
+        string oldValue,
+        string newValue)
+    {
+        Assert.Equal(oldValue.Length, newValue.Length);
+        byte[] result = [.. source];
+        ReadOnlySpan<byte> oldBytes = Encoding.UTF8.GetBytes(oldValue);
+        ReadOnlySpan<byte> newBytes = Encoding.UTF8.GetBytes(newValue);
+        int replacements = 0;
+        for (int offset = 0;
+            offset <= result.Length - oldBytes.Length;)
+        {
+            int relative = result.AsSpan(offset).IndexOf(oldBytes);
+            if (relative < 0)
+                break;
+
+            offset += relative;
+            newBytes.CopyTo(result.AsSpan(offset, newBytes.Length));
+            replacements++;
+            offset += newBytes.Length;
+        }
+
+        Assert.NotEqual(0, replacements);
+        return result;
+    }
 
     static byte[] Archive(params (string EntryPath, byte[] Content)[] entries)
     {

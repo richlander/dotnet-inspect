@@ -424,6 +424,47 @@ test("platform call graphs carry the target pack into lazy acquisition", () => {
     /inspectExpandPlatformCallGraph\(\s*request\.framework,\s*request\.assembly,\s*request\.pack/);
 });
 
+test("platform pack inference rejects cross-family ambiguity", () => {
+  assert.throws(
+    () => platformPackFromProvenance(
+      "Shared",
+      null,
+      [
+        { name: "Shared", platformPack: "netcore.app" },
+        { name: "Shared", platformPack: "aspnetcore.app" }
+      ],
+      [],
+      []),
+    /available from multiple platform packs/);
+  assert.equal(
+    platformPackFromProvenance(
+      "Shared",
+      null,
+      [{ name: "Shared", platformPack: "netcore.app" }],
+      [{ assembly: "Shared", pack: "aspnetcore.app" }],
+      [{ assembly: "Shared", pack: "aspnetcore.app" }]),
+    "netcore.app");
+  assert.equal(
+    platformPackFromProvenance(
+      "Shared",
+      null,
+      [],
+      [{ assembly: "Shared", pack: "aspnetcore.app" }],
+      [{ assembly: "Shared", pack: "netcore.app" }]),
+    "netcore.app");
+  assert.equal(
+    platformPackFromProvenance(
+      "Shared",
+      "aspnetcore.app",
+      [{ name: "Shared", platformPack: "netcore.app" }],
+      [],
+      [{ assembly: "Shared", pack: "aspnetcore.app" }]),
+    "aspnetcore.app");
+  assert.match(
+    appSource,
+    /const resident = runtimeAssemblyIsResident\(\s*runtimePackPackage\(\),\s*key,\s*pack\)/);
+});
+
 test("shared platform state preserves an exact pack token", () => {
   assert.equal(platformPackToken("aspnetcore.app"), "aspnetcore.app");
   assert.equal(platformPackToken("netcore.app"), "netcore.app");

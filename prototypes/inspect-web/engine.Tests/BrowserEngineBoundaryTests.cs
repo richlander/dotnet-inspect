@@ -494,6 +494,127 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PlatformWorkspace_BatchesCumulativeAssemblyExpansion()
+    {
+        const string packageId =
+            "microsoft.netcore.app.runtime.linux-x64";
+        const string version = "11.0.5";
+        byte[] nupkg = PlatformPackage(
+            ("System.Private.CoreLib.dll",
+                File.ReadAllBytes(typeof(object).Assembly.Location)),
+            ("InspectWeb.Engine.Tests.dll",
+                File.ReadAllBytes(
+                    typeof(BrowserEngineBoundaryTests).Assembly.Location)),
+            ("System.Data.Common.dll",
+                File.ReadAllBytes(
+                    typeof(System.Data.Common.DbDataSource)
+                        .Assembly.Location)));
+        var handler = new PlatformVersionHandler(
+            packageId,
+            version,
+            nupkg);
+        using var client = new HttpClient(handler);
+        var authorization =
+            new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
+
+        using BrowserPlatformScopeResolution initial =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                "net11.0-platform-batch",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        using BrowserPlatformScopeResolution expanded =
+            await BrowserPlatformWorkspace.OpenAssembliesAsync(
+                "net11.0-platform-batch",
+                [
+                    new(
+                        "InspectWeb.Engine.Tests.dll",
+                        "netcore.app"),
+                    new(
+                        "System.Data.Common.dll",
+                        "netcore.app"),
+                ],
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(3, expanded.Scope.Members.Length);
+        Assert.Equal(
+            "System.Data.Common",
+            expanded.Participant.Participant.Assembly.Identity.Name);
+        Assert.True(BrowserPackageWorkspace.IsScopeRetained(initial.Scope));
+        initial.Dispose();
+        Assert.False(BrowserPackageWorkspace.IsScopeRetained(initial.Scope));
+    }
+
+    [Fact]
+    public async Task PlatformWorkspace_RejectsOneNameAcrossPackFamilies()
+    {
+        const string version = "11.0.6";
+        byte[] package = PlatformPackage(
+            ("Shared.dll",
+                File.ReadAllBytes(
+                    typeof(BrowserEngineBoundaryTests).Assembly.Location)));
+        var handler = new MultiplePlatformVersionHandler(
+            version,
+            new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["microsoft.netcore.app.runtime.linux-x64"] = package,
+                ["microsoft.aspnetcore.app.runtime.linux-x64"] = package,
+            });
+        using var client = new HttpClient(handler);
+        var authorization =
+            new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
+
+        using BrowserPlatformScopeResolution runtime =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                "net11.0-platform-family-collision",
+                "InspectWeb.Engine.Tests.dll",
+                "netcore.app",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => BrowserPlatformWorkspace.OpenAssemblyAsync(
+                    "net11.0-platform-family-collision",
+                    "InspectWeb.Engine.Tests.dll",
+                    "aspnetcore.app",
+                    client,
+                    authorization,
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains("already selected", failure.Message);
+        Assert.Single(runtime.Scope.Members);
+
+        bool downloaded = false;
+        handler.BeforeDownload = _ => downloaded = true;
+        InvalidOperationException batchFailure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => BrowserPlatformWorkspace.OpenAssembliesAsync(
+                    "net11.0-platform-family-batch-collision",
+                    [
+                        new(
+                            "InspectWeb.Engine.Tests.dll",
+                            "netcore.app"),
+                        new(
+                            "InspectWeb.Engine.Tests.dll",
+                            "aspnetcore.app"),
+                    ],
+                    client,
+                    authorization,
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains("selected from both", batchFailure.Message);
+        Assert.False(downloaded);
+    }
+
+    [Fact]
     public async Task PlatformWorkspace_EvictionRemovesRetainedTargetState()
     {
         const string packageId =

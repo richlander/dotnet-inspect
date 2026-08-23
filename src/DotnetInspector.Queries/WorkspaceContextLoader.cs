@@ -873,16 +873,18 @@ public static class WorkspaceContextLoader
     /// participants share, or null when every identity is distinct.
     /// </summary>
     /// <remarks>
-    /// Identity equality is <see cref="AssemblyReferenceIdentity"/>'s own, which
-    /// is what <see cref="SourceRelativeAssemblyGroupBindingPolicy"/> compares
-    /// when it matches a reference against the group's roots — so this detects
-    /// exactly the groups that policy would answer ambiguously, and no others.
+    /// Identity equality uses
+    /// <see cref="AssemblyReferenceIdentity.EquivalentComparer"/>, matching
+    /// binding equivalence for name, version, normalized culture, and public
+    /// key token. This prevents two participants that cannot be distinguished
+    /// by full binding identity from entering one group.
     /// Two versions of one library have different identities and coexist.
     /// </remarks>
     static WorkspaceContextLoadFailure? FirstIdentityCollision(
         ImmutableArray<RealizedMember>.Builder realized)
     {
-        var seen = new Dictionary<AssemblyReferenceIdentity, RealizedMember>();
+        var seen = new Dictionary<AssemblyReferenceIdentity, RealizedMember>(
+            AssemblyReferenceIdentity.EquivalentComparer);
         foreach (RealizedMember entry in realized)
         {
             if (seen.TryAdd(entry.Assembly.Identity, entry))

@@ -106,19 +106,37 @@ export function platformPackFromProvenance(
   const exact = platformPackToken(exactPack);
   if (exact) return exact;
   const normalized = assembly.replace(/\.dll$/i, "");
-  const loaded = (loadedAssemblies || []).find(candidate =>
-    (candidate.name ?? "").replace(/\.dll$/i, "")
-      .toLowerCase() === normalized.toLowerCase());
-  const loadedPack = platformPackToken(loaded?.platformPack);
-  if (loadedPack) return loadedPack;
-  const indexed = (roster || []).find(entry =>
-    (entry.assembly ?? "").toLowerCase() === normalized.toLowerCase());
-  const indexedPack = platformPackToken(indexed?.pack);
-  if (indexedPack) return indexedPack;
-  const remembered = (recent || []).find(entry =>
-    (entry.assembly ?? "").toLowerCase() === normalized.toLowerCase());
-  const rememberedPack = platformPackToken(remembered?.pack);
-  if (rememberedPack) return rememberedPack;
+  const normalizedLower = normalized.toLowerCase();
+
+  const selectPack = (
+    candidates: readonly {
+      assembly?: string | undefined;
+      pack?: string | null | undefined;
+    }[],
+  ): PlatformPack | null => {
+    const packs = new Set<PlatformPack>();
+    for (const candidate of candidates) {
+      if ((candidate.assembly ?? "").replace(/\.dll$/i, "").toLowerCase() === normalizedLower) {
+        const pack = platformPackToken(candidate.pack);
+        if (pack) packs.add(pack);
+      }
+    }
+    if (packs.size > 1) {
+      throw new Error(
+        `Platform assembly '${normalized}' is available from multiple platform packs; select an exact pack.`);
+    }
+    return packs.values().next().value ?? null;
+  };
+
+  const loaded = selectPack((loadedAssemblies || []).map(candidate => ({
+    assembly: candidate.name,
+    pack: candidate.platformPack,
+  })));
+  if (loaded) return loaded;
+  const indexed = selectPack(roster || []);
+  if (indexed) return indexed;
+  const remembered = selectPack(recent || []);
+  if (remembered) return remembered;
   return "netcore.app";
 }
 

@@ -33,6 +33,17 @@ export interface AppPackage {
 
 const DEFAULT_RUNTIME_ASSEMBLY = "System.Private.CoreLib";
 
+export function runtimeAssemblyIsResident(
+  packageModel: Pick<AppPackage, "assemblies"> | null | undefined,
+  assemblyName: string,
+  platformPack: string,
+): boolean {
+  const normalized = assemblyName.replace(/\.dll$/i, "").toLowerCase();
+  return packageModel?.assemblies.some(assembly =>
+    assembly.name.toLowerCase() === normalized
+    && assembly.platformPack === platformPack) ?? false;
+}
+
 export function runtimePackIsResident(
   packageModel: Pick<AppPackage, "assemblies"> | null | undefined,
 ): boolean {
@@ -146,9 +157,20 @@ export function mergeRuntimePackageSurface(
     if (!seenTypes.has(type.id)) existing.types.push(type);
   }
 
-  const seenAssemblies = new Set(existing.assemblies.map(assembly => assembly.name));
+  const assemblyKey = (assembly: BrowserAssemblySurface) => [
+    assembly.name.toLowerCase(),
+    assembly.version ?? "",
+    (assembly.culture ?? "").toLowerCase() === "neutral"
+      ? ""
+      : (assembly.culture ?? "").toLowerCase(),
+    (assembly.publicKeyToken ?? "").toLowerCase(),
+    assembly.platformPack ?? "",
+  ].join("\0");
+  const seenAssemblies = new Set(existing.assemblies.map(assemblyKey));
   for (const assembly of result.assemblies ?? []) {
-    if (!seenAssemblies.has(assembly.name)) existing.assemblies.push(assembly);
+    if (!seenAssemblies.has(assemblyKey(assembly))) {
+      existing.assemblies.push(assembly);
+    }
   }
 
   const descriptors = new Map(
@@ -340,9 +362,10 @@ export function createPackageAcquisition(
           && (!requestedFramework
             || resident.activeFramework.toLowerCase()
               === requestedFramework.toLowerCase())) {
-          if (resident.assemblies.some(assembly =>
-            assembly.name.toLowerCase()
-              === requestedAssembly.toLowerCase())) {
+          if (runtimeAssemblyIsResident(
+            resident,
+            requestedAssembly,
+            pack)) {
             return { packageModel: resident, error: null };
           }
         }

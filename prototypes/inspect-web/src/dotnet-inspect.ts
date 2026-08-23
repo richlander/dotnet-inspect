@@ -65,6 +65,7 @@ import {
 } from "./workspace-navigation.ts";
 import {
   createPackageAcquisition,
+  runtimeAssemblyIsResident,
   runtimePackIsResident,
   type AppPackage,
 } from "./package-acquisition.ts";
@@ -3878,8 +3879,10 @@ async function openPlatformLensLibrary(
     && packageIdentityEquals(state.package, originPackage);
   const key = name.replace(/\.dll$/i, "");
   const pack = selectedPack || platformPackForAssembly(key);
-  const resident = (runtimePackPackage()?.types || [])
-    .some(type => libraryKey(type) === key);
+  const resident = runtimeAssemblyIsResident(
+    runtimePackPackage(),
+    key,
+    pack);
   if (!resident) {
     const runtimeResult = await loadRuntimePackAssembly(
       platformScopeTfm(),
@@ -5137,7 +5140,10 @@ async function openPlatformLibrary(
   const key = (assembly || "").replace(/\.dll$/i, "");
   const fileName = key ? `${key}.dll` : "";
   const tfm = platformScopeTfm();
-  const alreadyLoaded = (runtimePackPackage()?.types || []).some(type => libraryKey(type) === key);
+  const alreadyLoaded = runtimeAssemblyIsResident(
+    runtimePackPackage(),
+    key,
+    pack);
   if (!alreadyLoaded) {
     state.home = false;
     state.loading = true;
