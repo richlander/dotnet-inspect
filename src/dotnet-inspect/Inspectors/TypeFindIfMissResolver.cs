@@ -64,32 +64,51 @@ internal sealed record TypeMemberFindIfMissResult(
     string Query,
     string TypeQuery,
     string MemberSelector,
-    string MemberName,
-    int? OverloadIndex,
-    int? GenericArity,
+    MemberTargetSelector ParsedSelector,
     TypeFindIfMissResult TypeResolution)
 {
     public static TypeMemberFindIfMissResult None(string query) =>
-        new(TypeFindIfMissStatus.None, query, "", "", "", null, null, TypeFindIfMissResult.None(query));
+        new(
+            TypeFindIfMissStatus.None,
+            query,
+            "",
+            "",
+            new MemberTargetSelector("", ""),
+            TypeFindIfMissResult.None(query));
 
     public static TypeMemberFindIfMissResult FromTypeResolution(
         string query,
         string typeQuery,
         string memberSelector,
-        string memberName,
-        int? overloadIndex,
-        int? genericArity,
+        MemberTargetSelector parsedSelector,
         TypeFindIfMissResult typeResolution) =>
-        new(typeResolution.Status, query, typeQuery, memberSelector, memberName, overloadIndex, genericArity, typeResolution);
+        new(
+            typeResolution.Status,
+            query,
+            typeQuery,
+            memberSelector,
+            parsedSelector,
+            typeResolution);
 
     public MemberOptions ApplyTo(MemberOptions options)
     {
         var applied = TypeResolution.ApplyTo(options);
+        var kindFilter = new HashSet<string>(
+            options.KindFilter,
+            StringComparer.OrdinalIgnoreCase);
+        if (ParsedSelector.Kind is { Length: > 0 } kind)
+            kindFilter.Add(kind);
+
         return applied with
         {
-            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { MemberName },
-            OverloadIndex = OverloadIndex,
-            MemberGenericArity = GenericArity
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ParsedSelector.Name
+            },
+            KindFilter = kindFilter,
+            OverloadIndex = ParsedSelector.OverloadIndex,
+            MemberDigest = ParsedSelector.DigestPrefix,
+            MemberGenericArity = ParsedSelector.GenericArity
         };
     }
 
@@ -217,7 +236,7 @@ internal static class TypeFindIfMissResolver
         var selector = MemberTargetSelector.Parse(memberSelector);
         var typeResolution = await ResolvePlatformAsync(typeQuery, includeAll, sourceOptions, httpClient, logger);
         return TypeMemberFindIfMissResult.FromTypeResolution(
-            query!, typeQuery, memberSelector, selector.Name, selector.OverloadIndex, selector.GenericArity, typeResolution);
+            query!, typeQuery, memberSelector, selector, typeResolution);
     }
 
     private static bool TrySplitMemberQuery(string? query, out string typeQuery, out string memberSelector)

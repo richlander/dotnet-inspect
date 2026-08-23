@@ -3312,6 +3312,29 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_ExplicitMemberOptionOwnsSourcelessNestedMetadataGenericTarget()
+    {
+        const string target =
+            "System.Collections.Generic.List`1.Enumerator";
+        string[] tail =
+        [
+            "-m",
+            "MoveNext",
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["member", target, .. tail]);
+        var routed = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Equal("1", routed.Output.Trim());
+    }
+
+    [Fact]
     public async Task Router_UnboundGenericTypePreservesMemberArity()
     {
         const string target =
@@ -4966,6 +4989,90 @@ public partial class CommandExecutionTests
         Assert.Contains("IndexOf~", output);
         Assert.Contains("M:System.String.IndexOf(char)", output);
         Assert.Empty(error);
+    }
+
+    [Theory]
+    [InlineData("explicit:Abort:1")]
+    [InlineData("extension:Abort:1")]
+    public async Task Member_PlatformFindIfMiss_PreservesSelectorKind(
+        string selector)
+    {
+        string[] tail =
+        [
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            [
+                "member",
+                "Microsoft.AspNetCore.Http.HttpContext",
+                "--platform",
+                "Microsoft.AspNetCore.Http.Abstractions",
+                "-m",
+                selector,
+                .. tail
+            ]);
+        var found = await RunAppAsync(
+            ["member", $"HttpContext.{selector}", .. tail]);
+
+        Assert.Equal(direct, found);
+        Assert.Equal(1, found.Exit);
+        Assert.Empty(found.Output);
+        Assert.Contains("No members matched selector 'Abort'", found.Error);
+    }
+
+    [Fact]
+    public async Task Member_PlatformFindIfMiss_PreservesSelectorDigest()
+    {
+        var inventory = await RunAppAsync(
+            "member",
+            "System.Text.Json.JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "-m",
+            "Serialize",
+            "-S",
+            SectionNames.MemberIndex,
+            "--columns",
+            "Stable",
+            "--tsv",
+            "--tips",
+            "q");
+        Assert.Equal(0, inventory.Exit);
+        var stableSelector = inventory.Output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Skip(1)
+            .First();
+        Assert.Contains('~', stableSelector);
+
+        string[] tail =
+        [
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            [
+                "member",
+                "System.Text.Json.JsonSerializer",
+                "--platform",
+                "System.Text.Json",
+                "-m",
+                stableSelector,
+                .. tail
+            ]);
+        var found = await RunAppAsync(
+            ["member", $"JsonSerializer.{stableSelector}", .. tail]);
+
+        Assert.Equal(direct, found);
+        Assert.Equal(0, found.Exit);
+        Assert.Equal("1", found.Output.Trim());
+        Assert.Empty(found.Error);
     }
 
     [Fact]

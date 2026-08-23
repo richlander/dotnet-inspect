@@ -361,14 +361,13 @@ public static class TypeMatcher
     {
         var list = candidates as IList<string> ?? candidates.ToList();
 
-        var matchPattern = GetTypeMatchPattern(pattern);
         bool isGlob = IsTypeGlobPattern(pattern);
 
         if (isGlob)
         {
-            var hits = list.Where(c =>
-                MatchesGlob(c, matchPattern)
-                || MatchesGlob(GetSimpleName(c), matchPattern)).ToList();
+            var hits = list
+                .Where(candidate => MatchesTypeFilter(candidate, pattern))
+                .ToList();
 
             return hits.Count switch
             {

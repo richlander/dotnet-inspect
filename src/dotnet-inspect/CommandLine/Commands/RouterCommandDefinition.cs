@@ -256,9 +256,9 @@ public static class RouterCommandDefinition
 
             if (hasMemberOption
                 && (!hasExplicitGenericNotation
+                    || containingTypeHasMetadataGenericNotation
                     || (hasExplicitApiSource
-                        && (trailingSegmentHasGenericNotation
-                            || containingTypeHasMetadataGenericNotation))))
+                        && trailingSegmentHasGenericNotation)))
                 return ["member", target, .. tail];
 
             if (hasExplicitApiSource
