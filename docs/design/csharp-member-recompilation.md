@@ -84,7 +84,7 @@ lower result.
 | Compile | succeeded, failed | Roslyn emitted a donor assembly under the recorded context. | That bindings match a broader context or the original implementation. |
 | C# diff | exact, changed, unavailable | Product-decompiled C# compares as reported by `CSharpBodyDiff`. | Source or runtime semantic equivalence. |
 | IL diff | exact, operand diff, opcode diff, unavailable | Decoded operations compare as reported by `IlBodyDiff` under a named normalization. | Equality of EH, locals, metadata, PE layout, or runtime behavior. |
-| Scope A/B | same, different, unavailable | `cluster` and `all` produced the same or different selected-member evidence. | That either scope reproduces the original build environment. |
+| Scope A/B | same, different, not applicable, unavailable | `cluster` and `all` produced the same, different, or legitimately bodyless selected-member evidence. | That either scope reproduces the original build environment. |
 
 An overall report composes these outcomes but does not collapse them into a
 single success boolean. For example, `CompileSucceeded + CSharpChanged +
@@ -154,11 +154,15 @@ cluster donor directly with the all donor:
 cluster donor <-> all donor
 ```
 
-The comparison independently resolves exact cluster-donor and all-donor method
-addresses from the same carried `MemberBodyTarget`. Metadata validates each
-side-local target first. The round-trip request then explicitly authorizes the
-two resolved addresses through `DirectMemberPairingDesignation`; neither
-`ResearchMemberIdentity` nor an inferred correspondence key pairs the donors.
+The common selected-member provenance creates two correlated selection
+requests, not one physical target. Each donor independently mints its own
+`BodyEvidenceTarget` from that donor's API/metadata surface: an exact
+`MetadataMethodAddress` or a carried `MemberBodyTarget`. Each target resolves
+only inside its donor participant. Metadata validates both side-local targets
+before the round-trip request explicitly authorizes the two resolved addresses
+through `DirectMemberPairingDesignation`; neither the common provenance,
+`ResearchMemberIdentity`, an inferred correspondence key, nor one donor's
+strict target pairs the donors.
 The direct donor comparison applies the existing C# and IL diff contracts.
 Separate original-to-cluster and original-to-all resolution and diff results
 remain available as fidelity evidence, but they are not substituted for the
@@ -167,6 +171,9 @@ binding, incomplete cluster membership, different synthesized context, or an
 artifact-production gap. It is evidence, not automatically a cluster defect.
 If either donor target is absent, ambiguous, or failed, the scope comparison is
 `Unavailable` and retains the typed reason.
+If both resolved donors legitimately have no implementation for every requested
+mechanism, it is `NotApplicable` and retains the body-absence reasons; it is not
+reported as `Same`, `Different`, or a context failure.
 
 The initial `cluster` lane remains useful without a successful `all` lane. A
 consumer making a stronger contextual-binding claim must require the scope A/B
@@ -424,7 +431,7 @@ The tools-side engine owns the compilation policy that consumes it.
 | Correspondence | rebuilt member missing, ambiguous, or wrong module |
 | C# diff | exact, changed, unavailable |
 | IL diff | exact, operand diff, opcode diff, unavailable |
-| Scope A/B | same, different, unavailable |
+| Scope A/B | same, different, not applicable, unavailable |
 
 No layer converts failure or unavailability into an empty successful result.
 
@@ -453,9 +460,10 @@ No layer converts failure or unavailability into an empty successful result.
   bodies.
 - Reject field-initializer and aggregate property/event replacement shapes in the
   first method-addressed contract; test each rejection explicitly.
-- Add a product-owned cross-reader member-correspondence resolver that consumes
-  typed/normalized identities and returns exact endpoint handles or total
-  absent/ambiguous/failed outcomes.
+- Add Metadata-owned exact/carried target resolution and comparison-key
+  projection. Each reader mints its own side-local target and returns an exact
+  address or a total bodyless/absent/ambiguous/failed outcome; no normalized
+  presentation identity selects a MethodDef.
 - Resolve original/cluster-donor, original/all-donor, and
   cluster-donor/all-donor correspondence independently before invoking
   member-scoped diff APIs.
@@ -513,8 +521,9 @@ required preservation boundary.
 - A C# regression fixture supplies an absent endpoint fingerprint whose native
   diff is empty and requires the round-trip envelope to report `Unavailable`,
   never `Exact`.
-- Cross-reader correspondence fixtures cover API/metadata anchor spelling
-  differences, signature collisions, and wrong-module near misses.
+- Cross-reader correspondence fixtures cover independently minted side-local
+  targets, AssemblyRef-version-only drift, strict/correspondence-key
+  collisions, presentation-spelling aliases, and wrong-module near misses.
 - `selected` tests distinguish requested targets from effective companion bodies.
 - A scope A/B fixture derives asymmetric companion sets, retains that provenance,
   and proves an unavailable companion cannot collapse the selected-target or

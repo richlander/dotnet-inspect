@@ -137,21 +137,22 @@ Two resolution paths, chosen by scope:
   from it (the declaring type is derived from the handle, so the method and its
   generic scope cannot be mispaired).
 - **Cross reader (surface from build A, bodies from build B).** Here tokens do
-  not carry across, so members are matched by a *normalized* canonical
-  signature. This is subtle and already solved: there are **two** anchor
-  spellings — the API-flavored `MemberAnchor` from `ApiMemberIdentity`
-  (`int`, `object?`, `IReadOnlyList<string>`) and the metadata-flavored anchor
-  from `CreateMethodAnchor` (`System.Int32`, `System.Object`,
-  `IReadOnlyList` with an arity tick) — and **their fingerprints do not match**.
-  The post-resolution presentation bridge is
-  `ResearchMemberIdentity.BodyMemberIdentity`, which normalizes the surface
-  spelling to the metadata spelling (`ParameterPrimitiveName`, strip nullable
-  `?`, `out`/`ref` → `&`, `Foo<T>` → `` Foo`1<T> ``) so a resolved surface
-  member and metadata method produce the *same* `StableSelector`. It does not
-  select or correspond a MethodDef.
-  `ImplementationDiff`/`ResearchDiff` already resolve members this way; the
-  substrate reuses that bridge rather than comparing raw `MemberAnchor`
-  fingerprints, which would silently never match across the two spelling worlds.
+  not carry across. Each reader independently mints and resolves its own
+  Metadata-owned exact `MetadataMethodAddress` or carried `MemberBodyTarget`
+  inside its side-local participant. Cross-version comparison may then project
+  `MemberBodyCorrespondenceKey` from the independently resolved methods; a
+  direct comparison instead requires a host-issued
+  `DirectMemberPairingDesignation` over the two exact addresses. Neither path
+  resolves by normalized canonical signature, `MemberAnchor` fingerprint,
+  `ResearchMemberIdentity`, display spelling, token equality, or occurrence.
+  Duplicate structural candidates remain typed ambiguity.
+
+  API and metadata spellings still differ (`int` versus `System.Int32`,
+  nullable and modifier display, and generic arity notation), but that is a
+  presentation problem after physical resolution.
+  `ResearchMemberIdentity.BodyMemberIdentity` may normalize the already
+  resolved methods into stable Research subjects; it never selects or
+  corresponds a MethodDef.
 
 `ImplementationDiff` already takes a `MethodDefinitionHandle`; the substrate
 makes handle addressing the rule and the two paths above the only way to obtain
@@ -167,8 +168,9 @@ The same-reader body-composition callers are migrated onto handle addressing:
   `ApiMember.MetadataToken` and validates it against the composing reader (a
   method of the composed type whose name matches the member) before use; a token
   that does not validate — e.g. carried over from a type-forwarded surface —
-  resolves the legacy name+ordinal selector to its concrete MethodDef before
-  projection rather than mis-addressing.
+  must resolve a Metadata-owned carried `MemberBodyTarget` inside the selected
+  implementation participant before projection. It never falls back to a
+  name-plus-ordinal selector.
 - **`CSharpBodyDiff`** — `Decompile` imports each `CSharpMethodEntry` by the
   `MethodDefinitionHandle` the entry was built from, instead of re-deriving a
   `(type, method, overloadIndex)` tuple. Its render type carries the
@@ -201,11 +203,12 @@ pairs its signature with a *different* overload's body (often referencing
 out-of-scope locals — invalid C#), or misattributes the hidden overload's
 attributes (`[EditorBrowsable]`/`[Obsolete]`) onto the survivor. Handle addressing
 renders each member's own body and attributes. Every same-reader body/attribute
-path in whole-type composition and the `member` CLI is now handle-addressed; a
-token that does not validate (type-forwarded surface) resolves the legacy
-name+ordinal selector to its concrete MethodDef before projecting the body,
-attributes, or body-only modifiers, rather than mis-addressing or allowing those
-projections to diverge.
+path in whole-type composition and the `member` CLI is handle-addressed. The
+remaining invalid-token/name-plus-ordinal fallback is a migration mismatch:
+the target path resolves a carried `MemberBodyTarget` in the selected
+implementation participant before projecting the body, attributes, or
+body-only modifiers. That fallback cannot feed structured Implementation Diff
+or Research body evidence while it remains.
 
 ## Scope: one load per type
 
