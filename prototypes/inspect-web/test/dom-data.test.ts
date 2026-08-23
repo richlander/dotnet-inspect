@@ -19,6 +19,11 @@ test("DOM integer parsing rejects missing and malformed values", () => {
     undefined,
     "",
     "-1",
+    // The regex is what rejects this one. `Number("-0")` is `-0`, which satisfies both
+    // `>= 0` and `Number.isSafeInteger`, so a parser simplified to numeric checks alone
+    // would admit it and hand back a negative zero. Pinned because that simplification
+    // looks harmless and nothing else here would catch it.
+    "-0",
     "00",
     "01",
     "1.5",
