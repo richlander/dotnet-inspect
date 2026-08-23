@@ -16,7 +16,8 @@ The proposal applies the existing
 [inspection layers](inspection-layers.md),
 [progressive disclosure](progressive-disclosure.md),
 [section model](section-model.md), and
-[bounded metadata traversal](bounded-metadata-traversal.md) decisions to the
+[bounded metadata traversal](bounded-metadata-traversal.md), and
+[shared metadata primitives](../metadata-primitives.md) decisions to the
 type/member path. It does not introduce a second query architecture.
 
 ## Why the implementation review is paused
@@ -63,6 +64,7 @@ mechanism-specific owners:
 | Candidate, effective, rendered, and discovery semantics | [Section model](section-model.md) |
 | Markout structural schema and realized discovery/render-manifest mechanics | [Schema query](schema-query.md) |
 | Metadata traversal and projection budgets | [Bounded metadata traversal](bounded-metadata-traversal.md) |
+| Mechanical SRM primitives and registered lossless-row exceptions | [Shared metadata primitives](../metadata-primitives.md) |
 | Type/member identities, selectors, and anchors | [Type, member, and API representation](type-member-api-representation.md) |
 | Untrusted input and failure containment | [Untrusted data threat model](untrusted-data-threat-model.md) |
 
@@ -711,17 +713,26 @@ probe plan before the adapter is considered compliant.
 The operation is reader-local and bounded. It does not create a repository-wide
 normalized metadata graph.
 
-A Metadata declaration session owns:
+A Metadata declaration session is created from:
 
-- one live `MetadataReader`;
-- operation-scoped work, item, text, and decode budgets;
+- one acquisition-owned `PEReader` lease and its `MetadataReader`;
+- the operation's shared work, item, text, and decode context;
 - reader-local caches keyed by handle plus required generic or resolution
   context;
 - stable validation policy;
 - typed failure construction.
 
-The session exposes declaration operations. It does not expose its reader or
-mutable budget object to higher layers.
+The session exposes declaration operations. It does not expose its PE reader,
+metadata reader, borrowed memory, or mutable budget object to higher layers.
+`MetadataOperationContext.AdmitImage` is the sole metadata-row charging
+authority. Session construction calls it, and the operation context records the
+reader identity so the current `ApiSurfaceExtractor.ExtractionBudget` charge
+can be relocated rather than duplicated. The operation coordinator reuses one
+session per reader identity; each different image in a multi-image operation
+receives one cumulative `MaxMetadataRows` charge. Admission is unconditional:
+a compatibility caller without a configured ceiling uses an explicit
+`Unbounded` policy while still recording the row sum, but every product entry
+point must supply a finite central policy before the slice-6 cutover.
 
 ### Validation stages
 
@@ -752,14 +763,25 @@ Admission probes charge names and attribute type segments before SRM
 materializes them. They do not decode rich attribute values or every signature
 and `MethodImpl` relationship.
 
-Stage 3 starts with a Metadata-owned, budget-charged raw `MethodSemantics`
-census for a property or event. It reads and charges one association row at a
-time before retaining method handles or materializing an `Other` collection.
-Each row must contain exactly one legal role for its association kind, target a
-valid method on the aggregate's declaring type, and preserve its row identity.
-Duplicate getter, setter, add, remove, or raise roles are rejected rather than
-collapsed by last-write-wins projection. Only the validated bounded rows may
-construct the typed accessor aggregate.
+Stage 3 starts with the
+[`ILInspector.MetadataPrimitives` lossless-row
+boundary](../metadata-primitives.md#lossless-methodsemantics-row-boundary).
+After whole-image row admission, `MethodSemanticsRowReader` reads one physical
+association row at a time, records the visit, and charges the distinct retained-
+association budget before retaining handles or materializing an `Other`
+collection. The mechanical result preserves row identity, raw semantics bits,
+a bounded MethodDef handle, the Property/Event association, and observed
+association ordering; malformed layout, coded-index values, or row bounds
+produce typed mechanical rejection.
+
+Metadata then owns the semantic census for the requested property or event.
+Each row must contain exactly one legal role for its association kind and
+target a method on the aggregate's declaring type. Nonmonotonic association
+ordering rejects the census as malformed Metadata, while the same physical
+ordering with the sorted bit clear is rejected earlier by SRM reader
+construction. Duplicate getter, setter, add, remove, or raise roles are rejected
+rather than collapsed by last-write-wins projection. Only the validated bounded
+rows may construct the typed accessor aggregate.
 
 `PropertyDefinition.GetAccessors()` and `EventDefinition.GetAccessors()` are
 not valid census inputs for untrusted metadata: those SRM convenience
@@ -768,12 +790,24 @@ duplicate standard roles, and discard unrecognized combined semantics flags.
 Consumers must not call them before the shared census or substitute their
 lossy result for the typed aggregate.
 
-The census remains SRM-backed and operates over the already admitted metadata
-image. A `MetadataDeclarationSession` builds or advances its raw
-`MethodSemantics` index row by row, charging before retention. It validates
-table ordering before using an association range; malformed ordering cannot
-hide a row behind SRM's range lookup. Any reader-local index participates in
-the same context and budget cache contract as other shared facts.
+The primitive remains SRM-backed and operates over a borrowed immutable view of
+the already admitted metadata image. It uses only the narrow public SRM layout
+surface registered by
+[bounded metadata traversal](bounded-metadata-traversal.md#lossless-row-exception)
+and retains no pointer or memory ownership beyond the caller's lease. A
+`MetadataDeclarationSession` calls `AssemblyImage.EnsureAlive()` immediately
+before the primitive performs one eager pass under that lease, then retains
+only the completed immutable neutral-row index. Whole-image admission charges
+declared metadata rows once; the pass records work without debiting that same
+row budget again, and separately charges retained associations before adding
+them to the index. That distinct budget protects retained bytes and may reject
+every dependent property/event projection even when the image passed its
+broader row ceiling; no unindexed streaming fallback is allowed. A same-session
+cache hit reuses that already charged immutable result and never crosses an
+operation or reader identity. No aggregate result is released until the
+primitive reaches the physical end of the table or returns rejection; an early
+association range cannot prove completeness because a later out-of-order
+duplicate may exist.
 
 Stage 3 then validates only dependencies required to decide admission of the
 root declaration:
@@ -1085,7 +1119,8 @@ the design authority.
 | Render-manifest effective discovery | Retain for post-producer field/column/empty observation; move every producer call into a declared probe plan |
 | `ArgumentPreprocessor`, `RouterCommandDefinition`, and `PackageCommand` structural routing | Retain syntactic routing, but replace command-only dispatch with the shared structural-view registry and move static classification before acquisition in slice 2 |
 | `ApiCommand.RunPreamble` and `ApiMemberSectionPipelines` static member catalog selection | Replace the provisional selectable-section union with explicit member type-view, inventory, and detail registry entries plus labeled dotted-tail alternatives in slice 2 |
-| Product calls to `PropertyDefinition.GetAccessors()` and `EventDefinition.GetAccessors()` | Replace as admission inputs with the Metadata-owned raw `MethodSemantics` census; no projection may lose or allocate uncharged associations before validation |
+| `ApiSurfaceExtractor` and accessor-bearing `MetadataDeclarationQuery` calls to `GetAccessors()` | Replace as admission inputs with the MetadataPrimitives lossless row reader and Metadata-owned semantic census; replace reader-only `GetProperty` and `GetTypeSurface` entry points with session-backed queries |
+| `ExtensionMethodScanner`, `OpenTelemetryScanner`, `MemberBodyProducer`, and `MethodDefinitionFacts` calls to `GetAccessors()` | Preserve each consumer's semantic policy but migrate its mechanical association lookup to `MethodSemanticsRowReader`; these paths do not become consumers of Metadata's declaration model |
 | Shared Metadata validators already used by every projection | Retain |
 | Validators duplicated across full, summary, focused, or C# paths | Move to the Metadata declaration owner |
 | C# fixes based on Metadata-owned typed semantics | Retain |
@@ -1222,18 +1257,35 @@ lands.
 Depends on: slice 1. It may develop in parallel with slices 2 and 3 but cannot
 be consumed by the type/member plan before slice 4 lands.
 
-- Centralize operation budgets and reader-local caches.
+- Land and pass
+  `LayeringTests.MetadataPrimitives_RemainsLeaf` in
+  `src/dotnet-inspect.Tests` before adding the lossless row reader in this
+  slice; the composite `MDP016` gate expands after the reader exists.
+- Introduce `MetadataOperationContext.AdmitImage` as the single metadata-row
+  charging authority, move
+  `ApiSurfaceExtractor.ExtractionBudget.AdmitMetadataRows` into it, and have
+  every declaration session reuse the resulting per-reader admission.
+- Centralize the remaining operation budgets and reader-local caches.
+- Carry the acquisition-owned `PEReader` lease into
+  `MetadataDeclarationSession`; do not pair independently supplied readers and
+  byte blocks or reopen the artifact.
 - Add typed type, member, accessor, and `MethodImpl` validation results.
-- Add the budgeted raw `MethodSemantics` row census and shadow its results
-  against every current property/event accessor projection, retaining duplicate
-  roles and invalid flags as typed rejections rather than normalized output.
+- Replace the reader-only accessor-bearing
+  `MetadataDeclarationQuery.GetProperty` and `GetTypeSurface` surfaces with
+  session-backed queries; keep reader-only helpers that do not touch accessor
+  semantics.
+- Add the registered MetadataPrimitives `MethodSemanticsRowReader` and
+  Metadata-owned semantic census. Shadow their results against every current
+  property/event accessor projection, retaining duplicate roles and invalid
+  flags as typed rejections rather than normalized output.
 - Run characterization or shadow comparison without changing which validity
   implementation supplies product results.
 - Do not activate the new admission semantics for only one projection path.
 
 Exit gate: cache, context, and hostile-input limit declarations drive `MDP009`;
 shadow results expose full/summary/focused limit, rejection, and projection
-disagreements before cutover.
+disagreements before cutover; `MDP016` proves the narrow lossless-row exception
+before any consumer uses it to supply product results.
 
 ### Slice 6: activate shared declaration admission atomically
 
@@ -1244,6 +1296,9 @@ Depends on: slice 5.
 - Route every property/event projection through the validated raw
   `MethodSemantics` census before constructing an accessor aggregate; remove
   direct SRM convenience-accessor reads from admission paths.
+- Migrate Metadata-owned `ExtensionMethodScanner` and `OpenTelemetryScanner`
+  association lookup to the same neutral rows without changing their
+  feature-specific inclusion policy.
 - Make summary counts consume accepted declaration identities.
 - Make focused queries consume the same validators with their own inclusion
   policy and failure boundary.
@@ -1252,14 +1307,16 @@ Depends on: slice 5.
 Exit gate: accepted identity, rejection-rule, and shared-fact result sets agree
 across full, summary, and focused projections for equivalent inclusion
 policies, and none of those entry points retains a parallel admission owner.
-`MDP001` through `MDP004`, `MDP006` through `MDP009`, and `MDP011` must pass
-before this semantic cutover lands.
+`MDP001` through `MDP004`, `MDP006` through `MDP009`, `MDP011`, and `MDP016`
+must pass before this semantic cutover lands.
 
 ### Slice 7: migrate C# representability
 
 Depends on: slice 6.
 
 - Carry typed accessor and slot semantics into the API/C# boundary.
+- Migrate CSharp callers of accessor-bearing `MetadataDeclarationQuery`
+  surfaces to the declaration session and its validated aggregate.
 - Remove inference from raw flag combinations.
 - Make `FallbackRequired` distinguish contained type and member declarations,
   preserve complete discriminating identity and signature/header facts, and
@@ -1284,6 +1341,9 @@ Depends on: slices 4, 6, and 7.
 - Remove duplicate Metadata validators and compatibility branches.
 - Remove duplicate producer-requirement declarations and any remaining
   convenience-accessor path that bypasses the raw `MethodSemantics` census.
+- Migrate Decompiler's `MemberBodyProducer` and `MethodDefinitionFacts`
+  accessor lookup to the neutral primitive while retaining their
+  Decompiler-owned heuristic and classification policy.
 - Update architecture docs from proposed to implemented only after the
   corresponding gates pass.
 - Update `schema-query.md` and the other mechanism owners to remove superseded
@@ -1323,16 +1383,17 @@ test method name, but the PR must map each test to its gate ID.
 | `MDP003` | Cheap filtering precedes hostile MethodImpl projection | Large excluded-row fixture with bounded allocation/work evidence |
 | `MDP004` | Accessor validity is shared | Property/event fixtures covering accessibility, staticness, abstraction, virtuality, slot, and body close negatives plus zero, one, and multiple valid `Other` associations, duplicate standard roles, invalid combined role flags, dangling methods, cross-declaring-type associations, malformed table ordering, and raise/`Other` representability outcomes |
 | `MDP005` | CSharp consumes typed slot semantics | Compiler-produced interface re-abstraction/default-implementation compile-back plus class base-slot rejection |
-| `MDP006` | Decode accounting is transitive | Amplification fixtures for names, modifiers, signatures, getter/setter/add/remove/raise/`Other` semantic dependencies, and MethodImpl targets; an oversized `Other` set must stop on the row budget with bounded allocation before SRM or product code materializes the set |
+| `MDP006` | Decode accounting is transitive | Amplification fixtures for names, modifiers, signatures, getter/setter/add/remove/raise/`Other` semantic dependencies, and MethodImpl targets; an oversized semantics table must pass whole-image row admission only when within `MaxMetadataRows`, then stop on the lower retained-association budget with bounded allocation and no double charge; dependent property/event projections receive typed rejection with no streaming fallback, while independent declaration kinds retain their normal failure policy |
 | `MDP007` | Metadata and CLI failure text contains no artifact data | Hostile control-character names across Metadata declaration and CLI failure paths |
-| `MDP008` | Real artifacts remain stable | Pinned platform and package canaries with recorded rows and retained-text totals |
-| `MDP009` | Declaration caches and hostile-input ceilings preserve context, budget, and failure semantics | Matrix derived from the central safety-policy dimensions and every charging fact request, including the reader-local raw `MethodSemantics` index; cache-key set equality, cached-work rejection, same-context negative caching, no undeclared local ceiling, and equivalent near/over-limit full/summary/focused fixtures asserting equal per-fact thresholds, counters, and rejection rules while separately charging additional retained fields |
+| `MDP008` | Real artifacts remain stable | Pinned platform and package canaries with recorded rows and retained-text totals; the complete MethodSemantics census accepts every pinned input and does not broaden a table-level malformed-ordering rejection into an unexplained omission |
+| `MDP009` | Declaration caches and hostile-input ceilings preserve context, budget, and failure semantics | Matrix derived from the central safety-policy dimensions and every charging fact request, including the reader-local `MethodSemantics` association index; cache-key set equality, cached-work rejection, same-context negative caching, and no undeclared local ceiling; `MetadataOperationContext.AdmitImage` runs unconditionally as the sole row-charge call site, records the row sum under explicit compatibility `Unbounded`, rejects construction of any product context lacking a finite policy after slice 6, and makes a full extraction's cumulative row charge equal the image's declared row sum exactly once; one eager semantics pass charges retained associations once, a same-session cache hit neither recharges nor bypasses prior rejection, and a different operation receives its own charges; equivalent near/over-limit full/summary/focused fixtures assert equal per-fact thresholds, counters, and rejection rules while separately charging additional retained fields |
 | `MDP010` | Degraded signatures remain nonauthoritative at the CSharp boundary | Existing degraded-signature fixtures mapped to typed `Degraded` outcomes with no authoritative C# or metadata fallback |
 | `MDP011` | Shared declaration admission has no parallel owner at the slice-6 cutover | Declaration-driven architecture closure over full, summary, and focused entry points; fail on a bypass, duplicate validity implementation, or direct convenience-accessor read that precedes the raw `MethodSemantics` census |
 | `MDP012` | CSharp representability consumes only Metadata-owned semantic facts at the slice-7 cutover | Closure derived from the semantic fact types and every CSharp representability entry point; fail on direct `MetadataReader`/handle reconstruction or relationship decisions from raw accessibility, virtuality, new-slot, `MethodImpl`, or equivalent Boolean combinations |
-| `MDP013` | No transitional declaration-validity or CSharp reconstruction state remains | Declaration-driven closure over compatibility adapters, validators, raw semantic fields, convenience-accessor calls, and consumers after slice 8 |
+| `MDP013` | No transitional declaration-validity or CSharp reconstruction state remains | Declaration-driven closure over compatibility adapters, validators, raw semantic fields, and consumers after slice 8; no production `GetAccessors()` call remains, while test-only calls may serve as explicit independent oracles |
 | `MDP014` | CSharp failure text contains no artifact data | Hostile control-character names through every CSharp representability failure path |
 | `MDP015` | `FallbackRequired` preserves contained type/member semantics and renders artifact text through `InertString` | Set equality between the normal representable renderer's Metadata fact requests and each contained fallback payload after named erasures; type and member parity fixtures cover accessibility, modifiers, attributes, constraints, constants/defaults, explicit implementation, complete accessor aggregates including raise and every `Other` association, base/interfaces, and kind-specific facts; valid raise/`Other` aggregates force contained fallback and preserve each association instead of becoming unrelated standalone methods; unsupported type-header and paired member/indexer cases prove no fact becomes `null`, omission, or identity collapse; declaration-derived sink closure requires every fallback sink to call `EnsurePermitted` with its exact `TextPolicy` immediately before unwrapping and format escaping; cross-policy fixtures deliver Prose-produced CR/LF/TAB plus hostile type names, member names, and signature fragments to Field, Markdown, JSON, TSV, and diagnostic sinks; round-trip and pairwise injectivity prove canonical visual encoding preserves exact artifact text while no live disallowed scalar reaches a sink |
+| `MDP016` | The lossless `MethodSemantics` row boundary is the only registered raw-table exception and remains mechanical, bounded, and SRM-backed | A pre-reader `LayeringTests.MetadataPrimitives_RemainsLeaf` gate in `src/dotnet-inspect.Tests` and post-reader symbol/API closure prove MetadataPrimitives remains an SRM-only leaf, only `MethodSemanticsRowReader` within that leaf calls the table-layout APIs (`PEReader.GetMetadata`, `PEMemoryBlock.GetReader`, `GetTableMetadataOffset`, and `GetTableRowSize`) for raw ECMA table rows, no production consumer bypasses it with `GetAccessors()`, no arbitrary `TableIndex`, schema, or coded-index API escapes, and blob/heap `BlobReader` use is outside the detector; required-CI ordered-multiset equality with `ildasm` over association/role/method, non-skipping construction-known `ilasm`/`MetadataBuilder` and byte-patched raw-row fixtures, and conventional aggregate parity with SRM accessors; all four narrow/wide MethodDef and HasSemantics index combinations are generated once per test run and assert decoded values, while SRM row-size equality separately checks total width; malformed fixtures preserve duplicate roles, zero/unknown/combined bits, nil/out-of-range MethodDef or association rows, and falsely-declared-sorted ordering including a late duplicate as typed mechanical or Metadata-semantic rejection, while the same out-of-order rows with the sorted bit clear fail at SRM reader construction; unconditional whole-image row admission plus a lower retained-association budget prove complete-scan bounded allocation without double charging, including same-session cache reuse and typed dependent-projection failure; acquisition-owned `PEReader` and borrowed-`AssemblyImage` tests reject non-ECMA-335 input, call `EnsureAlive`, and prove no block, reader, or pointer survives its lease; Browser/Wasm and NativeAOT gates exercise the same reader |
 
 Contract tests should derive their cases from the declaration or section
 catalog where practical, so a new mode or validator cannot silently avoid the
@@ -1352,6 +1413,7 @@ matrix.
 | One declaration admission decision and one shared semantic-fact owner govern all API projections | Metadata | `MDP001`, `MDP002`, `MDP011`, `MDP013` |
 | Excluded hostile rows cannot amplify expensive projection | Metadata | `MDP003`, `MDP006` |
 | Valid metadata and complete, contained C# fallback remain distinct from degraded or invalid input | Metadata/CSharp boundary | `MDP004`, `MDP005`, `MDP010`, `MDP012`, `MDP014`, `MDP015` |
+| Lossless `MethodSemantics` access remains the sole narrow raw-table exception below Metadata semantics | MetadataPrimitives/Metadata | `MDP002`, `MDP004`, `MDP006`, `MDP009`, `MDP016` |
 | Cache reuse cannot bypass context or operation budgets | Metadata declaration session | `MDP009` |
 | No duplicate validity owner or CSharp raw-metadata/raw-flag reconstruction survives migration | Metadata/CSharp architecture | `MDP011`, `MDP012`, `MDP013` |
 

@@ -15,6 +15,9 @@ Resume consolidation in `ILInspector.MetadataPrimitives`, but consolidate
 - MetadataPrimitives owns bounded SRM traversal, signature-decode admission,
   neutral name segments and method coordinates, neutral structural keys, work
   budgets, and typed mechanical rejection.
+- A lossless raw-row reader is allowed only for a named table where public SRM
+  APIs discard required evidence or allocate it before product charging. The
+  first and only registered exception is `MethodSemantics`.
 - Metadata, Analysis, Decompiler, Instructions, and ILDiff retain their own
   semantic models, signature providers, projections, and failure policy.
 - Analysis and Decompiler keep separate `TypeRef` types. They answer different
@@ -77,7 +80,8 @@ which differences are intentional policy.
 
 `ILInspector.MetadataPrimitives` is currently an SRM-only leaf with no project
 references. That property is **not gated**; the first implementation slice must
-add a project-closure gate before citing it as enforced.
+add `LayeringTests.MetadataPrimitives_RemainsLeaf` in
+`src/dotnet-inspect.Tests` before citing it as enforced.
 
 ```text
                      ILInspector.MetadataPrimitives
@@ -103,6 +107,7 @@ references MetadataPrimitives directly.
 | Work budgets | Limits and typed exhaustion/rejection shared across consumers |
 | Generic metadata context | Bounded generic parameter names and constraint flags |
 | Neutral matching | Dependency-free name distance and similarity |
+| Lossless `MethodSemantics` rows | Bounded mechanical decode of raw semantics, MethodDef, and HasSemantics columns where SRM exposes no lossless row API |
 
 Metadata retains product-facing definition identities, including
 `MetadataTypeDefinitionName` and `MetadataTypeDefinitionAddress`. Moving those
@@ -129,6 +134,110 @@ Consumer-owned providers should call shared admission and traversal mechanics,
 then construct their native result. A neutral primitive must not return a
 plausible `object`, an empty signature, or a display string on rejection unless
 that value is itself an explicit typed result arm.
+
+### Lossless `MethodSemantics` row boundary
+
+`MethodSemanticsRowReader` is the sole registered exception to the normal rule
+that product code uses SRM row accessors rather than decoding table rows. It
+exists because SRM exposes table location and shape but no public lossless
+`MethodSemantics` row API: its property/event convenience accessors allocate
+all `Other` rows, overwrite duplicate standard roles, and omit unrecognized
+combined role values.
+
+The reader accepts the acquisition-owned `PEReader` and a
+MetadataPrimitives-owned `MethodSemanticsReadBudget` that bounds retained
+associations. Metadata creates that neutral budget only after
+`MetadataOperationContext.AdmitImage` succeeds; the closure gate verifies this
+wiring without making the leaf reference the higher-layer operation type. The
+admission call is unconditional: a compatibility caller may use an explicit
+`Unbounded` policy, while product entry points must supply a finite policy
+before semantic cutover. The reader obtains both the `MetadataReader` and
+metadata block from the one PE owner. It must not accept an independently
+supplied reader/block pair:
+an in-bounds whole-PE offset can otherwise be mistaken for a metadata-relative
+offset with no identity check capable of detecting the mismatch. The
+acquisition owner retains the lease; the primitive does not reopen a path, own
+or dispose the image, copy the whole metadata block, or retain a
+`PEMemoryBlock`, `BlobReader`, or unmanaged pointer after the call.
+The Metadata-owned session must call its `AssemblyImage.EnsureAlive()`
+liveness check immediately before each primitive invocation; passing a bare
+borrowed `PEReader` without that check is a contract violation.
+
+The implementation may use only public SRM layout facts to locate the table:
+its metadata offset, row size, table row counts used to derive ECMA-defined
+index widths, and `PEMemoryBlock.GetReader(start, length)` over the same
+`PEReader`. It rejects non-ECMA-335 metadata. It decodes the table's complete
+three-column schema:
+
+- raw `Semantics` bits;
+- a `MethodDef` row identifier; and
+- a `HasSemantics` coded index restricted to Property and Event tags.
+
+Checked arithmetic and SRM-reported row counts bound every read and decoded row
+identifier. Whole-image admission charges each declared row once; the census
+records rows visited but does not debit `MaxMetadataRows` again. Before
+retaining a neutral row, it separately charges
+`MaxRetainedMethodSemanticsAssociations`. The reader must reach the physical end
+of the table before a consumer can treat any association range as complete.
+The neutral result preserves table row number, raw semantics bits,
+`MethodDefinitionHandle`, association kind, and association row identifier. It
+validates the computed column width against SRM's table row size, physical row
+access, the non-nil MethodDef and HasSemantics row identifiers, target row
+bounds, and records whether association values are actually nondecreasing. It
+does not parse the metadata stream's sorted bit or decide whether nonmonotonic
+ordering invalidates a declaration, which roles are legal for a property/event,
+whether a standard role is duplicated, whether a method belongs to the
+aggregate's declaring type, or how rejection is presented; those remain
+Metadata semantics.
+
+The retained-association budget protects the bytes held by the immutable
+session index, independently of the broader row-admission ceiling. Its
+corpus-derived ceiling may therefore be lower than `MaxMetadataRows`. Exhaustion
+rejects the semantics census for every property/event projection that depends
+on it; there is no unindexed streaming fallback. Independent declaration kinds
+may continue under their normal failure policy. One completed index is charged
+once to its operation and reader identity; a same-session cache hit neither
+recharges it nor turns a prior rejection into success.
+
+This is not a reusable general coded-index decoder or table projector. No
+public API accepts an arbitrary `TableIndex`, column schema, or coded-index
+kind. Adding another table requires a design change to
+[bounded metadata traversal](design/bounded-metadata-traversal.md), this
+registry, and the owning consumer contract.
+
+The boundary is unverified until a named architecture gate proves
+MetadataPrimitives remains an SRM-only leaf, no other MetadataPrimitives type
+decodes raw ECMA table-row bytes or table coded-index columns, and no production
+consumer bypasses the primitive for `MethodSemantics`. Blob and heap
+`BlobReader` use is outside this table-layout closure. Existing hand-parsed metadata
+stream/header code outside this leaf is separate migration debt under the
+general bounded-traversal prohibition; this exception neither legitimizes nor
+expands it. `MDP016` in
+[member inspection planning and Metadata
+projection](design/member-inspection-planning-and-metadata-projection.md) owns
+that gate. Its outcome tests must establish:
+
+- ordered-multiset equality with `ildasm` over association owner, semantic
+  role, and method for conventional valid metadata in the required CI
+  environment; `ilasm`/`MetadataBuilder` and byte-patched fixtures whose
+  expected physical row numbers and raw bits are fixed by construction remain
+  non-vacuous when a local oracle run is skipped; `mdv` is explicitly not this
+  oracle because it folds the rows;
+- aggregate equality with SRM convenience accessors for conventional valid
+  property/event metadata;
+- preserved multiple `Other` rows and typed rejection for duplicate standard
+  roles, zero/unknown/combined semantics values, nil or out-of-range MethodDef
+  or association row identifiers, and a falsely-declared-sorted table with a
+  late out-of-order duplicate; a companion with the same physically
+  out-of-order rows and the sorted bit clear must fail during SRM reader
+  construction;
+- all four narrow/wide MethodDef and HasSemantics coded-index combinations,
+  generated once per test run rather than stored as multi-megabyte binaries;
+  each asserts decoded values, while SRM row-size equality separately checks
+  the total width;
+- bounded work and allocation before retention on oversized tables; and
+- non-ECMA-335 rejection plus the same supported result under Browser/Wasm and
+  NativeAOT-compatible hosts.
 
 ## Why `TypeRef` remains local
 
@@ -378,6 +487,11 @@ Keep the work in independently reviewable slices:
    census.
 3. **Optional local clarity** — rename ILDiff's two providers if the names
    continue to obscure their distinct projections.
+4. **Lossless `MethodSemantics` row boundary** — after the leaf project-closure
+   gate exists, add only the registered three-column reader and its raw-oracle,
+   malformed-row, budget, platform, and architecture-closure gates. Activate it
+   through the member-inspection plan's Metadata admission slice, not through a
+   general table-projection dependency.
 
 Do not combine these slices with a `TypeRef` redesign, provider-policy rewrite,
 rendering change, or TypeSpec acceptance widening. Each slice must preserve

@@ -82,6 +82,14 @@ typed extractors**. The projection and the extractors are **siblings**, each
 reading the same SRM substrate directly — not a stack in which extractors sit on
 top of the projection.
 
+A narrowly registered `ILInspector.MetadataPrimitives` row reader may sit below
+both siblings when SRM has no public lossless accessor for one table. That
+primitive exposes neutral rows and typed mechanical rejection, not this
+projection's presentation-shaped model. The first registered case is the
+three-column `MethodSemantics` reader required by typed declaration admission;
+using it does not make this raw table projection a dependency of typed
+extractors.
+
 The inversion this rules out:
 
 ```text
@@ -1101,7 +1109,17 @@ oversights:
   in one of them is invisible to the search. A nested type's declaring type is
   exactly such an edge. `UnscannedTables` names the populated tables the scan
   did not read in full, so the gap is disclosed rather than answered as an
-  absence. Empty tables are excluded: they cannot hide a reference.
+  absence. Empty tables are excluded: they cannot hide a reference. The
+  MetadataPrimitives `MethodSemantics` reader does not change this result: the
+  general projector still has no `MethodSemantics` descriptor, and reverse
+  search must report the table as unscanned until this projection itself covers
+  every row and column. If that descriptor is added, it consumes the shared
+  three-column primitive and maps its neutral rows into this projection's
+  model; "this projection itself" means complete descriptor and traversal
+  coverage, not ownership of another decoder. That implementation must thread
+  the acquisition-owned `PEReader` through `MetadataTableProjectionEngine`
+  rather than reconstructing the primitive from the engine's current
+  `MetadataReader`-only row methods.
 - **`UnscannedTables` is derived from the traversal, not declared.** The scan
   records a table only after examining every row the image says it has, and the
   blind spot is the populated tables missing from that record. Computing it from
