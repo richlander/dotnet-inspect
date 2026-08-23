@@ -534,20 +534,29 @@ a second site or URL. Opening it validates the document, indexes structural
 spans by canonical line, and prepares the projection once per result; selection
 changes and later reopens reuse that immutable projection. The explorer renders
 canonical lines beside anchored and explicitly unanchored facts; supports C#/IL
-visibility, fact, exact-node, node-kind, and named-region selection; and follows
-pointer or keyboard activation to the tightest structural node. Source
-activation remains a structural selection even when a Finding targets that
-node: an exact caret annotation discloses the selected range and any related
-Findings, and activating one of those Finding controls changes to the semantic
-plane explicitly. The `fact, source node, node-kind, and clear actions preserve
-distinct selection semantics` test gates that separation. Product-owned
-body-kind vocabulary supplies the structure labels and ordering. The merged
-view labels only C# and IL transitions rather than repeating a medium on every
-line; a single-medium view removes that label lane entirely. Anchored facts
-have a persistent source affordance before selection,
-while construct and region controls use a low-weight shadow treatment for
-loops, branches, lambdas, local functions, and exception structure already
-present in the portable document. When the producer supplies
+visibility, independent fact and exact-node selection, and follows pointer or
+keyboard activation to the tightest structural node. Source activation toggles
+a persistent node selection even when a Finding targets that node: a blue exact
+caret annotation discloses the selected range and related Finding details until
+the node is activated again or selection is cleared. Activating a Finding does
+not clear that node and adds its own orange target caret. The `fact, source
+node, node-kind, and clear actions preserve distinct selection semantics` test
+gates that separation.
+
+Product-owned body-kind vocabulary supplies inline CodeLens labels for
+multi-line source constructs. CodeLens is globally on or off; its unnumbered
+rows do not alter canonical coordinates or source line numbering. Pressing and
+holding a CodeLens chip temporarily bolds and shades exactly the product-issued
+node spans, and releasing it removes that preview without changing persistent
+selection. Large syntax constructs use this leading annotation rather than
+emitting caret rows across the construct. The `CodeLens press previews its node
+only until release` and `product labels render as toggleable structural
+CodeLens annotations` tests gate those interactions.
+
+The merged view labels only C# and IL transitions rather than repeating a
+medium on every line; a single-medium view removes that label lane entirely.
+Anchored facts have a persistent source affordance before selection. When the
+producer supplies
 capture evidence, captured names carry their own ambient marker and the closure
 panel can select one variable, shade its lambda or local-function scope, and
 highlight each exact addressable use. The browser follows capture node ids; it
@@ -559,18 +568,18 @@ tokenizer for interaction-time reuse. The source panel is one tab stop; arrow
 keys move among its structural spans, while Tab proceeds directly to the
 inspector.
 Each selection plane keeps its own visual treatment: green Finding affordances,
-orange active Finding targets, blue structural shadows and source-node carets,
-and purple capture scope and uses. Selection highlights every targeted node
-across both media without selecting the text between one node's separated
-spans. Its copy action copies
+orange active Finding targets and carets, blue source-node carets and transient
+CodeLens previews, and purple capture scope and uses. Selection highlights
+every targeted node across both media without selecting the text between one
+node's separated spans. Its copy action copies
 `document.text`, so the copied artifact is source and never annotations.
 `member-detail-inspection.ts` owns the sequence-guarded async load lifecycle,
 and `dotnet-inspect.ts` owns the explorer state and DOM event bridge.
 `test/annotated-source-explorer.test.ts` gates the hand-off, projection reuse,
 syntax-token containment and caching, ambient finding affordances, structural
-and region overlays, producer-issued capture relationships, selection reducer,
-keyboard controls, media floor, escaping, reachable narrow layout, visible copy
-feedback, and rejected-document behavior. A payload the model rejects is
+CodeLens previews, producer-issued capture relationships, selection reducer,
+keyboard controls, media floor, escaping, reachable narrow layout, visible
+copy feedback, and rejected-document behavior. A payload the model rejects is
 reported as rejected, not rendered.
 
 ## Run

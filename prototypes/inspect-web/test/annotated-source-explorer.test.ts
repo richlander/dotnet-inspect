@@ -44,6 +44,16 @@ function escapeHtml(value: unknown) {
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
+  readonly classes = new Set<string>();
+  readonly classList = {
+    contains: (token: string) => this.classes.has(token),
+    toggle: (token: string, force?: boolean) => {
+      const active = force ?? !this.classes.has(token);
+      if (active) this.classes.add(token);
+      else this.classes.delete(token);
+      return active;
+    },
+  };
   readonly ownerDocument: {
     activeElement: unknown;
     getSelection(): {
@@ -69,6 +79,8 @@ class FakeElement {
     listeners.push(listener);
     this.listeners.set(type, listeners);
   }
+
+  setPointerCapture(_pointerId: number): void {}
 
   dispatch(type: string, event: Event = fakeDom.event()): void {
     for (const listener of this.listeners.get(type) ?? []) {
@@ -130,6 +142,7 @@ test("drag selection does not activate an addressable source segment", () => {
     onCopy: () => {},
     onExit: () => {},
     onCaptureSelect: () => {},
+    onCodeLensToggle: () => {},
     onFactSelect: () => {},
     onMediumToggle: () => {},
     onNodeKindSelect: () => {},
@@ -144,6 +157,51 @@ test("drag selection does not activate an addressable source segment", () => {
   offset.dispatch("click", fakeDom.event({ detail: 1 }));
   offset.dispatch("click", fakeDom.event({ detail: 0 }));
   assert.deepEqual(calls, [17, 17]);
+});
+
+test("CodeLens press previews its node only until release", () => {
+  const lens = new FakeElement({ aseCodelensNode: "7" });
+  const target = new FakeElement({ aseNodeIds: "7" });
+  const toggle = new FakeElement();
+  let toggles = 0;
+  const root = fakeDom.parentNode({
+    querySelector: (selector: string) =>
+      selector === "[data-ase-codelens-toggle]" ? toggle : null,
+    querySelectorAll: (selector: string) => {
+      if (selector === "[data-ase-codelens-node]") return [lens];
+      if (selector === '[data-ase-node-ids~="7"]') return [target];
+      return [];
+    },
+  });
+
+  bindAnnotatedSourceExplorer(root, {
+    onClearSelection: () => {},
+    onCopy: () => {},
+    onExit: () => {},
+    onCaptureSelect: () => {},
+    onCodeLensToggle: () => toggles++,
+    onFactSelect: () => {},
+    onMediumToggle: () => {},
+    onNodeKindSelect: () => {},
+    onRegionSelect: () => {},
+    onNodeSelect: () => {},
+    onOffsetSelect: () => {},
+  });
+
+  lens.dispatch("pointerdown", fakeDom.event({ button: 0, pointerId: 3 }));
+  assert.equal(lens.classList.contains("previewing"), true);
+  assert.equal(target.classList.contains("codelens-preview"), true);
+  lens.dispatch("pointerup", fakeDom.event({ pointerId: 3 }));
+  assert.equal(lens.classList.contains("previewing"), false);
+  assert.equal(target.classList.contains("codelens-preview"), false);
+
+  lens.dispatch("keydown", fakeDom.keyboardEvent({ key: "Enter", preventDefault() {} }));
+  assert.equal(target.classList.contains("codelens-preview"), true);
+  lens.dispatch("keyup", fakeDom.keyboardEvent({ key: "Enter" }));
+  assert.equal(target.classList.contains("codelens-preview"), false);
+
+  toggle.dispatch("click");
+  assert.equal(toggles, 1);
 });
 
 test("the app routes the member tab into the TypeScript explorer", () => {
@@ -170,10 +228,8 @@ test("the explorer presents canonical text beside anchored and unanchored facts"
   assert.match(html, /alloc\.new/);
   assert.match(html, /Unanchored facts/);
   assert.match(html, /cost\.method/);
-  assert.match(html, /Source structures/);
-  assert.match(html, /data-ase-kind="ForStatement"/);
-  assert.match(html, /data-ase-kind="Instruction"/);
-  assert.match(html, /data-ase-region="Body"/);
+  assert.match(html, /<strong>CodeLens<\/strong>/);
+  assert.match(html, /data-ase-codelens-toggle aria-pressed="true"/);
   assert.match(html, /finding available/);
 });
 
@@ -196,14 +252,15 @@ test("fact, source node, node-kind, and clear actions preserve distinct selectio
   });
   assert.match(factHtml, /annotated-span addressable has-fact selected semantic/);
   assert.doesNotMatch(factHtml, /selected structural/);
-  assert.doesNotMatch(factHtml, /class="annotated-node-caret"/);
+  assert.match(factHtml, /class="annotated-node-caret finding"/);
+  assert.match(factHtml, /alloc\.new:/);
 
   const source = reduceAnnotatedSourceExplorerState(
     sampleDocument,
     fact,
     { type: "select-offset", offset: sampleDocument.text.indexOf("new object()") },
   );
-  assert.equal(source.selectedFactId, null);
+  assert.equal(source.selectedFactId, 0);
   assert.deepEqual(source.selectedNodeIds, [1]);
   const sourceHtml = renderAnnotatedSourceExplorer({
     result,
@@ -212,11 +269,20 @@ test("fact, source node, node-kind, and clear actions preserve distinct selectio
     subtitle: "public object Run()",
     escapeHtml,
   });
-  assert.match(sourceHtml, /class="annotated-node-caret"/);
+  assert.match(sourceHtml, /class="annotated-node-caret source"/);
+  assert.match(sourceHtml, /class="annotated-node-caret finding"/);
   assert.match(sourceHtml, /#1 ObjectCreationExpression · \[\d+\.\.\d+\) · 1 finding: alloc\.new/);
   assert.match(sourceHtml, /Findings at this node/);
-  assert.match(sourceHtml, /data-ase-fact="0" aria-pressed="false"/);
-  assert.doesNotMatch(sourceHtml, /selected semantic/);
+  assert.match(sourceHtml, /data-ase-fact="0" aria-pressed="true"/);
+  assert.match(sourceHtml, /selected semantic/);
+
+  const sourceToggledOff = reduceAnnotatedSourceExplorerState(
+    sampleDocument,
+    source,
+    { type: "select-offset", offset: sampleDocument.text.indexOf("new object()") },
+  );
+  assert.deepEqual(sourceToggledOff.selectedNodeIds, []);
+  assert.equal(sourceToggledOff.selectedFactId, 0);
   assert.match(
     styles,
     /\.annotated-span\.selected\.semantic\s*\{[^}]*linear-gradient\(180deg,[^}]*var\(--accent\) 16%[^}]*text-shadow:[^}]*var\(--accent\) 65%/,
@@ -331,46 +397,54 @@ test("C# syntax tokens stay inside addressable spans while findings remain ambie
   assert.match(styles, /\.annotated-span\.has-fact\s*\{[^}]*box-shadow:/);
 });
 
-test("product labels and regions render as structural overlays", () => {
-  const kindState = reduceAnnotatedSourceExplorerState(
-    sampleDocument,
-    createAnnotatedSourceExplorerState(sampleDocument),
-    { type: "select-kind", kind: "ForStatement" },
-  );
-  const kindHtml = renderAnnotatedSourceExplorer({
+test("product labels render as toggleable structural CodeLens annotations", () => {
+  const initial = createAnnotatedSourceExplorerState(sampleDocument);
+  const html = renderAnnotatedSourceExplorer({
     result,
-    state: kindState,
+    state: initial,
     title: "Example.Run",
     subtitle: "public object Run()",
     escapeHtml,
     nodeKinds: [{ id: "ForStatement", label: "For loop" }],
   });
-  assert.match(kindHtml, /data-ase-kind="ForStatement" aria-pressed="true"/);
-  assert.match(kindHtml, />For loop<\/span><em>1<\/em>/);
-  assert.match(kindHtml, /annotated-span addressable has-fact selected structural/);
-  assert.doesNotMatch(kindHtml, /class="annotated-node-caret"/);
-  assert.match(
-    styles,
-    /\.annotated-region\.selected\s*\{[^}]*background:\s*transparent[^}]*text-shadow:/,
-  );
+  assert.match(html, /class="annotated-codelens-row"/);
+  assert.match(html, /data-ase-codelens-node="0"/);
+  assert.match(html, />For loop<\/button>/);
+  assert.doesNotMatch(html, /data-ase-kind=/);
 
-  const regionState = reduceAnnotatedSourceExplorerState(
+  const selectedStructure = reduceAnnotatedSourceExplorerState(
     sampleDocument,
-    kindState,
-    { type: "select-region", role: "Body" },
+    initial,
+    { type: "select-node", nodeId: 0 },
   );
-  const regionHtml = renderAnnotatedSourceExplorer({
+  const selectedStructureHtml = renderAnnotatedSourceExplorer({
     result,
-    state: regionState,
+    state: selectedStructure,
     title: "Example.Run",
     subtitle: "public object Run()",
     escapeHtml,
+    nodeKinds: [{ id: "ForStatement", label: "For loop" }],
   });
-  assert.match(regionHtml, /data-ase-region="Body" aria-pressed="true"/);
-  assert.match(regionHtml, /class="annotated-region selected"/);
-  assert.match(regionHtml, /class="ase-region-selection" data-ase-offset=/);
-  assert.match(regionHtml, /Lines 3–6/);
-  assert.match(regionHtml, /1 Body region/);
+  assert.doesNotMatch(selectedStructureHtml, /class="annotated-node-caret source"/);
+  assert.doesNotMatch(selectedStructureHtml, /selected structural/);
+
+  const disabled = reduceAnnotatedSourceExplorerState(
+    sampleDocument,
+    initial,
+    { type: "toggle-codelens" },
+  );
+  const disabledHtml = renderAnnotatedSourceExplorer({
+    result,
+    state: disabled,
+    title: "Example.Run",
+    subtitle: "public object Run()",
+    escapeHtml,
+    nodeKinds: [{ id: "ForStatement", label: "For loop" }],
+  });
+  assert.match(disabledHtml, /data-ase-codelens-toggle aria-pressed="false">off/);
+  assert.doesNotMatch(disabledHtml, /class="annotated-codelens-row"/);
+  assert.match(appSource, /memberAnnotatedCodeLens/);
+  assert.match(appSource, /onCodeLensToggle:/);
 });
 
 test("captured variables remain discoverable and select their exact uses", () => {

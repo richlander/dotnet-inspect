@@ -22,6 +22,7 @@ export type AnnotatedSourceResult = Omit<BrowserAnnotatedSource, "document"> & {
 export interface AnnotatedSourceExplorerState {
   prepared: PreparedAnnotatedView;
   media: Record<SourceMedium, boolean>;
+  codeLens: boolean;
   selectedFactId: number | null;
   selectedCaptureIndex: number | null;
   selectedNodeIds: readonly number[];
@@ -38,6 +39,7 @@ export interface AnnotatedSourceExplorerRenderState {
 
 export type AnnotatedSourceExplorerAction =
   | { type: "toggle-medium"; medium: SourceMedium }
+  | { type: "toggle-codelens" }
   | { type: "select-fact"; factId: number }
   | { type: "select-capture"; captureIndex: number }
   | { type: "select-node"; nodeId: number }
@@ -64,6 +66,7 @@ export interface AnnotatedSourceExplorerBindingActions {
   onExit: () => void;
   onCaptureSelect: (captureIndex: number) => void;
   onFactSelect: (factId: number) => void;
+  onCodeLensToggle: () => void;
   onMediumToggle: (medium: SourceMedium) => void;
   onNodeKindSelect: (kind: string) => void;
   onRegionSelect: (role: string) => void;
@@ -112,6 +115,9 @@ export function bindAnnotatedSourceExplorer(
 ): void {
   root.querySelector("#ase-exit")?.addEventListener("click", actions.onExit);
   root.querySelector("#ase-copy")?.addEventListener("click", actions.onCopy);
+  root.querySelector("[data-ase-codelens-toggle]")?.addEventListener(
+    "click",
+    actions.onCodeLensToggle);
   root.querySelectorAll<HTMLElement>("[data-ase-medium]").forEach(button =>
     button.addEventListener("click", () => {
       const medium = button.dataset.aseMedium;
@@ -137,6 +143,31 @@ export function bindAnnotatedSourceExplorer(
     button.addEventListener(
       "click",
       () => actions.onNodeSelect(Number(button.dataset.aseNode))));
+  root.querySelectorAll<HTMLElement>("[data-ase-codelens-node]").forEach(button => {
+    const nodeId = Number(button.dataset.aseCodelensNode);
+    const setPreview = (active: boolean) => {
+      root.querySelectorAll<HTMLElement>(`[data-ase-node-ids~="${nodeId}"]`)
+        .forEach(span => span.classList.toggle("codelens-preview", active));
+      button.classList.toggle("previewing", active);
+    };
+    button.addEventListener("pointerdown", event => {
+      if (event.button !== 0) return;
+      button.setPointerCapture(event.pointerId);
+      setPreview(true);
+    });
+    for (const eventName of ["pointerup", "pointercancel", "lostpointercapture"]) {
+      button.addEventListener(eventName, () => setPreview(false));
+    }
+    button.addEventListener("keydown", event => {
+      if (event.key !== " " && event.key !== "Enter") return;
+      event.preventDefault();
+      setPreview(true);
+    });
+    button.addEventListener("keyup", event => {
+      if (event.key === " " || event.key === "Enter") setPreview(false);
+    });
+    button.addEventListener("blur", () => setPreview(false));
+  });
   root.querySelectorAll<HTMLElement>("[data-ase-offset]").forEach(button =>
     button.addEventListener(
       "click",
@@ -230,6 +261,7 @@ export function createAnnotatedSourceExplorerState(
   return {
     prepared: preparedDocument(document),
     media,
+    codeLens: initial.codeLens !== false,
     selectedFactId: initial.selectedFactId ?? null,
     selectedCaptureIndex: initial.selectedCaptureIndex ?? null,
     selectedNodeIds: [...new Set(initial.selectedNodeIds ?? [])],
@@ -248,6 +280,8 @@ export function reduceAnnotatedSourceExplorerState(
       const media = { ...state.media, [action.medium]: !state.media[action.medium] };
       return MEDIA.some(medium => media[medium]) ? { ...state, media } : state;
     }
+    case "toggle-codelens":
+      return { ...state, codeLens: !state.codeLens };
     case "select-fact": {
       if (!document.facts.some(fact => fact.id === action.factId)) return state;
       const selectedFactId = state.selectedFactId === action.factId ? null : action.factId;
@@ -255,7 +289,6 @@ export function reduceAnnotatedSourceExplorerState(
         ...state,
         selectedFactId,
         selectedCaptureIndex: null,
-        selectedNodeIds: [],
         selectedKind: "",
         selectedRegionRole: "",
       };
@@ -278,9 +311,11 @@ export function reduceAnnotatedSourceExplorerState(
       if (!document.nodes.some(node => node.id === action.nodeId)) return state;
       return {
         ...state,
-        selectedFactId: null,
         selectedCaptureIndex: null,
-        selectedNodeIds: [action.nodeId],
+        selectedNodeIds:
+          state.selectedNodeIds.length === 1 && state.selectedNodeIds[0] === action.nodeId
+            ? []
+            : [action.nodeId],
         selectedKind: "",
         selectedRegionRole: "",
       };
@@ -288,9 +323,12 @@ export function reduceAnnotatedSourceExplorerState(
       const node = nodeAtOffset(document, action.offset);
       return {
         ...state,
-        selectedFactId: null,
         selectedCaptureIndex: null,
-        selectedNodeIds: node ? [node.id] : [],
+        selectedNodeIds: node
+          ? state.selectedNodeIds.length === 1 && state.selectedNodeIds[0] === node.id
+            ? []
+            : [node.id]
+          : [],
         selectedKind: "",
         selectedRegionRole: "",
       };
@@ -372,6 +410,9 @@ export function renderAnnotatedSourceExplorer(
   const selectedNodes = view.selectedNodeIds
     .map(id => nodeById.get(id))
     .filter((node): node is AnnotatedSourceNode => node !== undefined);
+  const persistentSelectedNodes = state.selectedNodeIds
+    .map(id => nodeById.get(id))
+    .filter((node): node is AnnotatedSourceNode => node !== undefined);
   const unanchoredIds = new Set(view.unanchoredFactIds);
   const anchoredFacts = view.facts.filter(fact => !unanchoredIds.has(fact.id));
   const unanchoredFacts = view.facts.filter(fact => unanchoredIds.has(fact.id));
@@ -380,32 +421,45 @@ export function renderAnnotatedSourceExplorer(
     : view.captures[view.selectedCaptureIndex];
   const kindCounts = nodeKindCounts(result.document, options.nodeKinds ?? []);
   const kindLabels = new Map(kindCounts.map(kind => [kind.id, kind.label]));
-  const instructionCount = result.document.nodes
-    .filter(node => node.kind === "Instruction").length;
-  const regionCounts = regionRoleCounts(result.document);
   const selectedRegions = result.document.regions
     .filter(region => region.role === state.selectedRegionRole);
   const selectedRegionSpans = selectedRegions.flatMap(region => region.spans);
   const selectedKindLabel = kindCounts.find(kind => kind.id === state.selectedKind)?.label
     ?? (state.selectedKind === "Instruction" ? "Instruction" : state.selectedKind);
   const directlySelectedNode =
-    state.selectedFactId === null
-      && state.selectedCaptureIndex === null
+    state.selectedCaptureIndex === null
       && state.selectedKind === ""
       && state.selectedRegionRole === ""
-      && selectedNodes.length === 1
-      ? selectedNodes[0]
+      && persistentSelectedNodes.length === 1
+      ? persistentSelectedNodes[0]
       : null;
   const directlySelectedNodeFacts = directlySelectedNode
     ? view.facts.filter(fact => fact.nodeIds.includes(directlySelectedNode.id))
     : [];
+  const codeLensAnnotations = sourceCodeLensAnnotations(
+    result.document.nodes,
+    view.lines,
+    kindLabels);
+  const codeLensNodeIds = new Set(
+    [...codeLensAnnotations.values()].flat().map(annotation => annotation.nodeId));
   const nodeCaretAnnotations = directlySelectedNode
+    && !codeLensNodeIds.has(directlySelectedNode.id)
     ? sourceNodeCaretAnnotations(
         directlySelectedNode,
         view.lines,
         result.document.text,
         kindLabels.get(directlySelectedNode.kind) ?? directlySelectedNode.kind,
         directlySelectedNodeFacts)
+    : new Map<number, readonly SourceNodeCaretAnnotation[]>();
+  const selectedFact = view.selectedFactId === null ? null : view.facts[view.selectedFactId];
+  const findingCaretAnnotations = selectedFact
+    ? sourceFindingCaretAnnotations(
+        selectedFact,
+        selectedFact.nodeIds
+          .map(id => nodeById.get(id))
+          .filter((node): node is AnnotatedSourceNode => node !== undefined),
+        view.lines,
+        result.document.text)
     : new Map<number, readonly SourceNodeCaretAnnotation[]>();
 
   const mediumButtons = MEDIA.map(medium =>
@@ -453,6 +507,10 @@ export function renderAnnotatedSourceExplorer(
             ? " selected capture"
             : " selected structural"
         : "";
+      const suppressPersistentStructure = directlySelectedNode !== null
+        && codeLensNodeIds.has(directlySelectedNode.id)
+        && state.selectedFactId === null
+        && segment.nodeIds.includes(directlySelectedNode.id);
       const captureScope = view.captureScopeNodeId !== null
         && segment.nodeIds.includes(view.captureScopeNodeId);
       const descriptions = [
@@ -474,7 +532,7 @@ export function renderAnnotatedSourceExplorer(
         const accessibleLabel = descriptions
           ? ` aria-label="${escapeHtml(`${segment.text}; ${descriptions}`)}"`
           : "";
-        return `<button type="button" tabindex="-1" class="annotated-span addressable${factCount > 0 ? " has-fact" : ""}${captureCount > 0 ? " has-capture" : ""}${captureScope ? " capture-scope" : ""}${selectionClass}" data-ase-offset="${segment.start}" title="${escapeHtml(titleText)}"${accessibleLabel}>${content}</button>`;
+        return `<button type="button" tabindex="-1" class="annotated-span addressable${factCount > 0 ? " has-fact" : ""}${captureCount > 0 ? " has-capture" : ""}${captureScope ? " capture-scope" : ""}${suppressPersistentStructure ? "" : selectionClass}" data-ase-offset="${segment.start}" data-ase-node-ids="${segment.nodeIds.join(" ")}" title="${escapeHtml(titleText)}"${accessibleLabel}>${content}</button>`;
       }
       return `<span class="annotated-span${selectionClass}">${content}</span>`;
     }).join("");
@@ -482,6 +540,15 @@ export function renderAnnotatedSourceExplorer(
       ? MEDIUM_LABELS[line.medium]
       : "";
     previousMedium = line.medium;
+    const lenses = state.codeLens
+      ? codeLensAnnotations.get(line.start)?.map(annotation =>
+          `<div class="annotated-codelens-row">
+            <span class="annotated-line-number"></span>
+            ${showMediumGutter ? `<span class="annotated-line-medium"></span>` : ""}
+            <span class="annotated-line-text"><button type="button" data-ase-codelens-node="${annotation.nodeId}" title="Press and hold to preview ${escapeHtml(annotation.label)}">${escapeHtml(annotation.label)}</button></span>
+          </div>`,
+        ).join("") ?? ""
+      : "";
     const sourceLine = `<div class="annotated-line medium-${line.medium.toLowerCase()}">
       <span class="annotated-line-number">${line.number}</span>
       ${showMediumGutter
@@ -489,14 +556,17 @@ export function renderAnnotatedSourceExplorer(
         : ""}
       <span class="annotated-line-text">${segments}</span>
     </div>`;
-    const carets = nodeCaretAnnotations.get(line.start)?.map(annotation =>
-      `<div class="annotated-node-caret" aria-label="${escapeHtml(annotation.accessibleLabel)}">
+    const carets = [
+      ...(nodeCaretAnnotations.get(line.start) ?? []),
+      ...(findingCaretAnnotations.get(line.start) ?? []),
+    ].map(annotation =>
+      `<div class="annotated-node-caret ${annotation.plane}" aria-label="${escapeHtml(annotation.accessibleLabel)}">
         <span class="annotated-line-number"></span>
         ${showMediumGutter ? `<span class="annotated-line-medium"></span>` : ""}
         <span class="annotated-line-text" aria-hidden="true">${escapeHtml(annotation.prefix)}<span class="annotated-caret-run">${"^".repeat(annotation.length)}</span>${annotation.label ? `<span class="annotated-caret-label"> ${escapeHtml(annotation.label)}</span>` : ""}</span>
       </div>`,
     ).join("") ?? "";
-    return sourceLine + carets;
+    return lenses + sourceLine + carets;
   }).join("");
 
   return `<div class="annotated-explorer" role="dialog" aria-modal="true" aria-label="Annotated source explorer">
@@ -528,14 +598,16 @@ export function renderAnnotatedSourceExplorer(
         </section>
         <aside class="ase-inspector">
           <section class="ase-inspector-section">
-            <div class="ase-section-heading"><div><span>Structural plane</span><strong>Source structures</strong></div><em>${kindCounts.length + regionCounts.length + (instructionCount > 0 ? 1 : 0)}</em></div>
-            <p class="ase-structure-help">Overlay product-issued constructs and named regions on the canonical source.</p>
-            ${structureButtonsHtml(kindCounts, instructionCount, regionCounts, state, escapeHtml)}
+            <div class="ase-section-heading">
+              <div><span>Structural plane</span><strong>CodeLens</strong></div>
+              <button type="button" data-ase-codelens-toggle aria-pressed="${state.codeLens}">${state.codeLens ? "on" : "off"}</button>
+            </div>
+            <p class="ase-structure-help">Unnumbered annotations identify multi-line source constructs. Press and hold a chip to preview its exact span.</p>
           </section>
           ${captureSectionHtml(view.captures, nodeById, kindLabels, escapeHtml)}
           <section class="ase-inspector-section">
             <div class="ase-section-heading">
-              <div><span>Selection</span><strong>${escapeHtml(selectionTitle(view.selectedFactId, selectedCapture, selectedNodes, selectedKindLabel, state.selectedRegionRole, selectedRegions.length))}</strong></div>
+              <div><span>Selection</span><strong>${escapeHtml(directlySelectedNode ? `Node #${directlySelectedNode.id}` : selectionTitle(view.selectedFactId, selectedCapture, selectedNodes, selectedKindLabel, state.selectedRegionRole, selectedRegions.length))}</strong></div>
               ${view.selectedFactId !== null || selectedCapture !== null || selectedNodes.length > 0 || selectedRegions.length > 0 ? `<button id="ase-clear" type="button">clear</button>` : ""}
             </div>
             ${selectedRegions.length > 0
@@ -567,7 +639,41 @@ interface SourceNodeCaretAnnotation {
   accessibleLabel: string;
   label: string;
   length: number;
+  plane: "source" | "finding";
   prefix: string;
+}
+
+interface SourceCodeLensAnnotation {
+  label: string;
+  nodeId: number;
+}
+
+function sourceCodeLensAnnotations(
+  nodes: readonly AnnotatedSourceNode[],
+  lines: readonly { start: number; end: number }[],
+  labels: ReadonlyMap<string, string>,
+): ReadonlyMap<number, readonly SourceCodeLensAnnotation[]> {
+  const annotations = new Map<number, SourceCodeLensAnnotation[]>();
+  for (const node of nodes) {
+    if (node.medium !== "CSharp"
+      || node.kind === "Block"
+      || node.kind === "MemberBody"
+      || !labels.has(node.kind)) {
+      continue;
+    }
+    const intersectingLines = lines.filter(line => node.spans.some(span =>
+      span.start < line.end && line.start < span.start + span.length));
+    if (intersectingLines.length < 2) continue;
+    const lineStart = intersectingLines[0].start;
+    const annotation = {
+      label: labels.get(node.kind) ?? node.kind,
+      nodeId: node.id,
+    };
+    const existing = annotations.get(lineStart);
+    if (existing) existing.push(annotation);
+    else annotations.set(lineStart, [annotation]);
+  }
+  return annotations;
 }
 
 function sourceNodeCaretAnnotations(
@@ -589,7 +695,7 @@ function sourceNodeCaretAnnotations(
       const factSummary = facts.length === 0
         ? ""
         : ` · ${facts.length} finding${facts.length === 1 ? "" : "s"}: ${facts
-            .map(fact => fact.descriptor)
+            .map(factDescription)
             .join(", ")}`;
       const label = labelPending
         ? `#${node.id} ${kindLabel} · ${coordinates}${factSummary}`
@@ -600,6 +706,7 @@ function sourceNodeCaretAnnotations(
           `Selected source node #${node.id} ${kindLabel}, range ${coordinates}${factSummary}`,
         label,
         length: end - start,
+        plane: "source" as const,
         prefix: text.slice(line.start, start).replace(/[^\t]/g, " "),
       };
       const existing = annotations.get(line.start);
@@ -608,6 +715,45 @@ function sourceNodeCaretAnnotations(
     }
   }
   return annotations;
+}
+
+function sourceFindingCaretAnnotations(
+  fact: AnnotatedViewFact,
+  nodes: readonly AnnotatedSourceNode[],
+  lines: readonly { start: number; end: number }[],
+  text: string,
+): ReadonlyMap<number, readonly SourceNodeCaretAnnotation[]> {
+  const annotations = new Map<number, SourceNodeCaretAnnotation[]>();
+  for (const node of nodes) {
+    let added = false;
+    for (const line of lines) {
+      for (const span of node.spans) {
+        const start = Math.max(line.start, span.start);
+        const end = Math.min(line.end, span.start + span.length);
+        if (start >= end) continue;
+        const coordinates = `[${start}..${end})`;
+        const annotation = {
+          accessibleLabel:
+            `Selected Finding ${factDescription(fact)}, target range ${coordinates}`,
+          label: `${factDescription(fact)} · ${coordinates}`,
+          length: end - start,
+          plane: "finding" as const,
+          prefix: text.slice(line.start, start).replace(/[^\t]/g, " "),
+        };
+        const existing = annotations.get(line.start);
+        if (existing) existing.push(annotation);
+        else annotations.set(line.start, [annotation]);
+        added = true;
+        break;
+      }
+      if (added) break;
+    }
+  }
+  return annotations;
+}
+
+function factDescription(fact: AnnotatedViewFact): string {
+  return fact.detail ? `${fact.descriptor}: ${fact.detail}` : fact.descriptor;
 }
 
 function preparedDocument(document: AnnotatedSourceDocument): PreparedAnnotatedView {
@@ -650,14 +796,6 @@ function nodeKindCounts(
       .filter(([id]) => !seen.has(id) && id !== "MemberBody" && id !== "Block")
       .map(([id, count]) => ({ id, label: id, count })),
   ];
-}
-
-function regionRoleCounts(document: AnnotatedSourceDocument): [string, number][] {
-  const counts = new Map<string, number>();
-  for (const region of document.regions) {
-    counts.set(region.role, (counts.get(region.role) ?? 0) + 1);
-  }
-  return [...counts];
 }
 
 function selectionTitle(
@@ -751,32 +889,6 @@ function regionSelectionHtml(
         <small>${escapeHtml(regionLineSummary(region, prepared))}</small>
       </button>`).join("")}
       ${overflow > 0 ? `<p class="ase-overflow">${overflow} more regions; choose a source span to inspect its enclosing structure.</p>` : ""}
-    </div>`;
-}
-
-function structureButtonsHtml(
-  kinds: readonly { id: string; label: string; count: number }[],
-  instructionCount: number,
-  regions: readonly [string, number][],
-  state: AnnotatedSourceExplorerState,
-  escapeHtml: EscapeHtml,
-): string {
-  if (kinds.length === 0 && regions.length === 0 && instructionCount === 0) {
-    return `<p class="ase-empty">No C# structure was projected for this member.</p>`;
-  }
-  const kindButtons = kinds.map(kind =>
-    `<button type="button" class="ase-structure-button${state.selectedKind === kind.id ? " selected" : ""}" data-ase-kind="${escapeHtml(kind.id)}" aria-pressed="${state.selectedKind === kind.id}"><span>${escapeHtml(kind.label)}</span><em>${kind.count}</em></button>`,
-  ).join("");
-  const regionButtons = regions.map(([role, count]) =>
-    `<button type="button" class="ase-structure-button${state.selectedRegionRole === role ? " selected" : ""}" data-ase-region="${escapeHtml(role)}" aria-pressed="${state.selectedRegionRole === role}"><span>${escapeHtml(role)}</span><em>${count}</em></button>`,
-  ).join("");
-  const instructionButton = instructionCount > 0
-    ? `<button type="button" class="ase-structure-button${state.selectedKind === "Instruction" ? " selected" : ""}" data-ase-kind="Instruction" aria-pressed="${state.selectedKind === "Instruction"}"><span>Instruction</span><em>${instructionCount}</em></button>`
-    : "";
-  return `<div class="ase-structure-groups">
-      ${kindButtons ? `<div><span>Constructs</span><div class="ase-structure-buttons">${kindButtons}</div></div>` : ""}
-      ${regionButtons ? `<div><span>Regions</span><div class="ase-structure-buttons">${regionButtons}</div></div>` : ""}
-      ${instructionButton ? `<div><span>IL nodes</span><div class="ase-structure-buttons">${instructionButton}</div></div>` : ""}
     </div>`;
 }
 
@@ -884,7 +996,7 @@ function selectionHtml(
   escapeHtml: EscapeHtml,
 ): string {
   if (nodes.length === 0) {
-    return `<p class="ase-empty">Select a fact, node kind, or source substring.</p>`;
+    return `<p class="ase-empty">Select a Finding or source substring.</p>`;
   }
   const visible = nodes.slice(0, MAX_SELECTION_DETAILS);
   const overflow = nodes.length - visible.length;
