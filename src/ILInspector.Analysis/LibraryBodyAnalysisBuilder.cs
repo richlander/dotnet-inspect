@@ -662,11 +662,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             return analysis;
 
         IReadOnlyDictionary<int, MethodIdentity> asyncSources =
-            plan.IsScoped
-                ? _asyncSourceResolver
-                    .DeclaredSourceMethodsByMoveNextToken()
-                : _asyncSourceResolver
-                    .ExecutionSourceMethodsByMoveNextToken();
+            _asyncSourceResolver
+                .DeclaredSourceMethodsByMoveNextToken();
         if (asyncSources.Count == 0)
             return analysis;
 
@@ -697,11 +694,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 when (LibraryMethodAnalysisRunner
                     .IsRecoverableMethodFailure(ex))
             {
-                if (!plan.IsScoped
-                    && !declaredSources.ContainsKey(token))
-                {
-                    declaredSources.Add(token, source);
-                }
                 var sourceHandle =
                     (MethodDefinitionHandle)
                     MetadataTokens.EntityHandle(

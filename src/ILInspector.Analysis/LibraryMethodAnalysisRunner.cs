@@ -283,7 +283,6 @@ internal sealed class LibraryMethodAnalysisRunner(
                     return result;
             }
             MethodIdentity? opportunityDeclaredMethod = null;
-            MethodIdentity? declaredMethod = null;
             bool opportunityOwnershipResolved = true;
             try
             {
@@ -292,7 +291,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                         caller.MetadataToken)
                         == true
                     || directlySelectedType;
-                declaredMethod =
+                MethodIdentity? declaredMethod =
                     _infrastructure.ResolveDeclaredMethod(
                         methodHandle,
                         methodDefinition,
@@ -330,12 +329,6 @@ internal sealed class LibraryMethodAnalysisRunner(
                 if (ownerResolution
                     == DeclaredOwnerResolution.Resolved)
                     result.DeclaredSource = ultimateOwner;
-                else if (ownerResolution
-                        == DeclaredOwnerResolution.Unresolved
-                    && !plan.IsScoped)
-                {
-                    result.DeclaredSource = declaredMethod;
-                }
                 opportunityOwnershipResolved =
                     ownerResolution
                         != DeclaredOwnerResolution.Unresolved;
@@ -350,11 +343,6 @@ internal sealed class LibraryMethodAnalysisRunner(
             catch (Exception ex)
                 when (IsRecoverableMethodFailure(ex))
             {
-                if (!plan.IsScoped
-                    && declaredMethod is not null)
-                {
-                    result.DeclaredSource = declaredMethod;
-                }
                 opportunityOwnershipResolved = false;
                 result.Diagnostic = new AnalysisDiagnostic(
                     MetadataTokens.GetToken(methodHandle),
