@@ -316,6 +316,9 @@ jobs:
   test:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      packages: read
     strategy:
       fail-fast: false
       matrix:
@@ -400,6 +403,26 @@ jobs:
 
       - name: Run CLI tests (fast)
         run: dotnet run --project src/dotnet-inspect.Tests -c Release -- -trait- "Speed=Slow"
+
+      - name: Run GitHub Packages fixture test
+        shell: bash
+        env:
+          DOTNET_INSPECT_PACKAGE_FIXTURE_USER: ${{ github.actor }}
+          DOTNET_INSPECT_PACKAGE_FIXTURE_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/package-fixture-tests.xml"
+          dotnet run --project src/dotnet-inspect.Tests -c Release --no-build -- \
+            -method '*Package_Manifest_RendersToolManifestRows*' \
+            -xml "$results"
+          if ! grep -Eq 'total="[1-9][0-9]*"' "$results"; then
+            echo "::error::Package fixture test filter selected no tests." >&2
+            exit 1
+          fi
+          if ! grep -Eq 'skipped="0"' "$results"; then
+            echo "::error::Package fixture test skipped authenticated execution." >&2
+            exit 1
+          fi
 
       - name: Run CSharpText tests
         run: dotnet run --project tests/CSharpText.Tests -c Release

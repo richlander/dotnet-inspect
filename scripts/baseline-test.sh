@@ -1,6 +1,8 @@
 #!/bin/bash
 # Baseline test script for dotnet-inspect
 # Generates output for a comprehensive set of commands
+# This developer-invoked external ecosystem canary is not a CI gate. It
+# intentionally exercises pinned real packages and requires live feed access.
 # Usage: ./baseline-test.sh [--update]
 #   --update: Overwrite baseline.txt with new output
 #   (no args): Compare current output against baseline
@@ -82,7 +84,7 @@ run_cmd() {
     # Tool package
     run_cmd "dotnet-ef 10.0.2 -v:d"
 
-    # RID-specific tool
+    # RID-specific external ecosystem canary
     run_cmd "Azure.Mcp 1.0.1 -v:d"
 
     # Community package

@@ -187,6 +187,7 @@ internal static partial class WorkflowContract
         var allowedShell = new Dictionary<string, string>(
             StringComparer.Ordinal)
         {
+            ["test/Run GitHub Packages fixture test"] = "bash",
             ["test/Run PR decompiler corpus sensor"] = "bash",
             ["test/Install ilasm/ildasm/mdv"] = "bash",
             ["test-windows/Install ilasm/ildasm"] = "bash",

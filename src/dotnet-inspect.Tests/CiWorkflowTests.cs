@@ -25,6 +25,32 @@ public class CiWorkflowTests
         Assert.Contains("runs-on: ubuntu-26.04", JobHeader("pack"));
     }
 
+    [Fact]
+    public void HostedPackageFixture_UsesOneStepScopedReadToken()
+    {
+        string testHeader = JobHeader("test");
+
+        Assert.Contains("contents: read", testHeader);
+        Assert.Contains("packages: read", testHeader);
+        Assert.DoesNotContain(
+            "packages: read",
+            JobHeader("test-windows"));
+        Assert.Equal(
+            1,
+            CountOccurrences(
+                Workflow,
+                "DOTNET_INSPECT_PACKAGE_FIXTURE_TOKEN: ${{ github.token }}"));
+        Assert.Contains(
+            "-method '*Package_Manifest_RendersToolManifestRows*'",
+            Workflow);
+        Assert.Contains(
+            "Package fixture test filter selected no tests.",
+            Workflow);
+        Assert.Contains(
+            "Package fixture test skipped authenticated execution.",
+            Workflow);
+    }
+
     static string JobHeader(string jobName)
     {
         int jobStart = Workflow.IndexOf($"\n  {jobName}:\n", StringComparison.Ordinal);
@@ -33,6 +59,20 @@ public class CiWorkflowTests
         int stepsStart = Workflow.IndexOf("\n    steps:\n", jobStart, StringComparison.Ordinal);
         Assert.True(stepsStart > jobStart, $"CI job '{jobName}' does not define steps.");
         return Workflow[jobStart..stepsStart];
+    }
+
+    static int CountOccurrences(string text, string value)
+    {
+        int count = 0;
+        int index = 0;
+        while ((index = text.IndexOf(value, index, StringComparison.Ordinal))
+            >= 0)
+        {
+            count++;
+            index += value.Length;
+        }
+
+        return count;
     }
 
     static string FindRepoRoot()

@@ -10,6 +10,7 @@ using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Commands;
 using DotnetInspector.Core;
@@ -43,6 +44,16 @@ namespace DotnetInspector.Tests;
 [Trait("Speed", "Slow")]
 public partial class CommandExecutionTests
 {
+    private const string PackageFixtureFeed =
+        "https://nuget.pkg.github.com/richlander/index.json";
+    private const string PackageFixtureId =
+        "DotnetInspect.TestAssets.ToolV2";
+    private const string PackageFixtureVersion = "1.0.0";
+    private const string PackageFixtureUserEnvironmentVariable =
+        "DOTNET_INSPECT_PACKAGE_FIXTURE_USER";
+    private const string PackageFixtureTokenEnvironmentVariable =
+        "DOTNET_INSPECT_PACKAGE_FIXTURE_TOKEN";
+
     private static readonly string TestAssemblyPath =
         typeof(CommandExecutionTests).Assembly.Location;
 
@@ -21030,18 +21041,118 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    [Trait("Network", "GitHubPackages")]
     public async Task Package_Manifest_RendersToolManifestRows()
     {
-        var (exit, output, error) = await RunAppAsync("package", "Azure.Mcp", "-S", "Manifest");
+        string? username = Environment.GetEnvironmentVariable(
+            PackageFixtureUserEnvironmentVariable);
+        string? token = Environment.GetEnvironmentVariable(
+            PackageFixtureTokenEnvironmentVariable);
+        if (string.IsNullOrWhiteSpace(username)
+            || string.IsNullOrWhiteSpace(token))
+        {
+            Assert.Skip(
+                $"Set {PackageFixtureUserEnvironmentVariable} and "
+                + $"{PackageFixtureTokenEnvironmentVariable} to run the "
+                + "GitHub Packages fixture test.");
+            return;
+        }
 
-        Assert.Equal(0, exit);
-        Assert.Contains("## Manifest", output);
-        Assert.Contains("| Info | Manifest Version | 2 |", output);
-        Assert.DoesNotContain("| Info | Schema |", output);
-        Assert.Contains("| Info | Commands |", output);
-        Assert.Contains("| RID Package | linux-x64 | Azure.Mcp.linux-x64 | yes |", output);
-        Assert.DoesNotContain("## RID Packages", output);
-        Assert.DoesNotContain("Tip:", error);
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-hosted-fixture-{Guid.NewGuid():N}");
+        string isolationName = $"hosted-fixture-{Guid.NewGuid():N}";
+        string isolatedCache = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-{isolationName}");
+        Directory.CreateDirectory(tempDir);
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(
+                tempDir,
+                UnixFileMode.UserRead
+                    | UnixFileMode.UserWrite
+                    | UnixFileMode.UserExecute);
+        }
+
+        string configPath = Path.Combine(tempDir, "NuGet.Config");
+        new XDocument(
+            new XElement(
+                "configuration",
+                new XElement(
+                    "packageSources",
+                    new XElement("clear"),
+                    new XElement(
+                        "add",
+                        new XAttribute("key", "github-fixtures"),
+                        new XAttribute("value", PackageFixtureFeed))),
+                new XElement(
+                    "packageSourceCredentials",
+                    new XElement(
+                        "github-fixtures",
+                        new XElement(
+                            "add",
+                            new XAttribute("key", "Username"),
+                            new XAttribute("value", username)),
+                        new XElement(
+                            "add",
+                            new XAttribute("key", "ClearTextPassword"),
+                            new XAttribute("value", token))))))
+            .Save(configPath);
+
+        try
+        {
+            var (exit, output, error) = await RunAppInDirectoryAsync(
+                tempDir,
+                "--isolated",
+                isolationName,
+                "package",
+                $"{PackageFixtureId}@{PackageFixtureVersion}",
+                "-S",
+                "Manifest",
+                "--source",
+                PackageFixtureFeed,
+                "--nugetconfig",
+                configPath);
+
+            Assert.False(
+                output.Contains(token, StringComparison.Ordinal),
+                "The fixture credential was written to stdout.");
+            Assert.False(
+                error.Contains(token, StringComparison.Ordinal),
+                "The fixture credential was written to stderr.");
+            Assert.Equal(0, exit);
+            Assert.Contains("## Manifest", output);
+            Assert.Contains("| Info | Manifest Version | 2 |", output);
+            Assert.Contains(
+                $"| Info | Package | {PackageFixtureId} |",
+                output);
+            Assert.Contains(
+                $"| Info | Version | {PackageFixtureVersion} |",
+                output);
+            Assert.DoesNotContain("| Info | Schema |", output);
+            Assert.Contains(
+                "| Info | Commands | dotnet-inspect-fixture |",
+                output);
+            Assert.Contains(
+                "| RID Package | linux-x64 | "
+                    + $"{PackageFixtureId}.linux-x64 | yes |",
+                output);
+            Assert.Contains(
+                "| RID Package | win-x64 | "
+                    + $"{PackageFixtureId}.win-x64 | no |",
+                output);
+            Assert.DoesNotContain("Azure.Mcp", output);
+            Assert.DoesNotContain("## RID Packages", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+            if (Directory.Exists(isolatedCache))
+                Directory.Delete(isolatedCache, recursive: true);
+        }
     }
 
     [Fact]
