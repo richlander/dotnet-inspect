@@ -125,56 +125,17 @@ contract expressed by its dependencies, inspecting a single binary pulled from
 remote build assets, or asking what a rebuilt assembly integrates with. An
 overlay that is only ever read on its own does not need to be an overlay.
 
-Two rules govern composition. The **first is intended behaviour that the current
-implementation does not deliver**; the second holds today.
+Two rules govern composition. They describe the graph the product is to build,
+not every outcome the current resolver can produce:
 
-- **The overlay should win for its own filename — but does not.** The caller
-  named that exact file, so honouring it is the entire point. Today it holds
-  only for the assembly the caller *opens*, which is read from the named path
-  directly. It does **not** hold for a reference *resolved* to that same
-  filename from another assembly: platform candidates are registered before
-  corpus candidates and resolution walks them in registration order, so the
-  platform copy is offered first. (`CandidateTier` does not rank anything; it
-  is used only for tier-boundary handling.) Whether the overlay is reached at
-  all then depends on configuration rather than on the caller's intent.
-
-  If no earlier candidate matches that *filename*, the overlay is simply used:
-  it is the first candidate seen, no tier boundary is crossed, and nothing
-  below applies. Candidates are also filtered by scope before any of this —
-  platform scope considers only trusted-platform, shared-framework, and corpus
-  provenances, so a sibling or package candidate for that filename imposes no
-  condition there at all. What follows concerns the candidates that survive
-  both filters.
-
-  Candidates in the overlay's **own** tier are the easy case: a mismatch or an
-  unreadable file simply moves to the next one, and a later same-tier candidate
-  can still be chosen
-  (`AssemblyDependencyResolverTests.Select_CaseDistinctSameTierCandidateIsMatchedAfterUnavailableCandidate`).
-  The conditions below govern **earlier tiers**, because the boundary logic
-  runs only when the tier actually changes:
-
-  1. **Every** earlier candidate fails the *effective identity policy* —
-     `MatchesCandidate` weighs version, culture, and public key token, and its
-     version test is relaxed by `IgnoreAssemblyVersion` and, in platform scope,
-     by `AllowPlatformAssemblyVersionRollForward`. One earlier match ends the
-     search there and that candidate wins.
-  2. None of them failed to **open**. An unreadable candidate records a
-     failure, and a recorded failure turns the *next tier crossing* into an
-     abandonment — in platform scope too, not only outside it.
-  3. The scope permits crossing a tier boundary at all. Non-platform scope
-     never does, and this is broader than platform-versus-corpus: resolution is
-     effectively confined to the **first tier that had a filename match**. A
-     sibling or package candidate that matches the filename and fails the
-     identity policy is enough to abandon the whole resolution before either
-     the platform copy or the overlay is considered.
-
-  The overlay must then open and match on its own account. A version mismatch
-  is the most likely way to satisfy the first condition, not the whole of it.
-  Composition is therefore **emergent**, falling out of options, registration
-  order, and whether unrelated candidates happened to be readable. This is the
-  same defect as
-  [precedence](#precedence-between-entitled-candidates) below, and it is
-  **#4593**.
+- **A designated overlay owns its filename in the composed graph.** The caller
+  named that exact file as the replacement, so references selecting that
+  assembly slot must see the overlay rather than the platform copy. Directly
+  opening the file already reads the named file; cross-assembly resolution does
+  not yet enforce the same choice. Today an earlier candidate may win, the
+  reference may remain unresolved, or the overlay may be selected. Those are
+  implementation accidents, not separate cases in the product contract.
+  Enforcing the rule is **#4593**.
 - **The overlay does not extend its authority beyond that filename.** It does
   not become the platform, and it does not entitle its siblings — directory
   membership is not designation. This half is real: a sibling reached by
@@ -186,12 +147,12 @@ implementation does not deliver**; the second holds today.
   arm of the resolver's provenance mapping (`AssemblyDependencyResolver`) and is
   **not** separately gated.
 
-Stated as intent, the pair keeps the graph mostly coherent: the base supplies a
-closure that was built as a unit, and the overlay replaces one member of it.
-Until #4593 lands, the replacement is reliably visible only to the caller who
-named it; whether any other assembly sees it is an accident of configuration
-and version matching. What that cannot guarantee, even once the rule holds, is
-that the replacement still *fits*.
+Together, the rules construct one intentional graph: the base supplies a
+closure built as a unit, designation substitutes one named member, and that
+substitution grants no authority to nearby files. Constraining composition this
+way reduces the incoherence surface when acquisition systems combine; it does
+not prove that the replacement still *fits*. That is the separate coherence
+question below.
 
 ## Coherence is a property of the pair
 
@@ -233,21 +194,12 @@ candidate may be used and says nothing about *which* of two entitled candidates
 to prefer. Load a platform and a designated build copy of the same assembly, and
 both can satisfy the same reference.
 
-Today the winner falls out of the order in which candidates are registered:
-platform is registered before corpus, so platform is offered first. Worse, the
-outcome **turns on configuration** — the designated copy wins only when every
-earlier candidate fails the effective identity policy (version, culture, or
-public key token, as relaxed by `IgnoreAssemblyVersion` or platform-scope
-roll-forward), none of them failed to open, and the scope allows crossing a
-tier boundary at all. Non-platform scope does not, which confines resolution to
-the first tier that matched the filename. Otherwise an earlier candidate wins —
-which may be a sibling or a package, not only the platform copy — or the
-reference does not resolve at all. So the selected assembly changes with option
-settings, version equality, and even whether an unrelated candidate happened to
-be readable, with no signal in any direction.
-
-The rule is that **precedence must be stated rather than emergent**, and that an
-unstated tie is a diagnostic rather than a silent pick. Tracked as **#4593**.
+The precedence rule for this case is simple: **designation wins the assembly
+slot it names**. That gives every acquisition system the same well-defined graph
+to compose with; it does not require specifying the current resolver's
+case-by-case accidents. Any other tie between entitled candidates needs its own
+stated rule or a diagnostic rather than a silent pick. The current resolver does
+not yet enforce this contract; tracked as **#4593**.
 
 ## Related
 
