@@ -391,8 +391,20 @@ Static schema discovery is the intentional exception: it performs no target
 lookup. An explicit `type` surface with no exact address or with list syntax
 reports the assembly-type-list schema; one with syntactic exact-type intent
 reports the type/member-list schema without attempting a lookup-based prefix
-fallback. An explicit `member` surface reports the overload-inventory or
-detail schema from its syntactic selector kind.
+fallback. An explicit `member` surface with a separate inventory filter reports
+the overload-inventory schema, and one with an exact selector reports detail.
+An explicit `member` surface with no member gesture reports the member
+type-view projection over `ApiMemberSectionDescriptors`, preserving the route's
+member-specific parser capabilities.
+
+If the explicit member positional spelling can syntactically denote either a
+complete type with no member gesture or a legal type-plus-implied-member peel,
+static schema returns labeled `StructuralCatalogAlternatives`. The complete
+type interpretation carries the member type-view projection; the peeled
+interpretation carries overload-inventory or detail according to its syntactic
+selector and canonical section demand. A temporary union of detail section
+names into the member type-view cannot validate a selector or stand in for
+these alternatives.
 
 Commandless static schema is a structural route query over every view the
 hidden router can choose, not only over command names or the four type/member
@@ -407,6 +419,7 @@ aggregation. The CLI therefore owns a closed structural-view registry:
 | Package all-libraries | Package aggregation | All-libraries aggregate projection over `LibrarySections` |
 | Direct library | Library | Direct-library projection over `LibrarySections` |
 | Type list or exact type | Type | View projection over `ApiTypeSectionDescriptors` or `ApiMemberSectionDescriptors` |
+| Member type view | Member | Member-route projection over `ApiMemberSectionDescriptors` |
 | Member inventory or detail | Member | View projection over `ApiMemberOverloadSectionDescriptors` or `ApiMemberDetailSectionDescriptors` |
 
 Each entry declares its syntax marker, precedence, destination command, view
@@ -416,8 +429,11 @@ columns, coordinates, and output shapes the route's parser and renderer can
 actually reach. It never executes a section predicate or producer.
 
 Package single-library is not the direct-library schema merely because both
-use `LibrarySections`: it excludes coordinate, performance, and other sections
-whose required options are absent from the package parser. Package
+use `LibrarySections`. Reachability is declared per section and shape, not
+inferred from the presence or absence of an option family. Sections that work
+with default query inputs, including ordinary `Performance:*` sections, remain
+advertised. A section is excluded only when its own declaration requires a
+coordinate, filter, or shape that the package route cannot supply. Package
 all-libraries has its own aggregate schema. Its Markdown section set and its
 row-capable section allow list are explicit, and row shapes include the
 package/version/library/TFM identity columns added by the aggregate renderer.
@@ -739,8 +755,10 @@ and `MethodImpl` relationship.
 Stage 3 validates only dependencies required to decide admission of the root
 declaration:
 
-- a property/event composes the stage 1-2 results of its getter, setter, add,
-  remove, and raise methods before its own inclusion decision;
+- a property composes the stage 1-2 results of its getter, setter, and every
+  `MethodSemanticsAttributes.Other` method before its own inclusion decision;
+- an event composes the stage 1-2 results of its add, remove, raise, and every
+  `MethodSemanticsAttributes.Other` method before its own inclusion decision;
 - an accessor excluded as a standalone method still participates in the
   dependency closure of a retained aggregate;
 - a possible explicit implementation projects a bounded `MethodImpl` identity
@@ -771,6 +789,8 @@ reimplement the admission stages. The validation matrix gate must cover:
   is charged;
 - a public property/event with a non-public accessor needed for aggregate
   admission;
+- a property/event with zero, one, or multiple `Other` semantic methods,
+  including malformed and over-budget dependencies;
 - a retained row whose signature is rejected;
 - an aggregate with one rejected accessor;
 - a valid retained declaration that produces an empty presentation section.
@@ -785,7 +805,7 @@ owner:
 | Type visibility | Top-level versus nested context, declaring-chain validity, effective visibility |
 | Member accessibility | Valid raw accessibility and projected API accessibility |
 | Signature status | Complete, degraded with typed reason, or rejected |
-| Accessor aggregate | Per-accessor accessibility, staticness, virtuality, abstraction, final/new-slot shape, body presence |
+| Accessor aggregate | Getter/setter/add/remove/raise and every `Other` identity; per-semantic accessibility, staticness, virtuality, abstraction, final/new-slot shape, and body presence |
 | MethodImpl relationship | Interface declaration, reused interface slot, reused class slot, new slot, unresolved, or rejected |
 | Explicit implementation | Proven target identity and aggregate membership, not member-name inference |
 | Safety accounting | Consumed work and retained text charged through the operation context |
@@ -884,6 +904,14 @@ default values; and the complete accessor aggregate. It retains enough
 signature information to distinguish overloads and indexers; dropping
 parameters, collapsing accessor identity, or discarding declaration semantics
 is not a fallback.
+
+Standard C# property/event syntax can represent getter, setter, add, and remove
+accessors. Metadata raise and `Other` semantic associations remain typed facts
+but have no corresponding C# accessor syntax. A retained aggregate containing
+either returns `FallbackRequired` with every associated semantic method
+identity and fact; it cannot erase the association by leaving the methods as
+unrelated standalone declarations. Projection policy may additionally expose a
+semantic method as a method row, but that does not replace the aggregate fact.
 
 For both type and member declarations, the fallback fact set is derived from
 the normal representable renderer's typed Metadata fact requests. Set equality
@@ -1029,6 +1057,7 @@ the design authority.
 | Local source/PDB authorization checks derived from `IncludeSections` or the union of `Discover` selections into requested sections | Replace with producer-plan authorization |
 | Render-manifest effective discovery | Retain for post-producer field/column/empty observation; move every producer call into a declared probe plan |
 | `ArgumentPreprocessor`, `RouterCommandDefinition`, and `PackageCommand` structural routing | Retain syntactic routing, but replace command-only dispatch with the shared structural-view registry and move static classification before acquisition in slice 2 |
+| `ApiCommand.RunPreamble` and `ApiMemberSectionPipelines` static member catalog selection | Replace the provisional selectable-section union with explicit member type-view, inventory, and detail registry entries plus labeled dotted-tail alternatives in slice 2 |
 | Shared Metadata validators already used by every projection | Retain |
 | Validators duplicated across full, summary, focused, or C# paths | Move to the Metadata declaration owner |
 | C# fixes based on Metadata-owned typed semantics | Retain |
@@ -1055,8 +1084,8 @@ Depends on: none.
   producer demand, and capability authorization.
 - Enumerate every realized package, package single-library, package
   all-libraries, direct-library, assembly-type-list, type/member-list,
-  overload-inventory, exact-member-detail, and hidden-router route in that
-  matrix.
+  member type-view, overload-inventory, exact-member-detail, and hidden-router
+  route in that matrix.
 - Add parity fixtures that run the same declarations through full, summary,
   and focused projections.
 - Make no behavior change.
@@ -1081,7 +1110,12 @@ Depends on: slice 1.
   and direct `.nupkg --library` preprocessing return their route-specific
   projections over `LibrarySections` before package resolution or extraction.
 - Derive each projection's sections, fields, columns, coordinates, and output
-  shapes from the route's parser and renderer declarations.
+  shapes from per-section input requirements and the route's parser and
+  renderer declarations; do not infer reachability from option-family names.
+- Register explicit `member` with no member gesture as a member type-view over
+  `ApiMemberSectionDescriptors`.
+- Replace explicit-member dotted-tail provisional unions with labeled complete-
+  type and peeled-member alternatives.
 - Resolve the active catalog only after target/member resolution.
 - Move shape validation to the resolved plan.
 - Preserve current address precedence and diagnostics for non-static execution
@@ -1123,8 +1157,9 @@ inventory-filter per-filter outcomes and deduplication, bare-name/glob
 zero-one-many and partial-miss results, surface/route/selector-driven
 four-catalog selection, cross-catalog canonical target requirements,
 exact-section/alias/category/glob detail promotion, explicit `type -m` versus
-`member` compatibility, static-schema alternatives, and conflicting
-positional/qualified and qualified/qualified types.
+`member` compatibility, explicit-member no-selector type view and dotted-tail
+static-schema alternatives, and conflicting positional/qualified and
+qualified/qualified types.
 
 ### Slice 4: lower resolved selection to typed producer plans
 
@@ -1230,12 +1265,12 @@ test method name, but the PR must map each test to its gate ID.
 
 | Gate | Property | Required evidence |
 | --- | --- | --- |
-| `MIP001` | Static schema chooses only syntax-proven structural views and runs no target or producer work | Declaration-derived mapping equality between every preprocessor/rewrite/parsed view route and its structural-view registry entry, including precedence, destination command, view mode, catalog identity, parser capabilities, and schema projection; every advertised section/field/column/coordinate/shape has a corresponding accepted parser gesture and renderer mapping, and every reachable shape is advertised; direct-library-only coordinate/performance sections are absent from package-library projections; all-libraries row schemas expose only supported sections and include package/version/library/TFM identity columns; explicit and commandless package `--library`, package `--all-libraries`, and direct `.nupkg --library` cases return their view-specific projections before resolution/extraction; commandless `--all-libraries` routes to package before lookup in static and non-static cases; explicit package/library/type/member gestures prove their deterministic command-owned schemas; other syntax-only forms and ambiguous catalog alternatives retain per-alternative selector results; a close-negative fails if platform resolution, facade classification, package existence, all-framework search, acquisition, type/member lookup, or any section producer begins, and asserts that no resolution note is emitted |
+| `MIP001` | Static schema chooses only syntax-proven structural views and runs no target or producer work | Declaration-derived mapping equality between every preprocessor/rewrite/parsed view route and its structural-view registry entry, including precedence, destination command, view mode, catalog identity, parser capabilities, per-section input requirements, and schema projection; every advertised section/field/column/coordinate/shape has a corresponding accepted parser gesture and renderer mapping, and every reachable shape is advertised; package-library projections retain defaultable sections such as `Performance: Boxing` and omit only sections or shapes whose declared input is unavailable on that route; all-libraries row schemas expose only supported sections and include package/version/library/TFM identity columns; explicit and commandless package `--library`, package `--all-libraries`, and direct `.nupkg --library` cases return their view-specific projections before resolution/extraction; commandless `--all-libraries` routes to package before lookup in static and non-static cases; explicit package/library/type/member gestures prove their deterministic command-owned schemas, including explicit `member` with no member gesture; explicit-member dotted-tail ambiguity and other syntax-only ambiguous forms retain labeled per-alternative selector results; a close-negative fails if platform resolution, facade classification, package existence, all-framework search, acquisition, type/member lookup, or any section producer begins, and asserts that no resolution note is emitted |
 | `MIP002` | Named/category type/member source discovery cannot read/acquire PDB/source content or confuse unknown with empty | Overload-qualified `-D "Source Locations"`, `-D "Original Source"`, `-D "Source Diff"`, and source-category cases proving no `LocalPdbRead`, `PdbAcquire`, or `SourceContent`; paired genuinely-empty and PDB-required fixtures produce distinct `ValidEmpty` and `Unknown(CapabilityNotRequested)`, while plain library discovery retains its bounded `LocalPdbRead` positive and close-negative gates |
-| `MIP003` | Demand classification, provisional catalogs, and static alternatives cannot satisfy final shape validation | Close-negative tests for exact type, implied member, mixed filters, aliases, globs, categories, `@All`, and commandless structural alternatives; declaration-derived set equality requires one canonical target requirement for every stable identity registered in multiple catalogs and rejects conflicting declarations |
+| `MIP003` | Demand classification, provisional catalogs, and static alternatives cannot satisfy final shape validation | Close-negative tests for exact type, implied member, mixed filters, aliases, globs, categories, `@All`, commandless structural alternatives, and explicit-member dotted-tail alternatives; declaration-derived set equality requires one canonical target requirement for every stable identity registered in multiple catalogs and rejects conflicting declarations |
 | `MIP004` | Closed producer paths equal preflighted authorization | Declaration-derived gesture-provenance/query-requirement/host-policy matrix; unconditional prerequisite closure; conditional local-PDB hit, unrequested/denied miss, and authorized acquisition paths; transitive cost, execution-mode, and probe-policy closure; a probe-capable producer with a render-only prerequisite mapping to per-section `Unknown`; explicit-render denial; preflight-before-execution assertions; and artifact-owner lease revalidation |
 | `MIP005` | Presentation cannot widen work | A non-vacuity test that fails when render-manifest or ordinary rendering starts an undeclared producer |
-| `MIP006` | Address and catalog resolution are deterministic, diagnostic, and surface-preserving | The slice-2 structural-view mapping remains closed; set equality between the type/member catalog/route registry and its four realized pipeline owners plus every entry route; exact type, fallback peel, dual-success, qualified/positional conflict, same-type and conflicting qualified/qualified selectors, identical/complementary/conflicting implied-explicit refinement, per-filter bare-name/glob outcomes, partial misses, overlapping-filter deduplication, zero/one/multiple inventory results, exact selector success/failure, explicit `type -m` versus `member` catalog/output compatibility, surface/route/selector-driven assembly-type-list/type-member-list/overload-inventory/detail catalogs, targetless/glob/failed-exact/platform-prefix list routes, cross-catalog `MemberSet` and `ExactMember` identities, exact-section/alias/category/glob detail promotion, commandless static alternatives, unavailable detail sections, and overload/digest/arity cases |
+| `MIP006` | Address and catalog resolution are deterministic, diagnostic, and surface-preserving | The slice-2 structural-view mapping remains closed; set equality between the type/member catalog/route registry and its four realized pipeline owners plus every entry route; exact type, fallback peel, dual-success, qualified/positional conflict, same-type and conflicting qualified/qualified selectors, identical/complementary/conflicting implied-explicit refinement, per-filter bare-name/glob outcomes, partial misses, overlapping-filter deduplication, zero/one/multiple inventory results, exact selector success/failure, explicit `type -m` versus `member` catalog/output compatibility, surface/route/selector-driven assembly-type-list/type-member-list/overload-inventory/detail catalogs, explicit-member no-selector type view, targetless/glob/failed-exact/platform-prefix list routes, cross-catalog `MemberSet` and `ExactMember` identities, exact-section/alias/category/glob detail promotion, commandless and explicit-member dotted-tail static alternatives, unavailable detail sections, and overload/digest/arity cases |
 | `MIP007` | L1 member execution remains content-shaped and owner-authorized | Architecture closure plus admission/query-lease tests proving no readable path or descriptor bypass |
 | `MIP008` | The plan executes sequentially without filesystem assumptions | Browser/Wasm host test over in-memory content with the same producer trace and failures |
 | `MIP009` | The path remains NativeAOT-friendly, SRM-only, Roslyn-free, and load-free | NativeAOT publish/run plus dependency and inspected-assembly-loading architecture gates |
@@ -1244,11 +1279,11 @@ test method name, but the PR must map each test to its gate ID.
 | `MIP012` | No transitional dual-use planning/authorization state remains | Declaration-driven closure over option fields, compatibility adapters, descriptors, and executors after slice 8 |
 | `MIP013` | Non-schema discovery runs only mode-declared probes | Separate target-resolution and section-producer trace equality for every actual type/member discovery gesture; every started producer is declared for the effective probe mode, and every declared denial remains a typed per-section `Unknown` |
 | `MDP001` | Full/summary/focused validity and shared semantic facts agree | Set equality over accepted identities and typed rejection rule IDs; set equality between typed projection fact requests and registered consumers; declaration-derived equality of typed values or typed rejections for every shared fact requested by multiple projections; declared summary erasure is checked only after parity |
-| `MDP002` | Declaration admission order is preserved | Direct-invalid, charged name/attribute exclusion, excluded-hostile, public/non-public accessor dependency, retained-rejected, aggregate-rejected, and valid-empty fixtures |
+| `MDP002` | Declaration admission order is preserved | Direct-invalid, charged name/attribute exclusion, excluded-hostile, public/non-public accessor dependency, retained-rejected, aggregate-rejected, and valid-empty fixtures; property/event cases prove getter/setter/add/remove/raise/every-`Other` dependencies are admitted and charged before their aggregate |
 | `MDP003` | Cheap filtering precedes hostile MethodImpl projection | Large excluded-row fixture with bounded allocation/work evidence |
-| `MDP004` | Accessor validity is shared | Property/event fixtures covering accessibility, staticness, abstraction, virtuality, slot, and body close negatives |
+| `MDP004` | Accessor validity is shared | Property/event fixtures covering accessibility, staticness, abstraction, virtuality, slot, and body close negatives plus zero, one, and multiple valid `Other` associations, malformed `Other` associations, and raise/`Other` representability outcomes |
 | `MDP005` | CSharp consumes typed slot semantics | Compiler-produced interface re-abstraction/default-implementation compile-back plus class base-slot rejection |
-| `MDP006` | Decode accounting is transitive | Amplification fixtures for names, modifiers, signatures, accessors, and MethodImpl targets |
+| `MDP006` | Decode accounting is transitive | Amplification fixtures for names, modifiers, signatures, getter/setter/add/remove/raise/`Other` semantic dependencies, and MethodImpl targets, including a bounded over-budget `Other` association set |
 | `MDP007` | Metadata and CLI failure text contains no artifact data | Hostile control-character names across Metadata declaration and CLI failure paths |
 | `MDP008` | Real artifacts remain stable | Pinned platform and package canaries with recorded rows and retained-text totals |
 | `MDP009` | Declaration caches and hostile-input ceilings preserve context, budget, and failure semantics | Matrix derived from the central safety-policy dimensions and every charging fact request; cache-key set equality, cached-work rejection, same-context negative caching, no undeclared local ceiling, and equivalent near/over-limit full/summary/focused fixtures asserting equal per-fact thresholds, counters, and rejection rules while separately charging additional retained fields |
@@ -1257,7 +1292,7 @@ test method name, but the PR must map each test to its gate ID.
 | `MDP012` | CSharp representability consumes only Metadata-owned semantic facts at the slice-7 cutover | Closure derived from the semantic fact types and every CSharp representability entry point; fail on direct `MetadataReader`/handle reconstruction or relationship decisions from raw accessibility, virtuality, new-slot, `MethodImpl`, or equivalent Boolean combinations |
 | `MDP013` | No transitional declaration-validity or CSharp reconstruction state remains | Declaration-driven closure over compatibility adapters, validators, raw semantic fields, and consumers after slice 8 |
 | `MDP014` | CSharp failure text contains no artifact data | Hostile control-character names through every CSharp representability failure path |
-| `MDP015` | `FallbackRequired` preserves contained type/member semantics and renders artifact text through `InertString` | Set equality between the normal representable renderer's Metadata fact requests and each contained fallback payload after named erasures; type and member parity fixtures cover accessibility, modifiers, attributes, constraints, constants/defaults, explicit implementation, accessor aggregates, base/interfaces, and kind-specific facts; unsupported type-header and paired member/indexer cases prove no fact becomes `null`, omission, or identity collapse; declaration-derived sink closure requires every fallback sink to call `EnsurePermitted` with its exact `TextPolicy` immediately before unwrapping and format escaping; cross-policy fixtures deliver Prose-produced CR/LF/TAB plus hostile type names, member names, and signature fragments to Field, Markdown, JSON, TSV, and diagnostic sinks; round-trip and pairwise injectivity prove canonical visual encoding preserves exact artifact text while no live disallowed scalar reaches a sink |
+| `MDP015` | `FallbackRequired` preserves contained type/member semantics and renders artifact text through `InertString` | Set equality between the normal representable renderer's Metadata fact requests and each contained fallback payload after named erasures; type and member parity fixtures cover accessibility, modifiers, attributes, constraints, constants/defaults, explicit implementation, complete accessor aggregates including raise and every `Other` association, base/interfaces, and kind-specific facts; valid raise/`Other` aggregates force contained fallback and preserve each association instead of becoming unrelated standalone methods; unsupported type-header and paired member/indexer cases prove no fact becomes `null`, omission, or identity collapse; declaration-derived sink closure requires every fallback sink to call `EnsurePermitted` with its exact `TextPolicy` immediately before unwrapping and format escaping; cross-policy fixtures deliver Prose-produced CR/LF/TAB plus hostile type names, member names, and signature fragments to Field, Markdown, JSON, TSV, and diagnostic sinks; round-trip and pairwise injectivity prove canonical visual encoding preserves exact artifact text while no live disallowed scalar reaches a sink |
 
 Contract tests should derive their cases from the declaration or section
 catalog where practical, so a new mode or validator cannot silently avoid the
