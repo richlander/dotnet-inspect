@@ -7,6 +7,8 @@ using System.Text.Json;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.JsExportSurface.NamingFixtures;
+using ILInspector.JsExportSurface.OperatorFixtures;
+using ILInspector.JsExportSurface.ScalarFixtures;
 using ILInspector.Metadata;
 
 namespace ILInspector.JsExportSurface.Tests;
@@ -301,6 +303,49 @@ public sealed class JsExportSurfaceBuilderTests
             method.HasMalformedRuntimeJsExportAttribute);
         Assert.Throws<UnsupportedJsExportSurfaceException>(
             () => JsExportSurfaceBuilder.Build(apiSurface));
+    }
+
+    [Fact]
+    public void Build_RejectsAuthenticJsExportOperatorBeforePublication()
+    {
+        string path = typeof(JsExportOperatorFixture).Assembly.Location;
+        ApiSurface apiSurface = ExtractApiSurface(path);
+        ApiMember @operator = Assert.Single(
+            Assert.Single(
+                apiSurface.Types,
+                type => type.Name == nameof(JsExportOperatorFixture))
+                .Members,
+            member => member.Kind == "operator");
+
+        Assert.True(@operator.HasRuntimeJsExport);
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(apiSurface));
+
+        Assert.Contains(
+            "JS exports must be ordinary methods",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SourceGeneratedJsExport_EmitsOrdinaryWrapperButNotOperatorWrapper()
+    {
+        string[] ordinaryMethodNames = ReadMethodNames(
+            typeof(ScalarContextOptionsFixtureExports).Assembly.Location);
+        string[] operatorMethodNames = ReadMethodNames(
+            typeof(JsExportOperatorFixture).Assembly.Location);
+
+        Assert.Contains(
+            ordinaryMethodNames,
+            name => name.StartsWith(
+                "__Wrapper_SerializeWriteAsStringInt_",
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            operatorMethodNames,
+            name => name.StartsWith(
+                "__Wrapper_op_Addition_",
+                StringComparison.Ordinal));
     }
 
     [Theory]
@@ -695,6 +740,230 @@ public sealed class JsExportSurfaceBuilderTests
             "serializer root type shape is unsupported",
             exception.Message,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsReachedUnsupportedScalarContextOptions()
+    {
+        string path =
+            typeof(ScalarContextOptionsFixtureExports).Assembly.Location;
+
+#pragma warning disable CA1416 // The browser-marked fixture executes serializer-only code in this test.
+        Assert.Equal(
+            "\"42\"",
+            ScalarContextOptionsFixtureExports.SerializeWriteAsStringInt());
+#pragma warning restore CA1416
+
+        ApiSurface apiSurface = ExtractApiSurface(path);
+        ApiType context = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(UnsupportedScalarContextOptions));
+        ApiJsonSerializableRoot root =
+            Assert.Single(context.JsonSerializableRoots);
+        Assert.Null(root.TypeInfoPropertyName);
+        Assert.Equal(ApiPrimitiveType.Int32, root.Type?.Primitive);
+        Assert.Contains(
+            context.Members,
+            member => member.Kind == "property" && member.Name == "Int32");
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    apiSurface,
+                    OpenWireContractBodyIndex(path)));
+
+        Assert.Contains(
+            "serializer context options are unsupported",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_IgnoresUnusedUnsupportedScalarContextAndResolvesVectorSibling()
+    {
+        string path =
+            typeof(ScalarContextOptionsFixtureExports).Assembly.Location;
+        ApiSurface apiSurface = ExtractApiSurface(path);
+        ApiType unusedContext = Assert.Single(
+            apiSurface.Types,
+            type =>
+                type.Name
+                == nameof(UnusedUnsupportedScalarContextOptions));
+        Assert.Contains(
+            unusedContext.Members,
+            member => member.Kind == "property" && member.Name == "Int32");
+        ApiMember scalarExport = Assert.Single(
+            Assert.Single(
+                apiSurface.Types,
+                type =>
+                    type.Name
+                    == nameof(ScalarContextOptionsFixtureExports))
+                .Members,
+            member =>
+                member.Name
+                == nameof(
+                    ScalarContextOptionsFixtureExports
+                        .SerializeWriteAsStringInt));
+        scalarExport.HasRuntimeJsExport = false;
+        scalarExport.RuntimeJsExportAttributeCount = 0;
+        scalarExport.HasMalformedRuntimeJsExportAttribute = false;
+
+        ApiMember vectorSerializer = Assert.Single(
+            Assert.Single(
+                apiSurface.Types,
+                type =>
+                    type.Name
+                    == nameof(ScalarContextOptionsFixtureExports))
+                .Members,
+            member =>
+                member.Name
+                == nameof(
+                    ScalarContextOptionsFixtureExports.SerializeVector));
+        Assert.True(vectorSerializer.HasRuntimeJsExport);
+
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            JsExportSurfaceBuilder.Build(
+                apiSurface,
+                OpenWireContractBodyIndex(path));
+
+        Assert.Equal(
+            "int[]",
+            Assert.Single(surface.Functions).ReturnWireType);
+    }
+
+    [Fact]
+    public void Extract_RecordsMultidimensionalRootEvidenceAndSourceGeneratorNames()
+    {
+        ApiSurface apiSurface = ExtractApiSurface(
+            typeof(ArrayRootNamingFixtureExports).Assembly.Location);
+        ApiType context = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(ArrayRootNamingFixtureContext));
+
+        Assert.Contains(
+            context.JsonSerializableRoots,
+            root => root.Type is
+            {
+                Kind: ApiTypeShapeKind.Array,
+                ArrayRank: 2,
+            }
+                && root.UnsupportedReason
+                    == "multidimensional serializer roots are not supported");
+        Assert.Contains(
+            context.JsonSerializableRoots,
+            root => root.Type is
+            {
+                Kind: ApiTypeShapeKind.Array,
+                ArrayRank: 3,
+            }
+                && root.UnsupportedReason
+                    == "multidimensional serializer roots are not supported");
+        Assert.Contains(
+            context.JsonSerializableRoots,
+            root => root.Type is
+            {
+                Kind: ApiTypeShapeKind.SzArray,
+            }
+                && root.UnsupportedReason is null);
+
+        string[] generatedNames =
+        [
+            "Int32Array",
+            "Int32Array2D",
+            "Int32Array3D",
+            "Int32ArrayArray",
+            "Int32Array2DArray",
+            "Int32ArrayArray2D",
+        ];
+        foreach (string generatedName in generatedNames)
+        {
+            Assert.Contains(
+                context.Members,
+                member =>
+                    member.Kind == "property"
+                    && member.Name == generatedName);
+        }
+    }
+
+    [Theory]
+    [InlineData(nameof(ArrayRootNamingFixtureExports.SerializeIntMatrix))]
+    [InlineData(nameof(ArrayRootNamingFixtureExports.SerializeIntCube))]
+    [InlineData(nameof(ArrayRootNamingFixtureExports.SerializeIntArrayMatrix))]
+    [InlineData(nameof(ArrayRootNamingFixtureExports.SerializeIntMatrixArray))]
+    public void Build_RejectsReachedMultidimensionalSerializerRoot(
+        string serializerName)
+    {
+        string path =
+            typeof(ArrayRootNamingFixtureExports).Assembly.Location;
+        ApiSurface apiSurface = ExtractApiSurface(path);
+        ApiMember serializer = Assert.Single(
+            Assert.Single(
+                apiSurface.Types,
+                type => type.Name == nameof(ArrayRootNamingFixtureExports))
+                .Members,
+            member => member.Name == serializerName);
+        serializer.HasRuntimeJsExport = true;
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    apiSurface,
+                    OpenWireContractBodyIndex(path)));
+
+        Assert.Contains(
+            "multidimensional serializer roots are not supported",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_DoesNotNormalizeNonDefaultMultidimensionalArrayBounds()
+    {
+        string path =
+            typeof(ArrayRootNamingFixtureExports).Assembly.Location;
+        ApiSurface apiSurface = ExtractApiSurface(path);
+        ApiType context = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(ArrayRootNamingFixtureContext));
+        ApiMember matrixProperty = Assert.Single(
+            context.Members,
+            member => member.Name == "Int32Array2D");
+        ApiTypeReferenceIdentity jsonTypeInfo = Assert.IsType<ApiTypeShape>(
+            matrixProperty.SignatureModel?.ReturnTypeShape).Definition!;
+        matrixProperty.SignatureModel!.ReturnTypeShape =
+            ApiTypeShape.GenericInstance(
+                jsonTypeInfo,
+                [
+                    ApiTypeShape.Array(
+                        ApiTypeShape.PrimitiveType(ApiPrimitiveType.Int32),
+                        rank: 2,
+                        arraySizes: ImmutableArray.Create(1, 1),
+                        arrayLowerBounds: ImmutableArray.Create(0, 0)),
+                ]);
+
+        ApiMember serializer = Assert.Single(
+            Assert.Single(
+                apiSurface.Types,
+                type => type.Name == nameof(ArrayRootNamingFixtureExports))
+                .Members,
+            member =>
+                member.Name
+                == nameof(ArrayRootNamingFixtureExports.SerializeIntMatrix));
+        serializer.HasRuntimeJsExport = true;
+
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            JsExportSurfaceBuilder.Build(
+                apiSurface,
+                OpenWireContractBodyIndex(path));
+
+        Assert.Null(Assert.Single(surface.Functions).ReturnWireType);
+    }
+
+    [Fact]
+    public void SourceGeneratedJson_MultidimensionalRootRemainsUnsupportedAtRuntime()
+    {
+        Assert.Throws<NotSupportedException>(
+            ArrayRootNamingFixtureExports.SerializeIntMatrix);
     }
 
     [Fact]
@@ -1701,6 +1970,31 @@ public sealed class JsExportSurfaceBuilderTests
             typeof(FixtureExports).Assembly.Location);
         using var peReader = new PEReader(stream);
         return ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+    }
+
+    static ApiSurface ExtractApiSurface(string path)
+    {
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        return ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+    }
+
+    static LibraryBodyIndex OpenWireContractBodyIndex(string path) =>
+        LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+
+    static string[] ReadMethodNames(string path)
+    {
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        return
+        [
+            .. reader.MethodDefinitions.Select(handle =>
+                reader.GetString(reader.GetMethodDefinition(handle).Name)),
+        ];
     }
 
     static MetadataTypeDefinitionName TopLevelDefinitionName(

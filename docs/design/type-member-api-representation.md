@@ -93,6 +93,16 @@ item into one product-owned kind facet and accepts the returned opaque IDs for
 filtering. Unknown IDs and unclassified producer values fail visibly rather
 than becoming an empty inventory.
 
+`ApiTypeShape` is also the currency for a serialized
+`[JsonSerializable(typeof(T))]` root. Its parser accepts only complete
+structural generic argument lists: leading, doubled, and trailing delimiters
+are rejected, and the sum of canonical `MetadataNameArity` segments must equal
+the argument count. This keeps a malformed serialized name from projecting the
+same shape as a valid registration while preserving assembly-qualified nested
+generic identities. `JsonSerializableAttributeTests.ReadJsonSerializableRoots_ParsesAssemblyQualifiedNestedGenerics` and
+`ReadJsonSerializableRoots_RejectsMalformedGenericDelimitersAndArity` gate
+that contract.
+
 #### `ILInspector.Analysis`
 
 | Currency | Scope | Answers | Does not answer |

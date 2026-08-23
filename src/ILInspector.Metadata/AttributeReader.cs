@@ -993,7 +993,9 @@ public static partial class AttributeReader
                 Type = rootShape,
                 UnsupportedReason = rootShape is null
                     ? "serializer root type shape is unsupported"
-                    : null,
+                    : ContainsMultidimensionalArray(rootShape)
+                        ? "multidimensional serializer roots are not supported"
+                        : null,
                 GenerationMode = generationMode,
             });
         }
@@ -1158,8 +1160,16 @@ public static partial class AttributeReader
             ParseJsonSerializableNamedType(
                 text[..genericStart],
                 assembly);
-        if (definition?.Definition is not { } definitionIdentity)
+        if (definition?.Definition is not
+            {
+                DefinitionName: { } definitionName,
+            } definitionIdentity
+            || !HasMatchingGenericArity(
+                definitionName,
+                serializedArguments.Value.Length))
+        {
             return null;
+        }
 
         var arguments = ImmutableArray.CreateBuilder<ApiTypeShape>(
             serializedArguments.Value.Length);
@@ -1178,6 +1188,22 @@ public static partial class AttributeReader
         return ApiTypeShape.GenericInstance(
             definitionIdentity,
             arguments.MoveToImmutable());
+    }
+
+    static bool HasMatchingGenericArity(
+        MetadataTypeDefinitionName definitionName,
+        int argumentCount)
+    {
+        int declaredArity = 0;
+        foreach (string segment in definitionName.Segments)
+        {
+            int segmentArity = MetadataNameArity.OfSegment(segment);
+            if (segmentArity > argumentCount - declaredArity)
+                return false;
+            declaredArity += segmentArity;
+        }
+
+        return declaredArity == argumentCount;
     }
 
     static ApiTypeShape? ParseJsonSerializableNamedType(
@@ -1262,6 +1288,28 @@ public static partial class AttributeReader
         return true;
     }
 
+    static bool ContainsMultidimensionalArray(ApiTypeShape shape)
+    {
+        var pending = new Stack<ApiTypeShape>();
+        pending.Push(shape);
+        while (pending.Count > 0)
+        {
+            ApiTypeShape current = pending.Pop();
+            if (current.Kind == ApiTypeShapeKind.Array
+                && current.ArrayRank > 1)
+            {
+                return true;
+            }
+
+            if (current.ElementType is not null)
+                pending.Push(current.ElementType);
+            for (int index = 0; index < current.TypeArguments.Length; index++)
+                pending.Push(current.TypeArguments[index]);
+        }
+
+        return false;
+    }
+
     static ImmutableArray<string>? ParseSerializedGenericArguments(
         string text,
         int genericStart)
@@ -1314,7 +1362,8 @@ public static partial class AttributeReader
 
             if (position == arguments.Length)
                 break;
-            if (arguments[position++] != ',')
+            if (arguments[position++] != ','
+                || position == arguments.Length)
                 return null;
         }
 

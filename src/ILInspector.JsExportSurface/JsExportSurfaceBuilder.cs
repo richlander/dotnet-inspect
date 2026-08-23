@@ -13,6 +13,8 @@ public static class JsExportSurfaceBuilder
         "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1";
     const string JsonSerializerContextBaseType = "System.Text.Json.Serialization.JsonSerializerContext";
     const string SystemTextJsonAssemblyName = "System.Text.Json";
+    const string UnsupportedContextOptionsReason =
+        "serializer context options are unsupported";
 
     public static JsExportSurface Build(ApiSurface surface) => Build(surface, bodyIndex: null);
 
@@ -71,6 +73,12 @@ public static class JsExportSurfaceBuilder
                 if (!HasJsExportEvidence(member))
                     continue;
                 ValidateJsExportEvidence(type, member);
+                if (member.Kind != "method")
+                {
+                    throw new UnsupportedJsExportSurfaceException(
+                        FormatMemberLocation(type, member),
+                        "JS exports must be ordinary methods");
+                }
                 if (!member.IsStatic)
                 {
                     throw new UnsupportedJsExportSurfaceException(
@@ -174,6 +182,8 @@ public static class JsExportSurfaceBuilder
                 JsonWireNamingPolicy policy =
                     type.JsonPropertyNamingPolicy
                         ?? JsonWireNamingPolicy.None;
+                bool hasUnsupportedContextOptions =
+                    policy == JsonWireNamingPolicy.Unsupported;
                 ApiSignature? signature = member.SignatureModel;
                 IReadOnlyList<ApiTypeReferenceIdentity>? references =
                     signature?.ReturnTypeReferences;
@@ -188,19 +198,28 @@ public static class JsExportSurfaceBuilder
                         case RegisteredRootPropertyMatch.Supported:
                             if (member.GetterToken is { } getterToken)
                             {
-                                JsonSourceGenerationMode effectiveMode =
-                                    GetEffectiveGenerationMode(
-                                        type.JsonSourceGenerationMode,
-                                        root!.GenerationMode);
-                                if (!registeredJsonTypeInfoGetterModes.TryAdd(
-                                        getterToken,
-                                        effectiveMode)
-                                    && registeredJsonTypeInfoGetterModes[
-                                            getterToken] != effectiveMode)
+                                if (hasUnsupportedContextOptions)
                                 {
-                                    throw new UnsupportedJsExportSurfaceException(
-                                        FormatMemberLocation(type, member),
-                                        "serializer-context property generation modes conflict");
+                                    unsupportedJsonTypeInfoGetterReasons[
+                                        getterToken] =
+                                        UnsupportedContextOptionsReason;
+                                }
+                                else
+                                {
+                                    JsonSourceGenerationMode effectiveMode =
+                                        GetEffectiveGenerationMode(
+                                            type.JsonSourceGenerationMode,
+                                            root!.GenerationMode);
+                                    if (!registeredJsonTypeInfoGetterModes.TryAdd(
+                                            getterToken,
+                                            effectiveMode)
+                                        && registeredJsonTypeInfoGetterModes[
+                                                getterToken] != effectiveMode)
+                                    {
+                                        throw new UnsupportedJsExportSurfaceException(
+                                            FormatMemberLocation(type, member),
+                                            "serializer-context property generation modes conflict");
+                                    }
                                 }
                             }
                             foreach (ApiTypeReferenceIdentity reference
@@ -569,10 +588,91 @@ public static class JsExportSurfaceBuilder
             return RegisteredRootPropertyMatch.Unsupported;
         }
 
-        return candidate.Type.Equals(propertyRoot)
+        if (propertyRoot is null
+            || !AreEquivalentGeneratedRootShapes(
+                candidate.Type,
+                propertyRoot))
+        {
+            return RegisteredRootPropertyMatch.None;
+        }
+
+        return candidate.UnsupportedReason is null
             ? RegisteredRootPropertyMatch.Supported
-            : RegisteredRootPropertyMatch.None;
+            : RegisteredRootPropertyMatch.Unsupported;
     }
+
+    /// <summary>
+    /// Compares the root shape captured from the serialized
+    /// <c>[JsonSerializable]</c> argument with the generated
+    /// <c>JsonTypeInfo&lt;T&gt;</c> signature. The serialized type-name grammar
+    /// retains rank but no bounds, while a C# signature can explicitly retain
+    /// the default zero lower bounds. Only that omitted/default representation
+    /// difference is normalized.
+    /// </summary>
+    /// <remarks>
+    /// This normalization is intentionally local to generated-property
+    /// authentication. <see cref="ApiTypeShape.Equals(ApiTypeShape?)"/> retains
+    /// exact ECMA array shape identity for every general metadata consumer.
+    /// <c>JsExportSurfaceBuilderTests.Build_RejectsReachedMultidimensionalSerializerRoot</c>
+    /// and <c>Build_DoesNotNormalizeNonDefaultMultidimensionalArrayBounds</c>
+    /// gate the generated-root boundary.
+    /// </remarks>
+    static bool AreEquivalentGeneratedRootShapes(
+        ApiTypeShape registeredRoot,
+        ApiTypeShape propertyRoot)
+    {
+        var pending = new Stack<(ApiTypeShape Left, ApiTypeShape Right)>();
+        pending.Push((registeredRoot, propertyRoot));
+        while (pending.Count > 0)
+        {
+            (ApiTypeShape left, ApiTypeShape right) = pending.Pop();
+            if (left.Kind != right.Kind
+                || left.Primitive != right.Primitive
+                || left.Definition != right.Definition
+                || left.ArrayRank != right.ArrayRank
+                || left.TypeArguments.Length != right.TypeArguments.Length
+                || (left.ElementType is null) != (right.ElementType is null)
+                || (left.Kind == ApiTypeShapeKind.Array
+                    && !HaveEquivalentGeneratedArrayBounds(left, right)))
+            {
+                return false;
+            }
+
+            if (left.ElementType is not null)
+                pending.Push((left.ElementType, right.ElementType!));
+            for (int index = 0; index < left.TypeArguments.Length; index++)
+            {
+                pending.Push((
+                    left.TypeArguments[index],
+                    right.TypeArguments[index]));
+            }
+        }
+
+        return true;
+    }
+
+    static bool HaveEquivalentGeneratedArrayBounds(
+        ApiTypeShape left,
+        ApiTypeShape right)
+    {
+        if (left.ArraySizes.AsSpan().SequenceEqual(right.ArraySizes.AsSpan())
+            && left.ArrayLowerBounds.AsSpan().SequenceEqual(
+                right.ArrayLowerBounds.AsSpan()))
+        {
+            return true;
+        }
+
+        // Reflection-serialized type names omit bounds entirely, while a C#
+        // signature for the same zero-based multidimensional array can retain
+        // explicit zero lower bounds. Do not collapse a non-default bounded
+        // array into that source-generator shape.
+        return HasOnlyDefaultArrayBounds(left)
+            && HasOnlyDefaultArrayBounds(right);
+    }
+
+    static bool HasOnlyDefaultArrayBounds(ApiTypeShape shape) =>
+        shape.ArraySizes.All(static size => size == 0)
+        && shape.ArrayLowerBounds.All(static bound => bound == 0);
 
     static bool IsTrustedJsonTypeInfoProperty(ApiSignature signature) =>
         signature.ReturnTypeShape is
@@ -621,10 +721,15 @@ public static class JsExportSurfaceBuilder
                 type.Definition),
             ApiTypeShapeKind.GenericInstance =>
                 GetGeneratedGenericTypeInfoPropertyName(type),
-            ApiTypeShapeKind.SzArray or ApiTypeShapeKind.Array =>
+            ApiTypeShapeKind.SzArray =>
                 GetGeneratedTypeInfoPropertyName(type.ElementType!)
                     is { } element
                     ? element + "Array"
+                    : null,
+            ApiTypeShapeKind.Array =>
+                GetGeneratedTypeInfoPropertyName(type.ElementType!)
+                    is { } element
+                    ? element + "Array" + type.ArrayRank + "D"
                     : null,
             _ => null,
         };

@@ -72,6 +72,15 @@ metadata segment (plus generic arguments and array suffixes), so a nested
 is retained as ambiguous evidence and stops generation only when its context
 property reaches an export; unrelated unsupported roots do not poison another
 context.
+Vector roots append `Array`; multidimensional rank-*N* roots append
+`Array{N}D` recursively, so `int[][,]` is `Int32Array2DArray` and `int[,][]`
+is `Int32ArrayArray2D`. The root/property comparison treats only omitted
+bounds and explicit default zero lower bounds as equivalent, because the
+serialized attribute grammar cannot encode them; rank and recursive element
+shape remain required. Multidimensional roots are still unsupported because
+System.Text.Json does not serialize them at runtime:
+they are retained as getter-scoped failure evidence, while an unrelated vector
+root remains usable.
 These checks use assembly-scoped, structured metadata identity rather than
 matching flattened names as text; a nested type cannot alias an expected
 top-level System.Text.Json definition.
@@ -95,6 +104,20 @@ boundary via this pattern.
 `Extract_PreservesClosedGenericAndPrimitiveSerializerRootShapes`, and
 `JsonWireContractResolverTests.Build_ResolvesRegisteredPrimitiveAndArrayRoots`
 gate the generated-name and exact-shape boundaries.
+`JsExportSurfaceBuilderTests.Extract_RecordsMultidimensionalRootEvidenceAndSourceGeneratorNames`,
+`Build_RejectsReachedMultidimensionalSerializerRoot`,
+`Build_DoesNotNormalizeNonDefaultMultidimensionalArrayBounds`, and
+`SourceGeneratedJson_MultidimensionalRootRemainsUnsupportedAtRuntime` gate the
+array-name, reached-failure, and runtime-boundary contracts.
+
+Serialized generic root arguments use a strict structural grammar. Leading,
+doubled, and trailing delimiters are unsupported, and the sum of canonical
+metadata-name arities must equal the parsed argument count. This preserves
+assembly-qualified nested generic roots without treating malformed metadata as
+the same `ApiTypeShape` as a valid registration.
+`JsonSerializableAttributeTests.ReadJsonSerializableRoots_ParsesAssemblyQualifiedNestedGenerics` and
+`ReadJsonSerializableRoots_RejectsMalformedGenericDelimitersAndArity` are the
+gates.
 
 ### Source-generation direction
 
@@ -234,6 +257,15 @@ wire-shaping rejection, signed and unsigned byte-backed
 single-row case.
 `DtsEmitterTests.Emit_BlocksEnumWithUnsupportedContextOptions` gates the enum
 path.
+For scalar generated roots, unsupported context options are retained against
+the exact `JsonTypeInfo<T>` getter. A scalar root has no DTO declaration to
+carry the policy, so generation fails before declarations or a wrapper can be
+published only when the getter actually reaches an export; an unused
+unsupported scalar context does not poison a supported sibling.
+`JsExportSurfaceBuilderTests.Build_RejectsReachedUnsupportedScalarContextOptions`,
+`Build_IgnoresUnusedUnsupportedScalarContextAndResolvesVectorSibling`, and
+`TsBindGenCommandTests.Invoke_UnsupportedScalarContextOptionsFailsBeforeDeclarationOrWrapperPublication`
+are the gates.
 
 Wire-shaping framework attributes are trusted only with their platform-signed
 assembly identity and expected constructor/value shape. This applies to
@@ -396,6 +428,13 @@ wrapper emission, while untrusted lookalikes remain absent.
 `Extract_RejectsDuplicateOrMixedAuthenticJsExportRows`, and
 `ApiOutputFormatterTests.ApiTypeJson_RoundTripsRuntimeJsExportFailureEvidence`
 are the gates.
+The runtime generator publishes ordinary method declarations, not operators or
+other `ApiMember.Kind` values. An authentic non-method `[JSExport]` therefore
+fails before declarations or wrappers are emitted.
+`JsExportSurfaceBuilderTests.Build_RejectsAuthenticJsExportOperatorBeforePublication`,
+`SourceGeneratedJsExport_EmitsOrdinaryWrapperButNotOperatorWrapper`, and
+`TsBindGenCommandTests.Invoke_JsExportOperatorFailsBeforeDeclarationOrWrapperPublication` are the
+gates.
 `Extract_ChargesSerializedConverterTypeNameBeforeDecode` gates bounded
 materialization accounting for converter-controlled serialized type names.
 Property and field metadata tokens identify the precise offending row in fatal

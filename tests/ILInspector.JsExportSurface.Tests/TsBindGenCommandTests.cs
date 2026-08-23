@@ -3,6 +3,8 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using ILInspector.JsExportSurface.Fixtures;
+using ILInspector.JsExportSurface.OperatorFixtures;
+using ILInspector.JsExportSurface.ScalarFixtures;
 using tsbindgen;
 
 namespace ILInspector.JsExportSurface.Tests;
@@ -397,6 +399,78 @@ public sealed class TsBindGenCommandTests
                 error.ToString(),
                 StringComparison.Ordinal);
             Assert.DoesNotContain("field\nbreak", error.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(emitJsPath);
+        }
+    }
+
+    [Fact]
+    public void Invoke_UnsupportedScalarContextOptionsFailsBeforeDeclarationOrWrapperPublication()
+    {
+        string emitJsPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "tsbindgen-unsupported-scalar-context-options.js");
+        const string existingJavaScript = "// existing JavaScript wrapper";
+        try
+        {
+            File.WriteAllText(emitJsPath, existingJavaScript);
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = TsBindGenCommand.Invoke(
+                [
+                    typeof(ScalarContextOptionsFixtureExports).Assembly.Location,
+                    "--emit-js",
+                    emitJsPath,
+                ],
+                output,
+                error);
+
+            Assert.Equal(1, exitCode);
+            Assert.Empty(output.ToString());
+            Assert.Contains(
+                "serializer context options are unsupported",
+                error.ToString(),
+                StringComparison.Ordinal);
+            Assert.Equal(existingJavaScript, File.ReadAllText(emitJsPath));
+        }
+        finally
+        {
+            File.Delete(emitJsPath);
+        }
+    }
+
+    [Fact]
+    public void Invoke_JsExportOperatorFailsBeforeDeclarationOrWrapperPublication()
+    {
+        string emitJsPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "tsbindgen-js-export-operator.js");
+        const string existingJavaScript = "// existing JavaScript wrapper";
+        try
+        {
+            File.WriteAllText(emitJsPath, existingJavaScript);
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = TsBindGenCommand.Invoke(
+                [
+                    typeof(JsExportOperatorFixture).Assembly.Location,
+                    "--emit-js",
+                    emitJsPath,
+                ],
+                output,
+                error);
+
+            Assert.Equal(1, exitCode);
+            Assert.Empty(output.ToString());
+            Assert.Contains(
+                "JS exports must be ordinary methods",
+                error.ToString(),
+                StringComparison.Ordinal);
+            Assert.Equal(existingJavaScript, File.ReadAllText(emitJsPath));
         }
         finally
         {

@@ -6,10 +6,12 @@
 
 `JsExportSurfaceBuilder.Build` discovers:
 
-- **Functions** — every `[JSExport]`-attributed static member, with its
-  declaring type, parameters, and return type reported unmodified (a
-  `Task<string>` is reported as `Task<string>`, never unwrapped to a
-  target-language concept such as `Promise<T>`).
+- **Functions** — every runtime-publishable, ordinary static `[JSExport]`
+  method, with its declaring type, parameters, and return type reported
+  unmodified (a `Task<string>` is reported as `Task<string>`, never unwrapped
+  to a target-language concept such as `Promise<T>`). Attributed operators,
+  constructors, and other non-method member kinds are rejected: they do not
+  receive runtime JSExport glue.
 - **Records** — the transitive closure of record shapes reachable from the
   assembly's `JsonSerializerContext`-derived type's `[JsonSerializable(typeof(T))]`
   roots, since `[JSExport]` method signatures alone don't reveal the DTO shapes
@@ -22,6 +24,30 @@
 This library intentionally stays free of any target-language opinion (naming
 policy, `Promise` unwrapping, `.d.ts` syntax); that "personality" belongs to a
 consumer such as [`tsbindgen`](../tsbindgen).
+
+Generated serializer-root properties use System.Text.Json's default name
+grammar: a vector appends `Array`, while a rank-*N* multidimensional array
+appends `Array{N}D`, recursively from its element type. Multidimensional roots
+are retained as explicit unsupported evidence, not supported serialization:
+the System.Text.Json runtime does not serialize them. During generated-property
+authentication only, omitted bounds and explicit default zero lower bounds are
+equivalent because the serialized `[JsonSerializable]` type-name grammar
+carries rank but not those encoding details. `JsExportSurfaceBuilderTests.Extract_RecordsMultidimensionalRootEvidenceAndSourceGeneratorNames`,
+`Build_RejectsReachedMultidimensionalSerializerRoot`,
+`Build_DoesNotNormalizeNonDefaultMultidimensionalArrayBounds`, and
+`SourceGeneratedJson_MultidimensionalRootRemainsUnsupportedAtRuntime` are the
+gates.
+
+For scalar roots, unsupported wire-shaping context options are attached to the
+exact generated `JsonTypeInfo<T>` getter. They fail visibly only if that getter
+reaches an export, despite having no DTO record on which to retain the policy;
+unused scalar contexts remain inert. `Build_RejectsReachedUnsupportedScalarContextOptions`,
+`Build_IgnoresUnusedUnsupportedScalarContextAndResolvesVectorSibling`, and
+`TsBindGenCommandTests.Invoke_UnsupportedScalarContextOptionsFailsBeforeDeclarationOrWrapperPublication`
+are the gates. `Build_RejectsAuthenticJsExportOperatorBeforePublication`,
+`SourceGeneratedJsExport_EmitsOrdinaryWrapperButNotOperatorWrapper`, and
+`TsBindGenCommandTests.Invoke_JsExportOperatorFailsBeforeDeclarationOrWrapperPublication` gate the
+ordinary-method boundary.
 
 Run its test suite in Release:
 
