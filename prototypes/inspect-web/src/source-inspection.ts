@@ -244,7 +244,14 @@ export function createSourceInspectionCoordinator(
           request,
           JSON.stringify(state.taste));
         if (state.graphSource !== pending) return;
-        state.graphSource = { status: "ready", request, title, source };
+        // The engine's `.d.ts` is hand-written and promises a source, but the previous
+        // renderer guarded the payload with a truthiness check and drew "No source was
+        // returned." when it was absent. A `failed` variant with no message renders that
+        // same string, so an empty payload keeps its old behavior rather than reaching
+        // `source.provider` on nothing.
+        state.graphSource = source
+          ? { status: "ready", request, title, source }
+          : { status: "failed", request, title, error: "" };
       } catch (error) {
         if (state.graphSource !== pending) return;
         state.graphSource = {

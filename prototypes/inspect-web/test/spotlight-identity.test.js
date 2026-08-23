@@ -5042,3 +5042,25 @@ test("the graph source modal owns its request by identity, not a counter", () =>
       `${String(path)} reintroduces a graph source counter`);
   }
 });
+
+test("the graph modal auto-reloads only the state that has no result coming", () => {
+  // The old guard asked `!loading && !result && !error`, and an engine rejection with an
+  // empty message satisfied all three -- so a settled failure looked like unattempted
+  // work and the auto-reload, which runs at the end of every render, re-issued it
+  // forever. `cancelled` is the state that condition was reaching for: open, unsettled,
+  // nothing in flight, nothing to show.
+  //
+  // Pin the branch to that one status. Widening it back to a payload-and-error test is
+  // how the retry loop comes back.
+  const branch = appSource.match(
+    /if \(kind === "graph"\) \{[\s\S]*?\n {4}\}/)?.[0] ?? "";
+  assert.ok(branch, "could not isolate the graph auto-reload branch");
+
+  // Check exclusivity, not presence. Asserting only that `cancelled` appears is defeated
+  // by widening the condition to `cancelled || failed`, which is most of the way back to
+  // the loop. So collect every status the branch tests and require it to be that one.
+  const tested = [...branch.matchAll(/state\.graphSource\.status === "([a-z]+)"/g)]
+    .map(match => match[1]);
+  assert.deepEqual(tested, ["cancelled"], "statuses the graph auto-reload acts on");
+  assert.doesNotMatch(branch, /sourceRequestNeedsLoad/);
+});

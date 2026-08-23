@@ -346,3 +346,74 @@ test("an abandoned graph source failure cannot overwrite the closed modal", asyn
   // that no longer owns the modal returns before the settling render, so it adds none.
   assert.equal(renders, 2);
 });
+
+// This is the one place the slice is not behavior-preserving, and it is deliberate.
+//
+// The old auto-reload guard asked `!loading && !result && !error`, which an engine
+// rejection carrying an empty message satisfied exactly: `describeError` returns "" for
+// `new Error("")`, a thrown non-Error, or a thrown null. The modal therefore looked like
+// it had never been attempted, and since the auto-reload runs at the end of every
+// `render()`, it re-issued the request -- a render/reload/render loop with no bound.
+//
+// The union distinguishes the two states the old fields could not: a failure with no
+// message is `failed`, and only `cancelled` -- open, unsettled, nothing in flight -- is
+// the state the auto-reload is for. Adversarial review found this divergence; these two
+// tests pin both halves of it.
+test("an empty engine rejection settles as a failure, not as unattempted work", async () => {
+  const state = inspectionState();
+  const coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryGraphSource: async () => {
+        throw new Error("");
+      },
+      describeError: (error: unknown) =>
+        error instanceof Error ? error.message : "",
+    }));
+
+  await coordinator.openGraphSource({
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    assembly: "Example.Package",
+    type: "Example.Widget",
+    member: "Build",
+    selectorKey: "method",
+    metadataToken: 42,
+  }, "Example.Widget.Build");
+
+  // Not `cancelled`, which is what the auto-reload acts on. The modal settles and stays
+  // settled instead of re-requesting on every render.
+  assert.equal(state.graphSource.status, "failed");
+  assert.equal(
+    state.graphSource.status === "failed" ? state.graphSource.error : null,
+    "");
+});
+
+test("a missing source payload settles without dereferencing it", async () => {
+  const state = inspectionState();
+  const coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      // The engine type promises a source; the hand-written declaration is not a runtime
+      // guarantee, and the previous renderer guarded against exactly this.
+      // The declared return type forbids this value; producing it is the point.
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+      queryGraphSource: (async () => null) as unknown as
+        SourceInspectionDependencies["queryGraphSource"],
+    }));
+
+  await coordinator.openGraphSource({
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    assembly: "Example.Package",
+    type: "Example.Widget",
+    member: "Build",
+    selectorKey: "method",
+    metadataToken: 42,
+  }, "Example.Widget.Build");
+
+  assert.equal(state.graphSource.status, "failed");
+  assert.equal(
+    state.graphSource.status === "failed" ? state.graphSource.error : null,
+    "");
+});
