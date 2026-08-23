@@ -647,7 +647,13 @@ transport profile, capability, and exact coordinate when applicable, and
 distinguish unsupported capability, exact payload absence, authentication,
 timeout, malformed metadata, bounded-response rejection, and transport
 failure. Their retained messages are source-safe summaries rather than
-transport URLs or response text. A returned payload stream remains deadline
+transport URLs or response text. Caller cancellation remains cancellation,
+deadline aborts are typed timeouts, and transport-originated cancellation with
+neither condition active is a typed transport failure.
+`V3SearchCallerCancellationRemainsCancellation`,
+`V3SearchUsesLibraryDeadline`, and
+`V3ServiceIndexTransportCancellationIsTypedTransport` gate that precedence.
+A returned payload stream remains deadline
 bound, but timeout or transport failure during its later consumption is an
 exception because the operation result has already been returned. Invalid
 caller coordinates and caller cancellation likewise remain exceptions rather

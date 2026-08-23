@@ -1015,6 +1015,47 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
+    public async Task V3SearchCallerCancellationRemainsCancellation()
+    {
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                new StallingHandler());
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => runtime.SearchAsync(
+                "contoso",
+                cancellationToken: cancellation.Token));
+    }
+
+    [Fact]
+    public async Task V3ServiceIndexTransportCancellationIsTypedTransport()
+    {
+        var handler = new RecordingHandler();
+        handler.SetResponse(
+            ServiceIndex,
+            _ => throw new OperationCanceledException(
+                "transport cancellation"));
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                client);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.SearchAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(PackageSourceFailureKind.Transport, failure.Kind);
+        Assert.Equal(PackageSourceCapabilities.Search, failure.Capability);
+        Assert.Equal([ServiceIndex], handler.Requested);
+    }
+
+    [Fact]
     public async Task V3SearchTransportTimeoutIsTypedTimeout()
     {
         var handler = new RecordingHandler

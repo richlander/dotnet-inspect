@@ -352,6 +352,8 @@ internal static class PackageSourceOperation
                 PackageSourceFailureKind.AuthenticationRequired,
             HttpRequestException =>
                 PackageSourceFailureKind.Transport,
+            OperationCanceledException =>
+                PackageSourceFailureKind.Transport,
             IOException =>
                 PackageSourceFailureKind.Transport,
             _ => default,
@@ -367,6 +369,7 @@ internal static class PackageSourceOperation
             or JsonException
             or InvalidDataException
             or HttpRequestException
+            or OperationCanceledException
             or IOException;
     }
 
