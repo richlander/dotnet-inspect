@@ -814,23 +814,20 @@ public class PdbContext : IDisposable
     }
 
     /// <summary>
-    /// Whether the selected method carries an IL body, resolving by MethodDef token when it
-    /// addresses this image and otherwise by type, name, and overload.
+    /// Whether the selected method carries an IL body, resolving by type, name, and overload.
     /// </summary>
     /// <remarks>
-    /// The fallback keeps the fact available when API shape came from a reference assembly but
-    /// source lookup uses a different runtime image. A reference assembly alone remains
-    /// insufficient evidence. <c>MethodHasBodyTests.MethodResolvedByName_ReportsBodyState</c>
-    /// and
-    /// <c>CommandExecutionTests.Member_PdbSource_BodylessMember_ExplainsWhyThereIsNoSource</c>
-    /// gate the two paths.
+    /// Cross-image callers must not treat an overload ordinal as a member identity: declaration
+    /// order can differ between reference and runtime images.
+    /// <c>CommandExecutionTests.MemberBodyState_CrossImageOverloadOrderMismatch_IsUnknown</c>
+    /// gates that caller boundary. <c>MethodHasBodyTests.MethodResolvedByName_ReportsBodyState</c>
+    /// gates same-image name resolution.
     /// </remarks>
     public bool? MethodHasBody(
         string typeName,
         string methodName,
         int overloadIndex,
-        bool publicOnly = false,
-        int metadataToken = 0)
+        bool publicOnly = false)
     {
         if (!_peReader.HasMetadata)
             return null;
@@ -844,7 +841,7 @@ public class PdbContext : IDisposable
                 methodName,
                 overloadIndex,
                 publicOnly,
-                metadataToken);
+                metadataToken: 0);
             return handle.IsNil ? null : MethodHasBody(reader, handle);
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
