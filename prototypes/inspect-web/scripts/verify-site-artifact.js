@@ -15,6 +15,19 @@ export function verifySiteArtifact(siteArgument) {
   if (!indexEntry || typeof indexEntry.file !== "string") {
     throw new Error("The Vite manifest has no index.html entry.");
   }
+  const index = readFileSync(indexPath, "utf8");
+  const baseIndex = index.indexOf('<base href="/"');
+  const preloadIndex = index.indexOf('rel="preload"');
+  const importMapIndex = index.indexOf('<script type="importmap"');
+  if (baseIndex < 0) {
+    throw new Error('index.html is missing <base href="/">.');
+  }
+  if (preloadIndex >= 0 && baseIndex > preloadIndex) {
+    throw new Error('index.html places <base href="/"> after the runtime preload.');
+  }
+  if (importMapIndex >= 0 && baseIndex > importMapIndex) {
+    throw new Error('index.html places <base href="/"> after the import map.');
+  }
 
   const assets = new Set();
   const addAsset = (asset) => {
@@ -57,7 +70,6 @@ export function verifySiteArtifact(siteArgument) {
     }
   }
 
-  const index = readFileSync(indexPath, "utf8");
   if (!index.includes(`src="/${indexEntry.file}"`)) {
     throw new Error(`index.html does not load Vite entry '${indexEntry.file}'.`);
   }

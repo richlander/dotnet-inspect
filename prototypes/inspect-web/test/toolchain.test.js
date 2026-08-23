@@ -197,7 +197,10 @@ test("the site artifact rejects a missing Vite output", (context) => {
   writeFileSync(join(site, "manifest.json"), JSON.stringify(manifest));
   writeFileSync(
     join(site, "index.html"),
-    '<script type="module" src="/assets/index.js"></script>'
+    '<base href="/">'
+      + '<link rel="preload" href="/_framework/dotnet.js">'
+      + '<script type="importmap">{}</script>'
+      + '<script type="module" src="/assets/index.js"></script>'
       + '<link rel="stylesheet" href="/assets/index.css">',
   );
   writeFileSync(join(site, "assets/index.js"), "");
@@ -205,6 +208,48 @@ test("the site artifact rejects a missing Vite output", (context) => {
   writeFileSync(join(site, "assets/app.js"), "");
 
   assert.doesNotThrow(() => verifySiteArtifact(site));
+  writeFileSync(
+    join(site, "index.html"),
+    '<link rel="preload" href="/_framework/dotnet.js">'
+      + '<script type="importmap">{}</script>'
+      + '<script type="module" src="/assets/index.js"></script>'
+      + '<link rel="stylesheet" href="/assets/index.css">',
+  );
+  assert.throws(
+    () => verifySiteArtifact(site),
+    /index\.html is missing <base href="\/">/,
+  );
+  writeFileSync(
+    join(site, "index.html"),
+    '<link rel="preload" href="/_framework/dotnet.js">'
+      + '<script type="importmap">{}</script>'
+      + '<base href="/">'
+      + '<script type="module" src="/assets/index.js"></script>'
+      + '<link rel="stylesheet" href="/assets/index.css">',
+  );
+  assert.throws(
+    () => verifySiteArtifact(site),
+    /index\.html places <base href="\/"> after the runtime preload/,
+  );
+  writeFileSync(
+    join(site, "index.html"),
+    '<script type="importmap">{}</script>'
+      + '<base href="/">'
+      + '<script type="module" src="/assets/index.js"></script>'
+      + '<link rel="stylesheet" href="/assets/index.css">',
+  );
+  assert.throws(
+    () => verifySiteArtifact(site),
+    /index\.html places <base href="\/"> after the import map/,
+  );
+  writeFileSync(
+    join(site, "index.html"),
+    '<base href="/">'
+      + '<link rel="preload" href="/_framework/dotnet.js">'
+      + '<script type="importmap">{}</script>'
+      + '<script type="module" src="/assets/index.js"></script>'
+      + '<link rel="stylesheet" href="/assets/index.css">',
+  );
   delete manifest["src/dotnet-inspect.ts"];
   writeFileSync(join(site, "manifest.json"), JSON.stringify(manifest));
   assert.throws(

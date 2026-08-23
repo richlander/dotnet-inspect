@@ -10,6 +10,7 @@ import { fakeDom } from "./fake-dom.ts";
 
 class FakeElement {
   private readonly listeners = new Map<string, EventListener[]>();
+  textContent = "";
 
   addEventListener(type: string, listener: EventListener) {
     const listeners = this.listeners.get(type) ?? [];
@@ -24,10 +25,11 @@ class FakeElement {
   }
 }
 
-test("credits route accepts direct and trailing-slash URLs without matching other paths", () => {
+test("credits route accepts only the two explicitly hosted paths", () => {
   assert.equal(isCreditsPath("/credits"), true);
   assert.equal(isCreditsPath("/credits/"), true);
-  assert.equal(isCreditsPath("/Credits"), true);
+  assert.equal(isCreditsPath("/Credits"), false);
+  assert.equal(isCreditsPath("/credits//"), false);
   assert.equal(isCreditsPath("/"), false);
   assert.equal(isCreditsPath("/credits/more"), false);
 });
@@ -77,10 +79,15 @@ test("credits controls dispatch through typed bindings", () => {
     querySelector: (selector: string) => elements.get(selector) ?? null,
   }), {
     onClose: () => calls.push("close"),
-    onToggleTheme: () => calls.push("theme"),
+    onToggleTheme: () => {
+      calls.push("theme");
+      return "light";
+    },
   });
 
   close.dispatch("click");
   theme.dispatch("click");
   assert.deepEqual(calls, ["close", "theme"]);
+  assert.equal(theme.textContent, "dark");
+  assert.equal(elements.get("#credits-theme"), theme);
 });

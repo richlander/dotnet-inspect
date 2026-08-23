@@ -597,6 +597,7 @@ const initialState = {
   loadingMessage: "Starting browser inspection engine…",
   loadingSubtitle: "",
   engineReady: false,
+  engineStartupFailed: false,
   engineStatus: "Loading browser WebAssembly…",
   error: "",
   errorTitle: "",
@@ -4306,11 +4307,17 @@ function toggleTheme() {
   setTheme(state.theme === "dark" ? "light" : "dark");
 }
 
+function toggleCreditsTheme(): "light" | "dark" {
+  setTheme(state.theme === "dark" ? "light" : "dark", false);
+  return state.theme === "light" ? "light" : "dark";
+}
+
 // Apply and persist a specific theme, refreshing any live graphs whose colors are theme-bound.
-function setTheme(theme: "light" | "dark") {
+function setTheme(theme: "light" | "dark", renderView = true) {
   state.theme = theme === "light" ? "light" : "dark";
   localStorage.setItem("inspect-theme", state.theme);
   document.documentElement.dataset.theme = state.theme;
+  if (!renderView) return;
   render();
   if (state.memberCallGraph)
     observeAsync(renderMermaidCallGraph(), "Rendering the member call graph");
@@ -5753,7 +5760,7 @@ function renderCreditsView() {
   app.innerHTML = renderCreditsPage(state.theme === "light" ? "light" : "dark");
   bindCreditsPanel(document, {
     onClose: goHome,
-    onToggleTheme: toggleTheme,
+    onToggleTheme: toggleCreditsTheme,
   });
 }
 
@@ -7503,6 +7510,7 @@ function isStyleOption(value: unknown): value is StyleOption {
 async function bootstrap() {
   state.loading = !state.home;
   state.engineReady = false;
+  state.engineStartupFailed = false;
   state.engineStatus = "Loading browser WebAssembly…";
   state.error = "";
   state.retryAction = null;
@@ -7550,6 +7558,7 @@ async function bootstrap() {
   } catch (error) {
     state.loading = false;
     state.engineReady = false;
+    state.engineStartupFailed = true;
     state.engineStatus = "";
     state.error = "Couldn’t start the inspection engine. Retry, or open a different package.";
     state.errorTitle = "Startup failed";
@@ -7749,6 +7758,14 @@ document.addEventListener("mousedown", event => {
 // Re-apply state when the address bar changes underneath us (browser back/forward, or a
 // hand-edited URL). Within the loaded package we mutate selection directly; a different
 // package is (re)loaded with the URL selection queued as a deep link.
+function clearNavigationError() {
+  if (state.engineStartupFailed) return;
+  state.error = "";
+  state.errorTitle = "";
+  state.errorDetail = "";
+  state.retryAction = null;
+}
+
 window.addEventListener("popstate", () => {
   const navigationSeq = navigationSequence.begin();
   state.memberCallGraphSeq++;
@@ -7757,10 +7774,7 @@ window.addEventListener("popstate", () => {
   state.queryNotice = loc.workspaceNotice || "";
   state.queryNoticeRetryAction = null;
   if (isCreditsPath(location.pathname)) {
-    state.error = "";
-    state.errorTitle = "";
-    state.errorDetail = "";
-    state.retryAction = null;
+    clearNavigationError();
     state.credits = true;
     state.home = true;
     spotlight.reset();
@@ -7770,10 +7784,7 @@ window.addEventListener("popstate", () => {
   const bareHome = !loc.package && !(loc.tabs && loc.tabs.length);
   if (bareHome) {
     // Navigated back to the bare root — show the intro/home page (engine stays warm).
-    state.error = "";
-    state.errorTitle = "";
-    state.errorDetail = "";
-    state.retryAction = null;
+    clearNavigationError();
     state.credits = false;
     state.home = true;
     spotlight.reset();

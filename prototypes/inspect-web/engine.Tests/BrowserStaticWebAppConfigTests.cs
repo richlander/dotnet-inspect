@@ -51,6 +51,23 @@ public class BrowserStaticWebAppConfigTests
         Assert.Equal(
             "PreserveNewest",
             (string?)content.Attribute("CopyToPublishDirectory"));
+
+        XElement verificationTarget = Assert.Single(
+            project.Descendants("Target"),
+            element =>
+                (string?)element.Attribute("Name") ==
+                "VerifyPublishedInspectWebSite");
+        Assert.Equal(
+            "PublishInspectWebFrontendIndex",
+            (string?)verificationTarget.Attribute("AfterTargets"));
+        XElement verificationCommand = Assert.Single(
+            verificationTarget.Elements("Exec"));
+        Assert.Contains(
+            "verify-site-artifact.js",
+            (string?)verificationCommand.Attribute("Command"));
+        Assert.Contains(
+            "$(PublishDir)wwwroot",
+            (string?)verificationCommand.Attribute("Command"));
     }
 
     private static void AssertRoute(

@@ -1706,7 +1706,7 @@ test("bare home paints before wasm engine download", () => {
     /if \(state\.credits\) \{[\s\S]*renderCreditsView\(\);[\s\S]*if \(state\.loading \|\| state\.error\)/);
   assert.match(
     bootstrap,
-    /const reportEngineStatus = \(message: string\) => \{[\s\S]*if \(!state\.credits\) render\(\);[\s\S]*if \(state\.home\) \{[\s\S]*if \(!state\.credits\) render\(\);[\s\S]*catch \(error\)[\s\S]*if \(!state\.credits\) render\(\)/);
+    /state\.engineStartupFailed = false;[\s\S]*const reportEngineStatus = \(message: string\) => \{[\s\S]*if \(!state\.credits\) render\(\);[\s\S]*if \(state\.home\) \{[\s\S]*if \(!state\.credits\) render\(\);[\s\S]*catch \(error\)[\s\S]*state\.engineStartupFailed = true;[\s\S]*if \(!state\.credits\) render\(\)/);
   assert.match(
     appSource,
     /const showReadyGlint = state\.engineReady && homeReadyGlintPending;[\s\S]*homeReadyGlintPending = false;[\s\S]*homeBotAnimationStartedAt[\s\S]*--home-bot-animation-delay:/);
@@ -3065,7 +3065,13 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /if \(!pkg && tabs\.length\) \{\s+const target = tabs\[/);
   assert.match(
     appSource,
-    /state\.error = "";\s+state\.errorTitle = "";\s+state\.errorDetail = "";\s+state\.retryAction = null;\s+state\.credits = false;\s+state\.home = true;/);
+    /function clearNavigationError\(\) \{\s+if \(state\.engineStartupFailed\) return;\s+state\.error = "";\s+state\.errorTitle = "";\s+state\.errorDetail = "";\s+state\.retryAction = null;\s+\}/);
+  assert.match(
+    appSource,
+    /if \(isCreditsPath\(location\.pathname\)\) \{\s+clearNavigationError\(\);[\s\S]*if \(bareHome\) \{[\s\S]*clearNavigationError\(\)/);
+  assert.match(
+    appSource,
+    /function toggleCreditsTheme\(\): "light" \| "dark" \{\s+setTheme\(state\.theme === "dark" \? "light" : "dark", false\);\s+return state\.theme === "light" \? "light" : "dark";\s+\}[\s\S]*onToggleTheme: toggleCreditsTheme/);
   assert.match(
     appSource,
     /\(\) =>\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\)/);

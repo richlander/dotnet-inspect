@@ -1,10 +1,10 @@
 export function isCreditsPath(pathname: string): boolean {
-  return pathname.replace(/\/+$/, "").toLowerCase() === "/credits";
+  return pathname === "/credits" || pathname === "/credits/";
 }
 
 export interface CreditsPanelBindingActions {
   onClose: () => void;
-  onToggleTheme: () => void;
+  onToggleTheme: () => "light" | "dark";
 }
 
 export function bindCreditsPanel(
@@ -13,8 +13,11 @@ export function bindCreditsPanel(
 ) {
   root.querySelector("#credits-close")
     ?.addEventListener("click", actions.onClose);
-  root.querySelector("#credits-theme")
-    ?.addEventListener("click", actions.onToggleTheme);
+  const theme = root.querySelector("#credits-theme");
+  theme?.addEventListener("click", () => {
+    const activeTheme = actions.onToggleTheme();
+    theme.textContent = activeTheme === "dark" ? "light" : "dark";
+  });
 }
 
 export function renderCreditsPage(theme: "dark" | "light"): string {

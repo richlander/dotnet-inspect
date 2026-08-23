@@ -500,8 +500,10 @@ to the client-rendered `/credits` route. `src/credits-panel.ts` owns that page's
 markup, route recognition, and rendered control bindings. Azure Static Web Apps
 rewrites direct Credits requests to the non-cacheable `index.html`; the
 document's root base keeps SDK-generated framework imports valid on both
-`/credits` and `/credits/`. Other application routes use the navigation
-fallback, while API, asset, and framework requests remain excluded.
+`/credits` and `/credits/`. `scripts/verify-site-artifact.js` gates that base
+and its ordering in the Vite bundle and SDK-published site. Other application
+routes use the navigation fallback, while API, asset, and framework requests
+remain excluded.
 
 The .NET 11 preview Emscripten wrapper currently mishandles an SDK packs path
 that contains whitespace. If that applies to the local SDK installation, pass
