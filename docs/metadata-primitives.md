@@ -159,9 +159,12 @@ offset with no identity check capable of detecting the mismatch. The
 acquisition owner retains the lease; the primitive does not reopen a path, own
 or dispose the image, copy the whole metadata block, or retain a
 `PEMemoryBlock`, `BlobReader`, or unmanaged pointer after the call.
-The Metadata-owned session must call its `AssemblyImage.EnsureAlive()`
-liveness check immediately before each primitive invocation; passing a bare
-borrowed `PEReader` without that check is a contract violation.
+The Metadata-owned `MethodSemanticsAssociationSession` must call its
+`AssemblyImage.EnsureAlive()` liveness check immediately before each product
+primitive invocation; passing a bare borrowed `PEReader` without that check is
+a contract violation. It is the sole product invocation owner. Direct primitive
+calls are confined to this leaf's boundary tests, where the test owns the
+reader lifetime.
 
 The implementation may use only public SRM layout facts to locate the table:
 its metadata offset, row size, table row counts used to derive ECMA-defined
@@ -200,9 +203,10 @@ failure policy.
 
 The leaf receives neither a `MetadataOperationContext` nor an image/cache
 identity. It charges the supplied neutral budget before returning each retained
-row and retains no state after the call. Metadata owns operation identity,
-single-pass reuse, typed rejection caching, and session liveness; `MDP006` and
-`MDP009` gate those properties.
+row and retains no state after the call. Metadata owns generation/operation
+mapping, single-pass reuse, typed rejection caching, and both cold-pass and
+cache-observation session liveness; `MDP006` gates accounting and `MDP009`
+gates operation/liveness wiring.
 
 This is not a reusable general coded-index decoder or table projector. No
 public API accepts an arbitrary `TableIndex`, column schema, or coded-index
