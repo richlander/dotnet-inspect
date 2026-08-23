@@ -707,7 +707,10 @@ assignment-shaped `SpecialName` method into a public C# operator declaration.
 compile-back gate. Existing operator requirements must also retain their
 metadata tokens so `Full` body policy can attach the required sibling bodies;
 `CompileBackTargets_FullBodiesIncludeCalledEqualityOperatorPair` gates that
-closure.
+closure. Token attachment is signature-exact rather than name-based:
+`CompileBackTargets_FullBodiesMatchOverloadedOperatorParameters` and
+`CompileBackTargets_FullBodiesMatchConversionReturnTypes` require parameter-
+and return-type overloads to retain their own bodies.
 
 Exact increment and decrement selectors remain exact across normalization and
 reparse. `GetCandidates_IncrementTokenIncludesStaticAndInstanceShapes` requires

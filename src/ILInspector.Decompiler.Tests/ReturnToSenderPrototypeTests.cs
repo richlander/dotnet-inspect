@@ -3471,6 +3471,116 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_FullBodiesMatchOverloadedOperatorParameters()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Row
+            {
+                public int Value;
+                public static bool operator ==(Row left, Row right) => left.Value == 7;
+                public static bool operator !=(Row left, Row right) => left.Value != 7;
+                public static bool operator ==(Row left, int right) => left.Value == right;
+                public static bool operator !=(Row left, int right) => left.Value != right;
+                public override bool Equals(object obj) => false;
+                public override int GetHashCode() => 0;
+            }
+
+            public static class Consumer
+            {
+                public static bool Same(Row value) => value == 1;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Consumer", "Same", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.BodyComplete,
+                string.Join(
+                    Environment.NewLine,
+                    result.FullBodies.Select(
+                        body =>
+                            $"{body.Member}: {body.Status}: {body.Failure}")));
+            Assert.Equal(
+                2,
+                result.FullBodies.Count(
+                    static body =>
+                        body.Member == "Row.op_Equality"
+                        && body.Status
+                            == MemberBodyProductionStatus.Complete));
+            Assert.Equal(
+                2,
+                result.FullBodies.Count(
+                    static body =>
+                        body.Member == "Row.op_Inequality"
+                        && body.Status
+                            == MemberBodyProductionStatus.Complete));
+            Assert.Contains("return left.Value == right;", result.Source);
+            Assert.Contains("return left.Value != right;", result.Source);
+            Assert.Contains("return left.Value == 7;", result.Source);
+            Assert.Contains("return left.Value != 7;", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullBodiesMatchConversionReturnTypes()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Money
+            {
+                public int Value;
+                public static implicit operator int(Money value) => value.Value;
+                public static implicit operator string(Money value) => "money";
+            }
+
+            public static class Consumer
+            {
+                public static string Describe(Money value) => value;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Consumer",
+                    "Describe",
+                    0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.BodyComplete,
+                string.Join(
+                    Environment.NewLine,
+                    result.FullBodies.Select(
+                        body =>
+                            $"{body.Member}: {body.Status}: {body.Failure}")));
+            Assert.Equal(
+                2,
+                result.FullBodies.Count(
+                    static body =>
+                        body.Member == "Money.op_Implicit"
+                        && body.Status
+                            == MemberBodyProductionStatus.Complete));
+            Assert.Contains("return value.Value;", result.Source);
+            Assert.Contains("return \"money\";", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_ClosureSelectsConversionByReturnType()
     {
         var assemblyPath = CompileFixture("""

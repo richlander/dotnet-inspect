@@ -5547,9 +5547,65 @@ public static class CompileBackSourceComposer
                     method,
                     isConstructor,
                     relationshipResolver);
+                MethodSignature<string> signature;
+                try
+                {
+                    signature = GuardedSignatureText.MethodText(
+                        reader,
+                        method,
+                        GenericContext.ForMethod(
+                            reader,
+                            typeDef,
+                            method));
+                }
+                catch (Exception ex) when (
+                    ex is BadImageFormatException
+                        or InvalidOperationException
+                        or ArgumentException)
+                {
+                    diagnostics.Add(
+                        new CompileBackPlanningDiagnostic(
+                            "member surface",
+                            "method-signature-decode-failed",
+                            name));
+                    continue;
+                }
+                string signatureIdentity =
+                    MethodSignatureText(identifierName, signature);
+                var generatedLocalFunction =
+                    IsGeneratedLocalFunctionName(name);
+                var methodDeclaration = generatedLocalFunction
+                    ? null
+                    : MetadataDeclarationQuery.GetMethod(
+                        reader,
+                        typeDef,
+                        method,
+                        signature);
+                var parameters = generatedLocalFunction
+                    ? Parameters(reader, method, signature)
+                    : ToCompileBackParameters(
+                        methodDeclaration!.Signature.Parameters);
+                var methodReturnType = generatedLocalFunction
+                    ? signature.ReturnType
+                    : methodDeclaration!.Signature.ReturnType;
+                CompileBackTypeSignature? returnType =
+                    isConstructor || methodReturnType is null
+                    ? null
+                    : CompileBackTypeSignature.Display(
+                        methodReturnType);
+                int typeParameterCount =
+                    method.GetGenericParameters().Count;
                 int existingMethodIndex = members.FindIndex(member =>
-                    member.Kind == memberKind
-                    && member.Identity.Method == identifierName);
+                    SameMethodShape(
+                        member,
+                        memberKind,
+                        identifierName,
+                        signatureIdentity,
+                        method.Attributes.HasFlag(
+                            MethodAttributes.Static),
+                        parameters,
+                        returnType,
+                        typeParameterCount));
                 if (existingMethodIndex >= 0)
                 {
                     var existing = members[existingMethodIndex];
@@ -5561,38 +5617,19 @@ public static class CompileBackSourceComposer
                 }
                 if (!isConstructor
                     && method.Attributes.HasFlag(
-                        MethodAttributes.SpecialName))
+                        MethodAttributes.SpecialName)
+                    && memberKind != CompileBackMemberKind.Operator)
                 {
                     continue;
                 }
                 if (requirement.RequiredKind == CompileBackTypeKind.Interface && method.Attributes.HasFlag(MethodAttributes.Static))
                     continue;
-                if (method.GetGenericParameters().Count != 0)
+                if (typeParameterCount != 0)
                 {
                     diagnostics.Add(new CompileBackPlanningDiagnostic("member surface", "generic-method-skipped", name));
                     continue;
                 }
-                MethodSignature<string> signature;
-                try
-                {
-                    signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
-                }
-                catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
-                {
-                    diagnostics.Add(new CompileBackPlanningDiagnostic("member surface", "method-signature-decode-failed", name));
-                    continue;
-                }
 
-                var generatedLocalFunction = IsGeneratedLocalFunctionName(name);
-                var methodDeclaration = generatedLocalFunction
-                    ? null
-                    : MetadataDeclarationQuery.GetMethod(reader, typeDef, method, signature);
-                var parameters = generatedLocalFunction
-                    ? Parameters(reader, method, signature)
-                    : ToCompileBackParameters(methodDeclaration!.Signature.Parameters);
-                var methodReturnType = generatedLocalFunction
-                    ? signature.ReturnType
-                    : methodDeclaration!.Signature.ReturnType;
                 if (methodReturnType is null
                     || IsUnsupportedSurfaceSignature(methodReturnType)
                     || parameters.Any(parameter => IsUnsupportedSurfaceSignature(parameter.Type.DisplayName))
@@ -5655,6 +5692,27 @@ public static class CompileBackSourceComposer
 
         static bool IsGeneratedLocalFunctionName(string name)
             => name.Contains('<', StringComparison.Ordinal) && CSharpNaming.MethodName(name) != name;
+
+        static bool SameMethodShape(
+            CompileBackMemberRequirement member,
+            CompileBackMemberKind kind,
+            string name,
+            string signature,
+            bool isStatic,
+            IReadOnlyList<CompileBackParameter> parameters,
+            CompileBackTypeSignature? returnType,
+            int typeParameterCount)
+            => member.Kind == kind
+                && member.Identity.Method == name
+                && (member.Identity.Signature == signature
+                    || (member.IsStatic == isStatic
+                        && member.TypeParameters.Count
+                            == typeParameterCount
+                        && member.ReturnType?.DisplayName
+                            == returnType?.DisplayName
+                        && SameParameters(
+                            member.Parameters,
+                            parameters)));
 
         static bool IsPointerSignature(string signature)
             => signature.Contains('*', StringComparison.Ordinal);
