@@ -445,7 +445,9 @@ public sealed class TypeShellProducerTests
             TypeParameters: [],
             BodyKind: CSharpShellBodyKind.TargetBody,
             Body: "return true;",
-            CSharpOperatorDeclaration: true));
+            CSharpOperatorDeclaration: true,
+            OperatorPairingKey: "pairing-key",
+            HasOperatorPairingKey: true));
         var inequality = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
             Name: "op_Inequality",
             Kind: CSharpShellMemberKind.Operator,
@@ -459,11 +461,17 @@ public sealed class TypeShellProducerTests
             TypeParameters: [],
             BodyKind: CSharpShellBodyKind.Throw,
             Body: null,
-            CSharpOperatorDeclaration: true));
+            CSharpOperatorDeclaration: true,
+            OperatorPairingKey: "pairing-key",
+            HasOperatorPairingKey: true));
 
         Assert.Equal("operator", equality.Member.Kind);
         Assert.True(equality.Member.CSharpOperatorDeclaration);
         Assert.True(inequality.Member.CSharpOperatorDeclaration);
+        Assert.True(equality.Member.HasOperatorPairingKey);
+        Assert.Equal("pairing-key", equality.Member.OperatorPairingKey);
+        Assert.True(inequality.Member.HasOperatorPairingKey);
+        Assert.Equal("pairing-key", inequality.Member.OperatorPairingKey);
         var type = new ApiType
         {
             Name = "Row",

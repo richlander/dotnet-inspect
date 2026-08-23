@@ -87,6 +87,8 @@ public sealed record CSharpMemberShellSpec(
     int? RemoverToken = null,
     bool SuppressDestructorSyntax = false,
     bool? CSharpOperatorDeclaration = null,
+    string? OperatorPairingKey = null,
+    bool HasOperatorPairingKey = false,
     string? MetadataName = null);
 
 /// <summary>
@@ -292,6 +294,8 @@ public static class CSharpMemberShellProducer
             IsAsync = spec.IsAsync,
             IsExtension = spec.IsExtension,
             CSharpOperatorDeclaration = spec.CSharpOperatorDeclaration,
+            OperatorPairingKey = spec.OperatorPairingKey,
+            HasOperatorPairingKey = spec.HasOperatorPairingKey,
             IsConst = spec.Kind == CSharpShellMemberKind.Field
                 && spec.BodyKind == CSharpShellBodyKind.TargetBody,
             MetadataToken = spec.MetadataToken,

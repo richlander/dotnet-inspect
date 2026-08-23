@@ -438,6 +438,8 @@ public sealed record CompileBackMemberRequirement(
     int? AdderToken = null,
     int? RemoverToken = null,
     bool SuppressDestructorSyntax = false,
+    string? OperatorPairingKey = null,
+    bool HasOperatorPairingKey = false,
     string? MetadataName = null)
 {
     public string Name => Identity.Method;
@@ -634,6 +636,7 @@ public static class CompileBackSourceComposer
                 closure.Facts,
                 closure.MemberRequirements,
                 request.MemberSurfaceByDefinitionName,
+                request.BodyPolicy,
                 request.TargetBody.ConstructorChain,
                 operatorResolver,
                 operatorTypeResolver,
@@ -1364,7 +1367,8 @@ public static class CompileBackSourceComposer
         MetadataReader reader,
         TypeDefinitionHandle root,
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
-        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements)
+        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements,
+        bool includeFullMemberSurface = false)
     {
         AddClosureTypeRequirement(root);
         foreach (var handle in closureMemberRequirements.Keys.Concat(closureFacts.Keys)
@@ -1399,9 +1403,10 @@ public static class CompileBackSourceComposer
                         ? [new CompileBackFact("closure", "closure-root", identity.FullName)]
                         : [new CompileBackFact("metadata", "nested-closure-member-owner", identity.FullName)])
             {
-                IncludeMemberSurface = facts.Any(fact => fact.Id == "closure-member")
-                    && (requiredMembers.Length == 0
-                        || requiredMembers.Any(member => !member.IsOperator)),
+                IncludeMemberSurface = includeFullMemberSurface
+                    || (facts.Any(fact => fact.Id == "closure-member")
+                        && (requiredMembers.Length == 0
+                            || requiredMembers.Any(member => !member.IsOperator))),
                 IncludeOperatorSurface = requiredMembers.Any(member => member.IsOperator),
             };
             requirements.Add(requirement);
@@ -3132,6 +3137,7 @@ public static class CompileBackSourceComposer
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements,
         CompileBackMemberSurfaceIndex memberSurfaceByDefinitionName,
+        RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected,
         string? constructorChain = null,
         IOperatorTypeRelationshipResolver? operatorResolver = null,
         CrossAssemblyTypeResolver? operatorTypeResolver = null,
@@ -3375,7 +3381,8 @@ public static class CompileBackSourceComposer
                 primaryConstructor,
                 targetFacts)
             {
-                IncludeMemberSurface = includeRecordSurface
+                IncludeMemberSurface = bodyPolicy == RoundTripBodyPolicy.Full
+                    || includeRecordSurface
                     || targetFacts.Any(fact => fact.Id == "closure-member"),
                 IncludeOperatorSurface = targetOperatorIsRepresentable
                     || targetMembers.Any(member => member.IsOperator),
@@ -3384,14 +3391,28 @@ public static class CompileBackSourceComposer
                     : [externalExplicitInterfaceMethod.InterfaceDisplayName],
             }
         };
-        AddClosureTypeRequirements(requirements, reader, targetRoot, closureFacts, closureMemberRequirements);
+        AddClosureTypeRequirements(
+            requirements,
+            reader,
+            targetRoot,
+            closureFacts,
+            closureMemberRequirements,
+            includeFullMemberSurface:
+                bodyPolicy == RoundTripBodyPolicy.Full);
 
         foreach (var dependency in closureRoots.OrderBy(handle => MetadataTokens.GetToken(handle)))
         {
             if (dependency == targetRoot)
                 continue;
 
-            AddClosureTypeRequirements(requirements, reader, dependency, closureFacts, closureMemberRequirements);
+            AddClosureTypeRequirements(
+                requirements,
+                reader,
+                dependency,
+                closureFacts,
+                closureMemberRequirements,
+                includeFullMemberSurface:
+                    bodyPolicy == RoundTripBodyPolicy.Full);
         }
         AddInheritedInterfaceMemberRequirements(
             requirements,
@@ -3623,6 +3644,8 @@ public static class CompileBackSourceComposer
             CSharpOperatorDeclaration: requirement.Kind == CompileBackMemberKind.Operator
                 ? requirement.IsOperator
                 : null,
+            OperatorPairingKey: requirement.OperatorPairingKey,
+            HasOperatorPairingKey: requirement.HasOperatorPairingKey,
             MetadataName: requirement.MetadataName);
 
     static CSharpShellParameter ToShellParameter(CompileBackParameter parameter)
@@ -6833,7 +6856,9 @@ public static class CompileBackSourceComposer
                 string identifierName = MemberIdentifierName(name, isConstructor);
                 if (requirement.RequiredKind == CompileBackTypeKind.Interface && method.Attributes.HasFlag(MethodAttributes.Static))
                     continue;
-                if (method.GetGenericParameters().Count != 0)
+                var generatedLocalFunction = IsGeneratedLocalFunctionName(name);
+                int typeParameterCount = method.GetGenericParameters().Count;
+                if (generatedLocalFunction && typeParameterCount != 0)
                 {
                     diagnostics.Add(new CompileBackPlanningDiagnostic(
                         "member surface",
@@ -6852,7 +6877,6 @@ public static class CompileBackSourceComposer
                     continue;
                 }
                 string signatureIdentity = MethodSignatureText(identifierName, signature);
-                var generatedLocalFunction = IsGeneratedLocalFunctionName(name);
                 var methodDeclaration = generatedLocalFunction
                     ? null
                     : MetadataDeclarationQuery.GetMethod(reader, typeDef, method, signature);
@@ -6914,7 +6938,7 @@ public static class CompileBackSourceComposer
                         && candidate.member.ExplicitInterfaceMemberName is null
                         && candidate.member.IsStatic == methodIsStatic
                         && candidate.member.IsOperator == methodIsOperator
-                        && candidate.member.TypeParameters.Count == method.GetGenericParameters().Count
+                        && candidate.member.TypeParameters.Count == typeParameterCount
                         && candidate.member.ReturnType?.DisplayName == returnTypeIdentity
                         && candidate.member.Parameters
                             .Select(parameter => (parameter.Type.DisplayName, parameter.Modifier))
@@ -6928,6 +6952,8 @@ public static class CompileBackSourceComposer
                     members[existingMethodIndex] = existing with
                     {
                         MetadataToken = existing.MetadataToken ?? surfaceMethod.MetadataToken,
+                        OperatorPairingKey = surfaceMethod.OperatorPairingKey,
+                        HasOperatorPairingKey = surfaceMethod.HasOperatorPairingKey,
                     };
                     continue;
                 }
@@ -6937,11 +6963,6 @@ public static class CompileBackSourceComposer
                         "member surface",
                         "method-token-match-ambiguous",
                         signatureIdentity));
-                    continue;
-                }
-                if (method.GetGenericParameters().Count != 0)
-                {
-                    diagnostics.Add(new CompileBackPlanningDiagnostic("member surface", "generic-method-skipped", name));
                     continue;
                 }
                 members.Add(new CompileBackMemberRequirement(
@@ -6970,7 +6991,9 @@ public static class CompileBackSourceComposer
                     IsOperator: methodIsOperator,
                     IsFinalizer: surfaceMethod.IsFinalizer,
                     Accessibility: MethodAccessibility(method),
-                    MetadataToken: surfaceMethod.MetadataToken));
+                    MetadataToken: surfaceMethod.MetadataToken,
+                    OperatorPairingKey: surfaceMethod.OperatorPairingKey,
+                    HasOperatorPairingKey: surfaceMethod.HasOperatorPairingKey));
             }
 
             if (requirement.RequiredKind == CompileBackTypeKind.Class
