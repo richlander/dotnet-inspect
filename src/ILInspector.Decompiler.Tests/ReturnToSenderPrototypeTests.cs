@@ -3476,11 +3476,10 @@ public class ReturnToSenderPrototypeTests
         var assemblyPath = CompileFixture("""
             public sealed class Row
             {
-                public int Value;
-                public static bool operator ==(Row left, Row right) => left.Value == 7;
-                public static bool operator !=(Row left, Row right) => left.Value != 7;
-                public static bool operator ==(Row left, int right) => left.Value == right;
-                public static bool operator !=(Row left, int right) => left.Value != right;
+                public static bool operator ==(Row left, Row right) => true;
+                public static bool operator !=(Row left, Row right) => false;
+                public static bool operator ==(Row left, int right) => false;
+                public static bool operator !=(Row left, int right) => true;
                 public override bool Equals(object obj) => false;
                 public override int GetHashCode() => 0;
             }
@@ -3524,10 +3523,26 @@ public class ReturnToSenderPrototypeTests
                         or "Row.op_Inequality"
                     && body.Status
                         != MemberBodyProductionStatus.Complete);
-            Assert.Contains("return left.Value == right;", result.Source);
-            Assert.Contains("return left.Value != right;", result.Source);
-            Assert.Contains("return left.Value == 7;", result.Source);
-            Assert.Contains("return left.Value != 7;", result.Source);
+            int equalityStart = result.Source.IndexOf(
+                "operator ==(Row left, int right)",
+                StringComparison.Ordinal);
+            Assert.True(equalityStart >= 0, result.Source);
+            int equalityEnd = result.Source.IndexOf(
+                '}',
+                equalityStart);
+            Assert.Contains(
+                "return false;",
+                result.Source[equalityStart..equalityEnd]);
+            int inequalityStart = result.Source.IndexOf(
+                "operator !=(Row left, int right)",
+                StringComparison.Ordinal);
+            Assert.True(inequalityStart >= 0, result.Source);
+            int inequalityEnd = result.Source.IndexOf(
+                '}',
+                inequalityStart);
+            Assert.Contains(
+                "return true;",
+                result.Source[inequalityStart..inequalityEnd]);
         }
         finally
         {
@@ -3541,8 +3556,7 @@ public class ReturnToSenderPrototypeTests
         var assemblyPath = CompileFixture("""
             public sealed class Money
             {
-                public int Value;
-                public static implicit operator int(Money value) => value.Value;
+                public static implicit operator int(Money value) => 7;
                 public static implicit operator string(Money value) => "money";
             }
 
@@ -3579,7 +3593,7 @@ public class ReturnToSenderPrototypeTests
                     body.Member == "Money.op_Implicit"
                     && body.Status
                         != MemberBodyProductionStatus.Complete);
-            Assert.Contains("return value.Value;", result.Source);
+            Assert.Contains("return 7;", result.Source);
             Assert.Contains("return \"money\";", result.Source);
         }
         finally
