@@ -43,7 +43,7 @@ public sealed class PackageIndexCacheTests
     }
 
     [Fact]
-    public void IndeterminateRidAvailability_RequiresReverification()
+    public void RidAvailability_IsNotPersisted()
     {
         string packageName =
             $"Indeterminate.Rid.{Guid.NewGuid():N}";
@@ -58,7 +58,7 @@ public sealed class PackageIndexCacheTests
                 {
                     RuntimeIdentifier = "linux-x64",
                     PackageId = $"{packageName}.linux-x64",
-                    Exists = null,
+                    Exists = true,
                 },
             ],
         };
@@ -76,6 +76,8 @@ public sealed class PackageIndexCacheTests
                 ProducerKey)!;
         Assert.True(
             PackageIndexCache.RequiresRidReverification(cached));
+        Assert.Null(
+            Assert.Single(cached.RuntimeIdentifierPackages!).Exists);
     }
 
     [Fact]

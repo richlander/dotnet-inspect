@@ -147,6 +147,46 @@ public class RidPackageVerifierTests
     }
 
     [Fact]
+    public async Task VerifyAsync_MissingHttpServiceIndexIsUnknown()
+    {
+        CoreCache.Initialize("dotnet-inspect-test");
+        var handler = new StubHandler();
+        using var client = new HttpClient(handler);
+        var result = new InspectionResult
+        {
+            RuntimeIdentifierPackages =
+            [
+                new RidPackageReference
+                {
+                    RuntimeIdentifier = "linux-x64",
+                    PackageId =
+                        $"UnavailableFeed.{Guid.NewGuid():N}.linux-x64",
+                },
+            ],
+        };
+
+        await RidPackageVerifier.VerifyAsync(
+            client,
+            result,
+            "1.0.0",
+            localDir: null,
+            logger: new VerboseLogger(enabled: false),
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources =
+                [
+                    "https://missing-feed.example/v3/index.json",
+                ],
+            });
+
+        Assert.Null(
+            Assert.Single(result.RuntimeIdentifierPackages).Exists);
+        Assert.Contains(
+            handler.Requests,
+            request => request.Host == "missing-feed.example");
+    }
+
+    [Fact]
     public async Task VerifyAsync_VersionIndexFailureIsUnknown()
     {
         CoreCache.Initialize("dotnet-inspect-test");

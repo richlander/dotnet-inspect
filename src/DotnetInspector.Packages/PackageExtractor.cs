@@ -2712,7 +2712,7 @@ public static class PackageExtractor
                 return true;
             }
 
-            if (!source.Authoritative && !source.SourceMissing)
+            if (!source.Authoritative)
                 incomplete = true;
         }
 

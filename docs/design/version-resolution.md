@@ -103,11 +103,13 @@ configured sources.
 RID companion verification prefers the package's standalone nuspec and falls
 back to the source's authoritative version index when a feed does not expose
 standalone nuspec documents. A version-list failure is reported as unknown,
-not as evidence that the companion package is absent. Cached indeterminate
-results are reverified without repeating filesystem inspection. The
+not as evidence that the companion package is absent. Cached companion
+identities are reverified without repeating filesystem inspection. RID
+availability is not persisted because it depends on the current source policy.
+The
 `VerifyAsync_VersionIndexFailureIsUnknown` and
-`InspectAsync_ReverifiesIndeterminateCachedRidAvailability` tests gate these
-properties.
+`InspectAsync_ReverifiesIndeterminateCachedRidAvailability` and
+`RidAvailability_IsNotPersisted` tests gate these properties.
 
 This describes the current gate. The target
 [package source model](package-source-model.md#enrichment-is-a-separate-capability)

@@ -130,9 +130,8 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         using var client = new HttpClient(new RoutingHandler(request =>
         {
             string path = request.RequestUri!.AbsolutePath;
-            if (path.Contains(
-                normalizedKnownRidPackage,
-                StringComparison.Ordinal))
+            if (path ==
+                $"/flat/{normalizedKnownRidPackage}/index.json")
             {
                 probedKnownRid = true;
             }
@@ -152,6 +151,9 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                     """),
                 _ when path ==
                     $"/flat/{normalizedRidPackage}/index.json" =>
+                    Json("""{"versions":["1.0.0"]}"""),
+                _ when path ==
+                    $"/flat/{normalizedKnownRidPackage}/index.json" =>
                     Json("""{"versions":["1.0.0"]}"""),
                 _ => new HttpResponseMessage(HttpStatusCode.NotFound),
             };
@@ -190,18 +192,18 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                 .Single(package =>
                     package.PackageId == knownRidPackage)
                 .Exists);
-        Assert.False(probedKnownRid);
+        Assert.True(probedKnownRid);
         InspectionResult persisted =
             PackageIndexCache.TryGet(
                 packageName,
                 Version,
                 producerKey)!;
-        Assert.True(
+        Assert.Null(
             persisted.RuntimeIdentifierPackages!
                 .Single(package =>
                     package.PackageId == ridPackage)
                 .Exists);
-        Assert.True(
+        Assert.Null(
             persisted.RuntimeIdentifierPackages!
                 .Single(package =>
                     package.PackageId == knownRidPackage)

@@ -62,16 +62,7 @@ internal static class PackageInspector
                         cached.Version,
                         localDir: null,
                         logger: logger,
-                        sourceOptions: sourceOptions,
-                        onlyIndeterminate: true);
-                    if (!PackageIndexCache.RequiresRidReverification(cached))
-                    {
-                        PackageIndexCache.Set(
-                            packageName,
-                            version,
-                            producerKey,
-                            cached);
-                    }
+                        sourceOptions: sourceOptions);
                 }
 
                 if (fetchMetadata)

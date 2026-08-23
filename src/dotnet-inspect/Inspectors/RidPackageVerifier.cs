@@ -15,17 +15,13 @@ public static class RidPackageVerifier
         string version,
         string? localDir,
         VerboseLogger logger,
-        NuGetSourceOptions? sourceOptions = null,
-        bool onlyIndeterminate = false)
+        NuGetSourceOptions? sourceOptions = null)
     {
         if (result.RuntimeIdentifierPackages == null)
             return;
 
         foreach (var ridPkg in result.RuntimeIdentifierPackages)
         {
-            if (onlyIndeterminate && ridPkg.Exists is not null)
-                continue;
-
             if (localDir != null)
             {
                 // Local verification: check if sibling .nupkg file exists

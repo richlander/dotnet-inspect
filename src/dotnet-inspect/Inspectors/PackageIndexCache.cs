@@ -423,7 +423,8 @@ internal static class PackageIndexCache
     }
 
     private static string FormatRidPackageReference(RidPackageReference reference)
-        => $"{reference.RuntimeIdentifier}|{reference.PackageId}|{reference.AvailableDisplay}";
+        // Availability depends on the active source policy; cache identity only.
+        => $"{reference.RuntimeIdentifier}|{reference.PackageId}|unknown";
 
     private static RidPackageReference ParseRidPackageReference(string raw)
     {
