@@ -132,16 +132,22 @@ implementation does not deliver**; the second holds today.
   named that exact file, so honouring it is the entire point. Today it holds
   only for the assembly the caller *opens*, which is read from the named path
   directly. It does **not** hold for a reference *resolved* to that same
-  filename from another assembly: resolution ranks trusted-platform candidates
-  above corpus candidates (`CandidateTier.TrustedPlatform` precedes
-  `CandidateTier.Corpus` in `AssemblyDependencyResolver`), so the platform copy
-  is offered first. Whether the overlay is reached at all then depends on the
-  requested identity rather than on the caller's intent: a platform candidate
-  that *matches* shadows the overlay, while one that does not match is skipped
-  (`MatchesCandidate` falls through to `continue`) and the corpus candidate is
-  reached after all. Composition is therefore **emergent and
-  version-dependent** — it happens when the versions differ and not when they
-  agree, which is the opposite of a rule. This is the same defect as
+  filename from another assembly: platform candidates are registered before
+  corpus candidates and resolution walks them in registration order, so the
+  platform copy is offered first. (`CandidateTier` does not rank anything; it
+  is used only for tier-boundary handling.) Whether the overlay is reached at
+  all then depends on configuration rather than on the caller's intent. It is
+  reached only when the platform candidate fails the *effective identity
+  policy* — `MatchesCandidate` weighs version, culture, and public key token,
+  and its version test is relaxed by `IgnoreAssemblyVersion` and, in platform
+  scope, by `AllowPlatformAssemblyVersionRollForward` — **and** the scope
+  permits continuing across the tier boundary. Non-platform scope does not: on
+  crossing from the platform tier to the corpus tier it abandons the resolution
+  and reports the reference unresolved, so in the common case an overlay is
+  never reached *and the reference does not resolve at all*. A version mismatch
+  is the most likely cause of the first condition, not the whole of it.
+  Composition is therefore **emergent**, falling out of options and
+  registration order. This is the same defect as
   [precedence](#precedence-between-entitled-candidates) below, and it is
   **#4593**.
 - **The overlay does not extend its authority beyond that filename.** It does
@@ -158,9 +164,9 @@ implementation does not deliver**; the second holds today.
 Stated as intent, the pair keeps the graph mostly coherent: the base supplies a
 closure that was built as a unit, and the overlay replaces one member of it.
 Until #4593 lands, the replacement is reliably visible only to the caller who
-named it; whether any other assembly sees it is an accident of version
-matching. What that cannot guarantee, even once the rule holds, is that the
-replacement still *fits*.
+named it; whether any other assembly sees it is an accident of configuration
+and version matching. What that cannot guarantee, even once the rule holds, is
+that the replacement still *fits*.
 
 ## Coherence is a property of the pair
 
@@ -203,11 +209,13 @@ to prefer. Load a platform and a designated build copy of the same assembly, and
 both can satisfy the same reference.
 
 Today the winner falls out of the order in which candidates are registered:
-platform is registered before corpus, so platform wins. Worse, the outcome
-**flips with version equality** — when identities differ, the platform candidate
-fails its identity match and falls through, and the designated copy wins
-instead. So the selected assembly changes depending on whether two versions
-happen to agree, with no signal in either direction.
+platform is registered before corpus, so platform is offered first. Worse, the
+outcome **turns on configuration** — when the platform candidate fails the
+effective identity policy (version, culture, or public key token, as relaxed by
+`IgnoreAssemblyVersion` or platform-scope roll-forward) and the scope allows
+continuing past the tier boundary, the designated copy wins instead. So the
+selected assembly changes with option settings and version equality, with no
+signal in either direction.
 
 The rule is that **precedence must be stated rather than emergent**, and that an
 unstated tie is a diagnostic rather than a silent pick. Tracked as **#4593**.
