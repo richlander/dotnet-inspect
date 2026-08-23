@@ -59,51 +59,12 @@ function packageTypes(result: BrowserPackageSurface): BrowserTypeSurface[] {
   }));
 }
 
-// The two validations are separate because they belong on different paths, and round 6
-// review (GPT-5.6 Sol) showed what collapsing them costs.
-//
-// A *blank* identity is never legitimate: `defaultAssemblyId` is declared non-optional,
-// and a surface without one produces a package model with a blank identity whatever is
-// done with it. An *unmatched* identity is legitimate -- `InspectionEngine.cs` permits an
-// empty `assemblies` list whenever extraction truncates and then falls back to
-// `coordinate.DefaultAsset.Id`, an id matching no descriptor -- and those surfaces still
-// carry types worth merging.
-//
-// Round 5 moved the whole check after the merge branch to stop rejecting that truncated
-// surface, which also stopped rejecting blank identities on the resident-merge path.
-// Splitting the checks keeps both properties: identity is required everywhere, a matching
-// descriptor only where one is actually read.
-function requireAssemblyIdentity(
-  result: BrowserPackageSurface,
-  failureMessage: string,
-): string {
-  const defaultAssemblyId = result.defaultAssemblyId;
-  if (typeof defaultAssemblyId !== "string"
-    || defaultAssemblyId.trim().length === 0) {
-    throw new Error(failureMessage);
-  }
-  return defaultAssemblyId;
-}
-
-// The descriptor the surface's declared default names, or null when none matches.
-function selectedAssembly(
-  result: BrowserPackageSurface,
-): BrowserAssemblySurface | null {
-  const defaultAssemblyId = result.defaultAssemblyId;
-  if (typeof defaultAssemblyId !== "string"
-    || defaultAssemblyId.trim().length === 0) {
-    return null;
-  }
-  return (result.assemblies ?? [])
-    .find(candidate => candidate.id === defaultAssemblyId) ?? null;
-}
-
 function defaultAssembly(
   result: BrowserPackageSurface,
   failureMessage: string,
 ): BrowserAssemblySurface {
-  requireAssemblyIdentity(result, failureMessage);
-  const assembly = selectedAssembly(result);
+  const assembly = (result.assemblies ?? [])
+    .find(candidate => candidate.id === result.defaultAssemblyId);
   if (!assembly) throw new Error(failureMessage);
   return assembly;
 }
@@ -148,19 +109,16 @@ function createRuntimeAssemblyPackageModel(
   result: BrowserPackageSurface,
   requestedAssembly: string,
 ): AppPackage {
-  // `requestedAssembly` and the no-descriptor failure come from main (#4405); selecting
-  // the descriptor the surface's *declared default* names comes from this slice.
-  // Projecting `assemblies[0]` while reporting `defaultAssemblyId` as the identity builds
-  // a model that names one assembly and identifies another. The two agree for every
-  // surface the engine emits today -- a runtime-pack assembly load returns the one
-  // assembly it was asked for -- which is why nothing caught it.
-  const assembly = selectedAssembly(result);
+  const assembly = result.assemblies?.[0];
   if (!assembly) {
     throw new Error(
       result.inspectionError
       || `The platform query returned no descriptor for ${requestedAssembly}.`);
   }
-  return createRuntimePackageModelForAssembly(result, assembly, assembly.id);
+  return createRuntimePackageModelForAssembly(
+    result,
+    assembly,
+    result.defaultAssemblyId);
 }
 
 function createRuntimePackageModelForAssembly(
@@ -421,28 +379,14 @@ export function createPackageAcquisition(
           if (!isCurrent()) return null;
           dependencies.refreshPackageStats();
           const existing = dependencies.runtimePackage();
-          // Identity is required on every path, including the merge. Round 6 review
-          // (GPT-5.6 Sol) showed that returning through the merge without it let a
-          // surface with an absent, empty, or whitespace `defaultAssemblyId` succeed --
-          // and mutate the resident package -- whenever a same-framework runtime package
-          // happened to be resident. A matching descriptor is still only required below,
-          // where one is actually read.
-          requireAssemblyIdentity(
-            result,
-            "The platform assembly query did not return its selected assembly identity.");
           if (existing
             && (!requestedFramework
               || existing.activeFramework.toLowerCase()
                 === requestedFramework.toLowerCase())) {
             const merged = mergeRuntimePackageSurface(existing, result);
             const primary = result.assemblies?.[0];
-            // Promotion builds a package model, so it needs a descriptor. A truncated
-            // surface has none, and round 5 established that such a surface must still
-            // merge rather than fail the whole load -- so skip the promotion instead of
-            // letting the model construction throw.
-            if (selectedAssembly(result)
-              && primary?.name.toLowerCase()
-                === DEFAULT_RUNTIME_ASSEMBLY.toLowerCase()) {
+            if (primary?.name.toLowerCase()
+              === DEFAULT_RUNTIME_ASSEMBLY.toLowerCase()) {
               promoteRuntimePackagePrimary(
                 merged,
                 createRuntimeAssemblyPackageModel(
