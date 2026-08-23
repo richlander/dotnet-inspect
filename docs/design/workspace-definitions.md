@@ -425,16 +425,20 @@ registry binding).
 (`DemoScenarioRunner`) so `dotnet-inspect demo <id>` returns ordinary section
 output from the existing pipelines; multi-package workspaces encode extra
 package members as `--caller-package` for the call-graph demo. **inspect-web**
-home buttons use the same product demo ids/titles/summaries and package/type
-anchors (`prototypes/inspect-web/src/product-home-demos.ts`); STJ and platform
-restore via share deep links, while `extensions-callgraph` still runs the
-imperative multi-package member path. Residual: (1) minted facet ids replacing
-display-name allow list; (2) realize via `WorkspaceContextLoader` into one
-`AssemblyContextGroup` instead of CLI package/`--caller-package` encoding and
-the browser runtime-pack share encoding for platform; (3) replace the
-imperative call-graph web path with the same group-run substrate; (4) Call
-Graph / Callers structured JSON projection remains the shared member-pipeline
-gap (Markdown/Mermaid are the faithful graph formats today).
+loads home-demo catalog and coordinates from the product registry through the
+browser engine (`ListHomeDemos` / `ResolveHomeDemo` over
+`ProductInspectionDemos`); host-only share encoding and the residual platform
+→ `Microsoft.NETCore.App` runtime-pack mapping live in
+`prototypes/inspect-web/src/product-home-demos.ts`. STJ and platform restore
+via share deep links built from the resolved projection; member-bound Call
+Graph demos still run the imperative multi-package member path. Residual:
+(1) minted facet ids replacing display-name allow list; (2) realize via
+`WorkspaceContextLoader` into one `AssemblyContextGroup` instead of CLI
+package/`--caller-package` encoding and the browser runtime-pack share
+encoding for platform; (3) replace the imperative call-graph web path with
+the same group-run substrate; (4) Call Graph / Callers structured JSON
+projection remains the shared member-pipeline gap (Markdown/Mermaid are the
+faithful graph formats today).
 
 ### Member coordinates
 

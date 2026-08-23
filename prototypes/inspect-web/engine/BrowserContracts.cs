@@ -203,6 +203,64 @@ public sealed record BrowserVocabularyDocument(
     BrowserVocabularySection[] Sections);
 
 /// <summary>
+/// One product home-demo catalog row from <c>ProductInspectionDemos.Entries</c>.
+/// Browser-local so tsbindgen emits a real TypeScript interface.
+/// </summary>
+public sealed record BrowserHomeDemoCatalogEntry(
+    string Id,
+    string Title,
+    string Summary);
+
+/// <summary>Product home-demo catalog in display order.</summary>
+public sealed record BrowserHomeDemoCatalog(
+    BrowserHomeDemoCatalogEntry[] Demos);
+
+/// <summary>
+/// One workspace/navigation member coordinate projected for the browser.
+/// <see cref="Kind"/> is <c>package</c> or <c>platform</c>.
+/// </summary>
+public sealed record BrowserHomeDemoMember(
+    string Kind,
+    string Id,
+    string? Version,
+    string? Framework,
+    string? Assembly);
+
+/// <summary>One navigation tab from a resolved home demo.</summary>
+public sealed record BrowserHomeDemoNavigationTab(
+    string Id,
+    BrowserHomeDemoMember Member);
+
+/// <summary>View selectors from a resolved home demo.</summary>
+public sealed record BrowserHomeDemoView(
+    string? Library,
+    string? Type,
+    string? MemberAnchor,
+    string? MemberKey,
+    string? Section);
+
+/// <summary>
+/// Fully resolved product home demo: workspace members, navigation, and view.
+/// Hosts own share encoding and any residual platform pack mapping.
+/// </summary>
+public sealed record BrowserHomeDemoResolved(
+    string Id,
+    string Title,
+    string Summary,
+    BrowserHomeDemoMember[] WorkspaceMembers,
+    BrowserHomeDemoNavigationTab[] Tabs,
+    int FocusTabIndex,
+    BrowserHomeDemoView View);
+
+/// <summary>
+/// Result of resolving one home demo id. <see cref="Demo"/> is set only when
+/// <see cref="Found"/> is true (avoids a bare JSON null on the JSExport surface).
+/// </summary>
+public sealed record BrowserHomeDemoResolveResult(
+    bool Found,
+    BrowserHomeDemoResolved? Demo);
+
+/// <summary>
 /// One type's metadata projection, adapted from <c>ResearchViews.TypeProjectionResult</c> — the
 /// presentation-neutral seam the CLI consumes — so the browser never reimplements type-fact
 /// composition.
@@ -478,4 +536,7 @@ public sealed record BrowserWorkspacePackage(
 [JsonSerializable(typeof(BrowserTypeSearchHit[]))]
 [JsonSerializable(typeof(string[]))]
 [JsonSerializable(typeof(BrowserVocabularyDocument))]
+[JsonSerializable(typeof(BrowserHomeDemoCatalog))]
+[JsonSerializable(typeof(BrowserHomeDemoResolved))]
+[JsonSerializable(typeof(BrowserHomeDemoResolveResult))]
 internal sealed partial class BrowserJsonContext : JsonSerializerContext;

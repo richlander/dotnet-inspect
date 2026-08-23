@@ -88,11 +88,12 @@ import {
   type WorkbenchShellBindingActions,
 } from "./shell-controls.ts";
 import {
-  EXTENSIONS_CALLGRAPH,
-  EXTENSIONS_CALLGRAPH_DEMO_ID,
-  PRODUCT_HOME_DEMO_CATALOG,
+  callGraphDemoRunnerSpec,
+  getProductHomeDemoCatalog,
   productHomeDemoLocationHref,
+  setProductHomeDemoCatalog,
   type ProductHomeDemoId,
+  type ProductHomeDemoResolved,
 } from "./product-home-demos.ts";
 import {
   createSourceInspectionCoordinator,
@@ -238,6 +239,8 @@ let initializeEngine: EngineModule["initializeEngine"];
 let cancelSourceInspection: EngineModule["cancelSourceQuery"];
 let inspectExpandPlatformCallGraph: EngineModule["expandPlatformCallGraph"];
 let inspectVocabulary: EngineModule["listVocabulary"];
+let inspectListHomeDemos: EngineModule["listHomeDemos"];
+let inspectResolveHomeDemo: EngineModule["resolveHomeDemo"];
 let inspectLoadRuntimePack: EngineModule["loadRuntimePack"];
 let inspectLoadRuntimePackAssembly: EngineModule["loadRuntimePackAssembly"];
 let inspectMemberAnnotatedSource: EngineModule["queryMemberAnnotatedSource"];
@@ -277,7 +280,9 @@ async function loadEngineModule() {
     expandPlatformCallGraph: inspectExpandPlatformCallGraph,
     getPackageDocument: inspectPackageDocument,
     initializeEngine,
+    listHomeDemos: inspectListHomeDemos,
     listVocabulary: inspectVocabulary,
+    resolveHomeDemo: inspectResolveHomeDemo,
     loadRuntimePack: inspectLoadRuntimePack,
     loadRuntimePackAssembly: inspectLoadRuntimePackAssembly,
     matchPackageDependencyCoordinate,
@@ -5678,7 +5683,7 @@ function renderHomeView() {
           <div class="home-demos">
             <span class="home-demos-label">Or jump straight into a demo</span>
             <div class="home-demo-row">
-              ${PRODUCT_HOME_DEMO_CATALOG.map(entry =>
+              ${getProductHomeDemoCatalog().map(entry =>
                 `<button class="home-demo" data-home-demo="${entry.id}" ${enginePending ? "disabled" : ""}><strong>${escapeHtml(entry.title)}</strong><small>${escapeHtml(entry.summary)}</small></button>`).join("")}
             </div>
           </div>
@@ -5724,19 +5729,27 @@ function bindHomeEvents() {
     document.querySelector<HTMLInputElement>("#spotlight-input")?.focus());
 }
 
-// Home buttons use product demo ids (`ProductInspectionDemos` / CLI `demo <id>`).
-// STJ + platform restore via share deep links built from that registry projection;
-// extensions-callgraph stays an imperative multi-package member load (same packages
-// and TryAddEnumerable anchor as the product demo) until WorkspaceContextLoader
+// Home buttons use product demo ids from engine `listHomeDemos` / `resolveHomeDemo`
+// (`ProductInspectionDemos` / CLI `demo <id>`). STJ + platform restore via share
+// deep links built from the resolved projection; member-bound Call Graph demos
+// stay an imperative multi-package member load until WorkspaceContextLoader
 // group run is the browser substrate.
 function runHomeDemo(kind: ProductHomeDemoId) {
   state.home = false;
-  if (kind === EXTENSIONS_CALLGRAPH_DEMO_ID) {
-    observeAsync(runCallGraphDemo(), "Loading the call graph demo");
+  const resolveResult = inspectResolveHomeDemo(kind);
+  const resolved = resolveResult.found ? resolveResult.demo : null;
+  if (!resolved) {
+    state.error = `Unknown product home demo '${kind}'.`;
+    state.errorTitle = "Demo failed";
+    state.home = true;
+    render();
     return;
   }
-  const link = productHomeDemoLocationHref(kind);
-  if (!link) return;
+  const link = productHomeDemoLocationHref(resolved);
+  if (!link) {
+    observeAsync(runCallGraphDemo(resolved), "Loading the call graph demo");
+    return;
+  }
   workspaceLocation.push(link);
   const loc = parseLocation();
   observeAsync(restoreWorkspaceFromLocation(loc, loc), "Loading the demo workspace");
@@ -7292,58 +7305,43 @@ async function loadRuntimePackAssembly(
   };
 }
 
-async function runCallGraphDemo() {
+async function runCallGraphDemo(demo: ProductHomeDemoResolved) {
+  const retry = () => observeAsync(runCallGraphDemo(demo), "Loading the call graph demo");
   state.loading = true;
   state.error = "";
   state.loadingMessage = "Loading cross-package call graph demo…";
   state.loadingSubtitle = "";
   render();
 
-  const [targetSpec, loggingSpec, httpSpec] = EXTENSIONS_CALLGRAPH.packages;
-  const targetPackage = await loadPackage(
-    targetSpec.id,
-    targetSpec.version,
-    targetSpec.framework,
-    { retryAction: runCallGraphDemo });
-  if (!targetPackage) {
-    state.retryAction = runCallGraphDemo;
-    render();
-    return;
-  }
-  const loggingPackage = await loadPackage(
-    loggingSpec.id,
-    loggingSpec.version,
-    loggingSpec.framework,
-    { retryAction: runCallGraphDemo });
-  if (!loggingPackage) {
-    state.retryAction = runCallGraphDemo;
-    render();
-    return;
-  }
-  const httpPackage = await loadPackage(
-    httpSpec.id,
-    httpSpec.version,
-    httpSpec.framework,
-    { retryAction: runCallGraphDemo });
-  if (!httpPackage) {
-    state.retryAction = runCallGraphDemo;
-    render();
-    return;
+  const spec = callGraphDemoRunnerSpec(demo);
+  const packages: AppPackage[] = [];
+  for (const packageSpec of spec.packages) {
+    const loaded = await loadPackage(
+      packageSpec.id,
+      packageSpec.version,
+      packageSpec.framework,
+      { retryAction: retry });
+    if (!loaded) {
+      state.retryAction = retry;
+      render();
+      return;
+    }
+    packages.push(loaded);
   }
 
+  const targetPackage = packages[0];
   activatePackage(targetPackage);
-  const type = targetPackage.types.find(item =>
-    item.id === EXTENSIONS_CALLGRAPH.typeId);
+  const type = targetPackage.types.find(item => item.id === spec.typeId);
   const member = type && memberGroups(type).find(item =>
-    item.name === EXTENSIONS_CALLGRAPH.memberName
-    && item.kind === EXTENSIONS_CALLGRAPH.memberKind);
+    item.name === spec.memberName
+    && item.kind === spec.memberKind);
   const overloadIndex = member?.overloads.findIndex(item =>
-    item.anchorDigest === EXTENSIONS_CALLGRAPH.memberAnchorDigest) ?? -1;
+    item.anchorDigest === spec.memberAnchorDigest) ?? -1;
   if (!type || !member || overloadIndex < 0) {
     state.loading = false;
     state.error = "The call graph demo member was not found in the selected package.";
     state.errorTitle = "Call graph demo failed";
-    state.retryAction = runCallGraphDemo;
+    state.retryAction = retry;
     render();
     return;
   }
@@ -7357,7 +7355,7 @@ async function runCallGraphDemo() {
   state.memberBrowseTypeId = type.id;
   state.selectedMemberKey = member.key;
   state.selectedOverloadIndex = overloadIndex;
-  state.memberSection = EXTENSIONS_CALLGRAPH.memberSection;
+  state.memberSection = spec.memberSection;
   state.loading = false;
   render();
   await loadSelectedMemberCallGraph();
@@ -7563,6 +7561,11 @@ async function bootstrap() {
       state.styleTiers = [];
       state.styleOptions = [];
       state.styleCatalogError = errorMessage(error);
+    }
+    try {
+      setProductHomeDemoCatalog(inspectListHomeDemos().demos ?? []);
+    } catch {
+      setProductHomeDemoCatalog([]);
     }
     state.engineReady = true;
     state.engineStatus = "";

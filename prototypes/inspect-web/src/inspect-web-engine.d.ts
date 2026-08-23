@@ -120,6 +120,52 @@ export interface BrowserExceptionSurface {
   description: string;
 }
 
+export interface BrowserHomeDemoCatalog {
+  demos: BrowserHomeDemoCatalogEntry[];
+}
+
+export interface BrowserHomeDemoCatalogEntry {
+  id: string;
+  title: string;
+  summary: string;
+}
+
+export interface BrowserHomeDemoMember {
+  kind: string;
+  id: string;
+  version: string | null;
+  framework: string | null;
+  assembly: string | null;
+}
+
+export interface BrowserHomeDemoNavigationTab {
+  id: string;
+  member: BrowserHomeDemoMember;
+}
+
+export interface BrowserHomeDemoResolveResult {
+  found: boolean;
+  demo: BrowserHomeDemoResolved | null;
+}
+
+export interface BrowserHomeDemoResolved {
+  id: string;
+  title: string;
+  summary: string;
+  workspaceMembers: BrowserHomeDemoMember[];
+  tabs: BrowserHomeDemoNavigationTab[];
+  focusTabIndex: number;
+  view: BrowserHomeDemoView;
+}
+
+export interface BrowserHomeDemoView {
+  library: string | null;
+  type: string | null;
+  memberAnchor: string | null;
+  memberKey: string | null;
+  section: string | null;
+}
+
 export interface BrowserIntegrationCategory {
   integration: string;
   signals: BrowserIntegrationSignal[];
@@ -400,6 +446,7 @@ export declare function cancelSourceQuery(): void;
 export declare function configureHost(origin: string): void;
 export declare function expandPlatformCallGraph(targetFramework: string, assembly: string, typeFullName: string, memberName: string, selectorKey: string, metadataToken: number): Promise<string>;
 export declare function getPackageDocument(packageId: string, version: string, path: string): Promise<BrowserPackageDocumentContent>;
+export declare function listHomeDemos(): BrowserHomeDemoCatalog;
 export declare function listVocabulary(): BrowserVocabularyDocument;
 export declare function loadRuntimePack(targetFramework: string): Promise<string>;
 export declare function loadRuntimePackAssembly(targetFramework: string, assemblyFileName: string, pack: string): Promise<string>;
@@ -428,5 +475,6 @@ export declare function queryPlatformPerformance(targetFramework: string, assemb
 export declare function queryTypeMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserSource>;
 export declare function queryTypeProjection(packageId: string, version: string, targetFramework: string, assemblyName: string, typeId: string): Promise<BrowserTypeMetadata>;
 export declare function queryTypeSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string): Promise<BrowserSource>;
+export declare function resolveHomeDemo(scenarioId: string): BrowserHomeDemoResolveResult;
 export declare function resolvePackageDependencyVersion(packageId: string, declaredRange: string | null): Promise<string>;
 export declare function searchTypes(query: string, candidatesJson: string): BrowserTypeSearchHit[];
