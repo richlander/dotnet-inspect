@@ -4375,6 +4375,15 @@ public class ApiCommand
     {
         if (options is MemberOptions
             {
+                MemberSectionsPreResolved: false,
+                MemberSelectionDeferredToLookup: true
+            })
+        {
+            return false;
+        }
+
+        if (options is MemberOptions
+            {
                 MemberSectionsPreResolved: true,
                 IncludeSections: { } authoritativeSections
             })

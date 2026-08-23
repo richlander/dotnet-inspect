@@ -9618,7 +9618,7 @@ public partial class CommandExecutionTests
             $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
         var (exit, output, error) = await RunAppAsync(
             "member",
-            "Missing.Type",
+            "MissingType",
             "--library",
             missingAssembly,
             "-S",
@@ -9820,6 +9820,65 @@ public partial class CommandExecutionTests
         Assert.Equal(explicitMember.Exit, dotted.Exit);
         Assert.Equal(explicitMember.Output, dotted.Output);
         Assert.Contains("## Methods", dotted.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Member_DottedOverloadInventory_MemberInfoJsonReportsUnavailableSection()
+    {
+        string[] tail =
+        [
+            "--platform",
+            "System.Runtime",
+            "-S",
+            SectionNames.MemberInfo,
+            "--json",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            ["member", "System.String", "-m", "Contains", .. tail]);
+        var dotted = await RunAppAsync(
+            ["member", "System.String.Contains", .. tail]);
+        var routed = await RunAppAsync(
+            ["System.String.Contains", .. tail]);
+
+        Assert.Equal(direct, dotted);
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Empty(routed.Output);
+        Assert.Contains(
+            $"Select value '{SectionNames.MemberInfo}' not found.",
+            routed.Error);
+        Assert.DoesNotContain("cannot be represented", routed.Error);
+        Assert.DoesNotContain("--jsonl", routed.Error);
+    }
+
+    [Fact]
+    public async Task Router_DottedMemberDetail_MemberInfoJsonReportsUnavailableSection()
+    {
+        string[] tail =
+        [
+            "--platform",
+            "System.Runtime",
+            "-S",
+            SectionNames.MemberInfo,
+            "--json",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            ["member", "System.String", "-m", "Clone:1", .. tail]);
+        var routed = await RunAppAsync(
+            ["System.String.Clone:1", .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Empty(routed.Output);
+        Assert.Contains(
+            $"Select value '{SectionNames.MemberInfo}' not found.",
+            routed.Error);
+        Assert.DoesNotContain("cannot be represented", routed.Error);
+        Assert.DoesNotContain("--jsonl", routed.Error);
     }
 
     [Theory]
