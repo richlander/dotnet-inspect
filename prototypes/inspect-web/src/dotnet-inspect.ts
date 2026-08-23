@@ -161,7 +161,12 @@ import {
   typeMetadataSignature,
   typeSourceSignature,
 } from "./type-panel.ts";
-import { createPackageBar, type PackageBarPackage } from "./package-bar.ts";
+import {
+  createPackageBar,
+  findPackageTabForQuery,
+  type PackageBarPackage,
+  type ParsedPackageQuery,
+} from "./package-bar.ts";
 import {
   bindMetadataExplorer,
   cssEscape,
@@ -1164,8 +1169,7 @@ const packageBar = createPackageBar({
   closePackageTab,
   openRuntimePack: () =>
     observeAsync(openRuntimePackFromHome(), "Opening the .NET Platform"),
-  openPackage: (packageId, version) =>
-    observeAsync(loadPackage(packageId, version, ""), "Opening a package"),
+  openPackage: openPackageQuery,
   selectFramework: framework =>
     observeAsync(
       switchPackageFramework(framework),
@@ -5837,19 +5841,32 @@ function interstitialBotSrc(): string {
   return loadingBotSrc;
 }
 
-function openPackageFromError(packageId: string, version: string) {
+function openPackageQuery(query: ParsedPackageQuery) {
+  const packageTab = findPackageTabForQuery(state, query);
+  if (packageTab) {
+    state.loading = false;
+    state.error = "";
+    state.errorTitle = "";
+    state.errorDetail = "";
+    state.retryAction = null;
+    selectPackageTab(packageTab);
+    return;
+  }
+
   if (!state.engineReady) {
     const url = new URL("/", window.location.href);
-    url.searchParams.set("package", packageId);
-    url.searchParams.set("version", version);
+    url.searchParams.set("package", query.packageId);
+    url.searchParams.set("version", query.version);
     window.location.assign(url);
     return;
   }
-  observeAsync(loadPackage(packageId, version, ""), "Loading a package");
+  observeAsync(
+    loadPackage(query.packageId, query.version, ""),
+    "Loading a package");
 }
 
 const loadErrorShellActions: LoadErrorShellBindingActions = {
-  onOpenPackage: openPackageFromError,
+  onOpenPackage: openPackageQuery,
   onRetry: () =>
     observeAction(
       state.retryAction ?? bootstrap,
