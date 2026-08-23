@@ -128,16 +128,17 @@ overlay that is only ever read on its own does not need to be an overlay.
 Two rules govern composition. They describe the graph the product is to build,
 not every outcome the current resolver can produce:
 
-- **Designation selects the artifact for the workspace participant bound to
-  its decoded assembly identity.** The filename is acquisition evidence, not
-  the binding key; assembly identity comes from metadata, and the workspace's
-  binding policy decides which participant satisfies a reference. References
-  bound to that participant must see the designated artifact rather than the
-  platform artifact. Directly opening the file already reads the designated
-  artifact; cross-assembly resolution does not yet enforce the same choice.
-  Today an earlier candidate may win, the reference may remain unresolved, or
-  the overlay may be selected. Those are implementation accidents, not
-  separate cases in the product contract. Enforcing the rule is **#4593**.
+- **A designated artifact is preferred during reference binding.** The
+  filename is acquisition evidence, not the binding key; assembly identity
+  comes from metadata, and admission creates a participant that immutably binds
+  that identity to one artifact and one policy snapshot. When resolution finds
+  that a reference can bind to both a designated participant and a
+  platform-backed participant, the binding policy selects the designated
+  participant. Directly opening the file already reads the designated artifact;
+  cross-assembly resolution does not yet enforce the same choice. Today an
+  earlier candidate may win, the reference may remain unresolved, or the
+  overlay may be selected. Those are implementation accidents, not separate
+  cases in the product contract. Enforcing the rule is **#4593**.
 - **Designation applies only to that artifact.** It does not become the
   platform, and it does not entitle nearby artifacts — directory membership is
   not designation. This half is real: a sibling reached by
@@ -150,8 +151,9 @@ not every outcome the current resolver can produce:
   **not** separately gated.
 
 Together, the rules construct one intentional graph: the base supplies a
-closure built as a unit, designation substitutes one workspace participant,
-and that substitution grants no authority to nearby artifacts. Constraining
+closure built as a unit, the designated artifact forms a participant, and
+binding policy selects that participant in place of the platform-backed one.
+That substitution grants no authority to nearby artifacts. Constraining
 composition this way reduces the incoherence surface when acquisition systems
 combine; it does not prove that the replacement still *fits*. That is the
 separate coherence question below.
@@ -196,14 +198,14 @@ candidate may be used and says nothing about *which* of two entitled candidates
 to prefer. Load a platform and a designated build copy of the same assembly, and
 both can satisfy the same reference.
 
-The precedence rule for this case is simple: **for the decoded assembly identity
-selected by the workspace's binding policy, the designated artifact supplies
-the participant instead of the platform artifact**. That gives every
-acquisition system the same well-defined graph to compose with; it does not
-require specifying the current resolver's case-by-case accidents. Any other tie
-between entitled candidates needs its own stated rule or a diagnostic rather
-than a silent pick. The current resolver does not yet enforce this contract;
-tracked as **#4593**.
+The precedence rule for this case is simple: **when resolving a reference that
+can bind to both, the binding policy selects the participant backed by the
+designated artifact over the participant backed by the platform artifact**.
+That gives every acquisition system the same well-defined graph to compose
+with; it does not require specifying the current resolver's case-by-case
+accidents. Any other tie between entitled candidates needs its own stated rule
+or a diagnostic rather than a silent pick. The current resolver does not yet
+enforce this contract; tracked as **#4593**.
 
 ## Related
 
