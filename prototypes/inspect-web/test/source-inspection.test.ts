@@ -82,10 +82,12 @@ function inspectionDependencies(
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>(accept => {
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((accept, fail) => {
     resolve = accept;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 test("hidden source work is cancelled through the shared engine boundary", () => {
@@ -303,5 +305,44 @@ test("current graph source failures settle as visible errors", async () => {
   assert.equal(
     state.graphSource.status === "failed" ? state.graphSource.error : null,
     "graph source unavailable");
+  assert.equal(renders, 2);
+});
+
+// Ownership has two sides and they are separate guards. The test above covers a stale
+// *resolve*; adversarial review pointed out that deleting the guard on the *reject* path
+// left the whole suite green, because nothing ever abandoned a request that was going to
+// fail. A failure is exactly as capable of arriving late as a success, and it is worse
+// when it does: it paints an error over a modal the user has already moved on from.
+test("an abandoned graph source failure cannot overwrite the closed modal", async () => {
+  const query = deferred<BrowserSource>();
+  let renders = 0;
+  const state = inspectionState();
+  const coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryGraphSource: async () => query.promise,
+      render: () => renders++,
+    }));
+
+  const load = coordinator.openGraphSource({
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    assembly: "Example.Package",
+    type: "Example.Widget",
+    member: "Build",
+    selectorKey: "method",
+    metadataToken: 42,
+  }, "Example.Widget.Build");
+
+  assert.equal(state.graphSource.status, "loading");
+  coordinator.closeGraphSource();
+  assert.deepEqual(state.graphSource, closedGraphSource);
+
+  query.reject(new Error("graph source unavailable"));
+  await load;
+
+  assert.deepEqual(state.graphSource, closedGraphSource);
+  // The owning request renders on start and the close renders once. A rejected request
+  // that no longer owns the modal returns before the settling render, so it adds none.
   assert.equal(renders, 2);
 });

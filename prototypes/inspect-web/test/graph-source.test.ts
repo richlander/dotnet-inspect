@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
-import { graphSourceStatuses } from "../src/data.ts";
 import {
   bindGraphSource,
   renderGraphSource,
@@ -225,31 +223,3 @@ test("markup carries the modal dialog scaffolding and close button", () => {
   assert.match(html, /<button id="graph-source-close" type="button" aria-label="Close">esc<\/button>/);
 });
 
-
-test("the graph source union declares exactly the vocabulary data.ts owns", () => {
-  // `data.ts` owns the status vocabulary so that visibility and cancellation can reason
-  // about the modal without depending on its request and payload types, and
-  // `source-inspection.ts` builds the full discriminated union on top of it. Nothing
-  // made those two agree: the vocabulary could gain a status the union never declares,
-  // or the union a status `graphSourceIsOpen` has never heard of.
-  //
-  // Derive the union's discriminants from the declaration and compare the sets, so a
-  // status added to either side fails until it is added to both.
-  const source = readFileSync(
-    new URL("../src/source-inspection.ts", import.meta.url),
-    "utf8");
-  // Capture to the next top-level declaration: the union's own members end in `;` too,
-  // so stopping at the first one would read only the `loading` variant.
-  const union = source.match(
-    /export type GraphSourceState =([\s\S]*?)\n\n(?=export |\/\/ )/);
-  const body = union?.[1];
-  assert.ok(body, "GraphSourceState declaration");
-  const declared = [...body.matchAll(/readonly status: "([a-z]+)"/g)]
-    .map(match => String(match[1]));
-
-  const byName = (left: string, right: string) => left.localeCompare(right);
-  assert.deepEqual(
-    declared.sort(byName),
-    [...graphSourceStatuses].sort(byName),
-    "graph source union statuses");
-});

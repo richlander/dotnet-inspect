@@ -1454,7 +1454,7 @@ export const graphSourceStatuses = [
   "cancelled",
 ] as const;
 
-type GraphSourceStatus = (typeof graphSourceStatuses)[number];
+export type GraphSourceStatus = (typeof graphSourceStatuses)[number];
 
 export interface GraphSourceStatusCarrier {
   readonly status: GraphSourceStatus;

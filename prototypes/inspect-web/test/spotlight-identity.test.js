@@ -4994,3 +4994,51 @@ test("dependency graph rendering contains artifact labels", () => {
 // around it twice: with a suffix that was not on the list, and by moving the field into a
 // spread the source scan never read. The replacement names no suffixes -- it rejects any
 // state key that starts with a converted lens name and is not that lens.
+
+test("the graph source modal owns its request by identity, not a counter", () => {
+  // The modal's five parallel fields collapsed into one union, and the sequence number
+  // that decided whether a completion was still wanted collapsed with them: ownership is
+  // now the identity of the pending state object. Adversarial review pointed out that
+  // nothing enforced the second half of that. A `graphSourceSeq` could be reintroduced
+  // and actively incremented on both open and close with the suite still green, leaving
+  // two competing answers to "is this result still wanted?" -- which is the condition
+  // the union was meant to end.
+  //
+  // Derive the ownership requirement from the awaits rather than counting guards, so an
+  // await added without a guard fails here whatever the guard is named.
+  const openBody = sourceInspectionSource.match(
+    /async openGraphSource\(request, title\)[\s\S]*?\n {4}\},\n/)?.[0] ?? "";
+  assert.ok(openBody, "could not isolate the openGraphSource() body");
+
+  const resumptions = openBody.split("await ").slice(1);
+  assert.ok(
+    resumptions.length >= 1,
+    `expected the loader to await at least once, saw ${resumptions.length}`);
+  for (const [index, segment] of resumptions.entries()) {
+    const guard = segment.indexOf("state.graphSource !== pending");
+    const write = segment.indexOf("state.graphSource =");
+    assert.notEqual(
+      guard, -1,
+      `resumption ${index} after an await does not re-check request ownership`);
+    if (write !== -1)
+      assert.ok(
+        guard < write,
+        `resumption ${index} writes state.graphSource before re-checking ownership`);
+  }
+
+  // A rejection arrives just as late as a result, and painting an error over a modal the
+  // user has moved on from is worse than showing a stale success.
+  const catchBody = openBody.match(/\} catch \(error\) \{[\s\S]*?\n {6}\}/)?.[0] ?? "";
+  assert.match(catchBody, /state\.graphSource !== pending/);
+
+  // Ban the mechanism rather than one spelling of it. This is deliberately scoped to
+  // graph-source names: `sourceRequestGeneration` is the *shared* cancellation authority
+  // for member and type source requests, which this slice does not convert and which
+  // remains legitimate.
+  for (const { path, source } of productionTypeScriptSources) {
+    assert.doesNotMatch(
+      source,
+      /graphSource\w*(Seq|Sequence|Generation|Counter)/i,
+      `${String(path)} reintroduces a graph source counter`);
+  }
+});
