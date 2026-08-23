@@ -1295,6 +1295,8 @@ public static class CompileBackSourceComposer
         => left.Kind == right.Kind
             && left.Identity.Type == right.Identity.Type
             && left.Identity.Method == right.Identity.Method
+            && left.IsStatic == right.IsStatic
+            && left.TypeParameters.Count == right.TypeParameters.Count
             && left.Identity.Signature == right.Identity.Signature;
 
     static void AddClosureTypeRequirements(
@@ -3008,7 +3010,7 @@ public static class CompileBackSourceComposer
                 targetTypeDef,
                 targetIdentity,
                 methodName,
-                signature,
+                targetMethod,
                 relationshipResolver: operatorResolver)
                 is { } operatorSibling)
         {
@@ -3326,7 +3328,7 @@ public static class CompileBackSourceComposer
         TypeDefinition typeDef,
         CompileBackTypeIdentity typeIdentity,
         string methodName,
-        MethodSignature<string> targetSignature,
+        MethodDefinitionHandle targetMethod,
         MethodDefinitionHandle excludedMethod = default,
         IOperatorTypeRelationshipResolver? relationshipResolver = null)
     {
@@ -3349,10 +3351,10 @@ public static class CompileBackSourceComposer
                 continue;
             }
 
-            var signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
-            if (!OperatorSignaturesMatch(targetSignature, signature))
+            if (!OperatorSignaturesMatch(reader, targetMethod, methodHandle))
                 continue;
 
+            var signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
             return new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(typeIdentity.FullName, siblingName, 0, MethodSignatureText(siblingName, signature)),
                 CompileBackMemberKind.Operator,
@@ -3374,13 +3376,16 @@ public static class CompileBackSourceComposer
         return null;
     }
 
-    static bool OperatorSignaturesMatch(MethodSignature<string> left, MethodSignature<string> right)
-        => OperatorNames.OperatorPairingTypesMatch(left.ReturnType, right.ReturnType)
-            && left.ParameterTypes.Length == right.ParameterTypes.Length
-            && left.ParameterTypes.Zip(
-                right.ParameterTypes,
-                OperatorNames.OperatorPairingTypesMatch)
-                .All(static equal => equal);
+    static bool OperatorSignaturesMatch(
+        MetadataReader reader,
+        MethodDefinitionHandle left,
+        MethodDefinitionHandle right)
+        => MethodStructuralSignature.BuildOperatorPairing(
+                reader,
+                reader.GetMethodDefinition(left))
+            == MethodStructuralSignature.BuildOperatorPairing(
+                reader,
+                reader.GetMethodDefinition(right));
 
     static bool IsRecordGeneratedFieldReadHelper(
         MetadataReader reader,
@@ -4321,16 +4326,12 @@ public static class CompileBackSourceComposer
                 return null;
 
             var method = reader.GetMethodDefinition(methodHandle);
-            var signature = GuardedSignatureText.MethodText(
-                reader,
-                method,
-                GenericContext.ForMethod(reader, typeDef, method));
             return RequiredOperatorSibling(
                 reader,
                 typeDef,
                 CompileBackTypeIdentity.FromDefinition(reader, typeDef),
                 methodRef.Name,
-                signature,
+                methodHandle,
                 excludedMethod,
                 relationshipResolver);
         }
@@ -5598,17 +5599,15 @@ public static class CompileBackSourceComposer
                 int existingMethodIndex = members.FindIndex(member =>
                     member.Kind == memberKind
                     && member.Identity.Method == identifierName
+                    && member.IsStatic
+                        == method.Attributes.HasFlag(
+                            MethodAttributes.Static)
+                    && member.TypeParameters.Count
+                        == typeParameterCount
                     && (member.Identity.Signature == signatureIdentity
-                        || (member.IsStatic
-                            == method.Attributes.HasFlag(
-                                MethodAttributes.Static)
-                            && member.TypeParameters.Count
-                                == typeParameterCount
-                            && member.ReturnType?.DisplayName
+                        || (member.ReturnType?.DisplayName
                                 == returnType?.DisplayName
-                            && SameParameters(
-                                member.Parameters,
-                                parameters))));
+                            && SameParameters(member.Parameters, parameters))));
                 if (existingMethodIndex >= 0)
                 {
                     var existing = members[existingMethodIndex];
@@ -5627,12 +5626,14 @@ public static class CompileBackSourceComposer
                 }
                 if (requirement.RequiredKind == CompileBackTypeKind.Interface && method.Attributes.HasFlag(MethodAttributes.Static))
                     continue;
-                if (typeParameterCount != 0)
+                if (generatedLocalFunction && typeParameterCount != 0)
                 {
-                    diagnostics.Add(new CompileBackPlanningDiagnostic("member surface", "generic-method-skipped", name));
+                    diagnostics.Add(new CompileBackPlanningDiagnostic(
+                        "member surface",
+                        "generic-local-function-skipped",
+                        name));
                     continue;
                 }
-
                 if (methodReturnType is null
                     || IsUnsupportedSurfaceSignature(methodReturnType)
                     || parameters.Any(parameter => IsUnsupportedSurfaceSignature(parameter.Type.DisplayName))

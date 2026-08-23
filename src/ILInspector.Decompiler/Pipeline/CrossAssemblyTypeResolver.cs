@@ -1315,8 +1315,10 @@ internal sealed class CrossAssemblyTypeResolver
     OperatorMetadata.TypeRelationship ResolveOperatorValueTypeRelationship(
         MetadataReader reader,
         OperatorMetadata.OperatorSignatureType type,
-        ResolvedAssemblyReference originAssembly)
+        ResolvedAssemblyReference originAssembly,
+        out bool unauthenticatedTypeKind)
     {
+        unauthenticatedTypeKind = false;
         try
         {
             if (DecodeOperatorType(reader, type) is not { } decoded
@@ -1330,7 +1332,10 @@ internal sealed class CrossAssemblyTypeResolver
             }
 
             if (!resolved.HasKnownKind)
+            {
+                unauthenticatedTypeKind = true;
                 return OperatorMetadata.TypeRelationship.Unknown;
+            }
             return resolved.IsValueType
                 ? OperatorMetadata.TypeRelationship.Yes
                 : OperatorMetadata.TypeRelationship.No;
@@ -1533,14 +1538,27 @@ internal sealed class CrossAssemblyTypeResolver
         ResolvedAssemblyReference originAssembly)
         : IOperatorTypeRelationshipResolver
     {
+        bool _hasUnauthenticatedTypeKindEvidence;
+
+        public bool HasUnauthenticatedTypeKindEvidence =>
+            _hasUnauthenticatedTypeKindEvidence;
+
+        public void BeginOperatorClassification()
+            => _hasUnauthenticatedTypeKindEvidence = false;
+
         public OperatorMetadata.TypeRelationship ValueTypeRelationship(
             MetadataReader reader,
             OperatorMetadata.OperatorSignatureType type)
         {
-            return owner.ResolveOperatorValueTypeRelationship(
+            OperatorMetadata.TypeRelationship relationship =
+                owner.ResolveOperatorValueTypeRelationship(
                 reader,
                 type,
-                originAssembly);
+                originAssembly,
+                out bool unauthenticatedTypeKind);
+            _hasUnauthenticatedTypeKindEvidence |=
+                unauthenticatedTypeKind;
+            return relationship;
         }
 
         public OperatorMetadata.TypeRelationship InterfaceRelationship(

@@ -198,6 +198,82 @@ public sealed class OperatorApiSurfaceTests
     }
 
     [Fact]
+    public void Extract_PersistsOperatorPairingIdentity()
+    {
+        using var image = OperatorImage.Build(builder =>
+        {
+            foreach (string name in new[]
+            {
+                "op_Equality",
+                "op_Inequality",
+            })
+            {
+                var method = builder.DefineMethod(
+                    name,
+                    MethodAttributes.Public
+                        | MethodAttributes.Static
+                        | MethodAttributes.SpecialName,
+                    typeof(bool),
+                    [builder, builder]);
+                var il = method.GetILGenerator();
+                il.Emit(OpCodes.Ldc_I4_0);
+                il.Emit(OpCodes.Ret);
+            }
+        });
+
+        ApiMember equality = Assert.Single(
+            image.Members,
+            static member => member.Name == "op_Equality");
+        ApiMember inequality = Assert.Single(
+            image.Members,
+            static member => member.Name == "op_Inequality");
+        Assert.True(equality.HasOperatorPairingKey);
+        Assert.True(inequality.HasOperatorPairingKey);
+        Assert.NotNull(equality.OperatorPairingKey);
+        Assert.Equal(
+            equality.OperatorPairingKey,
+            inequality.OperatorPairingKey);
+    }
+
+    [Fact]
+    public void Extract_PersistsUncheckedOperatorPairingIdentity()
+    {
+        using var image = OperatorImage.Build(builder =>
+        {
+            foreach (string name in new[]
+            {
+                "op_Addition",
+                "op_CheckedAddition",
+            })
+            {
+                var method = builder.DefineMethod(
+                    name,
+                    MethodAttributes.Public
+                        | MethodAttributes.Static
+                        | MethodAttributes.SpecialName,
+                    builder,
+                    [builder, builder]);
+                var il = method.GetILGenerator();
+                il.Emit(OpCodes.Ldarg_0);
+                il.Emit(OpCodes.Ret);
+            }
+        });
+
+        ApiMember addition = Assert.Single(
+            image.Members,
+            static member => member.Name == "op_Addition");
+        ApiMember checkedAddition = Assert.Single(
+            image.Members,
+            static member => member.Name == "op_CheckedAddition");
+        Assert.True(addition.HasOperatorPairingKey);
+        Assert.True(checkedAddition.HasOperatorPairingKey);
+        Assert.NotNull(addition.OperatorPairingKey);
+        Assert.Equal(
+            addition.OperatorPairingKey,
+            checkedAddition.OperatorPairingKey);
+    }
+
+    [Fact]
     public void CSharpOperatorDeclaration_RejectsParamArrayParameter()
     {
         using var image = OperatorImage.Build(builder =>
@@ -287,7 +363,45 @@ public sealed class OperatorApiSurfaceTests
     }
 
     [Fact]
-    public void CSharpOperatorDeclaration_PreservesUnknownResolvedKind()
+    public void CSharpOperatorDeclaration_RejectsMismatchedGenericInstantiationArity()
+    {
+        using var wellFormed =
+            OperatorImage.BuildGenericInstantiationArity(
+                declaredArity: 1,
+                suppliedArguments: 1);
+        using var malformed =
+            OperatorImage.BuildGenericInstantiationArity(
+                declaredArity: 1,
+                suppliedArguments: 2);
+
+        Assert.True(
+            wellFormed.IsCSharpOperatorDeclaration("op_Addition"));
+        Assert.False(
+            malformed.IsCSharpOperatorDeclaration("op_Addition"));
+    }
+
+    [Fact]
+    public void CSharpOperatorDeclaration_UsesCumulativeNestedGenericArity()
+    {
+        using var wellFormed =
+            OperatorImage.BuildGenericInstantiationArity(
+                declaredArity: 1,
+                suppliedArguments: 2,
+                outerArity: 1);
+        using var malformed =
+            OperatorImage.BuildGenericInstantiationArity(
+                declaredArity: 1,
+                suppliedArguments: 1,
+                outerArity: 1);
+
+        Assert.True(
+            wellFormed.IsCSharpOperatorDeclaration("op_Addition"));
+        Assert.False(
+            malformed.IsCSharpOperatorDeclaration("op_Addition"));
+    }
+
+    [Fact]
+    public void CSharpOperatorDeclaration_IgnoresUnavailableEncodingKindForNonConversion()
     {
         using var image =
             OperatorImage.BuildObjectParameterEncoding(
@@ -295,7 +409,7 @@ public sealed class OperatorApiSurfaceTests
                 externalParameter: true);
 
         Assert.Equal(
-            OperatorMetadata.DeclarationClassification.Unknown,
+            OperatorMetadata.DeclarationClassification.Yes,
             image.ClassifyCSharpOperatorDeclaration(
                 "op_Addition",
                 new UnknownOperatorRelationshipResolver()));
@@ -1459,6 +1573,132 @@ public sealed class OperatorApiSurfaceTests
             signature.Add(encodedParameterType);
             metadata.AddMethodDefinition(
                 methodAttributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("op_Addition"),
+                metadata.GetOrAddBlob(signature.ToArray()),
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+
+            var builder = new ManagedPEBuilder(
+                PEHeaderBuilder.CreateLibraryHeader(),
+                new MetadataRootBuilder(
+                    metadata,
+                    suppressValidation: true),
+                bodies,
+                flags: CorFlags.ILOnly);
+            var image = new BlobBuilder();
+            builder.Serialize(image);
+            File.WriteAllBytes(path, image.ToArray());
+            return new OperatorImage(path, TypeName);
+        }
+
+        public static OperatorImage BuildGenericInstantiationArity(
+            int declaredArity,
+            int suppliedArguments,
+            int outerArity = 0)
+        {
+            string path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                $"operator-surface-{Guid.NewGuid():N}.dll");
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                0,
+                metadata.GetOrAddString("OperatorSurface.dll"),
+                metadata.GetOrAddGuid(Guid.NewGuid()),
+                default,
+                default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString("OperatorSurface"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+            var runtime = metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(11, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+            var objectType = metadata.AddTypeReference(
+                runtime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+            var external = metadata.AddAssemblyReference(
+                metadata.GetOrAddString("External"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+            EntityHandle genericScope = external;
+            if (outerArity != 0)
+            {
+                genericScope = metadata.AddTypeReference(
+                    external,
+                    metadata.GetOrAddString("External"),
+                    metadata.GetOrAddString(
+                        $"Outer`{outerArity}"));
+            }
+            var genericType = metadata.AddTypeReference(
+                genericScope,
+                metadata.GetOrAddString("External"),
+                metadata.GetOrAddString(
+                    $"Generic`{declaredArity}"));
+            metadata.AddTypeDefinition(
+                default,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString(TypeName),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+
+            var bodies = new BlobBuilder();
+            var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+            var code = new BlobBuilder();
+            var instructions =
+                new InstructionEncoder(
+                    code,
+                    new ControlFlowBuilder());
+            instructions.OpCode(ILOpCode.Ldnull);
+            instructions.OpCode(ILOpCode.Ret);
+            int bodyOffset =
+                bodyEncoder.AddMethodBody(
+                    instructions,
+                    maxStack: 1);
+            byte declaringType = 0x08;
+            byte genericTypeReference = checked((byte)(
+                (MetadataTokens.GetRowNumber(genericType) << 2)
+                | 0x01));
+            var signature = new List<byte>
+            {
+                0x00,
+                0x02,
+                (byte)SignatureTypeKind.Class,
+                declaringType,
+                (byte)SignatureTypeKind.Class,
+                declaringType,
+                (byte)SignatureTypeCode.GenericTypeInstance,
+                (byte)SignatureTypeKind.Class,
+                genericTypeReference,
+                checked((byte)suppliedArguments),
+            };
+            signature.AddRange(
+                Enumerable.Repeat(
+                    (byte)SignatureTypeCode.Int32,
+                    suppliedArguments));
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.SpecialName,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString("op_Addition"),
                 metadata.GetOrAddBlob(signature.ToArray()),

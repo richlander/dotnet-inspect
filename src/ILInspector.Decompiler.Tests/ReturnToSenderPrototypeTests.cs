@@ -234,7 +234,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_AllFullReportsConcreteDeclarationItCannotRepresent()
+    public void CompileBackTargets_AllFullIncludesGenericDeclarations()
     {
         var assemblyPath = CompileFixture("""
             public static class Target
@@ -255,27 +255,30 @@ public class ReturnToSenderPrototypeTests
                 RoundTripScope.All,
                 RoundTripBodyPolicy.Full));
 
-            Assert.False(result.BodyComplete);
-            var failure = Assert.Single(
+            Assert.True(result.BodyComplete);
+            var genericBody = Assert.Single(
                 result.FullBodies,
                 body => body.Member == "Unrelated.Echo");
-            Assert.Equal(MemberBodyProductionStatus.Failed, failure.Status);
-            Assert.Contains("not represented", failure.Failure, StringComparison.Ordinal);
+            Assert.Equal(
+                MemberBodyProductionStatus.Complete,
+                genericBody.Status);
+            Assert.Null(genericBody.Failure);
             Assert.Contains(
-                result.Plan.Diagnostics,
-                diagnostic => diagnostic.Reason == "declaration-not-represented"
-                              && diagnostic.Detail == "Unrelated.Echo");
-            Assert.DoesNotContain("Echo", result.Source, StringComparison.Ordinal);
+                "Echo<T>",
+                result.Source,
+                StringComparison.Ordinal);
             Assert.NotNull(result.Comparison);
             Assert.Equal(RoundTripComparisonStatus.Completed, result.Comparison.Status);
-            Assert.Equal(2, result.Comparison.Members.Length);
-            var unavailable = Assert.Single(
+            var comparison = Assert.Single(
                 result.Comparison.Members,
-                member => member.Target.Method == failure.Method);
-            Assert.Equal(RoundTripEvidenceStatus.Unavailable, unavailable.CSharpStatus);
-            Assert.Equal(IlBodyDiffOutcome.Unavailable, unavailable.IlStatus);
-            Assert.Contains("not represented", unavailable.CSharpFailure, StringComparison.Ordinal);
-            Assert.Contains("not represented", unavailable.IlFailure, StringComparison.Ordinal);
+                member => member.Target.Method == genericBody.Method);
+            Assert.Equal(
+                RoundTripEvidenceStatus.Exact,
+                comparison.CSharpStatus);
+            Assert.NotEqual(
+                IlBodyDiffOutcome.Unavailable,
+                comparison.IlStatus);
+            Assert.Null(comparison.CSharpFailure);
         }
         finally
         {
@@ -3595,6 +3598,55 @@ public class ReturnToSenderPrototypeTests
                         != MemberBodyProductionStatus.Complete);
             Assert.Contains("return 7;", result.Source);
             Assert.Contains("return \"money\";", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullBodiesDistinguishMethodGenericArity()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Box
+            {
+                public static int Helper() => 1;
+                public static int Helper<T>() => 2;
+
+                public static Box operator +(Box left, Box right)
+                {
+                    _ = Helper<int>();
+                    return left;
+                }
+            }
+
+            public static class Consumer
+            {
+                public static Box Add(Box left, Box right) => left + right;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Consumer", "Add", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            int genericStart = result.Source.IndexOf(
+                "int Helper<T>()",
+                StringComparison.Ordinal);
+            Assert.True(genericStart >= 0, result.Source);
+            int genericEnd = result.Source.IndexOf('}', genericStart);
+            Assert.Contains(
+                "return 2;",
+                result.Source[genericStart..genericEnd],
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "return 1;",
+                result.Source[genericStart..genericEnd],
+                StringComparison.Ordinal);
         }
         finally
         {

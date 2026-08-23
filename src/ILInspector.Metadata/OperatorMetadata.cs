@@ -11,6 +11,21 @@ namespace ILInspector.Metadata;
 /// </summary>
 public interface IOperatorTypeRelationshipResolver
 {
+    /// <summary>Resets per-declaration evidence before classification.</summary>
+    void BeginOperatorClassification()
+    {
+    }
+
+    /// <summary>
+    /// True after a staged resolver has bound its collected requests.
+    /// </summary>
+    bool IsResolutionComplete => true;
+
+    /// <summary>
+    /// True when evidence was found but its metadata kind could not be trusted.
+    /// </summary>
+    bool HasUnauthenticatedTypeKindEvidence => false;
+
     OperatorMetadata.TypeRelationship ValueTypeRelationship(
         MetadataReader reader,
         OperatorMetadata.OperatorSignatureType type);
@@ -89,6 +104,7 @@ public static class OperatorMetadata
             return DeclarationClassification.No;
         }
 
+        relationshipResolver?.BeginOperatorClassification();
         var decoded = GuardedProviderDecode.MethodResult(
             reader,
             method,
@@ -101,6 +117,12 @@ public static class OperatorMetadata
         if (signature.ReturnType.HasRequiredModifier
             || signature.ParameterTypes.Any(
                 parameter => parameter.HasRequiredModifier))
+        {
+            return DeclarationClassification.No;
+        }
+        if (signature.ReturnType.IsMalformed
+            || signature.ParameterTypes.Any(
+                parameter => parameter.IsMalformed))
         {
             return DeclarationClassification.No;
         }
@@ -188,7 +210,16 @@ public static class OperatorMetadata
         if (encodingConsistency == TypeRelationship.No)
             return DeclarationClassification.No;
         bool hasUnknownEvidence =
-            encodingConsistency == TypeRelationship.Unknown;
+            encodingConsistency == TypeRelationship.Unknown
+            && (relationshipResolver?.IsResolutionComplete == false
+                || relationshipResolver
+                        ?.HasUnauthenticatedTypeKindEvidence
+                    == true
+                || HasUnknownLocalDefinitionKind(
+                    reader,
+                    signature.ReturnType)
+                || signature.ParameterTypes.Any(parameter =>
+                    HasUnknownLocalDefinitionKind(reader, parameter)));
 
         if (OperatorNames.IsConversionOperatorMethodName(name)
             && signature.ParameterTypes is [var encodedConversionSource])
@@ -295,6 +326,25 @@ public static class OperatorMetadata
                 argument,
                 declaringTypeArity,
                 methodArity));
+    }
+
+    static bool HasUnknownLocalDefinitionKind(
+        MetadataReader reader,
+        OperatorSignatureType type)
+    {
+        if (type.Identity.Kind == HandleKind.TypeDefinition
+            && MetadataTypeDeclarationProbe.ClassifyDefinitionKind(
+                reader,
+                (TypeDefinitionHandle)type.Identity,
+                CoreLibraryRootAuthentication
+                    .DeclaresUniqueTopLevelCoreLibraryRoot(reader))
+                == MetadataTypeDefinitionKind.Unknown)
+        {
+            return true;
+        }
+
+        return type.TypeArguments.Any(argument =>
+            HasUnknownLocalDefinitionKind(reader, argument));
     }
 
     static TypeRelationship CombineForbiddenRelationships(
@@ -753,6 +803,10 @@ public static class OperatorMetadata
     {
         public bool HasRequiredModifier { get; init; }
 
+        public bool IsMalformed { get; init; }
+
+        public int ExpectedGenericArity { get; init; }
+
         public bool IsBoolean =>
             Identity.IsNil
             && Namespace == "System"
@@ -785,6 +839,10 @@ public static class OperatorMetadata
             {
                 DefinitionAddress =
                     DefinitionAddressFor(reader, handle),
+                ExpectedGenericArity =
+                    OperatorSignatureTypeProvider.CumulativeGenericArity(
+                        reader,
+                        handle),
             };
         }
 
@@ -945,7 +1003,10 @@ public static class OperatorMetadata
             string name,
             bool hasRequiredModifier = false,
             ImmutableArray<OperatorSignatureType> components = default)
-            => new(
+        {
+            ImmutableArray<OperatorSignatureType> normalizedComponents =
+                components.IsDefault ? [] : components;
+            return new(
                 false,
                 false,
                 false,
@@ -958,10 +1019,13 @@ public static class OperatorMetadata
                 name,
                 false,
                 false,
-                components.IsDefault ? [] : components)
+                normalizedComponents)
             {
                 HasRequiredModifier = hasRequiredModifier,
+                IsMalformed = normalizedComponents.Any(
+                    static component => component.IsMalformed),
             };
+        }
 
         public OperatorSignatureType GetPrimitiveType(PrimitiveTypeCode typeCode)
             => typeCode == PrimitiveTypeCode.Void
@@ -1011,7 +1075,11 @@ public static class OperatorMetadata
                 reader.GetString(reference.Name),
                 false,
                 false,
-                []);
+                [])
+            {
+                ExpectedGenericArity =
+                    CumulativeGenericArity(reader, handle),
+            };
         }
 
         public OperatorSignatureType GetTypeFromSpecification(
@@ -1037,6 +1105,7 @@ public static class OperatorMetadata
             => new(false, true, false, false, -1, default, false, false, null, null, false, false, [elementType])
             {
                 HasRequiredModifier = elementType.HasRequiredModifier,
+                IsMalformed = elementType.IsMalformed,
             };
 
         public OperatorSignatureType GetPointerType(OperatorSignatureType elementType)
@@ -1062,6 +1131,12 @@ public static class OperatorMetadata
                     genericType.HasRequiredModifier
                     || typeArguments.Any(
                         argument => argument.HasRequiredModifier),
+                IsMalformed =
+                    genericType.IsMalformed
+                    || genericType.ExpectedGenericArity
+                        != typeArguments.Length
+                    || typeArguments.Any(
+                        static argument => argument.IsMalformed),
             };
 
         public OperatorSignatureType GetGenericMethodParameter(object? genericContext, int index)
@@ -1100,5 +1175,91 @@ public static class OperatorMetadata
             => PrimitiveTypeCode.Int32;
 
         public bool IsSystemType(OperatorSignatureType type) => false;
+
+        internal static int CumulativeGenericArity(
+            MetadataReader reader,
+            EntityHandle handle)
+        {
+            int arity = 0;
+            var visited = new HashSet<EntityHandle>();
+            for (int depth = 0;
+                depth < MetadataSafetyPolicy.MaxRelationshipNodes;
+                depth++)
+            {
+                if (!visited.Add(handle))
+                    return -1;
+
+                string name;
+                EntityHandle declaring;
+                if (handle.Kind == HandleKind.TypeDefinition)
+                {
+                    var definition =
+                        reader.GetTypeDefinition(
+                            (TypeDefinitionHandle)handle);
+                    name = reader.GetString(definition.Name);
+                    declaring = definition.GetDeclaringType();
+                }
+                else if (handle.Kind == HandleKind.TypeReference)
+                {
+                    var reference =
+                        reader.GetTypeReference(
+                            (TypeReferenceHandle)handle);
+                    name = reader.GetString(reference.Name);
+                    declaring = reference.ResolutionScope;
+                    if (declaring.Kind != HandleKind.TypeReference)
+                        declaring = default;
+                }
+                else
+                {
+                    return -1;
+                }
+
+                if (!TryGenericArity(name, out int segmentArity)
+                    || segmentArity > int.MaxValue - arity)
+                {
+                    return -1;
+                }
+                arity += segmentArity;
+                if (declaring.IsNil)
+                    return arity;
+                handle = declaring;
+            }
+
+            return -1;
+        }
+
+        static bool TryGenericArity(string name, out int arity)
+        {
+            int tick = name.LastIndexOf('`');
+            if (tick < 0)
+            {
+                arity = 0;
+                return !string.IsNullOrEmpty(name);
+            }
+
+            ReadOnlySpan<char> suffix = name.AsSpan(tick + 1);
+            if (tick == 0
+                || name.AsSpan(0, tick).Contains('`')
+                || suffix.IsEmpty
+                || suffix[0] == '0')
+            {
+                arity = 0;
+                return false;
+            }
+
+            arity = 0;
+            foreach (char character in suffix)
+            {
+                int digit = character - '0';
+                if ((uint)digit > 9
+                    || arity > (int.MaxValue - digit) / 10)
+                {
+                    arity = 0;
+                    return false;
+                }
+                arity = (arity * 10) + digit;
+            }
+            return true;
+        }
     }
 }

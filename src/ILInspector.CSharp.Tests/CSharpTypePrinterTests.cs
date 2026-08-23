@@ -4248,6 +4248,58 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void RenderingSnapshotPreservesOperatorPairingProvenance()
+    {
+        static ApiMember Operator(
+            string name,
+            string pairingKey) => new()
+        {
+            Name = name,
+            Kind = "operator",
+            Signature = $"bool {name}(Pair left, Pair right)",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "bool",
+                MemberName = name,
+                Parameters =
+                [
+                    new ApiParameter { Type = "Pair", Name = "left" },
+                    new ApiParameter { Type = "Pair", Name = "right" },
+                ]
+            },
+            IsStatic = true,
+            Accessibility = "public",
+            CSharpOperatorDeclaration = true,
+            HasCSharpOperatorDeclarationClassification = true,
+            OperatorPairingKey = pairingKey,
+            HasOperatorPairingKey = true,
+        };
+
+        var equality = Operator("op_Equality", "assembly-a");
+        var inequality = Operator("op_Inequality", "assembly-b");
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Pair",
+            Kind = "class",
+            Members = [equality],
+            DeclaringMembers = [equality, inequality]
+        };
+
+        string source =
+            _printer.Print(new CSharpTypePrintRequest(type)).Source;
+
+        Assert.Contains(
+            "public static bool op_Equality(Pair left, Pair right);",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "operator ==",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RenderingSnapshotPreservesCanonicalOperatorPairTypes()
     {
         static ApiMember Operator(string name, string tuple) => new()

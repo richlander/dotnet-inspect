@@ -663,8 +663,16 @@ Receiver temporaries must preserve both the receiver's storage semantics and
 the current C# name scope.
 `ConstrainedStructReceiver_InstanceAssignmentPreservesTheByRefPlace` executes a
 compiler-produced constrained generic struct receiver and requires its mutation
-to survive; `MaterializedReceiver_AvoidsMethodGenericParameterName` prevents a
-synthetic receiver local from colliding with a method type parameter.
+to survive; `PointerReceiver_InstanceAssignment_DereferencesTheReceiver`
+requires an unmanaged pointer receiver to mutate the pointed-to value rather
+than advance the pointer; and
+`MaterializedReceiver_AvoidsMethodGenericParameterName` prevents a synthetic
+receiver local from colliding with a method type parameter.
+
+Confirmed operator methods have no C# method-group spelling.
+`KnownOperatorDelegateTarget_DegradesToPartial` requires delegate creation over
+one to report the typed `operator-method-group` fidelity cause rather than
+claiming `Full`.
 
 Cross-assembly operator relationships compare resolved type definitions and
 assembly identities, not display-level `TypeRef` equality.
@@ -688,10 +696,25 @@ Operator signature encoding consistency is recursive through arrays, pointers,
 and function pointers.
 `CSharpOperatorDeclaration_RejectsNestedContradictoryTypeEncoding` supplies
 well-formed and contradictory close pairs for all three wrappers.
+Generic instantiations must also carry exactly the cumulative arity declared by
+their nested metadata-name chain.
+`CSharpOperatorDeclaration_RejectsMismatchedGenericInstantiationArity` and
+`CSharpOperatorDeclaration_UsesCumulativeNestedGenericArity` are the flat and
+nested close-pair gates.
 `ResolutionAwareSurface_RejectsExternalRelationshipConversions` also requires
 an externally resolved base chain to reject conversion to `System.Object`; the
 primitive spelling is accepted as that named type only with trusted
 core-library provenance.
+
+Unavailable external kind evidence does not by itself suppress a
+non-conversion operator declaration, but relationships that determine whether
+a conversion or increment/decrement is legal remain fail-closed.
+`MissingOperatorDependencyPreservesSafeOperatorSpelling`,
+`MissingOperatorDependencyKeepsConversionsFailClosed`, and
+`OperatorKindAuthenticationFailureRemainsUnknownAndVisible` gate the three
+outcomes. `SelectedApiInspection_LabelsOperatorClassificationFailure` keeps the
+visible diagnostic categorized as operator declaration classification rather
+than generic-constraint classification.
 
 Every generic-parameter reference in an operator signature must be in scope for
 the declaring type or method. Since C# operator methods are nongeneric,
@@ -710,7 +733,13 @@ metadata tokens so `Full` body policy can attach the required sibling bodies;
 closure. Token attachment is signature-exact rather than name-based:
 `CompileBackTargets_FullBodiesMatchOverloadedOperatorParameters` and
 `CompileBackTargets_FullBodiesMatchConversionReturnTypes` require parameter-
-and return-type overloads to retain their own bodies.
+`CompileBackTargets_FullBodiesDistinguishMethodGenericArity` additionally
+requires generic and nongeneric overloads with identical display signatures to
+retain distinct declarations and bodies. Required operator siblings use strict
+metadata structural signatures rather than display type names;
+`BuildOperatorPairing_PreservesAssemblyProvenance` and
+`MemberDeclaration_DoesNotPairSameDisplayTypesFromDifferentAssemblies` gate
+assembly provenance in the metadata and persisted API paths.
 
 Exact increment and decrement selectors remain exact across normalization and
 reparse. `GetCandidates_IncrementTokenIncludesStaticAndInstanceShapes` requires

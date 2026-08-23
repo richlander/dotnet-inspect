@@ -6,6 +6,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
 using System.Text;
 using CSharpText;
 
@@ -843,6 +844,9 @@ public static class ApiSurfaceExtractor
                                     reader,
                                     method)
                         : null;
+                bool hasOperatorPairingIdentity = isOperator
+                    && (OperatorNames.RequiredOperatorSibling(methodName) is not null
+                        || OperatorNames.CheckedOperator(methodName) is not null);
                 var member = new ApiMember
                 {
                     Name = methodName,
@@ -880,6 +884,10 @@ public static class ApiSurfaceExtractor
                         : null,
                     HasCSharpOperatorDeclarationClassification =
                         isOperator,
+                    HasOperatorPairingKey = hasOperatorPairingIdentity,
+                    OperatorPairingKey = hasOperatorPairingIdentity
+                        ? TryOperatorPairingKey(reader, method)
+                        : null,
                     SignatureDecodeStatus = signature.IsDegraded
                         ? SignatureDecodeStatus.Degraded
                         : null,
@@ -4620,6 +4628,29 @@ public static class ApiSurfaceExtractor
             : count + value.Length;
     }
 
+    static string? TryOperatorPairingKey(
+        MetadataReader reader,
+        MethodDefinition method)
+    {
+        try
+        {
+            string signature =
+                MethodStructuralSignature.BuildOperatorPairing(
+                    reader,
+                    method);
+            return Convert.ToHexString(
+                SHA256.HashData(
+                    Encoding.UTF8.GetBytes(signature)));
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or InvalidOperationException
+                or ArgumentException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>
     /// Maps MethodAttributes access level to C# keyword. Returns null for public.
     /// </summary>
@@ -4655,6 +4686,7 @@ public static class ApiSurfaceExtractor
         readonly List<(MethodDefinitionHandle Handle, ApiMember Member)>
             _operators = [];
         EntityHandle _operatorSubject;
+        bool _hasUnauthenticatedTypeKindEvidence;
 
         internal TypeParameterConstraintResolution(
             MetadataReader reader,
@@ -4773,26 +4805,48 @@ public static class ApiSurfaceExtractor
         public OperatorMetadata.TypeRelationship ValueTypeRelationship(
             MetadataReader reader,
             OperatorMetadata.OperatorSignatureType type)
-            => ResolveDefinition(reader, type, _source)
-                is { } definition
-                    ? KnownKind(definition)
-                        ? definition.IsValueType
-                            ? OperatorMetadata.TypeRelationship.Yes
-                            : OperatorMetadata.TypeRelationship.No
-                        : OperatorMetadata.TypeRelationship.Unknown
-                    : OperatorMetadata.TypeRelationship.Unknown;
+        {
+            if (ResolveDefinition(reader, type, _source)
+                is not { } definition)
+            {
+                return OperatorMetadata.TypeRelationship.Unknown;
+            }
+            if (!KnownKind(definition))
+            {
+                _hasUnauthenticatedTypeKindEvidence = true;
+                return OperatorMetadata.TypeRelationship.Unknown;
+            }
+            return definition.IsValueType
+                ? OperatorMetadata.TypeRelationship.Yes
+                : OperatorMetadata.TypeRelationship.No;
+        }
 
         public OperatorMetadata.TypeRelationship InterfaceRelationship(
             MetadataReader reader,
             OperatorMetadata.OperatorSignatureType type)
-            => ResolveDefinition(reader, type, _source)
-                is { } definition
-                    ? KnownKind(definition)
-                        ? definition.IsInterface
-                            ? OperatorMetadata.TypeRelationship.Yes
-                            : OperatorMetadata.TypeRelationship.No
-                        : OperatorMetadata.TypeRelationship.Unknown
-                    : OperatorMetadata.TypeRelationship.Unknown;
+        {
+            if (ResolveDefinition(reader, type, _source)
+                is not { } definition)
+            {
+                return OperatorMetadata.TypeRelationship.Unknown;
+            }
+            if (!KnownKind(definition))
+            {
+                _hasUnauthenticatedTypeKindEvidence = true;
+                return OperatorMetadata.TypeRelationship.Unknown;
+            }
+            return definition.IsInterface
+                ? OperatorMetadata.TypeRelationship.Yes
+                : OperatorMetadata.TypeRelationship.No;
+        }
+
+        public bool HasUnauthenticatedTypeKindEvidence =>
+            _hasUnauthenticatedTypeKindEvidence;
+
+        public bool IsResolutionComplete => Plan.Context is not null;
+
+        public void BeginOperatorClassification()
+            => _hasUnauthenticatedTypeKindEvidence = false;
 
         public OperatorMetadata.TypeRelationship
             SameOrDerivedRelationship(
@@ -4969,8 +5023,16 @@ public static class ApiSurfaceExtractor
             TypeResolutionRequest? request =
                 type.ResolutionRequest
                 ?? CreateRequest(reader, type, origin);
-            if (Plan.ResolveRequest(request, _operatorSubject)
-                is not TypeResolutionOutcome.Resolved resolved)
+            TypeResolutionOutcome? outcome =
+                Plan.ResolveRequest(request, _operatorSubject);
+            if (outcome is TypeResolutionOutcome.Rejected
+                or TypeResolutionOutcome.Unavailable
+                or TypeResolutionOutcome.Ambiguous
+                or TypeResolutionOutcome.NotFound)
+            {
+                _hasUnauthenticatedTypeKindEvidence = true;
+            }
+            if (outcome is not TypeResolutionOutcome.Resolved resolved)
             {
                 return null;
             }

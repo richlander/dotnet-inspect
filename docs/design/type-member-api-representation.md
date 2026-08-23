@@ -83,8 +83,13 @@ extracted `Unknown` from an older or shell-produced surface that never carried
 the fact. Declaration consumers must not replace an extracted `Unknown` after a
 JSON round-trip by inferring declaring-type participation from display text.
 `ApiMember.SignatureModel` likewise persists parameter and return-type structure;
-required operator pairs and other declaration consumers compare that model
-rather than treating missing structure as a wildcard.
+older surfaces use that model for required operator pairs rather than treating
+missing structure as a wildcard. Current extraction additionally persists
+`ApiMember.OperatorPairingKey`, a digest of strict metadata structure that
+retains defining-assembly provenance.
+`ApiMember.HasOperatorPairingKey` distinguishes older surfaces from an
+extraction that could not produce the key; the latter fails closed rather than
+falling back to display identity.
 Operator representability remains `Unknown` when a resolved definition's kind
 could not be authenticated, and required custom modifiers are not erased into
 an affirmative source proof. A non-interface declaration also cannot acquire
@@ -93,13 +98,17 @@ MethodDef static flag must agree with the signature header. The
 compiler-produced hierarchy cases in
 `ReferenceEqualityMetadataFactsTests` and the adversarial signature cases in
 `OperatorApiSurfaceTests`, including
-`CSharpOperatorDeclaration_PreservesUnknownResolvedKind`, gate those
+`CSharpOperatorDeclaration_IgnoresUnavailableEncodingKindForNonConversion` and
+`OperatorKindAuthenticationFailureRemainsUnknownAndVisible`, gate those
 boundaries; `CSharpOperatorDeclaration_RejectsStaticAbstractClassOperator` and
 `CSharpOperatorDeclaration_RejectsStaticFlagHeaderMismatch` gate the modifier
 and header negatives.
 `ApiOutputFormatterTests.ApiTypeJson_PersistsStructuredSignatureModel` and the
 operator proof and pair JSON tests in `ApiOutputFormatterTests` and
-`CSharpDeclarationWriterTests` gate this contract.
+`CSharpDeclarationWriterTests`, especially
+`ApiTypeJson_PersistsOperatorPairingIdentity` and
+`MemberDeclaration_DoesNotPairSameDisplayTypesFromDifferentAssemblies`, gate
+this contract.
 
 #### `DotnetInspector.Queries`
 

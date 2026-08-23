@@ -2277,20 +2277,33 @@ internal static class CSharpDeclarationWriter
             && (candidate.HasCSharpOperatorDeclarationClassification
                 ? candidate.CSharpOperatorDeclaration == true
                 : candidate.CSharpOperatorDeclaration is not false)
-            && SameOperatorSignature(member.SignatureModel, candidate.SignatureModel));
+            && SameOperatorSignature(member, candidate));
     }
 
-    static bool SameOperatorSignature(ApiSignature? left, ApiSignature? right)
+    static bool SameOperatorSignature(ApiMember left, ApiMember right)
     {
-        if (left is null || right is null)
+        if (left.HasOperatorPairingKey || right.HasOperatorPairingKey)
+        {
+            return left.HasOperatorPairingKey
+                && right.HasOperatorPairingKey
+                && left.OperatorPairingKey is not null
+                && left.OperatorPairingKey
+                    == right.OperatorPairingKey;
+        }
+
+        if (left.SignatureModel is not { } leftSignature
+            || right.SignatureModel is not { } rightSignature)
+        {
             return false;
+        }
 
         return OperatorNames.OperatorPairingTypesMatch(
-                left.EffectiveCanonicalReturnType,
-                right.EffectiveCanonicalReturnType)
-            && left.Parameters.Count == right.Parameters.Count
-            && left.Parameters.Zip(
-                right.Parameters,
+                leftSignature.EffectiveCanonicalReturnType,
+                rightSignature.EffectiveCanonicalReturnType)
+            && leftSignature.Parameters.Count
+                == rightSignature.Parameters.Count
+            && leftSignature.Parameters.Zip(
+                rightSignature.Parameters,
                 static (leftParameter, rightParameter) =>
                     OperatorNames.OperatorPairingTypesMatch(
                         leftParameter.EffectiveCanonicalType,

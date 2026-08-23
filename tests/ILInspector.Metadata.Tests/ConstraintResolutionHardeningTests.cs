@@ -1419,6 +1419,63 @@ public class ConstraintResolutionHardeningTests
     }
 
     [Fact]
+    public void MissingOperatorDependencyPreservesSafeOperatorSpelling()
+    {
+        byte[] sourceImage = BuildOperatorConsumer();
+        ResolvedAssemblyReference source = Descriptor(sourceImage);
+        using var pe = Reader(sourceImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MissingPolicy());
+
+        ApiMember member = Assert.Single(
+            Assert.Single(surface.Types).Members,
+            static candidate =>
+                candidate.Name == "op_Addition");
+        Assert.True(
+            member.HasCSharpOperatorDeclarationClassification);
+        Assert.True(member.CSharpOperatorDeclaration);
+    }
+
+    [Fact]
+    public void MissingOperatorDependencyKeepsConversionsFailClosed()
+    {
+        byte[] sourceImage = BuildGenericOperatorConsumer();
+        ResolvedAssemblyReference source = Descriptor(sourceImage);
+        using var pe = Reader(sourceImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MissingPolicy());
+
+        ApiType holder = Assert.Single(
+            surface.Types,
+            static type => type.Name == "Holder");
+        Assert.All(
+            holder.Members.Where(
+                static member =>
+                    member.Name is "op_Implicit" or "op_Explicit"),
+            static member =>
+            {
+                Assert.True(
+                    member.HasCSharpOperatorDeclarationClassification);
+                Assert.Null(member.CSharpOperatorDeclaration);
+            });
+        Assert.Contains(
+            surface.InspectionFailures,
+            failure =>
+                failure.SubjectToken
+                    is 0x06000001 or 0x06000002);
+    }
+
+    [Fact]
     public void OperatorRelationshipPreservesSourceLocalGenericArgumentIdentity()
     {
         byte[] dependencyImage =

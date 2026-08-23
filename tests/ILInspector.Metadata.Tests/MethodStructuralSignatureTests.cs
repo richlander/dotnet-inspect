@@ -116,6 +116,77 @@ public sealed class MethodStructuralSignatureTests
     }
 
     [Fact]
+    public void BuildOperatorPairing_ErasesInParameterPassing()
+    {
+        using var image = new MetadataImage(
+            typeof(MethodStructuralSignatureTests).Assembly.Location);
+        TypeDefinitionHandle type = FindType(
+            image.Reader,
+            nameof(StructuralSignatureFixture));
+        MethodDefinitionHandle byValue = FindMethod(
+            image.Reader,
+            type,
+            nameof(StructuralSignatureFixture.ByValue));
+        MethodDefinitionHandle byIn = FindMethod(
+            image.Reader,
+            type,
+            nameof(StructuralSignatureFixture.In));
+
+        Assert.Equal(
+            MethodStructuralSignature.BuildOperatorPairing(
+                image.Reader,
+                image.Reader.GetMethodDefinition(byValue)),
+            MethodStructuralSignature.BuildOperatorPairing(
+                image.Reader,
+                image.Reader.GetMethodDefinition(byIn)));
+    }
+
+    [Fact]
+    public void BuildOperatorPairing_PreservesAssemblyProvenance()
+    {
+        string targetPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "DiffAsmTarget.dll");
+        using var image = new MetadataImage(targetPath);
+        var pings = FindMethods(image.Reader, "Api", "Ping");
+
+        Assert.Equal(2, pings.Count);
+        Assert.NotEqual(
+            MethodStructuralSignature.BuildOperatorPairing(
+                image.Reader,
+                image.Reader.GetMethodDefinition(pings[0])),
+            MethodStructuralSignature.BuildOperatorPairing(
+                image.Reader,
+                image.Reader.GetMethodDefinition(pings[1])));
+    }
+
+    [Fact]
+    public void BuildOperatorPairing_PreservesNestedByReferenceTypes()
+    {
+        using var image = new MetadataImage(
+            typeof(MethodStructuralSignatureTests).Assembly.Location);
+        TypeDefinitionHandle type = FindType(
+            image.Reader,
+            nameof(StructuralSignatureFixture));
+        MethodDefinitionHandle byValue = FindMethod(
+            image.Reader,
+            type,
+            nameof(StructuralSignatureFixture.FnPtrValueParameter));
+        MethodDefinitionHandle byReference = FindMethod(
+            image.Reader,
+            type,
+            nameof(StructuralSignatureFixture.FnPtrRefParameter));
+
+        Assert.NotEqual(
+            MethodStructuralSignature.BuildOperatorPairing(
+                image.Reader,
+                image.Reader.GetMethodDefinition(byValue)),
+            MethodStructuralSignature.BuildOperatorPairing(
+                image.Reader,
+                image.Reader.GetMethodDefinition(byReference)));
+    }
+
+    [Fact]
     public void Build_PreservesNestedVersusNamespaceBoundary()
     {
         using var nestedImage = new MetadataImage(
@@ -568,6 +639,10 @@ public sealed class StructuralSignatureFixture
     public unsafe void FnPtrManaged(delegate*<int, void> callback) => _ = (nint)callback;
 
     public unsafe void FnPtrUnmanaged(delegate* unmanaged<int, void> callback) => _ = (nint)callback;
+
+    public unsafe void FnPtrValueParameter(delegate*<int, void> callback) => _ = (nint)callback;
+
+    public unsafe void FnPtrRefParameter(delegate*<ref int, void> callback) => _ = (nint)callback;
 
     public void ReferenceConstrained<T>() where T : class { }
 

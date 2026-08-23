@@ -285,7 +285,16 @@ internal static class CSharpSpellability
     /// silently bind an unrelated real <c>__ctor</c> member (#3129).
     /// </summary>
     static NameIssue? MethodGroupTargetIssue(MethodRef method)
-        => MethodIssue(method, isMethodGroupTarget: true);
+    {
+        if (method.IsOperator == MetadataFactState.Yes)
+        {
+            return Issue(
+                DecompilerFidelityDiscriminators.OperatorMethodGroup,
+                $"operator method '{method.Name}' has no C# method-group spelling");
+        }
+
+        return MethodIssue(method, isMethodGroupTarget: true);
+    }
 
     static NameIssue? MethodIssue(MethodRef method, bool isMethodGroupTarget)
     {

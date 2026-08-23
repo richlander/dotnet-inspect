@@ -5659,6 +5659,8 @@ public sealed partial class CSharpPrinter
     string InstanceAssignmentReceiver(Call call)
         => _materializedReceivers.TryGetValue(call, out string? materialized)
             ? materialized
+            : EffectiveType(call.Arguments[0])?.Kind == TypeRefKind.Pointer
+                ? $"(*{OperatorOperand(call.Arguments[0])})"
             : OperatorOperand(call.Arguments[0]);
 
     /// <summary>

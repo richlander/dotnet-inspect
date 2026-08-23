@@ -1612,6 +1612,52 @@ public sealed class CSharpDeclarationWriterTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void MemberDeclaration_DoesNotPairSameDisplayTypesFromDifferentAssemblies()
+    {
+        var equality = OperatorMember(
+            "op_Equality",
+            null,
+            "Samples.Widget");
+        equality.HasOperatorPairingKey = true;
+        equality.OperatorPairingKey = "assembly-a";
+        var inequality = OperatorMember(
+            "op_Inequality",
+            null,
+            "Samples.Widget");
+        inequality.HasOperatorPairingKey = true;
+        inequality.OperatorPairingKey = "assembly-b";
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+            Members = [equality, inequality],
+        };
+
+        var roundTripped = JsonSerializer.Deserialize<ApiType>(
+            JsonSerializer.Serialize(type))!;
+        equality = Assert.Single(
+            roundTripped.Members,
+            member => member.Name == "op_Equality");
+        inequality = Assert.Single(
+            roundTripped.Members,
+            member => member.Name == "op_Inequality");
+
+        Assert.Contains(
+            " op_Equality(",
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                roundTripped,
+                equality),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            " op_Inequality(",
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                roundTripped,
+                inequality),
+            StringComparison.Ordinal);
+    }
+
     static ApiMember OperatorMember(
         string name,
         string? firstParameterModifier,

@@ -1074,7 +1074,9 @@ public class ApiCommand
                 continue;
             }
 
-            WriteConstraintResolutionDiagnostic(failure);
+            WriteConstraintResolutionDiagnostic(
+                failure,
+                IsOperatorClassificationFailure(api, failure));
         }
     }
 
@@ -1322,7 +1324,9 @@ public class ApiCommand
         foreach (ApiSurfaceInspectionFailure failure in failures.Take(
             ApiSurface.MaxVisibleConstraintResolutionFailures))
         {
-            WriteConstraintResolutionDiagnostic(failure);
+            WriteConstraintResolutionDiagnostic(
+                failure,
+                IsOperatorClassificationFailure(api, failure));
         }
         if (failures.Count
             > ApiSurface.MaxVisibleConstraintResolutionFailures)
@@ -1341,7 +1345,8 @@ public class ApiCommand
     }
 
     static void WriteConstraintResolutionDiagnostic(
-        ApiSurfaceInspectionFailure failure)
+        ApiSurfaceInspectionFailure failure,
+        bool isOperatorClassificationFailure)
     {
         if (failure.SubjectToken == 0
             && failure.Kind == "ResourceLimit")
@@ -1363,12 +1368,30 @@ public class ApiCommand
                 : $" via '{AssemblyIdentityFormatter.Format(
                     failure.DependencyAssembly)}'";
         CommandError.WriteWarning(
-            "Generic-constraint classification was incomplete"
+            (isOperatorClassificationFailure
+                ? "Operator declaration classification was incomplete"
+                : "Generic-constraint classification was incomplete")
                 + $"{assembly}{dependency} "
                 + $"at 0x{failure.SubjectToken:X8} "
                 + $"({failure.Mechanism}/{failure.Kind}): "
                 + failure.Detail);
     }
+
+    static bool IsOperatorClassificationFailure(
+        ApiSurface api,
+        ApiSurfaceInspectionFailure failure)
+        => api.Types
+            .Where(type =>
+                string.Equals(
+                    type.SourceAssemblyPath,
+                    failure.SourceAssemblyPath,
+                    StringComparison.Ordinal))
+            .SelectMany(static type => type.Members)
+            .Any(member =>
+                member.MetadataToken == failure.SubjectToken
+                && member.Kind == "operator"
+                && member.HasCSharpOperatorDeclarationClassification
+                && member.CSharpOperatorDeclaration is null);
 
     /// <summary>
     /// Fails a projection that rendered nothing at all, rather than exiting 0 having printed

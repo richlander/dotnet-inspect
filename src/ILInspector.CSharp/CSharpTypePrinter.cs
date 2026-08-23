@@ -863,6 +863,8 @@ public sealed class CSharpTypePrinter
             CSharpOperatorDeclaration = member.CSharpOperatorDeclaration,
             HasCSharpOperatorDeclarationClassification =
                 member.HasCSharpOperatorDeclarationClassification,
+            OperatorPairingKey = member.OperatorPairingKey,
+            HasOperatorPairingKey = member.HasOperatorPairingKey,
             SignatureDecodeStatus = member.SignatureDecodeStatus,
             IsStatic = member.IsStatic,
             IsVirtual = member.IsVirtual,

@@ -877,6 +877,50 @@ public class ApiOutputFormatterTests
     }
 
     [Fact]
+    public void ApiTypeJson_PersistsOperatorPairingIdentity()
+    {
+        var type = new ApiType
+        {
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "op_Equality",
+                    Kind = "operator",
+                    HasOperatorPairingKey = true,
+                    OperatorPairingKey = "A1B2",
+                },
+            ],
+        };
+
+        string json = System.Text.Json.JsonSerializer.Serialize(
+            type,
+            ApiTypeJsonContext.Default.ApiType);
+        string compactJson = System.Text.Json.JsonSerializer.Serialize(
+            type,
+            ApiTypeCompactJsonContext.Default.ApiType);
+
+        Assert.Contains(
+            "\"operator_pairing_key\": \"A1B2\"",
+            json,
+            System.StringComparison.Ordinal);
+        Assert.Contains(
+            "\"operator_pairing_key\":\"A1B2\"",
+            compactJson,
+            System.StringComparison.Ordinal);
+        Assert.Contains(
+            "\"has_operator_pairing_key\": true",
+            json,
+            System.StringComparison.Ordinal);
+        Assert.Contains(
+            "\"has_operator_pairing_key\":true",
+            compactJson,
+            System.StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ApiTypeJson_PersistsStructuredSignatureModel()
     {
         var type = new ApiType

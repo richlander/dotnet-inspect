@@ -679,6 +679,40 @@ public sealed class CSharpPrinterReceiverTests
     }
 
     [Fact]
+    public void PointerReceiver_InstanceAssignment_DereferencesTheReceiver()
+    {
+        var counter = TypeRef.Definition(
+            "synthetic",
+            "",
+            "PointerAssignmentCounter",
+            ValueTypeHint.ValueType);
+        var pointer = TypeRef.Pointer(counter);
+        var call = new Call(
+            new MethodRef(
+                counter,
+                "op_AdditionAssignment",
+                VoidType,
+                [Int32Type],
+                HasThis: true)
+            {
+                IsSpecialName = true,
+                IsOperator = MetadataFactState.Yes,
+            },
+            isVirtual: false,
+            [
+                new LoadArgument(0, "value", pointer),
+                new Constant(1, Int32Type),
+            ]);
+
+        string body = RenderStatements(
+            [new Parameter("value", pointer)],
+            new ExpressionStatement(call));
+
+        Assert.Contains("(*value) += 1;", body);
+        Assert.DoesNotContain("value += 1;", body);
+    }
+
+    [Fact]
     public void LambdaRightOperand_InstanceAssignment_PreservesSelectedOverload()
     {
         var box = TypeRef.Definition("synthetic", "", "LambdaAssignmentBox");

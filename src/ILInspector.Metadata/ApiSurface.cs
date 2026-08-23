@@ -886,6 +886,22 @@ public class ApiMember
     public bool HasCSharpOperatorDeclarationClassification { get; set; }
 
     /// <summary>
+    /// Strict metadata identity for the return and parameter types used to pair
+    /// C# operators such as <c>==</c>/<c>!=</c>. Unlike display signatures, this
+    /// key retains defining-assembly provenance.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? OperatorPairingKey { get; set; }
+
+    /// <summary>
+    /// True when extraction attempted to produce <see cref="OperatorPairingKey"/>.
+    /// A true value with a null key fails closed instead of falling back to
+    /// presentation text. False preserves compatibility with older surfaces.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool HasOperatorPairingKey { get; set; }
+
+    /// <summary>
     /// Set when guarded metadata decoding substituted part of this member's signature.
     /// Null means the signature decoded completely, including for older serialized surfaces.
     /// </summary>
