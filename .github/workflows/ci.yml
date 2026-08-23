@@ -421,7 +421,7 @@ jobs:
             echo "::error::Package fixture test filter selected no tests." >&2
             exit 1
           fi
-          if ! grep -Eq 'skipped="0"' "$results"; then
+          if ! grep -Eq '<assembly[^>]+skipped="0"' "$results"; then
             echo "::error::Package fixture test skipped authenticated execution." >&2
             exit 1
           fi

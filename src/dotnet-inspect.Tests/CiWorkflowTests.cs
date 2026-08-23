@@ -61,6 +61,9 @@ public class CiWorkflowTests
         Assert.Contains(
             "Package fixture test skipped authenticated execution.",
             fixtureStep);
+        Assert.Contains(
+            "grep -Eq '<assembly[^>]+skipped=\"0\"'",
+            fixtureStep);
         Assert.Contains("continue-on-error: true", fixtureStep);
         Assert.Contains("id: package_fixture", fixtureStep);
         Assert.Contains(
