@@ -2547,14 +2547,20 @@ function renderScopeBar() {
       escapeHtml,
     });
   }
-  return renderScopeBarPure({
-    scope: sc,
-    strip: typeLensesFor(state.package),
-    activeStripId: state.lens,
-    stripAttribute: "data-lens",
-    showMemberScope,
-    escapeHtml,
-  });
+  if (sc === "type") {
+    return renderScopeBarPure({
+      scope: sc,
+      // `typeLensesFor` rather than the raw catalog: a runtime pack offers only the API
+      // lens, and reading the catalog directly here would skip that restriction.
+      strip: typeLensesFor(state.package),
+      activeStripId: state.lens,
+      stripAttribute: "data-lens",
+      showMemberScope,
+      escapeHtml,
+    });
+  }
+  // A new scope used to render silently as the type strip.
+  return assertNever(sc, "workspace scope");
 }
 
 function packageHeading() {
@@ -2574,22 +2580,24 @@ function packageHeading() {
   </header>`;
 }
 
-function packageLensPlaceholder(lensId: PackageLens) {
-  const copy = ({
-    dependencies: ["⌘", "Dependencies", "Package NuGet dependencies and assembly references. Wiring the engine export in a follow-up pass."]
-  } as Record<string, string[]>)[lensId]
-    || ["△", "Not available", "This package lens is not wired yet."];
-  return `<section class="document-section empty-document"><span class="large-glyph">${copy[0]}</span><h2>${escapeHtml(copy[1])}</h2><p>${escapeHtml(copy[2])}</p></section>`;
+function renderPackageView() {
+  const body = packageLensBody();
+  return `${packageHeading()}${body}`;
 }
 
-function renderPackageView() {
-  if (state.packageLens === "overview") return `${packageHeading()}${renderPackageOverview()}`;
-  if (state.packageLens === "dependencies") return `${packageHeading()}${renderPackageDependencies()}`;
-  if (state.packageLens === "integrations") return `${packageHeading()}${renderPackageIntegrations()}`;
-  if (state.packageLens === "opportunities") return `${packageHeading()}${renderPackageOpportunities()}`;
-  if (state.packageLens === "analysis") return `${packageHeading()}${renderPackagePerformance()}`;
-  if (state.packageLens === "metadata") return `${packageHeading()}${renderPackageMetadata()}`;
-  return `${packageHeading()}${packageLensPlaceholder(state.packageLens)}`;
+function packageLensBody() {
+  switch (state.packageLens) {
+    case "overview": return renderPackageOverview();
+    case "dependencies": return renderPackageDependencies();
+    case "integrations": return renderPackageIntegrations();
+    case "opportunities": return renderPackageOpportunities();
+    case "analysis": return renderPackagePerformance();
+    case "metadata": return renderPackageMetadata();
+  }
+  // `packageLenses` drives the rendered strip directly, so a new catalog entry is offered
+  // to users the moment it is added. It used to fall through to a "not available"
+  // placeholder here, which is indistinguishable from a lens that is wired but empty.
+  return assertNever(state.packageLens, "package lens");
 }
 
 function packageDependenciesSignature() {
@@ -4466,6 +4474,9 @@ function bindScopeBarEvents() {
         state.selectedOverloadIndex = null;
       } else if (target === "member") {
         enterMemberScope();
+      } else {
+        // A new scope used to be accepted here and then do nothing at all.
+        assertNever(target, "workspace scope");
       }
       render();
     },
@@ -6028,6 +6039,18 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
 
 // Kick off the async data load implied by the current lens/section so a restored or
 // history-navigated view fills in its content.
+// Returns the loader for a type-level lens, or the sentinel `"member"` when the lens
+// defers to the member-section loaders below. A new type lens used to fall through the
+// `state.lens !== "api"` test and silently fetch nothing.
+function loadSelectedTypeLensData(): Promise<void> | undefined | "member" {
+  switch (state.lens) {
+    case "source": return loadSelectedTypeSource();
+    case "metadata": return loadSelectedTypeMetadata();
+    case "api": return "member";
+  }
+  return assertNever(state.lens, "type lens");
+}
+
 function loadSelectionData() {
   if (state.pendingGraphMemberDeepLink
     && !graphMemberPendingMatchesView(
@@ -6040,13 +6063,9 @@ function loadSelectionData() {
     return restorePendingGraphMember();
   }
   if (state.atPackageRoot) return undefined;
-  if (state.lens === "source") {
-    return loadSelectedTypeSource();
-  }
-  if (state.lens === "metadata") {
-    return loadSelectedTypeMetadata();
-  }
-  if (state.lens !== "api" || !state.selectedMemberKey) return undefined;
+  const typeLensLoad = loadSelectedTypeLensData();
+  if (typeLensLoad !== "member") return typeLensLoad;
+  if (!state.selectedMemberKey) return undefined;
   const member = selectedMember(selectedType());
   if (!member) return undefined;
   if (member.overloads.length > 1 && state.selectedOverloadIndex == null) return undefined;

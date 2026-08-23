@@ -20,6 +20,9 @@ const tscBin = join(projectRoot, "node_modules", "typescript", "bin", "tsc");
 // Each entry widens one catalog and names the token the widened union gains. `src/` imports
 // nothing outside itself and the project sets `"types": []`, so a copy of `src/` plus
 // `tsconfig.json` compiles standalone without `node_modules` present beside it.
+// `dispatches` names every function the widened member must be rejected in. It is a set of
+// locations, not a count: adversarial review broke one dispatch and added an unrelated
+// consumer receiving the same `never`, which a count cannot tell apart from the original.
 const widenings = [
   {
     vocabulary: "TypeLens",
@@ -27,8 +30,15 @@ const widenings = [
     find: '  ["source", "Source"]\n] as const;\n\nexport type TypeLens',
     replace: '  ["source", "Source"],\n  ["probe-type-lens", "Probe"]\n] as const;\n\nexport type TypeLens',
     token: "probe-type-lens",
-    // `renderLens`.
-    exhaustiveConsumers: 1,
+    dispatches: ["renderLens", "loadSelectedTypeLensData"],
+  },
+  {
+    vocabulary: "PackageLens",
+    file: "data.ts",
+    find: '  ["metadata", "Metadata"]\n] as const;',
+    replace: '  ["metadata", "Metadata"],\n  ["probe-package-lens", "Probe"]\n] as const;',
+    token: "probe-package-lens",
+    dispatches: ["packageLensBody"],
   },
   {
     vocabulary: "MemberSection",
@@ -36,8 +46,15 @@ const widenings = [
     find: '  ["annotated", "Annotated source"],\n] as const;',
     replace: '  ["annotated", "Annotated source"],\n  ["probe-member-section", "Probe"],\n] as const;',
     token: "probe-member-section",
-    // The member-section render dispatch and the member-section loader dispatch.
-    exhaustiveConsumers: 2,
+    dispatches: ["renderMember", "loadSelectionData"],
+  },
+  {
+    vocabulary: "WorkspaceScope",
+    file: "data.ts",
+    find: 'const workspaceScopes = ["package", "type", "member"] as const;',
+    replace: 'const workspaceScopes = ["package", "type", "member", "probe-workspace-scope"] as const;',
+    token: "probe-workspace-scope",
+    dispatches: ["renderScopeBar", "onScopeSelect"],
   },
   {
     vocabulary: "SpotlightScope",
@@ -45,12 +62,18 @@ const widenings = [
     find: '  { id: "runtime", label: "Platform" },\n] as const;',
     replace: '  { id: "runtime", label: "Platform" },\n  { id: "probe-spotlight-scope", label: "Probe" },\n] as const;',
     token: "probe-spotlight-scope",
-    // `spotlightResults`.
-    exhaustiveConsumers: 1,
+    dispatches: ["spotlightResults"],
   },
 ] as const;
 
-function compileWidenedSource(): string {
+interface WidenedCompilation {
+  diagnostics: string;
+  // Diagnostics point into the scratch copy, which is deleted on the way out, so the
+  // sources have to be captured while it still exists.
+  sources: Map<string, string>;
+}
+
+function compileWidenedSource(): WidenedCompilation {
   const scratch = mkdtempSync(join(tmpdir(), "inspect-web-exhaustiveness-"));
   try {
     cpSync(join(projectRoot, "src"), join(scratch, "src"), { recursive: true });
@@ -68,33 +91,98 @@ function compileWidenedSource(): string {
       encoding: "utf8",
       cwd: scratch,
     });
-    return `${result.stdout ?? ""}${result.stderr ?? ""}`;
+    const diagnostics = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+    const sources = new Map<string, string>();
+    for (const match of diagnostics.matchAll(/^(\S+)\(\d+,\d+\): error TS/gm)) {
+      const file = match[1];
+      if (!file || sources.has(file)) continue;
+      const absolute = file.startsWith("/") ? file : join(scratch, file);
+      sources.set(file, readFileSync(absolute, "utf8"));
+    }
+    return { diagnostics, sources };
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
 }
 
+// Map a diagnostic location back to the function that contains it, so the gate can name
+// *which* dispatch rejected the widened member.
+//
+// Counting diagnostics is not enough. Adversarial review (Claude Opus 5) broke `renderLens`
+// and added an unrelated but reachable guard receiving the same `never`, which held the
+// count at 1 and kept the suite green while an unhandled lens rendered blank. A location is
+// what a count cannot fake.
+function enclosingFunction(source: string, line: number): string {
+  const lines = source.split("\n");
+  for (let index = Math.min(line, lines.length) - 1; index >= 0; index -= 1) {
+    const text = lines[index] ?? "";
+    const declaration = /^(?:async )?function ([A-Za-z_$][\w$]*)\s*[(<]/.exec(text);
+    if (declaration?.[1]) return declaration[1];
+    // Object-literal callbacks such as `onScopeSelect: target => {` are dispatch sites too.
+    const property = /^\s{0,8}([A-Za-z_$][\w$]*): (?:async )?(?:\([^)]*\)|[A-Za-z_$][\w$]*) =>/
+      .exec(text);
+    if (property?.[1]) return property[1];
+  }
+  return "<unknown>";
+}
+
+test("every closed UI vocabulary is covered by this gate", () => {
+  // Derive the roster instead of restating it. Every union declared from an `as const`
+  // catalog is a closed vocabulary whose members reach a dispatch, so a new one that nobody
+  // adds here fails immediately rather than sitting silently uncovered -- which is exactly
+  // how `PackageLens` and `WorkspaceScope` went ungated through three rounds.
+  const declared = new Set<string>();
+  for (const file of ["data.ts", "spotlight.ts"]) {
+    const source = readFileSync(join(projectRoot, "src", file), "utf8");
+    for (const match of source.matchAll(
+      /export type ([A-Za-z_$][\w$]*) =\s*\|?\s*\(typeof [A-Za-z_$][\w$]*\)\[number\]/g)) {
+      if (match[1]) declared.add(match[1]);
+    }
+  }
+
+  // Non-vacuity: an anchor that stopped matching would otherwise turn this into a test that
+  // derives an empty roster and passes.
+  assert.deepEqual(
+    [...declared].sort((a, b) => a.localeCompare(b)),
+    ["MemberSection", "PackageLens", "SpotlightScope", "TypeLens", "WorkspaceScope"],
+    "the catalog-union anchor stopped matching the vocabularies it is meant to discover");
+
+  const covered = new Set<string>(widenings.map(widening => widening.vocabulary));
+  assert.deepEqual(
+    [...declared].filter(name => !covered.has(name)).sort((a, b) => a.localeCompare(b)),
+    [],
+    "a closed vocabulary is declared in src/ but has no case in this gate");
+});
+
 test("widening a UI vocabulary catalog fails compilation until every consumer handles it", () => {
-  const diagnostics = compileWidenedSource();
+  const { diagnostics, sources } = compileWidenedSource();
   assert.ok(
     diagnostics.trim().length > 0,
     "Widening every vocabulary catalog compiled cleanly, so no consumer is exhaustive.");
+
   for (const widening of widenings) {
-    // `assertNever` takes `never`, so an unhandled member is reported as the new string literal
-    // being unassignable, and it is the only parameter in the prototype with that type. Counting
-    // those diagnostics therefore counts the vocabulary's exhaustive consumers exactly, which is
-    // what a per-vocabulary match cannot do: with two dispatches over `MemberSection`, deleting
-    // either one still leaves the other reporting.
+    // `assertNever` takes `never`, so an unhandled member is reported as the new string
+    // literal being unassignable, and it is the only parameter in the prototype with that
+    // type. Collect the *functions* those diagnostics land in.
     const pattern = new RegExp(
-      `Argument of type '"${widening.token}"' is not assignable to parameter of type 'never'`,
-      "g");
-    const reported = diagnostics.match(pattern)?.length ?? 0;
-    assert.equal(
-      reported,
-      widening.exhaustiveConsumers,
-      `${widening.vocabulary}: expected ${widening.exhaustiveConsumers} exhaustive consumer(s) to reject a new `
-      + `catalog entry, but ${reported} did. Fewer means a consumer accepts an unknown `
-      + `${widening.vocabulary} and silently gives it another member's behavior; more means a new `
-      + "exhaustive consumer was added and this count needs raising.");
+      `^(\\S+)\\((\\d+),\\d+\\): error TS2345: Argument of type '"${widening.token}"' `
+      + "is not assignable to parameter of type 'never'",
+      "gm");
+    const reported = new Set<string>();
+    for (const match of diagnostics.matchAll(pattern)) {
+      const file = match[1];
+      const line = Number(match[2]);
+      const source = file === undefined ? undefined : sources.get(file);
+      if (source === undefined || !Number.isFinite(line)) continue;
+      reported.add(enclosingFunction(source, line));
+    }
+
+    assert.deepEqual(
+      [...reported].sort((a, b) => a.localeCompare(b)),
+      [...widening.dispatches].sort((a, b) => a.localeCompare(b)),
+      `${widening.vocabulary}: the dispatches that reject a new catalog entry are not the `
+      + "ones this gate expects. A missing name means that dispatch silently gives an "
+      + "unknown member another member's behavior; an unexpected name means a new "
+      + "exhaustive dispatch appeared and belongs in this list.");
   }
 });

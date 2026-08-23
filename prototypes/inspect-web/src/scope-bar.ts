@@ -9,12 +9,17 @@ import {
   type WorkspaceScope,
 } from "./data.ts";
 
-type LensDefinition = readonly [id: string, label: string];
+type LensDefinition<TId extends string = string> = readonly [id: TId, label: string];
 
-export interface RenderScopeBarOptions {
+// `TId` is inferred from the strip catalog, so the active id has to be a member of the
+// strip being rendered. A `string` there let a caller pass an id no button carries, which
+// renders a strip with nothing active and no failure anywhere. `NoInfer` keeps the strip
+// as the sole inference site; without it TypeScript infers the union of both and a
+// mismatched pair type-checks.
+export interface RenderScopeBarOptions<TId extends string = string> {
   scope: WorkspaceScope;
-  strip: readonly LensDefinition[];
-  activeStripId: string | null;
+  strip: readonly LensDefinition<TId>[];
+  activeStripId: NoInfer<TId> | null;
   stripAttribute: string;
   showMemberScope?: boolean;
   emptyStripLabel?: string;
@@ -75,7 +80,9 @@ function scopeSegment(id: string, label: string, active: boolean): string {
 //   package → package lenses   type → type lenses   member → member sections
 // Keeping all three families of buttons on one strip means the member modes (Overview,
 // Call graph, …) live here too instead of inside the detail pane.
-export function renderScopeBar(options: RenderScopeBarOptions): string {
+export function renderScopeBar<TId extends string>(
+  options: RenderScopeBarOptions<TId>,
+): string {
   const {
     scope,
     strip,

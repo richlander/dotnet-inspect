@@ -1325,7 +1325,9 @@ test("typed scope bar owns its rendered control bindings", () => {
               {
                 if: 'target === "member"',
                 whenTrue: ["call:enterMemberScope()"],
-                whenFalse: [],
+                // A scope this dispatch does not handle is now a compile error rather
+                // than a silently ignored click.
+                whenFalse: ['call:assertNever(target, "workspace scope")'],
               },
             ],
           },
@@ -1890,11 +1892,15 @@ test("global workbench shortcuts respect the topmost modal", () => {
 });
 
 test("Spotlight navigation waits for selection data before restoring focus", () => {
+  // The type-lens arm of this dispatch lives in `loadSelectedTypeLensData`, which
+  // `loadSelectionData` delegates to; take both bodies so the claim is about the whole
+  // dispatch rather than one function's text.
   const selectionLoader =
-    appSource.match(/function loadSelectionData\(\)[\s\S]*?\n}/)?.[0]
-    ?? "";
+    (appSource.match(/function loadSelectedTypeLensData\([\s\S]*?\n}/)?.[0] ?? "")
+    + (appSource.match(/function loadSelectionData\(\)[\s\S]*?\n}/)?.[0] ?? "");
   assert.match(selectionLoader, /return loadSelectedTypeSource\(\)/);
   assert.match(selectionLoader, /return loadSelectedTypeMetadata\(\)/);
+  assert.match(selectionLoader, /loadSelectedTypeLensData\(\)/);
   assert.match(
     appSource,
     /async function loadPackageFromSpotlight[\s\S]*await loadPackage\([\s\S]*focusTypeList\(focusGeneration\)/);
