@@ -29,6 +29,7 @@ export interface PackageOpportunitiesBindingActions {
 
 export interface PackageOpportunityTarget {
   typeId: string;
+  sourceIdentity: "legacy" | "exact" | "unknown";
   sourceDefinitionId: string | null;
   sourceAssembly: string | null;
   sourceAssemblyVersion: string | null;
@@ -45,6 +46,11 @@ export function bindPackageOpportunities(
       "click",
       () => actions.onTypeSelect({
         typeId: button.dataset.oppType ?? "",
+        sourceIdentity: button.dataset.oppSourceIdentity === "exact"
+          ? "exact"
+          : button.dataset.oppSourceIdentity === "unknown"
+            ? "unknown"
+            : "legacy",
         sourceDefinitionId: button.dataset.oppSourceDefinition ?? null,
         sourceAssembly: button.dataset.oppSourceAssembly ?? null,
         sourceAssemblyVersion: button.dataset.oppSourceVersion ?? null,

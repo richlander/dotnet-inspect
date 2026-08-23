@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   captureMemberFocus as captureMemberFocusImpl,
   createMemberFocusRestorer as createMemberFocusRestorerImpl,
+  focusPlatformGraphError as focusPlatformGraphErrorImpl,
   resolveMemberFocusSnapshot,
   restoreMemberFocus as restoreMemberFocusImpl,
 } from "../src/member-focus.ts";
@@ -45,6 +46,12 @@ function restoreMemberFocus(
 ): void {
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   restoreMemberFocusImpl(document as unknown as Document, snapshot, requestFrame, isCurrent);
+}
+
+function focusPlatformGraphError(document: MockDocument): boolean {
+  // The harness supplies the exact DOM subset the product reads.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return focusPlatformGraphErrorImpl(document as unknown as Document);
 }
 
 function createMemberFocusRestorer() {

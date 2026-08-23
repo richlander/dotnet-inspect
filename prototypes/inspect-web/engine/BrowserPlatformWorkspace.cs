@@ -371,8 +371,7 @@ internal static class BrowserPlatformWorkspace
         return await OpenCoreAsync(
             targetKey,
             targetFramework,
-            family,
-            assembly,
+            selections,
             host,
             deadline,
             packageLeases,
@@ -410,8 +409,7 @@ internal static class BrowserPlatformWorkspace
             return await OpenCoreAsync(
                 targetKey,
                 targetFramework,
-                known[0].Family,
-                assembly,
+                [new PlatformSelection(known[0].Family, assembly)],
                 host,
                 deadline,
                 packageLeases,
@@ -427,8 +425,7 @@ internal static class BrowserPlatformWorkspace
             return await OpenCoreAsync(
                 targetKey,
                 targetFramework,
-                Family(residentPack),
-                assembly,
+                [new PlatformSelection(Family(residentPack), assembly)],
                 host,
                 deadline,
                 packageLeases,
@@ -489,25 +486,29 @@ internal static class BrowserPlatformWorkspace
                 + FailureMessage(aspNetCore.Failure!));
         }
 
+        if (ReferenceEquals(selected, runtime))
+            aspNetCore.Dispose();
+        else
+            runtime.Dispose();
+        bool useDeclaration = !state.Coordinates.Any(coordinate =>
+            coordinate.Family.Equals(family, StringComparison.Ordinal));
+        if (!useDeclaration)
+            selected.Dispose();
+
         return await OpenCoreAsync(
             targetKey,
             targetFramework,
-            family,
-            assembly,
+            [new PlatformSelection(family, assembly)],
             host,
             deadline,
             packageLeases,
-            declaration: state.Coordinates.Any(coordinate =>
-                coordinate.Family.Equals(family, StringComparison.Ordinal))
-                    ? null
-                    : selected).ConfigureAwait(false);
+            declaration: useDeclaration ? selected : null).ConfigureAwait(false);
     }
 
     static async Task<BrowserPlatformScopeResolution> OpenCoreAsync(
         string targetKey,
         string targetFramework,
-        string family,
-        string assembly,
+        ImmutableArray<PlatformSelection> selections,
         Host host,
         BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline,
         BrowserPackageWorkspace.PackageLeaseSet packageLeases,
@@ -619,7 +620,16 @@ internal static class BrowserPlatformWorkspace
                         StringComparison.Ordinal));
             if (familyCoordinate is null)
             {
-                using PlatformLoadAttempt? loaded = declaration is null
+                bool usesDeclaration = declaration?.Scope?.Coordinates.Any(
+                    coordinate =>
+                        coordinate.Family.Equals(
+                            selection.Family,
+                            StringComparison.Ordinal)
+                        && string.Equals(
+                            coordinate.Assembly,
+                            selection.Assembly,
+                            StringComparison.OrdinalIgnoreCase)) == true;
+                using PlatformLoadAttempt? loaded = !usesDeclaration
                     ? await LoadDeclaredAttemptAsync(
                         targetFramework,
                         selection.Family,
@@ -628,23 +638,17 @@ internal static class BrowserPlatformWorkspace
                         deadline,
                         packageLeases).ConfigureAwait(false)
                     : null;
-                PlatformLoadAttempt declared = declaration ?? loaded!;
+                PlatformLoadAttempt declared = usesDeclaration
+                    ? declaration!
+                    : loaded!;
                 if (declared.Failure is not null)
                     throw Failure(declared.Failure);
-                try
-                {
-                    RealizedMemberCoordinate.Platform realized =
-                        AssertSingleCoordinate(
-                        declared.Declared,
+                RealizedMemberCoordinate.Platform realized =
+                    AssertSingleCoordinate(
+                        declared.Scope!,
                         selection.Family,
                         selection.Assembly);
-                    coordinates = coordinates.Add(realized);
-                }
-                catch
-                {
-                    declared.Scope!.Dispose();
-                    throw;
-                }
+                coordinates = coordinates.Add(realized);
                 if (state.Coordinates.IsEmpty
                     && selections.Length == 1)
                 {
@@ -778,8 +782,36 @@ internal static class BrowserPlatformWorkspace
                     Options(store, host, deadline),
                     deadline.Token).ConfigureAwait(false);
             return Attempt(
+                workspace,
+                outcome,
+                store.PackageKeys);
+        }
+        catch
+        {
+            workspace.Dispose();
+            throw;
+        }
+    }
+
+    static async Task<PlatformLoadAttempt> LoadRealizedAttemptAsync(
+        ImmutableArray<RealizedMemberCoordinate.Platform> coordinates,
+        Host host,
+        BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline,
+        BrowserPackageWorkspace.PackageLeaseSet packageLeases)
+    {
+        var workspace = new InspectionWorkspace();
+        var store = new TrackingPackageStore(packageLeases);
+        try
+        {
+            WorkspaceContextLoadOutcome outcome =
+                await WorkspaceContextLoader.LoadRealizedAsync(
                     workspace,
-                    outcome),
+                    coordinates,
+                    Options(store, host, deadline),
+                    deadline.Token).ConfigureAwait(false);
+            return Attempt(
+                workspace,
+                outcome,
                 store.PackageKeys);
         }
         catch
@@ -807,10 +839,9 @@ internal static class BrowserPlatformWorkspace
                     coordinates,
                     Options(store, host, deadline),
                     deadline.Token).ConfigureAwait(false);
-            return (
-                Scope(
-                    workspace,
-                    outcome),
+            PlatformLoadAttempt attempt = Attempt(
+                workspace,
+                outcome,
                 store.PackageKeys);
             return attempt.Failure is null
                 ? (attempt.Scope!, attempt.PackageKeys)
@@ -845,16 +876,12 @@ internal static class BrowserPlatformWorkspace
     static PlatformLoadAttempt Attempt(
         InspectionWorkspace workspace,
         WorkspaceContextLoadOutcome outcome,
-        IReadOnlyDictionary<string, string> platformPacks,
         ImmutableHashSet<string> packageKeys)
     {
         if (outcome is WorkspaceContextLoadOutcome.Loaded loaded)
         {
             return new PlatformLoadAttempt(
-                new BrowserPlatformScope(
-                    workspace,
-                    loaded,
-                    platformPacks),
+                Scope(workspace, loaded),
                 packageKeys,
                 failure: null);
         }
@@ -871,17 +898,8 @@ internal static class BrowserPlatformWorkspace
 
     static BrowserPlatformScope Scope(
         InspectionWorkspace workspace,
-        WorkspaceContextLoadOutcome outcome)
+        WorkspaceContextLoadOutcome.Loaded loaded)
     {
-        if (outcome is WorkspaceContextLoadOutcome.Failed failed)
-            throw Failure(failed);
-
-        if (outcome is not WorkspaceContextLoadOutcome.Loaded loaded)
-        {
-            throw new InvalidOperationException(
-                "Platform workspace loading returned an unknown outcome.");
-        }
-
         EnsureAssemblyCapacity(loaded.Members.Length);
         return new BrowserPlatformScope(
             workspace,

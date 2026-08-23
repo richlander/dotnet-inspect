@@ -431,6 +431,13 @@ test("platform call graphs carry the target pack into lazy acquisition", () => {
       [],
       [],
       []),
+    "netcore.app");
+  assert.equal(
+    platformPackFromAcquiredProvenance(
+      "Microsoft.AspNetCore.Http",
+      null,
+      [],
+      []),
     null);
   assert.equal(
     platformPackFromProvenance(
@@ -445,7 +452,7 @@ test("platform call graphs carry the target pack into lazy acquisition", () => {
     "aspnetcore.app");
   assert.match(
     appSource,
-    /callGraphInspection\.drill\(\{[\s\S]*pack:\s*platformPackForAssembly\(node\.assembly,\s*node\.platformPack\)/);
+    /callGraphInspection\.drill\(\{[\s\S]*pack:\s*platformPackForGraphAssembly\(\s*node\.assembly,\s*node\.platformPack\) \?\? ""/);
   assert.match(
     appSource,
     /platformType:\s*type\.definitionId\s*\?\?\s*type\.metadataId[\s\S]*platformPack:\s*platformPackForAssembly\(type\.assembly,\s*type\.platformPack\)/);
@@ -495,7 +502,7 @@ test("platform pack inference rejects cross-family ambiguity", () => {
     "aspnetcore.app");
   assert.match(
     appSource,
-    /const resident = runtimeAssemblyIsResident\(\s*runtimePackPackage\(\),\s*key,\s*pack\)/);
+    /const resident = runtimeAssemblyIsResident\(\s*runtimePackPackage\(\),\s*key,\s*pack \?\? ""\)/);
 });
 
 test("runtime graph acquisition ignores a resident pack from another TFM", () => {
@@ -990,19 +997,22 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /bindGraphPanZoom\(container, viewport, \{[\s\S]*resolveCallGraphNode: nodeId =>[\s\S]*callGraphNodeBinding\(active, nodeId\)/);
   assert.match(
     callGraphBinding,
-    /callGraph\.targets\?\.find\(candidate => candidate\.id === nodeId\)[\s\S]*const drilled =\s*state\.platformStack\.length > 0 \|\| Boolean\(state\.package\?\.isRuntimePack\);\s*if \(drilled\) \{\s*if \(target\.id === "n0"[\s\S]*\|\| !target\.assemblyVersion[\s\S]*\|\| !typeId\) return null;[\s\S]*navigateOrDrillPlatform\(target\)[\s\S]*resolveLoadedGraphTargetCandidate[\s\S]*graphTargetNavigationDisposition[\s\S]*if \(disposition === "blocked" \|\| disposition === "none"\) return null;[\s\S]*navigateToMember\([\s\S]*openGraphSource\([\s\S]*navigateOrDrillPlatform\(target\)/);
+    /callGraph\.targets\?\.find\(candidate => candidate\.id === nodeId\)[\s\S]*const drilled =\s*state\.platformStack\.length > 0 \|\| Boolean\(state\.package\?\.isRuntimePack\);[\s\S]*resolveRuntimeGraphTargetCandidate\(pack, target\)[\s\S]*runtimeGraphTargetNavigationDisposition\([\s\S]*blockedCallGraphNodeBinding/);
   assert.match(
     callGraphBinding,
-    /if \(drilled\) \{[\s\S]*return \{\s*platform: true,\s*onSelect: \(\) =>\s*observeAsync\(\s*navigateOrDrillPlatform\(target\),\s*"Opening a platform call-graph target"\)/);
+    /if \(disposition === "member" && pack && resident\) \{[\s\S]*navigateToRuntimeMember\([\s\S]*\} else if \(disposition === "lookup"\) \{[\s\S]*navigateOrDrillPlatform\(target\)[\s\S]*\} else \{[\s\S]*startPlatformDrill\(target\)/);
   assert.match(
     callGraphBinding,
     /const loaded = disposition === "loaded" && candidate\.status === "unique"\s*\? resolveLoadedGraphTarget\(target, candidate\)\s*: null/);
   assert.match(
     callGraphBinding,
-    /const platform = disposition === "platform";\s*return \{\s*platform,\s*onSelect:/);
+    /combinedGraphTargetNavigationDisposition\(\s*candidate,\s*runtimeCandidate,\s*target,\s*runtimeResident\)/);
   assert.match(
     callGraphBinding,
-    /if \(loaded\?\.group\) \{\s*navigateToMember\([\s\S]*\} else if \(loaded\) \{\s*observeAsync\(\s*openGraphSource\(loaded\.request, loaded\.title\),\s*"Loading graph source"\);\s*\} else if \(platform\) \{\s*observeAsync\(\s*navigateOrDrillPlatform\(target\),\s*"Opening a platform call-graph target"\);\s*\}/);
+    /if \(loaded\) \{[\s\S]*navigateToGraphMember\(loaded, target\)[\s\S]*\} else if \(disposition === "resident"\) \{[\s\S]*startPlatformDrill\(target\)[\s\S]*\} else if \(platform\) \{[\s\S]*navigateOrDrillPlatform\(target\)/);
+  assert.match(
+    graphInteractionsSource,
+    /resolveCallGraphNode[\s\S]*setAttribute\("tabindex", "0"\)[\s\S]*setAttribute\("role", "button"\)[\s\S]*setAttribute\("aria-label", binding\.label\)[\s\S]*addEventListener\("click"[\s\S]*addEventListener\("keydown"/);
   assert.equal(appSource.match(/\bbindGraphBack\(/g)?.length, 1);
   assert.equal(appSource.match(/\bbindGraphPanZoom\(/g)?.length, 3);
   assert.equal(appSource.match(/\bbindTypeGraphNodes\(/g)?.length, 1);
@@ -1631,7 +1641,7 @@ test("package opportunities owns its rendered control bindings", () => {
     ?? "";
   assert.match(
     binding,
-    /bindPackageOpportunities\(document, \{\s*onLookForSelect: openSpotlight,\s*onPackageSelect: packageId =>\s*observeAsync\(\s*openDependencyPackage\(packageId, ""\),\s*"Opening an opportunity package"\),\s*onTypeSelect: opportunity => \{[\s\S]*resolveOpportunitySourceType\(\s*currentPackage\(\),\s*opportunity\);\s*if \(!target\) \{[\s\S]*openSpotlight\(shortTypeName\(opportunity\.typeId\)\);\s*return;\s*\}[\s\S]*state\.atPackageRoot = false;[\s\S]*navigateToType\(target\)/);
+    /bindPackageOpportunities\(document, \{\s*onLookForSelect: openSpotlight,[\s\S]*onTypeSelect: opportunity => \{[\s\S]*opportunity\.sourceIdentity === "legacy"[\s\S]*exact identity is unavailable[\s\S]*resolveOpportunitySourceCandidate\(\s*currentPackage\(\),\s*opportunity\)[\s\S]*candidate\.status !== "unique"[\s\S]*navigateToType\(candidate\.type\)/);
   assert.match(
     bindEvents,
     /^\s*bindPackageOpportunitiesEvents\(\);\s*$/m);
@@ -2026,7 +2036,7 @@ test("member filters retain accessible controls and focus across rerenders", () 
     ?? "";
   assert.match(
     platformNavigation,
-    /const originSignature = memberRequestSignature\(type, overload, true\);[\s\S]*state\.memberSection === "call-graph"[\s\S]*memberRequestIsCurrent\(originSignature, true\)[\s\S]*loadRuntimePack\([\s\S]*ownsNavigation\)[\s\S]*if \(!ownsNavigation\(\)\) \{[\s\S]*state\.platformDrillLoading = false;[\s\S]*state\.platformDrillError = runtimeResult\.failureMessage[\s\S]*state\.runtimePackError[\s\S]*renderPreservingMemberFocus\(preservedFocus\)/);
+    /const owner = captureViewOperation\(seq\);[\s\S]*ownsViewOperation\(owner, state\.memberCallGraphSeq\)[\s\S]*const discardIfStale = \([\s\S]*loadRuntimePackAssembly\([\s\S]*navigationIsCurrent[\s\S]*runtimeResult\.failureMessage[\s\S]*state\.runtimePackError[\s\S]*renderPreservingMemberFocus\(preservedFocus\)/);
   assert.match(
     appSource,
     /function applyMemberSection\(id: MemberSection\) \{[\s\S]*state\.memberSection === "call-graph" && id !== "call-graph"[\s\S]*invalidateMemberCallGraphWork\(state\)/);
@@ -2054,7 +2064,9 @@ test("shared member views retain scope and filter state", () => {
     /const encodedBodyTarget = encodeBodyTarget\(state\.selectedBodyTarget\);[\s\S]*if \(encodedBodyTarget\) packet\.d = encodedBodyTarget/);
   assert.match(decoder, /memberBrowse: raw\.b === 1/);
   assert.match(decoder, /bodyTarget: decodeBodyTarget\(raw\.d\)/);
-  assert.match(capture, /selectedBodyTarget: state\.selectedBodyTarget/);
+  assert.match(
+    capture,
+    /selectedBodyTarget: pending \? null : state\.selectedBodyTarget,[\s\S]*graphTarget/);
   assert.match(capture, /memberBrowse: memberScopeIsActive\(state, selectedType\(\)\?\.id\)/);
   assert.match(capture, /memberTextFilter: state\.memberTextFilter/);
   assert.match(capture, /memberKindFilter: state\.memberKindFilter/);
@@ -2259,7 +2271,7 @@ test("call graph request coordination stays outside the composition root", () =>
     ?? "";
   assert.match(
     loader,
-    /return callGraphInspection\.load\(\{[\s\S]*type: type\.queryId \?\? type\.id,[\s\S]*typeIdentity: type\.definitionId \?\? type\.id,[\s\S]*platformType:\s*type\.definitionId \?\? type\.metadataId \?\? type\.queryId \?\? type\.id,[\s\S]*platformPack: platformPackForAssembly\(type\.assembly, type\.platformPack\),[\s\S]*isCurrent: \(\) => memberRequestIsCurrent\(signature, true\)/);
+    /return callGraphInspection\.load\(\{[\s\S]*type: type\.queryId \?\? type\.id,[\s\S]*typeIdentity: type\.definitionId \?\? type\.id,[\s\S]*platformType:\s*type\.definitionId \?\? type\.metadataId \?\? type\.queryId \?\? type\.id,[\s\S]*platformPack:\s*platformPackForAssembly\(type\.assembly, type\.platformPack\) \?\? "",[\s\S]*isCurrent: \(\) => memberRequestIsCurrent\(signature, true\)/);
   assert.doesNotMatch(
     loader,
     /memberCallGraphSeq|inspectMemberCallGraph|inspectExpandPlatformCallGraph/);
@@ -2302,7 +2314,7 @@ test("history validates saved type and member identity before restoring Member s
     /const navigationHistory = createNavigationHistory\(\{\s*capture: captureView,\s*signature: workspaceViewSignature,\s*apply: applyView/);
   assert.match(
     workspaceNavigationSource,
-    /function workspaceViewSignature\([\s\S]*b: encodeBodyTarget\(view\.bodyTarget\)/);
+    /function workspaceViewSignature\([\s\S]*b: graphTarget \? null : encodeBodyTarget\(view\.bodyTarget\),[\s\S]*g: graphTarget/);
   assert.match(
     appSource,
     /function captureView\(\): WorkspaceView \| null \{[\s\S]*bodyTarget: state\.selectedBodyTarget/);
@@ -3076,10 +3088,16 @@ test("legacy graph targets preserve absent assembly versions when shared", () =>
 
 test("graph-only members open through the typed member surface", () => {
   const binding =
-    appSource.match(/if \(bindCallGraphNodes\)[\s\S]*?\n  fit\(\);/)?.[0]
+    appSource.match(/function callGraphNodeBinding\([\s\S]*?\n}(?=\n\nfunction blockedCallGraphNodeBinding)/)?.[0]
+    ?? "";
+  const openMember =
+    appSource.match(/function openMemberGroup\([\s\S]*?\n}(?=\n\nfunction enterMemberScope)/)?.[0]
     ?? "";
   assert.match(binding, /navigateToGraphMember\(loaded, target\)/);
   assert.doesNotMatch(binding, /openGraphSource\(/);
+  assert.match(
+    openMember,
+    /const graphOnlyTarget =[\s\S]*resetMemberSectionState\(\);[\s\S]*state\.selectedBodyTarget = graphOnlyTarget/);
   assert.match(
     generatedEngineSource,
     /queryGraphMemberSurfaceExport = exports\.InspectionEngine\.QueryGraphMemberSurface/);
@@ -3129,8 +3147,9 @@ test("graph-only deep links win over colliding public member groups", () => {
   assert.match(
     deepLink,
     /The shared graph member no longer matches this package and was not opened/);
-  assert.match(appSource, /const graphMemberState = graphMemberTargetFromPacket\(raw\)/);
-  assert.match(appSource, /if \(graphMemberState\.error\) return \{ error: graphMemberState\.error \}/);
+  assert.match(
+    workspaceNavigationSource,
+    /const graphMember = graphMemberTargetFromPacket\(raw\);[\s\S]*if \(graphMember\.error\) return \{ error: graphMember\.error \}/);
 });
 
 test("pending graph-member restoration is bound to its exact view", () => {
@@ -3162,6 +3181,9 @@ test("pending graph-member restoration is bound to its exact view", () => {
   assert.match(
     appSource,
     /function renderLens\([^)]*\) \{[\s\S]*?graphMemberPendingMatchesView\([\s\S]*?return renderGraphMemberPendingHtml\(item, title\)/);
+  assert.match(
+    appSource,
+    /async function restorePendingGraphMember\([\s\S]*type\.id !== pending\.type[\s\S]*declaring type is no longer available[\s\S]*loadGraphMemberSurface/);
 });
 
 test("stale graph-only navigation clears progress without surfacing its error", () => {
@@ -3183,15 +3205,15 @@ test("stale graph-only navigation clears progress without surfacing its error", 
 
 test("shared package graph navigation retains existing accessor identity", () => {
   const shareState =
-    appSource.match(/function encodeShareState\(\) \{[\s\S]*?\n\}/)?.[0]
+    appSource.match(/function captureWorkspaceUrlState\(\)[\s\S]*?\n}(?=\n\nfunction buildStateUrl)/)?.[0]
     ?? "";
 
   assert.match(
     shareState,
-    /graphSelection\?\.group\.key === packet\.m/);
+    /selection\?\.group\.key === state\.selectedMemberKey/);
   assert.match(
     shareState,
-    /Number\.isInteger\(packet\.o\)\s*&& graphSelection\.overloadIndex === packet\.o/);
+    /selection\.overloadIndex === state\.selectedOverloadIndex/);
   assert.doesNotMatch(shareState, /overloads\.some\(overload => overload\.graphOnly\)/);
   assert.match(appSource, /solid border: no platform lookup/);
 });
@@ -3288,14 +3310,14 @@ test("selector-only accessors use body-aware implementation queries", () => {
 
 test("platform graph borders reflect actual resident lookup", () => {
   const binding =
-    appSource.match(/if \(bindCallGraphNodes\)[\s\S]*?\n  fit\(\);/)?.[0]
+    appSource.match(/function callGraphNodeBinding\([\s\S]*?\n}(?=\n\nfunction blockedCallGraphNodeBinding)/)?.[0]
     ?? "";
   const packageBinding = binding.slice(binding.indexOf("const packages ="));
 
   assert.match(binding, /resolveRuntimeGraphTargetCandidate\(pack, target\)/);
-  assert.match(binding, /if \(disposition === "lookup"\) node\.classList\.add\("platform-node"\)/);
+  assert.match(binding, /platform: disposition === "lookup"/);
   assert.match(binding, /if \(disposition === "member" && pack && resident\) \{\s*navigateToRuntimeMember\(/);
-  assert.match(binding, /else \{\s*startPlatformDrill\(target\)/);
+  assert.match(binding, /else \{[\s\S]*startPlatformDrill\(target\)/);
   assert.match(
     packageBinding,
     /const runtimeCandidate = \(candidate\.status === "missing"[\s\S]*?\|\| candidate\.status === "skew"\) && pack\s*\? resolveRuntimeGraphTargetCandidate\(pack, target\)/);
@@ -3304,10 +3326,10 @@ test("platform graph borders reflect actual resident lookup", () => {
     /const disposition = combinedGraphTargetNavigationDisposition\(\s*candidate,\s*runtimeCandidate,\s*target,\s*runtimeResident\);[\s\S]*?if \(disposition === "blocked"/);
   assert.match(
     packageBinding,
-    /else if \(disposition === "resident"\) \{\s*if \(pack && resident\) \{[\s\S]*?navigateToRuntimeMember\([\s\S]*?\} else \{\s*startPlatformDrill\(target\)/);
+    /else if \(disposition === "resident"\) \{\s*if \(pack && resident\) \{[\s\S]*?navigateToRuntimeMember\([\s\S]*?\} else \{[\s\S]*?startPlatformDrill\(target\)/);
   assert.match(
     appSource,
-    /if \(candidate\.status === "resident"\s*\|\| \(candidate\.status === "missing" && assemblyResident\)\) \{\s*await drillPlatformNode\(/);
+    /if \(candidate\.status === "resident"\s*\|\| \(candidate\.status === "missing"\s*&& assemblyResident\)\) \{\s*await drillPlatformNode\(/);
 });
 
 test("runtime graph nodes separate member, drill, and lookup disposition", () => {
@@ -3438,7 +3460,7 @@ test("runtime graph identities share and restore through exact resident candidat
     /if \(!state\.package\?\.isRuntimePack\s*&& packet\.y/);
   assert.match(
     appSource,
-    /resolveRuntimeGraphTargetCandidate\(state\.package, state\.selectedBodyTarget\)/);
+    /resolveRuntimeGraphTargetCandidate\(\s*state\.package,\s*state\.selectedBodyTarget\)/);
 });
 
 test("home navigation invalidates pending graph work", () => {
@@ -3462,9 +3484,6 @@ test("graph navigation restores scope and supersedes local drills", () => {
   const apply =
     appSource.match(/function applyView[\s\S]*?(?=\nfunction navBack)/)?.[0]
     ?? "";
-  const pop =
-    appSource.match(/function popPlatformDrill[\s\S]*?\n\}/)?.[0]
-    ?? "";
   const startDrill =
     appSource.match(/async function startPlatformDrill[\s\S]*?\n\}/)?.[0]
     ?? "";
@@ -3477,7 +3496,7 @@ test("graph navigation restores scope and supersedes local drills", () => {
     apply,
     /state\.libraryScope = restoreLibraryScope\(\s*view\.libraryScope,\s*pkg\.types\.map\(type => libraryKey\(type\)\)\)/);
   assert.match(
-    pop,
+    callGraphInspectionSource,
     /state\.memberCallGraphSeq\+\+;\s*state\.memberCallGraphExpanding = false;\s*state\.platformDrillLoading = false;/);
   assert.match(
     startDrill,
@@ -3545,10 +3564,13 @@ test("runtime lookup refuses ambiguous or unresolved exact targets", () => {
     /const discardIfStale = \(\s*preservedFocus: MemberFocusSnapshot \| null = null,\s*\) => \{[\s\S]*?seq === state\.memberCallGraphSeq[\s\S]*?state\.platformDrillLoading = false;[\s\S]*?if \(preservedFocus\) renderPreservingMemberFocus\(preservedFocus\);\s*else render\(\)/);
   assert.match(
     appSource,
-    /async function drillPlatformNode\(\s*node: BrowserCallGraphTarget,\s*navigationIsCurrent: \(\) => boolean = \(\) => true,\s*\)[\s\S]*?const requestIsCurrent = \(\) =>\s*seq === state\.memberCallGraphSeq && navigationIsCurrent\(\)[\s\S]*?if \(discardIfStale\(\)\) return;/);
+    /async function drillPlatformNode\(\s*node: BrowserCallGraphTarget,\s*navigationIsCurrent: \(\) => boolean = \(\) => true,\s*\)[\s\S]*?isCurrent: navigationIsCurrent/);
+  assert.match(
+    callGraphInspectionSource,
+    /async drill\(request\)[\s\S]*?const ownsRequest = \(\) =>\s*sequence === state\.memberCallGraphSeq && request\.isCurrent\(\)[\s\S]*?if \(!ownsRequest\(\)\) return/);
   assert.match(
     appSource,
-    /if \(disposition === "blocked"\) \{[\s\S]*?bindBlockedCallGraphNode\([\s\S]*?if \(disposition === "none"\) return;/);
+    /if \(disposition === "blocked"\) \{[\s\S]*?blockedCallGraphNodeBinding\([\s\S]*?if \(disposition === "none"\) return null/);
 });
 
 test("history rebuilds graph-only members through exact pending identity", () => {
@@ -3701,47 +3723,41 @@ test("restored views reconcile normalization before rendering", () => {
     /if \(!state\.atPackageRoot\) revealTypeInFilters\(type\)/);
   assert.match(
     apply,
-    /graphSelection\?\.group\.key !== view\.selectedMemberKey\) \{[\s\S]*?reconcileCurrentNav\(\);[\s\S]*?restorePendingGraphMember\(\)/);
+    /graphSelection\?\.group\.key !== view\.selectedMemberKey\) \{[\s\S]*?navigationHistory\.normalizeCurrent\(\);[\s\S]*?restorePendingGraphMember\(\)/);
   assert.match(
     apply,
-    /state\.memberSection = isMemberSection\(memberHistory\.memberSection\)[\s\S]*?memberHistory\.memberSection[\s\S]*?reconcileCurrentNav\(\);/);
+    /state\.memberSection = isMemberSection\(memberHistory\.memberSection\)[\s\S]*?memberHistory\.memberSection[\s\S]*?navigationHistory\.normalizeCurrent\(\);/);
 });
 
 test("ambiguous call graph targets expose a visible refusal", () => {
   const binding =
-    appSource.match(/if \(bindCallGraphNodes\)[\s\S]*?\n  fit\(\);/)?.[0]
+    appSource.match(/function callGraphNodeBinding\([\s\S]*?\n}(?=\n\nfunction blockedCallGraphNodeBinding)/)?.[0]
     ?? "";
-  assert.equal(
-    binding.match(/bindBlockedCallGraphNode\(/g)?.length,
-    3);
   assert.match(
     binding,
-    /bindCallGraphNodeActivation\(\s*node,\s*`Cannot open \$\{target\.typeFullName\}\.\$\{target\.memberName\}: \$\{reason\}`,\s*refuse\)/);
+    /return blockedCallGraphNodeBinding\([\s\S]*graphTargetBlockedReason/);
   assert.match(
-    binding,
-    /showPlatformTargetError\(target, reason\)/);
+    appSource,
+    /function blockedCallGraphNodeBinding\([\s\S]*label: `Cannot open \$\{target\.typeFullName\}\.\$\{target\.memberName\}: \$\{reason\}`[\s\S]*blocked: true/);
   assert.match(
-    binding,
+    appSource,
     /invalidateGraphMemberNavigation\(\);\s*state\.memberCallGraphSeq\+\+;[\s\S]*?showPlatformTargetError\(target, reason\)/);
   assert.match(
-    binding,
-    /node\.setAttribute\("tabindex", "0"\);\s*node\.setAttribute\("role", "button"\)/);
-  assert.match(
-    binding,
-    /function bindCallGraphNodeActivation[\s\S]*?node\.addEventListener\("click"[\s\S]*?node\.addEventListener\("keydown", event => \{[\s\S]*?event\.key !== "Enter" && event\.key !== " "[\s\S]*?activate\(\)/);
+    graphInteractionsSource,
+    /node\.setAttribute\("tabindex", "0"\);[\s\S]*node\.setAttribute\("role", "button"\)[\s\S]*node\.addEventListener\("click"[\s\S]*node\.addEventListener\("keydown", event => \{[\s\S]*event\.key !== "Enter" && event\.key !== " "/);
 });
 
 test("navigable call graph targets share mouse and keyboard activation", () => {
   const binding =
-    appSource.match(/if \(bindCallGraphNodes\)[\s\S]*?\n  fit\(\);/)?.[0]
+    appSource.match(/function callGraphNodeBinding\([\s\S]*?\n}(?=\n\nfunction blockedCallGraphNodeBinding)/)?.[0]
     ?? "";
 
   assert.equal(
     binding.match(/`Open \$\{target\.typeFullName\}\.\$\{target\.memberName\}`/g)?.length,
     2);
   assert.match(
-    binding,
-    /function bindCallGraphNodeActivation\([\s\S]*?node: SVGGElement,[\s\S]*?label: string,[\s\S]*?activate: \(\) => void,[\s\S]*?\) \{[\s\S]*?node\.setAttribute\("tabindex", "0"\);[\s\S]*?node\.setAttribute\("role", "button"\);[\s\S]*?node\.setAttribute\("aria-label", label\)/);
+    graphInteractionsSource,
+    /node\.setAttribute\("tabindex", "0"\);[\s\S]*node\.setAttribute\("role", "button"\);[\s\S]*node\.setAttribute\("aria-label", binding\.label\)/);
   assert.match(
     stylesSource,
     /\.graph-viewport g\.node\.nav-node:focus-visible rect,[\s\S]*?stroke: var\(--blue\); stroke-width: 3px;/);
@@ -3759,10 +3775,10 @@ test("async graph work uses one source-view ownership contract", () => {
     ?? "";
   assert.match(
     ownership,
-    /navigationSequence: state\.navigationSeq,[\s\S]*?sourceView: viewSignature\(\)/);
+    /navigationSequence: navigationSequence\.current\(\),[\s\S]*?sourceView: viewSignature\(\)/);
   assert.match(
     ownership,
-    /owner\.sequence === currentSequence[\s\S]*?owner\.navigationSequence === state\.navigationSeq[\s\S]*?owner\.sourceView === viewSignature\(\)/);
+    /owner\.sequence === currentSequence[\s\S]*?owner\.navigationSequence === navigationSequence\.current\(\)[\s\S]*?owner\.sourceView === viewSignature\(\)/);
   assert.equal(
     appSource.match(/captureViewOperation\(/g)?.length,
     5);
@@ -4233,7 +4249,7 @@ test("opportunity navigation uses exact source assembly and definition identity"
   }).status, "ambiguous");
   assert.match(
     appSource,
-    /if \(!sourceIdentity\) \{\s*openSpotlight\(shortTypeName\(id\)\);[\s\S]*?sourceIdentity !== "exact" \|\| !sourceDefinitionId[\s\S]*?exact identity is unavailable[\s\S]*?if \(candidate\.status !== "unique"\) \{[\s\S]*?appendQueryNotice\(`The opportunity source could not be opened: \$\{reason\}\.`\);[\s\S]*?navigateToType\(candidate\.type\)/);
+    /opportunity\.sourceIdentity === "legacy"[\s\S]*?openSpotlight\(shortTypeName\(opportunity\.typeId\)\)[\s\S]*?opportunity\.sourceIdentity !== "exact"[\s\S]*?!opportunity\.sourceDefinitionId[\s\S]*?exact identity is unavailable[\s\S]*?if \(candidate\.status !== "unique"\) \{[\s\S]*?appendQueryNotice\(\s*`The opportunity source could not be opened: \$\{reason\}\.`\);[\s\S]*?navigateToType\(candidate\.type\)/);
 });
 
 test("cold platform graph navigation acquires the exact assembly before any default runtime", () => {
@@ -4246,10 +4262,8 @@ test("cold platform graph navigation acquires the exact assembly before any defa
 
   assert.match(
     coldLoad,
-    /if \(node\.assembly\) \{[\s\S]*?platformPackForGraphAssembly\(node\.assembly, node\.platformPack\)[\s\S]*?loadRuntimePackAssembly\([\s\S]*?targetPack \?\? ""[\s\S]*?\} else \{[\s\S]*?loadRuntimePack\(/);
-  assert.ok(
-    coldLoad.indexOf("loadRuntimePackAssembly(")
-      < coldLoad.indexOf("loadRuntimePack("));
+    /platformPackForGraphAssembly\(node\.assembly, node\.platformPack\)[\s\S]*?loadRuntimePackAssembly\([\s\S]*?targetPack \?\? ""/);
+  assert.doesNotMatch(coldLoad, /\bloadRuntimePack\(/);
 });
 
 test("relationship navigation rejects ambiguous dotted identities", () => {

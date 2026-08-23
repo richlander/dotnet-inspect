@@ -68,6 +68,15 @@ export function assemblyDescriptorForType(
     || assembly.name === `${bare}.dll`) ?? null;
 }
 
+export function accessibilityFilterIncludingType(
+  filter: ReadonlySet<string> | null | undefined,
+  type: { accessibilityId?: string } | null | undefined,
+): Set<string> {
+  const next = new Set(filter ?? []);
+  if (type?.accessibilityId) next.add(type.accessibilityId);
+  return next;
+}
+
 export function mergeInspectionErrors(
   current: string | null | undefined,
   next: string | null | undefined,
@@ -103,8 +112,8 @@ export function runtimePackForFramework<
   framework: string,
 ): TPack | null {
   if (!pack || !framework) return pack ?? null;
-  return String(pack.activeFramework || "").toLowerCase()
-      === String(framework).toLowerCase()
+  return (pack.activeFramework || "").toLowerCase()
+      === framework.toLowerCase()
     ? pack
     : null;
 }
@@ -158,10 +167,17 @@ export function platformPackFromAcquiredProvenance(
   exactPack: unknown,
   loadedAssemblies: readonly PlatformPackAssembly[] | null | undefined,
 ): PlatformPack | null {
+  const exact = platformPackToken(exactPack);
+  if (exact) return exact;
+  const normalized = assembly.replace(/\.dll$/i, "").toLowerCase();
+  const acquired = (loadedAssemblies || []).filter(candidate =>
+    (candidate.name ?? "").replace(/\.dll$/i, "").toLowerCase() === normalized
+    && platformPackToken(candidate.platformPack));
+  if (acquired.length === 0) return null;
   return platformPackFromProvenance(
     assembly,
-    exactPack,
-    loadedAssemblies,
+    null,
+    acquired,
     [],
     []);
 }
@@ -561,7 +577,7 @@ export function removeAppendedNotice(current: string, previous: string, appended
   return [previous, laterNotice].filter(Boolean).join(" ");
 }
 
-interface NavigationEntry {
+interface NavigationEntry<TView> {
   sig: string;
   view: TView;
 }
@@ -727,28 +743,51 @@ export function reconcileCurrentNavigationEntry<TView>(
 export function graphMemberTargetFromShare(
   value: unknown,
 ): GraphMemberShareIdentity | null {
-  if (!Array.isArray(value)
-    || value.length !== 9
-    || typeof value[0] !== "string"
-    || value.slice(1, 4).some(item => item != null && typeof item !== "string")
-    || value.slice(4, 8).some(item => typeof item !== "string")
-    || value[0].length === 0
-    || value[4].length === 0
-    || value[6].length === 0
-    || value[7].length === 0
-    || (value[8] != null && !Number.isInteger(value[8]))) {
+  if (!Array.isArray(value) || value.length !== 9) {
+    return null;
+  }
+  const fields: unknown[] = value;
+  const [
+    assembly,
+    assemblyVersion,
+    assemblyCulture,
+    assemblyPublicKeyToken,
+    typeDefinitionId,
+    typeMetadataId,
+    memberName,
+    selectorKey,
+    metadataToken,
+  ] = fields;
+  if (typeof assembly !== "string"
+    || (assemblyVersion != null && typeof assemblyVersion !== "string")
+    || (assemblyCulture != null && typeof assemblyCulture !== "string")
+    || (assemblyPublicKeyToken != null
+      && typeof assemblyPublicKeyToken !== "string")
+    || typeof typeDefinitionId !== "string"
+    || typeof typeMetadataId !== "string"
+    || typeof memberName !== "string"
+    || typeof selectorKey !== "string"
+    || assembly.length === 0
+    || typeDefinitionId.length === 0
+    || memberName.length === 0
+    || selectorKey.length === 0
+    || (metadataToken != null
+      && (typeof metadataToken !== "number"
+        || !Number.isInteger(metadataToken)))) {
     return null;
   }
   return {
-    assembly: value[0],
-    ...(value[1] !== "" ? { assemblyVersion: value[1] } : {}),
-    assemblyCulture: value[2],
-    assemblyPublicKeyToken: value[3],
-    typeDefinitionId: value[4],
-    typeMetadataId: value[5] || null,
-    memberName: value[6],
-    selectorKey: value[7],
-    metadataToken: value[8]
+    assembly,
+    ...(assemblyVersion !== "" && assemblyVersion !== undefined
+      ? { assemblyVersion }
+      : {}),
+    assemblyCulture: assemblyCulture ?? null,
+    assemblyPublicKeyToken: assemblyPublicKeyToken ?? null,
+    typeDefinitionId,
+    typeMetadataId: typeMetadataId || null,
+    memberName,
+    selectorKey,
+    metadataToken: metadataToken ?? null
   };
 }
 
@@ -757,20 +796,21 @@ export interface GraphMemberPacketResult {
   error?: string;
 }
 
+function isUnknownRecord(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === "object";
+}
+
 export function graphMemberTargetFromPacket(
   packet: unknown,
 ): GraphMemberPacketResult {
-  if (!packet || typeof packet !== "object"
+  if (!isUnknownRecord(packet)
     || !Object.prototype.hasOwnProperty.call(packet, "g")) {
     return { target: null };
   }
-  const values = Object.entries(packet);
-  const field = (name: string) =>
-    values.find(([key]) => key === name)?.[1];
-  const target = graphMemberTargetFromShare(field("g"));
-  const type = field("y");
-  const member = field("m");
-  const overload = field("o");
+  const target = graphMemberTargetFromShare(packet.g);
+  const type = packet.y;
+  const member = packet.m;
+  const overload = packet.o;
   if (!target
     || typeof type !== "string"
     || type.length === 0
@@ -894,51 +934,6 @@ export interface OpportunitySourceIdentity {
   sourceAssemblyPublicKeyToken?: string | null;
 }
 
-export function resolvePlatformGraphTargetType<
-  TType extends ResolvableGraphType,
->(
-  pack: {
-    types?: readonly TType[];
-    assemblies?: readonly AssemblyDescriptor[];
-  } | null | undefined,
-  target: CallGraphTarget | null | undefined,
-): TType | null {
-  const typeId = callGraphTargetTypeId(target);
-  if (!pack || !typeId || !target?.assembly) return null;
-  const targetAssembly = target.assembly
-    .replace(/\.dll$/i, "")
-    .toLowerCase();
-  const matches = (pack.types ?? []).filter(type => {
-    const descriptor = assemblyDescriptorForType(pack.assemblies, type);
-    const assembly = (type.assemblyName ?? descriptor?.name ?? type.assembly ?? "")
-      .replace(/\.dll$/i, "")
-      .toLowerCase();
-    return assembly === targetAssembly
-      && callGraphAssemblyIdentityMatches(target, descriptor)
-      && callGraphTargetMatchesType(target, type);
-  });
-  return matches.length === 1 ? matches[0] : null;
-}
-
-export function resolveOpportunitySourceType<
-  TType extends ResolvableGraphType,
->(
-  pack: {
-    types?: readonly TType[];
-    assemblies?: readonly AssemblyDescriptor[];
-  } | null | undefined,
-  opportunity: OpportunitySourceIdentity | null | undefined,
-): TType | null {
-  if (!opportunity?.sourceDefinitionId) return null;
-  return resolvePlatformGraphTargetType(pack, {
-    assembly: opportunity.sourceAssembly ?? null,
-    assemblyVersion: opportunity.sourceAssemblyVersion ?? null,
-    assemblyCulture: opportunity.sourceAssemblyCulture ?? null,
-    assemblyPublicKeyToken: opportunity.sourceAssemblyPublicKeyToken ?? null,
-    typeDefinitionId: opportunity.sourceDefinitionId
-  });
-}
-
 export type GraphTargetCandidate<TPackage, TType> =
   | { status: "missing" }
   | { status: "ambiguous" }
@@ -946,7 +941,7 @@ export type GraphTargetCandidate<TPackage, TType> =
   | { status: "resident" }
   | { status: "unique"; pkg: TPackage; type: TType };
 
-export function resolveLoadedGraphTargetCandidate<
+function resolveGraphTargetCandidate<
   TPackage extends ResolvableGraphPackage<TType>,
   TType extends ResolvableGraphType,
 >(
@@ -960,28 +955,40 @@ export function resolveLoadedGraphTargetCandidate<
       && !target.assemblyVersion) {
     return { status: "missing" };
   }
-  const targetAssembly = String(target.assembly)
+  const targetAssembly = target.assembly
     .replace(/\.dll$/i, "")
     .toLowerCase();
   const matches = [];
   let exactAssemblyResident = false;
   let identitySkew = false;
   for (const pkg of packages) {
-    if (!pkg || pkg.isRuntimePack) continue;
+    if (!pkg || (!includeRuntimePacks && pkg.isRuntimePack)) continue;
+    const descriptors = pkg.assemblies ?? [];
+    const namedDescriptors = descriptors.filter(descriptor =>
+      (descriptor.name ?? "")
+        .replace(/\.dll$/i, "")
+        .toLowerCase() === targetAssembly);
+    if (namedDescriptors.some(descriptor =>
+        callGraphAssemblyIdentityMatches(target, descriptor))) {
+      exactAssemblyResident = true;
+    } else if (namedDescriptors.length > 0) {
+      identitySkew = true;
+    }
     for (const type of pkg.types ?? []) {
-      const assembly = (type.assemblyName ?? type.assembly ?? pkg.assembly ?? "")
+      const assembly =
+        (type.assemblyName ?? type.assembly ?? pkg.assembly ?? "")
         .replace(/\.dll$/i, "");
       const descriptor = type.assemblyId
         ? descriptors.find(candidate => candidate.id === type.assemblyId)
         : descriptors.find(candidate =>
             (candidate.name ?? "").replace(/\.dll$/i, "").toLowerCase()
-              === assembly.toLowerCase());
-      if (assembly.toLowerCase() === target.assembly.toLowerCase()
-          && callGraphAssemblyIdentityMatches(target, descriptor)
-          && callGraphTargetMatchesType(target, type)) {
-        matches.push({ pkg, type });
-        if (matches.length > 1) return { status: "ambiguous" };
-      }
+                === assembly.toLowerCase()
+            && callGraphAssemblyIdentityMatches(target, candidate))
+          ?? descriptors.find(candidate =>
+            (candidate.name ?? "").replace(/\.dll$/i, "").toLowerCase()
+                === assembly.toLowerCase());
+      if (assembly.toLowerCase() !== targetAssembly
+          || !callGraphTargetMatchesType(target, type)) continue;
       if (!callGraphAssemblyIdentityMatches(target, descriptor)) {
         if (descriptor) identitySkew = true;
         continue;
@@ -1000,7 +1007,7 @@ export function resolveLoadedGraphTargetCandidate<
 }
 
 export function resolveLoadedGraphTargetCandidate<
-  TPackage extends ResolvableGraphPackage,
+  TPackage extends ResolvableGraphPackage<TType>,
   TType extends ResolvableGraphType,
 >(
   packages: readonly TPackage[],
@@ -1013,7 +1020,7 @@ export function resolveLoadedGraphTargetCandidate<
 }
 
 type RuntimeGraphPackage<TType extends ResolvableGraphType> =
-  ResolvableGraphPackage & { types?: readonly TType[] };
+  ResolvableGraphPackage<TType>;
 
 export function resolveRuntimeGraphTargetCandidate<
   TType extends ResolvableGraphType,
@@ -1034,11 +1041,11 @@ export function runtimeGraphTargetAssemblyIsResident(
   target: CallGraphTarget | null | undefined,
 ): boolean {
   if (!pack?.isRuntimePack || !target?.assembly) return false;
-  const targetAssembly = String(target.assembly)
+  const targetAssembly = target.assembly
     .replace(/\.dll$/i, "")
     .toLowerCase();
   return (pack.assemblies ?? []).some(assembly =>
-    String(assembly.name ?? "")
+    (assembly.name ?? "")
       .replace(/\.dll$/i, "")
       .toLowerCase() === targetAssembly
     && callGraphAssemblyIdentityMatches(target, assembly));
@@ -1065,10 +1072,10 @@ export function resolveOpportunitySourceCandidate<
     RuntimeGraphPackage<TType>,
     TType
   >([pack], {
-    assembly: opportunity.sourceAssembly,
-    assemblyVersion: opportunity.sourceAssemblyVersion,
-    assemblyCulture: opportunity.sourceAssemblyCulture,
-    assemblyPublicKeyToken: opportunity.sourceAssemblyPublicKeyToken,
+    assembly: opportunity.sourceAssembly ?? null,
+    assemblyVersion: opportunity.sourceAssemblyVersion ?? null,
+    assemblyCulture: opportunity.sourceAssemblyCulture ?? null,
+    assemblyPublicKeyToken: opportunity.sourceAssemblyPublicKeyToken ?? null,
     typeDefinitionId: opportunity.sourceDefinitionId
   }, true);
 }
@@ -1108,6 +1115,52 @@ export function graphTargetNavigationDisposition(
       && Boolean(callGraphTargetTypeId(target))
     ? resident ? "resident" : "platform"
     : "none";
+}
+
+export function combinedGraphTargetNavigationDisposition(
+  candidate: GraphTargetCandidate<unknown, unknown>,
+  runtimeCandidate: GraphTargetCandidate<unknown, unknown> | null,
+  target: CallGraphTarget | null | undefined,
+  runtimeResident = false,
+): GraphTargetNavigationDisposition {
+  const packageDisposition = graphTargetNavigationDisposition(candidate, target);
+  if (packageDisposition === "none") return "none";
+  if (runtimeCandidate) {
+    if (runtimeCandidate.status === "ambiguous"
+        || runtimeCandidate.status === "skew") {
+      return "blocked";
+    }
+    if (runtimeCandidate.status === "unique"
+        || runtimeCandidate.status === "resident"
+        || runtimeResident) {
+      return "resident";
+    }
+  }
+  return packageDisposition;
+}
+
+export type RuntimeGraphTargetNavigationDisposition =
+  "blocked" | "none" | "member" | "lookup" | "drill";
+
+export function runtimeGraphTargetNavigationDisposition(
+  candidate: { status?: string } | null | undefined,
+  target: CallGraphTarget | null | undefined,
+  hasMemberSelection: boolean,
+  assemblyResident = false,
+): RuntimeGraphTargetNavigationDisposition {
+  if (!target?.assembly || !callGraphTargetTypeId(target)) return "none";
+  if (Object.prototype.hasOwnProperty.call(target, "assemblyVersion")
+      && !target.assemblyVersion) {
+    return "none";
+  }
+  if (candidate?.status === "ambiguous" || candidate?.status === "skew")
+    return "blocked";
+  if (hasMemberSelection) return "member";
+  return target.kind === "external"
+      && candidate?.status === "missing"
+      && !assemblyResident
+    ? "lookup"
+    : "drill";
 }
 
 export interface PdbSourceLimitationSource {

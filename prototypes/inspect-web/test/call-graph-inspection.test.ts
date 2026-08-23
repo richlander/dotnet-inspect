@@ -118,6 +118,7 @@ function drillRequest(
     metadataToken: 0x06000001,
     title: "JsonSerializer.Serialize",
     errorTarget: "System.Text.Json.JsonSerializer.Serialize",
+    isCurrent: () => true,
     ...overrides,
   };
 }
@@ -652,6 +653,54 @@ test("superseded platform drill completion cannot publish", async () => {
   assert.equal(state.platformStack.length, 0);
   assert.equal(state.platformDrillLoading, true);
   assert.equal(state.platformDrillError, "");
+});
+
+test("platform drill completion cannot publish after its view owner changes", async () => {
+  const request = deferred<BrowserCallGraph>();
+  let current = true;
+  let graphRenders = 0;
+  const state = inspectionState({ memberCallGraphSeq: 5 });
+  const coordinator = createCallGraphInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPlatform: async () => request.promise,
+      renderCallGraph: async () => {
+        graphRenders++;
+      },
+    }));
+
+  const load = coordinator.drill(drillRequest({ isCurrent: () => current }));
+  current = false;
+  request.resolve(graph("stale"));
+  await load;
+
+  assert.equal(state.platformStack.length, 0);
+  assert.equal(state.platformDrillLoading, true);
+  assert.equal(state.platformDrillError, "");
+  assert.equal(graphRenders, 0);
+});
+
+test("platform drill failures stay silent after their view owner changes", async () => {
+  const request = deferred<BrowserCallGraph>();
+  let current = true;
+  let graphRenders = 0;
+  const state = inspectionState({ memberCallGraphSeq: 5 });
+  const coordinator = createCallGraphInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPlatform: async () => request.promise,
+      renderCallGraph: async () => {
+        graphRenders++;
+      },
+    }));
+
+  const load = coordinator.drill(drillRequest({ isCurrent: () => current }));
+  current = false;
+  request.reject(new Error("stale failure"));
+  await load;
+
+  assert.equal(state.platformStack.length, 0);
+  assert.equal(state.platformDrillLoading, true);
+  assert.equal(state.platformDrillError, "");
+  assert.equal(graphRenders, 0);
 });
 
 test("duplicate platform drill requests do not query or render", async () => {

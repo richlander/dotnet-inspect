@@ -50,6 +50,7 @@ function workspaceState(
       selectorKey: "method",
       metadataToken: 42,
     },
+    graphTarget: null,
     memberBrowse: true,
     memberTextFilter: "build",
     memberKindFilter: "method",
@@ -57,6 +58,15 @@ function workspaceState(
     memberTraitFilter: "isStatic",
     ...overrides,
   };
+}
+
+function sharePacket(url: URL): Record<string, unknown> {
+  const encoded = url.searchParams.get("w");
+  assert.ok(encoded);
+  const value: unknown = JSON.parse(
+    Buffer.from(encoded, "base64url").toString("utf8"));
+  assert.ok(value && typeof value === "object" && !Array.isArray(value));
+  return Object.fromEntries(Object.entries(value));
 }
 
 test("navigation history skips stale views and truncates a forward branch", () => {
@@ -244,13 +254,54 @@ test("rich workspace URLs round-trip coordinates, scope, and member selection", 
   assert.equal(parsed.workspaceNotice, "");
 });
 
+test("graph member URLs retain exact identity instead of a lossy body target", () => {
+  const graphTarget = {
+    assembly: "Example.Second",
+    assemblyVersion: "2.0.0.0",
+    assemblyCulture: null,
+    assemblyPublicKeyToken: "0011223344556677",
+    typeDefinitionId: "T:Example.Widget",
+    typeMetadataId: "Example.Widget",
+    memberName: "Build",
+    selectorKey: "Build|System.String",
+    metadataToken: 0x0600002a,
+  };
+  const state = workspaceState({
+    selectedBodyTarget: graphTarget,
+    graphTarget,
+  });
+  const url = buildWorkspaceStateUrl("https://inspect.example/", state);
+  const packet = sharePacket(url);
+  const parsed = parseWorkspaceLocation(locationSnapshot(url));
+
+  assert.equal(Object.hasOwn(packet, "g"), true);
+  assert.equal(Object.hasOwn(packet, "d"), false);
+  assert.deepEqual(parsed.graphTarget, graphTarget);
+  assert.equal(parsed.bodyTarget, null);
+  assert.equal(parsed.type, state.selectedTypeId);
+  assert.equal(parsed.member, state.selectedMemberKey);
+  assert.equal(parsed.overload, String(state.selectedOverloadIndex));
+});
+
 test("package-root URLs omit stale type selection and retain their package lens", () => {
   const url = buildWorkspaceStateUrl(
     "https://inspect.example/",
     workspaceState({
       atPackageRoot: true,
       packageLens: "dependencies",
+      graphTarget: {
+        assembly: "Example.Second",
+        assemblyVersion: "2.0.0.0",
+        assemblyCulture: null,
+        assemblyPublicKeyToken: null,
+        typeDefinitionId: "T:Example.Widget",
+        typeMetadataId: "Example.Widget",
+        memberName: "Build",
+        selectorKey: "Build|",
+        metadataToken: 0x0600002a,
+      },
     }));
+  const packet = sharePacket(url);
   const parsed = parseWorkspaceLocation(locationSnapshot(url));
 
   assert.equal(parsed.atPackageRoot, true);
@@ -260,6 +311,8 @@ test("package-root URLs omit stale type selection and retain their package lens"
   assert.equal(parsed.overload, null);
   assert.equal(parsed.section, null);
   assert.equal(parsed.bodyTarget, null);
+  assert.equal(parsed.graphTarget, null);
+  assert.equal(Object.hasOwn(packet, "g"), false);
   assert.equal(parsed.memberBrowse, false);
   assert.equal(parsed.memberTextFilter, "");
   assert.equal(parsed.memberKindFilter, "all");
@@ -302,6 +355,56 @@ test("invalid and oversized workspace packets stay visible", () => {
     hash: "",
   });
   assert.match(oversized.workspaceNotice, /65536-character limit/);
+});
+
+test("invalid graph identities reject the rich packet without hiding the visible package", () => {
+  const validGraph = [
+    "Example.Second",
+    "2.0.0.0",
+    null,
+    null,
+    "T:Example.Widget",
+    "Example.Widget",
+    "Build",
+    "Build|",
+    0x0600002a,
+  ];
+  const packets = [
+    {
+      t: [["Hidden.Package", "1.0.0", "net10.0"]],
+      a: 0,
+      y: "Example.Widget",
+      m: "method:Build",
+      g: [...validGraph.slice(0, 8), "not-a-token"],
+    },
+    {
+      t: [["Hidden.Package", "1.0.0", "net10.0"]],
+      a: 0,
+      y: "Example.Widget",
+      m: "method:Build",
+      g: validGraph,
+    },
+    {
+      t: [["Hidden.Package", "1.0.0", "net10.0"]],
+      a: 0,
+      y: "Example.Widget",
+      m: "method:Build",
+      o: "0",
+      g: validGraph,
+    },
+  ];
+
+  for (const packet of packets) {
+    const encoded = Buffer.from(JSON.stringify(packet)).toString("base64url");
+    const parsed = parseWorkspaceLocation(locationSnapshot(
+      `https://inspect.example/?package=Visible.Package&w=${encoded}`));
+    assert.equal(parsed.package, "Visible.Package");
+    assert.deepEqual(parsed.tabs, []);
+    assert.equal(parsed.graphTarget, null);
+    assert.equal(
+      parsed.workspaceNotice,
+      "The shared graph member target is invalid and was ignored.");
+  }
 });
 
 test("location persistence contains sync failures but leaves direct build failures visible", () => {

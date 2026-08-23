@@ -123,6 +123,7 @@ test("opportunity bindings preserve exact source identity for type navigation", 
   const root = new FakeRoot();
   const type = new FakeElement({
     oppType: "Contoso.Widget",
+    oppSourceIdentity: "exact",
     oppSourceDefinition: "Contoso.Widget",
     oppSourceAssembly: "Contoso.Core",
     oppSourceVersion: "2.0.0.0",
@@ -140,12 +141,34 @@ test("opportunity bindings preserve exact source identity for type navigation", 
 
   assert.deepEqual(selected, {
     typeId: "Contoso.Widget",
+    sourceIdentity: "exact",
     sourceDefinitionId: "Contoso.Widget",
     sourceAssembly: "Contoso.Core",
     sourceAssemblyVersion: "2.0.0.0",
     sourceAssemblyCulture: "neutral",
     sourceAssemblyPublicKeyToken: "0011223344556677",
   });
+});
+
+test("opportunity bindings distinguish legacy and explicitly unknown sources", () => {
+  const root = new FakeRoot();
+  const legacy = new FakeElement({ oppType: "Contoso.Legacy" });
+  const unknown = new FakeElement({
+    oppType: "Contoso.Unknown",
+    oppSourceIdentity: "unknown",
+  });
+  root.add("[data-opp-type]", legacy, unknown);
+  const selected: PackageOpportunityTarget[] = [];
+  bindPackageOpportunities(fakeDom.parentNode(root), {
+    ...recordingActions([]),
+    onTypeSelect: target => selected.push(target),
+  });
+
+  legacy.dispatch("click");
+  unknown.dispatch("click");
+
+  assert.equal(selected[0]?.sourceIdentity, "legacy");
+  assert.equal(selected[1]?.sourceIdentity, "unknown");
 });
 
 function escapeHtml(value: unknown) {
@@ -324,20 +347,24 @@ test("an explicitly unknown source identity remains distinct from a legacy row",
         }],
       }],
       totalOpportunities: 1,
+      inspectionError: null,
     },
   });
+  const legacyItem = opportunity({
+    api: "Example.Legacy",
+    integrationType: "IServiceCollection registration",
+    lookFor: "",
+  });
+  Reflect.deleteProperty(legacyItem, "sourceDefinitionId");
   const legacyHtml = renderPackageOpportunities({
     ...baseOptions,
     data: {
       categories: [{
         integration: "AI",
-        items: [{
-          api: "Example.Legacy",
-          integrationType: "IServiceCollection registration",
-          lookFor: "",
-        }],
+        items: [legacyItem],
       }],
       totalOpportunities: 1,
+      inspectionError: null,
     },
   });
 

@@ -48,6 +48,7 @@ export interface PlatformDrillRequest {
   metadataToken: number;
   title: string;
   errorTarget: string;
+  isCurrent(): boolean;
 }
 
 export interface CallGraphInspectionState {
@@ -217,15 +218,17 @@ export function createCallGraphInspectionCoordinator(
       state.platformDrillLoading = true;
       state.platformDrillError = "";
       const preservedFocus = dependencies.renderPreservingMemberFocus();
+      const ownsRequest = () =>
+        sequence === state.memberCallGraphSeq && request.isCurrent();
       try {
         const graph = await dependencies.queryPlatform(request);
-        if (sequence !== state.memberCallGraphSeq) return;
+        if (!ownsRequest()) return;
         state.platformStack.push({ graph, title: request.title });
         state.platformDrillLoading = false;
         dependencies.renderPreservingMemberFocus(preservedFocus);
         await dependencies.renderCallGraph();
       } catch (error) {
-        if (sequence !== state.memberCallGraphSeq) return;
+        if (!ownsRequest()) return;
         state.platformDrillLoading = false;
         state.platformDrillError =
           `Could not descend into ${request.errorTarget}: ${dependencies.describeError(error)}`;
@@ -236,6 +239,9 @@ export function createCallGraphInspectionCoordinator(
 
     async popDrill() {
       if (state.platformStack.length === 0) return;
+      state.memberCallGraphSeq++;
+      state.memberCallGraphExpanding = false;
+      state.platformDrillLoading = false;
       state.platformStack.pop();
       state.platformDrillError = "";
       dependencies.render();
