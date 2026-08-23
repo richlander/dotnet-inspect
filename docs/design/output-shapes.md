@@ -176,6 +176,24 @@ formats include typed inspection-failure rows. Single-shape diff formats
 failure table, so they emit an explicit incomplete-comparison diagnostic and
 exit nonzero.
 
+When a diff section's owning design declares same-schema integrity rows, those
+rows are part of the selected table but are not ordinary evidence data:
+
+- the table includes a stable `Record Kind` discriminator;
+- `--rows` and `--tail` select only evidence records;
+- every mandatory ledger/query diagnostic record is appended after that
+  selection in deterministic order and does not count toward the row window;
+- TSV, table, Markdown, lowered JSON, and JSONL use the same columns;
+- JSONL serializes the discriminator as `recordKind` and emits no second table
+  or ad hoc summary object.
+
+Implementation Diff defines the current integrity-row schema in
+[`implementation-diff.md`](implementation-diff.md). This exception preserves
+the one-table shape while preventing a semantic row window from hiding the
+typed reason for an incomplete comparison. Raw rendered-line limits such as
+`-n` remain presentation truncation and do not change the operation's exit
+status.
+
 ## How dotnet-inspect flags select a shape
 
 Flags are how the user (or an agent) walks the ladder. The important distinction
@@ -291,6 +309,9 @@ select rows:
 `--rows <spec>` switches to per-table data-row windows and carries its own
 count, so three concerns stay on three flags: `--rows` sets the unit,
 its value sets the count or the rows, and `--head`/`--tail` set the direction.
+For a diff table with declared integrity rows, the numbered population is its
+ordinary evidence records; mandatory integrity records follow the selected
+evidence and are not numbered by the window.
 
 - `--rows 6` keeps the first six data rows; `--rows 6 --tail` keeps the last six.
 - `--rows 2..10` keeps the rows numbered 2 through 10 inclusive — nine rows.
@@ -466,8 +487,8 @@ the caller made.
 | `--no-header` (`--no-headers`) | drop the Table header row |
 | `-n N` / numeric shorthand such as `-20` | keep the first N rendered output lines |
 | `-n N --tail` | keep the last N rendered output lines |
-| `--rows N` | keep the first N **data rows per table**, across Markdown, TSV, JSONL, and the lowered JSON view |
-| `--rows N --tail` | keep the last N **data rows per table** |
+| `--rows N` | keep the first N **ordinary data rows per table**, across Markdown, TSV, JSONL, and the lowered JSON view. Mandatory diff integrity rows are the exception below. |
+| `--rows N --tail` | keep the last N **ordinary data rows per table**. Mandatory diff integrity rows are the exception below. |
 | `--rows N..M` / `--rows N+K` / `--rows N..` | keep the **rows those numbers name**, inclusive; absolute, so no direction applies |
 | `--bare` | render the selected payload without document decoration; it changes presentation only, not the selected shape |
 | `--plaintext` | render a whole-document plain-text view; distinct from `--bare` |

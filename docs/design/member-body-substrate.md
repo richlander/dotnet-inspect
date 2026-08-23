@@ -674,13 +674,18 @@ more than one operand — and the operand *kinds* differ:
 | View | What it correlates | Operand kinds |
 | --- | --- | --- |
 | Merged IL + C# (interleave) | Instructions' IL projection + Decompiler's C# projection | projection × projection |
-| Implementation diff | two inputs (base vs head), per member | projection × projection |
+| Implementation diff | comparison-scoped work items + producer-native comparisons | evidence ledger × native comparison |
 | Body subset — "just the unsafe rows" / "where X is thrown" | Decompiler's C# projection + Analysis's offset-keyed facts | projection × fact-plane |
 
 All three live in **Research**, the join layer. Research does not own a body
-stack; it *composes the producers and the fact-source* on a shared key — the
-**IL offset**, which every operand already exposes (`IrNode.SourceOffset` on C#
-statements, `.Offset` on IL instructions, `EvidenceOffsets` on Analysis facts).
+stack; it composes producer-owned evidence without replacing the producer's
+native coordinates. Interleave and body-subset overlays use the same-body
+**IL-offset** axis (`IrNode.SourceOffset` on C# statements, `.Offset` on IL
+instructions, `EvidenceOffsets` on Analysis facts). Implementation Diff does
+not: Metadata first resolves side-local methods and comparison correspondence,
+then Research joins complete mechanism ledgers by
+`BodyEvidenceSelectionScope.Id` and `BodyEvidenceWorkItemId`. Producer offsets
+remain native row evidence or display hints and never pair before/after bodies.
 
 This is the substrate's three currencies — two of them *concepts*, one a *type*:
 
@@ -693,17 +698,19 @@ This is the substrate's three currencies — two of them *concepts*, one a *type
   beside the producers.
 - **`Fact`** — Analysis's unit (unsafe, throws, allocations), keyed by IL offset:
   the fact-plane Research joins onto a body, never a view Research renders.
-- **`Correlation`** — Research's *intermediate*, never an output on its own: the
-  base↔head pairing (diff) or the two-stream alignment (interleave) that
-  `correlate → render` renders *into* a line stream.
+- **`Correlation`** — Research's *intermediate*, never an output on its own:
+  same-body stream alignment for interleave, or the structured
+  participant/scope/work-item pairing already established for Implementation
+  Diff. It is not one universal offset key.
 
 The interface consequence follows cleanly. There is **no universal output type**:
-each producer returns what it earns (a `string`/typed value for the faithful ones,
-`DecompilerResult` for the lossy one), and Research bundles its join as
-`MemberProjectionResult`. What *is* universal is the **line** the correlation joins
-on. The **correlate** step is Research-only. Diff is the most correlation-native
-view: its output ranges over a *relation*, not an entity, so it both renders a view
-**and** consumes a `Correlation`.
+each producer returns what it earns (a `string`/typed value for the faithful
+ones, `DecompilerResult` for the lossy one), and Research bundles same-body
+projection joins as `MemberProjectionResult`. The correlate step is
+Research-only, but no universal line or coordinate spans those joins.
+Implementation Diff is the most relation-native view: it preserves
+producer-issued comparisons under structured work-item identity rather than
+realigning their rows on IL offsets.
 
 #### The interval primitive is the real shared machinery
 
@@ -930,8 +937,8 @@ sourced from Metadata/Analysis, not from the printed text:
 | Instructions | `InstructionProducer` | host `InstructionProducer` behind the shared `IOperandNameResolver` contract (stays free of the Metadata assembly); own the IL-offset→instruction context helpers (`ResolveInstructionContext`/`ResolveCallsiteContext`/`ResolveReturnAddressContext`) split out of `PdbContext` |
 | Analysis | body-fact source | expose offset-keyed body facts (unsafe/throw/alloc) for the member pre-filter and Research body-subset |
 | CSharp | `TypeShellProducer` | own `ApiType` shape + `TypeShellProducer` that expands Metadata signatures, and its member subset; carry async/unsafe flags on `CSharpMemberBody` |
-| CSharp.Decompiler | `MemberBodyProducer` | produce singular C# bodies that expand CSharp shells — full/partial type shapes; collapse `MemberBodyProducer`'s duplicate declaration rendering onto `TypeShellProducer`; no diffs, no interleave |
-| Research | the join | compose the singular producers — interleave (`RenderMixedCore`), diff (move `CSharpBodyDiff` here beside `ImplementationDiff`), body-subset, and `ILOffsetProjectionProducer` coordinate views — all on the IL-offset axis |
+| CSharp.Decompiler | `MemberBodyProducer` + `CSharpBodyDiff` | produce singular C# bodies that expand CSharp shells and producer-native C# comparisons; collapse `MemberBodyProducer`'s duplicate declaration rendering onto `TypeShellProducer`; no interleave or comparison-population ownership |
+| Research | the join | compose interleave and body-subset on the same-body IL-offset axis; compose Implementation Diff from Metadata-issued scope/work-item correspondence plus producer-native comparison coordinates |
 
 The end state: **shape** (`ApiType` / `ApiMember`, fact-enriched) → **address**
 (`MetadataMethodAddress` exact, `MemberBodyTarget` carried, independently
@@ -939,6 +946,7 @@ resolved `MemberBodyCorrespondenceKey` for comparison) → **scope**
 (`MetadataSource`, one load) → **producers**
 (`SignatureProducer`, `InstructionProducer`, `TypeShellProducer`,
 `MemberBodyProducer` — a capability ladder, each `filter → render` over its own
-projection, self-annotated) → **join** (Research: interleave, diff, body-subset on
-the IL-offset axis). No experience owns a body stack of its own, and only
-Research combines projections.
+projection, self-annotated; `CSharpBodyDiff` remains a Decompiler producer) →
+**join** (Research: same-body interleave/body-subset by IL offset;
+Implementation Diff by scope/work-item identity). No experience owns a body
+stack of its own, and only Research combines projections.
