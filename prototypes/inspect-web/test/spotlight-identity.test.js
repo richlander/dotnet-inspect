@@ -51,6 +51,7 @@ import {
   packageForView,
   packageIdentityKey,
   parameterTitleHtml,
+  platformPackForGraphAssembly,
   platformPackFromAcquiredProvenance,
   platformPackFromProvenance,
   platformPackToken,
@@ -439,6 +440,34 @@ test("platform call graphs carry the target pack into lazy acquisition", () => {
       [],
       []),
     null);
+  const acquiredRuntime = {
+    activeFramework: "net10.0",
+    assemblies: [{
+      name: "Microsoft.AspNetCore.Http",
+      platformPack: "aspnetcore.app",
+    }],
+  };
+  assert.equal(
+    platformPackForGraphAssembly(
+      "Microsoft.AspNetCore.Http",
+      null,
+      acquiredRuntime,
+      "net10.0"),
+    "aspnetcore.app");
+  assert.equal(
+    platformPackForGraphAssembly(
+      "Microsoft.AspNetCore.Http",
+      null,
+      acquiredRuntime,
+      "net9.0"),
+    null);
+  assert.equal(
+    platformPackForGraphAssembly(
+      "Microsoft.AspNetCore.Http",
+      null,
+      null,
+      "net10.0"),
+    null);
   assert.equal(
     platformPackFromProvenance(
       "Microsoft.AspNetCore.Http",
@@ -452,7 +481,7 @@ test("platform call graphs carry the target pack into lazy acquisition", () => {
     "aspnetcore.app");
   assert.match(
     appSource,
-    /callGraphInspection\.drill\(\{[\s\S]*pack:\s*platformPackForGraphAssembly\(\s*node\.assembly,\s*node\.platformPack\) \?\? ""/);
+    /callGraphInspection\.drill\(\{[\s\S]*pack:\s*platformPackForGraphAssembly\(\s*node\.assembly,\s*node\.platformPack,\s*runtimePackPackage\(\),\s*currentPackage\(\)\.activeFramework\) \?\? ""/);
   assert.match(
     appSource,
     /platformType:\s*type\.definitionId\s*\?\?\s*type\.metadataId[\s\S]*platformPack:\s*platformPackForAssembly\(type\.assembly,\s*type\.platformPack\)/);
@@ -4262,7 +4291,7 @@ test("cold platform graph navigation acquires the exact assembly before any defa
 
   assert.match(
     coldLoad,
-    /platformPackForGraphAssembly\(node\.assembly, node\.platformPack\)[\s\S]*?loadRuntimePackAssembly\([\s\S]*?targetPack \?\? ""/);
+    /platformPackForGraphAssembly\(\s*node\.assembly,\s*node\.platformPack,\s*runtimePackPackage\(\),\s*framework\)[\s\S]*?loadRuntimePackAssembly\([\s\S]*?targetPack \?\? ""/);
   assert.doesNotMatch(coldLoad, /\bloadRuntimePack\(/);
 });
 

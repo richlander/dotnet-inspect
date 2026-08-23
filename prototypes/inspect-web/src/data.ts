@@ -182,6 +182,22 @@ export function platformPackFromAcquiredProvenance(
     []);
 }
 
+export function platformPackForGraphAssembly(
+  assembly: string,
+  exactPack: unknown,
+  runtimePack: {
+    activeFramework?: string;
+    assemblies?: readonly PlatformPackAssembly[];
+  } | null | undefined,
+  framework: string,
+): PlatformPack | null {
+  const resident = runtimePackForFramework(runtimePack, framework);
+  return platformPackFromAcquiredProvenance(
+    assembly,
+    exactPack,
+    resident?.assemblies);
+}
+
 export interface DependencyCoordinateCandidate extends PackageIdentity {
   isRuntimePack?: boolean;
 }

@@ -547,6 +547,55 @@ test("superseded runtime graph completion cannot publish", async () => {
   assert.equal(state.memberCallGraphLoading, true);
 });
 
+test("runtime graph completion cannot publish after its view owner changes", async () => {
+  const request = deferred<BrowserCallGraph>();
+  let current = true;
+  let graphRenders = 0;
+  const state = inspectionState();
+  const coordinator = createCallGraphInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPlatform: async () => request.promise,
+      renderCallGraph: async () => {
+        graphRenders++;
+      },
+    }));
+
+  const load = coordinator.load(memberRequest({
+    isRuntimePack: true,
+    isCurrent: () => current,
+  }));
+  current = false;
+  request.resolve(graph("stale"));
+  await load;
+
+  assert.equal(state.memberCallGraph, null);
+  assert.equal(state.memberCallGraphLoading, true);
+  assert.equal(state.memberCallGraphError, "");
+  assert.equal(graphRenders, 0);
+});
+
+test("runtime graph failures stay silent after their view owner changes", async () => {
+  const request = deferred<BrowserCallGraph>();
+  let current = true;
+  const state = inspectionState();
+  const coordinator = createCallGraphInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPlatform: async () => request.promise,
+    }));
+
+  const load = coordinator.load(memberRequest({
+    isRuntimePack: true,
+    isCurrent: () => current,
+  }));
+  current = false;
+  request.reject(new Error("stale failure"));
+  await load;
+
+  assert.equal(state.memberCallGraph, null);
+  assert.equal(state.memberCallGraphLoading, true);
+  assert.equal(state.memberCallGraphError, "");
+});
+
 test("platform drill publishes current graphs and pop restores the parent", async () => {
   const drilled = graph("drilled");
   const events: string[] = [];

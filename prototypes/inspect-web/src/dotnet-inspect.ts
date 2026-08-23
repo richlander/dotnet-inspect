@@ -27,7 +27,7 @@ import {
   packageIdentityKey,
   packageLenses,
   parameterTitleHtml,
-  platformPackFromAcquiredProvenance,
+  platformPackForGraphAssembly,
   platformPackFromProvenance,
   removeWorkspacePackage,
   removeAppendedNotice,
@@ -4944,21 +4944,6 @@ function platformPackForAssembly(
     platformLibraryRoster(""));
 }
 
-function platformPackForGraphAssembly(
-  key: string,
-  exactPack: string | null = null,
-) {
-  // Graph acquisition accepts only exact engine provenance. Unknown families
-  // stay unknown so the product can resolve or visibly refuse them.
-  const resident = runtimePackForFramework(
-    runtimePackPackage(),
-    state.package?.activeFramework || "");
-  return platformPackFromAcquiredProvenance(
-    key,
-    exactPack,
-    resident?.assemblies);
-}
-
 // Remember an opened platform library at the front of the recent list (most-recent
 // first, deduped, capped) and persist it. Recent duplicates the .NET / ASP.NET Core
 // catalog groups by design — no cross-group de-dupe.
@@ -7369,7 +7354,9 @@ async function drillPlatformNode(
     assembly: node.assembly,
     pack: platformPackForGraphAssembly(
       node.assembly,
-      node.platformPack) ?? "",
+      node.platformPack,
+      runtimePackPackage(),
+      currentPackage().activeFramework) ?? "",
     assemblyVersion: node.assemblyVersion,
     assemblyCulture: node.assemblyCulture,
     assemblyPublicKeyToken: node.assemblyPublicKeyToken,
@@ -7444,7 +7431,11 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
     state.platformDrillError = "";
     const preservedFocus = renderPreservingMemberFocus();
     const targetPack =
-      platformPackForGraphAssembly(node.assembly, node.platformPack);
+      platformPackForGraphAssembly(
+        node.assembly,
+        node.platformPack,
+        runtimePackPackage(),
+        framework);
     const runtimeResult = await loadRuntimePackAssembly(
       framework,
       node.assembly.endsWith(".dll")
@@ -7480,7 +7471,11 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
     state.platformDrillError = "";
     const preservedFocus = renderPreservingMemberFocus();
     const targetPack =
-      platformPackForGraphAssembly(node.assembly, node.platformPack);
+      platformPackForGraphAssembly(
+        node.assembly,
+        node.platformPack,
+        runtimePackPackage(),
+        framework);
     const runtimeResult = await loadRuntimePackAssembly(
       framework,
       node.assembly.endsWith(".dll")

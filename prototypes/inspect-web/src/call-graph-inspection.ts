@@ -117,6 +117,10 @@ export function createCallGraphInspectionCoordinator(
     state.memberCallGraphExpanding = false;
     state.memberCallGraphError = "";
     const preservedFocus = dependencies.renderPreservingMemberFocus();
+    const ownsRequest = () =>
+      sequence === state.memberCallGraphSeq
+      && request.isCurrent()
+      && state.memberCallGraphKey === request.signature;
     try {
       const graph = await dependencies.queryPlatform({
         framework: request.framework,
@@ -130,14 +134,14 @@ export function createCallGraphInspectionCoordinator(
         selectorKey: request.selectorKey,
         metadataToken: request.metadataToken,
       });
-      if (sequence !== state.memberCallGraphSeq) return;
+      if (!ownsRequest()) return;
       state.memberCallGraph = graph;
       state.memberCallGraphLoading = false;
       state.memberCallGraphExpanding = false;
       dependencies.renderPreservingMemberFocus(preservedFocus);
       await dependencies.renderCallGraph();
     } catch (error) {
-      if (sequence !== state.memberCallGraphSeq) return;
+      if (!ownsRequest()) return;
       state.memberCallGraphLoading = false;
       state.memberCallGraphExpanding = false;
       state.memberCallGraphError = dependencies.describeError(error);
