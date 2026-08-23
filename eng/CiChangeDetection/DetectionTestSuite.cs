@@ -568,6 +568,17 @@ internal static class DetectionTestSuite
             selected: "packaging",
             notSelected: "docs");
 
+        Dictionary<string, string> packageFixture = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/package-fixtures/tool-v2/1.0.0/pointer.nuspec",
+            outputs);
+        AssertRouting(
+            packageFixture,
+            selected: "code",
+            notSelected: "packaging");
+
         Dictionary<string, string> workflow = RunDetection(
             repository,
             body,

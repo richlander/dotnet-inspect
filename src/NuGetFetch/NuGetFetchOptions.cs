@@ -14,6 +14,18 @@ public sealed record NuGetFetchOptions
     public const long DefaultMaxMetadataResponseBytes = 16 * 1024 * 1024;
 
     /// <summary>
+    /// Default maximum aggregate size of one Gallery registration join.
+    /// </summary>
+    public const long DefaultMaxRegistrationMetadataBytes =
+        64 * 1024 * 1024;
+
+    /// <summary>
+    /// Default maximum bytes materialized across one Gallery page batch.
+    /// </summary>
+    public const long DefaultMaxRegistrationPageBatchBytes =
+        64 * 1024 * 1024;
+
+    /// <summary>
     /// Default deadline for one HTTP request, including response-body consumption.
     /// </summary>
     public static TimeSpan DefaultRequestTimeout { get; } =
@@ -36,6 +48,20 @@ public sealed record NuGetFetchOptions
     /// </summary>
     public long MaxMetadataResponseBytes { get; init; } =
         DefaultMaxMetadataResponseBytes;
+
+    /// <summary>
+    /// Gets the maximum aggregate bytes admitted across one Gallery
+    /// registration index, its pages, and retry attempts.
+    /// </summary>
+    public long MaxRegistrationMetadataBytes { get; init; } =
+        DefaultMaxRegistrationMetadataBytes;
+
+    /// <summary>
+    /// Gets the maximum bytes materialized concurrently across one Gallery
+    /// external-page batch.
+    /// </summary>
+    public long MaxRegistrationPageBatchBytes { get; init; } =
+        DefaultMaxRegistrationPageBatchBytes;
 
     /// <summary>
     /// Gets the deadline for one HTTP request, including response-body consumption.
@@ -83,6 +109,10 @@ public sealed record NuGetFetchOptions
         ArgumentNullException.ThrowIfNull(options);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             options.MaxMetadataResponseBytes);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            options.MaxRegistrationMetadataBytes);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            options.MaxRegistrationPageBatchBytes);
         ValidateTimeout(options.RequestTimeout, nameof(RequestTimeout));
         ValidateTimeout(options.OperationTimeout, nameof(OperationTimeout));
         if (options.MetadataBodyTimeout != Timeout.InfiniteTimeSpan)
