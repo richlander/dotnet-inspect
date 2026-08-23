@@ -402,9 +402,11 @@ identities. The browser removes rows absent from that surface, emits the surface
 assembly identity, and applies its 200-member display bound afterward while
 preserving product order. Extra implementation-only assemblies are omitted
 rather than making the lens fail, and any bounded-surface notice remains visible
-beside the Analysis result. Rows open the supported member Overview; Facts
-remains unavailable in the browser. Non-public opportunities remain visible in
-the aggregate count.
+beside the Analysis result. A 201st navigable ranked member produces a visible
+truncation notice instead of making the top 200 look complete. Accessor evidence
+is aggregated under its owning property or event with every body token retained.
+Rows open the supported member Overview; Facts remains unavailable in the
+browser. Non-public opportunities remain visible in the aggregate count.
 
 `QueryPackageDependencies` asks the package-content query for every dependency
 group in manifest order and an exact-framework selection outcome. A missing

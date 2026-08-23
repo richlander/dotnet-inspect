@@ -401,7 +401,7 @@ public sealed record BrowserPerformanceMember(
     string TypeId,
     string MemberName,
     string StableSelector,
-    int BodyToken,
+    int[] BodyTokens,
     int OpportunityCount,
     int InLoopCount,
     string[] Shapes,

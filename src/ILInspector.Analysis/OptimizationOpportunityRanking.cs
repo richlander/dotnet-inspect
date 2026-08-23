@@ -70,8 +70,41 @@ public static class OptimizationOpportunityRanking
                         opportunity =>
                             opportunity.SourceOwner
                                 ?? opportunity.Method)
-                    .Select(CreateMemberRanking)),
+                    .Select(group =>
+                        RankMember(group.Key, group))),
         ];
+    }
+
+    public static OptimizationOpportunityMemberRanking RankMember(
+        MethodIdentity method,
+        IEnumerable<OptimizationOpportunity> opportunities)
+    {
+        ArgumentNullException.ThrowIfNull(method);
+        ArgumentNullException.ThrowIfNull(opportunities);
+        ImmutableArray<OptimizationOpportunity> ordered =
+        [
+            .. Order(opportunities),
+        ];
+        if (ordered.Length == 0)
+        {
+            throw new ArgumentException(
+                "A member ranking requires at least one opportunity.",
+                nameof(opportunities));
+        }
+
+        OptimizationOpportunity leading = ordered[0];
+        return new OptimizationOpportunityMemberRanking(
+            method,
+            ordered,
+            Priority(leading),
+            leading.Confidence,
+            ordered.Count(IteratesInLoop),
+            [
+                .. ordered
+                    .Select(opportunity => opportunity.Shape)
+                    .Distinct(StringComparer.Ordinal)
+                    .Order(StringComparer.Ordinal),
+            ]);
     }
 
     public static IOrderedEnumerable<OptimizationOpportunityMemberRanking>
@@ -158,28 +191,6 @@ public static class OptimizationOpportunityRanking
             || LibraryBodyIndex.IsGeneratedFrameworkType(
                 generatedFrameworkTypes,
                 method.DeclaringType);
-    }
-
-    static OptimizationOpportunityMemberRanking CreateMemberRanking(
-        IGrouping<MethodIdentity, OptimizationOpportunity> group)
-    {
-        ImmutableArray<OptimizationOpportunity> opportunities =
-        [
-            .. Order(group),
-        ];
-        OptimizationOpportunity leading = opportunities[0];
-        return new OptimizationOpportunityMemberRanking(
-            group.Key,
-            opportunities,
-            Priority(leading),
-            leading.Confidence,
-            opportunities.Count(IteratesInLoop),
-            [
-                .. opportunities
-                    .Select(opportunity => opportunity.Shape)
-                    .Distinct(StringComparer.Ordinal)
-                    .Order(StringComparer.Ordinal),
-            ]);
     }
 
     static int CompareMembers(

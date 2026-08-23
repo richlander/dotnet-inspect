@@ -329,6 +329,8 @@ public sealed class AssemblyContextResearchProjectionQueryTests
 /// <summary>Probe members the group-scoped Research projections address.</summary>
 public static class ResearchProjectionProbe
 {
+    static object? _accessorValue;
+
     public static object BoxInt(int value) => value;
 
     public static bool GenericObjectEqualsInLocal<T>(
@@ -342,6 +344,12 @@ public static class ResearchProjectionProbe
     }
 
     public static object BoxedValue => 42;
+
+    public static object AccessorBoxedValue
+    {
+        get => _accessorValue ?? 42;
+        set => _accessorValue = value ?? 43;
+    }
 
     public static int Overloaded(int value) => value + 1;
 

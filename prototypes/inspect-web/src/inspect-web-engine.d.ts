@@ -281,7 +281,7 @@ export interface BrowserPerformanceMember {
   typeId: string;
   memberName: string;
   stableSelector: string;
-  bodyToken: number;
+  bodyTokens: number[];
   opportunityCount: number;
   inLoopCount: number;
   shapes: string[];

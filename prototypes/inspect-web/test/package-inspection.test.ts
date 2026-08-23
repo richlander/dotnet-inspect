@@ -198,7 +198,7 @@ test(
       typeId: "Example.Outer+Inner",
       memberName: "Bounds",
       stableSelector: "Bounds~surface",
-      bodyToken: 0x06001000,
+      bodyTokens: [0x06001000],
       opportunityCount: 1,
       inLoopCount: 0,
       shapes: ["box-value-type"],

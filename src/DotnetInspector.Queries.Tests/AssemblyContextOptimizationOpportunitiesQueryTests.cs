@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
@@ -45,10 +46,12 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
             $"{nameof(ResearchProjectionProbe.BoxInt)}~",
             publicMember.StableSelector);
         Assert.Equal(
-            typeof(ResearchProjectionProbe)
-                .GetMethod(nameof(ResearchProjectionProbe.BoxInt))!
-                .MetadataToken,
-            publicMember.BodyToken);
+            [
+                typeof(ResearchProjectionProbe)
+                    .GetMethod(nameof(ResearchProjectionProbe.BoxInt))!
+                    .MetadataToken,
+            ],
+            publicMember.BodyTokens);
         Assert.Equal(
             [
                 .. OptimizationOpportunityRanking.OrderMembers(
@@ -91,6 +94,13 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
             Assert.IsType<OptimizationOpportunityPublicMember>(
                     lifted.Member.PublicMember)
                 .Member);
+        Assert.Equal(
+            lifted.Member.Ranking.Opportunities
+                .Select(opportunity =>
+                    opportunity.Method.MetadataToken)
+                .Distinct()
+                .Order(),
+            lifted.Member.PublicMember!.BodyTokens);
 
         AssemblyContextOptimizationOpportunityMember accessor =
             Assert.Single(
@@ -101,12 +111,14 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
         OptimizationOpportunityPublicMember property =
             accessor.Member.PublicMember!;
         Assert.Equal(
-            typeof(ResearchProjectionProbe)
-                .GetProperty(
-                    nameof(ResearchProjectionProbe.BoxedValue))!
-                .GetMethod!
-                .MetadataToken,
-            property.BodyToken);
+            [
+                typeof(ResearchProjectionProbe)
+                    .GetProperty(
+                        nameof(ResearchProjectionProbe.BoxedValue))!
+                    .GetMethod!
+                    .MetadataToken,
+            ],
+            property.BodyTokens);
         Assert.StartsWith(
             $"{nameof(ResearchProjectionProbe.BoxedValue)}~",
             property.StableSelector);
@@ -123,6 +135,48 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
         Assert.Equal(
             $"{typeof(ResearchProjectionProbe).FullName}+Nested",
             nested.Type);
+    }
+
+    [Fact]
+    public void Execute_AggregatesAllAccessorBodiesUnderOnePublicMember()
+    {
+        var policy = new RecordingBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            ContentGroup(workspace, policy);
+
+        AssemblyContextOptimizationOpportunitiesResult result =
+            Execute(group);
+
+        AssemblyContextOptimizationOpportunityMember accessor =
+            Assert.Single(
+                result.RankedMembers,
+                candidate =>
+                    candidate.Member.PublicMember?.Member
+                    == nameof(
+                        ResearchProjectionProbe
+                            .AccessorBoxedValue));
+        PropertyInfo property = typeof(ResearchProjectionProbe)
+            .GetProperty(
+                nameof(
+                    ResearchProjectionProbe
+                        .AccessorBoxedValue))!;
+        Assert.Equal(
+            [
+                property.GetMethod!.MetadataToken,
+                property.SetMethod!.MetadataToken,
+            ],
+            accessor.Member.PublicMember!.BodyTokens);
+        Assert.Contains(
+            accessor.Member.Ranking.Opportunities,
+            opportunity =>
+                opportunity.Method.MetadataToken
+                == property.GetMethod.MetadataToken);
+        Assert.Contains(
+            accessor.Member.Ranking.Opportunities,
+            opportunity =>
+                opportunity.Method.MetadataToken
+                == property.SetMethod.MetadataToken);
     }
 
     [Fact]

@@ -1309,10 +1309,14 @@ public sealed class BrowserEngineBoundaryTests
             typeof(BrowserEngineBoundaryTests).FullName,
             member.GetProperty("typeId").GetString());
         Assert.Equal(
-            typeof(BrowserEngineBoundaryTests)
-                .GetMethod(nameof(PerformanceBoxingProbe))!
-                .MetadataToken,
-            member.GetProperty("bodyToken").GetInt32());
+            [
+                typeof(BrowserEngineBoundaryTests)
+                    .GetMethod(nameof(PerformanceBoxingProbe))!
+                    .MetadataToken,
+            ],
+            member.GetProperty("bodyTokens")
+                .EnumerateArray()
+                .Select(token => token.GetInt32()));
         Assert.StartsWith(
             $"{nameof(PerformanceBoxingProbe)}~",
             member.GetProperty("stableSelector").GetString());
@@ -1351,11 +1355,15 @@ public sealed class BrowserEngineBoundaryTests
             $"{nameof(PerformanceBoxingProperty)}~",
             property.GetProperty("stableSelector").GetString());
         Assert.Equal(
-            typeof(BrowserEngineBoundaryTests)
-                .GetProperty(nameof(PerformanceBoxingProperty))!
-                .GetMethod!
-                .MetadataToken,
-            property.GetProperty("bodyToken").GetInt32());
+            [
+                typeof(BrowserEngineBoundaryTests)
+                    .GetProperty(nameof(PerformanceBoxingProperty))!
+                    .GetMethod!
+                    .MetadataToken,
+            ],
+            property.GetProperty("bodyTokens")
+                .EnumerateArray()
+                .Select(token => token.GetInt32()));
 
         JsonElement nested = Assert.Single(
             root.GetProperty("members").EnumerateArray(),
@@ -1431,6 +1439,42 @@ public sealed class BrowserEngineBoundaryTests
             document.RootElement
                 .GetProperty("inspectionError")
                 .GetString(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PerformanceMemberLimit_ReportsOnlyActualTruncation()
+    {
+        static BrowserPerformanceMember Member(int index) =>
+            new(
+                "Example.dll",
+                $"Example.Type{index}",
+                "Run",
+                $"Run~{index}",
+                [0x06000001 + index],
+                1,
+                0,
+                ["box-value-type"],
+                "high");
+
+        var exactFailures = new List<string>();
+        BrowserPerformanceMember[] exact =
+            InspectionEngine.ApplyPerformanceMemberLimit(
+                Enumerable.Range(0, 200).Select(Member),
+                exactFailures);
+        var truncatedFailures = new List<string>();
+        BrowserPerformanceMember[] truncated =
+            InspectionEngine.ApplyPerformanceMemberLimit(
+                Enumerable.Range(0, 201).Select(Member),
+                truncatedFailures);
+
+        Assert.Equal(200, exact.Length);
+        Assert.Empty(exactFailures);
+        Assert.Equal(200, truncated.Length);
+        Assert.Single(truncatedFailures);
+        Assert.Contains(
+            "truncated",
+            truncatedFailures[0],
             StringComparison.Ordinal);
     }
 

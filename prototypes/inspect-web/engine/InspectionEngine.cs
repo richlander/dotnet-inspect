@@ -791,7 +791,35 @@ public static partial class InspectionEngine
             }
         }
 
-        var members = new List<BrowserPerformanceMember>(200);
+        BrowserPerformanceMember[] members =
+            ApplyPerformanceMemberLimit(
+                PerformanceMembers(
+                    result,
+                    participants,
+                    scope,
+                    navigableMembers),
+                failures);
+
+        return JsonSerializer.Serialize(
+            new BrowserPackagePerformance(
+                members,
+                failures.Count == 0
+                    ? null
+                    : string.Join("; ", failures),
+                result.NonPublicOpportunities,
+                result.TotalOpportunities),
+            BrowserJsonContext.Default.BrowserPackagePerformance);
+    }
+
+    static IEnumerable<BrowserPerformanceMember> PerformanceMembers(
+        AssemblyContextOptimizationOpportunitiesResult result,
+        ImmutableArray<BrowserWorkspaceParticipant> participants,
+        BrowserInspectionScope scope,
+        HashSet<(
+            string Assembly,
+            string Type,
+            string Selector)> navigableMembers)
+    {
         foreach (AssemblyContextOptimizationOpportunityMember member
             in result.RankedMembers)
         {
@@ -805,9 +833,8 @@ public static partial class InspectionEngine
                         member.Subject.Registration));
             BrowserWorkspaceParticipant? surfaceParticipant =
                 scope.TryGetSurfaceParticipant(analysisParticipant);
-            if (surfaceParticipant is null)
-                continue;
-            if (!navigableMembers.Contains((
+            if (surfaceParticipant is null
+                || !navigableMembers.Contains((
                     surfaceParticipant.Asset.AssemblyName,
                     publicMember.Type,
                     publicMember.StableSelector)))
@@ -815,29 +842,39 @@ public static partial class InspectionEngine
                 continue;
             }
 
-            members.Add(new BrowserPerformanceMember(
+            yield return new BrowserPerformanceMember(
                 surfaceParticipant.Asset.AssemblyName,
                 publicMember.Type,
                 publicMember.Member,
                 publicMember.StableSelector,
-                publicMember.BodyToken,
+                [.. publicMember.BodyTokens],
                 member.Member.Ranking.Opportunities.Length,
                 member.Member.Ranking.InLoopCount,
                 [.. member.Member.Ranking.Shapes],
-                member.Member.Ranking.Confidence));
-            if (members.Count == 200)
+                member.Member.Ranking.Confidence);
+        }
+    }
+
+    internal static BrowserPerformanceMember[] ApplyPerformanceMemberLimit(
+        IEnumerable<BrowserPerformanceMember> candidates,
+        ICollection<string> failures)
+    {
+        const int MemberLimit = 200;
+        var members = new List<BrowserPerformanceMember>(MemberLimit);
+        foreach (BrowserPerformanceMember candidate in candidates)
+        {
+            if (members.Count == MemberLimit)
+            {
+                failures.Add(
+                    $"Performance ranking truncated after the top "
+                    + $"{MemberLimit} navigable public members.");
                 break;
+            }
+
+            members.Add(candidate);
         }
 
-        return JsonSerializer.Serialize(
-            new BrowserPackagePerformance(
-                [.. members],
-                failures.Count == 0
-                    ? null
-                    : string.Join("; ", failures),
-                result.NonPublicOpportunities,
-                result.TotalOpportunities),
-            BrowserJsonContext.Default.BrowserPackagePerformance);
+        return [.. members];
     }
 
     /// <summary>

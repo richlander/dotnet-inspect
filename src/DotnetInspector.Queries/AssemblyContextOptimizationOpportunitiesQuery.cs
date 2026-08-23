@@ -10,7 +10,7 @@ public sealed record OptimizationOpportunityPublicMember(
     string Type,
     string Member,
     string StableSelector,
-    int BodyToken);
+    ImmutableArray<int> BodyTokens);
 
 public sealed record AssemblyOptimizationOpportunityMember(
     OptimizationOpportunityMemberRanking Ranking,
@@ -188,14 +188,9 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
                                     opportunity,
                                     index.GeneratedFrameworkTypes)));
             return new AssemblyOptimizationOpportunityRanking(
-                [
-                    .. rankings.Select(
-                        ranking =>
-                            new AssemblyOptimizationOpportunityMember(
-                                ranking,
-                                publicMembers.Members.GetValueOrDefault(
-                                    ranking.Method.MetadataToken))),
-                ],
+                AggregatePublicMembers(
+                    rankings,
+                    publicMembers.Members),
                 index.GeneratedFrameworkTypes.ToImmutableHashSet(),
                 index.Diagnostics,
                 publicMembers.InspectionFailures);
@@ -219,17 +214,25 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
         {
             foreach (ApiMember member in type.Members)
             {
-                foreach (CallGraphMemberBodySelector selector
-                    in CallGraphMemberResolver.CreateBodySelectors(
+                ImmutableArray<CallGraphMemberBodySelector> selectors =
+                [
+                    .. CallGraphMemberResolver.CreateBodySelectors(
                         type,
-                        member))
+                        member),
+                ];
+                if (selectors.Length == 0)
+                    continue;
+
+                OptimizationOpportunityPublicMember publicMember =
+                    PublicMember(
+                        type,
+                        member);
+                foreach (CallGraphMemberBodySelector selector
+                    in selectors)
                 {
                     members.TryAdd(
                         selector.BodyToken,
-                        PublicMember(
-                            type,
-                            member,
-                            selector.BodyToken));
+                        publicMember);
                 }
             }
         }
@@ -241,8 +244,7 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
 
     static OptimizationOpportunityPublicMember PublicMember(
         ApiType type,
-        ApiMember member,
-        int bodyToken)
+        ApiMember member)
     {
         MemberAnchor anchor =
             ApiMemberIdentity.GetMemberAnchor(type, member);
@@ -252,7 +254,70 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
                     .MetadataTypeIdentity(type),
                 member.Name,
                 anchor.StableSelector,
-                bodyToken);
+                []);
+    }
+
+    static ImmutableArray<AssemblyOptimizationOpportunityMember>
+        AggregatePublicMembers(
+            ImmutableArray<OptimizationOpportunityMemberRanking>
+                rankings,
+            IReadOnlyDictionary<
+                int,
+                OptimizationOpportunityPublicMember> publicMembers)
+    {
+        AssemblyOptimizationOpportunityMember[] projected =
+        [
+            .. rankings.Select(ranking =>
+                new AssemblyOptimizationOpportunityMember(
+                    ranking,
+                    publicMembers.GetValueOrDefault(
+                        ranking.Method.MetadataToken))),
+        ];
+        IEnumerable<AssemblyOptimizationOpportunityMember>
+            nonPublic = projected.Where(
+                member => member.PublicMember is null);
+        IEnumerable<AssemblyOptimizationOpportunityMember>
+            publicRankings = projected
+                .Where(member => member.PublicMember is not null)
+                .GroupBy(member => new PublicMemberKey(
+                    member.PublicMember!.Type,
+                    member.PublicMember.StableSelector))
+                .Select(group =>
+                {
+                    AssemblyOptimizationOpportunityMember leading =
+                        group.OrderBy(
+                                member => member.Ranking,
+                                OptimizationOpportunityRanking
+                                    .MemberComparer)
+                            .First();
+                    return new AssemblyOptimizationOpportunityMember(
+                        OptimizationOpportunityRanking.RankMember(
+                            leading.Ranking.Method,
+                            group.SelectMany(
+                                member =>
+                                    member.Ranking.Opportunities)),
+                        leading.PublicMember! with
+                        {
+                            BodyTokens =
+                            [
+                                .. group
+                                    .SelectMany(member =>
+                                        member.Ranking.Opportunities)
+                                    .Select(opportunity =>
+                                        opportunity.Method.MetadataToken)
+                                    .Distinct()
+                                    .Order(),
+                            ],
+                        });
+                });
+        return
+        [
+            .. nonPublic
+                .Concat(publicRankings)
+                .OrderBy(
+                    member => member.Ranking,
+                    OptimizationOpportunityRanking.MemberComparer),
+        ];
     }
 
     static ImmutableArray<
@@ -296,4 +361,8 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
             OptimizationOpportunityPublicMember> Members,
         ImmutableArray<ApiSurfaceInspectionFailure>
             InspectionFailures);
+
+    readonly record struct PublicMemberKey(
+        string Type,
+        string StableSelector);
 }
