@@ -752,8 +752,31 @@ Admission probes charge names and attribute type segments before SRM
 materializes them. They do not decode rich attribute values or every signature
 and `MethodImpl` relationship.
 
-Stage 3 validates only dependencies required to decide admission of the root
-declaration:
+Stage 3 starts with a Metadata-owned, budget-charged raw `MethodSemantics`
+census for a property or event. It reads and charges one association row at a
+time before retaining method handles or materializing an `Other` collection.
+Each row must contain exactly one legal role for its association kind, target a
+valid method on the aggregate's declaring type, and preserve its row identity.
+Duplicate getter, setter, add, remove, or raise roles are rejected rather than
+collapsed by last-write-wins projection. Only the validated bounded rows may
+construct the typed accessor aggregate.
+
+`PropertyDefinition.GetAccessors()` and `EventDefinition.GetAccessors()` are
+not valid census inputs for untrusted metadata: those SRM convenience
+projections allocate the complete `Other` array before returning, collapse
+duplicate standard roles, and discard unrecognized combined semantics flags.
+Consumers must not call them before the shared census or substitute their
+lossy result for the typed aggregate.
+
+The census remains SRM-backed and operates over the already admitted metadata
+image. A `MetadataDeclarationSession` builds or advances its raw
+`MethodSemantics` index row by row, charging before retention. It validates
+table ordering before using an association range; malformed ordering cannot
+hide a row behind SRM's range lookup. Any reader-local index participates in
+the same context and budget cache contract as other shared facts.
+
+Stage 3 then validates only dependencies required to decide admission of the
+root declaration:
 
 - a property composes the stage 1-2 results of its getter, setter, and every
   `MethodSemanticsAttributes.Other` method before its own inclusion decision;
@@ -791,6 +814,8 @@ reimplement the admission stages. The validation matrix gate must cover:
   admission;
 - a property/event with zero, one, or multiple `Other` semantic methods,
   including malformed and over-budget dependencies;
+- duplicate standard roles, invalid combined role flags, dangling method
+  handles, and cross-declaring-type associations;
 - a retained row whose signature is rejected;
 - an aggregate with one rejected accessor;
 - a valid retained declaration that produces an empty presentation section.
@@ -805,7 +830,7 @@ owner:
 | Type visibility | Top-level versus nested context, declaring-chain validity, effective visibility |
 | Member accessibility | Valid raw accessibility and projected API accessibility |
 | Signature status | Complete, degraded with typed reason, or rejected |
-| Accessor aggregate | Getter/setter/add/remove/raise and every `Other` identity; per-semantic accessibility, staticness, virtuality, abstraction, final/new-slot shape, and body presence |
+| Accessor aggregate | Validated raw association-row identity; getter/setter/add/remove/raise and every `Other` identity; per-semantic accessibility, staticness, virtuality, abstraction, final/new-slot shape, and body presence |
 | MethodImpl relationship | Interface declaration, reused interface slot, reused class slot, new slot, unresolved, or rejected |
 | Explicit implementation | Proven target identity and aggregate membership, not member-name inference |
 | Safety accounting | Consumed work and retained text charged through the operation context |
@@ -1015,6 +1040,8 @@ ordinary `set`, or plausible metadata fallback.
 6. CSharp consumes typed semantics instead of reconstructing them.
 7. Decode accounting is operation-scoped and transitive.
 8. Failure detail contains no artifact-authored text.
+9. MethodSemantics rows are charged and validated before convenience
+   projection, role collapse, or collection materialization.
 
 ## How the boundaries compose
 
@@ -1058,6 +1085,7 @@ the design authority.
 | Render-manifest effective discovery | Retain for post-producer field/column/empty observation; move every producer call into a declared probe plan |
 | `ArgumentPreprocessor`, `RouterCommandDefinition`, and `PackageCommand` structural routing | Retain syntactic routing, but replace command-only dispatch with the shared structural-view registry and move static classification before acquisition in slice 2 |
 | `ApiCommand.RunPreamble` and `ApiMemberSectionPipelines` static member catalog selection | Replace the provisional selectable-section union with explicit member type-view, inventory, and detail registry entries plus labeled dotted-tail alternatives in slice 2 |
+| Product calls to `PropertyDefinition.GetAccessors()` and `EventDefinition.GetAccessors()` | Replace as admission inputs with the Metadata-owned raw `MethodSemantics` census; no projection may lose or allocate uncharged associations before validation |
 | Shared Metadata validators already used by every projection | Retain |
 | Validators duplicated across full, summary, focused, or C# paths | Move to the Metadata declaration owner |
 | C# fixes based on Metadata-owned typed semantics | Retain |
@@ -1166,6 +1194,10 @@ qualified/qualified types.
 Depends on: slices 2 and 3.
 
 - Bind member sections to typed query definitions.
+- Make L1 query definitions the sole owners of producer prerequisites,
+  conditional successors, costs, capabilities, modes, and probe eligibility;
+  section descriptors bind those definitions and apply disclosure/request
+  policy without restating requirements.
 - Preflight cost, capability, execution-mode, and probe-policy authorization
   for common work, independent section closures, and conditional successors.
 - Remove source/PDB/analysis authorization inferred from `IncludeSections` or
@@ -1192,6 +1224,9 @@ be consumed by the type/member plan before slice 4 lands.
 
 - Centralize operation budgets and reader-local caches.
 - Add typed type, member, accessor, and `MethodImpl` validation results.
+- Add the budgeted raw `MethodSemantics` row census and shadow its results
+  against every current property/event accessor projection, retaining duplicate
+  roles and invalid flags as typed rejections rather than normalized output.
 - Run characterization or shadow comparison without changing which validity
   implementation supplies product results.
 - Do not activate the new admission semantics for only one projection path.
@@ -1206,6 +1241,9 @@ Depends on: slice 5.
 
 - Route full, summary, and focused declaration admission through the same
   six-stage decision in one slice.
+- Route every property/event projection through the validated raw
+  `MethodSemantics` census before constructing an accessor aggregate; remove
+  direct SRM convenience-accessor reads from admission paths.
 - Make summary counts consume accepted declaration identities.
 - Make focused queries consume the same validators with their own inclusion
   policy and failure boundary.
@@ -1244,6 +1282,8 @@ Depends on: slices 4, 6, and 7.
 
 - Remove provisional selection mutation and dual-use option fields.
 - Remove duplicate Metadata validators and compatibility branches.
+- Remove duplicate producer-requirement declarations and any remaining
+  convenience-accessor path that bypasses the raw `MethodSemantics` census.
 - Update architecture docs from proposed to implemented only after the
   corresponding gates pass.
 - Update `schema-query.md` and the other mechanism owners to remove superseded
@@ -1275,22 +1315,22 @@ test method name, but the PR must map each test to its gate ID.
 | `MIP008` | The plan executes sequentially without filesystem assumptions | Browser/Wasm host test over in-memory content with the same producer trace and failures |
 | `MIP009` | The path remains NativeAOT-friendly, SRM-only, Roslyn-free, and load-free | NativeAOT publish/run plus dependency and inspected-assembly-loading architecture gates |
 | `MIP010` | Typed planning, resolution, policy, producer, and observation failures stay visible | Outcome and injected-failure tests for every stage, including per-section request/capability/cost/mode/probe-policy `Unknown`, explicit-render policy denial, exact/category network-free discovery-probe failure, and authorized render/effective PDB/source producer failure, proving failures cannot become empty selection, `ValidEmpty`, empty results, or success exit |
-| `MIP011` | Host preflight is the only executable authorization mint at the slice-4 cutover | Declaration-driven architecture closure over every type/member entry point, descriptor, prerequisite, and executor call site; fail on another mint or an option value read as execution authority |
-| `MIP012` | No transitional dual-use planning/authorization state remains | Declaration-driven closure over option fields, compatibility adapters, descriptors, and executors after slice 8 |
+| `MIP011` | L1 query definitions are the only producer-requirement owner and host preflight is the only executable authorization mint at the slice-4 cutover | Declaration-driven architecture closure over every type/member entry point, query definition, descriptor, prerequisite, and executor call site; fail on a prerequisite, conditional successor, cost, capability, mode, or probe-policy requirement declared by a section descriptor; fail on another mint or an option value read as execution authority |
+| `MIP012` | No transitional dual-use planning/authorization state remains | Declaration-driven closure over option fields, compatibility adapters, query definitions, descriptors, and executors after slice 8; fail on duplicated producer requirements as well as alternate authority |
 | `MIP013` | Non-schema discovery runs only mode-declared probes | Separate target-resolution and section-producer trace equality for every actual type/member discovery gesture; every started producer is declared for the effective probe mode, and every declared denial remains a typed per-section `Unknown` |
 | `MDP001` | Full/summary/focused validity and shared semantic facts agree | Set equality over accepted identities and typed rejection rule IDs; set equality between typed projection fact requests and registered consumers; declaration-derived equality of typed values or typed rejections for every shared fact requested by multiple projections; declared summary erasure is checked only after parity |
-| `MDP002` | Declaration admission order is preserved | Direct-invalid, charged name/attribute exclusion, excluded-hostile, public/non-public accessor dependency, retained-rejected, aggregate-rejected, and valid-empty fixtures; property/event cases prove getter/setter/add/remove/raise/every-`Other` dependencies are admitted and charged before their aggregate |
+| `MDP002` | Declaration admission order is preserved | Direct-invalid, charged name/attribute exclusion, excluded-hostile, public/non-public accessor dependency, retained-rejected, aggregate-rejected, and valid-empty fixtures; property/event cases prove raw association rows and getter/setter/add/remove/raise/every-`Other` dependencies are validated and charged before handle retention, `Other` materialization, or aggregate construction |
 | `MDP003` | Cheap filtering precedes hostile MethodImpl projection | Large excluded-row fixture with bounded allocation/work evidence |
-| `MDP004` | Accessor validity is shared | Property/event fixtures covering accessibility, staticness, abstraction, virtuality, slot, and body close negatives plus zero, one, and multiple valid `Other` associations, malformed `Other` associations, and raise/`Other` representability outcomes |
+| `MDP004` | Accessor validity is shared | Property/event fixtures covering accessibility, staticness, abstraction, virtuality, slot, and body close negatives plus zero, one, and multiple valid `Other` associations, duplicate standard roles, invalid combined role flags, dangling methods, cross-declaring-type associations, malformed table ordering, and raise/`Other` representability outcomes |
 | `MDP005` | CSharp consumes typed slot semantics | Compiler-produced interface re-abstraction/default-implementation compile-back plus class base-slot rejection |
-| `MDP006` | Decode accounting is transitive | Amplification fixtures for names, modifiers, signatures, getter/setter/add/remove/raise/`Other` semantic dependencies, and MethodImpl targets, including a bounded over-budget `Other` association set |
+| `MDP006` | Decode accounting is transitive | Amplification fixtures for names, modifiers, signatures, getter/setter/add/remove/raise/`Other` semantic dependencies, and MethodImpl targets; an oversized `Other` set must stop on the row budget with bounded allocation before SRM or product code materializes the set |
 | `MDP007` | Metadata and CLI failure text contains no artifact data | Hostile control-character names across Metadata declaration and CLI failure paths |
 | `MDP008` | Real artifacts remain stable | Pinned platform and package canaries with recorded rows and retained-text totals |
-| `MDP009` | Declaration caches and hostile-input ceilings preserve context, budget, and failure semantics | Matrix derived from the central safety-policy dimensions and every charging fact request; cache-key set equality, cached-work rejection, same-context negative caching, no undeclared local ceiling, and equivalent near/over-limit full/summary/focused fixtures asserting equal per-fact thresholds, counters, and rejection rules while separately charging additional retained fields |
+| `MDP009` | Declaration caches and hostile-input ceilings preserve context, budget, and failure semantics | Matrix derived from the central safety-policy dimensions and every charging fact request, including the reader-local raw `MethodSemantics` index; cache-key set equality, cached-work rejection, same-context negative caching, no undeclared local ceiling, and equivalent near/over-limit full/summary/focused fixtures asserting equal per-fact thresholds, counters, and rejection rules while separately charging additional retained fields |
 | `MDP010` | Degraded signatures remain nonauthoritative at the CSharp boundary | Existing degraded-signature fixtures mapped to typed `Degraded` outcomes with no authoritative C# or metadata fallback |
-| `MDP011` | Shared declaration admission has no parallel owner at the slice-6 cutover | Declaration-driven architecture closure over full, summary, and focused entry points; fail on a bypass or duplicate validity implementation |
+| `MDP011` | Shared declaration admission has no parallel owner at the slice-6 cutover | Declaration-driven architecture closure over full, summary, and focused entry points; fail on a bypass, duplicate validity implementation, or direct convenience-accessor read that precedes the raw `MethodSemantics` census |
 | `MDP012` | CSharp representability consumes only Metadata-owned semantic facts at the slice-7 cutover | Closure derived from the semantic fact types and every CSharp representability entry point; fail on direct `MetadataReader`/handle reconstruction or relationship decisions from raw accessibility, virtuality, new-slot, `MethodImpl`, or equivalent Boolean combinations |
-| `MDP013` | No transitional declaration-validity or CSharp reconstruction state remains | Declaration-driven closure over compatibility adapters, validators, raw semantic fields, and consumers after slice 8 |
+| `MDP013` | No transitional declaration-validity or CSharp reconstruction state remains | Declaration-driven closure over compatibility adapters, validators, raw semantic fields, convenience-accessor calls, and consumers after slice 8 |
 | `MDP014` | CSharp failure text contains no artifact data | Hostile control-character names through every CSharp representability failure path |
 | `MDP015` | `FallbackRequired` preserves contained type/member semantics and renders artifact text through `InertString` | Set equality between the normal representable renderer's Metadata fact requests and each contained fallback payload after named erasures; type and member parity fixtures cover accessibility, modifiers, attributes, constraints, constants/defaults, explicit implementation, complete accessor aggregates including raise and every `Other` association, base/interfaces, and kind-specific facts; valid raise/`Other` aggregates force contained fallback and preserve each association instead of becoming unrelated standalone methods; unsupported type-header and paired member/indexer cases prove no fact becomes `null`, omission, or identity collapse; declaration-derived sink closure requires every fallback sink to call `EnsurePermitted` with its exact `TextPolicy` immediately before unwrapping and format escaping; cross-policy fixtures deliver Prose-produced CR/LF/TAB plus hostile type names, member names, and signature fragments to Field, Markdown, JSON, TSV, and diagnostic sinks; round-trip and pairwise injectivity prove canonical visual encoding preserves exact artifact text while no live disallowed scalar reaches a sink |
 
@@ -1302,7 +1342,7 @@ matrix.
 
 | Claim | Owner | Gate |
 | --- | --- | --- |
-| Type/member producer capability preflight is the only execution authority | Typed query executor | `MIP004`, `MIP011`, `MIP012` |
+| L1 query definitions are the only producer-requirement owner and type/member host preflight is the only execution authority | Typed query executor | `MIP004`, `MIP011`, `MIP012` |
 | Static catalogs and non-static producer traces agree with their modes | Section/query plan integration | `MIP001`, `MIP003`, `MIP013` |
 | Discovery applicability, valid-empty, unknown, and failure remain distinct | Section/query plan integration | `MIP002`, `MIP010` |
 | Renderer code cannot trigger acquisition or analysis | Presentation boundary | `MIP005` |

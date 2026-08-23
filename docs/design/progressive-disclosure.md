@@ -150,11 +150,13 @@ For example, plain library discovery may request `LocalPdbRead` for its bounded
 SourceLink-door probe, while named/category type/member discovery requests none
 of the three. An explicit effective-discovery policy may request more.
 Detailed verbosity may request bounded local-PDB, PDB-acquisition, or
-source-audit work where the section contract permits it, but it does not
-request `SourceContent` merely because code promoted the effective verbosity.
-Section descriptors and query definitions declare requirements and conditional
-successors; they do not grant authority. Artifact admission/query leases
-revalidate the authorized closure at content access.
+source-audit work where the selected section's bound query and disclosure
+policy permit it, but it does not request `SourceContent` merely because code
+promoted the effective verbosity. Query definitions alone declare producer
+requirements and conditional successors. Section descriptors bind typed
+queries and apply disclosure/request policy to gesture provenance; they
+neither restate producer requirements nor grant authority. Artifact
+admission/query leases revalidate the authorized closure at content access.
 
 - A package may be downloaded to resolve the requested target.
 - Default gestures must not automatically acquire PDBs or access source
@@ -164,7 +166,7 @@ revalidate the authorized closure at content access.
   producer and coordinate. Availability is not authority.
 - Selecting a network-bound render section or running an explicitly
   capability-bearing effective-discovery gesture may request the capability
-  declared by that section.
+  required by the section's bound query and permitted by disclosure policy.
 
 Capability-request provenance comes from the user's gesture, not from an
 internal verbosity promotion. Capability authorization comes solely from host
