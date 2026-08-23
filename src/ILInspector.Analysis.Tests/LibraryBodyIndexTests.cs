@@ -1591,6 +1591,35 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void ResolveDeclaredMethod_MapsAsyncOwnerLambdaToOwner()
+    {
+        string path = typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        var index = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity owner = Assert.Single(
+            index.DeclaredMethods,
+            method => method.Name
+                == nameof(
+                    ClassicAsyncSiblingFixture
+                        .AsyncOwnerCallsThroughAsyncLambda));
+        DirectCall expected = Assert.Single(
+            index.FindCalls(
+                MemberPattern.Method(
+                    owner.DeclaringType,
+                    nameof(ClassicAsyncSiblingFixture.ReadValue))),
+            call => call.Caller == owner
+                && call.EvidenceMethod.Name == "MoveNext"
+                && call.EvidenceMethod.DeclaringType.Name.Contains(
+                    "AsyncOwnerCallsThroughAsyncLambda",
+                    StringComparison.Ordinal));
+
+        Assert.Equal(
+            owner,
+            index.ResolveDeclaredMethod(expected.EvidenceMethod));
+    }
+
+    [Fact]
     public void
         ResolveDeclaredMethod_MapsAsyncLiftedFunctionSiblingToOwner()
     {
@@ -4668,7 +4697,8 @@ public class LibraryBodyIndexTests
                     && opportunity.Method == kickoff
                     && opportunity.EvidenceMethodToken
                         == moveNext.MetadataToken);
-            Assert.Null(
+            Assert.Equal(
+                kickoff,
                 full.ResolveDeclaredMethod(moveNext));
             Assert.Contains(
                 full.DirectCalls,

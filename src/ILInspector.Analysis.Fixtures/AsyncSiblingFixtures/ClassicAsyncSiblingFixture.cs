@@ -267,6 +267,18 @@ public static class ClassicAsyncSiblingFixture
         int Core() => ReadValue(offset);
     }
 
+    public static async Task<int> AsyncOwnerCallsThroughAsyncLambda(
+        int value)
+    {
+        await Task.Yield();
+        Func<Task<int>> core = async () =>
+        {
+            await Task.Yield();
+            return ReadValue(value);
+        };
+        return await core();
+    }
+
     public static async Task<int> AsyncLiftedFunctionCallsSibling(
         int value)
     {

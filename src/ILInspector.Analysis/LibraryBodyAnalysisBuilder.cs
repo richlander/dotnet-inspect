@@ -662,8 +662,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             return analysis;
 
         IReadOnlyDictionary<int, MethodIdentity> asyncSources =
-            _asyncSourceResolver
-                .DeclaredSourceMethodsByMoveNextToken();
+            plan.IsScoped
+                ? _asyncSourceResolver
+                    .DeclaredSourceMethodsByMoveNextToken()
+                : _asyncSourceResolver
+                    .ExecutionSourceMethodsByMoveNextToken();
         if (asyncSources.Count == 0)
             return analysis;
 
@@ -675,21 +678,30 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         {
             try
             {
-                if (!declaredSources.ContainsKey(token)
-                    && TryResolveUltimateLiftedOwner(
-                        source,
-                        out MethodIdentity? ultimateOwner)
-                    && ultimateOwner is not null)
+                if (!declaredSources.ContainsKey(token))
                 {
-                    declaredSources.Add(
-                        token,
-                        ultimateOwner);
+                    if (TryResolveUltimateLiftedOwner(
+                            source,
+                            out MethodIdentity? ultimateOwner)
+                        && ultimateOwner is not null)
+                    {
+                        declaredSources.Add(token, ultimateOwner);
+                    }
+                    else if (!plan.IsScoped)
+                    {
+                        declaredSources.Add(token, source);
+                    }
                 }
             }
             catch (Exception ex)
                 when (LibraryMethodAnalysisRunner
                     .IsRecoverableMethodFailure(ex))
             {
+                if (!plan.IsScoped
+                    && !declaredSources.ContainsKey(token))
+                {
+                    declaredSources.Add(token, source);
+                }
                 var sourceHandle =
                     (MethodDefinitionHandle)
                     MetadataTokens.EntityHandle(

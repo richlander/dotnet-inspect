@@ -350,6 +350,14 @@ method analysis.
 `OptimizationOpportunities_AsyncStateMachineTypesArePrewarmedBeforeParallelAnalysis`
 gate projection, authentication, close-negative scope behavior, and
 read-only parallel cache consumption.
+Unscoped declared-source publication retains an authenticated immediate async
+source when ultimate lifted-owner resolution fails; scoped publication and
+ownership-derived recommendations remain fail-closed.
+`OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes`
+gates that boundary, while
+`ResolveDeclaredMethod_MapsAsyncOwnerLocalFunctionToOwner` and
+`ResolveDeclaredMethod_MapsAsyncOwnerLambdaToOwner` gate compiled Release
+async-owner shapes.
 `LibraryBodyAsyncSiblingSignatureMatcher` supplies the async-sibling
 subsystem's stateless signature decoding, exact identity/comparison, async
 return compatibility, optional cancellation matching, and bounded finding

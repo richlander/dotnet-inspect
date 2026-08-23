@@ -846,8 +846,10 @@ Research overlay bridge, and the application layer:
   claimant cannot poison a valid sibling claim. A runtime-async execution
   method cannot authenticate as a state-machine body. Generated kickoff
   intermediates compose through authenticated lifted owners when their
-  evidence bodies are acquired; an unresolved intermediate retains its
-  physical caller rather than becoming logical attribution. Lifted-owner
+  evidence bodies are acquired. In unscoped indexes, an unresolved ultimate
+  owner retains the authenticated immediate source in `DeclaredSources`;
+  direct calls retain their physical caller rather than becoming logical
+  attribution. Scoped indexes retain neither fallback. Lifted-owner
   groups authenticate state-machine claims across the complete owner
   candidate set in every scope without acquiring unselected owner bodies.
   Ownership-derived recommendations require an authenticated ultimate owner
@@ -879,8 +881,9 @@ Research overlay bridge, and the application layer:
   publication, feature-stable physical calls, and scope-stable group
   authentication.
   `OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes`
-  gates fail-closed ownership-derived recommendations while preserving
-  full-scope body-intrinsic opportunities.
+  gates the unscoped immediate-source fallback and fail-closed scoped
+  ownership-derived recommendations while preserving full-scope
+  body-intrinsic opportunities.
   `ScopeDiagnosticAggregation_FinalPublicationRetainsMetadataOrder` gates
   ordered aggregation of recoverable final-publication failures.
   `LiftedOwners_RejectUnauthenticatedIteratorExecution` gates explicit
