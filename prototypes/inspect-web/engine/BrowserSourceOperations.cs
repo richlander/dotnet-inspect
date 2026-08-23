@@ -69,7 +69,7 @@ public static partial class InspectionEngine
         using BrowserSourceOperationLease operation =
             await BrowserSourceOperationCoordinator.BeginAsync();
         (
-            BrowserInspectionScopeLease scopeLease,
+            BrowserScopeLease<BrowserInspectionScope> scopeLease,
             BrowserWorkspaceParticipant participant,
             ApiType type
         ) = await SourceTypeAsync(
@@ -155,7 +155,7 @@ public static partial class InspectionEngine
             metadataToken,
             operation.CancellationToken);
         operation.CancellationToken.ThrowIfCancellationRequested();
-        using BrowserInspectionScopeLease scopeLease =
+        using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             BrowserPackageWorkspace.LeaseScope(scope);
         if (resolution.Member.MetadataToken != resolution.BodyToken)
         {
@@ -182,7 +182,7 @@ public static partial class InspectionEngine
     }
 
     static async Task<(
-        BrowserInspectionScopeLease ScopeLease,
+        BrowserScopeLease<BrowserInspectionScope> ScopeLease,
         BrowserWorkspaceParticipant Participant,
         ApiType Type)> SourceTypeAsync(
             string packageId,
@@ -198,7 +198,7 @@ public static partial class InspectionEngine
             targetFramework,
             cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
-        BrowserInspectionScopeLease scopeLease =
+        BrowserScopeLease<BrowserInspectionScope> scopeLease =
             BrowserPackageWorkspace.LeaseScope(scope);
         try
         {

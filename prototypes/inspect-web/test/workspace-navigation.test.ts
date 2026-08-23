@@ -40,6 +40,7 @@ function workspaceState(
     atPackageRoot: false,
     packageLens: "overview",
     library: null,
+    libraryPack: null,
     selectedTypeId: "Example.Widget",
     selectedMemberKey: "method:Build",
     selectedOverloadIndex: 2,
@@ -212,6 +213,7 @@ test("navigation sequence has one monotonic cancellation authority", () => {
 test("rich workspace URLs round-trip coordinates, scope, and member selection", () => {
   const state = workspaceState({
     library: "System.Private.CoreLib",
+    libraryPack: "netcore.app",
   });
   const url = buildWorkspaceStateUrl(
     "https://inspect.example/packages/old?stale=1#metadata",
@@ -228,6 +230,7 @@ test("rich workspace URLs round-trip coordinates, scope, and member selection", 
   assert.equal(parsed.framework, "net10.0");
   assert.equal(parsed.lens, null);
   assert.equal(parsed.library, "System.Private.CoreLib");
+  assert.equal(parsed.libraryPack, "netcore.app");
   assert.equal(parsed.type, "Example.Widget");
   assert.equal(parsed.member, "method:Build");
   assert.equal(parsed.overload, "2");
