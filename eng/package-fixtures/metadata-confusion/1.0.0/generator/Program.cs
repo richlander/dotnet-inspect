@@ -122,6 +122,7 @@ static string ManifestJson(Fixture fixture) =>
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             WriteIndented = true,
+            NewLine = "\n",
         }) + "\n";
 
 static int Usage()

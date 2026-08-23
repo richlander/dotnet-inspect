@@ -9,7 +9,8 @@ namespace DotnetInspector.Tests;
 
 public sealed class PackageFixtureTests
 {
-    private const string Version = "1.0.0";
+    private const string ToolV2Version = "1.0.0";
+    private const string MetadataConfusionVersion = "1.0.0";
     private const string PointerId = "DotnetInspect.TestAssets.ToolV2";
     private const string LinuxId = "DotnetInspect.TestAssets.ToolV2.linux-x64";
     private const string MissingWindowsId = "DotnetInspect.TestAssets.ToolV2.win-x64";
@@ -48,22 +49,23 @@ public sealed class PackageFixtureTests
             Assert.Equal(
                 new[]
                 {
-                    $"{PointerId}.{Version}.nupkg",
-                    $"{LinuxId}.{Version}.nupkg",
+                    $"{PointerId}.{ToolV2Version}.nupkg",
+                    $"{LinuxId}.{ToolV2Version}.nupkg",
                 }.Order(StringComparer.Ordinal),
                 actualPackages);
             Assert.DoesNotContain(
-                $"{MissingWindowsId}.{Version}.nupkg",
+                $"{MissingWindowsId}.{ToolV2Version}.nupkg",
                 actualPackages);
 
             string pointerPath = Path.Combine(
                 packages,
-                $"{PointerId}.{Version}.nupkg");
+                $"{PointerId}.{ToolV2Version}.nupkg");
             using (ZipArchive pointer = ZipFile.OpenRead(pointerPath))
             {
                 AssertPackageIdentity(
                     pointer,
                     PointerId,
+                    ToolV2Version,
                     "DotnetTool",
                     containsManagedAssembly: false);
                 Assert.NotNull(pointer.GetEntry("README.md"));
@@ -100,12 +102,13 @@ public sealed class PackageFixtureTests
 
             string linuxPath = Path.Combine(
                 packages,
-                $"{LinuxId}.{Version}.nupkg");
+                $"{LinuxId}.{ToolV2Version}.nupkg");
             using (ZipArchive linux = ZipFile.OpenRead(linuxPath))
             {
                 AssertPackageIdentity(
                     linux,
                     LinuxId,
+                    ToolV2Version,
                     "DotnetToolRidPackage",
                     containsManagedAssembly: false);
                 Assert.NotNull(linux.GetEntry("README.md"));
@@ -149,7 +152,7 @@ public sealed class PackageFixtureTests
             string packagePath = Assert.Single(
                 Directory.EnumerateFiles(packages, "*.nupkg"));
             Assert.Equal(
-                $"{MetadataConfusionId}.{Version}.nupkg",
+                $"{MetadataConfusionId}.{MetadataConfusionVersion}.nupkg",
                 Path.GetFileName(packagePath));
             await VerifyMetadataPackageAsync(temp, packagePath);
 
@@ -157,6 +160,7 @@ public sealed class PackageFixtureTests
             AssertPackageIdentity(
                 package,
                 MetadataConfusionId,
+                MetadataConfusionVersion,
                 expectedType: null,
                 containsManagedAssembly: true);
             Assert.NotNull(package.GetEntry("README.md"));
@@ -169,15 +173,25 @@ public sealed class PackageFixtureTests
                 ?? throw new Xunit.Sdk.XunitException(
                     "Metadata-confusion manifest is missing.");
 
+            byte[] manifestBytes;
             using (Stream stream = manifest.Open())
-            using (JsonDocument document = JsonDocument.Parse(stream))
+            using (var buffer = new MemoryStream())
+            {
+                stream.CopyTo(buffer);
+                manifestBytes = buffer.ToArray();
+            }
+            Assert.DoesNotContain((byte)'\r', manifestBytes);
+            Assert.Equal((byte)'\n', manifestBytes[^1]);
+
+            using (JsonDocument document =
+                JsonDocument.Parse(manifestBytes))
             {
                 JsonElement rootElement = document.RootElement;
                 Assert.Equal(
                     1,
                     rootElement.GetProperty("schemaVersion").GetInt32());
                 Assert.Equal(
-                    Version,
+                    MetadataConfusionVersion,
                     rootElement.GetProperty("packageVersion").GetString());
                 Assert.Equal(
                     $"lib/net11.0/{MetadataConfusionId}.dll",
@@ -392,6 +406,7 @@ public sealed class PackageFixtureTests
     private static void AssertPackageIdentity(
         ZipArchive package,
         string expectedId,
+        string expectedVersion,
         string? expectedType,
         bool containsManagedAssembly)
     {
@@ -405,7 +420,7 @@ public sealed class PackageFixtureTests
                 metadata.Elements(),
                 element => element.Name.LocalName == "id").Value);
         Assert.Equal(
-            Version,
+            expectedVersion,
             Assert.Single(
                 metadata.Elements(),
                 element => element.Name.LocalName == "version").Value);

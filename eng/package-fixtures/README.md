@@ -86,15 +86,20 @@ dotnet pack eng/package-fixtures/PackageFixtures.proj -c Release \
 package=artifacts/package-fixtures/Release/\
 DotnetInspect.TestAssets.MetadataConfusion.1.0.0.nupkg
 dotnet run \
-  --project eng/package-fixtures/metadata-confusion/generator \
+  --project eng/package-fixtures/metadata-confusion/1.0.0/generator \
   -c Release -- \
   verify-package "$package"
 ```
 
+The generator belongs to the immutable version directory alongside the nuspec
+and README. A new metadata-confusion version copies that directory, updates its
+generator version, and then advances `MetadataConfusionFixtureVersion`; it does
+not alter the generator for an already published version.
+
 `PackageFixtureTests.PackageFixtureCatalog_PacksMetadataConfusionPackage` is
 the structural gate for the package identity and paths, exact deterministic
-verification, manifest shape, specimen count, and representative raw metadata
-values.
+verification, canonical LF-only manifest bytes, manifest shape, specimen
+count, and representative raw metadata values.
 
 ## Consumption
 

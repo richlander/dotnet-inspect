@@ -98,7 +98,7 @@ jobs:
                 -p:FixtureRepositoryCommit="$GITHUB_SHA"
               test -f "$package"
               dotnet run \
-                --project eng/package-fixtures/metadata-confusion/generator \
+                --project "eng/package-fixtures/metadata-confusion/${FIXTURE_VERSION}/generator" \
                 -c Release -- \
                 verify-package "$package"
               expected_count=1

@@ -19,7 +19,7 @@
     <FixtureRepositoryCommit Condition="'$(FixtureRepositoryCommit)' == ''">0000000000000000000000000000000000000000</FixtureRepositoryCommit>
     <FixtureRoot Condition="'$(FixtureFamily)' == 'tool-v2'">$(MSBuildProjectDirectory)/tool-v2/$(FixtureVersion)</FixtureRoot>
     <FixtureRoot Condition="'$(FixtureFamily)' == 'metadata-confusion'">$(MSBuildProjectDirectory)/metadata-confusion/$(FixtureVersion)</FixtureRoot>
-    <MetadataConfusionGeneratorProject>$(MSBuildProjectDirectory)/metadata-confusion/generator/MetadataConfusionGenerator.csproj</MetadataConfusionGeneratorProject>
+    <MetadataConfusionGeneratorProject>$(FixtureRoot)/generator/MetadataConfusionGenerator.csproj</MetadataConfusionGeneratorProject>
     <MetadataConfusionGeneratedRoot>$(ArtifactsPath)/package-fixtures-generated/metadata-confusion/$(FixtureVersion)</MetadataConfusionGeneratedRoot>
     <NuspecFile>$(FixtureRoot)/$(FixturePackage).nuspec</NuspecFile>
     <NuspecBasePath>$(FixtureRoot)</NuspecBasePath>
