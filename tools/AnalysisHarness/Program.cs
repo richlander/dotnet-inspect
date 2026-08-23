@@ -44,8 +44,9 @@ const string Usage =
 
       --clone-cross-assembly-corpus <left> <right> [--cross-assembly-ledger <file>] [--json]
           Grade product-owned cross-image structural-clone retrieval against the authored
-          version-pair ledger. Similarity uses portable structural operand categories and does
-          not establish a cross-reader clone relation.
+          version-pair ledger. Each ledger entry selects a left-side query method and searches
+          all methods in the declared right-side type. Similarity uses portable structural
+          operand categories and does not establish a cross-reader clone relation.
 
       --clone-census <assembly> [--seed <0xMethodDef|Type::Method>] [--top N]
           Run bounded product-owned exact discovery over every MethodDef in one assembly.

@@ -47,10 +47,45 @@ public class StructuralCloneCrossAssemblyCorpusTests
                 candidate.Method.Address.ModuleVersionId));
 
         string text = StructuralCloneCrossAssemblyCorpus.Format(report);
-        Assert.Contains("7/7 queries", text);
-        Assert.Contains("precision=42.85%", text);
-        Assert.Contains("labeled-recall=85.71%", text);
-        Assert.Contains("known-misses=1", text);
+        Assert.Contains(
+            "Query selection: 7 methods named by the committed ledger "
+                + "in the query artifact",
+            text);
+        Assert.Contains(
+            "Candidate scope: all methods in the "
+                + "ledger-declared right-side type",
+            text);
+        Assert.Contains("Expectations met: 7/7 queries", text);
+        Assert.Contains("Reviewed results: 14/14 requested", text);
+        Assert.Contains(
+            "Precision over reviewed results: 42.85%",
+            text);
+        Assert.Contains(
+            "Recall at reviewed depth over declared peers: "
+                + "85.71% (6/7)",
+            text);
+        Assert.Contains(
+            "Declared peers beyond reviewed depth: 1",
+            text);
+        Assert.Contains(
+            "EXPECTATIONS MET: stable-body"
+                + Environment.NewLine
+                + "  Query method: Stable",
+            text);
+        Assert.Contains(
+            "Precision over returned results: 50.00%; "
+                + "recall@2 over declared peers: 100.00% (1/1)",
+            text);
+        Assert.Contains(
+            "structural-score=10000/10000 Stable [relevant peer]",
+            text);
+        Assert.Contains(
+            "SemanticCallStringLiteralNearMiss "
+                + "[semantic lookalike (behavior differs)]",
+            text);
+        Assert.Contains(
+            "Assign [hard negative (unrelated lookalike)]",
+            text);
         Assert.Contains(
             "allocation-regression-miss",
             text);
@@ -99,7 +134,7 @@ public class StructuralCloneCrossAssemblyCorpusTests
         Assert.Null(query.PrecisionBasisPoints);
         Assert.Null(report.PrecisionBasisPoints);
         Assert.Contains(
-            "Unreviewed",
+            "unreviewed (relevance unknown)",
             StructuralCloneCrossAssemblyCorpus.Format(report));
     }
 
