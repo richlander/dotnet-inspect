@@ -288,6 +288,9 @@ while IFS= read -r -d '' file; do
     eng/test-ci-change-detection.cs) CODE=true ;;
     eng/CiChangeDetection/PromotionWorkflowContract.cs) CODE=true; WEB=true ;;
     eng/CiChangeDetection/*) CODE=true ;;
+    # Package fixture inputs are executable test evidence. The fast CLI test
+    # lane packs and inspects them; the product pack job does not consume them.
+    eng/package-fixtures/*) CODE=true ;;
     eng/prepare-decompiler-assertion-corpus.sh) CODE=true ;;
     eng/prepare-decompiler-corpus.sh) CODE=true ;;
     eng/prepare-decompiler-opt-in-corpus.sh) CODE=true ;;
