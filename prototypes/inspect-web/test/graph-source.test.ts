@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
+import { graphSourceStatuses } from "../src/data.ts";
 import {
   bindGraphSource,
   renderGraphSource,
@@ -66,38 +68,45 @@ function highlightCSharp(value: unknown) {
   return `<mark>${escapeHtml(value)}</mark>`;
 }
 
-test("loading state shows a status scoped to the title, not stale source or error", () => {
+const request = {
+  packageId: "Widget",
+  version: "1.0.0",
+  framework: "net10.0",
+  assembly: "Widget.dll",
+  type: "Widget.Renderer",
+  member: "Render",
+  selectorKey: "Widget.Renderer.Render()",
+  metadataToken: 100663297,
+} as const;
+
+// The predecessor of this test passed a source and an error alongside `loading: true` to prove
+// the renderer ignored them. The union removes those fields from the loading variant, so that
+// input no longer type-checks and the stale-content case cannot be constructed. What remains to
+// assert is that the status is scoped to the request's own title.
+test("loading state shows a status scoped to the title", () => {
   const html = renderGraphSource({
-    title: "Widget.Render()",
-    loading: true,
-    source: {
-      provider: "pdb",
-      provenance: "unused while loading",
-      url: "",
-      pdbSourceLimitation: null,
-      text: "unused",
-    },
-    error: "unused while loading",
+    state: { status: "loading", request, title: "Widget.Render()" },
     escapeHtml,
     highlightCSharp,
   });
 
   assert.match(html, /graph-source-status">Resolving source for Widget\.Render\(\)…/);
-  assert.doesNotMatch(html, /unused/);
 });
 
 test("loaded PDB source renders provenance, an open-source link, and highlighted text", () => {
   const html = renderGraphSource({
-    title: "Widget.Render()",
-    loading: false,
-    source: {
-      provider: "pdb",
-      provenance: "github.com/example/widget",
-      url: "https://github.com/example/widget/blob/main/Widget.cs",
-      pdbSourceLimitation: null,
-      text: "void Render() {}",
+    state: {
+      status: "ready",
+      request,
+      title: "Widget.Render()",
+      source: {
+        provider: "pdb",
+        provenance: "github.com/example/widget",
+        url: "https://github.com/example/widget/blob/main/Widget.cs",
+        pdbSourceLimitation: null,
+        text: "void Render() {}",
+      },
     },
-    error: "",
     escapeHtml,
     highlightCSharp,
   });
@@ -110,16 +119,18 @@ test("loaded PDB source renders provenance, an open-source link, and highlighted
 
 test("loaded decompiled source labels the provenance as decompiled and omits the link when url is null", () => {
   const html = renderGraphSource({
-    title: "Widget.Render()",
-    loading: false,
-    source: {
-      provider: "decompiled",
-      provenance: "decompiled from IL",
-      url: null,
-      pdbSourceLimitation: "<checksum mismatch>",
-      text: "void Render() {}",
+    state: {
+      status: "ready",
+      request,
+      title: "Widget.Render()",
+      source: {
+        provider: "decompiled",
+        provenance: "decompiled from IL",
+        url: null,
+        pdbSourceLimitation: "<checksum mismatch>",
+        text: "void Render() {}",
+      },
     },
-    error: "",
     escapeHtml,
     highlightCSharp,
   });
@@ -129,12 +140,9 @@ test("loaded decompiled source labels the provenance as decompiled and omits the
   assert.match(html, /PDB source unavailable: &lt;checksum mismatch&gt;/);
 });
 
-test("error state without a source shows the error message, falling back to a default", () => {
+test("a failure with no message falls back to the default text", () => {
   const html = renderGraphSource({
-    title: "Widget.Render()",
-    loading: false,
-    source: null,
-    error: "",
+    state: { status: "failed", request, title: "Widget.Render()", error: "" },
     escapeHtml,
     highlightCSharp,
   });
@@ -142,12 +150,29 @@ test("error state without a source shows the error message, falling back to a de
   assert.match(html, /graph-source-status error">No source was returned\.</);
 });
 
+// A competing member- or type-source request retires an in-flight graph load while its modal
+// stays open. The previous field layout expressed that as the absence of loading, result and
+// error all at once, which rendered the same default text; this pins that the named variant
+// still renders it, so naming the state did not change what a user sees.
+test("a cancelled load renders the same default text as an unexplained failure", () => {
+  const html = renderGraphSource({
+    state: { status: "cancelled", request, title: "Widget.Render()" },
+    escapeHtml,
+    highlightCSharp,
+  });
+
+  assert.match(html, /graph-source-status error">No source was returned\.</);
+  assert.match(html, /graph-source-title">Widget\.Render\(\)</);
+});
+
 test("error state with an explicit message renders that message escaped", () => {
   const html = renderGraphSource({
-    title: "Widget.Render()",
-    loading: false,
-    source: null,
-    error: "<script>alert(1)</script>",
+    state: {
+      status: "failed",
+      request,
+      title: "Widget.Render()",
+      error: "<script>alert(1)</script>",
+    },
     escapeHtml,
     highlightCSharp,
   });
@@ -157,16 +182,18 @@ test("error state with an explicit message renders that message escaped", () => 
 
 test("provenance and url are escaped", () => {
   const html = renderGraphSource({
-    title: "Widget.Render()",
-    loading: false,
-    source: {
-      provider: "pdb",
-      provenance: '<b>"evil"</b>',
-      url: 'https://example.com/"><script>alert(1)</script>',
-      pdbSourceLimitation: null,
-      text: "void Render() {}",
+    state: {
+      status: "ready",
+      request,
+      title: "Widget.Render()",
+      source: {
+        provider: "pdb",
+        provenance: '<b>"evil"</b>',
+        url: 'https://example.com/"><script>alert(1)</script>',
+        pdbSourceLimitation: null,
+        text: "void Render() {}",
+      },
     },
-    error: "",
     escapeHtml,
     highlightCSharp,
   });
@@ -177,10 +204,7 @@ test("provenance and url are escaped", () => {
 
 test("the title is escaped in both the header and the loading status", () => {
   const html = renderGraphSource({
-    title: "<b>Evil</b>",
-    loading: true,
-    source: null,
-    error: "",
+    state: { status: "loading", request, title: "<b>Evil</b>" },
     escapeHtml,
     highlightCSharp,
   });
@@ -191,10 +215,7 @@ test("the title is escaped in both the header and the loading status", () => {
 
 test("markup carries the modal dialog scaffolding and close button", () => {
   const html = renderGraphSource({
-    title: "Widget.Render()",
-    loading: false,
-    source: null,
-    error: "boom",
+    state: { status: "failed", request, title: "Widget.Render()", error: "boom" },
     escapeHtml,
     highlightCSharp,
   });
@@ -202,4 +223,33 @@ test("markup carries the modal dialog scaffolding and close button", () => {
   assert.match(html, /<div class="graph-source-backdrop" id="graph-source-backdrop">/);
   assert.match(html, /role="dialog" aria-modal="true" aria-label="Member source"/);
   assert.match(html, /<button id="graph-source-close" type="button" aria-label="Close">esc<\/button>/);
+});
+
+
+test("the graph source union declares exactly the vocabulary data.ts owns", () => {
+  // `data.ts` owns the status vocabulary so that visibility and cancellation can reason
+  // about the modal without depending on its request and payload types, and
+  // `source-inspection.ts` builds the full discriminated union on top of it. Nothing
+  // made those two agree: the vocabulary could gain a status the union never declares,
+  // or the union a status `graphSourceIsOpen` has never heard of.
+  //
+  // Derive the union's discriminants from the declaration and compare the sets, so a
+  // status added to either side fails until it is added to both.
+  const source = readFileSync(
+    new URL("../src/source-inspection.ts", import.meta.url),
+    "utf8");
+  // Capture to the next top-level declaration: the union's own members end in `;` too,
+  // so stopping at the first one would read only the `loading` variant.
+  const union = source.match(
+    /export type GraphSourceState =([\s\S]*?)\n\n(?=export |\/\/ )/);
+  const body = union?.[1];
+  assert.ok(body, "GraphSourceState declaration");
+  const declared = [...body.matchAll(/readonly status: "([a-z]+)"/g)]
+    .map(match => String(match[1]));
+
+  const byName = (left: string, right: string) => left.localeCompare(right);
+  assert.deepEqual(
+    declared.sort(byName),
+    [...graphSourceStatuses].sort(byName),
+    "graph source union statuses");
 });

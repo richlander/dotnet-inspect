@@ -1943,7 +1943,7 @@ test("global workbench shortcuts respect the topmost modal", () => {
     /const unavailableWorkspaceContext = \(\) =>[\s\S]*!state\.home && \(state\.loading \|\| Boolean\(state\.error\)\)[\s\S]*unavailable-workspace\.contain-browser-shortcut[\s\S]*unavailable-workspace\.contain-filter-shortcut/);
   assert.match(
     appSource,
-    /function workspaceKeyboardContextIsActive\(\)[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.settings[\s\S]*!state\.home[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!state\.graphSourceOpen[\s\S]*!isDocViewerOpen\(state\.docViewer\)[\s\S]*!state\.spotlightOpen/);
+    /function workspaceKeyboardContextIsActive\(\)[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.settings[\s\S]*!state\.home[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!graphSourceIsOpen\(state\.graphSource\)[\s\S]*!isDocViewerOpen\(state\.docViewer\)[\s\S]*!state\.spotlightOpen/);
   assert.equal(
     keybindingRegistrySource.match(/addEventListener\("keydown"/g)?.length,
     1);
@@ -2510,7 +2510,7 @@ test("Type Source completion settles behind workbench overlays", () => {
     ?? "";
   assert.match(
     appSource,
-    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\)\s*\|\| state\.tasteOpen;[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| state\.graphSourceOpen\s*\|\| isDocViewerOpen\(state\.docViewer\);/);
+    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\)\s*\|\| state\.tasteOpen;[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| graphSourceIsOpen\(state\.graphSource\)\s*\|\| isDocViewerOpen\(state\.docViewer\);/);
   assert.match(
     appSource,
     /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*activeSourceOperationKind\(state\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);
@@ -2860,9 +2860,13 @@ test("source operations cancel when superseded or hidden", () => {
   assert.match(
     appSource,
     /createSourceInspectionCoordinator\(\{[\s\S]*cancelEngineSourceRequest: \(\) => cancelSourceInspection\?\.\(\)/);
+  // The graph-source canceller is a required parameter, not an optional one, so this
+  // pins that `cancelHiddenRequest` actually hands it over. Cancelling the member and
+  // type requests while leaving an in-flight graph source owning `state.graphSource`
+  // is exactly the partial cancellation the union was introduced to make impossible.
   assert.match(
     sourceInspectionSource,
-    /cancelHiddenRequest\(\)[\s\S]*sourceSurfaceIsVisible\(state\)[\s\S]*cancelSourceRequestState\(state\)/);
+    /cancelHiddenRequest\(\)[\s\S]*sourceSurfaceIsVisible\(state\)[\s\S]*cancelSourceRequestState\(state, cancelGraphSource\)/);
   assert.match(appSource, /sourceInspection\.loadMemberSource\(\{/);
   assert.match(appSource, /sourceInspection\.loadTypeSource\(\{/);
   assert.match(appSource, /sourceInspection\.openGraphSource\(request, title\)/);
@@ -2906,7 +2910,7 @@ test("source operations cancel when superseded or hidden", () => {
     home: false,
     package: {},
     atPackageRoot: false,
-    graphSourceOpen: false,
+    graphSource: { status: "closed" },
     lens: "source",
     selectedMemberKey: "",
     memberSection: "overview"
@@ -2927,7 +2931,7 @@ test("source operations cancel when superseded or hidden", () => {
     activeSourceOperationKind({
       ...visible,
       atPackageRoot: true,
-      graphSourceOpen: true
+      graphSource: { status: "ready" }
     }),
     "graph");
   assert.equal(
@@ -2976,17 +2980,27 @@ test("source operations cancel when superseded or hidden", () => {
     memberSourceError: "",
     typeSourceLoading: false,
     typeSourceKey: "",
-    typeSourceError: "",
-    graphSourceLoading: false,
-    graphSourceError: "",
-    graphSourceSeq: 0
+    typeSourceError: ""
   };
-  assert.equal(beginSourceRequestState(requestState), 5);
+
+  // The graph modal shares the engine's single source-request channel, so both entry
+  // points have to retire an in-flight graph load as well. The canceller is a required
+  // parameter for exactly that reason, and counting its calls is what proves neither
+  // path forgets it.
+  let cancellations = 0;
+  const cancelGraphSource = () => {
+    cancellations++;
+    return true;
+  };
+
+  assert.equal(beginSourceRequestState(requestState, cancelGraphSource), 5);
   assert.equal(requestState.memberSourceLoading, false);
   assert.equal(requestState.memberSourceKey, "");
+  assert.equal(cancellations, 1);
   requestState.typeSourceLoading = true;
   requestState.typeSourceKey = "type";
-  assert.equal(cancelSourceRequestState(requestState), true);
+  assert.equal(cancelSourceRequestState(requestState, cancelGraphSource), true);
+  assert.equal(cancellations, 2);
   assert.equal(requestState.sourceRequestGeneration, 6);
   assert.equal(requestState.typeSourceLoading, false);
   assert.equal(requestState.typeSourceKey, "");

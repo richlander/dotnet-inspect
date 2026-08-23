@@ -21,6 +21,7 @@ import {
   graphMemberSelection,
   graphMemberTargetFromShare,
   graphOnlyBodyTarget,
+  graphSourceIsOpen,
   idleAsyncResource,
   MARKDOWN_SANITIZE_OPTIONS,
   MAX_WORKSPACE_PACKAGES,
@@ -138,7 +139,9 @@ import {
 } from "./product-home-demos.ts";
 import {
   createSourceInspectionCoordinator,
+  closedGraphSource,
   type GraphSourceRequest,
+  type GraphSourceState,
 } from "./source-inspection.ts";
 import {
   createMetadataInspectionCoordinator,
@@ -635,14 +638,8 @@ const initialState = {
   runtimePackLoading: false,
   runtimePackError: "",
   selectedBodyTarget: null,
-  graphSourceOpen: false,
-  graphSource: null,
-  graphSourceLoading: false,
-  graphSourceError: "",
+  graphSource: closedGraphSource,
   docViewer: { status: "closed" } as const,
-  graphSourceTitle: "",
-  graphSourceRequest: null,
-  graphSourceSeq: 0,
   styleTiers: null,
   styleOptions: null,
   styleCatalogError: "",
@@ -702,9 +699,8 @@ interface StateOverrides {
   platformRecent: PlatformRecent[];
   recentPackages: RecentPackage[];
   selectedBodyTarget: BodyTarget | null;
-  graphSource: BrowserSource | null;
+  graphSource: GraphSourceState;
   docViewer: DocumentViewerState;
-  graphSourceRequest: { request: GraphSourceRequest; title: string } | null;
   styleTiers: StyleTier[] | null;
   styleOptions: StyleOption[] | null;
   history: string[];
@@ -1288,12 +1284,12 @@ function isInteractiveElement(element: Element | null) {
 
 function focusTypeList(generation = spotlightFocusGeneration) {
   if (generation !== spotlightFocusGeneration
-      || state.spotlightOpen || state.graphSourceOpen
+      || state.spotlightOpen || graphSourceIsOpen(state.graphSource)
       || isDocViewerOpen(state.docViewer)
       || isTextEntry()) return;
   requestAnimationFrame(() => {
     if (generation !== spotlightFocusGeneration
-        || state.spotlightOpen || state.graphSourceOpen
+        || state.spotlightOpen || graphSourceIsOpen(state.graphSource)
         || isDocViewerOpen(state.docViewer)
         || isTextEntry()) return;
     document.querySelector<HTMLElement>("#type-list")?.focus();
@@ -2399,7 +2395,7 @@ function render() {
         expanded: state.statusBarExpanded,
       }, escapeHtml)}
       ${state.spotlightOpen ? spotlight.modalHtml() : ""}
-      ${state.graphSourceOpen ? renderGraphSource() : ""}
+      ${renderGraphSource()}
       ${isDocViewerOpen(state.docViewer) ? renderDocViewer() : ""}
       ${state.tasteOpen ? renderTastePopoverHtml() : ""}
     </div>`;
@@ -2424,16 +2420,12 @@ function render() {
 function maybeAutoLoadVisibleSource() {
   const kind = activeSourceOperationKind(state);
   if (kind === "graph") {
-    if (state.graphSourceRequest
-      && sourceRequestNeedsLoad(
-        true,
-        state.graphSourceLoading,
-        state.graphSource,
-        state.graphSourceError)) {
+    // "cancelled" is exactly the open-but-unsettled state a competing source request
+    // leaves behind: no load in flight, no result, and no error to show. Every other open
+    // variant is either still loading or already settled.
+    if (state.graphSource.status === "cancelled") {
       observeAsync(
-        openGraphSource(
-          state.graphSourceRequest.request,
-          state.graphSourceRequest.title),
+        openGraphSource(state.graphSource.request, state.graphSource.title),
         "Loading graph source");
     }
     return;
@@ -5810,7 +5802,7 @@ function workbenchOverlayOwnsFocus() {
 
 function workbenchModalOwnsFocus() {
   return state.spotlightOpen
-    || state.graphSourceOpen
+    || graphSourceIsOpen(state.graphSource)
     || isDocViewerOpen(state.docViewer);
 }
 
@@ -7878,11 +7870,9 @@ function invalidateSourceCaches() {
 function reloadVisibleSource() {
   switch (sourceReloadKind(state)) {
     case "graph":
-      if (state.graphSourceRequest) {
+      if (state.graphSource.status !== "closed") {
         observeAsync(
-          openGraphSource(
-            state.graphSourceRequest.request,
-            state.graphSourceRequest.title),
+          openGraphSource(state.graphSource.request, state.graphSource.title),
           "Reloading graph source");
       }
       break;
@@ -7962,11 +7952,9 @@ function renderSettingsViewHtml() {
 }
 
 function renderGraphSource() {
+  if (state.graphSource.status === "closed") return "";
   return renderGraphSourcePure({
-    title: state.graphSourceTitle,
-    loading: state.graphSourceLoading,
-    source: state.graphSource,
-    error: state.graphSourceError,
+    state: state.graphSource,
     escapeHtml,
     highlightCSharp,
   });
@@ -8756,7 +8744,7 @@ function workspaceKeyboardContextIsActive(): boolean {
     && !state.home
     && !state.loading
     && !state.error
-    && !state.graphSourceOpen
+    && !graphSourceIsOpen(state.graphSource)
     && !isDocViewerOpen(state.docViewer)
     && !state.spotlightOpen;
 }
@@ -8764,7 +8752,7 @@ function workspaceKeyboardContextIsActive(): boolean {
 const workspaceModalContextIsAvailable = () =>
   !state.home && !state.loading && !state.error;
 const graphSourceContextIsActive = () =>
-  workspaceModalContextIsAvailable() && state.graphSourceOpen;
+  workspaceModalContextIsAvailable() && graphSourceIsOpen(state.graphSource);
 const documentViewerContextIsActive = () =>
   workspaceModalContextIsAvailable() && isDocViewerOpen(state.docViewer);
 const spotlightContextIsActive = () =>

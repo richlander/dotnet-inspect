@@ -34,6 +34,48 @@ export interface GraphSourceRequest extends SourceCoordinates {
   metadataToken: number;
 }
 
+// One state for the graph-source modal, replacing the previous open/loading/error/result/
+// title/request fields and their sequence counter. Every non-closed variant carries the
+// request and title it belongs to, so a rendered modal can never show one request's title
+// beside another's result.
+//
+// The `loading` object itself is the request-ownership token: `openGraphSource` keeps a
+// reference to the object it installed and only commits a result when `state.graphSource`
+// is still that exact object. That is strictly stronger than the sequence counter it
+// replaces, because an identity cannot collide -- closing and reopening the same member
+// rejects the first request's late result, which an equal-valued key would have accepted.
+//
+// `cancelled` exists because a competing member- or type-source request retires an in-flight
+// graph load while its modal is still open. It renders the same "No source was returned."
+// text the previous field layout produced for that state, but names it rather than leaving
+// it as the absence of all three of loading, result, and error.
+export type GraphSourceState =
+  | { readonly status: "closed" }
+  | {
+    readonly status: "loading";
+    readonly request: GraphSourceRequest;
+    readonly title: string;
+  }
+  | {
+    readonly status: "ready";
+    readonly request: GraphSourceRequest;
+    readonly title: string;
+    readonly source: BrowserSource;
+  }
+  | {
+    readonly status: "failed";
+    readonly request: GraphSourceRequest;
+    readonly title: string;
+    readonly error: string;
+  }
+  | {
+    readonly status: "cancelled";
+    readonly request: GraphSourceRequest;
+    readonly title: string;
+  };
+
+export const closedGraphSource: GraphSourceState = { status: "closed" };
+
 export interface MemberSourceLoadRequest extends MemberSourceQuery {
   signature: string;
   isCurrent(): boolean;
@@ -55,16 +97,7 @@ export interface SourceInspectionState
   typeSourceLoading: boolean;
   typeSourceError: string;
   typeSourceKey: string;
-  graphSourceOpen: boolean;
-  graphSource: BrowserSource | null;
-  graphSourceLoading: boolean;
-  graphSourceError: string;
-  graphSourceTitle: string;
-  graphSourceRequest: {
-    request: GraphSourceRequest;
-    title: string;
-  } | null;
-  graphSourceSeq: number;
+  graphSource: GraphSourceState;
   taste: string[];
 }
 
@@ -100,10 +133,24 @@ export function createSourceInspectionCoordinator(
 ): SourceInspectionCoordinator {
   const { state } = dependencies;
 
+  // Retire an in-flight graph load without disturbing a closed, settled, or already-cancelled
+  // modal. Returning whether it cancelled anything is what lets the shared request-state
+  // helpers report that a cancellation actually happened.
+  function cancelGraphSource(): boolean {
+    const current = state.graphSource;
+    if (current.status !== "loading") return false;
+    state.graphSource = {
+      status: "cancelled",
+      request: current.request,
+      title: current.title,
+    };
+    return true;
+  }
+
   return {
     cancelHiddenRequest() {
       if (!sourceSurfaceIsVisible(state)
-        && cancelSourceRequestState(state)) {
+        && cancelSourceRequestState(state, cancelGraphSource)) {
         dependencies.cancelEngineSourceRequest();
       }
     },
@@ -118,7 +165,7 @@ export function createSourceInspectionCoordinator(
         return;
       }
 
-      const generation = beginSourceRequestState(state);
+      const generation = beginSourceRequestState(state, cancelGraphSource);
       state.memberSourceKey = request.signature;
       state.memberSource = null;
       state.memberSourceLoading = true;
@@ -158,7 +205,7 @@ export function createSourceInspectionCoordinator(
         dependencies.renderPreservingMemberFocus();
         return;
       }
-      const generation = beginSourceRequestState(state);
+      const generation = beginSourceRequestState(state, cancelGraphSource);
       state.typeSourceKey = request.signature;
       state.typeSource = null;
       state.typeSourceError = "";
@@ -185,46 +232,40 @@ export function createSourceInspectionCoordinator(
     },
 
     async openGraphSource(request, title) {
-      const generation = beginSourceRequestState(state);
-      const sequence = ++state.graphSourceSeq;
-      state.graphSourceOpen = true;
-      state.graphSourceTitle = title;
-      state.graphSourceRequest = { request, title };
-      state.graphSource = null;
-      state.graphSourceError = "";
-      state.graphSourceLoading = true;
+      beginSourceRequestState(state, cancelGraphSource);
+      // This object is the ownership token. Nothing below commits to `state.graphSource`
+      // unless it is still exactly this object, so a close, a reopen, or a competing
+      // source request all reject this request's late result without a counter.
+      const pending: GraphSourceState = { status: "loading", request, title };
+      state.graphSource = pending;
       dependencies.render();
-      const isCurrent = () =>
-        generation === state.sourceRequestGeneration
-        && sequence === state.graphSourceSeq
-        && state.graphSourceOpen;
       try {
         const source = await dependencies.queryGraphSource(
           request,
           JSON.stringify(state.taste));
-        if (isCurrent()) state.graphSource = source;
+        if (state.graphSource !== pending) return;
+        state.graphSource = { status: "ready", request, title, source };
       } catch (error) {
-        if (isCurrent()) {
-          state.graphSourceError = dependencies.describeError(error);
-        }
-      } finally {
-        if (isCurrent()) {
-          state.graphSourceLoading = false;
-          dependencies.render();
-        }
+        if (state.graphSource !== pending) return;
+        state.graphSource = {
+          status: "failed",
+          request,
+          title,
+          error: dependencies.describeError(error),
+        };
       }
+      // Reached only when this request still owned the modal and settled it, matching the
+      // previous behavior of rendering the resolution exactly once for the owning request.
+      dependencies.render();
     },
 
     closeGraphSource() {
-      if (cancelSourceRequestState(state)) {
+      if (cancelSourceRequestState(state, cancelGraphSource)) {
         dependencies.cancelEngineSourceRequest();
       }
-      state.graphSourceSeq++;
-      state.graphSourceOpen = false;
-      state.graphSource = null;
-      state.graphSourceError = "";
-      state.graphSourceLoading = false;
-      state.graphSourceRequest = null;
+      // One assignment both resets the modal and invalidates any request that owned the
+      // previous object.
+      state.graphSource = closedGraphSource;
       dependencies.render();
     },
   };

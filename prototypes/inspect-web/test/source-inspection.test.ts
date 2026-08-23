@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  closedGraphSource,
   createSourceInspectionCoordinator,
   type SourceInspectionDependencies,
   type SourceInspectionState,
@@ -41,7 +42,6 @@ function inspectionState(
     error: "",
     home: false,
     package: {},
-    graphSourceOpen: false,
     atPackageRoot: false,
     lens: "api",
     selectedMemberKey: "method:Build",
@@ -55,12 +55,7 @@ function inspectionState(
     typeSourceLoading: false,
     typeSourceError: "",
     typeSourceKey: "",
-    graphSource: null,
-    graphSourceLoading: false,
-    graphSourceError: "",
-    graphSourceTitle: "",
-    graphSourceRequest: null,
-    graphSourceSeq: 0,
+    graphSource: closedGraphSource,
     taste: [],
     ...overrides,
   };
@@ -260,20 +255,20 @@ test("closing graph source invalidates its result and cancels the engine", async
   };
 
   const load = coordinator.openGraphSource(request, "Example.Widget.Build");
-  assert.equal(state.graphSourceOpen, true);
-  assert.equal(state.graphSourceSeq, 1);
-  assert.deepEqual(state.graphSourceRequest, {
+  assert.deepEqual(state.graphSource, {
+    status: "loading",
     request,
     title: "Example.Widget.Build",
   });
   coordinator.closeGraphSource();
-  assert.equal(state.graphSourceSeq, 3);
+  // Closing is one assignment, not a flag clear plus a counter bump. The in-flight
+  // request loses ownership because `state.graphSource` no longer holds the object
+  // it captured, so the late resolve below cannot find its way back into state.
+  assert.deepEqual(state.graphSource, closedGraphSource);
   query.resolve(source("stale graph"));
   await load;
 
-  assert.equal(state.graphSourceOpen, false);
-  assert.equal(state.graphSource, null);
-  assert.equal(state.graphSourceRequest, null);
+  assert.deepEqual(state.graphSource, closedGraphSource);
   assert.deepEqual(events, [
     "render",
     "query:Build/[\"expression-bodied-members\"]",
@@ -304,7 +299,9 @@ test("current graph source failures settle as visible errors", async () => {
     metadataToken: 42,
   }, "Example.Widget.Build");
 
-  assert.equal(state.graphSourceError, "graph source unavailable");
-  assert.equal(state.graphSourceLoading, false);
+  assert.equal(state.graphSource.status, "failed");
+  assert.equal(
+    state.graphSource.status === "failed" ? state.graphSource.error : null,
+    "graph source unavailable");
   assert.equal(renders, 2);
 });

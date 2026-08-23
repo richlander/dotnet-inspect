@@ -1443,6 +1443,29 @@ export function memberRequestKey(parts: readonly string[], taste: readonly strin
   return [...parts, ...taste].join("\u0000");
 }
 
+// The graph-source modal's lifecycle statuses. This module owns the status vocabulary so
+// that visibility and cancellation can reason about it without depending on the request and
+// payload types; `source-inspection.ts` owns the full discriminated union built on these.
+export const graphSourceStatuses = [
+  "closed",
+  "loading",
+  "ready",
+  "failed",
+  "cancelled",
+] as const;
+
+type GraphSourceStatus = (typeof graphSourceStatuses)[number];
+
+export interface GraphSourceStatusCarrier {
+  readonly status: GraphSourceStatus;
+}
+
+export function graphSourceIsOpen(
+  graphSource: GraphSourceStatusCarrier | null | undefined,
+): boolean {
+  return graphSource != null && graphSource.status !== "closed";
+}
+
 export interface SourceWorkbenchState {
   settings?: boolean;
   explorer?: { open?: boolean } | null;
@@ -1450,7 +1473,7 @@ export interface SourceWorkbenchState {
   error?: string;
   home?: boolean;
   package?: unknown;
-  graphSourceOpen?: boolean;
+  graphSource?: GraphSourceStatusCarrier | null;
   atPackageRoot?: boolean;
   lens?: TypeLens;
   selectedMemberKey?: string;
@@ -1473,7 +1496,7 @@ export type SourceOperationKind = "graph" | "type" | "member" | null;
 
 export function activeSourceOperationKind(state: SourceWorkbenchState): SourceOperationKind {
   if (!sourceWorkbenchIsVisible(state)) return null;
-  if (state.graphSourceOpen) return "graph";
+  if (graphSourceIsOpen(state.graphSource)) return "graph";
   if (state.atPackageRoot) return null;
   if (state.lens === "source") return "type";
   if (state.lens === "api"
@@ -1495,7 +1518,7 @@ export function sourceReloadKind(state: SourceWorkbenchState): SourceReloadKind 
   if (active) return active;
   if (!sourceWorkbenchIsVisible(state)
     || state.atPackageRoot
-    || state.graphSourceOpen) {
+    || graphSourceIsOpen(state.graphSource)) {
     return null;
   }
   if (state.lens === "api"
@@ -1523,29 +1546,40 @@ export interface SourceRequestState {
   typeSourceLoading?: boolean;
   typeSourceKey?: string;
   typeSourceError?: string;
-  graphSourceLoading?: boolean;
-  graphSourceError?: string;
-  graphSourceSeq?: number;
 }
 
-export function beginSourceRequestState(state: SourceRequestState): number {
+// The graph-source modal shares the engine's single source-request channel, so starting or
+// cancelling any source request must also retire an in-flight graph load. The caller supplies
+// that transition because `source-inspection.ts` owns the graph union; it is a required
+// parameter rather than an optional one so a new call site cannot silently skip it.
+export type CancelGraphSource = () => boolean;
+
+export function beginSourceRequestState(
+  state: SourceRequestState,
+  cancelGraphSource: CancelGraphSource,
+): number {
   state.sourceRequestGeneration = (state.sourceRequestGeneration ?? 0) + 1;
-  clearInFlightSourceState(state);
+  clearInFlightSourceState(state, cancelGraphSource);
   return state.sourceRequestGeneration;
 }
 
-export function cancelSourceRequestState(state: SourceRequestState): boolean {
-  if (!state.memberSourceLoading
-    && !state.typeSourceLoading
-    && !state.graphSourceLoading) {
+export function cancelSourceRequestState(
+  state: SourceRequestState,
+  cancelGraphSource: CancelGraphSource,
+): boolean {
+  const graphWasLoading = cancelGraphSource();
+  if (!state.memberSourceLoading && !state.typeSourceLoading && !graphWasLoading) {
     return false;
   }
   state.sourceRequestGeneration = (state.sourceRequestGeneration ?? 0) + 1;
-  clearInFlightSourceState(state);
+  clearInFlightSourceState(state, () => false);
   return true;
 }
 
-function clearInFlightSourceState(state: SourceRequestState): void {
+function clearInFlightSourceState(
+  state: SourceRequestState,
+  cancelGraphSource: CancelGraphSource,
+): void {
   if (state.memberSourceLoading) {
     state.memberSourceLoading = false;
     state.memberSourceKey = "";
@@ -1556,11 +1590,7 @@ function clearInFlightSourceState(state: SourceRequestState): void {
     state.typeSourceKey = "";
     state.typeSourceError = "";
   }
-  if (state.graphSourceLoading) {
-    state.graphSourceLoading = false;
-    state.graphSourceError = "";
-    state.graphSourceSeq = (state.graphSourceSeq ?? 0) + 1;
-  }
+  cancelGraphSource();
 }
 
 export interface SectionableMember {
