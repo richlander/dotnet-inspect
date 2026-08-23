@@ -1369,20 +1369,24 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task PackagePerformance_ExcludesMembersAbsentFromReferenceSurface()
+    public async Task PackagePerformance_ExcludesMembersWithoutANavigableSurface()
     {
         const string PackageId = "Browser.Performance.Reference";
-        byte[] implementation = File.ReadAllBytes(
+        byte[] extraImplementation = File.ReadAllBytes(
             typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] pairedImplementation = File.ReadAllBytes(
+            typeof(BrowserPackage).Assembly.Location);
         byte[] surface = BuildEmptySurfaceImage(
-            typeof(BrowserEngineBoundaryTests).Assembly.GetName());
+            typeof(BrowserPackage).Assembly.GetName());
         BrowserPackageWorkspace.RegisterAcquiredPackage(
             new BrowserPackage(
                 PackageId,
                 "1.0.0",
-                PackagePair(
+                PackagePairWithExtraImplementation(
                     surface,
-                    implementation,
+                    pairedImplementation,
+                    "InspectWeb.Engine.dll",
+                    extraImplementation,
                     "InspectWeb.Engine.Tests.dll"),
                 fromCache: false));
 
@@ -1397,6 +1401,37 @@ public sealed class BrowserEngineBoundaryTests
             root.GetProperty("totalOpportunities").GetInt32() > 0);
         Assert.Empty(
             root.GetProperty("members").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task PackagePerformance_ReportsSurfaceTruncation()
+    {
+        const string PackageId = "Browser.Performance.Truncated";
+        byte[] image = BuildTransportAmplificationImage(
+            PackageId,
+            typeCount: 10_000,
+            namespaceLength: 1_000);
+        BrowserPackageWorkspace.RegisterAcquiredPackage(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                Package(
+                    image,
+                    $"lib/net11.0/{PackageId}.dll"),
+                fromCache: false));
+
+        string json = await InspectionEngine.QueryPackagePerformance(
+            PackageId,
+            "1.0.0",
+            "net11.0");
+
+        using JsonDocument document = JsonDocument.Parse(json);
+        Assert.Contains(
+            "truncated",
+            document.RootElement
+                .GetProperty("inspectionError")
+                .GetString(),
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -2186,6 +2221,50 @@ public sealed class BrowserEngineBoundaryTests
                 .Open())
             {
                 entry.Write(implementationAssembly);
+            }
+        }
+
+        return content.ToArray();
+    }
+
+    static byte[] PackagePairWithExtraImplementation(
+        byte[] surfaceAssembly,
+        byte[] implementationAssembly,
+        string assemblyFileName,
+        byte[] extraImplementationAssembly,
+        string extraAssemblyFileName)
+    {
+        using var content = new MemoryStream();
+        using (var archive = new ZipArchive(
+            content,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using (Stream entry = archive
+                .CreateEntry(
+                    $"ref/net11.0/{assemblyFileName}",
+                    CompressionLevel.NoCompression)
+                .Open())
+            {
+                entry.Write(surfaceAssembly);
+            }
+
+            using (Stream entry = archive
+                .CreateEntry(
+                    $"lib/net11.0/{assemblyFileName}",
+                    CompressionLevel.NoCompression)
+                .Open())
+            {
+                entry.Write(implementationAssembly);
+            }
+
+            using (Stream entry = archive
+                .CreateEntry(
+                    $"lib/net11.0/{extraAssemblyFileName}",
+                    CompressionLevel.NoCompression)
+                .Open())
+            {
+                entry.Write(extraImplementationAssembly);
             }
         }
 

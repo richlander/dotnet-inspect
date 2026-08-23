@@ -748,6 +748,8 @@ public static partial class InspectionEngine
         ];
 
         var failures = new List<string>();
+        if (!string.IsNullOrWhiteSpace(surface.InspectionError))
+            failures.Add($"API surface: {surface.InspectionError}");
         foreach (AssemblyContextEntry<
             AssemblyOptimizationOpportunityRanking> entry
             in result.Assemblies.Assemblies)
@@ -801,8 +803,10 @@ public static partial class InspectionEngine
                     ReferenceEquals(
                         candidate.Assembly.Registration,
                         member.Subject.Registration));
-            BrowserWorkspaceParticipant surfaceParticipant =
-                scope.SurfaceParticipant(analysisParticipant);
+            BrowserWorkspaceParticipant? surfaceParticipant =
+                scope.TryGetSurfaceParticipant(analysisParticipant);
+            if (surfaceParticipant is null)
+                continue;
             if (!navigableMembers.Contains((
                     surfaceParticipant.Asset.AssemblyName,
                     publicMember.Type,

@@ -221,7 +221,7 @@ internal sealed class BrowserInspectionScope : IDisposable
         return implementation;
     }
 
-    public BrowserWorkspaceParticipant SurfaceParticipant(
+    public BrowserWorkspaceParticipant? TryGetSurfaceParticipant(
         BrowserWorkspaceParticipant implementationParticipant)
     {
         ArgumentNullException.ThrowIfNull(implementationParticipant);
@@ -234,7 +234,7 @@ internal sealed class BrowserInspectionScope : IDisposable
                 nameof(implementationParticipant));
         }
 
-        return SurfaceParticipants.Single(surface =>
+        return SurfaceParticipants.SingleOrDefault(surface =>
             surface.Coordinate.Key.Equals(
                 implementationParticipant.Coordinate.Key,
                 StringComparison.Ordinal)
