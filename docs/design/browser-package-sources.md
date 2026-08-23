@@ -608,7 +608,9 @@ information are typed invalid responses rather than normalized requests.
 `DefaultV3TransportHasNoAmbientCredentialMechanisms`, and
 `BrowserV3TransportAvoidsUnsupportedHandlerConfiguration` gate shared transport
 construction. `GalleryBrowserTransportAvoidsUnsupportedHandlerConfiguration`
-gates the Gallery-specific Browser handler, and
+gates the Gallery-specific Browser handler,
+`CredentialFreeBrowserTransportAvoidsUnsupportedHandlerConfiguration` gates
+the CLI host's credential-free Browser handler, and
 `GalleryDesktopTransportFollowsSourceOwnedRedirects` gates that the Gallery
 factory uses the bounded desktop redirect policy.
 `BrowserNuGetRequestsOmitAmbientCredentials` gates the Fetch credential option,

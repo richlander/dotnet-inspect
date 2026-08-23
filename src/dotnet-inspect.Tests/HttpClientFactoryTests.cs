@@ -128,6 +128,19 @@ public class HttpClientFactoryTests : IDisposable
     }
 
     [Fact]
+    public void CredentialFreeBrowserTransportAvoidsUnsupportedHandlerConfiguration()
+    {
+        using HttpClientHandler transport = DotnetInspector.Core.HttpClientFactory
+            .CreateTransportHandler(
+                isBrowser: true,
+                includeAuthentication: false);
+
+        Assert.Equal(DecompressionMethods.None, transport.AutomaticDecompression);
+        Assert.True(transport.UseCookies);
+        Assert.True(transport.AllowAutoRedirect);
+    }
+
+    [Fact]
     public async Task CreateCredentialFreeClient_HonorsOfflinePolicy()
     {
         DotnetInspector.Core.HttpClientFactory.Initialize(

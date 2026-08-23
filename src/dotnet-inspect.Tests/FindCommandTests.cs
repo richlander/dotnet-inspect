@@ -550,6 +550,35 @@ public class FindCommandIntegrationTests
         NuGetCache.Initialize("dotnet-inspect");
     }
 
+    [Theory]
+    [InlineData("Azure", 0, "-t must be between 1 and 10000 for a package-prefix profile (got 0).")]
+    [InlineData("Azure", 10001, "-t must be between 1 and 10000 for a package-prefix profile (got 10001).")]
+    [InlineData("Azure ", 100, "--package-prefix must be 1 to 100 characters without surrounding whitespace or control characters.")]
+    public async Task PackageProfileInvalidInput_UsesComposedDiagnostic(
+        string prefix,
+        int limit,
+        string expected)
+    {
+        var options = new FindOptions
+        {
+            Pattern = "",
+            PackagePrefix = prefix,
+            Limit = limit,
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => FindCommand.ExecuteAsync(options));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(expected, error);
+        Assert.DoesNotContain("Arg_", error, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "ArgumentOutOfRange_",
+            error,
+            StringComparison.Ordinal);
+    }
+
     // ── Framework coverage tests ─────────────────────────────────────
 
     [Fact]

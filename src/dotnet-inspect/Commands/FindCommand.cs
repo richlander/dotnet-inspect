@@ -156,6 +156,22 @@ public class FindCommand
             return 1;
         }
 
+        if (!PackageProfileQuery.IsValidPrefix(options.PackagePrefix))
+        {
+            CommandError.Write(
+                "--package-prefix must be 1 to 100 characters without surrounding whitespace or control characters.");
+            return 1;
+        }
+
+        int maximumPackages = options.Limit ?? 100;
+        if (maximumPackages is <= 0
+            or > PackageProfileQuery.MaximumPackageLimit)
+        {
+            CommandError.Write(
+                $"-t must be between 1 and {PackageProfileQuery.MaximumPackageLimit} for a package-prefix profile (got {maximumPackages}).");
+            return 1;
+        }
+
         using IPackageSourceClient source =
             PackageSourceClientFactory.CreateGallery(
                 DotnetInspector.Core.HttpClientFactory
@@ -164,7 +180,7 @@ public class FindCommand
                     context.HttpClient.Timeout));
         var request = new PackagePrefixProfileRequest(
             options.PackagePrefix!,
-            options.Limit ?? 100);
+            maximumPackages);
         var events = new List<PackageProfileEvent>();
         await foreach (PackageProfileEvent profileEvent
             in PackageProfileQuery.ExecuteAsync(

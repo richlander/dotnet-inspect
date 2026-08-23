@@ -85,6 +85,12 @@ public static class PackageProfileQuery
 {
     public const int MaximumPackageLimit = 10_000;
 
+    public static bool IsValidPrefix(string? prefix) =>
+        !string.IsNullOrWhiteSpace(prefix)
+        && prefix.Length <= 100
+        && prefix.AsSpan().Trim().Length == prefix.Length
+        && !prefix.Any(char.IsControl);
+
     public static InspectionQuery<IAsyncEnumerable<PackageProfileEvent>>
         Definition { get; } =
             new("Package profile", InspectionCost.Unbounded);
@@ -292,10 +298,7 @@ public static class PackageProfileQuery
 
     private static void Validate(PackagePrefixProfileRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.Prefix)
-            || request.Prefix.Length > 100
-            || request.Prefix.AsSpan().Trim().Length != request.Prefix.Length
-            || request.Prefix.Any(char.IsControl))
+        if (!IsValidPrefix(request.Prefix))
         {
             throw new ArgumentException(
                 "A package prefix must be a non-empty package-ID prefix without surrounding whitespace.",

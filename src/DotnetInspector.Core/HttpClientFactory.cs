@@ -209,19 +209,9 @@ public static class HttpClientFactory
         HttpClientFactoryOptions options,
         bool includeAuthentication)
     {
-        var transport = new HttpClientHandler
-        {
-            AutomaticDecompression = DecompressionMethods.All
-        };
-        if (!includeAuthentication && !OperatingSystem.IsBrowser())
-        {
-            transport.UseCookies = false;
-            transport.UseDefaultCredentials = false;
-            transport.PreAuthenticate = false;
-            transport.AllowAutoRedirect = false;
-        }
-
-        HttpMessageHandler handler = transport;
+        HttpMessageHandler handler = CreateTransportHandler(
+            OperatingSystem.IsBrowser(),
+            includeAuthentication);
 
         if (options.Offline)
             handler = new OfflineHandler(handler);
@@ -239,6 +229,27 @@ public static class HttpClientFactory
         }
 
         return handler;
+    }
+
+    internal static HttpClientHandler CreateTransportHandler(
+        bool isBrowser,
+        bool includeAuthentication)
+    {
+        var transport = new HttpClientHandler();
+        if (isBrowser)
+            return transport;
+
+        transport.AutomaticDecompression = DecompressionMethods.All;
+
+        if (!includeAuthentication)
+        {
+            transport.UseCookies = false;
+            transport.UseDefaultCredentials = false;
+            transport.PreAuthenticate = false;
+            transport.AllowAutoRedirect = false;
+        }
+
+        return transport;
     }
 
     /// <summary>
