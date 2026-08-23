@@ -312,6 +312,18 @@ reached by discovery, so it is trusted only when its
 `TypeRefDecoder.CanonicalSelf` consults the registry before honouring a platform
 key.
 
+Entitlement has exactly **one door**. `MayMint` is the rule and
+`GrantIfEntitled` is the only way to reach the grant, because
+`GrantCoreLibraryIdentity` is `private`. That privacy is the fix, not a
+convention: through round 8 the grant was `internal` and three of the five grant
+sites called it directly, two of them building `Local` provenance — which
+`MayMint` denies — and granting anyway. Each of those sites opens a file the
+caller named, so the behaviour was right; it was just right by *bypass*, and
+every gate on `MayMint` therefore proved nothing about them. Four consecutive
+rounds found the escape one frame further out because it was never a missing
+gate, it was a second door. Reintroducing a direct grant is now **CS0122**, a
+compile error rather than a test that can rot.
+
 The registry is an **allow list**, and the polarity is load-bearing. A deny
 list has to enumerate every site that turns bytes into a reader, so a site
 nobody remembered fails open and silently restores the vulnerability. That is
@@ -341,7 +353,10 @@ There is deliberately **no host opt-in** to relax this. An opt-in would be a
 blanket switch over provenance, and the provenances it would enable —
 `PackageAsset`, `EmbeddedAsset`, discovered siblings — are precisely the ones
 whose closure cannot be established. Better loose-layout support is a scenario
-to design later, and it needs a coherence test, not a policy flag.
+to design later, and it needs a coherence test, not a policy flag. What such a
+scenario has to establish — overlay composition, coherence, and precedence
+between two entitled candidates — is specified in
+[platform composition and overlays](platform-composition-and-overlays.md).
 
 Today the only product caller that designates is corpus enumeration
 (`CorpusAssemblyPaths`). No command turns a user-named directory into a
@@ -369,6 +384,18 @@ named the file, but a loose file is not a hive. It keeps core-library identity
 through designation, while `ResolvedFrom` stops claiming a platform origin it
 cannot support. Local PDB probing is unaffected, since only symbol-*server*
 acquisition is gated on platform status.
+
+**The raw-path shortcut is a known live gap, not merely a shortcut the target
+improves on.** `MetadataSource.Open(path)` and
+`MetadataSource.OpenFromPrefetchedImage(path, image)` infer designation from the
+presence of a path. Package extraction produces a path on disk that is
+indistinguishable from a file the user named, so a package carrying a forged
+`System.Runtime.dll` reaches these entry points and mints core-library identity.
+Platform-in-package is consequently rejected in policy but **not** in mechanism.
+This is pre-existing — both sites granted unconditionally before the rule was
+funnelled — and it is tracked as **#4606**, whose fix is to require callers to
+supply the acquisition they actually obtained the bytes under. Until then, treat
+this section's rule as describing the decision, not the whole carrier.
 
 That describes the current carrier. The target
 [artifact acquisition design](artifact-acquisition-and-workspaces.md)
