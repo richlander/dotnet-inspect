@@ -237,6 +237,7 @@ public static class RouterCommandDefinition
                     "--package",
                     hasTypeOption,
                     hasMemberOption,
+                    rootCommand,
                     out var explicitSourceRoute)
                 || TryRouteExplicitSourceTarget(
                     target,
@@ -244,6 +245,7 @@ public static class RouterCommandDefinition
                     "--platform",
                     hasTypeOption,
                     hasMemberOption,
+                    rootCommand,
                     out explicitSourceRoute))
             {
                 return explicitSourceRoute;
@@ -906,13 +908,19 @@ public static class RouterCommandDefinition
 
         private static bool IsKnownOption(
             RootCommand rootCommand,
+            string token) =>
+            FindKnownOption(rootCommand, token) is not null;
+
+        private static Option? FindKnownOption(
+            RootCommand rootCommand,
             string token)
         {
             var optionName = GetOptionName(token);
             return rootCommand.Options
                 .Concat(rootCommand.Subcommands.SelectMany(
                     static command => command.Options))
-                .Any(option => MatchesOption(option, optionName));
+                .FirstOrDefault(
+                    option => MatchesOption(option, optionName));
         }
 
         private static bool IsPackageRelativeLibraryValue(string value)
@@ -961,31 +969,67 @@ public static class RouterCommandDefinition
             string option,
             bool hasTypeOption,
             bool hasMemberOption,
+            RootCommand rootCommand,
             out string[] rewritten)
         {
             rewritten = [];
             if (!IsExplicitSourceIdentity(target, tokens, option)
-                || tokens.Length == 0
-                || tokens[0].StartsWith('-')
-                || NuGetVersion.TryParse(tokens[0], out _))
+                || tokens.Length == 0)
             {
                 return false;
             }
 
             var withoutSourceIdentity =
                 RemoveOptionWithValue(tokens, option, target);
-            if (withoutSourceIdentity.Length == 0
-                || !withoutSourceIdentity[0].Equals(
-                    tokens[0],
-                    StringComparison.Ordinal))
+            if (!TryFindPositionalIndex(
+                    withoutSourceIdentity,
+                    rootCommand,
+                    out var targetIndex))
                 return false;
 
-            var targetToken = withoutSourceIdentity[0];
+            if (targetIndex < 0)
+            {
+                if (hasTypeOption)
+                {
+                    rewritten =
+                    [
+                        "type",
+                        option,
+                        target,
+                        .. withoutSourceIdentity
+                    ];
+                    return true;
+                }
+
+                if (hasMemberOption)
+                {
+                    rewritten =
+                    [
+                        "member",
+                        option,
+                        target,
+                        .. withoutSourceIdentity
+                    ];
+                    return true;
+                }
+
+                return false;
+            }
+
+            var targetToken = withoutSourceIdentity[targetIndex];
+            if (NuGetVersion.TryParse(targetToken, out _))
+                return false;
+
+            string[] remainingTokens =
+            [
+                .. withoutSourceIdentity[..targetIndex],
+                .. withoutSourceIdentity[(targetIndex + 1)..]
+            ];
             string[] sourceTail =
             [
                 option,
                 target,
-                .. withoutSourceIdentity[1..]
+                .. remainingTokens
             ];
 
             if (hasTypeOption)
@@ -1003,6 +1047,42 @@ public static class RouterCommandDefinition
             rewritten = targetToken.Contains('.')
                 ? RouteDeferredTypeOrMember(targetToken, sourceTail)
                 : ["type", targetToken, .. sourceTail];
+            return true;
+        }
+
+        private static bool TryFindPositionalIndex(
+            string[] tokens,
+            RootCommand rootCommand,
+            out int index)
+        {
+            index = -1;
+            for (var i = 0; i < tokens.Length; i++)
+            {
+                var option = FindKnownOption(rootCommand, tokens[i]);
+                if (option is null)
+                {
+                    if (tokens[i].StartsWith('-'))
+                        return false;
+
+                    index = i;
+                    return true;
+                }
+
+                if (tokens[i].AsSpan().IndexOfAny('=', ':') >= 0)
+                    continue;
+
+                var remainingValues =
+                    option.Arity.MaximumNumberOfValues;
+                while (remainingValues > 0
+                    && i + 1 < tokens.Length
+                    && FindKnownOption(rootCommand, tokens[i + 1])
+                        is null)
+                {
+                    i++;
+                    remainingValues--;
+                }
+            }
+
             return true;
         }
 

@@ -106,7 +106,9 @@ internal sealed record TypeMemberFindIfMissResult(
                 ParsedSelector.Name
             },
             KindFilter = kindFilter,
-            OverloadIndex = ParsedSelector.OverloadIndex,
+            OverloadIndex =
+                options.OverloadIndex
+                ?? ParsedSelector.OverloadIndex,
             MemberDigest = ParsedSelector.DigestPrefix,
             MemberGenericArity = ParsedSelector.GenericArity
         };

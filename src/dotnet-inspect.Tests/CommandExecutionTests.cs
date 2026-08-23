@@ -5163,6 +5163,43 @@ public partial class CommandExecutionTests
         Assert.Empty(found.Error);
     }
 
+    [Theory]
+    [InlineData("StatusCode")]
+    [InlineData("StatusCode:1")]
+    public async Task Member_PlatformFindIfMiss_PreservesExplicitIndex(
+        string selector)
+    {
+        string[] tail =
+        [
+            "--index",
+            "2",
+            "-S",
+            SectionNames.Signature,
+            "--tsv",
+            "--columns",
+            "canonical_signature",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            [
+                "member",
+                "ControllerBase",
+                "--platform",
+                "Microsoft.AspNetCore.Mvc.Core",
+                "-m",
+                selector,
+                .. tail
+            ]);
+        var found = await RunAppAsync(
+            ["member", $"ControllerBase.{selector}", .. tail]);
+
+        Assert.Equal(direct.Output, found.Output);
+        Assert.Equal(0, found.Exit);
+        Assert.Contains("StatusCode", found.Output);
+        Assert.Empty(found.Error);
+    }
+
     [Fact]
     public async Task Router_SimplePlatformMember_UsesPlatformMemberFindIfMiss()
     {
@@ -6519,6 +6556,74 @@ public partial class CommandExecutionTests
         Assert.Contains("## Type Info", routed.Output);
         Assert.Contains("| Source | Platform |", routed.Output);
         Assert.DoesNotContain("| Package |", routed.Output);
+        Assert.Empty(routed.Error);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitPlatformIdentity_SourceBeforeTypePositional_PreservesTypeInspection()
+    {
+        string[] arguments =
+        [
+            "System.Text.Json",
+            "--platform",
+            "System.Text.Json",
+            "JsonSerializer",
+            "-S",
+            "Type Info",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(
+            "type",
+            "JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "-S",
+            "Type Info",
+            "--tips",
+            "q");
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains(
+            "# System.Text.Json.JsonSerializer",
+            routed.Output);
+        Assert.Empty(routed.Error);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitPlatformIdentity_QualifiedMemberOptionSuppliesTarget()
+    {
+        string[] tail =
+        [
+            "-m",
+            "JsonSerializer.Serialize",
+            "-S",
+            "Member Index",
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            [
+                "member",
+                "--platform",
+                "System.Text.Json",
+                .. tail
+            ]);
+        var routed = await RunAppAsync(
+            [
+                "System.Text.Json",
+                "--platform",
+                "System.Text.Json",
+                .. tail
+            ]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.NotEqual("0", routed.Output.Trim());
         Assert.Empty(routed.Error);
     }
 

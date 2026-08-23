@@ -157,6 +157,9 @@ public class TypeMatcherTests
     [InlineData(
         "System.Collections.Generic.Dictionary`2.KeyCollection",
         "System.Collections.Generic.Dictionary*+KeyCollection")]
+    [InlineData(
+        "System.Collections.Generic.Dictionary`2+KeyCollection",
+        "Dictionary*+KeyCollection")]
     public void MatchesTypeFilter_GlobNormalizesNestedSeparators(
         string candidate,
         string pattern) =>
@@ -175,6 +178,9 @@ public class TypeMatcherTests
     [InlineData(
         "System.Collections.Generic.Dictionary`2.KeyCollection",
         "System.Collections.Generic.Dictionary*+KeyCollection")]
+    [InlineData(
+        "System.Collections.Generic.Dictionary`2+KeyCollection",
+        "Dictionary*+KeyCollection")]
     public void Lookup_GlobNormalizesNestedSeparators(
         string candidate,
         string pattern)

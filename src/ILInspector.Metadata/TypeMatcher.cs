@@ -290,10 +290,12 @@ public static class TypeMatcher
         if (IsTypeGlobPattern(pattern))
         {
             var normalizedFullName = NormalizeForLookup(fullName);
+            var normalizedSimpleName =
+                NormalizeForLookup(GetSimpleName(fullName));
             var normalizedPattern = matchPattern.Replace('+', '.');
             return MatchesGlob(normalizedFullName, normalizedPattern)
                 || MatchesGlob(
-                    GetSimpleName(normalizedFullName),
+                    normalizedSimpleName,
                     normalizedPattern);
         }
         if (HasExplicitGenericNotation(pattern))
