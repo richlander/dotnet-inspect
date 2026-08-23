@@ -675,7 +675,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /export function bindLoadErrorShell\([\s\S]*#retry-load[\s\S]*#error-package-query[\s\S]*#error-package-input[\s\S]*#toggle-error-detail[\s\S]*\.load-error-detail/);
   assert.match(
     shellControlsSource,
-    /import \{ parsePackageQuery \} from "\.\/package-bar\.ts"/);
+    /import \{\s*parsePackageQuery,\s*type ParsedPackageQuery,\s*\} from "\.\/package-bar\.ts"/);
   assert.equal(
     workspaceBinding.match(/\bbindWorkbenchShell\(\b/g)?.length,
     1);
@@ -702,7 +702,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /onDemo: runHomeDemo,\s*onDismissNotice: \(\) => \{[\s\S]*state\.queryNotice = "";[\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*render\(\);\s*\},\n  onOpenCredits: openCredits,\n  onToggleTheme: toggleTheme/);
   assert.match(
     loadErrorActions,
-    /onOpenPackage: openPackageFromError,\s*onRetry: \(\) =>\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\)/);
+    /onOpenPackage: openPackageQuery,\s*onRetry: \(\) =>\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\)/);
   assert.doesNotMatch(
     appSource,
     /\bquerySelector(?:All)?(?:<[^>]+>)?\("(?:#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|go-home|theme-toggle|help|home-theme|home-credits|retry-load|error-package-query|error-package-input|toggle-error-detail)|\[data-home-demo\]|\.load-error-detail)"\)/);
@@ -1686,7 +1686,7 @@ test("bare home paints before wasm engine download", () => {
   const homePaintWait =
     appSource.match(/function waitForHomePaint\(\)[\s\S]*?\n}\n\nfunction loadStoredTaste/)?.[0] ?? "";
   const errorPackageRecovery =
-    appSource.match(/function openPackageFromError[\s\S]*?\n}\n\nconst loadErrorShellActions/)?.[0] ?? "";
+    appSource.match(/function openPackageQuery[\s\S]*?\n}\n\nconst loadErrorShellActions/)?.[0] ?? "";
   const loadingView =
     appSource.match(/function renderLoading\(\)[\s\S]*?\n}\n\nasync function loadSelectedMemberDocumentation/)?.[0] ?? "";
   assert.doesNotMatch(appSource, /from "\/engine\.js"/);
@@ -1726,13 +1726,13 @@ test("bare home paints before wasm engine download", () => {
     /state\.retryAction = \(\) => window\.location\.reload\(\)/);
   assert.match(
     errorPackageRecovery,
-    /if \(!state\.engineReady\) \{[\s\S]*window\.location\.assign\(url\);[\s\S]*return;[\s\S]*\}\s*observeAsync\(loadPackage\(packageId, version, ""\)/);
+    /findPackageTabForQuery\(state, query\)[\s\S]*selectPackageTab\(packageTab\);[\s\S]*return;[\s\S]*if \(!state\.engineReady\) \{[\s\S]*window\.location\.assign\(url\);[\s\S]*return;[\s\S]*\}\s*observeAsync\(\s*loadPackage\(query\.packageId, query\.version, ""\)/);
   assert.match(
     loadingView,
     /id="error-package-query"[\s\S]*bindLoadErrorShell\(document, loadErrorShellActions\)/);
   assert.doesNotMatch(
     loadingView,
-    /id="error-package-query"[\s\S]*(?:openPackageFromError|loadPackage)\(/);
+    /id="error-package-query"[\s\S]*(?:openPackageQuery|loadPackage)\(/);
 });
 
 test("Spotlight uses local type matches until the engine is ready", () => {
