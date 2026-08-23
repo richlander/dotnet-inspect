@@ -584,10 +584,19 @@ The v3 compatibility adapter also owns an isolated credential-free
 `HttpClient`; it does not accept a shared client or opaque caller handler that
 could inject ambient credentials into feed-advertised resources. Its default
 desktop handler disables cookies, default credentials, and preauthentication.
+The configured source host and port may resolve to private addresses because
+that endpoint is an explicit user choice. Every feed-advertised cross-origin
+resource and every redirect hop instead uses the shared network-destination
+policy: DNS resolution and connection stay together, and any non-public
+address rejects the request. This preserves private-feed use without granting
+the feed response authority to probe another private service.
 Browser/Wasm avoids unsupported handler credential properties and instead marks
-each request with `BrowserRequestCredentials.Omit`; explicit source
-authorization remains a request header. Source credentials are passed
-separately and are adopted only for same-origin resources.
+each request with `BrowserRequestCredentials.Omit` and Fetch
+`redirect: error`; explicit source authorization remains a request header.
+Because Browser/Wasm cannot enforce the desktop DNS boundary, v3 resources
+must remain on the configured source origin. The built-in Gallery continues to
+use its separate fixed-host transport. Source credentials are passed separately
+and are adopted only for same-origin resources.
 Desktop automatic redirects are disabled. A bounded source-owned redirect
 handler reapplies explicit authorization only when the target remains on the
 credential's original origin and strips it from cross-origin hops. Exceeding
@@ -601,8 +610,13 @@ construction. `GalleryBrowserTransportAvoidsUnsupportedHandlerConfiguration`
 gates the Gallery-specific Browser handler, and
 `GalleryDesktopTransportFollowsSourceOwnedRedirects` gates that the Gallery
 factory uses the bounded desktop redirect policy.
-`BrowserNuGetRequestsOmitAmbientCredentials` gates the Fetch credential option,
-and
+`DefaultV3TransportBlocksPrivateCrossOriginSearchEndpoint` gates the configured
+private-origin exception and feed-directed destination rejection.
+`HttpClientFactoryTests.PackageSourceClient_AllowsConfiguredPrivateOriginButBlocksPrivateRedirect`
+gates the same shared address policy across redirect hops.
+`BrowserNuGetRequestsOmitAmbientCredentials` gates the Fetch credential and
+redirect options, `BrowserV3ResourcesRequireSameOrigin` gates resource
+authorization, and
 `DesktopRedirectsScopeAuthorizationToOriginalOrigin` gates redirect authority.
 `DesktopRedirectLimitAllowsFiveAndRejectsSix` and
 `RedirectLimitIsResponseRejected` gate the redirect safety bound.
@@ -697,6 +711,7 @@ The local-folder descriptor remains modeled without a runtime client.
 `V3SearchUsesHighestCompatibleResourcesAndFailsOver`,
 `CanonicalNuGetOrgV3DiscoversSearchWithoutShortcut`,
 `V3SearchPreservesDeclaredQueryBytes`,
+`V3SearchPreservesSignedBytesWhileNormalizingIdn`,
 `V3SearchNormalizesIdnServiceIndex`,
 `V3SearchInvalidRawServiceIndexIsTypedInvalidResponse`,
 `V3MalformedAdvertisedSearchIsTypedInvalidResponse`,

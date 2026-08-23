@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using DotnetInspector.Networking;
 using NuGet.Versioning;
 
 namespace NuGetFetch;
@@ -331,7 +332,7 @@ public static class PackageSourceClientFactory
         return new NuGetV3PackageSourceClient(
             PackageSourceIdentity.ForProducerEndpoint(endpoint),
             endpoint,
-            CreateOwnedTransport(),
+            CreateOwnedTransport(endpoint),
             options ?? new NuGetFetchOptions(),
             source.Credential);
     }
@@ -365,11 +366,47 @@ public static class PackageSourceClientFactory
             PackageSourceKind.NuGetV3 when descriptor.Endpoint is not null =>
                 new NuGetV3PackageSourceClient(
                     descriptor,
-                    CreateOwnedTransport(),
+                    CreateOwnedTransport(descriptor.Endpoint),
                     options,
                     credential),
             _ => throw new PackageSourceClientUnavailableException(
                 descriptor.Kind),
+        };
+    }
+
+    internal static HttpMessageHandler CreateV3TransportHandler(
+        Uri source,
+        bool isBrowser)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (isBrowser)
+            return CreateCredentialFreeTransportHandler(isBrowser: true);
+
+        string trustedHost;
+        try
+        {
+            trustedHost = source.IdnHost;
+        }
+        catch (UriFormatException exception)
+        {
+            throw new NuGetSourceResponseException(
+                "The package source service-index endpoint is unusable.",
+                exception);
+        }
+
+        return new SocketsHttpHandler
+        {
+            AllowAutoRedirect = false,
+            Credentials = null,
+            PreAuthenticate = false,
+            UseCookies = false,
+            UseProxy = false,
+            ConnectCallback = (context, cancellationToken) =>
+                NetworkDestinationPolicy.ConnectAsync(
+                    context,
+                    trustedHost,
+                    source.Port,
+                    cancellationToken),
         };
     }
 
@@ -412,7 +449,7 @@ public static class PackageSourceClientFactory
         return new NuGetV3PackageSourceClient(
             PackageSourceIdentity.ForProducerEndpoint(endpoint),
             endpoint,
-            CreateOwnedTransport(transport),
+            CreateOwnedTransport(endpoint, transport),
             options ?? new NuGetFetchOptions(),
             source.Credential);
     }
@@ -448,17 +485,18 @@ public static class PackageSourceClientFactory
 
         return new NuGetV3PackageSourceClient(
             descriptor,
-            CreateOwnedTransport(transport),
+            CreateOwnedTransport(descriptor.Endpoint!, transport),
             options,
             credential);
     }
 
     private static HttpClient CreateOwnedTransport(
+        Uri source,
         HttpMessageHandler? transport = null)
     {
         bool isBrowser = OperatingSystem.IsBrowser();
         HttpMessageHandler handler = transport
-            ?? CreateCredentialFreeTransportHandler(isBrowser);
+            ?? CreateV3TransportHandler(source, isBrowser);
         if (!isBrowser)
         {
             handler = new NuGetCredentialRedirectHandler(handler);
