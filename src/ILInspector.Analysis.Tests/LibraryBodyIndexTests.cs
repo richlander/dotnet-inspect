@@ -1753,7 +1753,8 @@ public class LibraryBodyIndexTests
                 new MemoryStream(image.ToArray()));
 
         Assert.False(
-            LibraryBodyAnalysisBuilder.TryTopLevelType(
+            LibraryBodyAsyncSiblingAccessibilityAnalyzer
+                .TryTopLevelType(
                 peReader.GetMetadataReader(),
                 cyclic,
                 out _));
@@ -8165,7 +8166,8 @@ public class LibraryBodyIndexTests
                 EmitAssemblyIdentity("UnsignedFriend", [])));
 
         Assert.False(
-            LibraryBodyAnalysisBuilder.FriendIdentityGrantsAccess(
+            LibraryBodyAsyncSiblingAccessibilityAnalyzer
+                .FriendIdentityGrantsAccess(
                 strongGrantor.GetMetadataReader(),
                 unsignedSource.GetMetadataReader(),
                 new AssemblyName("UnsignedFriend"),
