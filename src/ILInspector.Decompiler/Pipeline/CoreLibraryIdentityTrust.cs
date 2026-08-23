@@ -78,8 +78,23 @@ static class CoreLibraryIdentityTrust
     /// <summary>
     /// Records that <paramref name="reader"/> was acquired from a source that
     /// entitles it to name its own definitions as core-library types.
+    /// <para>
+    /// This is <see langword="private"/> so that <see cref="GrantIfEntitled"/>
+    /// is the only way to reach it, which makes the rule the single source of
+    /// entitlement rather than one of two. It was <c>internal</c> through round
+    /// 8, and three of the five grant sites called it directly: two of them
+    /// built <see cref="AssemblyResolutionProvenance.Local"/> provenance, which
+    /// <see cref="MayMint"/> denies, and granted anyway. The behaviour was
+    /// right — each of those sites opens a file the caller named, which is a
+    /// designation — but it was right by bypass, so every gate on
+    /// <see cref="MayMint"/> proved nothing about them. Rounds 5 through 8 kept
+    /// finding that escape one frame further out because the escape was not a
+    /// missing gate; it was a second door. Privacy removes the door instead of
+    /// gating it, so a future caller cannot reintroduce one without saying
+    /// which acquisition entitles it.
+    /// </para>
     /// </summary>
-    internal static void GrantCoreLibraryIdentity(MetadataReader reader)
+    private static void GrantCoreLibraryIdentity(MetadataReader reader)
         => s_trusted.AddOrUpdate(reader, s_marker);
 
     /// <summary>

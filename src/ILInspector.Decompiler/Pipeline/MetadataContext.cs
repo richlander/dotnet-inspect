@@ -100,14 +100,18 @@ public sealed class MetadataContext : IDisposable
     /// <summary>
     /// Opens a path the caller named directly. Naming an exact file is a
     /// designation, so the result keeps core-library identity; see
-    /// <see cref="CoreLibraryIdentityTrust"/>.
+    /// <see cref="CoreLibraryIdentityTrust"/>. The designation is stated as
+    /// provenance and answered by the rule rather than granted directly, so
+    /// this site is entitled for a reason the rule can be asked about.
     /// </summary>
     static OpenedAssembly? OpenDesignated(string path)
     {
         OpenedAssembly? opened = OpenedAssembly.TryOpen(path);
         if (opened is not null)
         {
-            CoreLibraryIdentityTrust.GrantCoreLibraryIdentity(opened.Reader);
+            CoreLibraryIdentityTrust.GrantIfEntitled(
+                opened.Reader,
+                AssemblyResolutionProvenance.Designated("MetadataContext designation"));
         }
         return opened;
     }

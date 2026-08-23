@@ -599,11 +599,20 @@ public class PlantedCoreLibraryIdentityTests
     /// to call it because that call is the grant itself; it takes only a
     /// reader, so it has no acquisition to key on and nothing to hide.
     /// </summary>
+    /// <remarks>
+    /// Named by string rather than by <c>nameof</c> because the member is
+    /// <see langword="private"/> as of round 9 — that privacy is what makes
+    /// <c>GrantIfEntitled</c> the only way to reach it. The name is not thereby
+    /// unpinned: <c>ReaderConstructionSiteTests.TrustTypeMembers_AreClassified</c>
+    /// enumerates the type's methods out of metadata, where accessibility does
+    /// not hide them, and fails if this member is renamed or removed without
+    /// being reclassified.
+    /// </remarks>
     static MethodDefinitionHandle TheUnconditionalGrantHandle(
         MetadataReader metadata) =>
         Resolve(
             metadata,
-            nameof(CoreLibraryIdentityTrust.GrantCoreLibraryIdentity),
+            "GrantCoreLibraryIdentity",
             typeof(void),
             [typeof(MetadataReader)]);
 
