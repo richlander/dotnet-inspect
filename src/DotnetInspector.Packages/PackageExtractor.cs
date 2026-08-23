@@ -2665,6 +2665,61 @@ public static class PackageExtractor
     }
 
     /// <summary>
+    /// Checks whether an exact package version appears in an authoritative
+    /// version index. Returns <see langword="null"/> when an eligible HTTP
+    /// source fails and no source reports the version.
+    /// </summary>
+    public static async Task<bool?> PackageVersionExistsAsync(
+        HttpClient client,
+        string packageName,
+        string version,
+        Action<string>? log,
+        NuGetSourceOptions? sourceOptions = null)
+    {
+        string normalizedName = packageName.ToLowerInvariant();
+        List<NuGetSource> sources =
+            NuGetSourceResolver.ResolveSourcesForPackage(
+                sourceOptions,
+                packageName);
+        if (sources.Count == 0)
+            return null;
+
+        string? normalizedVersion = NormalizeCandidateVersion(version);
+        if (normalizedVersion is null)
+            return null;
+        if (HttpClientFactory.IsOffline)
+            return null;
+
+        List<SourceVersionListings>? perSource =
+            await FetchListingsPerSourceAsync(
+                client,
+                normalizedName,
+                sources,
+                log,
+                requireCompleteSources: true).ConfigureAwait(false);
+        if (perSource is null)
+            return false;
+
+        bool incomplete = false;
+        foreach (SourceVersionListings source in perSource)
+        {
+            if (source.Listings.Any(candidate =>
+                    string.Equals(
+                        candidate.Version,
+                        normalizedVersion,
+                        StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+
+            if (!source.Authoritative && !source.SourceMissing)
+                incomplete = true;
+        }
+
+        return incomplete ? null : false;
+    }
+
+    /// <summary>
     /// Resolves the newest listed version using matching-flavor latest entries
     /// where available and strict listing semantics for uncached sources.
     /// Returns an empty list when source metadata exists but has no matching

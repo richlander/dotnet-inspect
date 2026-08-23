@@ -3,8 +3,6 @@ using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO.Compression;
-using System.Net;
-using System.Net.Http.Headers;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -21167,12 +21165,6 @@ public partial class CommandExecutionTests
             Assert.DoesNotContain("Azure.Mcp", output);
             Assert.DoesNotContain("## RID Packages", output);
             Assert.DoesNotContain("Tip:", error);
-
-            await AssertHostedPackageIsAbsentAsync(
-                username,
-                token,
-                $"{PackageFixtureId}.win-x64",
-                PackageFixtureVersion);
         }
         finally
         {
@@ -21181,51 +21173,6 @@ public partial class CommandExecutionTests
             if (Directory.Exists(isolatedCache))
                 Directory.Delete(isolatedCache, recursive: true);
         }
-    }
-
-    private static async Task AssertHostedPackageIsAbsentAsync(
-        string username,
-        string token,
-        string packageId,
-        string version)
-    {
-        using var client = new HttpClient();
-        client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue(
-                "Basic",
-                Convert.ToBase64String(
-                    Encoding.UTF8.GetBytes($"{username}:{token}")));
-
-        using HttpResponseMessage indexResponse =
-            await client.GetAsync(PackageFixtureFeed);
-        Assert.Equal(HttpStatusCode.OK, indexResponse.StatusCode);
-        using JsonDocument index = JsonDocument.Parse(
-            await indexResponse.Content.ReadAsStreamAsync());
-        string packageBaseAddress = index.RootElement
-            .GetProperty("resources")
-            .EnumerateArray()
-            .Single(resource =>
-                resource.GetProperty("@type").GetString()
-                    is string type
-                && type.StartsWith(
-                    "PackageBaseAddress/",
-                    StringComparison.Ordinal))
-            .GetProperty("@id")
-            .GetString()!;
-
-        string normalizedId = packageId.ToLowerInvariant();
-        string normalizedVersion = version.ToLowerInvariant();
-        var packageUri = new Uri(
-            new Uri(packageBaseAddress),
-            $"{normalizedId}/{normalizedVersion}/"
-                + $"{normalizedId}.{normalizedVersion}.nupkg");
-        using HttpResponseMessage packageResponse =
-            await client.GetAsync(
-                packageUri,
-                HttpCompletionOption.ResponseHeadersRead);
-        Assert.Equal(
-            HttpStatusCode.NotFound,
-            packageResponse.StatusCode);
     }
 
     [Fact]

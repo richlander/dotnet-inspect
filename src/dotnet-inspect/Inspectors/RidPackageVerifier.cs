@@ -15,13 +15,17 @@ public static class RidPackageVerifier
         string version,
         string? localDir,
         VerboseLogger logger,
-        NuGetSourceOptions? sourceOptions = null)
+        NuGetSourceOptions? sourceOptions = null,
+        bool onlyIndeterminate = false)
     {
         if (result.RuntimeIdentifierPackages == null)
             return;
 
         foreach (var ridPkg in result.RuntimeIdentifierPackages)
         {
+            if (onlyIndeterminate && ridPkg.Exists is not null)
+                continue;
+
             if (localDir != null)
             {
                 // Local verification: check if sibling .nupkg file exists
@@ -42,9 +46,21 @@ public static class RidPackageVerifier
                         version,
                         logger.Log,
                         sourceOptions);
-                    ridPkg.Exists = nuspec is not null;
+                    ridPkg.Exists = nuspec is not null
+                        ? true
+                        : await PackageExtractor.PackageVersionExistsAsync(
+                            client,
+                            ridPkg.PackageId,
+                            version,
+                            logger.Log,
+                            sourceOptions);
 
-                    string status = ridPkg.Exists == true ? "available" : "NOT FOUND";
+                    string status = ridPkg.Exists switch
+                    {
+                        true => "available",
+                        false => "NOT FOUND",
+                        null => "UNKNOWN",
+                    };
                     logger.Log($"  {ridPkg.RuntimeIdentifier}: {status} ({ridPkg.PackageId} {version})");
                 }
                 catch (PackageSourceMappingException)
@@ -53,7 +69,7 @@ public static class RidPackageVerifier
                 }
                 catch (Exception ex)
                 {
-                    ridPkg.Exists = false;
+                    ridPkg.Exists = null;
                     logger.Log(
                         $"  {ridPkg.RuntimeIdentifier}: ERROR checking ({ridPkg.PackageId} {version}): {ex.Message}");
                 }

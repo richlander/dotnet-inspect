@@ -85,6 +85,130 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
     }
 
     [Fact]
+    public async Task InspectAsync_ReverifiesIndeterminateCachedRidAvailability()
+    {
+        string packageName =
+            $"Cached.Pointer.{Guid.NewGuid():N}";
+        string ridPackage =
+            $"{packageName}.linux-x64";
+        string normalizedRidPackage =
+            ridPackage.ToLowerInvariant();
+        string knownRidPackage =
+            $"{packageName}.win-x64";
+        string normalizedKnownRidPackage =
+            knownRidPackage.ToLowerInvariant();
+        const string Version = "1.0.0";
+        const string Source = "https://fixture.example/v3/index.json";
+        string producerKey = NuGetCache.GetSourceKey(Source);
+        PackageIndexCache.Set(
+            packageName,
+            Version,
+            producerKey,
+            new InspectionResult
+            {
+                PackageName = packageName,
+                Version = Version,
+                IsRidSpecificPointerPackage = true,
+                RuntimeIdentifierPackages =
+                [
+                    new RidPackageReference
+                    {
+                        RuntimeIdentifier = "linux-x64",
+                        PackageId = ridPackage,
+                        Exists = null,
+                    },
+                    new RidPackageReference
+                    {
+                        RuntimeIdentifier = "win-x64",
+                        PackageId = knownRidPackage,
+                        Exists = true,
+                    },
+                ],
+            });
+
+        bool probedKnownRid = false;
+        using var client = new HttpClient(new RoutingHandler(request =>
+        {
+            string path = request.RequestUri!.AbsolutePath;
+            if (path.Contains(
+                normalizedKnownRidPackage,
+                StringComparison.Ordinal))
+            {
+                probedKnownRid = true;
+            }
+
+            return path switch
+            {
+                "/v3/index.json" => Json("""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        {
+                          "@id": "https://fixture.example/flat/",
+                          "@type": "PackageBaseAddress/3.0.0"
+                        }
+                      ]
+                    }
+                    """),
+                _ when path ==
+                    $"/flat/{normalizedRidPackage}/index.json" =>
+                    Json("""{"versions":["1.0.0"]}"""),
+                _ => new HttpResponseMessage(HttpStatusCode.NotFound),
+            };
+        }));
+        var resolution = new PackageExtractionResult(
+            _root,
+            TempDir: null,
+            PackageName: packageName,
+            Version: Version,
+            ProducerKey: producerKey);
+
+        InspectionResult result = await PackageInspector.InspectAsync(
+            resolution,
+            packageName,
+            Version,
+            isLocalFile: false,
+            localFilePath: null,
+            nuspec: null,
+            client,
+            new VerboseLogger(enabled: false),
+            forceLatest: false,
+            verbosity: Verbosity.Minimal,
+            fetchMetadata: false,
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = [Source],
+            });
+
+        Assert.True(
+            result.RuntimeIdentifierPackages!
+                .Single(package =>
+                    package.PackageId == ridPackage)
+                .Exists);
+        Assert.True(
+            result.RuntimeIdentifierPackages!
+                .Single(package =>
+                    package.PackageId == knownRidPackage)
+                .Exists);
+        Assert.False(probedKnownRid);
+        InspectionResult persisted =
+            PackageIndexCache.TryGet(
+                packageName,
+                Version,
+                producerKey)!;
+        Assert.True(
+            persisted.RuntimeIdentifierPackages!
+                .Single(package =>
+                    package.PackageId == ridPackage)
+                .Exists);
+        Assert.True(
+            persisted.RuntimeIdentifierPackages!
+                .Single(package =>
+                    package.PackageId == knownRidPackage)
+                .Exists);
+    }
+
+    [Fact]
     public async Task InspectAsync_IdentifierAuditMetadataIncludesAlternatePackageId()
     {
         const string source = "https://audit.example/v3/index.json";
