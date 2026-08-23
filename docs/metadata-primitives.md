@@ -191,13 +191,18 @@ aggregate's declaring type, or how rejection is presented; those remain
 Metadata semantics.
 
 The retained-association budget protects the bytes held by the immutable
-session index, independently of the broader row-admission ceiling. Its
-corpus-derived ceiling may therefore be lower than `MaxMetadataRows`. Exhaustion
-rejects the semantics census for every property/event projection that depends
-on it; there is no unindexed streaming fallback. Independent declaration kinds
-may continue under their normal failure policy. One completed index is charged
-once to its operation and reader identity; a same-session cache hit neither
-recharges it nor turns a prior rejection into success.
+Metadata-owned operation index, independently of the broader row-admission
+ceiling. Its corpus-derived ceiling may therefore be lower than
+`MaxMetadataRows`. Exhaustion rejects the semantics census for every
+property/event projection that depends on it; there is no unindexed streaming
+fallback. Independent declaration kinds may continue under their normal
+failure policy.
+
+The leaf receives neither a `MetadataOperationContext` nor an image/cache
+identity. It charges the supplied neutral budget before returning each retained
+row and retains no state after the call. Metadata owns operation identity,
+single-pass reuse, typed rejection caching, and session liveness; `MDP006` and
+`MDP009` gate those properties.
 
 This is not a reusable general coded-index decoder or table projector. No
 public API accepts an arbitrary `TableIndex`, column schema, or coded-index
@@ -207,15 +212,17 @@ registry, and the owning consumer contract.
 
 The boundary is unverified until a named architecture gate proves
 MetadataPrimitives remains an SRM-only leaf, no other MetadataPrimitives type
-decodes raw ECMA table-row bytes or table coded-index columns, and no production
-consumer bypasses the primitive for `MethodSemantics`. Blob and heap
-`BlobReader` use is outside this table-layout closure. Existing hand-parsed metadata
-stream/header code outside this leaf is separate migration debt under the
-general bounded-traversal prohibition; this exception neither legitimizes nor
-expands it. `MDP016` in
+decodes raw ECMA table-row bytes or table coded-index columns, and the primitive
+does not expose a general table decoder. Blob and heap `BlobReader` use is
+outside this table-layout closure. Existing hand-parsed metadata stream/header
+code outside this leaf is separate migration debt under the general
+bounded-traversal prohibition; this exception neither legitimizes nor expands
+it. `MDP016` in
 [member inspection planning and Metadata
 projection](design/member-inspection-planning-and-metadata-projection.md) owns
-that gate. Its outcome tests must establish:
+that boundary gate. Consumer migration is phased separately: `MDP011` closes
+Metadata-owned paths at slice 6, and `MDP013` closes all product bypasses at
+slice 8. Its outcome tests must establish:
 
 - ordered-multiset equality with `ildasm` over association owner, semantic
   role, and method for conventional valid metadata in the required CI
@@ -225,12 +232,13 @@ that gate. Its outcome tests must establish:
   oracle because it folds the rows;
 - aggregate equality with SRM convenience accessors for conventional valid
   property/event metadata;
-- preserved multiple `Other` rows and typed rejection for duplicate standard
-  roles, zero/unknown/combined semantics values, nil or out-of-range MethodDef
-  or association row identifiers, and a falsely-declared-sorted table with a
-  late out-of-order duplicate; a companion with the same physically
-  out-of-order rows and the sorted bit clear must fail during SRM reader
-  construction;
+- exact preservation of multiple `Other` and duplicate standard-role rows,
+  zero/unknown/combined semantics values, physical row order, and observed
+  nonmonotonic ordering; nil or out-of-range MethodDef or association row
+  identifiers produce typed mechanical rejection, while a companion with the
+  same physically out-of-order rows and the sorted bit clear fails during SRM
+  reader construction; Metadata-semantic rejection of roles, duplicates,
+  declaring types, and ordering policy belongs to `MDP004`;
 - all four narrow/wide MethodDef and HasSemantics coded-index combinations,
   generated once per test run rather than stored as multi-megabyte binaries;
   each asserts decoded values, while SRM row-size equality separately checks
