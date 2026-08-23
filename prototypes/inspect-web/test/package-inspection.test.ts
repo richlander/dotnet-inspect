@@ -400,6 +400,47 @@ async function verifyPackageLensLifecycle<T>(
       live,
       `${fixture.name} same-key stale completion replaced the live request`);
   }
+
+  {
+    // Joining takes both halves. Identity alone cannot reject a caller asking for a
+    // *different* scope while the first request is still in flight: that request is
+    // still the live one, so identity says join -- and the caller would then be handed
+    // a request that will never describe the scope it asked about. Only the key rejects
+    // it.
+    const first = deferred<T>();
+    const second = deferred<T>();
+    const pending = [first, second];
+    let queries = 0;
+    const state = inspectionState();
+    const coordinator = fixture.createCoordinator(state, async () => {
+      queries++;
+      return (pending.shift() ?? first).promise;
+    });
+
+    const stale = fixture.load(coordinator, "first");
+    const newer = fixture.load(coordinator, "second");
+    assert.equal(
+      queries,
+      2,
+      `${fixture.name} second scope joined the first scope's request`);
+
+    second.resolve(fixture.result);
+    await newer;
+
+    const live = fixture.read(state);
+    assert.deepEqual(live, {
+      status: "ready",
+      key: "second",
+      data: fixture.result,
+    }, `${fixture.name} second scope result`);
+
+    first.resolve(fixture.result);
+    await stale;
+    assert.strictEqual(
+      fixture.read(state),
+      live,
+      `${fixture.name} first scope overwrote the second`);
+  }
 }
 
 test("workspace dependency keys normalize complete package coordinates", () => {

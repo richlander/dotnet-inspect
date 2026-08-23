@@ -233,7 +233,12 @@ export function createPackageInspectionCoordinator(
   // guard exists to avoid.
   const inFlight = new Map<
     string,
-    { resource: AsyncResource<unknown>; promise: Promise<void>; settle: () => void }>();
+    {
+      key: string;
+      resource: AsyncResource<unknown>;
+      promise: Promise<void>;
+      settle: () => void;
+    }>();
 
   // Join on the identity of the pending resource, not on its key. A request that has
   // lost ownership -- because a newer request or a scope change overwrote the slot --
@@ -274,6 +279,7 @@ export function createPackageInspectionCoordinator(
   // a later same-key caller still settles.
   function runInFlight(
     lens: string,
+    key: string,
     resource: AsyncResource<unknown>,
     body: () => Promise<void>,
   ): Promise<void> {
@@ -281,7 +287,7 @@ export function createPackageInspectionCoordinator(
     const promise = new Promise<void>(resolve => {
       settle = resolve;
     });
-    const entry = { resource, promise, settle };
+    const entry = { key, resource, promise, settle };
     inFlight.set(lens, entry);
     return (async () => {
       try {
