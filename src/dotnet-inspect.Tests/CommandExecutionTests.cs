@@ -3,6 +3,8 @@ using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO.Compression;
+using System.Net;
+using System.Net.Http.Headers;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -1400,6 +1402,16 @@ public partial class CommandExecutionTests
         RunAppInDirectoryAsync(
             string workingDirectory,
             params string[] args)
+        => await RunAppInDirectoryWithEnvironmentAsync(
+            workingDirectory,
+            environment: null,
+            args);
+
+    private static async Task<(int Exit, string Output, string Error)>
+        RunAppInDirectoryWithEnvironmentAsync(
+            string workingDirectory,
+            IReadOnlyDictionary<string, string?>? environment,
+            params string[] args)
     {
         var startInfo = new ProcessStartInfo("dotnet")
         {
@@ -1411,6 +1423,11 @@ public partial class CommandExecutionTests
         startInfo.ArgumentList.Add(typeof(CommandLineBuilder).Assembly.Location);
         foreach (string arg in args)
             startInfo.ArgumentList.Add(arg);
+        if (environment is not null)
+        {
+            foreach ((string name, string? value) in environment)
+                startInfo.Environment[name] = value;
+        }
 
         using Process process = Process.Start(startInfo)!;
         Task<string> output = process.StandardOutput.ReadToEndAsync();
@@ -21065,45 +21082,50 @@ public partial class CommandExecutionTests
         string isolatedCache = Path.Combine(
             Path.GetTempPath(),
             $"dotnet-inspect-{isolationName}");
-        Directory.CreateDirectory(tempDir);
-        if (!OperatingSystem.IsWindows())
-        {
-            File.SetUnixFileMode(
-                tempDir,
-                UnixFileMode.UserRead
-                    | UnixFileMode.UserWrite
-                    | UnixFileMode.UserExecute);
-        }
-
         string configPath = Path.Combine(tempDir, "NuGet.Config");
-        new XDocument(
-            new XElement(
-                "configuration",
-                new XElement(
-                    "packageSources",
-                    new XElement("clear"),
-                    new XElement(
-                        "add",
-                        new XAttribute("key", "github-fixtures"),
-                        new XAttribute("value", PackageFixtureFeed))),
-                new XElement(
-                    "packageSourceCredentials",
-                    new XElement(
-                        "github-fixtures",
-                        new XElement(
-                            "add",
-                            new XAttribute("key", "Username"),
-                            new XAttribute("value", username)),
-                        new XElement(
-                            "add",
-                            new XAttribute("key", "ClearTextPassword"),
-                            new XAttribute("value", token))))))
-            .Save(configPath);
-
         try
         {
-            var (exit, output, error) = await RunAppInDirectoryAsync(
+            Directory.CreateDirectory(tempDir);
+            if (!OperatingSystem.IsWindows())
+            {
+                File.SetUnixFileMode(
+                    tempDir,
+                    UnixFileMode.UserRead
+                        | UnixFileMode.UserWrite
+                        | UnixFileMode.UserExecute);
+            }
+
+            new XDocument(
+                new XElement(
+                    "configuration",
+                    new XElement(
+                        "packageSources",
+                        new XElement("clear"),
+                        new XElement(
+                            "add",
+                            new XAttribute("key", "github-fixtures"),
+                            new XAttribute("value", PackageFixtureFeed))),
+                    new XElement(
+                        "packageSourceCredentials",
+                        new XElement(
+                            "github-fixtures",
+                            new XElement(
+                                "add",
+                                new XAttribute("key", "Username"),
+                                new XAttribute("value", username)),
+                            new XElement(
+                                "add",
+                                new XAttribute("key", "ClearTextPassword"),
+                                new XAttribute("value", token))))))
+                .Save(configPath);
+
+            var (exit, output, error) =
+                await RunAppInDirectoryWithEnvironmentAsync(
                 tempDir,
+                new Dictionary<string, string?>
+                {
+                    ["DOTNET_INSPECT_CACHE_DIR"] = isolatedCache,
+                },
                 "--isolated",
                 isolationName,
                 "package",
@@ -21145,6 +21167,12 @@ public partial class CommandExecutionTests
             Assert.DoesNotContain("Azure.Mcp", output);
             Assert.DoesNotContain("## RID Packages", output);
             Assert.DoesNotContain("Tip:", error);
+
+            await AssertHostedPackageIsAbsentAsync(
+                username,
+                token,
+                $"{PackageFixtureId}.win-x64",
+                PackageFixtureVersion);
         }
         finally
         {
@@ -21153,6 +21181,51 @@ public partial class CommandExecutionTests
             if (Directory.Exists(isolatedCache))
                 Directory.Delete(isolatedCache, recursive: true);
         }
+    }
+
+    private static async Task AssertHostedPackageIsAbsentAsync(
+        string username,
+        string token,
+        string packageId,
+        string version)
+    {
+        using var client = new HttpClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue(
+                "Basic",
+                Convert.ToBase64String(
+                    Encoding.UTF8.GetBytes($"{username}:{token}")));
+
+        using HttpResponseMessage indexResponse =
+            await client.GetAsync(PackageFixtureFeed);
+        Assert.Equal(HttpStatusCode.OK, indexResponse.StatusCode);
+        using JsonDocument index = JsonDocument.Parse(
+            await indexResponse.Content.ReadAsStreamAsync());
+        string packageBaseAddress = index.RootElement
+            .GetProperty("resources")
+            .EnumerateArray()
+            .Single(resource =>
+                resource.GetProperty("@type").GetString()
+                    is string type
+                && type.StartsWith(
+                    "PackageBaseAddress/",
+                    StringComparison.Ordinal))
+            .GetProperty("@id")
+            .GetString()!;
+
+        string normalizedId = packageId.ToLowerInvariant();
+        string normalizedVersion = version.ToLowerInvariant();
+        var packageUri = new Uri(
+            new Uri(packageBaseAddress),
+            $"{normalizedId}/{normalizedVersion}/"
+                + $"{normalizedId}.{normalizedVersion}.nupkg");
+        using HttpResponseMessage packageResponse =
+            await client.GetAsync(
+                packageUri,
+                HttpCompletionOption.ResponseHeadersRead);
+        Assert.Equal(
+            HttpStatusCode.NotFound,
+            packageResponse.StatusCode);
     }
 
     [Fact]

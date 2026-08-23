@@ -32,9 +32,21 @@ public class CiWorkflowTests
 
         Assert.Contains("contents: read", testHeader);
         Assert.Contains("packages: read", testHeader);
+        Assert.Equal(
+            1,
+            CountOccurrences(Workflow, "packages: read"));
+
+        string fixtureStep = NamedStep(
+            "Run GitHub Packages fixture test");
+        Assert.Contains(
+            "DOTNET_INSPECT_PACKAGE_FIXTURE_USER: ${{ github.actor }}",
+            fixtureStep);
+        Assert.Contains(
+            "DOTNET_INSPECT_PACKAGE_FIXTURE_TOKEN: ${{ github.token }}",
+            fixtureStep);
         Assert.DoesNotContain(
-            "packages: read",
-            JobHeader("test-windows"));
+            "DOTNET_INSPECT_PACKAGE_FIXTURE_TOKEN",
+            testHeader);
         Assert.Equal(
             1,
             CountOccurrences(
@@ -42,13 +54,18 @@ public class CiWorkflowTests
                 "DOTNET_INSPECT_PACKAGE_FIXTURE_TOKEN: ${{ github.token }}"));
         Assert.Contains(
             "-method '*Package_Manifest_RendersToolManifestRows*'",
-            Workflow);
+            fixtureStep);
         Assert.Contains(
             "Package fixture test filter selected no tests.",
-            Workflow);
+            fixtureStep);
         Assert.Contains(
             "Package fixture test skipped authenticated execution.",
-            Workflow);
+            fixtureStep);
+        Assert.Contains("continue-on-error: true", fixtureStep);
+        Assert.Contains("id: package_fixture", fixtureStep);
+        Assert.Contains(
+            "if: steps.package_fixture.outcome == 'failure'",
+            NamedStep("Check GitHub Packages fixture result"));
     }
 
     static string JobHeader(string jobName)
@@ -59,6 +76,20 @@ public class CiWorkflowTests
         int stepsStart = Workflow.IndexOf("\n    steps:\n", jobStart, StringComparison.Ordinal);
         Assert.True(stepsStart > jobStart, $"CI job '{jobName}' does not define steps.");
         return Workflow[jobStart..stepsStart];
+    }
+
+    static string NamedStep(string stepName)
+    {
+        string marker = $"\n      - name: {stepName}\n";
+        int stepStart = Workflow.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(stepStart >= 0, $"Step '{stepName}' not found.");
+        int nextStep = Workflow.IndexOf(
+            "\n      - ",
+            stepStart + marker.Length,
+            StringComparison.Ordinal);
+        return nextStep >= 0
+            ? Workflow[stepStart..nextStep]
+            : Workflow[stepStart..];
     }
 
     static int CountOccurrences(string text, string value)

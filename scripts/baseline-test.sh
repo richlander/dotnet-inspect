@@ -27,6 +27,7 @@ dotnet build "$REPO_ROOT/src/dotnet-inspect" --nologo -v q >&2
 # Function to run a command and capture output with header
 run_cmd() {
     local cmd="$1"
+    local add_separator="${2:-true}"
     echo "================================================================================"
     echo "COMMAND: $cmd"
     echo "================================================================================"
@@ -37,13 +38,15 @@ run_cmd() {
         sed -E 's/^(\| Downloads \| )[0-9.]+[KMBT]?/\1<FILTERED>/g' | \
         sed -E 's/Updated: [0-9]{4}-[0-9]{2}-[0-9]{2}/Updated: <FILTERED>/g' | \
         sed -E 's/\| Updated \| [0-9]{4}-[0-9]{2}-[0-9]{2}/| Updated | <FILTERED>/g'
-    echo ""
+    if [[ "$add_separator" == "true" ]]; then
+        echo ""
+    fi
 }
 
 # Generate all output
 {
     echo "# dotnet-inspect Baseline Output"
-    echo "# This file is used for regression testing"
+    echo "# This file is a developer-invoked external ecosystem canary, not a CI gate"
     echo "# Volatile data (downloads, dates) is filtered to <FILTERED>"
     echo ""
 
@@ -162,7 +165,7 @@ run_cmd() {
 
     run_cmd "platform"
     run_cmd "platform --list-versions"
-    run_cmd "platform --framework runtime -n 10"
+    run_cmd "platform --framework runtime -n 10" false
 
 } > "$TEMP_FILE"
 
