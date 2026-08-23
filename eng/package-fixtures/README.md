@@ -27,11 +27,11 @@ This allows one pinned package inspection to prove both positive and negative
 RID-package availability without borrowing mutable ecosystem packages.
 
 Version directories are append-only. Never change the package inputs beneath a
-published version. Add a new version directory, update `FixtureVersion` in
-`PackageFixtures.proj`, validate it, and publish that version instead. Package
-publication is main-only and does not use `--skip-duplicate`, so GitHub
-Packages' immutable version boundary remains visible as a failed workflow
-rather than a success-shaped no-op.
+published version. Add a new version directory, update that family's version
+property in `PackageFixtures.proj`, validate it, and publish that version
+instead. Package publication is main-only and does not use `--skip-duplicate`,
+so GitHub Packages' immutable version boundary remains visible as a failed
+workflow rather than a success-shaped no-op.
 
 `PackageFixtures.proj` is an isolated packaging driver, not a product or
 solution project. Its `IsPackable` opt-in can only emit these versioned test
@@ -42,8 +42,10 @@ Pack the two artifacts locally with:
 
 ```bash
 dotnet pack eng/package-fixtures/PackageFixtures.proj -c Release \
+  -p:FixtureFamily=tool-v2 \
   -p:FixturePackage=linux-x64
 dotnet pack eng/package-fixtures/PackageFixtures.proj -c Release \
+  -p:FixtureFamily=tool-v2 \
   -p:FixturePackage=pointer
 ```
 
@@ -51,6 +53,48 @@ dotnet pack eng/package-fixtures/PackageFixtures.proj -c Release \
 structural gate for package IDs, versions, package types, paths, pointer
 mappings, the deliberately missing sibling, and packing without an ambient
 global package cache.
+
+## Metadata-confusion fixture
+
+`DotnetInspect.TestAssets.MetadataConfusion` version `1.0.0` contains a
+deterministically generated ECMA-335 assembly with 18 valid adversarial
+metadata specimens:
+
+- identity-bearing assembly, module, namespace, type, member, parameter, and
+  generic-parameter names;
+- custom-attribute values, including a display-only bidirectional URL whose
+  logical host uses reversed `dotnet`;
+- module references and P/Invoke import names;
+- resource names and method-body user strings;
+- close controls for a literal `Outer+Inner` name, genuine nesting, and a
+  generic arity/name mismatch.
+
+The specimens exercise bidirectional and invisible formatting, line and
+terminal controls, path-like parent segments, homoglyphs, and C# display
+grammar. The package is inspection input only: do not load or execute its
+assembly, and do not fetch any embedded display-only URL.
+
+The generator builds the PE twice and requires byte equality. Its package
+verifier then compares the packed assembly and canonical UTF-8 JSON manifest
+byte-for-byte with fresh output and re-reads the metadata through SRM. Pack and
+verify it locally with:
+
+```bash
+dotnet pack eng/package-fixtures/PackageFixtures.proj -c Release \
+  -p:FixtureFamily=metadata-confusion \
+  -p:FixturePackage=metadata-confusion
+package=artifacts/package-fixtures/Release/\
+DotnetInspect.TestAssets.MetadataConfusion.1.0.0.nupkg
+dotnet run \
+  --project eng/package-fixtures/metadata-confusion/generator \
+  -c Release -- \
+  verify-package "$package"
+```
+
+`PackageFixtureTests.PackageFixtureCatalog_PacksMetadataConfusionPackage` is
+the structural gate for the package identity and paths, exact deterministic
+verification, manifest shape, specimen count, and representative raw metadata
+values.
 
 ## Consumption
 
@@ -75,8 +119,10 @@ unset DOTNET_INSPECT_PACKAGE_FIXTURE_TOKEN
 
 ## Publication
 
-Run the **Publish package fixtures** workflow from `main` and type `publish` in
-its confirmation input. The workflow validates the catalog, publishes the RID
-package first, and publishes the pointer only after its required sibling
-succeeds. If publication partially fails, publish a new fixture version rather
-than replacing a package version that already exists.
+Run the **Publish package fixtures** workflow from `main`, select one fixture
+family, and type `publish` in its confirmation input. The workflow validates
+the whole catalog but packs and publishes only the selected family, so adding a
+new family never attempts to replace an existing immutable package. For Tool
+v2, it publishes the RID package first and publishes the pointer only after its
+required sibling succeeds. If publication partially fails, publish a new
+fixture version rather than replacing a package version that already exists.

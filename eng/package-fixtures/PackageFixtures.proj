@@ -11,24 +11,67 @@
     <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
     <RestoreSources>$(MSBuildProjectDirectory)</RestoreSources>
 
-    <FixtureVersion>1.0.0</FixtureVersion>
+    <FixtureFamily Condition="'$(FixtureFamily)' == ''">tool-v2</FixtureFamily>
+    <ToolV2FixtureVersion>1.0.0</ToolV2FixtureVersion>
+    <MetadataConfusionFixtureVersion>1.0.0</MetadataConfusionFixtureVersion>
+    <FixtureVersion Condition="'$(FixtureFamily)' == 'tool-v2'">$(ToolV2FixtureVersion)</FixtureVersion>
+    <FixtureVersion Condition="'$(FixtureFamily)' == 'metadata-confusion'">$(MetadataConfusionFixtureVersion)</FixtureVersion>
     <FixtureRepositoryCommit Condition="'$(FixtureRepositoryCommit)' == ''">0000000000000000000000000000000000000000</FixtureRepositoryCommit>
-    <FixtureRoot>$(MSBuildProjectDirectory)/tool-v2/$(FixtureVersion)</FixtureRoot>
+    <FixtureRoot Condition="'$(FixtureFamily)' == 'tool-v2'">$(MSBuildProjectDirectory)/tool-v2/$(FixtureVersion)</FixtureRoot>
+    <FixtureRoot Condition="'$(FixtureFamily)' == 'metadata-confusion'">$(MSBuildProjectDirectory)/metadata-confusion/$(FixtureVersion)</FixtureRoot>
+    <MetadataConfusionGeneratorProject>$(MSBuildProjectDirectory)/metadata-confusion/generator/MetadataConfusionGenerator.csproj</MetadataConfusionGeneratorProject>
+    <MetadataConfusionGeneratedRoot>$(ArtifactsPath)/package-fixtures-generated/metadata-confusion/$(FixtureVersion)</MetadataConfusionGeneratedRoot>
     <NuspecFile>$(FixtureRoot)/$(FixturePackage).nuspec</NuspecFile>
     <NuspecBasePath>$(FixtureRoot)</NuspecBasePath>
-    <NuspecProperties>version=$(FixtureVersion);repositoryCommit=$(FixtureRepositoryCommit)</NuspecProperties>
+    <NuspecProperties>version=$(FixtureVersion);repositoryCommit=$(FixtureRepositoryCommit);generatedRoot=$(MetadataConfusionGeneratedRoot)</NuspecProperties>
     <PackageOutputPath>$(ArtifactsPath)/package-fixtures/$(Configuration)</PackageOutputPath>
   </PropertyGroup>
 
   <Target Name="ValidateFixturePackage" BeforeTargets="GenerateNuspec">
     <Error
-      Condition="'$(FixturePackage)' != 'pointer' and '$(FixturePackage)' != 'linux-x64'"
-      Text="FixturePackage must be 'pointer' or 'linux-x64'." />
+      Condition="'$(FixtureFamily)' != 'tool-v2' and '$(FixtureFamily)' != 'metadata-confusion'"
+      Text="FixtureFamily must be 'tool-v2' or 'metadata-confusion'." />
+    <Error
+      Condition="'$(FixtureFamily)' == 'tool-v2' and '$(FixturePackage)' != 'pointer' and '$(FixturePackage)' != 'linux-x64'"
+      Text="Tool v2 FixturePackage must be 'pointer' or 'linux-x64'." />
+    <Error
+      Condition="'$(FixtureFamily)' == 'metadata-confusion' and '$(FixturePackage)' != 'metadata-confusion'"
+      Text="Metadata-confusion FixturePackage must be 'metadata-confusion'." />
     <Error
       Condition="!Exists('$(NuspecFile)')"
       Text="Fixture nuspec does not exist: $(NuspecFile)" />
     <Error
-      Condition="!Exists('$(FixtureRoot)/$(FixturePackage)/DotnetToolSettings.xml')"
+      Condition="'$(FixtureFamily)' == 'tool-v2' and !Exists('$(FixtureRoot)/$(FixturePackage)/DotnetToolSettings.xml')"
       Text="Fixture tool settings do not exist for $(FixturePackage)." />
+    <Error
+      Condition="'$(FixtureFamily)' == 'metadata-confusion' and !Exists('$(MetadataConfusionGeneratorProject)')"
+      Text="Metadata-confusion generator project does not exist." />
+  </Target>
+
+  <Target
+    Name="GenerateMetadataConfusionFixture"
+    BeforeTargets="GenerateNuspec"
+    DependsOnTargets="ValidateFixturePackage"
+    Condition="'$(FixtureFamily)' == 'metadata-confusion'">
+    <MSBuild
+      Projects="$(MetadataConfusionGeneratorProject)"
+      Targets="Restore;Build"
+      Properties="Configuration=$(Configuration)"
+      BuildInParallel="false" />
+    <MSBuild
+      Projects="$(MetadataConfusionGeneratorProject)"
+      Targets="GetTargetPath"
+      Properties="Configuration=$(Configuration)"
+      BuildInParallel="false">
+      <Output
+        TaskParameter="TargetOutputs"
+        ItemName="_MetadataConfusionGeneratorTarget" />
+    </MSBuild>
+    <Error
+      Condition="'@(_MetadataConfusionGeneratorTarget)' == ''"
+      Text="Metadata-confusion generator target path was not produced." />
+    <MakeDir Directories="$(MetadataConfusionGeneratedRoot)" />
+    <Exec
+      Command="dotnet &quot;@(_MetadataConfusionGeneratorTarget)&quot; generate &quot;$(MetadataConfusionGeneratedRoot)/DotnetInspect.TestAssets.MetadataConfusion.dll&quot; &quot;$(MetadataConfusionGeneratedRoot)/metadata-fixture.json&quot;" />
   </Target>
 </Project>
