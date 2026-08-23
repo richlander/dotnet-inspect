@@ -2073,7 +2073,7 @@ kbd {
 .annotated-span.selected.capture { background: color-mix(in srgb, #b89ac6 28%, transparent); box-shadow: inset 0 -2px 0 #b89ac6; color: var(--text); }
 .annotated-span.selected.structural,
 .annotated-region.selected { background: transparent; box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--blue) 70%, transparent); color: var(--text); text-shadow: 0 0 7px color-mix(in srgb, var(--blue) 30%, transparent); }
-.annotated-span.codelens-preview { color: var(--text); font-weight: 700; animation: ase-codelens-preview 6.6s linear forwards; }
+.annotated-span.codelens-preview { box-shadow: none; color: var(--text); font-weight: 700; animation: ase-codelens-preview 6.6s linear forwards; }
 @keyframes ase-codelens-preview {
   0%, 90.909% { background: color-mix(in srgb, var(--blue) 10%, transparent); text-shadow: 0 0 5px color-mix(in srgb, var(--blue) 28%, transparent); }
   100% { background: transparent; text-shadow: 0 0 0 transparent; }

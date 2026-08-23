@@ -201,7 +201,7 @@ test("CodeLens activation retains its node preview until the six-second animatio
   assert.equal(target.classList.contains("codelens-preview"), true);
   assert.match(
     styles,
-    /\.annotated-span\.codelens-preview\s*\{[^}]*animation:\s*ase-codelens-preview 6\.6s/,
+    /\.annotated-span\.codelens-preview\s*\{[^}]*box-shadow:\s*none;[^}]*animation:\s*ase-codelens-preview 6\.6s/,
   );
   assert.match(styles, /0%, 90\.909%/);
   const previewFrames = styles.slice(
