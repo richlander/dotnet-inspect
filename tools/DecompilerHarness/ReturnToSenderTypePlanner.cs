@@ -5596,16 +5596,19 @@ public static class CompileBackSourceComposer
                 int typeParameterCount =
                     method.GetGenericParameters().Count;
                 int existingMethodIndex = members.FindIndex(member =>
-                    SameMethodShape(
-                        member,
-                        memberKind,
-                        identifierName,
-                        signatureIdentity,
-                        method.Attributes.HasFlag(
-                            MethodAttributes.Static),
-                        parameters,
-                        returnType,
-                        typeParameterCount));
+                    member.Kind == memberKind
+                    && member.Identity.Method == identifierName
+                    && (member.Identity.Signature == signatureIdentity
+                        || (member.IsStatic
+                            == method.Attributes.HasFlag(
+                                MethodAttributes.Static)
+                            && member.TypeParameters.Count
+                                == typeParameterCount
+                            && member.ReturnType?.DisplayName
+                                == returnType?.DisplayName
+                            && SameParameters(
+                                member.Parameters,
+                                parameters))));
                 if (existingMethodIndex >= 0)
                 {
                     var existing = members[existingMethodIndex];
@@ -5692,27 +5695,6 @@ public static class CompileBackSourceComposer
 
         static bool IsGeneratedLocalFunctionName(string name)
             => name.Contains('<', StringComparison.Ordinal) && CSharpNaming.MethodName(name) != name;
-
-        static bool SameMethodShape(
-            CompileBackMemberRequirement member,
-            CompileBackMemberKind kind,
-            string name,
-            string signature,
-            bool isStatic,
-            IReadOnlyList<CompileBackParameter> parameters,
-            CompileBackTypeSignature? returnType,
-            int typeParameterCount)
-            => member.Kind == kind
-                && member.Identity.Method == name
-                && (member.Identity.Signature == signature
-                    || (member.IsStatic == isStatic
-                        && member.TypeParameters.Count
-                            == typeParameterCount
-                        && member.ReturnType?.DisplayName
-                            == returnType?.DisplayName
-                        && SameParameters(
-                            member.Parameters,
-                            parameters)));
 
         static bool IsPointerSignature(string signature)
             => signature.Contains('*', StringComparison.Ordinal);
