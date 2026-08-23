@@ -680,15 +680,30 @@ reservation, archive limits, producer authorization, and publication are not
 reimplemented in the host. Desktop package-resolution consumers remain on the
 compatibility path.
 
-The v3 compatibility adapter initially exposes version and package-payload
-operations only, and validates package coordinates before any service-index or
-payload request. Search remains on the existing package-layer service-index
-discovery path until that resource discovery moves into the typed client; the
-adapter does not restore the retired NuGet.org-only search shortcut.
+The v3 compatibility adapter exposes search, version, and package-payload
+operations. It validates package coordinates before any service-index or
+payload request. Search discovers the highest supported
+`SearchQueryService` capability from the source's service index, preserves
+equivalent endpoint order for failover, scopes credentials to the service-index
+origin, stops endpoint failover on authentication rejection, and retains signed
+endpoint query bytes. `Capabilities` describes operations implemented by the
+runtime client; a particular v3 feed that does not advertise a search resource
+returns typed `Unsupported` from that operation. The adapter does not restore
+the retired NuGet.org-only search shortcut.
 The local-folder descriptor remains modeled without a runtime client.
 `PackageSourceClientTests.GalleryAndCanonicalV3ShareProducerIdentity`,
 `HttpProducerIdentityFoldsIdnAndPercentEscapeSpelling`,
 `LegacyPackageSourceCreatesV3Client`,
+`V3SearchUsesHighestCompatibleResourcesAndFailsOver`,
+`CanonicalNuGetOrgV3DiscoversSearchWithoutShortcut`,
+`V3SearchPreservesDeclaredQueryBytes`,
+`V3SearchNormalizesIdnServiceIndex`,
+`V3SearchInvalidRawServiceIndexIsTypedInvalidResponse`,
+`V3MalformedAdvertisedSearchIsTypedInvalidResponse`,
+`V3SearchWithoutAdvertisedResourceIsTypedUnsupported`,
+`V3SearchUsesLibraryDeadline`,
+`V3SearchTransportTimeoutIsTypedTimeout`,
+`V3SearchDoesNotFailOverAuthenticationRejection`,
 `GalleryClientUsesKnownEndpointsWithoutServiceIndex`,
 `GalleryEnumerationJoinsAuthoritativeListingState`,
 `GalleryExternalRegistrationPageIsValidatedAndRebased`,
@@ -729,7 +744,6 @@ The local-folder descriptor remains modeled without a runtime client.
 `GalleryClassifiesBoundedMetadataRejection`,
 `GalleryClassifiesHttpFailures`,
 `GalleryCallerCancellationRemainsCancellation`,
-`CanonicalNuGetOrgV3DoesNotReintroduceSearchShortcut`, and
 `LegacyLocalSourceRemainsAnExplicitUnsupportedKind` gate these boundaries.
 `BrowserEngineBoundaryTests.DependencyRangeUsesAuthoritativeGalleryListingState`
 gates the Browser's listing-aware dependency range selection, and
@@ -747,7 +761,8 @@ The remaining structural problem is that existing package-resolution consumers
 still largely equate a source with a v3 service-index URL. The implementation
 should:
 
-1. Move v3 resource discovery and URL construction fully into its source client.
+1. Move remaining v3 version and payload resource discovery and URL
+   construction out of legacy `NuGetClient` and into the source client.
 2. Migrate package resolution from direct `PackageSource`/`NuGetClient` use to
    the source-client boundary.
 3. Add environment-scoped availability observations without mutating durable

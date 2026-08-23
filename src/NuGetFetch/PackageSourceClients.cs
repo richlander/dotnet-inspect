@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using NuGet.Versioning;
 
@@ -567,19 +568,94 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
     public PackageSourceKind Kind => PackageSourceKind.NuGetV3;
     internal TimeSpan TransportTimeout => _client.Timeout;
     public PackageSourceCapabilities Capabilities =>
-        PackageSourceCapabilities.VersionEnumeration
+        PackageSourceCapabilities.Search
+        | PackageSourceCapabilities.VersionEnumeration
         | PackageSourceCapabilities.PackagePayload;
 
-    public Task<PackageSourceOperationResult<PackageSearchResult>> SearchAsync(
+    public async Task<PackageSourceOperationResult<PackageSearchResult>> SearchAsync(
         string query,
         int take = 20,
         bool prerelease = false,
         CancellationToken cancellationToken = default) =>
-        Task.FromResult(
-            PackageSourceOperation.Unsupported<PackageSearchResult>(
-                Identity,
-                Kind,
-                PackageSourceCapabilities.Search));
+        await PackageSourceOperation.CaptureAsync(
+            Identity,
+            Kind,
+            PackageSourceCapabilities.Search,
+            async () =>
+            {
+                using var operation = new NuGetOperationDeadline(
+                    _options,
+                    _clientTimeout,
+                    cancellationToken);
+                IReadOnlyList<string> endpoints =
+                    await NuGetV3SearchResourceDiscovery
+                        .GetSearchEndpointsAsync(
+                            _client,
+                            _endpoint,
+                            _credential,
+                            _options,
+                            operation)
+                        .ConfigureAwait(false);
+                if (endpoints.Count == 0)
+                {
+                    throw new NuGetSourceCapabilityUnavailableException();
+                }
+
+                Exception? lastFailure = null;
+                foreach (string endpoint in endpoints)
+                {
+                    try
+                    {
+                        var search = new SearchService(
+                            _client,
+                            endpoint,
+                            _options,
+                            retryTransientRequests: true);
+                        IReadOnlyList<SearchResult> results =
+                            await search.SearchAsync(
+                                    query,
+                                    take,
+                                    prerelease,
+                                    NuGetSourceRequest
+                                        .AuthenticationForEndpoint(
+                                            NuGetSourceRequest.EndpointUrl(
+                                                _endpoint),
+                                            endpoint,
+                                            _credential),
+                                    operation)
+                                .ConfigureAwait(false);
+                        return PackageSourceProjection.ProjectSearch(
+                            results,
+                            Identity,
+                            operation);
+                    }
+                    catch (Exception exception)
+                        when (CanFailOverSearchEndpoint(exception))
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        operation.ThrowIfExpired();
+                        lastFailure = exception;
+                    }
+                }
+
+                throw lastFailure switch
+                {
+                    InvalidOperationException invalidResponse
+                        when invalidResponse
+                            is not NuGetSourceResponseException =>
+                        new NuGetSourceResponseException(
+                            "The package source search response did not satisfy the search contract.",
+                            invalidResponse),
+                    OperationCanceledException canceled =>
+                        new IOException(
+                            "The package source search request was canceled by the transport.",
+                            canceled),
+                    not null => lastFailure,
+                    _ => new NuGetSourceResponseException(
+                        "The package source did not provide a usable search endpoint."),
+                };
+            },
+            cancellationToken).ConfigureAwait(false);
 
     public async Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(
         string packageId,
@@ -601,7 +677,7 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                 IReadOnlyList<string> versions =
                     await _nuget.GetVersionsAsync(
                         packageId,
-                        _endpoint.AbsoluteUri,
+                        NuGetSourceRequest.EndpointUrl(_endpoint),
                         _credential,
                         operation).ConfigureAwait(false);
                 return PackageSourceProjection.ProjectVersions(
@@ -635,7 +711,7 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                 await _nuget.DownloadAsync(
                     coordinate.PackageId,
                     coordinate.Version,
-                    _endpoint.AbsoluteUri,
+                    NuGetSourceRequest.EndpointUrl(_endpoint),
                     _credential,
                     cancellationToken).ConfigureAwait(false)),
             cancellationToken,
@@ -661,6 +737,21 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
     {
         _client.Dispose();
     }
+
+    private static bool CanFailOverSearchEndpoint(Exception exception) =>
+        (exception is
+                HttpRequestException
+                or JsonException
+                or InvalidOperationException
+                or OperationCanceledException
+                or IOException
+                or TimeoutException)
+        && exception is not HttpRequestException
+        {
+            StatusCode:
+                System.Net.HttpStatusCode.Unauthorized
+                or System.Net.HttpStatusCode.Forbidden,
+        };
 }
 
 internal static partial class PackageCoordinateValidation

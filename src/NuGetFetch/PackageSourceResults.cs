@@ -317,15 +317,15 @@ internal static class PackageSourceOperation
     {
         kind = exception switch
         {
-            NuGetRequestTimeoutException
-                or NuGetOperationTimeoutException
-                or NuGetMetadataBodyTimeoutException =>
+            TimeoutException =>
                 PackageSourceFailureKind.Timeout,
             NuGetMetadataResponseTooLargeException =>
                 PackageSourceFailureKind.ResponseRejected,
             NuGetRedirectLimitExceededException
                 or NuGetRegistrationResourceLimitExceededException =>
                 PackageSourceFailureKind.ResponseRejected,
+            NuGetSourceCapabilityUnavailableException =>
+                PackageSourceFailureKind.Unsupported,
             NuGetSourceResponseException
                 or JsonException
                 or InvalidDataException =>
@@ -358,12 +358,11 @@ internal static class PackageSourceOperation
         };
 
         return exception is
-            NuGetRequestTimeoutException
-            or NuGetOperationTimeoutException
-            or NuGetMetadataBodyTimeoutException
+            TimeoutException
             or NuGetMetadataResponseTooLargeException
             or NuGetRedirectLimitExceededException
             or NuGetRegistrationResourceLimitExceededException
+            or NuGetSourceCapabilityUnavailableException
             or NuGetSourceResponseException
             or JsonException
             or InvalidDataException
@@ -391,6 +390,10 @@ internal static class PackageSourceOperation
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
 }
+
+internal sealed class NuGetSourceCapabilityUnavailableException()
+    : InvalidOperationException(
+        "The package source does not advertise the requested capability.");
 
 internal sealed class NuGetSourceResponseException : InvalidOperationException
 {

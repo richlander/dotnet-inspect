@@ -22,6 +22,11 @@ public sealed class PackageSourceClientTests
         "https://globalcdn.nuget.org/symbol-packages/contoso.1.0.0.snupkg";
     private const string ServiceIndex =
         "https://feed.example/v3/index.json";
+    private const string SearchEndpoint =
+        "https://feed.example/v3/query";
+    private const string SearchRequest =
+        SearchEndpoint
+        + "?q=contoso&skip=0&take=20&prerelease=false&semVerLevel=2.0.0";
     private const string FlatContainer =
         "https://feed.example/v3/flat/";
     private const string NuGetOrgVersions =
@@ -210,7 +215,8 @@ public sealed class PackageSourceClientTests
 
         Assert.Equal(PackageSourceKind.NuGetV3, runtime.Kind);
         Assert.Equal(
-            PackageSourceCapabilities.VersionEnumeration
+            PackageSourceCapabilities.Search
+                | PackageSourceCapabilities.VersionEnumeration
                 | PackageSourceCapabilities.PackagePayload,
             runtime.Capabilities);
         PackageVersionResult versions = Succeeded(
@@ -728,13 +734,14 @@ public sealed class PackageSourceClientTests
                 client);
 
         PackageSourceFailure error = Failed(
-            await runtime.SearchAsync(
+            await runtime.TryGetSymbolsAsync(
                 "contoso",
+                "1.0.0",
                 cancellationToken:
                     TestContext.Current.CancellationToken));
 
         Assert.Equal(
-            PackageSourceCapabilities.Search,
+            PackageSourceCapabilities.SymbolPayload,
             error.Capability);
         Assert.Equal(
             PackageSourceFailureKind.Unsupported,
@@ -745,9 +752,36 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
-    public async Task CanonicalNuGetOrgV3DoesNotReintroduceSearchShortcut()
+    public async Task CanonicalNuGetOrgV3DiscoversSearchWithoutShortcut()
     {
-        var handler = new RecordingHandler();
+        const string declaredSearch =
+            "https://search.example/query";
+        const string request =
+            declaredSearch
+            + "?q=contoso&skip=0&take=20&prerelease=false&semVerLevel=2.0.0";
+        var handler = new RecordingHandler
+        {
+            [NuGetClient.NuGetOrgServiceIndex] = $$"""
+                {
+                  "resources": [
+                    {
+                      "@id": "{{declaredSearch}}",
+                      "@type": "SearchQueryService/3.5.0"
+                    }
+                  ]
+                }
+                """,
+            [request] = """
+                {
+                  "data": [
+                    {
+                      "id": "Contoso",
+                      "version": "1.0.0"
+                    }
+                  ]
+                }
+                """,
+        };
         HttpMessageHandler client = handler;
         IPackageSourceClient runtime =
             PackageSourceClientFactory.Create(
@@ -757,18 +791,379 @@ public sealed class PackageSourceClientTests
                     new PackageSourceCredential("user", "token")),
                 client);
 
-        Assert.False(
+        Assert.True(
             runtime.Capabilities.HasFlag(PackageSourceCapabilities.Search));
+        PackageSearchMatch match = Assert.Single(
+            Succeeded(
+            await runtime.SearchAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken))
+                .Matches);
+
+        Assert.Equal("Contoso", match.Metadata.Id);
+        Assert.Equal(
+            [NuGetClient.NuGetOrgServiceIndex, request],
+            handler.Requested);
+        Assert.Equal(
+            ["user:token", null],
+            handler.Authentication.Select(DecodeBasic));
+    }
+
+    [Fact]
+    public async Task V3SearchUsesHighestCompatibleResourcesAndFailsOver()
+    {
+        const string olderSearch =
+            "https://feed.example/v3/query-old";
+        const string firstSearch =
+            "https://feed.example/v3/query-a?sig=%73ecret";
+        const string secondSearch =
+            "https://feed.example/v3/query-b";
+        const string firstRequest =
+            firstSearch
+            + "&q=contoso&skip=0&take=20&prerelease=false&semVerLevel=2.0.0";
+        const string secondRequest =
+            secondSearch
+            + "?q=contoso&skip=0&take=20&prerelease=false&semVerLevel=2.0.0";
+        var handler = new RecordingHandler
+        {
+            [ServiceIndex] = $$"""
+                {
+                  "resources": [
+                    {
+                      "@id": "{{olderSearch}}",
+                      "@type": "SearchQueryService/3.0.0"
+                    },
+                    {
+                      "@id": "{{firstSearch}}",
+                      "@type": [
+                        "SearchQueryService/3.5.0",
+                        "SearchAutocompleteService/3.5.0"
+                      ]
+                    },
+                    {
+                      "@id": "{{secondSearch}}",
+                      "@type": "SearchQueryService/3.5.0"
+                    }
+                  ]
+                }
+                """,
+            [firstRequest] = "<html>sign in</html>",
+            [secondRequest] = """
+                {
+                  "data": [
+                    {
+                      "id": "Contoso",
+                      "version": "1.0.0"
+                    }
+                  ]
+                }
+                """,
+        };
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource(
+                    "corporate",
+                    ServiceIndex,
+                    new PackageSourceCredential("user", "token")),
+                client);
+
+        PackageSearchMatch match = Assert.Single(
+            Succeeded(
+                await runtime.SearchAsync(
+                    "contoso",
+                    cancellationToken:
+                        TestContext.Current.CancellationToken))
+                .Matches);
+
+        Assert.Equal("Contoso", match.Metadata.Id);
+        Assert.Equal(runtime.Identity, match.Candidate.Producer);
+        Assert.Equal(PackageListingState.Listed, match.Candidate.ListingState);
+        Assert.Equal(
+            [ServiceIndex, firstRequest, secondRequest],
+            handler.Requested);
+        Assert.DoesNotContain(
+            handler.Requested,
+            request => request.StartsWith(
+                olderSearch,
+                StringComparison.Ordinal));
+        Assert.Equal(
+            ["user:token", "user:token", "user:token"],
+            handler.Authentication.Select(DecodeBasic));
+    }
+
+    [Fact]
+    public async Task V3SearchWithoutAdvertisedResourceIsTypedUnsupported()
+    {
+        var handler = new RecordingHandler
+        {
+            [ServiceIndex] = """{"resources":[]}""",
+        };
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                client);
+
         PackageSourceFailure failure = Failed(
             await runtime.SearchAsync(
                 "contoso",
                 cancellationToken:
                     TestContext.Current.CancellationToken));
-        Assert.Equal(
-            PackageSourceFailureKind.Unsupported,
-            failure.Kind);
+
+        Assert.Equal(PackageSourceFailureKind.Unsupported, failure.Kind);
+        Assert.Equal(PackageSourceCapabilities.Search, failure.Capability);
+        Assert.Equal([ServiceIndex], handler.Requested);
+    }
+
+    [Fact]
+    public async Task V3MalformedAdvertisedSearchIsTypedInvalidResponse()
+    {
+        var handler = new RecordingHandler
+        {
+            [ServiceIndex] = """
+                {
+                  "resources": [
+                    {
+                      "@id": "not a URI",
+                      "@type": "SearchQueryService/3.5.0"
+                    }
+                  ]
+                }
+                """,
+        };
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                client);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.SearchAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(PackageSourceFailureKind.InvalidResponse, failure.Kind);
+        Assert.Equal(PackageSourceCapabilities.Search, failure.Capability);
+        Assert.Equal([ServiceIndex], handler.Requested);
+    }
+
+    [Fact]
+    public async Task V3SearchPreservesDeclaredQueryBytes()
+    {
+        const string signedIndex =
+            ServiceIndex + "?s%69g=%73ervice";
+        const string signedSearch =
+            SearchEndpoint + "?s%69g=%73earch";
+        const string request =
+            signedSearch
+            + "&q=contoso&skip=0&take=20&prerelease=false&semVerLevel=2.0.0";
+        var handler = new RecordingHandler
+        {
+            [signedIndex] = $$"""
+                {
+                  "resources": [
+                    {
+                      "@id": "{{signedSearch}}",
+                      "@type": "SearchQueryService/3.5.0"
+                    }
+                  ]
+                }
+                """,
+            [request] = """{"data":[]}""",
+        };
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("signed", signedIndex),
+                client);
+
+        PackageSearchResult result = Succeeded(
+            await runtime.SearchAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        Assert.Empty(result.Matches);
+        Assert.Equal([signedIndex, request], handler.Requested);
+    }
+
+    [Fact]
+    public async Task V3SearchUsesLibraryDeadline()
+    {
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                new StallingHandler(),
+                new NuGetFetchOptions
+                {
+                    RequestTimeout = TimeSpan.FromMilliseconds(20),
+                    OperationTimeout = TimeSpan.FromMilliseconds(100),
+                });
+
+        PackageSourceFailure failure = Failed(
+            await runtime.SearchAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
+        Assert.Equal(PackageSourceCapabilities.Search, failure.Capability);
+    }
+
+    [Fact]
+    public async Task V3SearchTransportTimeoutIsTypedTimeout()
+    {
+        var handler = new RecordingHandler
+        {
+            [ServiceIndex] = $$"""
+                {
+                  "resources": [
+                    {
+                      "@id": "{{SearchEndpoint}}",
+                      "@type": "SearchQueryService/3.5.0"
+                    }
+                  ]
+                }
+                """,
+        };
+        handler.SetResponse(
+            SearchRequest,
+            _ => throw new TimeoutException("transport timeout"));
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                client);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.SearchAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
+        Assert.Equal(PackageSourceCapabilities.Search, failure.Capability);
+    }
+
+    [Fact]
+    public async Task V3SearchNormalizesIdnServiceIndex()
+    {
+        const string unicodeIndex =
+            "https://b\u00FCcher.example/v3/index.json";
+        const string normalizedIndex =
+            "https://xn--bcher-kva.example/v3/index.json";
+        const string normalizedSearch =
+            "https://xn--bcher-kva.example/v3/query";
+        const string request =
+            normalizedSearch
+            + "?q=contoso&skip=0&take=20&prerelease=false&semVerLevel=2.0.0";
+        var handler = new RecordingHandler
+        {
+            [normalizedIndex] = $$"""
+                {
+                  "resources": [
+                    {
+                      "@id": "{{normalizedSearch}}",
+                      "@type": "SearchQueryService/3.5.0"
+                    }
+                  ]
+                }
+                """,
+            [request] = """{"data":[]}""",
+        };
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("idn", unicodeIndex),
+                client);
+
+        PackageSearchResult result = Succeeded(
+            await runtime.SearchAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        Assert.Empty(result.Matches);
+        Assert.Equal([normalizedIndex, request], handler.Requested);
+    }
+
+    [Fact]
+    public async Task V3SearchInvalidRawServiceIndexIsTypedInvalidResponse()
+    {
+        const string malformedIndex =
+            ServiceIndex + "?sig=%zz";
+        var handler = new RecordingHandler();
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("malformed", malformedIndex),
+                client);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.SearchAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(PackageSourceFailureKind.InvalidResponse, failure.Kind);
         Assert.Empty(handler.Requested);
-        Assert.Empty(handler.Authentication);
+    }
+
+    [Fact]
+    public async Task V3SearchDoesNotFailOverAuthenticationRejection()
+    {
+        const string firstSearch =
+            "https://feed.example/v3/query-a";
+        const string secondSearch =
+            "https://feed.example/v3/query-b";
+        const string firstRequest =
+            firstSearch
+            + "?q=contoso&skip=0&take=20&prerelease=false&semVerLevel=2.0.0";
+        const string secondRequest =
+            secondSearch
+            + "?q=contoso&skip=0&take=20&prerelease=false&semVerLevel=2.0.0";
+        var handler = new RecordingHandler
+        {
+            [ServiceIndex] = $$"""
+                {
+                  "resources": [
+                    {
+                      "@id": "{{firstSearch}}",
+                      "@type": "SearchQueryService/3.5.0"
+                    },
+                    {
+                      "@id": "{{secondSearch}}",
+                      "@type": "SearchQueryService/3.5.0"
+                    }
+                  ]
+                }
+                """,
+            [secondRequest] = """{"data":[]}""",
+        };
+        handler.SetStatus(firstRequest, HttpStatusCode.Unauthorized);
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource(
+                    "corporate",
+                    ServiceIndex,
+                    new PackageSourceCredential("user", "token")),
+                client);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.SearchAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageSourceFailureKind.AuthenticationRequired,
+            failure.Kind);
+        Assert.Equal([ServiceIndex, firstRequest], handler.Requested);
+        Assert.DoesNotContain(secondRequest, handler.Requested);
     }
 
     [Fact]
