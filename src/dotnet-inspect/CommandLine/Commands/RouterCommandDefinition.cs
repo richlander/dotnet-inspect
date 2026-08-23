@@ -212,6 +212,8 @@ public static class RouterCommandDefinition
             var trailingSegmentHasGenericNotation =
                 TypeMatcher.HasExplicitGenericNotation(
                     target[trailingSegmentStart..]);
+            var containingTypeHasMetadataGenericNotation =
+                target.AsSpan(0, trailingSegmentStart).Contains('`');
             var hasTypeOption = ContainsOption(tokens, "--type")
                 || ContainsOption(tokens, "-t");
             var hasMemberOption = ContainsOption(tokens, "--member")
@@ -252,7 +254,11 @@ public static class RouterCommandDefinition
                 return ["type", target, .. tail];
             }
 
-            if (hasMemberOption)
+            if (hasMemberOption
+                && (!hasExplicitGenericNotation
+                    || (hasExplicitApiSource
+                        && (trailingSegmentHasGenericNotation
+                            || containingTypeHasMetadataGenericNotation))))
                 return ["member", target, .. tail];
 
             if (hasExplicitApiSource
