@@ -382,6 +382,63 @@ test("captured variables remain discoverable and select their exact uses", () =>
   assert.match(selectedHtml, /Lambda expression #0/);
 });
 
+test("shared capture names identify their distinct nested-function scopes", () => {
+  const sharedDocument: AnnotatedSourceDocument = {
+    text: "x => n\ny => n",
+    nodes: [
+      { id: 0, kind: "LambdaExpression", medium: "CSharp", spans: [{ start: 0, length: 6 }] },
+      { id: 1, kind: "NameExpression", medium: "CSharp", spans: [{ start: 5, length: 1 }] },
+      { id: 2, kind: "LambdaExpression", medium: "CSharp", spans: [{ start: 7, length: 6 }] },
+      { id: 3, kind: "NameExpression", medium: "CSharp", spans: [{ start: 12, length: 1 }] },
+    ],
+    regions: [],
+    facts: [],
+    targets: [],
+    captures: [
+      { parent_node_id: 0, display_name: "n", use_node_ids: [1] },
+      { parent_node_id: 2, display_name: "n", use_node_ids: [3] },
+    ],
+  };
+  validateAnnotatedSourceDocument(sharedDocument);
+
+  const html = renderAnnotatedSourceExplorer({
+    result: { ...result, document: sharedDocument },
+    state: createAnnotatedSourceExplorerState(sharedDocument),
+    title: "Example.Shared",
+    subtitle: "void Shared()",
+    escapeHtml,
+    nodeKinds: [
+      { id: "LambdaExpression", label: "Lambda expression" },
+      { id: "NameExpression", label: "Name expression" },
+    ],
+  });
+
+  assert.match(html, /Lambda expression #0/);
+  assert.match(html, /Lambda expression #2/);
+});
+
+test("empty source lines add no selectable characters", () => {
+  const blankDocument: AnnotatedSourceDocument = {
+    text: "a\n\nb",
+    nodes: [],
+    regions: [],
+    facts: [],
+    targets: [],
+  };
+  validateAnnotatedSourceDocument(blankDocument);
+
+  const html = renderAnnotatedSourceExplorer({
+    result: { ...result, document: blankDocument },
+    state: createAnnotatedSourceExplorerState(blankDocument),
+    title: "Example.Blank",
+    subtitle: "void Blank()",
+    escapeHtml,
+  });
+
+  assert.doesNotMatch(html, /&nbsp;/);
+  assert.match(html, /annotated-line-text"><\/span>/);
+});
+
 test("C# syntax tokenization is reused across interaction renders", () => {
   let calls = 0;
   const tokenizer = (value: string) => {

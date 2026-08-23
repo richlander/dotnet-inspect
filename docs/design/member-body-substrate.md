@@ -467,9 +467,11 @@ Three decisions in that pipeline are load-bearing:
   still live inside that parent's subtree — which is what makes a capture list
   copied by `IrNode.Clone` resolve to nothing rather than to the original's
   coordinates — and two captures on one parent that print the same name decline
-  both. The document constructor re-enforces the parent kind, the
-  `NameExpression` use kind, distinct increasing use ids, at least one use, and
-  the canonical row order, so a deserialized payload cannot claim otherwise.
+  both. The document constructor re-enforces C# medium, the parent kind, the
+  `NameExpression` use kind, use containment within that parent, exact agreement
+  between each use's rendered text and the display name, distinct increasing
+  use ids, at least one use, and the canonical row order, so a deserialized
+  payload cannot claim otherwise.
 
 On the wire, `captures` is **omitted when empty**. A capture-free document
 therefore keeps the exact bytes it had before this plane existed, which is what

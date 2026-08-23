@@ -463,7 +463,7 @@ export function renderAnnotatedSourceExplorer(
     return `<div class="annotated-line medium-${line.medium.toLowerCase()}">
       <span class="annotated-line-number">${line.number}</span>
       <span class="annotated-line-medium">${escapeHtml(mediumLabel)}</span>
-      <span class="annotated-line-text">${segments || "&nbsp;"}</span>
+      <span class="annotated-line-text">${segments}</span>
     </div>`;
   }).join("");
 
@@ -610,7 +610,7 @@ function captureSectionHtml(
         const parent = nodeById.get(capture.parentNodeId);
         const parentLabel = parent ? labels.get(parent.kind) ?? parent.kind : "Nested function";
         return `<button type="button" class="${capture.selected ? "selected" : ""}" data-ase-capture="${capture.index}" aria-pressed="${capture.selected}">
-            <span><strong>${escapeHtml(capture.displayName)}</strong><em>${escapeHtml(parentLabel)}</em></span>
+            <span><strong>${escapeHtml(capture.displayName)}</strong><em>${escapeHtml(parentLabel)} #${capture.parentNodeId}</em></span>
             <small>${capture.useNodeIds.length} addressable use${capture.useNodeIds.length === 1 ? "" : "s"}</small>
           </button>`;
       }).join("")}</div>

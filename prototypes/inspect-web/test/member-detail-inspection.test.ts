@@ -94,7 +94,10 @@ function inspectionState(
     memberAnnotatedError: "",
     memberAnnotatedKey: "",
     memberAnnotatedFactId: null,
+    memberAnnotatedCaptureIndex: null,
     memberAnnotatedNodeIds: [],
+    memberAnnotatedKind: "",
+    memberAnnotatedRegionRole: "",
     annotatedExplorer: null,
     memberFacts: null,
     memberFactsLoading: false,
@@ -485,7 +488,10 @@ test("annotated source publishes exact current results and resets selection", as
   const focusCalls: (MemberFocusSnapshot | null | undefined)[] = [];
   const state = inspectionState({
     memberAnnotatedFactId: 42,
+    memberAnnotatedCaptureIndex: 3,
     memberAnnotatedNodeIds: [7, 8],
+    memberAnnotatedKind: "LambdaExpression",
+    memberAnnotatedRegionRole: "Body",
   });
   const coordinator = createMemberDetailInspectionCoordinator(
     inspectionDependencies(state, {
@@ -518,7 +524,10 @@ test("annotated source publishes exact current results and resets selection", as
   assert.equal(state.memberAnnotated, result);
   assert.equal(state.memberAnnotatedLoading, false);
   assert.equal(state.memberAnnotatedFactId, null);
+  assert.equal(state.memberAnnotatedCaptureIndex, null);
   assert.deepEqual(state.memberAnnotatedNodeIds, []);
+  assert.equal(state.memberAnnotatedKind, "");
+  assert.equal(state.memberAnnotatedRegionRole, "");
   assert.deepEqual(focusCalls, [undefined, preservedFocus]);
 });
 

@@ -165,6 +165,7 @@ test("capture rows require nested-function parents and ordered name uses", () =>
   for (const mutate of [
     capture => { capture.parent_node_id = 1; },
     capture => { capture.display_name = ""; },
+    capture => { capture.display_name = "x"; },
     capture => { capture.use_node_ids = []; },
     capture => { capture.use_node_ids = [0]; },
     capture => { capture.use_node_ids = [1, 1]; },
@@ -177,6 +178,15 @@ test("capture rows require nested-function parents and ordered name uses", () =>
   const duplicate = structuredClone(document);
   duplicate.captures.push(structuredClone(duplicate.captures[0]));
   assert.throws(() => validateDocument(duplicate), /repeats/);
+
+  const outside = structuredClone(document);
+  outside.nodes[0].spans = [{ start: 0, length: 5 }];
+  assert.throws(() => validateDocument(outside), /outside its parent/);
+
+  const wrongMedium = structuredClone(document);
+  wrongMedium.nodes[0].medium = "Il";
+  wrongMedium.nodes[1].medium = "Il";
+  assert.throws(() => validateDocument(wrongMedium), /parent is not C# source/);
 });
 
 test("mixed-medium lines classify and segment each substring independently", () => {

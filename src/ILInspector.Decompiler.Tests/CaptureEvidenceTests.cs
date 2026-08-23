@@ -211,6 +211,23 @@ public class CaptureEvidenceTests
         Assert.Throws<ArgumentException>(() => new PrintedBodyMap(
             lines, nodes, [], [], [new PrintedCapture(0, "n", [1, 1])]));
 
+        // A display name must be the exact text its use selected.
+        Assert.Throws<ArgumentException>(() => new PrintedBodyMap(
+            lines, nodes, [], [], [new PrintedCapture(0, "x", [1])]));
+
+        // A valid name elsewhere in the body is not a use by this lambda.
+        PrintedNodeSpan[] outsideNodes =
+        [
+            .. nodes,
+            new(2, AnnotatedSourceNodeKinds.NameExpression, new PrintedExtent(0, 12, 0, 13)),
+        ];
+        Assert.Throws<ArgumentException>(() => new PrintedBodyMap(
+            ["x => x + n; n"],
+            outsideNodes,
+            [],
+            [],
+            [new PrintedCapture(0, "n", [2])]));
+
         // One parent cannot capture the same name twice.
         Assert.Throws<ArgumentException>(() => new PrintedBodyMap(
             lines,
@@ -358,6 +375,51 @@ public class AnnotatedSourceCaptureDocumentTests
         // A use that is not a rendered name.
         Assert.Throws<ArgumentException>(() => Document(new AnnotatedSourceCapture(0, "n", [0])));
 
+        // The row must agree with the rendered spelling.
+        Assert.Throws<ArgumentException>(() => Document(new AnnotatedSourceCapture(0, "x", [1])));
+
+        // A valid rendered name outside the nested function is not its capture.
+        Assert.Throws<ArgumentException>(() => new AnnotatedSourceDocument(
+            "x => x + n",
+            [
+                new AnnotatedSourceNode(
+                    0,
+                    AnnotatedSourceNodeKinds.LambdaExpression,
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(0, 5)]),
+                new AnnotatedSourceNode(
+                    1,
+                    AnnotatedSourceNodeKinds.NameExpression,
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(9, 1)]),
+            ],
+            [],
+            [],
+            [],
+            Source: null,
+            Captures: [new AnnotatedSourceCapture(0, "n", [1])]));
+
+        // Capture structure belongs to rendered C#, never the IL plane.
+        Assert.Throws<ArgumentException>(() => new AnnotatedSourceDocument(
+            "x => x + n",
+            [
+                new AnnotatedSourceNode(
+                    0,
+                    AnnotatedSourceNodeKinds.LambdaExpression,
+                    SourceLineKind.Il,
+                    [new AnnotatedSourceSpan(0, 10)]),
+                new AnnotatedSourceNode(
+                    1,
+                    AnnotatedSourceNodeKinds.NameExpression,
+                    SourceLineKind.Il,
+                    [new AnnotatedSourceSpan(9, 1)]),
+            ],
+            [],
+            [],
+            [],
+            Source: null,
+            Captures: [new AnnotatedSourceCapture(0, "n", [1])]));
+
         // Shape rules the row owns itself.
         Assert.Throws<ArgumentException>(() => new AnnotatedSourceCapture(0, "n", []));
         Assert.Throws<ArgumentException>(() => new AnnotatedSourceCapture(0, "", [1]));
@@ -371,15 +433,15 @@ public class AnnotatedSourceCaptureDocumentTests
         // ordered so two payloads cannot differ by row order alone.
         Assert.Throws<ArgumentException>(() => Document(
             new AnnotatedSourceCapture(0, "n", [1]),
-            new AnnotatedSourceCapture(0, "n", [2])));
+            new AnnotatedSourceCapture(0, "n", [1])));
         Assert.Throws<ArgumentException>(() => Document(
-            new AnnotatedSourceCapture(0, "z", [1]),
-            new AnnotatedSourceCapture(0, "a", [2])));
+            new AnnotatedSourceCapture(0, "x", [2]),
+            new AnnotatedSourceCapture(0, "n", [1])));
         Assert.Equal(
             2,
             Document(
-                new AnnotatedSourceCapture(0, "a", [2]),
-                new AnnotatedSourceCapture(0, "z", [1])).Captures!.Count);
+                new AnnotatedSourceCapture(0, "n", [1]),
+                new AnnotatedSourceCapture(0, "x", [2])).Captures!.Count);
     }
 
     [Fact]
@@ -404,6 +466,8 @@ public class AnnotatedSourceCaptureDocumentTests
             json.Replace("\"parent_node_id\":0", "\"parent_node_id\":1", StringComparison.Ordinal)));
         Assert.Throws<JsonException>(() => AnnotatedSourceJson.DeserializeDocument(
             json.Replace("\"use_node_ids\":[1]", "\"use_node_ids\":[]", StringComparison.Ordinal)));
+        Assert.Throws<JsonException>(() => AnnotatedSourceJson.DeserializeDocument(
+            json.Replace("\"display_name\":\"n\"", "\"display_name\":\"x\"", StringComparison.Ordinal)));
     }
 
     [Fact]

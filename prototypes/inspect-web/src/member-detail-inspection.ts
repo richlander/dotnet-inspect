@@ -83,7 +83,10 @@ export interface MemberDetailInspectionState {
   memberAnnotatedError: string;
   memberAnnotatedKey: string;
   memberAnnotatedFactId: number | null;
+  memberAnnotatedCaptureIndex: number | null;
   memberAnnotatedNodeIds: number[];
+  memberAnnotatedKind: string;
+  memberAnnotatedRegionRole: string;
   annotatedExplorer: unknown;
   memberFacts: MemberFacts | null;
   memberFactsLoading: boolean;
@@ -195,7 +198,10 @@ export function createMemberDetailInspectionCoordinator(
       state.memberAnnotatedLoading = true;
       state.memberAnnotatedError = "";
       state.memberAnnotatedFactId = null;
+      state.memberAnnotatedCaptureIndex = null;
       state.memberAnnotatedNodeIds = [];
+      state.memberAnnotatedKind = "";
+      state.memberAnnotatedRegionRole = "";
       state.annotatedExplorer = null;
       const preservedFocus = dependencies.renderPreservingMemberFocus();
       try {

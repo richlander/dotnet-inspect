@@ -1519,6 +1519,12 @@ test("annotated source entry owns its rendered control bindings", () => {
   for (const selector of ["#copy-annotated"]) {
     assert.equal(appSource.split(selector).length - 1, 0, selector);
   }
+  assert.match(
+    appSource,
+    /selectedKind: state\.memberAnnotatedKind,[\s\S]*selectedRegionRole: state\.memberAnnotatedRegionRole/);
+  assert.match(
+    appSource,
+    /state\.memberAnnotatedKind = state\.annotatedExplorer\.selectedKind;[\s\S]*state\.memberAnnotatedRegionRole = state\.annotatedExplorer\.selectedRegionRole;/);
 });
 
 test("leaving package search clears its pending loading state", () => {

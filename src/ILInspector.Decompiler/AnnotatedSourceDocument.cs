@@ -622,7 +622,7 @@ public sealed record AnnotatedSourceDocument
             AnnotatedSourceSpans.ValidateBounds(region.Spans, Text, nameof(Regions));
         ValidateFacts(facts);
         ValidateTargets(targets, facts, nodes);
-        ValidateCaptures(captures, nodes);
+        ValidateCaptures(captures, nodes, Text);
 
         this.Text = Text;
         this.Nodes = Array.AsReadOnly(nodes);
@@ -865,7 +865,10 @@ public sealed record AnnotatedSourceDocument
     /// order is enforced here too, so two payloads describing the same render
     /// cannot differ by row order alone.
     /// </remarks>
-    static void ValidateCaptures(AnnotatedSourceCapture[] captures, AnnotatedSourceNode[] nodes)
+    static void ValidateCaptures(
+        AnnotatedSourceCapture[] captures,
+        AnnotatedSourceNode[] nodes,
+        string text)
     {
         var identities = new HashSet<(int Parent, string Name)>();
         AnnotatedSourceCapture? previous = null;
@@ -888,6 +891,12 @@ public sealed record AnnotatedSourceDocument
                     $"Capture {capture.DisplayName} names parent node {capture.ParentNodeId}, which is {parent.Kind}, not a nested function.",
                     "Captures");
             }
+            if (parent.Medium != SourceLineKind.CSharp)
+            {
+                throw new ArgumentException(
+                    $"Capture {capture.DisplayName} names parent node {capture.ParentNodeId}, which is not C# source.",
+                    "Captures");
+            }
 
             foreach (int use in capture.UseNodeIds)
             {
@@ -897,10 +906,34 @@ public sealed record AnnotatedSourceDocument
                         $"Capture {capture.DisplayName} names use node {use}, which does not exist.",
                         "Captures");
                 }
-                if (nodes[use].Kind != AnnotatedSourceNodeKinds.NameExpression)
+                var useNode = nodes[use];
+                if (useNode.Kind != AnnotatedSourceNodeKinds.NameExpression)
                 {
                     throw new ArgumentException(
-                        $"Capture {capture.DisplayName} names use node {use}, which is {nodes[use].Kind}, not a {AnnotatedSourceNodeKinds.NameExpression}.",
+                        $"Capture {capture.DisplayName} names use node {use}, which is {useNode.Kind}, not a {AnnotatedSourceNodeKinds.NameExpression}.",
+                        "Captures");
+                }
+                if (useNode.Medium != SourceLineKind.CSharp)
+                {
+                    throw new ArgumentException(
+                        $"Capture {capture.DisplayName} names use node {use}, which is not C# source.",
+                        "Captures");
+                }
+                if (useNode.Spans.Any(useSpan => !parent.Spans.Any(
+                    parentSpan => parentSpan.Start <= useSpan.Start
+                        && useSpan.Start + useSpan.Length
+                            <= parentSpan.Start + parentSpan.Length)))
+                {
+                    throw new ArgumentException(
+                        $"Capture {capture.DisplayName} names use node {use}, which is outside parent node {capture.ParentNodeId}.",
+                        "Captures");
+                }
+                string renderedName = string.Concat(useNode.Spans.Select(
+                    span => text.Substring(span.Start, span.Length)));
+                if (!string.Equals(renderedName, capture.DisplayName, StringComparison.Ordinal))
+                {
+                    throw new ArgumentException(
+                        $"Capture {capture.DisplayName} names use node {use}, whose rendered text is {renderedName}.",
                         "Captures");
                 }
             }

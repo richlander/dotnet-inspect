@@ -494,6 +494,8 @@ const initialState = {
   memberAnnotatedFactId: null,
   memberAnnotatedCaptureIndex: null,
   memberAnnotatedNodeIds: [],
+  memberAnnotatedKind: "",
+  memberAnnotatedRegionRole: "",
   annotatedExplorer: null,
   typeSource: null,
   typeSourceLoading: false,
@@ -620,6 +622,8 @@ interface StateOverrides {
   memberAnnotatedFactId: number | null;
   memberAnnotatedCaptureIndex: number | null;
   memberAnnotatedNodeIds: number[];
+  memberAnnotatedKind: string;
+  memberAnnotatedRegionRole: string;
   annotatedExplorer: AnnotatedSourceExplorerState | null;
   typeSource: BrowserSource | null;
   typeMetadata: BrowserTypeMetadata | null;
@@ -3602,6 +3606,8 @@ function openAnnotatedSourceExplorer() {
     selectedFactId: state.memberAnnotatedFactId,
     selectedCaptureIndex: state.memberAnnotatedCaptureIndex,
     selectedNodeIds: state.memberAnnotatedNodeIds,
+    selectedKind: state.memberAnnotatedKind,
+    selectedRegionRole: state.memberAnnotatedRegionRole,
   });
   render();
   requestAnimationFrame(() => document.querySelector<HTMLElement>("#ase-exit")?.focus());
@@ -3613,6 +3619,8 @@ function closeAnnotatedSourceExplorer() {
   state.memberAnnotatedFactId = state.annotatedExplorer.selectedFactId;
   state.memberAnnotatedCaptureIndex = state.annotatedExplorer.selectedCaptureIndex;
   state.memberAnnotatedNodeIds = [...state.annotatedExplorer.selectedNodeIds];
+  state.memberAnnotatedKind = state.annotatedExplorer.selectedKind;
+  state.memberAnnotatedRegionRole = state.annotatedExplorer.selectedRegionRole;
   state.annotatedExplorer = null;
   render();
   requestAnimationFrame(() => document.querySelector<HTMLElement>("#open-annotated-explorer")?.focus());
@@ -7016,6 +7024,8 @@ function invalidateSourceCaches() {
   state.memberAnnotatedFactId = null;
   state.memberAnnotatedCaptureIndex = null;
   state.memberAnnotatedNodeIds = [];
+  state.memberAnnotatedKind = "";
+  state.memberAnnotatedRegionRole = "";
   state.annotatedExplorer = null;
 }
 

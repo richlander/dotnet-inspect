@@ -282,7 +282,7 @@ public sealed record PrintedBodyMap
 
         ValidateLaminar(nodes.Select(node => node.Extent).Concat(regions.Select(region => region.Extent)));
         Array.Sort(regions, Compare);
-        ValidateCaptures(captures, nodes);
+        ValidateCaptures(captures, nodes, lines);
 
         this.Lines = Array.AsReadOnly(lines);
         this.Nodes = Array.AsReadOnly(nodes);
@@ -311,7 +311,10 @@ public sealed record PrintedBodyMap
     /// </summary>
     public IReadOnlyList<PrintedCapture> Captures { get; }
 
-    static void ValidateCaptures(PrintedCapture[] captures, PrintedNodeSpan[] nodes)
+    static void ValidateCaptures(
+        PrintedCapture[] captures,
+        PrintedNodeSpan[] nodes,
+        string[] lines)
     {
         var identities = new HashSet<(int Parent, string Name)>();
         PrintedCapture? previous = null;
@@ -331,7 +334,8 @@ public sealed record PrintedBodyMap
                     $"Capture {capture.DisplayName} names parent node {capture.ParentNodeId}, which does not exist.",
                     "Captures");
             }
-            string parentKind = nodes[capture.ParentNodeId].Kind;
+            var parent = nodes[capture.ParentNodeId];
+            string parentKind = parent.Kind;
             if (parentKind is not (AnnotatedSourceNodeKinds.LambdaExpression
                 or AnnotatedSourceNodeKinds.LocalFunctionStatement))
             {
@@ -361,10 +365,26 @@ public sealed record PrintedBodyMap
                         $"Capture {capture.DisplayName} must name distinct use nodes in increasing order; {use} follows {previousUse}.",
                         "Captures");
                 }
-                if (nodes[use].Kind != AnnotatedSourceNodeKinds.NameExpression)
+                var useNode = nodes[use];
+                if (useNode.Kind != AnnotatedSourceNodeKinds.NameExpression)
                 {
                     throw new ArgumentException(
-                        $"Capture {capture.DisplayName} names use node {use}, which is {nodes[use].Kind}, not a {AnnotatedSourceNodeKinds.NameExpression}.",
+                        $"Capture {capture.DisplayName} names use node {use}, which is {useNode.Kind}, not a {AnnotatedSourceNodeKinds.NameExpression}.",
+                        "Captures");
+                }
+                if (!Contains(parent.Extent, useNode.Extent))
+                {
+                    throw new ArgumentException(
+                        $"Capture {capture.DisplayName} names use node {use}, which is outside parent node {capture.ParentNodeId}.",
+                        "Captures");
+                }
+                if (!string.Equals(
+                    SingleLineText(useNode.Extent, lines),
+                    capture.DisplayName,
+                    StringComparison.Ordinal))
+                {
+                    throw new ArgumentException(
+                        $"Capture {capture.DisplayName} names use node {use}, whose rendered text does not match.",
                         "Captures");
                 }
                 previousUse = use;
@@ -836,6 +856,18 @@ public sealed record PrintedBodyMap
         int c = line.CompareTo(otherLine);
         return c != 0 ? c : column.CompareTo(otherColumn);
     }
+
+    static bool Contains(PrintedExtent outer, PrintedExtent inner)
+        => ComparePosition(
+            outer.StartLine,
+            outer.StartColumn,
+            inner.StartLine,
+            inner.StartColumn) <= 0
+            && ComparePosition(
+                inner.EndLine,
+                inner.EndColumn,
+                outer.EndLine,
+                outer.EndColumn) <= 0;
 
     internal static void ValidateExtent(PrintedExtent extent, IReadOnlyList<string> lines, string parameterName)
     {

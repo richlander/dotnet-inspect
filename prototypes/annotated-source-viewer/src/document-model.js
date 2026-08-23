@@ -150,6 +150,9 @@ export function validateDocument(document) {
       if (parent.kind !== "LambdaExpression" && parent.kind !== "LocalFunctionStatement") {
         throw new TypeError(`Capture ${index} parent is not a lambda or local function.`);
       }
+      if (parent.medium !== "CSharp") {
+        throw new TypeError(`Capture ${index} parent is not C# source.`);
+      }
       if (typeof capture.display_name !== "string" || capture.display_name.length === 0) {
         throw new TypeError(`Capture ${index} must have a non-empty display name.`);
       }
@@ -165,8 +168,23 @@ export function validateDocument(document) {
         if (use <= previousUse) {
           throw new TypeError(`Capture ${index} use node ids must be distinct and increasing.`);
         }
-        if (document.nodes[use].kind !== "NameExpression") {
+        const useNode = document.nodes[use];
+        if (useNode.kind !== "NameExpression") {
           throw new TypeError(`Capture ${index} use node is not a NameExpression.`);
+        }
+        if (useNode.medium !== "CSharp") {
+          throw new TypeError(`Capture ${index} use node is not C# source.`);
+        }
+        if (useNode.spans.some(useSpan => !parent.spans.some(parentSpan =>
+          parentSpan.start <= useSpan.start
+          && useSpan.start + useSpan.length <= parentSpan.start + parentSpan.length))) {
+          throw new TypeError(`Capture ${index} use node is outside its parent.`);
+        }
+        const renderedName = useNode.spans
+          .map(span => document.text.slice(span.start, span.start + span.length))
+          .join("");
+        if (renderedName !== capture.display_name) {
+          throw new TypeError(`Capture ${index} display name does not match its use node.`);
         }
         previousUse = use;
       }
