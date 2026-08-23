@@ -204,6 +204,12 @@ test("CodeLens activation retains its node preview until the six-second animatio
     /\.annotated-span\.codelens-preview\s*\{[^}]*animation:\s*ase-codelens-preview 6\.6s/,
   );
   assert.match(styles, /0%, 90\.909%/);
+  const previewFrames = styles.slice(
+    styles.indexOf("@keyframes ase-codelens-preview"),
+    styles.indexOf("@media (prefers-reduced-motion: reduce)", styles.indexOf(
+      "@keyframes ase-codelens-preview")),
+  );
+  assert.doesNotMatch(previewFrames, /box-shadow:/);
 
   toggle.dispatch("click");
   assert.equal(toggles, 1);
