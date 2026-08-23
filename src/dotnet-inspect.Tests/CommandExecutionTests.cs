@@ -8244,6 +8244,32 @@ public partial class CommandExecutionTests
         Assert.True(int.Parse(output.Trim(), CultureInfo.InvariantCulture) > 0);
     }
 
+    [Theory]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task Discover_Count_StaticSchemaHonorsRowWindow(string command)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            command, "--schema", "-D", "", "--count", "--rows", "1");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("1", output.Trim());
+    }
+
+    [Theory]
+    [InlineData("--fields")]
+    [InlineData("--columns")]
+    public async Task Discover_Count_StaticSchemaValidatesProjection(string projection)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "--schema", "-D", "", "--count", projection, "NoSuchField");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("NoSuchField", error, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Discover_Count_CountsStaticSchemaDiscoveryForLibrary()
     {
@@ -8972,6 +8998,51 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         // The defect printed the version itself here, which parses as neither a count nor a
         // failure, so assert the count and not merely a zero exit.
+        Assert.Equal("1", output.Trim());
+    }
+
+    [Theory]
+    [InlineData("Newtonsoft.Json@13.0.4", "--versions", "1")]
+    [InlineData("Newtonsoft.Json", "--latest-version", null)]
+    [InlineData("Newtonsoft.Json", "--versions-with-feed", "1")]
+    public async Task Versions_Count_ValidatesTheRenderedBranchColumns(
+        string package,
+        string option,
+        string? value)
+    {
+        var args = new List<string>
+        {
+            "package",
+            package,
+            option,
+        };
+        if (value is not null)
+            args.Add(value);
+        args.AddRange(["--count", "--columns", "Listing", "--tips", "q"]);
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Listing", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Versions_Count_IncludeUnlistedAcceptsListingColumn()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "Newtonsoft.Json",
+            "--latest-version",
+            "--include-unlisted",
+            "--count",
+            "--columns",
+            "Listing",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
         Assert.Equal("1", output.Trim());
     }
 
@@ -23056,6 +23127,31 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_QuietSignedFieldPerformsExplicitVerification()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalPackageWithoutReadme("Test.Quiet.Signed.Field");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--fields",
+                "Signed",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("| Signed | No |", output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_PrintRequiresSingleSelectedSection()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Print.Requires.Select", "README.md", "readme", "agents");
@@ -27321,6 +27417,53 @@ public partial class CommandExecutionTests
             Assert.Equal(
                 "agents payload",
                 File.ReadAllText(outputPath));
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageContentOutput_MultiplePackagesHydrateWithoutReacquiring()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.PackageContentOutput.FirstCandidate",
+                "README.md",
+                "first");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.PackageContentOutput.SelectedCandidate",
+                "README.md",
+                "second",
+                "agents payload");
+        string outputPath = Path.Combine(firstDir, "agents.txt");
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "--path",
+                "@agents",
+                "--content",
+                "--out",
+                outputPath,
+                "--verbose",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Equal(
+                2,
+                result.Error.Split('\n').Count(
+                    line => line.Contains(
+                        "Extracting package:",
+                        StringComparison.Ordinal)));
+            Assert.Equal("agents payload", File.ReadAllText(outputPath));
         }
         finally
         {

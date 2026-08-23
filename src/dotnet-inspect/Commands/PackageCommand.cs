@@ -414,7 +414,7 @@ public class PackageCommand
                             "--versions",
                             visiblePinned.Count,
                             out var cachedPinnedExit,
-                            ["Version", "Listing"]))
+                            ["Version"]))
                         return cachedPinnedExit;
                     WriteVersions(visiblePinned, options);
                     return 0;
@@ -445,7 +445,7 @@ public class PackageCommand
                             "--versions",
                             visiblePinned.Count,
                             out var knownPinnedExit,
-                            ["Version", "Listing"]))
+                            VersionListingColumns(options)))
                         return knownPinnedExit;
                     if (options.IncludeUnlisted)
                         OutputFormatter.WriteVersionListings(
@@ -502,7 +502,7 @@ public class PackageCommand
                         "--latest-version",
                         visibleLatest.Count,
                         out var latestProjectionExit,
-                        ["Version", "Listing"]))
+                        VersionListingColumns(options)))
                     return latestProjectionExit;
                 if (options.IncludeUnlisted)
                 {
@@ -582,7 +582,7 @@ public class PackageCommand
                         "--versions-with-feed",
                         visibleVersionFeeds.Count,
                         out var feedExit,
-                        ["Version", "Feed", "Listing"]))
+                        VersionFeedColumns(visibleVersionFeeds, options)))
                     return feedExit;
                 OutputFormatter.WriteVersionFeedTable(visibleVersionFeeds, options, Console.Out);
                 return 0;
@@ -2342,45 +2342,48 @@ public class PackageCommand
             return PrintPackageFileContents(results, options);
         }
 
-        foreach (var target in targets)
+        var acquisitions = new List<PackageFileContentAcquisition>();
+        try
         {
-            using PackageFileContentAcquisition? acquisition =
-                await AcquirePackageFileContentAsync(
-                    target,
-                    options,
-                    context);
-            if (acquisition == null)
-                return 1;
-            results.Add(
-                acquisition.Read(
-                    options,
-                    suppressUnaryPayloadRead: true));
-        }
+            foreach (var target in targets)
+            {
+                PackageFileContentAcquisition? acquisition =
+                    await AcquirePackageFileContentAsync(
+                        target,
+                        options,
+                        context);
+                if (acquisition == null)
+                    return 1;
+                acquisitions.Add(acquisition);
+                results.Add(
+                    acquisition.Read(
+                        options,
+                        suppressUnaryPayloadRead: true));
+            }
 
-        if (SelectUnaryPackageContent(results, options) is { } selectedFile)
+            if (SelectUnaryPackageContent(results, options) is { } selectedFile)
+            {
+                int selectedPackage = results.FindIndex(
+                    result => result.Files.Any(
+                        file => ReferenceEquals(file, selectedFile)));
+                if (selectedPackage < 0)
+                    throw new InvalidOperationException(
+                        "The selected package content row has no owning package.");
+
+                results[selectedPackage] =
+                    acquisitions[selectedPackage].Read(
+                        options,
+                        suppressUnaryPayloadRead: true,
+                        selectedFile.Path);
+            }
+
+            return PrintPackageFileContents(results, options);
+        }
+        finally
         {
-            int selectedPackage = results.FindIndex(
-                result => result.Files.Any(
-                    file => ReferenceEquals(file, selectedFile)));
-            if (selectedPackage < 0)
-                throw new InvalidOperationException(
-                    "The selected package content row has no owning package.");
-
-            using PackageFileContentAcquisition? acquisition =
-                await AcquirePackageFileContentAsync(
-                    targets[selectedPackage],
-                    options,
-                    context);
-            if (acquisition == null)
-                return 1;
-            results[selectedPackage] =
-                acquisition.Read(
-                    options,
-                    suppressUnaryPayloadRead: true,
-                    selectedFile.Path);
+            foreach (var acquisition in acquisitions)
+                acquisition.Dispose();
         }
-
-        return PrintPackageFileContents(results, options);
     }
 
     private static PackageFileContent? SelectUnaryPackageContent(
@@ -2669,6 +2672,12 @@ public class PackageCommand
         SectionPipeline<InspectionResult> pipeline)
         => options.Verbosity >= Verbosity.Normal
             || wantsSignals
+            || options.Fields?.Contains(
+                "Signed",
+                StringComparer.OrdinalIgnoreCase) == true
+            || options.Columns?.Contains(
+                "Signed",
+                StringComparer.OrdinalIgnoreCase) == true
             || options.IncludeSections?.Contains(
                 PackageSections.PackageInfo) == true
             || options.IncludeSections?.Contains(
@@ -2677,6 +2686,18 @@ public class PackageCommand
                 && pipeline.FixedOverviewSectionNames.Contains(
                     PackageSections.PackageInfo,
                     StringComparer.OrdinalIgnoreCase));
+
+    private static string[] VersionListingColumns(InspectionOptions options)
+        => options.IncludeUnlisted
+            ? ["Version", "Listing"]
+            : ["Version"];
+
+    private static string[] VersionFeedColumns(
+        IReadOnlyList<PackageVersionSourceInfo> rows,
+        InspectionOptions options)
+        => options.JsonOutput || rows.Any(static row => !row.Listed)
+            ? ["Version", "Feed", "Listing"]
+            : ["Version", "Feed"];
 
     private static List<PackageFile> FilterPackageFiles(List<PackageFile> files, InspectionOptions options)
     {
