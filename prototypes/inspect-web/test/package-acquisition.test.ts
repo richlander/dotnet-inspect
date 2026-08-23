@@ -282,6 +282,11 @@ test("runtime acquisition serializes and merges full-pack and assembly requests"
     ["System.Object", "System.Text.Json.JsonDocument"]);
   assert.equal(mergedModel.totalMembers, 5);
   assert.equal(mergedModel.accessibility[0].count, 2);
+  assert.equal(mergedModel.assembly, "System.Private.CoreLib");
+  assert.equal(mergedModel.assemblyId, "corelib");
+  assert.equal(
+    mergedModel.assemblyAsset,
+    "lib/net10.0/System.Private.CoreLib.dll");
   assert.equal(
     mergedModel.inspectionError,
     "System.Private.CoreLib: omitted 1 metadata row.; "
@@ -524,6 +529,56 @@ test("runtime pack acquisition fills the core family after an ASP.NET-first load
   assert.equal(runtime.packageModel?.assembly, "System.Private.CoreLib");
 });
 
+test("assembly-specific CoreLib acquisition promotes an ASP.NET-first model", async () => {
+  let resident: AppPackage | null = null;
+  let fullRuntimeCalls = 0;
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    loadRuntimePack: async () => {
+      fullRuntimeCalls++;
+      return JSON.stringify(runtimeSurface(
+        "corelib-full",
+        "System.Private.CoreLib",
+        "System.Object"));
+    },
+    loadRuntimePackAssembly: async (_framework, assemblyName) =>
+      JSON.stringify(assemblyName.startsWith("System.Private.CoreLib")
+        ? runtimeSurface(
+          "corelib",
+          "System.Private.CoreLib",
+          "System.Object")
+        : runtimeSurface(
+          "aspnet-http",
+          "Microsoft.AspNetCore.Http.Abstractions",
+          "Microsoft.AspNetCore.Http.IHeaderDictionary",
+          2,
+          "aspnetcore.app")),
+    runtimePackage: () => resident,
+    retainPackage: packageModel => {
+      resident = packageModel;
+    },
+  }));
+
+  const aspNet = await acquisition.loadRuntimePackAssembly(
+    "net10.0",
+    "Microsoft.AspNetCore.Http.Abstractions.dll",
+    "aspnetcore.app");
+  const core = await acquisition.loadRuntimePackAssembly(
+    "net10.0",
+    "System.Private.CoreLib.dll",
+    "netcore.app");
+  const reused = await acquisition.loadRuntimePack("net10.0");
+
+  assert.ok(aspNet.packageModel);
+  assert.equal(core.packageModel, aspNet.packageModel);
+  assert.equal(reused.packageModel, aspNet.packageModel);
+  assert.equal(fullRuntimeCalls, 0);
+  assert.equal(core.packageModel?.assembly, "System.Private.CoreLib");
+  assert.equal(core.packageModel?.assemblyId, "corelib");
+  assert.equal(
+    core.packageModel?.assemblyAsset,
+    "lib/net10.0/System.Private.CoreLib.dll");
+});
+
 test("resident runtime assemblies match the requested dll name", async () => {
   const resident = createRuntimePackageModel(
     runtimeSurface("json", "System.Text.Json", "System.Text.Json.JsonDocument"));
@@ -568,4 +623,32 @@ test("runtime assembly acquisition exposes an empty surface failure", async () =
   assert.match(
     result.error instanceof Error ? result.error.message : "",
     /System\.Missing was rejected/);
+});
+
+test("resident runtime model retains an empty assembly result as inspection evidence", async () => {
+  const resident = createRuntimePackageModel(
+    runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"));
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    loadRuntimePackAssembly: async () => {
+      const surface = runtimeSurface(
+        "missing",
+        "System.Missing",
+        "System.Missing.Type");
+      surface.assemblies = [];
+      surface.types = [];
+      surface.inspectionError = "System.Missing was rejected.";
+      return JSON.stringify(surface);
+    },
+    runtimePackage: () => resident,
+  }));
+
+  const result = await acquisition.loadRuntimePackAssembly(
+    "net10.0",
+    "System.Missing.dll",
+    "netcore.app");
+
+  assert.equal(result.packageModel, resident);
+  assert.equal(result.error, null);
+  assert.equal(resident.assembly, "System.Private.CoreLib");
+  assert.equal(resident.inspectionError, "System.Missing was rejected.");
 });

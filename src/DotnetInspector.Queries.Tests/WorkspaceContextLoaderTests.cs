@@ -834,6 +834,95 @@ public sealed class WorkspaceContextLoaderTests
     }
 
     [Fact]
+    public async Task RealizedPlatformCoordinates_ScanSharedPackOnce()
+    {
+        var inner = new InMemoryPackageStore();
+        await inner.CommitAsync(
+            RuntimePackPackageId,
+            RuntimePackVersion,
+            Producer(NuGetOrg),
+            new MemoryStream(RuntimePack()),
+            TestContext.Current.CancellationToken);
+        var store = new EntryCountingPackageStore(inner);
+        using var client = new HttpClient(new FailingHandler());
+        using var workspace = new InspectionWorkspace();
+
+        var loaded = Loaded(
+            await WorkspaceContextLoader.LoadRealizedAsync(
+                workspace,
+                [
+                    new RealizedMemberCoordinate.Platform(
+                        "runtime",
+                        RuntimePackVersion,
+                        Producer(NuGetOrg),
+                        Framework,
+                        Path.GetFileNameWithoutExtension(CallerPath)),
+                    new RealizedMemberCoordinate.Platform(
+                        "runtime",
+                        RuntimePackVersion,
+                        Producer(NuGetOrg),
+                        Framework,
+                        Path.GetFileNameWithoutExtension(TargetPath)),
+                ],
+                Options(client, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(2, loaded.Members.Length);
+        Assert.All(
+            loaded.Members,
+            member => Assert.Equal(
+                Assert.IsType<RealizedMemberCoordinate.Platform>(
+                    member.Realized).Assembly,
+                member.Participant.Assembly.Identity.Name));
+        Assert.Equal(2, store.EntryOpens);
+    }
+
+    [Fact]
+    public async Task RealizedPlatformCoordinates_ReportTheMissingSelectedAssembly()
+    {
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            RuntimePackPackageId,
+            RuntimePackVersion,
+            Producer(NuGetOrg),
+            new MemoryStream(RuntimePack()),
+            TestContext.Current.CancellationToken);
+        using var client = new HttpClient(new FailingHandler());
+        using var workspace = new InspectionWorkspace();
+
+        var failed = Failed(
+            await WorkspaceContextLoader.LoadRealizedAsync(
+                workspace,
+                [
+                    new RealizedMemberCoordinate.Platform(
+                        "runtime",
+                        RuntimePackVersion,
+                        Producer(NuGetOrg),
+                        Framework,
+                        Path.GetFileNameWithoutExtension(CallerPath)),
+                    new RealizedMemberCoordinate.Platform(
+                        "runtime",
+                        RuntimePackVersion,
+                        Producer(NuGetOrg),
+                        Framework,
+                        "Missing.Platform.Assembly"),
+                ],
+                Options(client, store),
+                TestContext.Current.CancellationToken));
+
+        WorkspaceContextLoadFailure failure =
+            Assert.Single(failed.Failures);
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.PlatformAssemblyUnavailable,
+            failure.Kind);
+        Assert.Equal(
+            "Missing.Platform.Assembly",
+            Assert.IsType<WorkspaceMemberCoordinate.PlatformMember>(
+                failure.Member).Assembly);
+        Assert.Contains("Missing.Platform.Assembly", failure.Message);
+    }
+
+    [Fact]
     public async Task RealizedPlatformCoordinate_WithUnauthorizedProducerFailsTyped()
     {
         using var client = new HttpClient(new FailingHandler());
@@ -4077,6 +4166,94 @@ public sealed class WorkspaceContextLoaderTests
                 nupkg,
                 cancellationToken);
         }
+    }
+
+    sealed class EntryCountingPackageStore(IPackageStore inner) : IPackageStore
+    {
+        int _entryOpens;
+
+        internal int EntryOpens => Volatile.Read(ref _entryOpens);
+
+        public IPackageContent? TryGetCached(
+            string packageName,
+            string version,
+            IReadOnlyList<string>? allowedSourceKeys,
+            Action<string>? log = null) =>
+            inner.TryGetCached(
+                packageName,
+                version,
+                allowedSourceKeys,
+                log) is { } content
+                ? new EntryCountingPackageContent(
+                    content,
+                    () => Interlocked.Increment(ref _entryOpens))
+                : null;
+
+        public ValueTask<IPackageContent> CommitAsync(
+            string packageName,
+            string version,
+            string sourceKey,
+            Stream nupkg,
+            CancellationToken cancellationToken = default) =>
+            inner.CommitAsync(
+                packageName,
+                version,
+                sourceKey,
+                nupkg,
+                cancellationToken);
+    }
+
+    sealed class EntryCountingPackageContent(
+        IPackageContent inner,
+        Action onEntryOpen) : IPackageContent, IPackageContentEntryManifest
+    {
+        public string? RootPath => inner.RootPath;
+        public string? NupkgPath => inner.NupkgPath;
+        public bool FromCache => inner.FromCache;
+        public string ProducerKey => inner.ProducerKey;
+        public bool RequiresArchiveTreeMatch =>
+            inner.RequiresArchiveTreeMatch;
+
+        public bool TryOpenArchive(
+            [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+            out Stream? stream) =>
+            inner.TryOpenArchive(out stream);
+
+        public bool TryOpenEntry(
+            string relativePath,
+            [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+            out Stream? stream)
+        {
+            onEntryOpen();
+            return inner.TryOpenEntry(relativePath, out stream);
+        }
+
+        public bool TryOpenEntry(
+            string relativePath,
+            long maxExpandedBytes,
+            [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+            out Stream? stream)
+        {
+            onEntryOpen();
+            return inner.TryOpenEntry(
+                relativePath,
+                maxExpandedBytes,
+                out stream);
+        }
+
+        public IEnumerable<string> EnumerateEntries() =>
+            inner.EnumerateEntries();
+
+        public bool TryGetEntryLength(
+            string relativePath,
+            out long length) =>
+            ((IPackageContentEntryManifest)inner)
+                .TryGetEntryLength(relativePath, out length);
+
+        public IReadOnlyList<PackageContentEntry>
+            EnumerateEntriesWithLengths() =>
+            ((IPackageContentEntryManifest)inner)
+                .EnumerateEntriesWithLengths();
     }
 
     sealed class FailingHandler : HttpMessageHandler

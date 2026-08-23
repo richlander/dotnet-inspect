@@ -169,6 +169,18 @@ export function mergeRuntimePackageSurface(
   return existing;
 }
 
+function promoteRuntimePackagePrimary(
+  existing: AppPackage,
+  primary: AppPackage,
+) {
+  existing.version = primary.version;
+  existing.frameworks = primary.frameworks;
+  existing.activeFramework = primary.activeFramework;
+  existing.assembly = primary.assembly;
+  existing.assemblyId = primary.assemblyId;
+  existing.assemblyAsset = primary.assemblyAsset;
+}
+
 export interface PackageAcquisitionDependencies {
   queryPackage(
     packageId: string,
@@ -303,12 +315,7 @@ export function createPackageAcquisition(
               || current.activeFramework.toLowerCase()
                 === requestedFramework.toLowerCase())) {
             mergeRuntimePackageSurface(current, result);
-            current.version = packageModel.version;
-            current.frameworks = packageModel.frameworks;
-            current.activeFramework = packageModel.activeFramework;
-            current.assembly = packageModel.assembly;
-            current.assemblyId = packageModel.assemblyId;
-            current.assemblyAsset = packageModel.assemblyAsset;
+            promoteRuntimePackagePrimary(current, packageModel);
             return current;
           }
           dependencies.retainPackage(packageModel, existing);
@@ -353,7 +360,17 @@ export function createPackageAcquisition(
             && (!requestedFramework
               || existing.activeFramework.toLowerCase()
                 === requestedFramework.toLowerCase())) {
-            return mergeRuntimePackageSurface(existing, result);
+            const merged = mergeRuntimePackageSurface(existing, result);
+            const primary = result.assemblies?.[0];
+            if (primary?.name.toLowerCase()
+              === DEFAULT_RUNTIME_ASSEMBLY.toLowerCase()) {
+              promoteRuntimePackagePrimary(
+                merged,
+                createRuntimeAssemblyPackageModel(
+                  result,
+                  requestedAssembly));
+            }
+            return merged;
           }
           const packageModel = createRuntimeAssemblyPackageModel(
             result,
