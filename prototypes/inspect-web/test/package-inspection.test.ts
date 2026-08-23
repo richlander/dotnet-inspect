@@ -620,6 +620,49 @@ test("opportunity requests occupy one explicit lifecycle state", async () => {
   });
 });
 
+test("opportunity ownership survives initial and completion render failures", async () => {
+  const packageItem = packageModel();
+  const request = deferred<BrowserPackageOpportunities>();
+  const state = inspectionState();
+  let renders = 0;
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPackageOpportunities: async () => request.promise,
+      render: () => {
+        renders++;
+        if (renders === 1) throw new Error("initial render failed");
+        if (renders === 3) throw new Error("completion render failed");
+      },
+    }));
+
+  await assert.rejects(
+    coordinator.loadOpportunities(packageItem, "current", null),
+    /initial render failed/);
+
+  let duplicateSettled = false;
+  const duplicate = coordinator
+    .loadOpportunities(packageItem, "current", null)
+    .then(
+      () => { duplicateSettled = true; },
+      (error: unknown) => {
+        duplicateSettled = true;
+        throw error;
+      });
+  await Promise.resolve();
+  assert.equal(
+    duplicateSettled,
+    false,
+    "a duplicate caller completed after the owner render failed but before the request");
+
+  request.resolve(opportunitiesResult());
+  await assert.rejects(duplicate, /completion render failed/);
+  assert.deepEqual(state.packageOpportunities, {
+    status: "ready",
+    key: "current",
+    data: opportunitiesResult(),
+  });
+});
+
 test("opportunity failures and stale results preserve request ownership", async () => {
   const packageItem = packageModel();
   const request = deferred<BrowserPackageOpportunities>();

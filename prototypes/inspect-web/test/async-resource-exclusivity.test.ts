@@ -91,8 +91,8 @@ const idleWithError: AsyncResource<Payload> = {
   error: "boom",
 };
 
-// Reading each binding keeps `noUnusedLocals` from removing the assertions above, and
-// keeps the file honest about being compiled rather than merely parsed.
+// Reading each binding also gives the runtime gate the exact compiled specimen rather
+// than requiring it to rediscover the roster from comment prose.
 const forbidden = [
   loadingWithData,
   loadingWithError,
@@ -134,13 +134,17 @@ function requiredCombinations(): Set<string> {
   return required;
 }
 
-// Each directive names its combination in prose, which is also how a reader checks it, so
-// the enumeration is read from the same place rather than maintained beside it.
 function enumeratedCombinations(): Set<string> {
-  const source = readFileSync(fileURLToPath(import.meta.url), "utf8");
-  return new Set(
-    [...source.matchAll(/@ts-expect-error -- `(\w+)` must not carry `(\w+)`/g)]
-      .map(match => `${match[1]}.${match[2]}`));
+  const required = requiredCombinations();
+  const combinations = forbidden.flatMap(resource =>
+    Object.keys(resource)
+      .map(field => `${resource.status}.${field}`)
+      .filter(combination => required.has(combination)));
+  assert.equal(
+    combinations.length,
+    forbidden.length,
+    "each compiled specimen must exercise exactly one forbidden combination");
+  return new Set(combinations);
 }
 
 test("the forbidden AsyncResource combinations are rejected by the compiler", () => {

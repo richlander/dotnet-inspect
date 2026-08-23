@@ -158,8 +158,8 @@ export function createPackageInspectionCoordinator(
     readonly completion: Promise<void>;
   } | null = null;
 
-  // Never rejects: every outcome is published as a resource state, so a joining caller
-  // awaits a promise that always settles.
+  // Query failures are published as resource state. Rendering can still reject, so the
+  // in-flight record observes completion even if the starting caller's render throws.
   const publishOpportunities = async (
     packageModel: AppPackage,
     signature: string,
@@ -358,14 +358,13 @@ export function createPackageInspectionCoordinator(
       const completion = publishOpportunities(
         packageModel, signature, scopedLibrary, pending);
       opportunitiesInFlight = { resource: pending, completion };
-      try {
-        // `render()` is inside the `try`, so a throwing render cannot strand the in-flight
-        // record and leave later same-signature callers awaiting a request nobody clears.
-        dependencies.render();
-        await completion;
-      } finally {
+      void completion.then(() => {
         if (opportunitiesInFlight?.resource === pending) opportunitiesInFlight = null;
-      }
+      }, () => {
+        if (opportunitiesInFlight?.resource === pending) opportunitiesInFlight = null;
+      });
+      dependencies.render();
+      await completion;
     },
 
     async loadPerformance(packageModel, signature, scopedLibrary) {
