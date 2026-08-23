@@ -112,6 +112,22 @@ public class HttpClientFactoryTests : IDisposable
     }
 
     [Fact]
+    public void CreateCredentialFreeHandler_DisablesDesktopAmbientStateAndRedirects()
+    {
+        using HttpMessageHandler handler = DotnetInspector.Core.HttpClientFactory
+            .CreateCredentialFreeHandler();
+        HttpMessageHandler current = handler;
+        while (current is DelegatingHandler delegating)
+            current = delegating.InnerHandler!;
+
+        HttpClientHandler transport = Assert.IsType<HttpClientHandler>(current);
+        Assert.False(transport.UseCookies);
+        Assert.False(transport.UseDefaultCredentials);
+        Assert.False(transport.PreAuthenticate);
+        Assert.False(transport.AllowAutoRedirect);
+    }
+
+    [Fact]
     public async Task CreateCredentialFreeClient_HonorsOfflinePolicy()
     {
         DotnetInspector.Core.HttpClientFactory.Initialize(

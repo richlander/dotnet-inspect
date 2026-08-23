@@ -209,10 +209,19 @@ public static class HttpClientFactory
         HttpClientFactoryOptions options,
         bool includeAuthentication)
     {
-        HttpMessageHandler handler = new HttpClientHandler
+        var transport = new HttpClientHandler
         {
             AutomaticDecompression = DecompressionMethods.All
         };
+        if (!includeAuthentication && !OperatingSystem.IsBrowser())
+        {
+            transport.UseCookies = false;
+            transport.UseDefaultCredentials = false;
+            transport.PreAuthenticate = false;
+            transport.AllowAutoRedirect = false;
+        }
+
+        HttpMessageHandler handler = transport;
 
         if (options.Offline)
             handler = new OfflineHandler(handler);
