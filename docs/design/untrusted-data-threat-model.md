@@ -1299,6 +1299,8 @@ Desktop package-source transports therefore resolve and connect through the
 same shared policy as untrusted source fetches. Every feed-advertised
 cross-origin resource and redirect hop must resolve entirely to public
 addresses, closing both direct private-target selection and DNS rebinding.
+Bracketed and unbracketed IPv6 host spellings are canonicalized before the
+configured-origin exception is applied.
 
 Browser-Wasm cannot perform that connection-time DNS check. Its v3 client
 therefore accepts only same-origin feed resources and sets Fetch
@@ -1306,7 +1308,11 @@ therefore accepts only same-origin feed resources and sets Fetch
 transport. `PackageSourceClientTests.DefaultV3TransportBlocksPrivateCrossOriginSearchEndpoint`
 gates the desktop source-client wiring,
 `HttpClientFactoryTests.PackageSourceClient_AllowsConfiguredPrivateOriginButBlocksPrivateRedirect`
-gates redirect-hop enforcement, and
+gates redirect-hop enforcement,
+`PackageSourceClientTests.DefaultV3TransportAllowsConfiguredPrivateIpv6Source`
+and
+`HttpClientFactoryTests.PackageSourceClient_AllowsConfiguredPrivateIpv6Origin`
+gate the shared IPv6 origin normalization, and
 `PackageSourceClientTests.BrowserV3ResourcesRequireSameOrigin` plus
 `PackageSourceClientTests.BrowserNuGetRequestsOmitAmbientCredentials` gate the
 Browser boundary.

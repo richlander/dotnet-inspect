@@ -2832,6 +2832,47 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
+    public async Task DefaultV3TransportAllowsConfiguredPrivateIpv6Source()
+    {
+        Assert.True(Socket.OSSupportsIPv6);
+        using var sourceListener =
+            new TcpListener(IPAddress.IPv6Loopback, 0);
+        sourceListener.Start();
+        int sourcePort =
+            ((IPEndPoint)sourceListener.LocalEndpoint).Port;
+        string sourceUrl =
+            $"http://[::1]:{sourcePort}/index.json";
+        string searchUrl =
+            $"http://[::1]:{sourcePort}/query";
+        string serviceIndex = $$"""
+            {
+              "resources": [
+                {
+                  "@id": "{{searchUrl}}",
+                  "@type": "SearchQueryService/3.5.0"
+                }
+              ]
+            }
+            """;
+        Task sourceServer = ServeHttpResponsesAsync(
+            sourceListener,
+            [serviceIndex, """{"data":[]}"""],
+            TestContext.Current.CancellationToken);
+
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("ipv6-private", sourceUrl));
+        PackageSearchResult result = Succeeded(
+            await runtime.SearchAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        await sourceServer;
+        Assert.Empty(result.Matches);
+    }
+
+    [Fact]
     public void BrowserNuGetRequestsOmitAmbientCredentials()
     {
         using var request = new HttpRequestMessage(
@@ -3625,6 +3666,20 @@ public sealed class PackageSourceClientTests
             + "Connection: close\r\n\r\n");
         await stream.WriteAsync(headers, cancellationToken);
         await stream.WriteAsync(content, cancellationToken);
+    }
+
+    private static async Task ServeHttpResponsesAsync(
+        TcpListener listener,
+        IReadOnlyList<string> bodies,
+        CancellationToken cancellationToken)
+    {
+        foreach (string body in bodies)
+        {
+            await ServeHttpResponseAsync(
+                listener,
+                body,
+                cancellationToken);
+        }
     }
 
     private sealed class RecordingHandler : HttpMessageHandler

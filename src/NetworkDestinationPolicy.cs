@@ -30,7 +30,8 @@ internal static class NetworkDestinationPolicy
 
         bool isTrustedOrigin = trustedHost is not null
             && endpoint.Port == trustedPort
-            && endpoint.Host.Equals(
+            && HostsEqual(
+                endpoint.Host,
                 trustedHost,
                 StringComparison.OrdinalIgnoreCase);
         if (!isTrustedOrigin)
@@ -65,6 +66,26 @@ internal static class NetworkDestinationPolicy
             throw;
         }
     }
+
+    private static bool HostsEqual(
+        string first,
+        string second,
+        StringComparison comparison)
+    {
+        ReadOnlySpan<char> firstHost =
+            WithoutIpv6Brackets(first);
+        ReadOnlySpan<char> secondHost =
+            WithoutIpv6Brackets(second);
+        return firstHost.Equals(secondHost, comparison);
+    }
+
+    private static ReadOnlySpan<char> WithoutIpv6Brackets(
+        string host) =>
+        host.Length >= 2
+            && host[0] == '['
+            && host[^1] == ']'
+                ? host.AsSpan(1, host.Length - 2)
+                : host.AsSpan();
 
     /// <summary>
     /// Returns true for destinations that are not globally reachable, including

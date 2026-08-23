@@ -589,7 +589,9 @@ that endpoint is an explicit user choice. Every feed-advertised cross-origin
 resource and every redirect hop instead uses the shared network-destination
 policy: DNS resolution and connection stay together, and any non-public
 address rejects the request. This preserves private-feed use without granting
-the feed response authority to probe another private service.
+the feed response authority to probe another private service. The shared
+policy canonicalizes bracketed and unbracketed IPv6 host spellings before
+applying the configured-origin exception.
 Browser/Wasm avoids unsupported handler credential properties and instead marks
 each request with `BrowserRequestCredentials.Omit` and Fetch
 `redirect: error`; explicit source authorization remains a request header.
@@ -612,6 +614,8 @@ gates the Gallery-specific Browser handler, and
 factory uses the bounded desktop redirect policy.
 `DefaultV3TransportBlocksPrivateCrossOriginSearchEndpoint` gates the configured
 private-origin exception and feed-directed destination rejection.
+`DefaultV3TransportAllowsConfiguredPrivateIpv6Source` gates IPv6-literal
+configured origins.
 `HttpClientFactoryTests.PackageSourceClient_AllowsConfiguredPrivateOriginButBlocksPrivateRedirect`
 gates the same shared address policy across redirect hops.
 `BrowserNuGetRequestsOmitAmbientCredentials` gates the Fetch credential and
