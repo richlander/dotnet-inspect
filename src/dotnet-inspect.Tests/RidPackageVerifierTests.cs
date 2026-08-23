@@ -873,7 +873,7 @@ public class RidPackageVerifierTests
                 new VerboseLogger(enabled: false),
                 sourceOptions: null,
                 acquiredEvidence: null,
-                new RidPackageVerifier.LocalArchiveProbeBudget(budget));
+                new PackageArchiveReadBudget(budget));
 
             Assert.Null(result.RuntimeIdentifierPackages[0].Exists);
             if (budgetIncludesMatchingArchive)
@@ -881,6 +881,68 @@ public class RidPackageVerifierTests
             else
                 Assert.Null(result.RuntimeIdentifierPackages[1].Exists);
             Assert.False(result.RuntimeIdentifierPackages[2].Exists);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ProbeLocalPackageArchiveAsync_MissingThenCreatedArchiveConsumesBudgetWhenOpened()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"rid-local-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string packagePath = Path.Combine(
+            directory,
+            "TestPackage.linux-x64.1.0.0.nupkg");
+        try
+        {
+            WritePackageArchive(
+                packagePath,
+                "TestPackage.linux-x64",
+                "1.0.0");
+            long archiveLength = new FileInfo(packagePath).Length;
+            File.Delete(packagePath);
+            var budget = new PackageArchiveReadBudget(archiveLength);
+
+            NuspecProbeResult missing =
+                await PackageExtractor.ProbeLocalPackageArchiveAsync(
+                    packagePath,
+                    "TestPackage.linux-x64",
+                    "1.0.0",
+                    cancellationToken:
+                        TestContext.Current.CancellationToken,
+                    archiveReadBudget: budget);
+
+            WritePackageArchive(
+                packagePath,
+                "TestPackage.linux-x64",
+                "1.0.0");
+            NuspecProbeResult present =
+                await PackageExtractor.ProbeLocalPackageArchiveAsync(
+                    packagePath,
+                    "TestPackage.linux-x64",
+                    "1.0.0",
+                    cancellationToken:
+                        TestContext.Current.CancellationToken,
+                    archiveReadBudget: budget);
+            NuspecProbeResult exhausted =
+                await PackageExtractor.ProbeLocalPackageArchiveAsync(
+                    packagePath,
+                    "TestPackage.linux-x64",
+                    "1.0.0",
+                    cancellationToken:
+                        TestContext.Current.CancellationToken,
+                    archiveReadBudget: budget);
+
+            Assert.Equal(NuspecProbeStatus.Absent, missing.Status);
+            Assert.Equal(NuspecProbeStatus.Present, present.Status);
+            Assert.Equal(
+                NuspecProbeStatus.Indeterminate,
+                exhausted.Status);
         }
         finally
         {

@@ -38,7 +38,7 @@ public static class RidPackageVerifier
         VerboseLogger logger,
         NuGetSourceOptions? sourceOptions,
         IReadOnlyDictionary<string, NuspecProbeStatus>? acquiredEvidence,
-        LocalArchiveProbeBudget? localArchiveProbeBudget = null)
+        PackageArchiveReadBudget? localArchiveProbeBudget = null)
     {
         if (result.RuntimeIdentifierPackages == null)
             return;
@@ -58,7 +58,7 @@ public static class RidPackageVerifier
                 ? null
                 : new LocalPackageDirectorySnapshot(localDir, logger.Log);
         localArchiveProbeBudget ??=
-            new LocalArchiveProbeBudget(MaxLocalArchiveProbeBytes);
+            new PackageArchiveReadBudget(MaxLocalArchiveProbeBytes);
         int distinctProbeCount = 0;
         bool probeLimitLogged = false;
 
@@ -180,29 +180,22 @@ public static class RidPackageVerifier
             Action<string>? log,
             LocalCaseVariantProbeBudget? candidateBudget = null,
             HashSet<string>? probedPaths = null,
-            LocalArchiveProbeBudget? archiveProbeBudget = null)
+            PackageArchiveReadBudget? archiveProbeBudget = null)
     {
         candidateBudget ??= new LocalCaseVariantProbeBudget();
         probedPaths ??= new HashSet<string>(StringComparer.Ordinal);
         archiveProbeBudget ??=
-            new LocalArchiveProbeBudget(MaxLocalArchiveProbeBytes);
+            new PackageArchiveReadBudget(MaxLocalArchiveProbeBytes);
         string expectedPath =
             Path.Combine(snapshot.LocalDirectory, expectedFileName);
         probedPaths.Add(expectedPath);
-        if (!archiveProbeBudget.TryReserve(
-                expectedPath,
-                out long exactReadLimit))
-        {
-            return ArchiveReadBudgetExhausted(log);
-        }
-
         NuspecProbeResult exact =
             await PackageExtractor.ProbeLocalPackageArchiveAsync(
                 expectedPath,
                 packageId,
                 version,
                 log,
-                maxArchiveReadBytes: exactReadLimit).ConfigureAwait(false);
+                archiveReadBudget: archiveProbeBudget).ConfigureAwait(false);
         if (exact.Status == NuspecProbeStatus.Present)
             return exact;
 
@@ -231,23 +224,13 @@ public static class RidPackageVerifier
                 break;
             }
 
-            if (!archiveProbeBudget.TryReserve(
-                    candidatePath,
-                    out long candidateReadLimit))
-            {
-                status = CombineEvidence(
-                    status,
-                    ArchiveReadBudgetExhausted(log).Status);
-                break;
-            }
-
             NuspecProbeResult candidate =
                 await PackageExtractor.ProbeLocalPackageArchiveAsync(
                     candidatePath,
                     packageId,
                     version,
                     log,
-                    maxArchiveReadBytes: candidateReadLimit)
+                    archiveReadBudget: archiveProbeBudget)
                     .ConfigureAwait(false);
             if (candidate.Status == NuspecProbeStatus.Present)
                 return candidate;
@@ -263,17 +246,6 @@ public static class RidPackageVerifier
         }
 
         return new NuspecProbeResult(null, status);
-    }
-
-    private static NuspecProbeResult ArchiveReadBudgetExhausted(
-        Action<string>? log)
-    {
-        log?.Invoke(
-            "Local RID package archive read budget was exhausted; "
-            + "remaining evidence is unknown.");
-        return new NuspecProbeResult(
-            null,
-            NuspecProbeStatus.Indeterminate);
     }
 
     internal sealed class LocalPackageDirectorySnapshot(
@@ -366,54 +338,6 @@ public static class RidPackageVerifier
 
             _remaining--;
             return true;
-        }
-    }
-
-    internal sealed class LocalArchiveProbeBudget(long maxBytes)
-    {
-        private long _remaining = maxBytes;
-
-        internal bool TryReserve(
-            string path,
-            out long maxArchiveReadBytes)
-        {
-            maxArchiveReadBytes =
-                PackagePayloadLimits.Default.MaxArchiveBytes;
-            try
-            {
-                FileAttributes attributes = File.GetAttributes(path);
-                if ((attributes
-                        & (FileAttributes.Directory
-                            | FileAttributes.ReparsePoint))
-                    != 0)
-                {
-                    return true;
-                }
-
-                long length = new FileInfo(path).Length;
-                if (length <= 0
-                    || length
-                        > PackagePayloadLimits.Default.MaxArchiveBytes)
-                {
-                    return true;
-                }
-
-                if (length > _remaining)
-                    return false;
-
-                _remaining -= length;
-                maxArchiveReadBytes = length;
-                return true;
-            }
-            catch (Exception ex) when (
-                ex is FileNotFoundException
-                    or DirectoryNotFoundException
-                    or IOException
-                    or UnauthorizedAccessException
-                    or NotSupportedException)
-            {
-                return true;
-            }
         }
     }
 

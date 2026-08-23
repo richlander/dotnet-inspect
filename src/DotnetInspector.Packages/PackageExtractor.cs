@@ -69,6 +69,40 @@ public readonly record struct NuspecProbeResult(
     NuspecProbeStatus Status);
 
 /// <summary>
+/// Bounds aggregate compressed archive bytes across related local probes.
+/// </summary>
+public sealed class PackageArchiveReadBudget
+{
+    private long _remaining;
+
+    public PackageArchiveReadBudget(long maxBytes)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxBytes);
+        _remaining = maxBytes;
+    }
+
+    internal bool TryReserve(long bytes)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(bytes);
+        while (true)
+        {
+            long remaining = Volatile.Read(ref _remaining);
+            if (bytes > remaining)
+                return false;
+
+            if (Interlocked.CompareExchange(
+                    ref _remaining,
+                    remaining - bytes,
+                    remaining)
+                == remaining)
+            {
+                return true;
+            }
+        }
+    }
+}
+
+/// <summary>
 /// Outcome of a package extraction operation, carrying either a successful result or an error message.
 /// </summary>
 /// <param name="Result">The extraction result on success, or null on failure</param>
@@ -1008,7 +1042,7 @@ public static class PackageExtractor
         string version,
         Action<string>? log = null,
         CancellationToken cancellationToken = default,
-        long? maxArchiveReadBytes = null)
+        PackageArchiveReadBudget? archiveReadBudget = null)
     {
         if (!IsValidPackageId(packageId)
             || !TryNormalizePackageVersion(version, out _))
@@ -1031,25 +1065,14 @@ public static class PackageExtractor
                     "Local RID package path was not a regular file.");
             }
 
-            long archiveReadLimit =
-                Math.Min(
-                    maxArchiveReadBytes
-                        ?? PackagePayloadLimits.Default.MaxArchiveBytes,
-                    PackagePayloadLimits.Default.MaxArchiveBytes);
-            if (archiveReadLimit <= 0)
-            {
-                return IndeterminateLocalProbe(
-                    log,
-                    "Local RID package archive read budget was exhausted.");
-            }
-
             var info = new FileInfo(packagePath);
             if (info.Length <= 0
-                || info.Length > archiveReadLimit)
+                || info.Length
+                    > PackagePayloadLimits.Default.MaxArchiveBytes)
             {
                 return IndeterminateLocalProbe(
                     log,
-                    "Local RID package was empty or exceeded the package archive read limit.");
+                    "Local RID package was empty or exceeded the package archive limit.");
             }
         }
         catch (FileNotFoundException)
@@ -1111,20 +1134,37 @@ public static class PackageExtractor
         {
             try
             {
+                long archiveLength = stream.Length;
+                if (archiveLength <= 0
+                    || archiveLength
+                        > PackagePayloadLimits.Default.MaxArchiveBytes)
+                {
+                    return IndeterminateLocalProbe(
+                        log,
+                        "Local RID package was empty or exceeded the package archive limit.");
+                }
+
+                // Reserve from the opened handle, then read that same handle.
+                if (archiveReadBudget is not null
+                    && !archiveReadBudget.TryReserve(archiveLength))
+                {
+                    return IndeterminateLocalProbe(
+                        log,
+                        "Local RID package archive read budget was exhausted; "
+                        + "remaining evidence is unknown.");
+                }
+
                 byte[]? archive =
                     await PackageContentAdmission.ReadBoundedAsync(
                             stream,
-                            Math.Min(
-                                maxArchiveReadBytes
-                                    ?? PackagePayloadLimits.Default.MaxArchiveBytes,
-                                PackagePayloadLimits.Default.MaxArchiveBytes),
+                            archiveLength,
                             cancellationToken)
                         .ConfigureAwait(false);
                 if (archive is null || archive.Length == 0)
                 {
                     return IndeterminateLocalProbe(
                         log,
-                        "Local RID package was empty or exceeded the package archive read limit.");
+                        "Local RID package changed while it was being read.");
                 }
 
                 if (PackageArchiveValidator.Validate(

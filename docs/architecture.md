@@ -331,7 +331,9 @@ requested section, and an explicit section selection constrains both discovery o
 `RidPackageVerifierTests` and `PackageInspectorMetadataSourceTests` gate these local, remote, and
 acquired distinctions. Verification deduplicates case-insensitive package ids, probes at most 64
 distinct coordinates, snapshots a bounded local sibling directory once, and reads at most 500 MB
-of compressed local sibling archives across one verification operation. Mappings and archive
+of compressed local sibling archives across one verification operation. Each reservation uses
+the length of the opened file handle that is then read, so a path replacement cannot receive an
+uncharged allowance. Mappings and archive
 candidates beyond those limits, and candidates that race with the snapshot, remain `unknown`;
 missing paths still establish absence without spending the archive-byte budget.
 Availability is not retained in the payload index; each explicit request evaluates the current
