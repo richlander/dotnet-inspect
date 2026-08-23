@@ -331,7 +331,10 @@ public class PackageCommand
                         var rangeRows = unlistedVector.Take(options.Limit ?? int.MaxValue).ToList();
                         if (LensProjection.TryProject(options, "--versions", rangeRows.Count, out var rangeListingExit))
                             return rangeListingExit;
-                        OutputFormatter.WriteVersionListings(rangeRows, options.Tsv, options.Jsonl, Console.Out);
+                        OutputFormatter.WriteVersionListings(
+                            rangeRows,
+                            options,
+                            Console.Out);
                         return 0;
                     }
 
@@ -414,7 +417,10 @@ public class PackageCommand
                     if (LensProjection.TryProject(options, "--versions", 1, out var knownPinnedExit))
                         return knownPinnedExit;
                     if (options.IncludeUnlisted)
-                        OutputFormatter.WriteVersionListings([pinnedMatch], options.Tsv, options.Jsonl, Console.Out);
+                        OutputFormatter.WriteVersionListings(
+                            [pinnedMatch],
+                            options,
+                            Console.Out);
                     else
                         WriteSingleVersion(versionQueryPinned, options);
                     return 0;
@@ -465,7 +471,9 @@ public class PackageCommand
                     // listed by construction. Emit it as a one-row listing so the flag still
                     // produces the tagged column the user asked for.
                     OutputFormatter.WriteVersionListings(
-                        [new PackageVersionInfo(latest, Listed: true)], options.Tsv, options.Jsonl, Console.Out);
+                        [new PackageVersionInfo(latest, Listed: true)],
+                        options,
+                        Console.Out);
                     return 0;
                 }
 
@@ -546,7 +554,10 @@ public class PackageCommand
 
                 if (LensProjection.TryProject(options, "--versions", listings.Count, out var listingExit))
                     return listingExit;
-                OutputFormatter.WriteVersionListings(listings, options.Tsv, options.Jsonl, Console.Out);
+                OutputFormatter.WriteVersionListings(
+                    listings,
+                    options,
+                    Console.Out);
                 return 0;
             }
 
