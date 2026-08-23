@@ -12,6 +12,8 @@ using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
+using ILInspector.Decompiler;
+using ILInspector.Findings;
 using ILInspector.Metadata;
 using NuGetFetch;
 
@@ -552,19 +554,91 @@ public sealed class BrowserEngineBoundaryTests
             StringComparison.Ordinal);
         Assert.Same(cause, adapted.InnerException);
 
-        InvalidOperationException withAuthoredFailure =
+        InvalidOperationException withPdbSourceFailure =
             InspectionEngine.SourceUnavailable(
                 failure,
                 "The host does not authorize this SourceLink destination.");
         Assert.Contains(
-            "Original source unavailable",
-            withAuthoredFailure.Message,
+            "PDB source unavailable",
+            withPdbSourceFailure.Message,
             StringComparison.Ordinal);
         Assert.Contains(
             "does not authorize",
-            withAuthoredFailure.Message,
+            withPdbSourceFailure.Message,
             StringComparison.Ordinal);
-        Assert.Same(cause, withAuthoredFailure.InnerException);
+        Assert.Same(cause, withPdbSourceFailure.InnerException);
+    }
+
+    [Fact]
+    public void DecompiledSources_CarryPdbAttemptLimitation()
+    {
+        byte[] image =
+            File.ReadAllBytes(
+                typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate coordinate = Coordinate(
+            "Source.Limitation",
+            Package(
+                image,
+                "lib/net11.0/InspectWeb.Engine.Tests.dll"));
+        using BrowserInspectionScope scope =
+            BrowserPackageWorkspace.OpenScope([coordinate]);
+        BrowserWorkspaceParticipant participant =
+            Assert.Single(scope.ImplementationParticipants);
+        AssemblyContextApiSurfaceResult result =
+            scope.UseImplementation(
+                group => AssemblyContextApiSurfaceQuery.Execute(group));
+        var available =
+            Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Available>(
+                Assert.Single(result.Assemblies.Assemblies));
+        ApiType type = available.Value.Surface.Types.First(
+            candidate => candidate.Members.Any(
+                member => member.MetadataToken is not null));
+        ApiMember member = type.Members.First(
+            candidate => candidate.MetadataToken is not null);
+
+        const string MemberLimitation = "member PDB source unavailable";
+        var memberAttempt = new PdbMemberSourceInspection(
+            new FindingInspection<string>.Absent(MemberLimitation),
+            Text: null,
+            Mapping: null,
+            Document: null,
+            ChecksumVerification: null);
+        var memberEntry = new AssemblyMemberSourceEntry.Available(
+            available.Subject,
+            AssemblyMemberSourceRequest.From(type, member),
+            new AssemblyMemberSource.Decompiled(
+                "void M() {}",
+                new MemberRenderResult(
+                    MemberBodyProductionStatus.Complete,
+                    "void M() {}",
+                    []),
+                memberAttempt));
+
+        BrowserSource memberSource =
+            InspectionEngine.Adapt(memberEntry, participant);
+        Assert.Equal(MemberLimitation, memberSource.PdbSourceLimitation);
+
+        const string TypeLimitation = "type PDB source unavailable";
+        var typeAttempt = new PdbTypeSourceInspection(
+            new FindingInspection<string>.Absent(TypeLimitation),
+            Text: null,
+            Mapping: null,
+            Document: null,
+            ChecksumVerification: null);
+        var typeEntry = new AssemblyTypeSourceEntry.Available(
+            available.Subject,
+            AssemblyTypeSourceRequest.From(type),
+            new AssemblyTypeSource.Decompiled(
+                "class C {}",
+                new DecompilerResult(
+                    "class C {}",
+                    DecompilationFidelity.Full,
+                    []),
+                typeAttempt));
+
+        BrowserSource typeSource =
+            InspectionEngine.Adapt(typeEntry, participant);
+        Assert.Equal(TypeLimitation, typeSource.PdbSourceLimitation);
     }
 
     [Fact]
@@ -2500,6 +2574,98 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Equal("999999.0.0", resolved);
     }
 
+    [Fact]
+    public async Task DependencyRangeUsesAuthoritativeGalleryListingState()
+    {
+        var handler = new GalleryVersionHandler();
+        using IPackageSourceClient source = Gallery(handler);
+
+        string resolved =
+            await BrowserPackageWorkspace.ResolveDependencyVersionAsync(
+                "Contoso",
+                "[1.0.0,2.0.0)",
+                source,
+                TimeSpan.FromSeconds(5));
+
+        Assert.Equal("1.1.0", resolved);
+        Assert.Equal(
+            [
+                "https://globalcdn.nuget.org/v3-flatcontainer/contoso/index.json",
+                "https://globalcdn.nuget.org/v3/registration5-gz-semver2/contoso/index.json",
+            ],
+            handler.Requested);
+    }
+
+    [Fact]
+    public async Task DependencyRangeFailsClosedWhenGalleryRegistrationTimesOut()
+    {
+        var handler = new StallingGalleryRegistrationHandler();
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(
+                handler,
+                new NuGetFetchOptions
+                {
+                    RequestTimeout = TimeSpan.FromMilliseconds(100),
+                    OperationTimeout = TimeSpan.FromSeconds(5),
+                });
+
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => BrowserPackageWorkspace.ResolveDependencyVersionAsync(
+                    "contoso",
+                    "[1.0.0,2.0.0)",
+                    source,
+                    TimeSpan.FromSeconds(10)));
+
+        Assert.Contains(
+            "authoritative Gallery listing state is unavailable",
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(1, handler.FlatContainerRequests);
+        Assert.True(handler.RegistrationRequests >= 1);
+    }
+
+    [Fact]
+    public void BrowserGalleryDeadlineLeavesTimeForPartialRegistration()
+    {
+        Assert.Equal(
+            TimeSpan.FromSeconds(5),
+            BrowserPackageWorkspace.PackageOperationTimeout
+            - BrowserPackageWorkspace.GalleryOperationTimeout);
+        NuGetGalleryPackageSourceClient gallery =
+            Assert.IsType<NuGetGalleryPackageSourceClient>(
+                BrowserPackageWorkspace.Gallery);
+        Assert.Equal(
+            BrowserPackageWorkspace.GalleryOperationTimeout,
+            gallery.RequestTimeout);
+        Assert.Equal(
+            BrowserPackageWorkspace.GalleryOperationTimeout,
+            gallery.OperationTimeout);
+    }
+
+    [Fact]
+    public async Task VersionPickerRetainsFlatListWhenRegistrationTimesOut()
+    {
+        var handler = new StallingGalleryRegistrationHandler();
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(
+                handler,
+                new NuGetFetchOptions
+                {
+                    RequestTimeout = TimeSpan.FromMilliseconds(100),
+                    OperationTimeout = TimeSpan.FromSeconds(5),
+                });
+
+        string[] versions = await BrowserPackageWorkspace.GetVersionsAsync(
+            "contoso",
+            source,
+            TimeSpan.FromSeconds(10));
+
+        Assert.Equal(["1.0.0"], versions);
+        Assert.Equal(1, handler.FlatContainerRequests);
+        Assert.True(handler.RegistrationRequests >= 1);
+    }
+
     private static BrowserDependencyCoordinateMatch MatchDependencyCoordinate(
         BrowserDependencyCoordinateCandidate[] candidates,
         string packageId,
@@ -3091,6 +3257,92 @@ public sealed class BrowserEngineBoundaryTests
             }
 
             return Task.FromResult(response);
+        }
+    }
+
+    sealed class GalleryVersionHandler : HttpMessageHandler
+    {
+        public List<string> Requested { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string url = request.RequestUri!.AbsoluteUri;
+            Requested.Add(url);
+            string? json = url switch
+            {
+                "https://globalcdn.nuget.org/v3-flatcontainer/contoso/index.json" =>
+                    """{"versions":["1.0.0","1.1.0","1.2.0"]}""",
+                "https://globalcdn.nuget.org/v3/registration5-gz-semver2/contoso/index.json" =>
+                    """
+                    {
+                      "items": [
+                        {
+                          "items": [
+                            {
+                              "catalogEntry": {
+                                "version": "1.0.0",
+                                "listed": false
+                              }
+                            },
+                            {
+                              "catalogEntry": {
+                                "version": "1.1.0"
+                              }
+                            },
+                            {
+                              "catalogEntry": {
+                                "version": "1.2.0"
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                    """,
+                _ => null,
+            };
+            return Task.FromResult(
+                new HttpResponseMessage(
+                    json is null
+                        ? System.Net.HttpStatusCode.NotFound
+                        : System.Net.HttpStatusCode.OK)
+                {
+                    Content = new StringContent(json ?? ""),
+                });
+        }
+    }
+
+    sealed class StallingGalleryRegistrationHandler : HttpMessageHandler
+    {
+        public int FlatContainerRequests { get; private set; }
+        public int RegistrationRequests { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (request.RequestUri!.AbsoluteUri.Contains(
+                    "v3-flatcontainer",
+                    StringComparison.Ordinal))
+            {
+                FlatContainerRequests++;
+                return new HttpResponseMessage(
+                    System.Net.HttpStatusCode.OK)
+                {
+                    Content =
+                        new StringContent("""{"versions":["1.0.0"]}"""),
+                };
+            }
+
+            RegistrationRequests++;
+            await Task.Delay(
+                Timeout.InfiniteTimeSpan,
+                cancellationToken);
+            throw new InvalidOperationException(
+                "The registration stall completed without cancellation.");
         }
     }
 

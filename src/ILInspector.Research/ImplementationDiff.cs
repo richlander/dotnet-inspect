@@ -56,7 +56,7 @@ public sealed record ImplementationDiffMember(
         => Changes.Any(change => change.Mechanism == ResearchChangeMechanism.Source);
 }
 
-public sealed record AuthoredSourceComparisonInput(
+public sealed record PdbSourceComparisonInput(
     ResearchSubjectKey Subject,
     FindingInspection<string> OldInspection,
     FindingInspection<string> NewInspection);
@@ -93,8 +93,8 @@ public sealed record ImplementationMemberDiffResult(
 /// </summary>
 public static class ImplementationDiff
 {
-    public static readonly FindingDescriptor AuthoredSourceFailureDescriptor =
-        new("source.authored.failed", "Authored source acquisition failed");
+    public static readonly FindingDescriptor PdbSourceFailureDescriptor =
+        new("source.pdb.failed", "PDB source acquisition failed");
     internal static readonly FindingDescriptor CSharpFindingDivergenceDescriptor =
         new("csharp.finding.diverged", "C# Finding comparison diverged");
     internal static readonly FindingDescriptor IlFindingDivergenceDescriptor =
@@ -235,18 +235,18 @@ public static class ImplementationDiff
             new RetainedFindingComparisonSet(retainedComparisons));
     }
 
-    public static ImplementationMemberDiffResult CompareMembersWithAuthoredSource(
+    public static ImplementationMemberDiffResult CompareMembersWithPdbSource(
         MetadataSource oldSource,
         MethodDefinitionHandle oldMethod,
         MetadataSource newSource,
         MethodDefinitionHandle newMethod,
-        FindingInspection<string> oldAuthoredSource,
-        FindingInspection<string> newAuthoredSource,
+        FindingInspection<string> oldPdbSource,
+        FindingInspection<string> newPdbSource,
         ImplementationDiffMechanism mechanisms = ImplementationDiffMechanism.AllAvailable,
         ResearchSubjectKey? subject = null)
     {
-        ArgumentNullException.ThrowIfNull(oldAuthoredSource);
-        ArgumentNullException.ThrowIfNull(newAuthoredSource);
+        ArgumentNullException.ThrowIfNull(oldPdbSource);
+        ArgumentNullException.ThrowIfNull(newPdbSource);
 
         var result = CompareMembers(
             oldSource,
@@ -259,8 +259,8 @@ public static class ImplementationDiff
             return result;
 
         var comparison = FindingComparison.Compare(
-            oldAuthoredSource,
-            newAuthoredSource);
+            oldPdbSource,
+            newPdbSource);
         var retained = result.RetainedComparisons.Items.ToBuilder();
         retained.Add(new RetainedFindingComparison<string>(
             result.Subject,
@@ -463,9 +463,9 @@ public static class ImplementationDiff
         return descriptors.ToImmutable();
     }
 
-    public static ImplementationDiffResult WithAuthoredSourceComparisons(
+    public static ImplementationDiffResult WithPdbSourceComparisons(
         ImplementationDiffResult result,
-        IEnumerable<AuthoredSourceComparisonInput> inputs,
+        IEnumerable<PdbSourceComparisonInput> inputs,
         ImplementationDiffOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(result);
@@ -509,7 +509,7 @@ public static class ImplementationDiff
                 new ResearchChange(
                     subject,
                     ResearchChangeMechanism.Source,
-                    AuthoredSourceFailureDescriptor,
+                    PdbSourceFailureDescriptor,
                     ResearchChangeKind.Failed,
                     detail: failed.Failure,
                     category: ResearchChangeCategory.Source)

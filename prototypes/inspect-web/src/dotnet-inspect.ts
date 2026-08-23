@@ -1,6 +1,7 @@
 import {
   activeSourceOperationKind,
   assemblyDescriptorForType,
+  pdbSourceLimitationHtml,
   callGraphDiagnosticsMessage,
   callGraphTargetTypeId,
   createDependencyGraphPendingState,
@@ -73,6 +74,24 @@ import {
   type PackagePerformance,
 } from "./package-inspection.ts";
 import {
+  bindPackageDependencyList,
+  bindPackageView,
+  type PackageViewBindingActions,
+} from "./package-view.ts";
+import {
+  bindLibraryControls,
+  type LibraryControlBindingActions,
+  type PlatformLibraryLens,
+} from "./library-controls.ts";
+import {
+  bindHomeShell,
+  bindLoadErrorShell,
+  bindWorkbenchShell,
+  type HomeShellBindingActions,
+  type LoadErrorShellBindingActions,
+  type WorkbenchShellBindingActions,
+} from "./shell-controls.ts";
+import {
   createSourceInspectionCoordinator,
   type GraphSourceRequest,
 } from "./source-inspection.ts";
@@ -99,23 +118,44 @@ import {
   buildTypeGraphMermaid
 } from "./graph-mermaid.ts";
 import {
+  bindDependencyGraphNodes,
+  bindGraphBack,
+  bindGraphPanZoom,
+  bindTypeGraphNodes,
+  type CallGraphNodeBinding,
+  type GraphBackBindingActions,
+} from "./graph-interactions.ts";
+import {
   factsForNode,
   MEDIA,
   nodeAtOffset,
   validateAnnotatedSourceDocument,
 } from "./annotated-source-view.ts";
-import { renderScopeBar as renderScopeBarPure } from "./scope-bar.ts";
 import {
+  bindScopeBar,
+  renderScopeBar as renderScopeBarPure,
+} from "./scope-bar.ts";
+import {
+  bindDocViewer,
   renderDocViewer as renderDocViewerPure,
+  renderPackageDocuments,
   type DocViewerMeta,
 } from "./doc-viewer.ts";
-import { renderGraphSource as renderGraphSourcePure } from "./graph-source.ts";
 import {
+  bindGraphSource,
+  renderGraphSource as renderGraphSourcePure,
+} from "./graph-source.ts";
+import {
+  bindAnnotatedSource,
   renderAnnotatedSource as renderAnnotatedSourcePure,
   type AnnotatedSourceResult,
 } from "./annotated-source.ts";
-import { renderPackageOpportunities as renderPackageOpportunitiesPure } from "./package-opportunities.ts";
 import {
+  bindPackageOpportunities,
+  renderPackageOpportunities as renderPackageOpportunitiesPure,
+} from "./package-opportunities.ts";
+import {
+  bindTypePanel,
   renderMemberNav,
   renderTypeMetadata,
   renderTypeNav,
@@ -125,8 +165,14 @@ import {
   typeMetadataSignature,
   typeSourceSignature,
 } from "./type-panel.ts";
-import { createPackageBar, type PackageBarPackage } from "./package-bar.ts";
 import {
+  createPackageBar,
+  findPackageTabForQuery,
+  type PackageBarPackage,
+  type ParsedPackageQuery,
+} from "./package-bar.ts";
+import {
+  bindMetadataExplorer,
   cssEscape,
   estimateExplorerPageSize,
   EXPLORER_PAGE,
@@ -141,6 +187,7 @@ import {
   type PackageMetadata,
 } from "./metadata-viewer.ts";
 import {
+  bindSettingsPanel,
   renderSettingsView,
   renderTastePopover,
   type StyleOption,
@@ -159,7 +206,12 @@ import {
   createCatalogRequests,
   type DotnetRelease,
 } from "./catalog-requests.ts";
-import { fmtBytes, statusBarHtml } from "./status-bar.ts";
+import { bindStatusBar, fmtBytes, statusBarHtml } from "./status-bar.ts";
+import {
+  bindCreditsPanel,
+  isCreditsPath,
+  renderCreditsPage,
+} from "./credits-panel.ts";
 import type {
   BrowserBuildIdentity,
   BrowserCallGraph,
@@ -414,12 +466,16 @@ function isAnnotatedMedium(value: string): value is (typeof MEDIA)[number] {
 }
 
 let spotlightCache: SpotlightCache | null = null;
+const HOME_BOT_ANIMATION_DURATION_MS = 5500;
+let homeBotAnimationStartedAt: number | null = null;
+let homeReadyGlintPending = true;
 const initialState = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   statusBarExpanded: false,
   packages: [],
   package: null,
   home: false,
+  credits: false,
   platformIndex: null,
   queryNotice: "",
   queryNoticeRetryAction: null,
@@ -550,6 +606,7 @@ const initialState = {
   loadingMessage: "Starting browser inspection engine…",
   loadingSubtitle: "",
   engineReady: false,
+  engineStartupFailed: false,
   engineStatus: "Loading browser WebAssembly…",
   error: "",
   errorTitle: "",
@@ -924,7 +981,9 @@ const initialLocation = parseLocation();
 // A bare visit (no package, no shared workspace packet) lands on the intro/home page
 // instead of auto-loading a package. Any deep link or shared link skips home and restores
 // its workspace directly.
-state.home = !initialLocation.package && !(initialLocation.tabs && initialLocation.tabs.length);
+state.credits = isCreditsPath(location.pathname);
+state.home = state.credits
+  || (!initialLocation.package && !(initialLocation.tabs && initialLocation.tabs.length));
 state.queryNotice = initialLocation.workspaceNotice || "";
 if (initialLocation.package) {
   state.requestedPackage = initialLocation.package;
@@ -1117,8 +1176,21 @@ const packageBar = createPackageBar({
   closePackageTab,
   openRuntimePack: () =>
     observeAsync(openRuntimePackFromHome(), "Opening the .NET Platform"),
-  openPackage: (packageId, version) =>
-    observeAsync(loadPackage(packageId, version, ""), "Opening a package"),
+  openPackage: openPackageQuery,
+  selectFramework: framework =>
+    observeAsync(
+      switchPackageFramework(framework),
+      "Switching the package framework"),
+  selectVersion: version => {
+    if (state.package?.isRuntimePack)
+      observeAsync(
+        switchPlatformVersion(version),
+        "Switching the platform version");
+    else
+      observeAsync(
+        switchPackageVersion(version),
+        "Switching the package version");
+  },
   showToast,
 });
 
@@ -1948,6 +2020,11 @@ function render() {
     renderMetadataExplorer();
     return;
   }
+  if (state.credits) {
+    loadingBotSrc = null;
+    renderCreditsView();
+    return;
+  }
   // A loading/interstitial view holds one random bot for its whole appearance; any non-loading
   // view resets it so the next interstitial picks a fresh random bot (see interstitialBotSrc).
   const showingInterstitial = state.loading || state.error || (!state.home && !state.package);
@@ -2421,26 +2498,8 @@ function patchDependenciesGroup() {
       "active",
       Number(button.dataset.depGroup) === selectedGroupIndex));
   listSection.outerHTML = dependencyListSectionHtml(groups, selectedGroupIndex);
-  bindDependencyListHandlers();
+  bindPackageDependencyListEvents();
   observeAsync(renderDependencyGraph(), "Rendering the dependency graph");
-}
-
-function bindDependencyListHandlers() {
-  document.querySelectorAll<HTMLElement>("[data-dep-open]").forEach(button => {
-    button.onclick = () => {
-      const key = button.dataset.depOpen;
-      if (key) switchToPackageForDependencies(key);
-    };
-  });
-  document.querySelectorAll<HTMLElement>("[data-dep-load]").forEach(button => {
-    button.onclick = () => {
-      const id = button.dataset.depLoad;
-      if (id)
-        observeAsync(
-          openDependencyPackage(id, button.dataset.depVersion || ""),
-          "Opening a dependency package");
-    };
-  });
 }
 
 function resolveDependenciesGroupIndex(
@@ -3028,8 +3087,7 @@ function syncExplorerPageSize() {
   }
 }
 
-// Renders the explorer surface owned by metadata-viewer.ts, then binds its events. The state
-// snapshot is passed explicitly; the module owns markup only.
+// Renders the explorer surface owned by metadata-viewer.ts, then binds its events.
 function renderMetadataExplorer() {
   const explorer = state.explorer;
   if (!explorer) return;
@@ -3038,73 +3096,40 @@ function renderMetadataExplorer() {
     escapeHtml,
     fmtBytes,
   });
-  bindMetadataExplorerEvents();
+  bindMetadataViewerEvents();
 }
 
 let explorerObserver: IntersectionObserver | null = null;
-function bindMetadataExplorerEvents() {
+function bindMetadataViewerEvents() {
   const ex = state.explorer;
-  document.querySelector("#mde-exit")?.addEventListener("click", closeExplorer);
-  document.querySelector("#mde-hist-back")?.addEventListener("click", explorerHistoryBack);
-  document.querySelector("#mde-hist-fwd")?.addEventListener("click", explorerHistoryForward);
+  bindMetadataExplorer(document, ex, {
+    onClose: closeExplorer,
+    onHistoryBack: explorerHistoryBack,
+    onHistoryForward: explorerHistoryForward,
+    onHeapFocus: heap => pushExplorerFocus({ heap }),
+    onJump: explorerJump,
+    onOpenHeap: openExplorerHeap,
+    onOpenTable: openExplorer,
+    onPage: (index, startRowId) =>
+      observeAsync(
+        loadExplorerWindow(index, startRowId),
+        "Loading metadata table rows"),
+    onRowFocus: (index, rowId) => {
+      if (!ex) return;
+      const already =
+        ex.detail && ex.detail.index === index && ex.detail.rowId === rowId;
+      ex.detail = already ? null : { index, rowId };
+      ex.highlight = already ? null : { index, rowId };
+      const current = ex.history[ex.historyPos];
+      if (current && current.index === index) {
+        current.rowId = already ? 0 : rowId;
+      }
+      render();
+    },
+    onShowOverview: explorerShowOverview,
+    onTableFocus: (index, rowId) => pushExplorerFocus({ index, rowId }),
+  });
   if (!ex) return;
-  document.querySelectorAll<HTMLElement>("[data-mde-chip]").forEach(chip =>
-    chip.addEventListener("click", () => pushExplorerFocus({ index: Number(chip.dataset.mdeChip), rowId: 0 })));
-  document.querySelectorAll<HTMLElement>("[data-mde-jump]").forEach(btn =>
-    btn.addEventListener("click", event => {
-      event.stopPropagation();
-      const [index, rowId] = (btn.dataset.mdeJump ?? "").split(":").map(Number);
-      explorerJump(index, rowId);
-    }));
-  // The corner ✕ on the focus panel zooms back out to the all-tables wall.
-  document.querySelectorAll<HTMLElement>("[data-mde-overview]").forEach(btn =>
-    btn.addEventListener("click", event => { event.stopPropagation(); explorerShowOverview(); }));
-  document.querySelectorAll<HTMLElement>("[data-mde-page]").forEach(btn =>
-    btn.addEventListener("click", () => {
-      const [index, start] = (btn.dataset.mdePage ?? "").split(":").map(Number);
-      observeAsync(loadExplorerWindow(index, start), "Loading metadata table rows");
-    }));
-  document.querySelectorAll<HTMLElement>("[data-mde-heap-chip]").forEach(chip =>
-    chip.addEventListener("click", () => {
-      const heap = chip.dataset.mdeHeapChip;
-      if (heap !== undefined) pushExplorerFocus({ heap });
-    }));
-
-  if (ex?.overview) {
-    // All-tables view: clicking a card head, a ref, or a row focuses that table.
-    document.querySelectorAll<HTMLElement>(".mde-wall .mde-card[data-mde-index] .mde-card-head").forEach(head =>
-      head.addEventListener("click", () => {
-        const card = head.closest<HTMLElement>(".mde-card");
-        if (card) pushExplorerFocus({ index: Number(card.dataset.mdeIndex), rowId: 0 });
-      }));
-    document.querySelectorAll<HTMLElement>(".mde-wall .mde-heap-card[data-mde-heap] .mde-card-head").forEach(head =>
-      head.addEventListener("click", () => {
-        const card = head.closest<HTMLElement>(".mde-heap-card");
-        const heap = card?.dataset.mdeHeap;
-        if (heap !== undefined) pushExplorerFocus({ heap });
-      }));
-    document.querySelectorAll<HTMLElement>(".mde-wall .mde-row[data-mde-row]").forEach(tr =>
-      tr.addEventListener("click", () => {
-        const [index, rowId] = (tr.dataset.mdeRow ?? "").split(":").map(Number);
-        pushExplorerFocus({ index, rowId });
-      }));
-  } else {
-    // Focus view: clicking anywhere on the dim wall behind the lightbox zooms out ("click away").
-    document.querySelector("#mde-canvas")?.addEventListener("click", explorerShowOverview);
-    // Selecting a row in the focus panel updates the inspector in place — it refines the current
-    // position (remembered for Back/Forward). Clicking the selected row again deselects it.
-    document.querySelectorAll<HTMLElement>(".mde-focus .mde-row[data-mde-row]").forEach(tr =>
-      tr.addEventListener("click", () => {
-        const [index, rowId] = (tr.dataset.mdeRow ?? "").split(":").map(Number);
-        const already = ex.detail && ex.detail.index === index && ex.detail.rowId === rowId;
-        ex.detail = already ? null : { index, rowId };
-        ex.highlight = already ? null : { index, rowId };
-        const cur = ex.history[ex.historyPos];
-        if (cur && cur.index === index) cur.rowId = already ? 0 : rowId;
-        render();
-      }));
-  }
-
   // Hydrate cards as they scroll into view (the "wall of tables filling in as you pan" feel).
   explorerObserver?.disconnect();
   const observer = new IntersectionObserver(entries => {
@@ -3290,25 +3315,8 @@ function renderPackageOverview() {
     .join("");
   const nsOverflow = nsCounts.size > 12 ? `<span class="ns-overflow">+${nsCounts.size - 12} more</span>` : "";
 
-  // Package-shipped Markdown: README/PACKAGE at the root and skill files under skills/.
-  // Presence comes from the surface manifest; the body is fetched on demand when opened.
-  const docKindLabel: Record<string, string> =
-    { readme: "Readme", package: "Package", skill: "Skill" };
-  const docKindGlyph: Record<string, string> =
-    { readme: "▤", package: "▤", skill: "◆" };
-  const documents = (pkg.documents || [])
-    .map(doc => `<button class="doc-chip doc-${escapeHtml(doc.kind)}" data-doc-path="${escapeHtml(doc.path)}" title="${escapeHtml(doc.path)} · ${doc.size.toLocaleString()} bytes">
-        <span class="doc-glyph">${docKindGlyph[doc.kind] || "▤"}</span>
-        <span class="doc-name">${escapeHtml(doc.name)}</span>
-        <span class="doc-kind">${docKindLabel[doc.kind] || doc.kind}</span>
-      </button>`)
-    .join("");
-  const documentsSection = (pkg.documents || []).length
-    ? `<section class="document-section">
-      <div class="section-title"><h2>Documentation</h2><span>${pkg.documents.length} file${pkg.documents.length === 1 ? "" : "s"} — click to read</span></div>
-      <div class="doc-chip-list">${documents}</div>
-    </section>`
-    : "";
+  const documentsSection =
+    renderPackageDocuments(pkg.documents || [], escapeHtml);
 
   return `
     <section class="document-section">
@@ -3558,10 +3566,10 @@ function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
         : `<section class="document-section empty-member-section"><h2>Annotated source query failed</h2><p>${escapeHtml(state.memberAnnotatedError || "No annotated source result was returned.")}</p></section>`;
   } else {
     content = state.memberSourceLoading
-      ? `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving source…</h2><p>Trying checksum-verified SourceLink source, then dotnet-inspect decompilation.</p></section>`
+      ? `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`
       : state.memberSource
         ? `<section class="document-section source-result">
-            <div class="source-provenance"><strong>${state.memberSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.memberSource.provenance)}</span>${state.memberSource.url ? `<a href="${escapeHtml(state.memberSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}<button id="copy-source" type="button">copy</button></div>
+            <div class="source-provenance"><strong>${state.memberSource.provider === "pdb" ? "PDB Source" : "Decompiled source"}</strong><span>${escapeHtml(state.memberSource.provenance)}</span>${state.memberSource.url ? `<a href="${escapeHtml(state.memberSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}${pdbSourceLimitationHtml(state.memberSource)}<button id="copy-source" type="button">copy</button></div>
             <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(state.memberSource.text)}</code></pre>
           </section>`
         : `<section class="document-section empty-member-section"><h2>Source query failed</h2><p>${escapeHtml(state.memberSourceError || "No source result was returned.")}</p></section>`;
@@ -3747,55 +3755,21 @@ function highlightCSharp(value: string) {
   return escapeHtml(source);
 }
 
-function bindStatusBarToggle() {
-  document.querySelectorAll<HTMLElement>("[data-status-bar-toggle-button]").forEach(button => button.addEventListener("click", () => {
-    state.statusBarExpanded = !state.statusBarExpanded;
-    render();
-  }));
-}
-
-function bindEvents() {
-  bindStatusBarToggle();
-  packageBar.bind(document);
-  document.querySelectorAll<HTMLElement>("[data-scope]").forEach(button => button.addEventListener("click", () => {
-    const target = button.dataset.scope;
-    if (target === "package") {
-      state.atPackageRoot = true;
-    } else if (target === "type") {
-      // Pop out to the type level: leave the package root and drop any open member so the
-      // type lenses (API / Metadata / Source) take the strip. Ensure a type is selected.
-      state.atPackageRoot = false;
-      if (!state.selectedTypeId) {
-        const first = filteredTypes()[0];
-        if (first) state.selectedTypeId = first.id;
-      }
-      state.selectedMemberKey = "";
-      state.memberBrowseTypeId = "";
-      state.selectedOverloadIndex = null;
-    } else if (target === "member") {
-      enterMemberScope();
-    }
-    render();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-package-lens]").forEach(button => button.addEventListener("click", () => {
-    state.packageLens = button.dataset.packageLens ?? "overview";
-    render();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-framework-chip]").forEach(button => button.addEventListener("click", () => {
-    observeAsync(
-      switchPackageFramework(button.dataset.frameworkChip ?? ""),
-      "Switching the package framework");
-  }));
-  document.querySelectorAll<HTMLElement>("[data-dep-group]").forEach(button => button.addEventListener("click", () => {
-    const index = Number(button.dataset.depGroup);
+const packageViewActions: PackageViewBindingActions = {
+  onDependencyGroupSelect: index => {
     if (state.dependenciesGroupIndex === index) return;
     state.dependenciesGroupIndex = index;
     patchDependenciesGroup();
-  }));
-  bindDependencyListHandlers();
-  document.querySelectorAll<HTMLElement>("[data-kind-jump]").forEach(button => button.addEventListener("click", () => {
+  },
+  onDependencyLoad: (id, version) =>
+    observeAsync(
+      openDependencyPackage(id, version),
+      "Opening a dependency package"),
+  onDependencyOpen: switchToPackageForDependencies,
+  onGraphTypeSelect: navigateToTypeByName,
+  onKindJump: kind => {
     state.atPackageRoot = false;
-    state.kindFilter = button.dataset.kindJump ?? "";
+    state.kindFilter = kind;
     state.namespaceFilter = "";
     state.typeFilter = "";
     state.selectedMemberKey = "";
@@ -3805,10 +3779,27 @@ function bindEvents() {
     const first = filteredTypes()[0];
     if (first) state.selectedTypeId = first.id;
     render();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-namespace-jump]").forEach(button => button.addEventListener("click", () => {
+  },
+  onLibraryScopeSelect: (library, kind) => {
     state.atPackageRoot = false;
-    state.namespaceFilter = button.dataset.namespaceJump ?? "";
+    if (!library) return;
+    state.libraryScope = new Set([library]);
+    if (state.package?.isRuntimePack)
+      recordPlatformRecent(library, platformPackForAssembly(library));
+    state.kindFilter = kind;
+    state.namespaceFilter = "";
+    state.typeFilter = "";
+    state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
+    resetMemberFilters();
+    state.typeCursor = 0;
+    const first = filteredTypes()[0];
+    if (first) state.selectedTypeId = first.id;
+    render();
+  },
+  onNamespaceJump: namespace => {
+    state.atPackageRoot = false;
+    state.namespaceFilter = namespace;
     state.kindFilter = "";
     state.typeFilter = "";
     state.selectedMemberKey = "";
@@ -3818,70 +3809,147 @@ function bindEvents() {
     const first = filteredTypes()[0];
     if (first) state.selectedTypeId = first.id;
     render();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-lib-scope]").forEach(button => button.addEventListener("click", () => {
-    state.atPackageRoot = false;
-    const library = button.dataset.libScope;
-    if (!library) return;
-    state.libraryScope = new Set([library]);
-    if (state.package?.isRuntimePack)
-      recordPlatformRecent(library, platformPackForAssembly(library));
-    state.kindFilter = button.dataset.libKind || "";
-    state.namespaceFilter = "";
-    state.typeFilter = "";
-    state.selectedMemberKey = "";
-    state.memberBrowseTypeId = "";
-    resetMemberFilters();
-    state.typeCursor = 0;
-    const first = filteredTypes()[0];
-    if (first) state.selectedTypeId = first.id;
-    render();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-lens]").forEach(button => button.addEventListener("click", () => {
-    state.lens = button.dataset.lens ?? "api";
-    state.selectedMemberKey = "";
-    state.memberBrowseTypeId = "";
-    render();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-type]").forEach(button => button.addEventListener("click", () => {
-    state.atPackageRoot = false;
-    state.selectedTypeId = button.dataset.type ?? "";
-    state.selectedMemberKey = "";
-    state.memberBrowseTypeId = "";
-    resetMemberFilters();
-    state.typeCursor = filteredTypes().findIndex(item => item.id === state.selectedTypeId);
-    render();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-graph-type]").forEach(button => button.addEventListener("click", () => {
-    navigateToTypeByName(button.dataset.graphType ?? "");
-  }));
-  document.querySelectorAll<HTMLElement>("[data-perf-token]").forEach(button => button.addEventListener("click", () => {
+  },
+  onPerformanceMemberSelect: target => {
     drillToPerfMember(
-      button.dataset.perfToken ?? "",
-      button.dataset.perfAssembly ?? "",
-      button.dataset.perfType ?? "");
-  }));
-  document.querySelectorAll<HTMLElement>("[data-opp-type]").forEach(button => button.addEventListener("click", () => {
-    const id = button.dataset.oppType ?? "";
-    const target = resolveOpportunitySourceType(currentPackage(), {
-      sourceDefinitionId: button.dataset.oppSourceDefinition ?? null,
-      sourceAssembly: button.dataset.oppSourceAssembly ?? null,
-      sourceAssemblyVersion: button.dataset.oppSourceVersion ?? null,
-      sourceAssemblyCulture: button.dataset.oppSourceCulture || null,
-      sourceAssemblyPublicKeyToken: button.dataset.oppSourceToken || null
-    });
-    if (!target) { openSpotlight(shortTypeName(id)); return; }
-    state.atPackageRoot = false;
-    navigateToType(target);
-  }));
-  document.querySelectorAll<HTMLElement>("[data-opp-package]").forEach(button => button.addEventListener("click", () => {
+      target.metadataToken,
+      target.assembly,
+      target.typeId);
+  },
+};
+
+interface NoticeRetryState {
+  action: RetryAction;
+  previous: string;
+  appended: string;
+}
+
+const libraryControlActions: LibraryControlBindingActions = {
+  onAccessibilityChipSelect: accessibility => {
+    toggleAccessibilityChip(accessibility);
+    afterLibraryScopeChange();
+  },
+  onLibraryChipSelect: library => {
+    toggleLibraryChip(library);
+    afterLibraryScopeChange();
+  },
+  onLibraryJump: library => {
+    state.libraryScope = library ? new Set([library]) : null;
+    afterLibraryScopeChange();
+  },
+  onPlatformLibrarySelect: (name, pack) =>
     observeAsync(
-      openDependencyPackage(button.dataset.oppPackage ?? "", ""),
-      "Opening an opportunity package");
-  }));
-  document.querySelectorAll<HTMLElement>("[data-opp-lookfor]").forEach(button => button.addEventListener("click", () => {
-    openSpotlight(button.dataset.oppLookfor ?? "");
-  }));
+      openPlatformLibrary(name, pack),
+      "Opening a platform library"),
+  onPlatformLensLibrarySelect: (lens, name, pack) =>
+    observeAsync(
+      openPlatformLensLibrary(lens, name, pack),
+      "Opening a platform library"),
+};
+
+async function openPlatformLensLibrary(
+  lens: PlatformLibraryLens,
+  name: string,
+  selectedPack: string | undefined,
+  originPackage: AppPackage = currentPackage(),
+  noticeRetryState: NoticeRetryState | null = null,
+) {
+  if (!state.packages.includes(originPackage)
+    || !packageIdentityEquals(state.package, originPackage)
+    || state.home
+    || !state.atPackageRoot
+    || state.packageLens !== lens) {
+    return;
+  }
+  if (noticeRetryState
+    && state.queryNoticeRetryAction === noticeRetryState.action) {
+    state.queryNotice = removeAppendedNotice(
+      state.queryNotice,
+      noticeRetryState.previous,
+      noticeRetryState.appended);
+    state.queryNoticeRetryAction = null;
+  }
+  const navigationSeq = navigationSequence.begin();
+  const isCurrent = () =>
+    navigationSequence.isCurrent(navigationSeq)
+    && !state.home
+    && state.atPackageRoot
+    && state.packageLens === lens
+    && packageIdentityEquals(state.package, originPackage);
+  const key = name.replace(/\.dll$/i, "");
+  const pack = selectedPack || platformPackForAssembly(key);
+  const resident = (runtimePackPackage()?.types || [])
+    .some(type => libraryKey(type) === key);
+  if (!resident) {
+    const runtimeResult = await loadRuntimePackAssembly(
+      platformScopeTfm(),
+      `${key}.dll`,
+      pack,
+      () => state.packages.includes(originPackage));
+    const loaded = runtimeResult.packageModel;
+    if (!loaded) {
+      if (isCurrent()) {
+        const noticeState: NoticeRetryState = {
+          action: null,
+          previous: state.queryNotice,
+          appended: "",
+        };
+        const retryAction = () =>
+          openPlatformLensLibrary(
+            lens,
+            name,
+            pack,
+            originPackage,
+            noticeState);
+        noticeState.action = retryAction;
+        appendQueryNotice(
+          `Couldn’t load ${key}: ${runtimeResult.failureMessage
+            || state.runtimePackError
+            || "runtime pack acquisition failed."}`,
+          retryAction);
+        noticeState.appended = state.queryNotice;
+        render();
+      }
+      return;
+    }
+  }
+  if (!isCurrent()) return;
+  state.libraryScope = new Set([key]);
+  recordPlatformRecent(key, pack);
+  state.atPackageRoot = true;
+  state.packageLens = lens;
+  state.namespaceFilter = "";
+  state.typeFilter = "";
+  state.kindFilter = "";
+  normalizeLibrarySelection();
+  if (lens === "integrations") await loadPackageIntegrations();
+  else if (lens === "opportunities") await loadPackageOpportunities();
+  else if (lens === "analysis") await loadPackagePerformance();
+  else await loadPackageMetadata();
+}
+
+function bindPackageViewEvents() {
+  bindPackageView(document, packageViewActions);
+}
+
+function bindPackageDependencyListEvents() {
+  bindPackageDependencyList(document, packageViewActions);
+}
+
+function bindStatusBarEvents() {
+  bindStatusBar(document, {
+    onToggle: () => {
+      state.statusBarExpanded = !state.statusBarExpanded;
+      render();
+    },
+  });
+}
+
+function bindLibraryControlsEvents() {
+  bindLibraryControls(document, libraryControlActions);
+}
+
+function bindTypePanelEvents() {
   const renderMemberFilterAndRestoreFocus = (selector = "") => {
     const preserved = captureMemberFocus(document);
     if (selector) {
@@ -3890,448 +3958,384 @@ function bindEvents() {
     }
     renderWithMemberFocus(preserved);
   };
-  document.querySelectorAll<HTMLElement>("[data-member-kind-filter]").forEach(button => button.addEventListener("click", () => {
-    const value = button.dataset.memberKindFilter;
-    state.memberKindFilter = value ?? "all";
-    normalizeMemberSelection();
-    renderMemberFilterAndRestoreFocus();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-member-access-filter]").forEach(button => button.addEventListener("click", () => {
-    const value = button.dataset.memberAccessFilter;
-    state.memberAccessibilityFilter = value ?? "all";
-    normalizeMemberSelection();
-    renderMemberFilterAndRestoreFocus();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-member-trait-filter]").forEach(button => button.addEventListener("click", () => {
-    const value = button.dataset.memberTraitFilter;
-    state.memberTraitFilter = value ?? "";
-    normalizeMemberSelection();
-    renderMemberFilterAndRestoreFocus();
-  }));
-  const memberFilter = document.querySelector<HTMLInputElement>("#member-filter");
-  memberFilter?.addEventListener("input", () => {
-    state.memberTextFilter = memberFilter.value;
-    normalizeMemberSelection();
-    renderPreservingMemberFocus();
-  });
-  memberFilter?.addEventListener("keydown", event => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      if (navMode() === "member") {
-        exitMemberScope();
-      } else {
-        state.memberTextFilter = "";
-        normalizeMemberSelection();
-        renderMemberFilterAndRestoreFocus("#member-filter");
-      }
-      return;
-    }
-    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
-    event.preventDefault();
-    stepMemberNav(event.key === "ArrowDown" ? 1 : -1, true);
-  });
-  document.querySelector("#clear-member-filter")?.addEventListener("click", () => {
-    resetMemberFilters();
-    normalizeMemberSelection();
-    renderMemberFilterAndRestoreFocus("#clear-member-filter");
-  });
   const enterMemberNavigation = (action: () => void) => {
     const focusGeneration = beginSpotlightNavigation();
     action();
     focusTypeList(focusGeneration);
   };
-  document.querySelectorAll<HTMLElement>("[data-member-jump-kind]").forEach(button => button.addEventListener("click", () => {
-    enterMemberNavigation(() => {
-      resetMemberFilters();
-      state.memberKindFilter = button.dataset.memberJumpKind ?? "all";
-      enterMemberScope();
+  bindTypePanel(document, {
+    onClearFilters: () => {
+      state.typeFilter = "";
+      state.namespaceFilter = "";
+      state.kindFilter = "";
+      state.libraryScope = null;
+      state.accessibilityFilter = defaultAccessibilityFilter(state.package);
       render();
-    });
-  }));
-  document.querySelectorAll<HTMLElement>("[data-member-jump-access]").forEach(button => button.addEventListener("click", () => {
-    enterMemberNavigation(() => {
+      focusFilter({ immediate: true });
+    },
+    onCopyAnchor: anchor => {
+      const type = selectedType();
+      const member = selectedMember(type);
+      const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
+      const values = {
+        selector: overload?.stableSelector,
+        digest: overload?.anchorDigest,
+        canonical: overload?.canonicalSignature
+      };
+      const value = anchor ? values[anchor] : undefined;
+      if (value) void copyText(value, `${anchor} copied`);
+    },
+    onCopyMemberSource: () => {
+      if (state.memberSource)
+        void copyText(state.memberSource.text, "source copied");
+    },
+    onCopyName: () => {
+      const type = selectedType();
+      if (!type) return;
+      const typeName = `${type.namespace ? `${type.namespace}.` : ""}${type.name}`;
+      const member = selectedMember(type);
+      const fullName = member ? `${typeName}.${member.name}` : typeName;
+      void copyText(fullName, "name copied");
+    },
+    onCopySignature: () => {
+      const type = selectedType();
+      const member = selectedMember(type);
+      const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
+      if (overload)
+        void copyText(overload.signature, "signature copied");
+    },
+    onCopyTypeSource: () => {
+      if (state.typeSource)
+        void copyText(state.typeSource.text, "source copied");
+    },
+    onKindSelect: kind => {
+      state.kindFilter = kind;
+      state.typeCursor = 0;
+      const first = filteredTypes()[0];
+      if (first) state.selectedTypeId = first.id;
+      state.selectedMemberKey = "";
+      state.memberBrowseTypeId = "";
       resetMemberFilters();
-      state.memberAccessibilityFilter = button.dataset.memberJumpAccess ?? "all";
-      enterMemberScope();
       render();
-    });
-  }));
-  document.querySelectorAll<HTMLElement>("[data-member-jump-trait]").forEach(button => button.addEventListener("click", () => {
-    enterMemberNavigation(() => {
+    },
+    onListKeyDown: handleTypeKeys,
+    onMemberAccessibilityFilterSelect: value => {
+      state.memberAccessibilityFilter = value ?? "all";
+      normalizeMemberSelection();
+      renderMemberFilterAndRestoreFocus();
+    },
+    onMemberBack: drillOut,
+    onMemberCompositionAccessibilitySelect: value => {
+      enterMemberNavigation(() => {
+        resetMemberFilters();
+        state.memberAccessibilityFilter = value;
+        enterMemberScope();
+        render();
+      });
+    },
+    onMemberCompositionKindSelect: value => {
+      enterMemberNavigation(() => {
+        resetMemberFilters();
+        state.memberKindFilter = value;
+        enterMemberScope();
+        render();
+      });
+    },
+    onMemberCompositionTraitSelect: value => {
+      enterMemberNavigation(() => {
+        resetMemberFilters();
+        state.memberTraitFilter = value;
+        enterMemberScope();
+        render();
+      });
+    },
+    onMemberFilterChange: value => {
+      state.memberTextFilter = value;
+      normalizeMemberSelection();
+      renderPreservingMemberFocus();
+    },
+    onMemberFilterClear: () => {
       resetMemberFilters();
-      state.memberTraitFilter = button.dataset.memberJumpTrait ?? "";
-      enterMemberScope();
-      render();
-    });
-  }));
-  document.querySelectorAll<HTMLElement>("[data-member]").forEach(button => button.addEventListener("click", () => {
-    enterMemberNavigation(() => openMemberGroup(button.dataset.member ?? ""));
-  }));
-  document.querySelectorAll<HTMLElement>("[data-overload]").forEach(button => button.addEventListener("click", () => {
-    openOverload(Number(button.dataset.overload));
-  }));
-  document.querySelectorAll<HTMLElement>("[data-nav-member]").forEach(button => button.addEventListener("click", () => {
-    const group = memberGroups(selectedType()).find(item => item.key === button.dataset.navMember);
-    if (group) selectMemberNavEntry({ kind: "member", group }, false);
-  }));
-  document.querySelectorAll<HTMLElement>("[data-nav-overload]").forEach(button => button.addEventListener("click", () => {
-    const group = selectedMember(selectedType());
-    if (group) selectMemberNavEntry({ kind: "overload", group, index: Number(button.dataset.navOverload) }, false);
-  }));
-  document.querySelector("#nav-to-types")?.addEventListener("click", () => {
-    exitMemberScope();
-  });
-  document.querySelectorAll<HTMLElement>("[data-member-section]").forEach(button => button.addEventListener("click", () => {
-    const section = button.dataset.memberSection;
-    if (section && isMemberSection(section)) applyMemberSection(section);
-  }));
-  document.querySelector("#member-back")?.addEventListener("click", () => {
-    drillOut();
-  });
-  document.querySelector("#copy-name")?.addEventListener("click", () => {
-    const type = selectedType();
-    if (!type) return;
-    const typeName = `${type.namespace ? `${type.namespace}.` : ""}${type.name}`;
-    const member = selectedMember(type);
-    const fullName = member ? `${typeName}.${member.name}` : typeName;
-    void copyText(fullName, "name copied");
-  });
-  document.querySelector("#copy-signature")?.addEventListener("click", () => {
-    const type = selectedType();
-    const member = selectedMember(type);
-    const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
-    if (overload) void copyText(overload.signature, "signature copied");
-  });
-  document.querySelectorAll<HTMLElement>("[data-copy-anchor]").forEach(button => button.addEventListener("click", () => {
-    const type = selectedType();
-    const member = selectedMember(type);
-    const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
-    const values = {
-      selector: overload?.stableSelector,
-      digest: overload?.anchorDigest,
-      canonical: overload?.canonicalSignature
-    };
-    const anchor = button.dataset.copyAnchor;
-    const value = anchor === "selector" || anchor === "digest" || anchor === "canonical"
-      ? values[anchor]
-      : undefined;
-    if (value) void copyText(value, `${anchor} copied`);
-  }));
-  document.querySelector("#copy-source")?.addEventListener("click", () => {
-    if (state.memberSource) void copyText(state.memberSource.text, "source copied");
-  });
-  document.querySelector("#copy-annotated")?.addEventListener("click", () => {
-    if (state.memberAnnotated)
-      void copyText(state.memberAnnotated.document.text, "annotated source copied");
-  });
-  document.querySelectorAll<HTMLElement>("[data-annotated-medium]").forEach(button => button.addEventListener("click", () => {
-    const medium = button.dataset.annotatedMedium;
-    if (!medium || !isAnnotatedMedium(medium)) return;
-    const typedMedium = medium;
-    const next = {
-      ...state.memberAnnotatedMedia,
-      [typedMedium]: !state.memberAnnotatedMedia[typedMedium],
-    };
-    // Both media off would render an empty document that looks like an empty result.
-    if (!MEDIA.some(candidate => next[candidate])) return;
-    state.memberAnnotatedMedia = next;
-    render();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-annotated-fact]").forEach(button => button.addEventListener("click", () => {
-    const factId = Number(button.dataset.annotatedFact);
-    state.memberAnnotatedFactId = state.memberAnnotatedFactId === factId ? null : factId;
-    state.memberAnnotatedNodeIds = [];
-    render();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-annotated-offset]").forEach(span => span.addEventListener("click", () => {
-    if (!state.memberAnnotated) return;
-    const node = nodeAtOffset(state.memberAnnotated.document, Number(span.dataset.annotatedOffset));
-    state.memberAnnotatedFactId = null;
-    state.memberAnnotatedNodeIds = node ? [node.id] : [];
-    // Selecting the text a fact is about also selects that fact when exactly one owns the node.
-    const owning = node ? factsForNode(state.memberAnnotated.document, node.id) : [];
-    if (owning.length === 1) state.memberAnnotatedFactId = owning[0].id;
-    render();
-  }));
-  document.querySelector("#annotated-clear")?.addEventListener("click", () => {
-    state.memberAnnotatedFactId = null;
-    state.memberAnnotatedNodeIds = [];
-    render();
-  });
-  document.querySelector("#copy-type-source")?.addEventListener("click", () => {
-    if (state.typeSource) void copyText(state.typeSource.text, "source copied");
-  });
-  document.querySelectorAll<HTMLElement>("[data-namespace]").forEach(button => button.addEventListener("click", () => {
-    state.namespaceFilter = button.dataset.namespace ?? "";
-    state.typeCursor = 0;
-    const first = filteredTypes()[0];
-    if (first) state.selectedTypeId = first.id;
-    state.selectedMemberKey = "";
-    state.memberBrowseTypeId = "";
-    resetMemberFilters();
-    render();
-  }));
-  const namespaceJump = document.querySelector<HTMLSelectElement>("#namespace-jump");
-  if (namespaceJump) namespaceJump.addEventListener("change", () => {
-    state.namespaceFilter = namespaceJump.value;
-    state.typeCursor = 0;
-    const first = filteredTypes()[0];
-    if (first) state.selectedTypeId = first.id;
-    state.selectedMemberKey = "";
-    state.memberBrowseTypeId = "";
-    resetMemberFilters();
-    render();
-  });
-  document.querySelectorAll<HTMLElement>("[data-kind-filter]").forEach(button => button.addEventListener("click", () => {
-    state.kindFilter = button.dataset.kindFilter ?? "";
-    state.typeCursor = 0;
-    const first = filteredTypes()[0];
-    if (first) state.selectedTypeId = first.id;
-    state.selectedMemberKey = "";
-    state.memberBrowseTypeId = "";
-    resetMemberFilters();
-    render();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-library-chip]").forEach(button => button.addEventListener("click", () => {
-    toggleLibraryChip(button.dataset.libraryChip ?? "");
-    afterLibraryScopeChange();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-access-chip]").forEach(button => button.addEventListener("click", () => {
-    toggleAccessibilityChip(button.dataset.accessChip ?? "");
-    afterLibraryScopeChange();
-  }));
-  const libraryJump = document.querySelector<HTMLSelectElement>("#library-jump");
-  if (libraryJump) libraryJump.addEventListener("change", () => {
-    state.libraryScope = libraryJump.value ? new Set([libraryJump.value]) : null;
-    afterLibraryScopeChange();
-  });
-  document.querySelectorAll<HTMLSelectElement>("[data-platform-library-select]").forEach(select => select.addEventListener("change", () => {
-    const name = select.value;
-    if (!name) return;
-    const pack = select.selectedOptions[0]?.dataset.pack || "netcore.app";
-    observeAsync(openPlatformLibrary(name, pack), "Opening a platform library");
-  }));
-  // The lens-scoped library pickers (Integrations, Opportunities, Analysis) scope the scan
-  // without leaving the lens: unlike the main platform selector they keep package (platform)
-  // root + the active lens, then rescan. Types are loaded too so switching to Types/Overview
-  // afterward isn't empty.
-  interface NoticeRetryState {
-    action: RetryAction;
-    previous: string;
-    appended: string;
-  }
-  const bindPlatformLensPicker = (
-    dataAttr: string,
-    lens: string,
-    loader: () => Promise<void>,
-  ) => {
-    const openLibrary = async (
-      name: string,
-      pack: string,
-      originPackage: AppPackage = currentPackage(),
-      noticeRetryState: NoticeRetryState | null = null) => {
-      if (!state.packages.includes(originPackage)
-        || !packageIdentityEquals(state.package, originPackage)
-        || state.home
-        || !state.atPackageRoot
-        || state.packageLens !== lens) {
+      normalizeMemberSelection();
+      renderMemberFilterAndRestoreFocus("#clear-member-filter");
+    },
+    onMemberFilterKeyDown: (event, value) => {
+      if (event.key === "Escape") {
+        if (navMode() !== "member" && value === "") return;
+        event.preventDefault();
+        if (navMode() === "member") {
+          exitMemberScope();
+        } else {
+          state.memberTextFilter = "";
+          normalizeMemberSelection();
+          renderMemberFilterAndRestoreFocus("#member-filter");
+        }
         return;
       }
-      if (noticeRetryState
-        && state.queryNoticeRetryAction === noticeRetryState.action) {
-        state.queryNotice = removeAppendedNotice(
-          state.queryNotice,
-          noticeRetryState.previous,
-          noticeRetryState.appended);
-        state.queryNoticeRetryAction = null;
-      }
-      const navigationSeq = navigationSequence.begin();
-      const isCurrent = () =>
-        navigationSequence.isCurrent(navigationSeq)
-        && !state.home
-        && state.atPackageRoot
-        && state.packageLens === lens
-        && packageIdentityEquals(state.package, originPackage);
-      const key = name.replace(/\.dll$/i, "");
-      const resident = (runtimePackPackage()?.types || []).some(type => libraryKey(type) === key);
-      if (!resident) {
-        const runtimeResult = await loadRuntimePackAssembly(
-          platformScopeTfm(),
-          `${key}.dll`,
-          pack,
-          () => state.packages.includes(originPackage));
-        const loaded = runtimeResult.packageModel;
-        if (!loaded) {
-          if (isCurrent()) {
-                  const noticeState: NoticeRetryState = {
-              action: null,
-              previous: state.queryNotice,
-              appended: "",
-            };
-            const retryAction = () =>
-              openLibrary(name, pack, originPackage, noticeState);
-            noticeState.action = retryAction;
-            appendQueryNotice(
-              `Couldn’t load ${key}: ${runtimeResult.failureMessage
-                || state.runtimePackError
-                || "runtime pack acquisition failed."}`,
-              retryAction);
-            noticeState.appended = state.queryNotice;
-            render();
-          }
-          return;
-        }
-      }
-      if (!isCurrent()) return;
-      state.libraryScope = new Set([key]);
-      recordPlatformRecent(key, pack);
-      state.atPackageRoot = true;
-      state.packageLens = lens;
-      state.namespaceFilter = "";
-      state.typeFilter = "";
-      state.kindFilter = "";
-      normalizeLibrarySelection();
-      await loader();
-    };
-    document.querySelectorAll<HTMLSelectElement>(`[${dataAttr}]`).forEach(select => select.addEventListener("change", () => {
-      const name = select.value;
-      if (!name) return;
-      const key = name.replace(/\.dll$/i, "");
-      const pack = select.selectedOptions[0]?.dataset.pack || platformPackForAssembly(key);
-      observeAsync(openLibrary(name, pack), "Opening a platform library");
-    }));
-  };
-  bindPlatformLensPicker("data-platform-integrations-library", "integrations", loadPackageIntegrations);
-  bindPlatformLensPicker("data-platform-opportunities-library", "opportunities", loadPackageOpportunities);
-  bindPlatformLensPicker("data-platform-analysis-library", "analysis", loadPackagePerformance);
-  bindPlatformLensPicker("data-platform-metadata-library", "metadata", loadPackageMetadata);
-  document.querySelectorAll<HTMLElement>("[data-mde-open]").forEach(btn =>
-    btn.addEventListener("click", () => {
-      const [assembly = "", tableIndex = "0"] =
-        (btn.dataset.mdeOpen ?? "").split("|");
-      openExplorer(assembly, Number(tableIndex));
-    }));
-  document.querySelectorAll<HTMLElement>("[data-mde-open-heap]").forEach(btn =>
-    btn.addEventListener("click", () => {
-      const [assembly = "", heapName = ""] =
-        (btn.dataset.mdeOpenHeap ?? "").split("|");
-      openExplorerHeap(assembly, heapName);
-    }));
-  const frameworkSelect = document.querySelector<HTMLSelectElement>("#framework");
-  frameworkSelect?.addEventListener("change", () => {
-    observeAsync(
-      switchPackageFramework(frameworkSelect.value),
-      "Switching the package framework");
-  });
-  const packageVersionSelect =
-    document.querySelector<HTMLSelectElement>("#package-version");
-  packageVersionSelect?.addEventListener("change", () => {
-    if (state.package?.isRuntimePack)
-      observeAsync(
-        switchPlatformVersion(packageVersionSelect.value),
-        "Switching the platform version");
-    else
-      observeAsync(
-        switchPackageVersion(packageVersionSelect.value),
-        "Switching the package version");
-  });
-  observeAsync(ensurePackageVersions(state.package), "Loading package versions");
-  if (state.package?.isRuntimePack)
-    observeAsync(ensureDotnetReleases(), "Loading .NET release information");
-  const filter = document.querySelector<HTMLInputElement>("#type-filter");
-  filter?.addEventListener("input", () => {
-    state.typeFilter = filter.value;
-    state.typeCursor = 0;
-    const first = filteredTypes()[0];
-    if (first) state.selectedTypeId = first.id;
-    state.selectedMemberKey = "";
-    state.memberBrowseTypeId = "";
-    resetMemberFilters();
-    render();
-    focusFilter();
-  });
-  filter?.addEventListener("keydown", event => {
-    if (event.key === "ArrowDown") {
+      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
       event.preventDefault();
-      document.querySelector<HTMLElement>("#type-list")?.focus();
-    } else if (event.key === "Escape") {
+      stepMemberNav(event.key === "ArrowDown" ? 1 : -1, true);
+    },
+    onMemberGroupOpen: memberKey => {
+      enterMemberNavigation(() => openMemberGroup(memberKey));
+    },
+    onMemberKindFilterSelect: value => {
+      state.memberKindFilter = value ?? "all";
+      normalizeMemberSelection();
+      renderMemberFilterAndRestoreFocus();
+    },
+    onMemberOverloadOpen: openOverload,
+    onMemberSelect: memberKey => {
+      const group = memberGroups(selectedType())
+        .find(item => item.key === memberKey);
+      if (group) selectMemberNavEntry({ kind: "member", group }, false);
+    },
+    onMemberTraitFilterSelect: value => {
+      state.memberTraitFilter = value ?? "";
+      normalizeMemberSelection();
+      renderMemberFilterAndRestoreFocus();
+    },
+    onNamespaceSelect: namespace => {
+      state.namespaceFilter = namespace;
+      state.typeCursor = 0;
+      const first = filteredTypes()[0];
+      if (first) state.selectedTypeId = first.id;
+      state.selectedMemberKey = "";
+      state.memberBrowseTypeId = "";
+      resetMemberFilters();
+      render();
+    },
+    onOverloadSelect: index => {
+      const group = selectedMember(selectedType());
+      if (group) selectMemberNavEntry({ kind: "overload", group, index }, false);
+    },
+    onShowTypes: exitMemberScope,
+    onTypeFilterChange: value => {
+      state.typeFilter = value;
+      state.typeCursor = 0;
+      const first = filteredTypes()[0];
+      if (first) state.selectedTypeId = first.id;
+      state.selectedMemberKey = "";
+      state.memberBrowseTypeId = "";
+      resetMemberFilters();
+      render();
+      focusFilter({ immediate: true });
+    },
+    onTypeFilterEscape: () => {
       state.typeFilter = "";
       render();
-    }
+      focusFilter({ immediate: true });
+    },
+    onTypeSelect: typeId => {
+      state.atPackageRoot = false;
+      state.selectedTypeId = typeId;
+      state.selectedMemberKey = "";
+      state.memberBrowseTypeId = "";
+      resetMemberFilters();
+      state.typeCursor = filteredTypes()
+        .findIndex(item => item.id === state.selectedTypeId);
+      render();
+    },
   });
-  document.querySelector<HTMLElement>("#type-list")
-    ?.addEventListener("keydown", handleTypeKeys);
-  if (state.spotlightOpen) spotlight.bind(document, "modal");
-  document.querySelector("#graph-source-backdrop")?.addEventListener("mousedown", event => {
-    if (event.target instanceof HTMLElement
-        && event.target.id === "graph-source-backdrop") closeGraphSource();
-  });
-  document.querySelector("#graph-source-close")?.addEventListener("click", closeGraphSource);
-  document.querySelectorAll<HTMLElement>("[data-doc-path]").forEach(button =>
-    button.addEventListener(
-      "click",
-      () => observeAsync(
-        openPackageDocument(button.dataset.docPath ?? ""),
-        "Opening a package document")));
-  document.querySelector("#doc-viewer-backdrop")?.addEventListener("mousedown", event => {
-    if (event.target instanceof HTMLElement
-        && event.target.id === "doc-viewer-backdrop") closeDocViewer();
-  });
-  document.querySelector("#doc-viewer-close")?.addEventListener("click", closeDocViewer);
-  document.querySelector("#taste-btn")?.addEventListener("click", event => {
-    event.stopPropagation();
-    state.tasteOpen = !state.tasteOpen;
-    render();
-  });
-  document.querySelectorAll<HTMLElement>("#taste-popover [data-taste]").forEach(checkbox =>
-    checkbox.addEventListener(
-      "change",
-      () => toggleTaste(checkbox.dataset.taste ?? "")));
-  document.querySelector("#taste-clear")?.addEventListener("click", clearTaste);
-  document.querySelector("#clear-filter")?.addEventListener("click", () => {
-    state.typeFilter = "";
-    state.namespaceFilter = "";
-    state.kindFilter = "";
-    state.libraryScope = null;
-    state.accessibilityFilter = defaultAccessibilityFilter(state.package);
-    render();
-    focusFilter();
-  });
+}
 
-  document.querySelector("#share")?.addEventListener("click", () => void share());
-  document.querySelector("[data-graph-back]")?.addEventListener(
-    "click",
-    popPlatformDrill);
-  document.querySelector("#dismiss-notice")?.addEventListener("click", () => {
+function bindScopeBarEvents() {
+  bindScopeBar(document, {
+    onMemberSectionSelect: section => {
+      if (section && isMemberSection(section)) applyMemberSection(section);
+    },
+    onPackageLensSelect: lens => {
+      state.packageLens = lens;
+      render();
+    },
+    onScopeSelect: target => {
+      if (target === "package") {
+        state.atPackageRoot = true;
+      } else if (target === "type") {
+        // Pop out to the type level: leave the package root and drop any open member so the
+        // type lenses (API / Metadata / Source) take the strip. Ensure a type is selected.
+        state.atPackageRoot = false;
+        if (!state.selectedTypeId) {
+          const first = filteredTypes()[0];
+          if (first) state.selectedTypeId = first.id;
+        }
+        state.selectedMemberKey = "";
+        state.memberBrowseTypeId = "";
+        state.selectedOverloadIndex = null;
+      } else if (target === "member") {
+        enterMemberScope();
+      }
+      render();
+    },
+    onTypeLensSelect: lens => {
+      state.lens = lens;
+      state.selectedMemberKey = "";
+      state.memberBrowseTypeId = "";
+      render();
+    },
+  });
+}
+
+function bindSettingsPanelEvents() {
+  bindSettingsPanel(document, {
+    onClose: closeSettings,
+    onOpen: openSettings,
+    onTasteClear: clearTaste,
+    onTasteOpenToggle: () => {
+      state.tasteOpen = !state.tasteOpen;
+      render();
+    },
+    onTasteToggle: toggleTaste,
+    onThemeSelect: setTheme,
+  });
+}
+
+function bindPackageOpportunitiesEvents() {
+  bindPackageOpportunities(document, {
+    onLookForSelect: openSpotlight,
+    onPackageSelect: packageId =>
+      observeAsync(
+        openDependencyPackage(packageId, ""),
+        "Opening an opportunity package"),
+    onTypeSelect: opportunity => {
+      const target = resolveOpportunitySourceType(
+        currentPackage(),
+        opportunity);
+      if (!target) {
+        openSpotlight(shortTypeName(opportunity.typeId));
+        return;
+      }
+      state.atPackageRoot = false;
+      navigateToType(target);
+    },
+  });
+}
+
+function bindGraphSourceEvents() {
+  bindGraphSource(document, {
+    onClose: closeGraphSource,
+  });
+}
+
+function bindDocViewerEvents() {
+  bindDocViewer(document, {
+    onClose: closeDocViewer,
+    onOpenDocument: path =>
+      observeAsync(openPackageDocument(path), "Opening a package document"),
+  });
+}
+
+function bindAnnotatedSourceEvents() {
+  bindAnnotatedSource(document, {
+    onClearSelection: () => {
+      state.memberAnnotatedFactId = null;
+      state.memberAnnotatedNodeIds = [];
+      render();
+    },
+    onCopy: () => {
+      if (state.memberAnnotated) {
+        void copyText(
+          state.memberAnnotated.document.text,
+          "annotated source copied");
+      }
+    },
+    onFactSelect: factId => {
+      state.memberAnnotatedFactId =
+        state.memberAnnotatedFactId === factId ? null : factId;
+      state.memberAnnotatedNodeIds = [];
+      render();
+    },
+    onMediumToggle: medium => {
+      if (!isAnnotatedMedium(medium)) return;
+      const typedMedium = medium;
+      const next = {
+        ...state.memberAnnotatedMedia,
+        [typedMedium]: !state.memberAnnotatedMedia[typedMedium],
+      };
+      // Both media off would look like a successful empty result.
+      if (!MEDIA.some(candidate => next[candidate])) return;
+      state.memberAnnotatedMedia = next;
+      render();
+    },
+    onOffsetSelect: offset => {
+      if (!state.memberAnnotated) return;
+      const node = nodeAtOffset(state.memberAnnotated.document, offset);
+      state.memberAnnotatedFactId = null;
+      state.memberAnnotatedNodeIds = node ? [node.id] : [];
+      const owning = node
+        ? factsForNode(state.memberAnnotated.document, node.id)
+        : [];
+      if (owning.length === 1) state.memberAnnotatedFactId = owning[0].id;
+      render();
+    },
+  });
+}
+
+const workbenchShellActions: WorkbenchShellBindingActions = {
+  onDismissNotice: () => {
     state.queryNotice = "";
     state.queryNoticeRetryAction = null;
     render();
-  });
-  document.querySelector("#retry-notice")?.addEventListener("click", () => {
-    const retryAction = state.queryNoticeRetryAction;
-    if (retryAction) observeAction(retryAction, "Retrying the inspection");
-  });
-  document.querySelector("#dismiss-package-notice")?.addEventListener("click", () => {
+  },
+  onDismissPackageNotice: () => {
     currentPackage().inspectionError = "";
     render();
-  });
-  document.querySelector("#nav-back")?.addEventListener("click", navBack);
-  document.querySelector("#nav-forward")?.addEventListener("click", navForward);
-  document.querySelector("#go-home")?.addEventListener("click", goHome);
-  document.querySelector("#theme-toggle")?.addEventListener("click", toggleTheme);
-  document.querySelector("#open-settings")?.addEventListener("click", () => openSettings("workbench"));
-  document.querySelector("#help")?.addEventListener("click", () => showToast("⌘K command · ⌘P / type to find a type · ⌘F filter · 1—5 lenses · ↑↓ types · Alt+←/→ back/forward · graph: wheel zoom, click node to open, +/− zoom, 0 fit, arrows pan"));
+  },
+  onGoHome: goHome,
+  onHelp: () => showToast(
+    "⌘K command · ⌘P / type to find a type · ⌘F filter · "
+    + "1—5 lenses · ↑↓ types · Alt+←/→ back/forward · "
+    + "graph: wheel zoom, click node to open, +/− zoom, 0 fit, arrows pan"),
+  onNavigateBack: navBack,
+  onNavigateForward: navForward,
+  onRetryNotice: () => {
+    const retryAction = state.queryNoticeRetryAction;
+    if (retryAction) observeAction(retryAction, "Retrying the inspection");
+  },
+  onShare: () => void share(),
+  onToggleTheme: toggleTheme,
+};
+
+const graphBackActions: GraphBackBindingActions = {
+  onBack: popPlatformDrill,
+};
+
+function bindEvents() {
+  bindStatusBarEvents();
+  packageBar.bind(document);
+  bindTypePanelEvents();
+  bindScopeBarEvents();
+  bindSettingsPanelEvents();
+  bindMetadataViewerEvents();
+  bindPackageOpportunitiesEvents();
+  bindGraphSourceEvents();
+  bindDocViewerEvents();
+  bindAnnotatedSourceEvents();
+  bindPackageViewEvents();
+  bindLibraryControlsEvents();
+  bindWorkbenchShell(document, workbenchShellActions);
+  bindGraphBack(document, graphBackActions);
+  observeAsync(ensurePackageVersions(state.package), "Loading package versions");
+  if (state.package?.isRuntimePack)
+    observeAsync(ensureDotnetReleases(), "Loading .NET release information");
+  if (state.spotlightOpen) spotlight.bind(document, "modal");
 }
 
 function toggleTheme() {
   setTheme(state.theme === "dark" ? "light" : "dark");
 }
 
+function toggleCreditsTheme(): "light" | "dark" {
+  setTheme(state.theme === "dark" ? "light" : "dark", false);
+  return state.theme === "light" ? "light" : "dark";
+}
+
 // Apply and persist a specific theme, refreshing any live graphs whose colors are theme-bound.
-function setTheme(theme: "light" | "dark") {
+function setTheme(theme: "light" | "dark", renderView = true) {
   state.theme = theme === "light" ? "light" : "dark";
   localStorage.setItem("inspect-theme", state.theme);
   document.documentElement.dataset.theme = state.theme;
+  if (!renderView) return;
   render();
   if (state.memberCallGraph)
     observeAsync(renderMermaidCallGraph(), "Rendering the member call graph");
@@ -5345,14 +5349,21 @@ function executeCommand(
   return operation;
 }
 
-function focusFilter() {
-  requestAnimationFrame(() => {
+function focusFilter(
+  { immediate = false }: { immediate?: boolean } = {},
+) {
+  const focus = () => {
     const input = document.querySelector<HTMLInputElement>(
       "#member-filter, #type-filter");
     if (!input) return;
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
-  });
+  };
+  if (immediate) {
+    focus();
+    return;
+  }
+  requestAnimationFrame(focus);
 }
 
 const memberFocusRestorer = createMemberFocusRestorer();
@@ -5643,6 +5654,15 @@ async function copyText(value: string, confirmation: string) {
 function renderHomeView() {
   document.title = "dotnet-inspect -- Inspect any NuGet package: types, methods, metadata, decompilation.";
   const enginePending = !state.engineReady;
+  const showReadyGlint = state.engineReady && homeReadyGlintPending;
+  if (showReadyGlint) homeReadyGlintPending = false;
+  if (state.engineReady && homeBotAnimationStartedAt === null) {
+    homeBotAnimationStartedAt = performance.now();
+  }
+  const botAnimationDelay = homeBotAnimationStartedAt === null
+    ? 0
+    : -((performance.now() - homeBotAnimationStartedAt)
+      % HOME_BOT_ANIMATION_DURATION_MS);
   app.innerHTML = `
     <div class="home">
       <header class="home-bar">
@@ -5665,9 +5685,8 @@ function renderHomeView() {
           <p class="home-kicker">Browser-native · WebAssembly · zero install</p>
           <h1 class="home-title">Inspect any NuGet package: types, methods, metadata, decompilation.</h1>
           <p class="home-lede">Explore NuGet packages and the .NET platform — types, members, public API surface, dependencies, call graphs, and decompiled C# — all computed locally in your browser. Nothing to install, nothing uploaded.</p>
-          <p class="home-availability">Also available as a <a href="https://www.nuget.org/packages/dotnet-inspect" target="_blank" rel="noreferrer">CLI tool</a> and <a href="https://github.com/richlander/dotnet-skills" target="_blank" rel="noreferrer">agent skill</a>.</p>
           <div class="home-search ${enginePending ? "engine-pending" : ""}" role="search" aria-busy="${enginePending}">
-            ${spotlight.inlineHtml(enginePending)}
+            ${spotlight.inlineHtml(enginePending, showReadyGlint)}
             ${enginePending
               ? `<div class="home-engine-status" role="status" aria-live="polite">
                   <span class="loader" aria-hidden="true"></span>
@@ -5675,6 +5694,8 @@ function renderHomeView() {
                 </div>`
               : ""}
           </div>
+          <p class="home-availability">Also available as a <a href="https://www.nuget.org/packages/dotnet-inspect" target="_blank" rel="noreferrer">CLI tool</a> and <a href="https://github.com/richlander/dotnet-skills" target="_blank" rel="noreferrer">agent skill</a>.</p>
+          <p class="home-attribution">Built with .NET 11, WebAssembly, TypeScript 7, NuGet, and System.Reflection.Metadata. <a id="home-credits" href="/credits">Credits</a></p>
           <div class="home-demos">
             <span class="home-demos-label">Or jump straight into a demo</span>
             <div class="home-demo-row">
@@ -5684,7 +5705,7 @@ function renderHomeView() {
             </div>
           </div>
         </div>
-        <aside class="home-art">${homeArtSvg()}</aside>
+        <aside class="home-art ${enginePending ? "engine-pending" : "engine-ready"}" style="--home-bot-animation-delay: ${botAnimationDelay}ms">${homeArtSvg()}</aside>
       </main>
       ${statusBarHtml({
         variant: "home",
@@ -5705,23 +5726,22 @@ function homeArtSvg() {
   return `<img class="home-art-img" src="/assets/dotnet-inspect-bot.png" width="680" height="680" alt="dotnet-bot inspecting through a magnifying glass" />`;
 }
 
-function bindHomeEvents() {
-  bindStatusBarToggle();
-  document.querySelector("#home-theme")?.addEventListener("click", toggleTheme);
-  document.querySelector("#home-settings")?.addEventListener("click", () => openSettings("home"));
-  document.querySelector("#dismiss-notice")?.addEventListener("click", () => {
+const homeShellActions: HomeShellBindingActions = {
+  onDemo: runHomeDemo,
+  onDismissNotice: () => {
     state.queryNotice = "";
     state.queryNoticeRetryAction = null;
     render();
-  });
+  },
+  onOpenCredits: openCredits,
+  onToggleTheme: toggleTheme,
+};
+
+function bindHomeEvents() {
+  bindStatusBarEvents();
+  bindSettingsPanelEvents();
+  bindHomeShell(document, homeShellActions);
   spotlight.bind(document, "inline");
-  document.querySelectorAll<HTMLElement>("[data-home-demo]").forEach(button =>
-    button.addEventListener("click", () => {
-      const demo = button.dataset.homeDemo;
-      if (demo === "stj" || demo === "runtime" || demo === "callgraph") {
-        runHomeDemo(demo);
-      }
-    }));
   requestAnimationFrame(() =>
     document.querySelector<HTMLInputElement>("#spotlight-input")?.focus());
 }
@@ -5752,10 +5772,28 @@ function runHomeDemo(kind: keyof typeof HOME_DEMO_LINKS | "callgraph") {
 // Soft in-app navigation (pushState "/") so a refresh stays on home and Back returns to the
 // workbench; the home search reuses the still-resident package list.
 function goHome() {
+  state.credits = false;
   state.home = true;
   spotlight.reset();
   workspaceLocation.push("/");
   render();
+}
+
+function openCredits() {
+  state.credits = true;
+  state.home = true;
+  spotlight.reset();
+  workspaceLocation.push("/credits");
+  render();
+}
+
+function renderCreditsView() {
+  document.title = "Credits · dotnet-inspect";
+  app.innerHTML = renderCreditsPage(state.theme === "light" ? "light" : "dark");
+  bindCreditsPanel(document, {
+    onClose: goHome,
+    onToggleTheme: toggleCreditsTheme,
+  });
 }
 
 // Loads the resident runtime pack and lands on its package Overview (the runtime pack has no
@@ -5831,16 +5869,37 @@ function interstitialBotSrc(): string {
   return loadingBotSrc;
 }
 
-function openPackageFromError(packageId: string, version: string) {
+function openPackageQuery(query: ParsedPackageQuery) {
+  const packageTab = findPackageTabForQuery(state, query);
+  if (packageTab) {
+    state.loading = false;
+    state.error = "";
+    state.errorTitle = "";
+    state.errorDetail = "";
+    state.retryAction = null;
+    selectPackageTab(packageTab);
+    return;
+  }
+
   if (!state.engineReady) {
     const url = new URL("/", window.location.href);
-    url.searchParams.set("package", packageId);
-    url.searchParams.set("version", version);
+    url.searchParams.set("package", query.packageId);
+    url.searchParams.set("version", query.version);
     window.location.assign(url);
     return;
   }
-  observeAsync(loadPackage(packageId, version, ""), "Loading a package");
+  observeAsync(
+    loadPackage(query.packageId, query.version, ""),
+    "Loading a package");
 }
+
+const loadErrorShellActions: LoadErrorShellBindingActions = {
+  onOpenPackage: openPackageQuery,
+  onRetry: () =>
+    observeAction(
+      state.retryAction ?? bootstrap,
+      "Retrying the inspection"),
+};
 
 function renderLoading() {
   app.innerHTML = `
@@ -5862,26 +5921,7 @@ function renderLoading() {
            </div>`
         : `<div class="load-progress"><img class="loading-bot" src="${interstitialBotSrc()}" width="200" height="200" alt="dotnet-bot inspector mascot" /><span class="loader"></span><strong>${escapeHtml(state.loadingMessage)}</strong><small>${state.loadingSubtitle ? escapeHtml(state.loadingSubtitle) : `${escapeHtml(state.requestedPackage)}@${escapeHtml(state.requestedVersion)} · ${escapeHtml(state.requestedFramework || "best framework")}`}</small></div>`}
     </div>`;
-  document.querySelector("#retry-load")?.addEventListener(
-    "click",
-    () => observeAction(
-      state.retryAction ?? bootstrap,
-      "Retrying the inspection"));
-  document.querySelector("#error-package-query")?.addEventListener("submit", event => {
-    event.preventDefault();
-    const input =
-      document.querySelector<HTMLInputElement>("#error-package-input");
-    const value = input?.value.trim() ?? "";
-    const separator = value.lastIndexOf("@");
-    if (!value || separator === value.length - 1) return;
-    const packageId = separator > 0 ? value.slice(0, separator) : value;
-    const version = separator > 0 ? value.slice(separator + 1) : "latest";
-    openPackageFromError(packageId, version);
-  });
-  document.querySelector("#toggle-error-detail")?.addEventListener("click", () => {
-    const pre = document.querySelector<HTMLElement>(".load-error-detail");
-    if (pre) pre.hidden = !pre.hidden;
-  });
+  bindLoadErrorShell(document, loadErrorShellActions);
 }
 
 async function loadSelectedMemberDocumentation() {
@@ -6107,31 +6147,21 @@ async function renderTypeGraph() {
       container.querySelector<HTMLElement>(".graph-viewport");
     if (!viewport) return;
     viewport.innerHTML = svg;
-    attachGraphPanZoom(container, viewport);
-    viewport.querySelectorAll<SVGGElement>("g.node").forEach(node => {
-      const dataId = node.getAttribute("data-id");
-      const idMatch = node.id.match(/(?:^|flowchart-)(t\d+)(?:-|$)/);
-      const nodeId = dataId || idMatch?.[1];
+    bindGraphPanZoom(container, viewport);
+    bindTypeGraphNodes(viewport, nodeId => {
       const graphNode = nodeId ? graphNodeOf.get(nodeId) : null;
-      if (!graphNode) return;
+      if (!graphNode) return null;
       const fullName = graphNode.id;
       const pkg = currentPackage();
       const target = graphNode.role === "self"
         ? selectedType()
         : uniqueTypeByQueryId(pkg.types, fullName);
-      if (target) {
-        node.classList.add("nav-node");
-        node.style.cursor = "pointer";
-        node.addEventListener("click", () => navigateToType(target));
-        return;
-      }
-      // Reported by metadata but not in the browsable surface (internal type or a
-      // type in another assembly). Mark it non-navigable with a native tooltip so
-      // the dead node reads as informational rather than broken.
-      node.classList.add("non-nav");
-      const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
-      title.textContent = `${fullName} — not in the browsable public surface`;
-      node.insertBefore(title, node.firstChild);
+      return target
+        ? { onSelect: () => navigateToType(target) }
+        : {
+            unavailableLabel:
+              `${fullName} — not in the browsable public surface`,
+          };
     });
   } catch (error) {
     if (document.querySelector("#type-graph-diagram") === container) {
@@ -6267,23 +6297,20 @@ async function renderDependencyGraph() {
     if (!viewport) return;
     viewport.innerHTML = svg;
     container.dataset.graphDef = signature;
-    attachGraphPanZoom(container, viewport);
-    viewport.querySelectorAll<SVGGElement>("g.node").forEach(node => {
-      const dataId = node.getAttribute("data-id");
-      const idMatch = node.id.match(/(?:^|flowchart-)(d\d+)(?:-|$)/);
-      const nodeId = dataId || idMatch?.[1];
+    bindGraphPanZoom(container, viewport);
+    bindDependencyGraphNodes(viewport, nodeId => {
       const info = nodeId ? built.nodeInfoById.get(nodeId) : null;
-      if (!info || info.kind === "self") return;
-      node.classList.add("nav-node");
-      node.style.cursor = "pointer";
-      node.addEventListener("click", () => {
-        if (info.kind === "open" && info.packageKey)
-          switchToPackageForDependencies(info.packageKey);
-        else if (info.id)
-          observeAsync(
-            openDependencyPackage(info.id, info.versionRange),
-            "Opening a dependency package");
-      });
+      if (!info || info.kind === "self") return null;
+      return {
+        onSelect: () => {
+          if (info.kind === "open" && info.packageKey)
+            switchToPackageForDependencies(info.packageKey);
+          else if (info.id)
+            observeAsync(
+              openDependencyPackage(info.id, info.versionRange),
+              "Opening a dependency package");
+        },
+      };
     });
   } catch (error) {
     // Only surface the error if this is still the latest render and nothing else has drawn a graph.
@@ -6487,7 +6514,10 @@ async function renderMermaidCallGraph() {
       if (!viewport) return;
       viewport.innerHTML = svg;
       container.dataset.graphDef = active.mermaid;
-      attachGraphPanZoom(container, viewport, true, active);
+      bindGraphPanZoom(container, viewport, {
+        resolveCallGraphNode: nodeId =>
+          callGraphNodeBinding(active, nodeId),
+      });
     }
   } catch (error) {
     if (seq === callGraphRenderSeq
@@ -6503,194 +6533,65 @@ async function renderMermaidCallGraph() {
   }
 }
 
-function attachGraphPanZoom(
-  container: HTMLElement,
-  viewport: HTMLElement,
-  bindCallGraphNodes = false,
-  callGraph: BrowserCallGraph | null = null,
-) {
-  const svg = viewport.querySelector<SVGSVGElement>("svg");
-  if (!svg) return;
-  const renderedSvg = svg;
+function callGraphNodeBinding(
+  callGraph: BrowserCallGraph,
+  nodeId: string,
+): CallGraphNodeBinding | null {
+  const target =
+    callGraph.targets?.find(candidate => candidate.id === nodeId) ?? null;
+  if (!target) return null;
+  const typeId = callGraphTargetTypeId(target);
 
-  const box = svg.viewBox?.baseVal;
-  const naturalWidth = box && box.width ? box.width : svg.getBoundingClientRect().width;
-  const naturalHeight = box && box.height ? box.height : svg.getBoundingClientRect().height;
-  svg.setAttribute("width", String(naturalWidth));
-  svg.setAttribute("height", String(naturalHeight));
-
-  const minScale = 0.2;
-  const maxScale = 8;
-  const view = { scale: 1, x: 0, y: 0 };
-  const clampScale = (value: number) =>
-    Math.min(maxScale, Math.max(minScale, value));
-
-  function apply() {
-    renderedSvg.style.transform =
-      `translate(${view.x}px, ${view.y}px) scale(${view.scale})`;
+  // Inside a platform descent the whole graph lives in the runtime pack, not
+  // the workspace, so clicked callees descend through the platform graph.
+  const drilled =
+    state.platformStack.length > 0 || Boolean(state.package?.isRuntimePack);
+  if (drilled) {
+    if (target.id === "n0" || !target.assembly || !typeId) return null;
+    return {
+      platform: true,
+      onSelect: () =>
+        observeAsync(
+          navigateOrDrillPlatform(target),
+          "Opening a platform call-graph target"),
+    };
   }
 
-  function fit() {
-    const rect = viewport.getBoundingClientRect();
-    if (!naturalWidth || !naturalHeight || !rect.width) return;
-    // Cap at 1:1 so a tiny graph (e.g. two nodes) renders at its natural size,
-    // centered, instead of being upscaled to fill the tall viewport.
-    const fitScale = Math.min(rect.width / naturalWidth, rect.height / naturalHeight) * 0.92;
-    view.scale = clampScale(Math.min(fitScale, 1));
-    view.x = (rect.width - naturalWidth * view.scale) / 2;
-    view.y = (rect.height - naturalHeight * view.scale) / 2;
-    apply();
-  }
-
-  function zoomAt(px: number, py: number, factor: number) {
-    const next = clampScale(view.scale * factor);
-    const ratio = next / view.scale;
-    view.x = px - (px - view.x) * ratio;
-    view.y = py - (py - view.y) * ratio;
-    view.scale = next;
-    apply();
-  }
-
-  viewport.addEventListener("wheel", event => {
-    event.preventDefault();
-    const rect = viewport.getBoundingClientRect();
-    zoomAt(event.clientX - rect.left, event.clientY - rect.top, Math.exp(-event.deltaY * 0.0015));
-  }, { passive: false });
-
-  let pointerId: number | null = null;
-  let moved = false;
-  let capturing = false;
-  const panThreshold = 5;
-  const start = { x: 0, y: 0, vx: 0, vy: 0 };
-  viewport.addEventListener("pointerdown", event => {
-    if (event.button !== 0) return;
-    pointerId = event.pointerId;
-    moved = false;
-    capturing = false;
-    start.x = event.clientX;
-    start.y = event.clientY;
-    start.vx = view.x;
-    start.vy = view.y;
-  });
-  viewport.addEventListener("pointermove", event => {
-    if (pointerId !== event.pointerId) return;
-    const dx = event.clientX - start.x;
-    const dy = event.clientY - start.y;
-    if (!capturing) {
-      if (Math.abs(dx) + Math.abs(dy) <= panThreshold) return;
-      capturing = true;
-      moved = true;
-      viewport.setPointerCapture(pointerId);
-      viewport.classList.add("panning");
-    }
-    view.x = start.vx + dx;
-    view.y = start.vy + dy;
-    apply();
-  });
-  function endPan(event: PointerEvent) {
-    if (pointerId !== event.pointerId) return;
-    if (capturing) {
-      viewport.releasePointerCapture(pointerId);
-      viewport.classList.remove("panning");
-    }
-    capturing = false;
-    pointerId = null;
-  }
-  viewport.addEventListener("pointerup", endPan);
-  viewport.addEventListener("pointercancel", endPan);
-
-  container.querySelectorAll<HTMLElement>(".graph-controls button")
-    .forEach(button => {
-    button.addEventListener("click", () => {
-      const rect = viewport.getBoundingClientRect();
-      const mode = button.dataset.zoom;
-      if (mode === "in") zoomAt(rect.width / 2, rect.height / 2, 1.25);
-      else if (mode === "out") zoomAt(rect.width / 2, rect.height / 2, 0.8);
-      else fit();
-    });
-  });
-
-  viewport.tabIndex = 0;
-  viewport.addEventListener("keydown", event => {
-    const rect = viewport.getBoundingClientRect();
-    const step = 45;
-    if (event.key === "+" || event.key === "=") zoomAt(rect.width / 2, rect.height / 2, 1.25);
-    else if (event.key === "-" || event.key === "_") zoomAt(rect.width / 2, rect.height / 2, 0.8);
-    else if (event.key === "0") fit();
-    else if (event.key === "ArrowLeft") { view.x += step; apply(); }
-    else if (event.key === "ArrowRight") { view.x -= step; apply(); }
-    else if (event.key === "ArrowUp") { view.y += step; apply(); }
-    else if (event.key === "ArrowDown") { view.y -= step; apply(); }
-    else return;
-    event.preventDefault();
-  });
-
-  if (bindCallGraphNodes) {
-    // Inside a platform descent the whole graph lives in the runtime pack, not the
-    // workspace, so a clicked callee must resolve against the active platform graph
-    // and descend further — routing it through the workspace resolvers would look the
-    // type up in the loaded package and fail (e.g. "Type 'TextWriter' is not in Markout.dll").
-    // A resident runtime pack's base member graph is itself a platform graph, so its
-    // callees descend the same way from the start.
-    const drilled = state.platformStack.length > 0 || Boolean(state.package?.isRuntimePack);
-    svg.querySelectorAll<SVGGElement>("g.node").forEach(node => {
-      const target = graphTargetForSvgNode(callGraph, node);
-      if (!target) return;
-      const typeId = callGraphTargetTypeId(target);
-      if (drilled) {
-        if (target.id === "n0" || !target.assembly || !typeId)
-          return;
-        node.classList.add("nav-node", "platform-node");
-        node.style.cursor = "pointer";
-        node.addEventListener("click", () => {
-          if (moved) return;
-          observeAsync(
-            navigateOrDrillPlatform(target),
-            "Opening a platform call-graph target");
-        });
-        return;
-      }
-      const packages = [
-        state.package,
-        ...state.packages.filter(item => item !== state.package),
-      ].filter((pkg): pkg is AppPackage => pkg != null);
-      const candidate =
-        resolveLoadedGraphTargetCandidate<AppPackage, BrowserTypeSurface>(
-          packages,
+  const packages = [
+    state.package,
+    ...state.packages.filter(item => item !== state.package),
+  ].filter((pkg): pkg is AppPackage => pkg != null);
+  const candidate =
+    resolveLoadedGraphTargetCandidate<AppPackage, BrowserTypeSurface>(
+      packages,
+      target);
+  const disposition = graphTargetNavigationDisposition(candidate, target);
+  if (disposition === "blocked" || disposition === "none") return null;
+  const loaded = disposition === "loaded" && candidate.status === "unique"
+    ? resolveLoadedGraphTarget(target, candidate)
+    : null;
+  const platform = disposition === "platform";
+  return {
+    platform,
+    onSelect: () => {
+      if (loaded?.group) {
+        navigateToMember(
+          loaded.pkg,
+          loaded.type,
+          loaded.group,
+          loaded.overloadIndex,
           target);
-      const disposition = graphTargetNavigationDisposition(candidate, target);
-      if (disposition === "blocked" || disposition === "none") return;
-      const loaded = disposition === "loaded"
-        && candidate.status === "unique"
-        ? resolveLoadedGraphTarget(target, candidate)
-        : null;
-      const platform = disposition === "platform";
-      node.classList.add("nav-node");
-      if (platform) node.classList.add("platform-node");
-      node.style.cursor = "pointer";
-      node.addEventListener("click", () => {
-        if (moved) return;
-        if (loaded?.group) {
-          navigateToMember(
-            loaded.pkg,
-            loaded.type,
-            loaded.group,
-            loaded.overloadIndex,
-            target);
-        } else if (loaded) {
-          observeAsync(
-            openGraphSource(loaded.request, loaded.title),
-            "Loading graph source");
-        } else if (platform) {
-          observeAsync(
-            navigateOrDrillPlatform(target),
-            "Opening a platform call-graph target");
-        }
-      });
-    });
-  }
-
-  fit();
+      } else if (loaded) {
+        observeAsync(
+          openGraphSource(loaded.request, loaded.title),
+          "Loading graph source");
+      } else if (platform) {
+        observeAsync(
+          navigateOrDrillPlatform(target),
+          "Opening a platform call-graph target");
+      }
+    },
+  };
 }
 
 function currentCallGraph() {
@@ -6704,18 +6605,6 @@ function platformCrumbTrail() {
     ? state.memberCallGraph.callees.label.replace(/\(.*$/, "")
     : "member";
   return [root, ...state.platformStack.map(entry => entry.title)].join(" › ");
-}
-
-function graphTargetForSvgNode(
-  graph: BrowserCallGraph | null,
-  node: Element,
-) {
-  const dataId = node.getAttribute("data-id");
-  const idMatch = node.id.match(/(?:^|flowchart-)(n\d+)(?:-|$)/);
-  const nodeId = dataId || idMatch?.[1];
-  return nodeId
-    ? graph?.targets?.find(target => target.id === nodeId) ?? null
-    : null;
 }
 
 function resolveLoadedGraphTarget(
@@ -7123,22 +7012,7 @@ function renderSettingsViewHtml() {
     },
     escapeHtml,
   });
-  bindSettingsEvents();
-}
-
-function bindSettingsEvents() {
-  document.querySelector("#settings-close")?.addEventListener("click", closeSettings);
-  document.querySelectorAll<HTMLElement>(".settings-seg[data-theme]").forEach(button =>
-    button.addEventListener("click", () => {
-      const theme = button.dataset.theme;
-      if (theme === "dark" || theme === "light") setTheme(theme);
-    }));
-  document.querySelectorAll<HTMLElement>(".settings-taste [data-taste]").forEach(checkbox =>
-    checkbox.addEventListener("change", () => {
-      const taste = checkbox.dataset.taste;
-      if (taste) toggleTaste(taste);
-    }));
-  document.querySelector("#settings-taste-clear")?.addEventListener("click", clearTaste);
+  bindSettingsPanelEvents();
 }
 
 function renderGraphSource() {
@@ -7722,6 +7596,7 @@ function isStyleOption(value: unknown): value is StyleOption {
 async function bootstrap() {
   state.loading = !state.home;
   state.engineReady = false;
+  state.engineStartupFailed = false;
   state.engineStatus = "Loading browser WebAssembly…";
   state.error = "";
   state.retryAction = null;
@@ -7733,7 +7608,7 @@ async function bootstrap() {
     const reportEngineStatus = (message: string) => {
       state.loadingMessage = message;
       state.engineStatus = message;
-      render();
+      if (!state.credits) render();
     };
     await initializeEngine(reportEngineStatus);
     reportEngineStatus("Reading package assemblies…");
@@ -7759,7 +7634,7 @@ async function bootstrap() {
       // Engine is warm and search is ready; show the intro/home page without loading a package.
       state.loading = false;
       state.diag = computeDiagnostics(tStart, tEngine, performance.now());
-      render();
+      if (!state.credits) render();
       return;
     }
     await restoreInitialWorkspace();
@@ -7769,6 +7644,7 @@ async function bootstrap() {
   } catch (error) {
     state.loading = false;
     state.engineReady = false;
+    state.engineStartupFailed = true;
     state.engineStatus = "";
     state.error = "Couldn’t start the inspection engine. Retry, or open a different package.";
     state.errorTitle = "Startup failed";
@@ -7776,7 +7652,7 @@ async function bootstrap() {
       ? error.stack || error.message
       : String(error);
     state.retryAction = () => window.location.reload();
-    render();
+    if (!state.credits) render();
   }
 }
 
@@ -7893,7 +7769,7 @@ document.addEventListener("keydown", event => {
     }
     return;
   }
-  if (event.key === "Escape" && state.tasteOpen) {
+  if (event.key === "Escape" && !event.defaultPrevented && state.tasteOpen) {
     event.preventDefault();
     state.tasteOpen = false;
     render();
@@ -7968,6 +7844,14 @@ document.addEventListener("mousedown", event => {
 // Re-apply state when the address bar changes underneath us (browser back/forward, or a
 // hand-edited URL). Within the loaded package we mutate selection directly; a different
 // package is (re)loaded with the URL selection queued as a deep link.
+function clearNavigationError() {
+  if (state.engineStartupFailed) return;
+  state.error = "";
+  state.errorTitle = "";
+  state.errorDetail = "";
+  state.retryAction = null;
+}
+
 window.addEventListener("popstate", () => {
   const navigationSeq = navigationSequence.begin();
   state.memberCallGraphSeq++;
@@ -7975,18 +7859,25 @@ window.addEventListener("popstate", () => {
   const loc = parseLocation();
   state.queryNotice = loc.workspaceNotice || "";
   state.queryNoticeRetryAction = null;
-  const bareHome = !loc.package && !(loc.tabs && loc.tabs.length);
-  if (bareHome) {
-    // Navigated back to the bare root — show the intro/home page (engine stays warm).
-    state.error = "";
-    state.errorTitle = "";
-    state.errorDetail = "";
-    state.retryAction = null;
+  if (isCreditsPath(location.pathname)) {
+    clearNavigationError();
+    state.credits = true;
     state.home = true;
     spotlight.reset();
     render();
     return;
   }
+  const bareHome = !loc.package && !(loc.tabs && loc.tabs.length);
+  if (bareHome) {
+    // Navigated back to the bare root — show the intro/home page (engine stays warm).
+    clearNavigationError();
+    state.credits = false;
+    state.home = true;
+    spotlight.reset();
+    render();
+    return;
+  }
+  state.credits = false;
   resetLocationFilters();
   const deep = loc;
   if (!state.package) {

@@ -1,9 +1,152 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  bindPackageOpportunities,
   renderPackageOpportunities,
   type OpportunityItem,
+  type PackageOpportunitiesBindingActions,
+  type PackageOpportunityTarget,
 } from "../src/package-opportunities.ts";
+import { fakeDom } from "./fake-dom.ts";
+
+class FakeElement {
+  readonly dataset: Record<string, string | undefined>;
+  private readonly listeners = new Map<string, EventListener[]>();
+
+  constructor(dataset: Record<string, string | undefined> = {}) {
+    this.dataset = dataset;
+  }
+
+  addEventListener(type: string, listener: EventListener) {
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  dispatch(type: string) {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener(fakeDom.event());
+    }
+  }
+}
+
+class FakeRoot {
+  private readonly elements = new Map<string, FakeElement[]>();
+
+  add(selector: string, ...elements: FakeElement[]) {
+    this.elements.set(selector, elements);
+    return elements;
+  }
+
+  querySelectorAll(selector: string) {
+    return this.elements.get(selector) ?? [];
+  }
+}
+
+function recordingActions(calls: string[]): PackageOpportunitiesBindingActions {
+  return {
+    onLookForSelect: query => calls.push(`look:${query}`),
+    onPackageSelect: packageId => calls.push(`package:${packageId}`),
+    onTypeSelect: target => calls.push(`type:${target.typeId}`),
+  };
+}
+
+test("opportunity bindings dispatch type, package, and search actions", () => {
+  const root = new FakeRoot();
+  const type = new FakeElement({ oppType: "Contoso.Widget" });
+  const secondType = new FakeElement({ oppType: "Contoso.Gadget" });
+  const packageChip = new FakeElement({ oppPackage: "Contoso.Extensions" });
+  const secondPackage = new FakeElement({ oppPackage: "Contoso.Hosting" });
+  const lookFor = new FakeElement({ oppLookfor: "AddWidgets" });
+  const secondLookFor = new FakeElement({ oppLookfor: "AddGadgets" });
+  root.add("[data-opp-type]", type, secondType);
+  root.add("[data-opp-package]", packageChip, secondPackage);
+  root.add("[data-opp-lookfor]", lookFor, secondLookFor);
+  const calls: string[] = [];
+  bindPackageOpportunities(
+    fakeDom.parentNode(root),
+    recordingActions(calls));
+
+  assert.deepEqual(calls, []);
+  type.dispatch("click");
+  assert.deepEqual(calls, ["type:Contoso.Widget"]);
+  packageChip.dispatch("click");
+  assert.deepEqual(calls, [
+    "type:Contoso.Widget",
+    "package:Contoso.Extensions",
+  ]);
+  lookFor.dispatch("click");
+
+  assert.deepEqual(calls, [
+    "type:Contoso.Widget",
+    "package:Contoso.Extensions",
+    "look:AddWidgets",
+  ]);
+  secondType.dispatch("click");
+  secondPackage.dispatch("click");
+  secondLookFor.dispatch("click");
+
+  assert.deepEqual(calls, [
+    "type:Contoso.Widget",
+    "package:Contoso.Extensions",
+    "look:AddWidgets",
+    "type:Contoso.Gadget",
+    "package:Contoso.Hosting",
+    "look:AddGadgets",
+  ]);
+});
+
+test("opportunity bindings preserve empty values for malformed controls", () => {
+  const root = new FakeRoot();
+  const type = new FakeElement();
+  const packageChip = new FakeElement();
+  const lookFor = new FakeElement();
+  root.add("[data-opp-type]", type);
+  root.add("[data-opp-package]", packageChip);
+  root.add("[data-opp-lookfor]", lookFor);
+  const calls: string[] = [];
+  bindPackageOpportunities(
+    fakeDom.parentNode(root),
+    recordingActions(calls));
+
+  assert.deepEqual(calls, []);
+  type.dispatch("click");
+  assert.deepEqual(calls, ["type:"]);
+  packageChip.dispatch("click");
+  assert.deepEqual(calls, ["type:", "package:"]);
+  lookFor.dispatch("click");
+
+  assert.deepEqual(calls, ["type:", "package:", "look:"]);
+});
+
+test("opportunity bindings preserve exact source identity for type navigation", () => {
+  const root = new FakeRoot();
+  const type = new FakeElement({
+    oppType: "Contoso.Widget",
+    oppSourceDefinition: "Contoso.Widget",
+    oppSourceAssembly: "Contoso.Core",
+    oppSourceVersion: "2.0.0.0",
+    oppSourceCulture: "neutral",
+    oppSourceToken: "0011223344556677",
+  });
+  root.add("[data-opp-type]", type);
+  let selected: PackageOpportunityTarget | null = null;
+  bindPackageOpportunities(fakeDom.parentNode(root), {
+    ...recordingActions([]),
+    onTypeSelect: target => { selected = target; },
+  });
+
+  type.dispatch("click");
+
+  assert.deepEqual(selected, {
+    typeId: "Contoso.Widget",
+    sourceDefinitionId: "Contoso.Widget",
+    sourceAssembly: "Contoso.Core",
+    sourceAssemblyVersion: "2.0.0.0",
+    sourceAssemblyCulture: "neutral",
+    sourceAssemblyPublicKeyToken: "0011223344556677",
+  });
+});
 
 function escapeHtml(value: unknown) {
   return String(value)

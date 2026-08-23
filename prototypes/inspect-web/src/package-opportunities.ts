@@ -21,6 +21,46 @@ export interface RenderPackageOpportunitiesOptions {
   escapeHtml: (value: unknown) => string;
 }
 
+export interface PackageOpportunitiesBindingActions {
+  onLookForSelect: (query: string) => void;
+  onPackageSelect: (packageId: string) => void;
+  onTypeSelect: (target: PackageOpportunityTarget) => void;
+}
+
+export interface PackageOpportunityTarget {
+  typeId: string;
+  sourceDefinitionId: string | null;
+  sourceAssembly: string | null;
+  sourceAssemblyVersion: string | null;
+  sourceAssemblyCulture: string | null;
+  sourceAssemblyPublicKeyToken: string | null;
+}
+
+export function bindPackageOpportunities(
+  root: ParentNode,
+  actions: PackageOpportunitiesBindingActions,
+) {
+  root.querySelectorAll<HTMLElement>("[data-opp-type]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onTypeSelect({
+        typeId: button.dataset.oppType ?? "",
+        sourceDefinitionId: button.dataset.oppSourceDefinition ?? null,
+        sourceAssembly: button.dataset.oppSourceAssembly ?? null,
+        sourceAssemblyVersion: button.dataset.oppSourceVersion ?? null,
+        sourceAssemblyCulture: button.dataset.oppSourceCulture || null,
+        sourceAssemblyPublicKeyToken: button.dataset.oppSourceToken || null,
+      })));
+  root.querySelectorAll<HTMLElement>("[data-opp-package]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onPackageSelect(button.dataset.oppPackage ?? "")));
+  root.querySelectorAll<HTMLElement>("[data-opp-lookfor]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onLookForSelect(button.dataset.oppLookfor ?? "")));
+}
+
 // Splits a fully-qualified API name (e.g. "System.Collections.Generic.List<T>") into a short
 // display name and its qualifier, cutting before any generic-arity or parameter-list suffix so
 // the suffix renders alongside the short name rather than the qualifier.

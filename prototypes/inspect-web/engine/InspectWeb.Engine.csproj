@@ -56,4 +56,8 @@
     <Copy SourceFiles="@(_HtmlPublishCandidates)" DestinationFiles="@(_HtmlPublishCandidates->'$(PublishDir)wwwroot/index.html')" />
   </Target>
 
+  <Target Name="VerifyPublishedInspectWebSite" AfterTargets="PublishInspectWebFrontendIndex">
+    <Exec Command="node &quot;../scripts/verify-site-artifact.js&quot; &quot;$(PublishDir)wwwroot&quot;" WorkingDirectory="$(MSBuildProjectDirectory)" />
+  </Target>
+
 </Project>

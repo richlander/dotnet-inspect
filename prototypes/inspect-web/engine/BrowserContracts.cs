@@ -329,6 +329,7 @@ public sealed record BrowserSource(
     string Provider,
     string Provenance,
     string? Url,
+    string? PdbSourceLimitation,
     string Text);
 
 public sealed record BrowserStyleOption(
