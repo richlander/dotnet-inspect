@@ -627,8 +627,12 @@ gate is `CustomAttributeValueGuardTests.NestedEmptySzArray_IsSafe`. The
 small-stack gate is the 128 KiB
 `CustomAttributeValueGuardTests.BoxedNestingAtLimit_OnSmallNativeStack_IsSafe`. Enum-typed
 fixed and named arguments use one shared underlying-width oracle, so a
-TypeRef that resolves to a local non-`int32` enum, or an over-deep
+TypeRef that resolves to a local non-`int32` enum, a TypeDef whose
+full name collides with an earlier row, or an over-deep
 `value__` field signature, cannot desynchronize later count reads.
+Declared SZArray leftovers stop once the value blob is exhausted, so a
+jagged constructor signature cannot re-walk the element type once per
+unreadable slot.
 Serialized enum names are normalized the same way SRM's provider sees
 them (assembly suffix stripped, nested `+` matched to the metadata
 index). `CLASS`/`VALUETYPE` constructor parameters special-case only
@@ -707,6 +711,8 @@ pre-decoding rejection.
 `CustomAttributeValueGuardTests.WideInt32Array_IsSafe`,
 `CustomAttributeValueGuardTests.NamedArrayNestingJustOverLimit_IsUnsafe`,
 `CustomAttributeValueGuardTests.TypeRefEnumMatchingLocalInt64_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.DuplicateTypeDefEnumName_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.ExhaustedJaggedSzArray_IsSafe`,
 `CustomAttributeValueGuardTests.OverDeepEnumFieldModifiers_UseInt32WidthAndSeeFollowingArrayCount`,
 `CustomAttributeValueGuardTests.AssemblyQualifiedNamedEnum_SeesFollowingArrayCount`,
 `CustomAttributeValueGuardTests.ClassSystemStringFixedArgument_SeesFollowingArrayCount`,

@@ -263,13 +263,12 @@ public static class CustomAttributeValueGuard
         {
             if (depth > MaxSerializedDepth)
                 return Result.Unsafe;
+            if (_value.RemainingBytes < 4)
+                return Result.Safe;
             int elementStart = _signature.Offset;
             if (!TrySkipSignatureType(ref _signature, _signatureSkip))
                 return Result.Safe;
             int elementEnd = _signature.Offset;
-
-            if (_value.RemainingBytes < 4)
-                return Result.Safe;
             int count = _value.ReadInt32();
             if (count == -1)
                 return Result.Safe;
@@ -293,7 +292,7 @@ public static class CustomAttributeValueGuard
 
         Result ProcessSzArrayElements(WorkItem item)
         {
-            if (item.Remaining <= 0)
+            if (item.Remaining <= 0 || _value.RemainingBytes == 0)
             {
                 _signature.Offset = item.SignatureEnd;
                 return Result.Safe;
@@ -398,7 +397,7 @@ public static class CustomAttributeValueGuard
 
         Result ProcessTypedArrayElements(WorkItem item)
         {
-            if (item.Remaining <= 0)
+            if (item.Remaining <= 0 || _value.RemainingBytes == 0)
                 return Result.Safe;
             if (item.Remaining > 1)
             {
@@ -500,7 +499,7 @@ public static class CustomAttributeValueGuard
 
         Result ProcessSerializedElements(WorkItem item)
         {
-            if (item.Remaining <= 0)
+            if (item.Remaining <= 0 || _value.RemainingBytes == 0)
                 return Result.Safe;
             if (item.Remaining > 1)
             {
@@ -646,24 +645,44 @@ public static class CustomAttributeValueGuard
         Action<int>? beforeMaterialize,
         Func<string, PrimitiveTypeCode>? enumUnderlyingType)
     {
-        if (handle.Kind == HandleKind.TypeDefinition)
-            return EnumUnderlyingPrimitive.FromDefinition(
-                reader,
-                (TypeDefinitionHandle)handle);
         if (enumUnderlyingType is not null)
         {
-            string? name = TypeResolver.GetTypeName(
-                reader,
-                handle,
-                context: null,
-                beforeMaterialize);
+            string? name = handle.Kind == HandleKind.TypeDefinition
+                ? TryGetDefinitionName(
+                    reader,
+                    (TypeDefinitionHandle)handle,
+                    beforeMaterialize)
+                : TypeResolver.GetTypeName(
+                    reader,
+                    handle,
+                    context: null,
+                    beforeMaterialize);
             return name is null
                 ? PrimitiveTypeCode.Int32
                 : enumUnderlyingType(name);
         }
 
+        if (handle.Kind == HandleKind.TypeDefinition)
+            return EnumUnderlyingPrimitive.FromDefinition(
+                reader,
+                (TypeDefinitionHandle)handle);
+
         return EnumUnderlyingPrimitive.FromHandle(reader, handle);
     }
+
+    static string? TryGetDefinitionName(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        Action<int>? beforeMaterialize)
+        => TypeResolver.TryGetTypeNameFromDefinition(
+                reader,
+                handle,
+                beforeMaterialize,
+                out string? name,
+                out _,
+                enforceCharacterBudget: false)
+            ? name
+            : null;
 
     static PrimitiveTypeCode ResolveEnumName(
         MetadataReader reader,
