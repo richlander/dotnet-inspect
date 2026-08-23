@@ -43,6 +43,44 @@ public sealed class PackageIndexCacheTests
     }
 
     [Fact]
+    public void RidAvailability_IsNotPersisted()
+    {
+        string packageName =
+            $"Indeterminate.Rid.{Guid.NewGuid():N}";
+        const string Version = "1.0.0";
+        var result = new InspectionResult
+        {
+            PackageName = packageName,
+            Version = Version,
+            RuntimeIdentifierPackages =
+            [
+                new RidPackageReference
+                {
+                    RuntimeIdentifier = "linux-x64",
+                    PackageId = $"{packageName}.linux-x64",
+                    Exists = true,
+                },
+            ],
+        };
+
+        PackageIndexCache.Set(
+            packageName,
+            Version,
+            ProducerKey,
+            result);
+
+        InspectionResult cached =
+            PackageIndexCache.TryGet(
+                packageName,
+                Version,
+                ProducerKey)!;
+        Assert.True(
+            PackageIndexCache.RequiresRidReverification(cached));
+        Assert.Null(
+            Assert.Single(cached.RuntimeIdentifierPackages!).Exists);
+    }
+
+    [Fact]
     public void Description_MalformedEnvelopeRejectsTheWholeCacheEntry()
     {
         AssertMalformedCacheMiss(
