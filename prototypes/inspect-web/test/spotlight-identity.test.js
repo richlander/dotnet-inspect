@@ -378,7 +378,9 @@ test("typed Spotlight owns search presentation and hosts commands", () => {
     /createSpotlight,[\s\S]*visibleSpotlightPackageHits,[\s\S]*from "\.\/spotlight\.ts"/);
   assert.match(appSource, /openSpotlight\("", "commands"\)/);
   assert.match(appSource, /state\.spotlightOpen \? spotlight\.modalHtml\(\)/);
-  assert.match(appSource, /spotlight\.inlineHtml\(enginePending\)/);
+  assert.match(
+    appSource,
+    /spotlight\.inlineHtml\(enginePending, showReadyGlint\)/);
   assert.doesNotMatch(appSource, /function renderSpotlight\(/);
   assert.doesNotMatch(appSource, /commandBar\.html\(\)/);
   assert.match(spotlightSource, /const COMMAND_SCOPE = \{ id: "commands"/);
@@ -667,7 +669,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /export function bindWorkbenchShell\([\s\S]*#share[\s\S]*#dismiss-notice[\s\S]*#retry-notice[\s\S]*#dismiss-package-notice[\s\S]*#nav-back[\s\S]*#nav-forward[\s\S]*#go-home[\s\S]*#theme-toggle[\s\S]*#help/);
   assert.match(
     shellControlsSource,
-    /export function bindHomeShell\([\s\S]*#home-theme[\s\S]*#dismiss-notice[\s\S]*\[data-home-demo\]/);
+    /export function bindHomeShell\([\s\S]*#home-theme[\s\S]*#dismiss-notice[\s\S]*#home-credits[\s\S]*\[data-home-demo\]/);
   assert.match(
     shellControlsSource,
     /export function bindLoadErrorShell\([\s\S]*#retry-load[\s\S]*#error-package-query[\s\S]*#error-package-input[\s\S]*#toggle-error-detail[\s\S]*\.load-error-detail/);
@@ -697,17 +699,17 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /onGoHome: goHome,[\s\S]*onHelp: \(\) => showToast\([\s\S]*onNavigateBack: navBack,[\s\S]*onNavigateForward: navForward,[\s\S]*onRetryNotice: \(\) => \{[\s\S]*state\.queryNoticeRetryAction;[\s\S]*if \(retryAction\) observeAction\(retryAction, "Retrying the inspection"\);[\s\S]*onShare: \(\) => void share\(\),[\s\S]*onToggleTheme: toggleTheme/);
   assert.match(
     homeActions,
-    /onDemo: runHomeDemo,\s*onDismissNotice: \(\) => \{[\s\S]*state\.queryNotice = "";[\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*render\(\);\s*\},\n  onToggleTheme: toggleTheme/);
+    /onDemo: runHomeDemo,\s*onDismissNotice: \(\) => \{[\s\S]*state\.queryNotice = "";[\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*render\(\);\s*\},\n  onOpenCredits: openCredits,\n  onToggleTheme: toggleTheme/);
   assert.match(
     loadErrorActions,
     /onOpenPackage: openPackageFromError,\s*onRetry: \(\) =>\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\)/);
   assert.doesNotMatch(
     appSource,
-    /\bquerySelector(?:All)?(?:<[^>]+>)?\("(?:#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|go-home|theme-toggle|help|home-theme|retry-load|error-package-query|error-package-input|toggle-error-detail)|\[data-home-demo\]|\.load-error-detail)"\)/);
+    /\bquerySelector(?:All)?(?:<[^>]+>)?\("(?:#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|go-home|theme-toggle|help|home-theme|home-credits|retry-load|error-package-query|error-package-input|toggle-error-detail)|\[data-home-demo\]|\.load-error-detail)"\)/);
   assert.doesNotMatch(
     workspaceBinding,
     /#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|go-home|theme-toggle|help)/);
-  assert.doesNotMatch(homeBinding, /#(?:home-theme|dismiss-notice)|\[data-home-demo\]/);
+  assert.doesNotMatch(homeBinding, /#(?:home-theme|dismiss-notice|home-credits)|\[data-home-demo\]/);
   assert.doesNotMatch(
     loadingBinding,
     /#(?:retry-load|error-package-query|error-package-input|toggle-error-detail)|"\.load-error-detail"/);
@@ -1677,6 +1679,10 @@ test("ready status shows versioned linked build provenance", () => {
 });
 
 test("bare home paints before wasm engine download", () => {
+  const renderDispatch =
+    appSource.match(/function render\(\) \{[\s\S]*?const pkg = state\.package;/)?.[0] ?? "";
+  const bootstrap =
+    appSource.match(/async function bootstrap\(\) \{[\s\S]*?\n}\n\nfunction computeDiagnostics/)?.[0] ?? "";
   const homePaintWait =
     appSource.match(/function waitForHomePaint\(\)[\s\S]*?\n}\n\nfunction loadStoredTaste/)?.[0] ?? "";
   const errorPackageRecovery =
@@ -1697,6 +1703,18 @@ test("bare home paints before wasm engine download", () => {
   assert.match(
     appSource,
     /state\.loading = !state\.home;[\s\S]*render\(\);[\s\S]*if \(state\.home\) await waitForHomePaint\(\);[\s\S]*await loadEngineModule\(\);[\s\S]*await initializeEngine\(reportEngineStatus\);[\s\S]*reportEngineStatus\("Reading package assemblies…"\)/);
+  assert.match(
+    renderDispatch,
+    /if \(state\.credits\) \{[\s\S]*renderCreditsView\(\);[\s\S]*if \(state\.loading \|\| state\.error\)/);
+  assert.match(
+    bootstrap,
+    /state\.engineStartupFailed = false;[\s\S]*const reportEngineStatus = \(message: string\) => \{[\s\S]*if \(!state\.credits\) render\(\);[\s\S]*if \(state\.home\) \{[\s\S]*if \(!state\.credits\) render\(\);[\s\S]*catch \(error\)[\s\S]*state\.engineStartupFailed = true;[\s\S]*if \(!state\.credits\) render\(\)/);
+  assert.match(
+    appSource,
+    /const showReadyGlint = state\.engineReady && homeReadyGlintPending;[\s\S]*homeReadyGlintPending = false;[\s\S]*homeBotAnimationStartedAt[\s\S]*--home-bot-animation-delay:/);
+  assert.match(
+    stylesSource,
+    /animation-delay: var\(--home-bot-animation-delay, 0ms\)/);
   assert.match(
     appSource,
     /class="home-search \$\{enginePending[\s\S]*class="home-engine-status"/);
@@ -3049,7 +3067,13 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /if \(!pkg && tabs\.length\) \{\s+const target = tabs\[/);
   assert.match(
     appSource,
-    /state\.error = "";\s+state\.errorTitle = "";\s+state\.errorDetail = "";\s+state\.retryAction = null;\s+state\.home = true;/);
+    /function clearNavigationError\(\) \{\s+if \(state\.engineStartupFailed\) return;\s+state\.error = "";\s+state\.errorTitle = "";\s+state\.errorDetail = "";\s+state\.retryAction = null;\s+\}/);
+  assert.match(
+    appSource,
+    /if \(isCreditsPath\(location\.pathname\)\) \{\s+clearNavigationError\(\);[\s\S]*if \(bareHome\) \{[\s\S]*clearNavigationError\(\)/);
+  assert.match(
+    appSource,
+    /function toggleCreditsTheme\(\): "light" \| "dark" \{\s+setTheme\(state\.theme === "dark" \? "light" : "dark", false\);\s+return state\.theme === "light" \? "light" : "dark";\s+\}[\s\S]*onToggleTheme: toggleCreditsTheme/);
   assert.match(
     appSource,
     /\(\) =>\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\)/);
