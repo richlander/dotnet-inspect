@@ -141,7 +141,7 @@ export function createRuntimePackageModel(
   const assembly = defaultAssembly(
     result,
     "The platform query did not return its selected assembly descriptor.");
-  return createRuntimePackageModelForAssembly(result, assembly, assembly.id);
+  return createRuntimePackageModelForAssembly(result, assembly);
 }
 
 function createRuntimeAssemblyPackageModel(
@@ -160,13 +160,12 @@ function createRuntimeAssemblyPackageModel(
       result.inspectionError
       || `The platform query returned no descriptor for ${requestedAssembly}.`);
   }
-  return createRuntimePackageModelForAssembly(result, assembly, assembly.id);
+  return createRuntimePackageModelForAssembly(result, assembly);
 }
 
 function createRuntimePackageModelForAssembly(
   result: BrowserPackageSurface,
   assembly: BrowserAssemblySurface,
-  assemblyId: string,
 ): AppPackage {
   const types = packageTypes(result);
   return {
@@ -175,7 +174,7 @@ function createRuntimePackageModelForAssembly(
     frameworks: result.frameworks ?? [],
     activeFramework: result.activeFramework,
     assembly: assembly.name,
-    assemblyId,
+    assemblyId: assembly.id,
     assemblyAsset: assembly.asset,
     source: { kind: "platform" },
     assemblies: result.assemblies ?? [],
@@ -193,6 +192,14 @@ export function mergeRuntimePackageSurface(
   existing: AppPackage,
   result: BrowserPackageSurface,
 ): AppPackage {
+  const defaultAssemblyId = requireAssemblyIdentity(
+    result,
+    "The platform query did not return its selected assembly identity.");
+  if ((result.assemblies?.length ?? 0) > 0 && !selectedAssembly(result)) {
+    throw new Error(
+      `The platform query returned no descriptor for ${defaultAssemblyId}.`);
+  }
+
   const newTypes = packageTypes(result);
   const seenTypes = new Set(existing.types.map(type => type.id));
   for (const type of newTypes) {
@@ -422,33 +429,21 @@ export function createPackageAcquisition(
           if (!isCurrent()) return null;
           dependencies.refreshPackageStats();
           const existing = dependencies.runtimePackage();
-          // Identity is required on every path, including the merge. Round 6 review
-          // (GPT-5.6 Sol) showed that returning through the merge without it let a
-          // surface with an absent, empty, or whitespace `defaultAssemblyId` succeed --
-          // and mutate the resident package -- whenever a same-framework runtime package
-          // happened to be resident. A matching descriptor is still only required below,
-          // where one is actually read.
-          requireAssemblyIdentity(
-            result,
-            "The platform assembly query did not return its selected assembly identity.");
           if (existing
             && (!requestedFramework
               || existing.activeFramework.toLowerCase()
                 === requestedFramework.toLowerCase())) {
             const merged = mergeRuntimePackageSurface(existing, result);
-            const primary = result.assemblies?.[0];
+            const primary = selectedAssembly(result);
             // Promotion builds a package model, so it needs a descriptor. A truncated
             // surface has none, and round 5 established that such a surface must still
             // merge rather than fail the whole load -- so skip the promotion instead of
             // letting the model construction throw.
-            if (selectedAssembly(result)
-              && primary?.name.toLowerCase()
+            if (primary?.name.toLowerCase()
                 === DEFAULT_RUNTIME_ASSEMBLY.toLowerCase()) {
               promoteRuntimePackagePrimary(
                 merged,
-                createRuntimeAssemblyPackageModel(
-                  result,
-                  requestedAssembly));
+                createRuntimePackageModelForAssembly(result, primary));
             }
             return merged;
           }
