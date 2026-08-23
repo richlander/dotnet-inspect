@@ -1850,25 +1850,26 @@ function compositionFilterButton(
   return `<button class="composition-filter ${className}" ${attribute}="${escapeHtml(value)}"><strong>${count}</strong><span>${escapeHtml(label)}</span></button>`;
 }
 
-function renderMemberComposition(type: BrowserTypeSurface) {
-  const members = type.api ?? [];
-  const kinds = memberKinds(type)
+function renderMemberComposition(type: AppTypeSurface) {
+  const { publicMembers } = partitionGraphMembers(type.api);
+  const publicSurface = { ...type, api: publicMembers };
+  const kinds = memberKinds(publicSurface)
     .map(kind => compositionFilterButton(
-      members.filter(member => member.kind === kind).length,
+      publicMembers.filter(member => member.kind === kind).length,
       kind.replaceAll("-", " "),
       "data-member-jump-kind",
       kind))
     .join("");
-  const accessibilities = memberAccessibilities(type)
+  const accessibilities = memberAccessibilities(publicSurface)
     .map(accessibility => compositionFilterButton(
-      members.filter(member => member.accessibility === accessibility).length,
+      publicMembers.filter(member => member.accessibility === accessibility).length,
       accessibility,
       "data-member-jump-access",
       accessibility))
     .join("");
-  const traits = availableMemberTraits(type)
+  const traits = availableMemberTraits(publicSurface)
     .map(([property, label]) => compositionFilterButton(
-      members.filter(member => member[property]).length,
+      publicMembers.filter(member => member[property]).length,
       label,
       "data-member-jump-trait",
       property,
@@ -3538,7 +3539,7 @@ function renderGraphMemberPendingHtml(
   });
 }
 
-function renderTypeMetadataHtml(item: BrowserTypeSurface) {
+function renderTypeMetadataHtml(item: AppTypeSurface) {
   return renderTypeMetadata({
     item,
     packageContext: currentPackage(),
@@ -6386,7 +6387,7 @@ async function loadSelectedMemberAnnotatedSource() {
     assembly: type.assembly,
     typeIdentity: type.definitionId ?? type.id,
     type: type.queryId ?? type.id,
-    member: overload.name,
+    member: state.selectedBodyTarget?.memberName ?? overload.name,
     memberSignature: overload.signature,
     selectorKey:
       state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,

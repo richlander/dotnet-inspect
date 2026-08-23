@@ -2385,9 +2385,32 @@ test("Type Source completion settles behind workbench overlays", () => {
 });
 
 test("member-less Metadata omits the empty composition call to action", () => {
+  const composition =
+    appSource.match(
+      /function renderMemberComposition\(type: AppTypeSurface\)[\s\S]*?\n}/)?.[0]
+    ?? "";
   assert.match(
-    appSource,
-    /function renderMemberComposition\(type: BrowserTypeSurface\) \{[\s\S]*if \(!kinds && !accessibilities && !traits\) return "";/);
+    composition,
+    /if \(!kinds && !accessibilities && !traits\) return "";/);
+});
+
+test("Metadata composition excludes graph-projected implementation members", () => {
+  const composition =
+    appSource.match(
+      /function renderMemberComposition\(type: AppTypeSurface\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    composition,
+    /const \{ publicMembers \} = partitionGraphMembers\(type\.api\);/);
+  assert.match(
+    composition,
+    /memberKinds\(publicSurface\)/);
+  assert.match(
+    composition,
+    /memberAccessibilities\(publicSurface\)/);
+  assert.match(
+    composition,
+    /availableMemberTraits\(publicSurface\)/);
 });
 
 test("settings keep a viewport-bounded scroll region", () => {
@@ -2664,7 +2687,7 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /return memberDetailInspection\.loadDocumentation\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*overload,\s*isRuntimePack: Boolean\(state\.package\?\.isRuntimePack\),\s*isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
   assert.match(
     annotatedLoader,
-    /loadAnnotated\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*type: type\.queryId \?\? type\.id,\s*member: overload\.name,\s*memberSignature: overload\.signature,[\s\S]*taste: JSON\.stringify\(state\.taste\)/);
+    /loadAnnotated\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*type: type\.queryId \?\? type\.id,\s*member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name,\s*memberSignature: overload\.signature,[\s\S]*taste: JSON\.stringify\(state\.taste\)/);
   assert.match(
     factsLoader,
     /const signature = memberRequestSignature\(type, overload\)/);
@@ -3357,12 +3380,16 @@ test("shared graph projection validates before committing API state", () => {
 });
 
 test("selector-only accessors use body-aware implementation queries", () => {
+  const annotatedLoader =
+    appSource.match(
+      /async function loadSelectedMemberAnnotatedSource\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
   assert.doesNotMatch(
     browserEngineSource,
     /A call graph needs the selected overload's method-body token/);
   assert.match(
-    appSource,
-    /inspectMemberAnnotatedSource\([\s\S]*?state\.selectedBodyTarget\?\.memberName \?\? overload\.name/);
+    annotatedLoader,
+    /member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name/);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "event" }, false, true),
     ["overview", "call-graph", "facts", "annotated"]);
