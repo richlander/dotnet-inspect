@@ -538,7 +538,7 @@ internal static class LibraryMetadataService
             features |=
                 Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities;
         }
-        if (scanners?.Contains(Sections.LibrarySections.ScannerResourceTriage) == true)
+        if (queries?.Contains(ResourceTriageQuery.Definition) == true)
             features |= Analysis.LibraryBodyAnalysisFeatures.LeakTriage;
         if (scanners?.Contains(Sections.LibrarySections.ScannerBodyShapes) == true)
             features |= Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
@@ -1568,80 +1568,111 @@ internal static class LibraryMetadataService
             Saturated = opportunity.AllocationCountSaturated ? "yes" : null,
         };
 
-    internal static ResourceTriageScan ScanResourceTriage(
-        Func<Analysis.LibraryBodyIndex> openIndex,
+    internal static void ApplyResourceTriageResult(
+        LibraryInspection inspection,
+        ResourceTriageResult result,
         Func<IReadOnlyDictionary<int, (string? Stable, string Visibility, string Selector)>>
-            getDrillMap,
-        string path,
-        VerboseLogger logger)
+            getDrillMap)
     {
-        var result = Analysis.ResourceLifecycleAnalysis.InspectAssembly(
-            openIndex,
-            new FindingSubject(Path.GetFullPath(path), Path.GetFileName(path)));
-        return new ResourceTriageScan(
-            result,
-            result.Value
-                is FindingInspection<Analysis.ResourceLifecycleOccurrence>.Complete complete
-                ? ProjectResourceTriage(
-                    complete,
-                    getDrillMap())
-                : null);
+        ArgumentNullException.ThrowIfNull(getDrillMap);
+
+        inspection.ResourceTriageQueryResult = result;
+        inspection.ResourceLifecycleInspection = null;
+        inspection.ResourceTriageAssessments = [];
+        inspection.ResourceTriageDrillMap = null;
+        inspection.ResourceTriage = null;
+
+        switch (result)
+        {
+            case ResourceTriageResult.Available available:
+                inspection.ResourceLifecycleInspection =
+                    available.Inspection;
+                var drillByToken = getDrillMap();
+                inspection.ResourceTriageDrillMap = drillByToken;
+                ImmutableArray<Analysis.ResourceTriageAssessment> assessments =
+                [
+                    .. available.Assessments
+                        .Where(assessment =>
+                            assessment.Actionability
+                                == Analysis.ResourceTriageActionability
+                                    .UntrustedActionable)
+                        .OrderBy(
+                            assessment => FormatMethod(
+                                assessment.Source.Payload.Method),
+                            StringComparer.Ordinal)
+                        .ThenBy(
+                            assessment =>
+                                assessment.Source.Payload.AcquireOffset)
+                        .ThenBy(
+                            assessment =>
+                                assessment.Boundaries.Length > 0
+                                    ? assessment.Boundaries[0]
+                                        .Evidence.ILOffset
+                                    : -1),
+                ];
+                inspection.ResourceTriageAssessments = assessments;
+                var rows = assessments
+                    .Select(assessment =>
+                        ProjectResourceTriageAssessment(
+                            assessment,
+                            drillByToken))
+                    .ToList();
+                inspection.ResourceTriage =
+                    rows.Count > 0 ? rows : null;
+                break;
+
+            case ResourceTriageResult.NoMetadata:
+                break;
+
+            case ResourceTriageResult.Failed failed:
+                inspection.ResourceLifecycleInspection =
+                    new FindingInspection<
+                        Analysis.ResourceLifecycleOccurrence>.Failed(
+                            failed.Error);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown resource triage result '{result.GetType().Name}'.");
+        }
     }
 
-    static List<ResourceTriageSummary> ProjectResourceTriage(
-        FindingInspection<Analysis.ResourceLifecycleOccurrence>.Complete inspection,
+    internal static ResourceTriageSummary ProjectResourceTriageAssessment(
+        Analysis.ResourceTriageAssessment assessment,
         IReadOnlyDictionary<int, (string? Stable, string Visibility, string Selector)>
             drillByToken)
     {
-        return Analysis.ResourceTriageAnalysis
-            .Assess(inspection)
-            .Where(assessment =>
-                assessment.Actionability
-                    == Analysis.ResourceTriageActionability.UntrustedActionable)
-            .Select(assessment =>
-            {
-                var occurrence = assessment.Source.Payload;
-                drillByToken.TryGetValue(
-                    occurrence.Method.MetadataToken,
-                    out var drill);
-                return new ResourceTriageSummary
-                {
-                    Member = FormatMethod(occurrence.Method),
-                    Candidate = assessment.CandidateId,
-                    Finding = assessment.Source.Descriptor.Id,
-                    Provenance = "exact",
-                    Resource = occurrence.Resource,
-                    Shape = occurrence.Shape,
-                    Impact = FormatResourceTriageImpact(assessment.Impact),
-                    Actionability = FormatResourceTriageActionability(
-                        assessment.Actionability),
-                    AcquireOffset = occurrence.AcquireOffset,
-                    Boundaries = assessment.Boundaries
-                        .Select(boundary => new ResourceBoundarySummary(
-                            boundary.Evidence.Operation.ToQualifiedDisplayString(),
-                            boundary.Evidence.ILOffset))
-                        .Distinct()
-                        .ToList(),
-                    Evidence = FormatResourceTriageReason(assessment.Reason),
-                    Direction = FormatResourceTriageRemediation(
-                        assessment.Remediation),
-                    Confidence = FormatResourceTriageConfidence(
-                        assessment.Confidence),
-                    Visibility = drill.Visibility,
-                    Stable = drill.Stable,
-                    Selector = drill.Selector,
-                };
-            })
-            .OrderBy(
-                static row => row.Member,
-                StringComparer.Ordinal)
-            .ThenBy(
-                static row => row.AcquireOffset)
-            .ThenBy(
-                static row => row.Boundaries.Count > 0
-                    ? row.Boundaries[0].ILOffset
-                    : -1)
-            .ToList();
+        var occurrence = assessment.Source.Payload;
+        drillByToken.TryGetValue(
+            occurrence.Method.MetadataToken,
+            out var drill);
+        return new ResourceTriageSummary
+        {
+            Member = FormatMethod(occurrence.Method),
+            Candidate = assessment.CandidateId,
+            Finding = assessment.Source.Descriptor.Id,
+            Provenance = "exact",
+            Resource = occurrence.Resource,
+            Shape = occurrence.Shape,
+            Impact = FormatResourceTriageImpact(assessment.Impact),
+            Actionability = FormatResourceTriageActionability(
+                assessment.Actionability),
+            AcquireOffset = occurrence.AcquireOffset,
+            Boundaries = assessment.Boundaries
+                .Select(boundary => new ResourceBoundarySummary(
+                    boundary.Evidence.Operation.ToQualifiedDisplayString(),
+                    boundary.Evidence.ILOffset))
+                .Distinct()
+                .ToList(),
+            Evidence = FormatResourceTriageReason(assessment.Reason),
+            Direction = FormatResourceTriageRemediation(
+                assessment.Remediation),
+            Confidence = FormatResourceTriageConfidence(
+                assessment.Confidence),
+            Visibility = drill.Visibility,
+            Stable = drill.Stable,
+            Selector = drill.Selector,
+        };
     }
 
     static string FormatResourceTriageImpact(
@@ -2133,6 +2164,16 @@ internal static class LibraryMetadataService
                 out UnsafeEvidenceResult? unsafeEvidence))
         {
             ApplyUnsafeEvidenceResult(path, inspection, logger, unsafeEvidence);
+        }
+
+        if (results.TryGet(
+                ResourceTriageQuery.Definition,
+                out ResourceTriageResult? resourceTriage))
+        {
+            ApplyResourceTriageResult(
+                inspection,
+                resourceTriage,
+                scannerContext.DrillMap);
         }
 
         if (results.TryGet(

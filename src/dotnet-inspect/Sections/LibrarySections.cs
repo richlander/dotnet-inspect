@@ -22,7 +22,6 @@ public static class LibrarySections
     // Scanner keys identify data collection steps in LibraryMetadataService.
     // Every key here must be registered in CreateScannerRegistry and declared by at least one
     // section. Gate: SectionPipelineTests.LibraryScannerRegistry_RegistrationMatchesDeclaration.
-    public const string ScannerResourceTriage = "ResourceTriage";
     public const string ScannerBodyShapes = "BodyShapes";
 
     /// <summary>
@@ -155,7 +154,9 @@ public static class LibrarySections
             .Add<PerformanceOther>(
                 OptimizationOpportunitiesQuery.Definition,
                 HasMethodBodies)
-            .Add<ArrayPoolEscapes>(HasMethodBodies)
+            .Add<ArrayPoolEscapes>(
+                ResourceTriageQuery.Definition,
+                HasMethodBodies)
             .Add<PInvokeMethods>(ClassifiedMethodsQuery.Definition)
             .Add<AsyncMethods>(ClassifiedMethodsQuery.Definition)
             .Add<Resources>(ResourcesQuery.Definition)
@@ -211,12 +212,6 @@ public static class LibrarySections
     public static ScannerRegistry CreateScannerRegistry()
     {
         return new ScannerRegistry()
-            .Add(ScannerResourceTriage, SectionCost.Unbounded, ctx =>
-                ctx.Model.Apply(LibraryMetadataService.ScanResourceTriage(
-                    ctx.BodyIndex,
-                    ctx.DrillMap,
-                    ctx.AssemblyPath,
-                    ctx.Logger)))
             .Add(ScannerBodyShapes, SectionCost.Unbounded, ScanBodyShapes)
             ;
     }
@@ -385,6 +380,9 @@ public static class LibrarySections
                     ctx.MetadataContext?.HasMetadata != false,
                     ctx.BodyIndex))
             .Add(
+                ResourceTriageQuery.Definition,
+                ExecuteResourceTriageQuery)
+            .Add(
                 OptimizationOpportunitiesQuery.Definition,
                 ExecuteOptimizationOpportunitiesQuery)
             .Add(
@@ -413,6 +411,47 @@ public static class LibrarySections
         catch (Exception ex)
         {
             return new UnsafeEvidenceResult.Failed(ex);
+        }
+    }
+
+    internal static ResourceTriageResult ExecuteResourceTriageQuery(
+        ScannerContext context)
+        => ExecuteResourceTriageQuery(
+            context.MetadataContext?.HasMetadata != false,
+            context.BodyIndex,
+            new ILInspector.Findings.FindingSubject(
+                Path.GetFullPath(context.AssemblyPath),
+                Path.GetFileName(context.AssemblyPath)));
+
+    internal static ResourceTriageResult ExecuteResourceTriageQuery(
+        bool hasMetadata,
+        Func<ILInspector.Analysis.LibraryBodyIndex> acquireIndex,
+        ILInspector.Findings.FindingSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(acquireIndex);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        if (!hasMetadata)
+            return new ResourceTriageResult.NoMetadata();
+
+        try
+        {
+            return ResourceTriageQuery.Execute(
+                acquireIndex(),
+                subject);
+        }
+        catch (CostDeclarationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return new ResourceTriageResult.Failed(
+                new ILInspector.Findings.InspectionError(
+                    subject,
+                    ILInspector.Analysis.AnalysisFindings
+                        .ResourceLifecycleDescriptor,
+                    $"{ex.GetType().Name}: {ex.Message}"));
         }
     }
 
@@ -991,9 +1030,10 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.ArrayPoolEscapes;
         public static bool IsExpensive => false;
-        public static string? ScannerKey => ScannerResourceTriage;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
-            => model.ResourceTriage is { Count: > 0 };
+            => model.ResourceTriageAssessments.Length > 0
+                || model.ResourceTriage is { Count: > 0 };
     }
 
     public sealed class PInvokeMethods : ISectionDescriptor<LibraryInspection>
