@@ -460,11 +460,15 @@ export function createSpotlight(options: SpotlightOptions) {
       </div>`;
   }
 
-  function inlineHtml(disabled: boolean): string {
+  function inlineHtml(disabled: boolean, showReadyGlint = false): string {
     const items = resultsForRender();
     return `
       <div class="home-search-content" ${disabled ? "inert" : ""}>
         <div class="home-search-box">
+          ${showReadyGlint ? `<svg class="home-search-glint" aria-hidden="true">
+            <rect class="home-search-glint-glow" pathLength="1"></rect>
+            <rect class="home-search-glint-line" pathLength="1"></rect>
+          </svg>` : ""}
           <span class="spotlight-glyph">⌕</span>
           <input id="spotlight-input" value="${escapeHtml(state.spotlightQuery)}" placeholder="Search NuGet — a package, type, or member…" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="spotlight-results"${activeDescendantAttribute(items)} ${disabled ? "disabled" : ""} />
         </div>
