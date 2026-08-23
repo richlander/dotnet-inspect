@@ -148,30 +148,40 @@ on every round completion, and omit `Blocked` only when it is genuinely empty.
   in your PR, and no one should be dispatched at it. Naming them is what stops
   several agents converging on one shared flake; behind a known blocker the
   correct action for everyone is to wait, and an idle agent is the right outcome
-  there rather than a wasted one. Give numbers rather than prose — this list is
-  what `Recommendation: Wait` points at, and what a watcher re-checks to decide
-  when you are worth waking.
+  there rather than a wasted one.
+
+  **Every entry must be a number someone can open, and it is your job to make
+  sure one exists.** If a flake is blocking you and no issue has been filed for
+  it, file the issue, then cite it. Being unable to point at what is blocking
+  you is the failure this field exists to prevent: an uncitable blocker cannot
+  be prioritised, cannot be deduplicated against the next agent that hits the
+  same flake, and leaves your `Wait` indistinguishable from a stall.
 - **`Recommendation:`** — exactly one of `Wait`, `Merge`, `Approve next rounds`,
   or `Stop (reason)`: the disposition of this window, not a summary of your
-  progress. Two of the four are your own disposition and ask nobody for
-  anything; two are requests only the operator can satisfy.
+  progress. What separates them is whether the window needs a **decision**
+  before anything moves. Three of them do. `Wait` is the one that does not —
+  which is not the same as it being silent.
 
   **`Wait` means "let me wait — what I listed in `Blocked:` is still
   outstanding."** It is not idleness in need of explanation and not a request
-  for instructions: nobody should dispatch you, re-plan you, or send you at CI.
-  It is only coherent next to a non-empty `Blocked:` — if nothing is blocking
-  you then you are not waiting, and one of the other three is the honest answer.
-  That pairing is what makes `Wait` watchable: the window becomes interesting
-  again exactly when the numbers you named close, and not before.
+  for instructions: nobody should dispatch you, re-plan you, or send you at CI,
+  and you resume yourself when the blockers clear. What it does put in front of
+  the operator is the blocker list, because they may not know that a particular
+  PR or flake is holding work back and may decide to prioritise it. That is why
+  the entries have to be citable. `Wait` is also only coherent beside a
+  non-empty `Blocked:` — if nothing is blocking you then you are not waiting,
+  and one of the other three is the honest answer.
 
-  **`Stop (reason)` means "let me stop."** You are ceasing work on this PR, and
-  the reason is the load-bearing part — superseded by another PR, approach
-  rejected, six rounds without convergence. Unlike `Wait` it is terminal:
-  nothing will make this window interesting again, so saying it plainly is what
-  lets the slot be reclaimed instead of leaving finished work to look stalled.
+  **`Stop (reason)` is a request, not a fait accompli.** You are asking to be
+  released from this work and naming why — superseded by another PR, approach
+  rejected, six rounds without convergence. Granting it is a decision with
+  follow-up attached: granted, you write a note on the PR recording why the work
+  stopped and then close it; declined, the work continues, possibly with
+  reframed goals, or becomes a `Wait` on whatever has to land first. Until you
+  have an answer, change nothing and close nothing.
 
-  **`Merge` and `Approve next rounds` are the two that need a person.** Together
-  they are the operator's queue; everything else can stay quiet.
+  **`Merge` and `Approve next rounds`** each need a person before anything moves
+  at all.
 
 Restate it after every resume and at the start of every round, not once at the
 beginning. A window that has scrolled past its only mention of the PR is a
