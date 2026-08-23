@@ -77,8 +77,8 @@ guessing.
 
 Work runs in many concurrent agent windows across several machines. Whoever is
 watching must be able to tell, without attaching to any of them, which PR each
-window is on and which one needs a person. Three conventions carry that. Use
-them.
+window is on and which one needs a person. These conventions carry that, along
+with one rule about what you are entitled to claim. Use them.
 
 ### Name the window for identity
 
@@ -129,11 +129,53 @@ Completing a round:
 > - Review feedback is: converging.
 > - Round start / end / duration.
 >
+> Reviews: 1/2 clean — GPT-5.6 Sol clean, Claude Opus 5 pending
+> Blocked: 4597, 4611
+> Recommendation: Wait
+>
 > Fix description: …
+
+Those three lines are the ones a reader cannot get anywhere else. Include them
+on every round completion, and omit `Blocked` only when it is genuinely empty.
+
+- **`Reviews: <clean>/<required>`** — the dual-clean count, and the actual bar
+  for done. **This is the one fact no tool can observe.** GitHub knows whether
+  CI passed and whether the branch merges; it has no idea that one reviewer came
+  back clean and the other has not reported. Without it nobody can tell a PR
+  that is one review from landing apart from one nobody has reviewed at all.
+- **`Blocked: <numbers>`** — PRs or issues you are waiting on that are **not
+  yours to fix**. Red CI attributable to something on this list is not a defect
+  in your PR, and no one should be dispatched at it. Naming them is what stops
+  several agents converging on one shared flake; behind a known blocker the
+  correct action for everyone is to wait, and an idle agent is the right outcome
+  there rather than a wasted one.
+- **`Recommendation:`** — exactly one of `Wait`, `Merge`, `Approve next rounds`,
+  or `Stop (reason)`. It says what you want the **operator** to do, which is not
+  the same as what you would do next. `Wait` is a complete answer.
 
 Restate it after every resume and at the start of every round, not once at the
 beginning. A window that has scrolled past its only mention of the PR is a
 window nobody can identify.
+
+### Ready means dual-clean and mergeable, not green CI
+
+Report readiness against reviews and mergeability. CI is the operator's concern,
+and a green run is neither necessary nor sufficient for you to call a PR ready.
+
+Two claims have to be earned rather than assumed:
+
+- **Do not report `mergeable` from a local merge check.** GitHub computes
+  `mergeable_state` lazily — the first read after a change returns `unknown` and
+  only starts the calculation, so the answer arrives on a later read. Observed
+  2026-08-23: 18 of 32 open PRs answered `unknown` on first read, and two
+  resolved to `dirty` — both belonging to agents that had just reported their PR
+  as mergeable. Re-read until it is no longer `unknown`, and say `mergeability
+  unverified` rather than guessing.
+- **Do not report `ready to merge` while a round is still in flight.** The state
+  is the round, not the destination.
+
+A conflict found late costs a whole extra pass. Checking mergeability at the
+moment you claim it is what holds that to one.
 
 ### Publish your state where tooling can read it
 
@@ -152,6 +194,38 @@ option; writing it directly would overwrite every other agent, the same way bare
 
 Omit your window number from the value — the bar already knows where it is.
 Update on real transitions, not on a timer.
+
+**Verify the write landed on your own window.** That `-t "$TMUX_PANE"` is the
+whole safety of this mechanism, and dropping it is not a theoretical risk:
+observed 2026-08-23 on a live host, three windows all carried an identical
+`@agent` describing a *fourth* window's PR, while that PR's own window held a
+newer value. One agent's writes had landed on three neighbours, making three
+agents appear to be working on a PR they had never touched. Read it back once
+after you set it, and fix it if it names someone else's PR.
+
+Alongside `@agent`, set a second option carrying the same state as fields.
+`@agent` is the sentence a person reads off the bar; `@agent_state` is the copy
+a tool reads, and because it is never rendered it is neither truncated nor
+abbreviated:
+
+```sh
+tmux set -w -t "$TMUX_PANE" @agent_state \
+  "pr=4463 head=595e5d4b round=6 reviews=1/2 blocked=4597,4611 rec=wait"
+tmux show -w -t "$TMUX_PANE" @agent_state      # read back: must name YOUR pr
+```
+
+`pr` and `head` are always required, the rest when they apply. `rec` takes the
+same four values as `Recommendation`, lowercased, with `Approve next rounds`
+written `approve`. Values carry no spaces. Update it on the same transitions as
+`@agent` and clear it with `-u` when the window stops owning a PR.
+
+**Why an option rather than only your output.** This UI runs on the alternate
+screen, so tmux keeps no scrollback for it — `capture-pane -S -400` returns the
+same single screen as a plain capture. Once your report scrolls past the top it
+is unrecoverable by any tool and the window goes anonymous. A window option
+persists until you change it, outlives the report scrolling away, and cannot be
+garbled by line wrapping. Your output stays where a person reads the detail;
+this is what remains legible after it is gone.
 
 ### Signal when you need a person
 
