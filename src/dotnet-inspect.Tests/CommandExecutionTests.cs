@@ -24796,6 +24796,73 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_DottedImpliedExtensionKindDoesNotSelectOrdinaryMethod()
+    {
+        string[] tail =
+        [
+            "--platform",
+            "System.Private.CoreLib",
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            [
+                "member",
+                "System.String",
+                "extension:Contains:1",
+                .. tail
+            ]);
+        var deferred = await RunAppAsync(
+            [
+                "member",
+                "System.String.extension:Contains:1",
+                .. tail
+            ]);
+        var routed = await RunAppAsync(
+            ["System.String.extension:Contains:1", .. tail]);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Empty(routed.Output);
+        Assert.Contains(
+            "No members matched selector 'Contains'",
+            routed.Error);
+    }
+
+    [Fact]
+    public async Task Member_DottedImpliedExplicitKindDoesNotSelectOrdinaryMethod()
+    {
+        const string selector = "explicit:Contains";
+        string[] tail =
+        [
+            "--platform",
+            "System.Private.CoreLib",
+            "--all",
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            ["member", "System.String", selector, .. tail]);
+        var deferred = await RunAppAsync(
+            ["member", $"System.String.{selector}", .. tail]);
+        var routed = await RunAppAsync(
+            [$"System.String.{selector}", .. tail]);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Equal("0", routed.Output.Trim());
+        Assert.Empty(routed.Error);
+    }
+
+    [Fact]
     public async Task Member_GenericContainingTypeAndGenericMethod_ResolvesTheMember()
     {
         var (exit, output, error) = await RunAppAsync(

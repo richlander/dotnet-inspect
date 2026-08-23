@@ -152,6 +152,11 @@ public static class MemberCommand
                 var mergedArity =
                     mergeOptions.MemberGenericArity
                     ?? impliedSelector.GenericArity;
+                var mergedKinds = new HashSet<string>(
+                    mergeOptions.KindFilter,
+                    StringComparer.OrdinalIgnoreCase);
+                if (impliedSelector.Kind is { Length: > 0 } impliedKind)
+                    mergedKinds.Add(impliedKind);
                 if (mergedArity.HasValue && mergedFilter.Count != 1)
                 {
                     CommandError.Write("A generic arity selector requires exactly one member name.");
@@ -161,6 +166,7 @@ public static class MemberCommand
                 mergeOptions = mergeOptions with
                 {
                     MemberFilter = mergedFilter,
+                    KindFilter = mergedKinds,
                     MemberGenericArity = mergedArity,
                     OverloadIndex =
                         mergeOptions.OverloadIndex
