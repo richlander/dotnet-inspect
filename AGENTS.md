@@ -187,10 +187,24 @@ Restate it after every resume and at the start of every round, not once at the
 beginning. A window that has scrolled past its only mention of the PR is a
 window nobody can identify.
 
-### Ready means dual-clean and mergeable, not green CI
+### Green and mergeable is your job, best effort
 
-Report readiness against reviews and mergeability. CI is the operator's concern,
-and a green run is neither necessary nor sufficient for you to call a PR ready.
+Getting CI green and the branch mergeable is part of finishing the work. Pursue
+both — it is not somebody else's problem, and handing over a red or conflicted
+PR you could have fixed is not a handover.
+
+**Best effort, though, because main moves.** Rebasing onto a main that is
+landing PRs faster than you can reconcile is not a race you win by rebasing
+harder, and every extra pass costs a round you could have spent on the change
+itself. When conflicts keep reappearing on the same PR, or a green run goes red
+again on a base you never touched, stop reconciling and say so: name what you
+are racing in `Blocked:` and recommend `Wait`. Sequencing work against a busy
+main is an operator call. Handing it over is the correct move, not a concession.
+
+What you assert **readiness** on is dual-clean reviews and mergeability. A green
+run is evidence toward that, not the definition of it — checks go red for
+reasons that have nothing to do with your change, and a change is not ready
+merely because they passed.
 
 Two claims have to be earned rather than assumed:
 
@@ -206,6 +220,12 @@ Two claims have to be earned rather than assumed:
 
 A conflict found late costs a whole extra pass. Checking mergeability at the
 moment you claim it is what holds that to one.
+
+Accuracy here has a specific consequence worth knowing. When you report ready
+and CI or mergeability disagrees, that discrepancy is routed to the **operator**
+rather than back to you — nobody re-dispatches an agent that has declared itself
+done. An unearned "ready to merge" therefore does not cost you another round; it
+spends the attention of the one participant who cannot be automated.
 
 ### Publish your state where tooling can read it
 
