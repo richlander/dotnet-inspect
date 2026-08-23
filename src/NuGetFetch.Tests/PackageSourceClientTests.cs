@@ -1134,6 +1134,83 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
+    public async Task V3SearchNormalizesAdvertisedUnicodeEndpoint()
+    {
+        const string unicodeSearch =
+            "https://b\u00FCcher.example/v3/\u00FCber/query?s%69g=\u2713";
+        const string normalizedSearch =
+            "https://xn--bcher-kva.example/v3/%C3%BCber/query?s%69g=%E2%9C%93";
+        const string request =
+            normalizedSearch
+            + "&q=contoso&skip=0&take=20&prerelease=false&semVerLevel=2.0.0";
+        var handler = new RecordingHandler
+        {
+            [ServiceIndex] = $$"""
+                {
+                  "resources": [
+                    {
+                      "@id": "{{unicodeSearch}}",
+                      "@type": "SearchQueryService/3.5.0"
+                    }
+                  ]
+                }
+                """,
+            [request] = """{"data":[]}""",
+        };
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("unicode-resource", ServiceIndex),
+                client);
+
+        PackageSearchResult result = Succeeded(
+            await runtime.SearchAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        Assert.Empty(result.Matches);
+        Assert.Equal([ServiceIndex, request], handler.Requested);
+    }
+
+    [Fact]
+    public async Task V3SearchPathlessServiceIndexPreservesSignedQuery()
+    {
+        const string pathlessIndex =
+            "https://feed.example?s%69g=%73ource";
+        const string normalizedIndex =
+            "https://feed.example/?s%69g=%73ource";
+        var handler = new RecordingHandler
+        {
+            [normalizedIndex] = $$"""
+                {
+                  "resources": [
+                    {
+                      "@id": "{{SearchEndpoint}}",
+                      "@type": "SearchQueryService/3.5.0"
+                    }
+                  ]
+                }
+                """,
+            [SearchRequest] = """{"data":[]}""",
+        };
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("pathless-signed", pathlessIndex),
+                client);
+
+        PackageSearchResult result = Succeeded(
+            await runtime.SearchAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        Assert.Empty(result.Matches);
+        Assert.Equal([normalizedIndex, SearchRequest], handler.Requested);
+    }
+
+    [Fact]
     public async Task V3SearchInvalidRawServiceIndexIsTypedInvalidResponse()
     {
         const string malformedIndex =
@@ -2873,6 +2950,53 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
+    public async Task DefaultV3TransportNormalizesPathlessServiceIndexRoot()
+    {
+        using var sourceListener =
+            new TcpListener(IPAddress.Loopback, 0);
+        sourceListener.Start();
+        int sourcePort =
+            ((IPEndPoint)sourceListener.LocalEndpoint).Port;
+        string sourceUrl =
+            $"http://127.0.0.1:{sourcePort}";
+        string searchUrl =
+            $"http://127.0.0.1:{sourcePort}/query";
+        string serviceIndex = $$"""
+            {
+              "resources": [
+                {
+                  "@id": "{{searchUrl}}",
+                  "@type": "SearchQueryService/3.5.0"
+                }
+              ]
+            }
+            """;
+        Task<IReadOnlyList<string>> sourceServer =
+            ServeHttpResponsesAsync(
+                sourceListener,
+                [serviceIndex, """{"data":[]}"""],
+                TestContext.Current.CancellationToken);
+
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("pathless", sourceUrl));
+        PackageSearchResult result = Succeeded(
+            await runtime.SearchAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        IReadOnlyList<string> requestLines = await sourceServer;
+        Assert.Empty(result.Matches);
+        Assert.Equal(
+            [
+                "GET / HTTP/1.1",
+                "GET /query?q=contoso&skip=0&take=20&prerelease=false&semVerLevel=2.0.0 HTTP/1.1",
+            ],
+            requestLines);
+    }
+
+    [Fact]
     public void BrowserNuGetRequestsOmitAmbientCredentials()
     {
         using var request = new HttpRequestMessage(
@@ -3648,7 +3772,7 @@ public sealed class PackageSourceClientTests
         }
     }
 
-    private static async Task ServeHttpResponseAsync(
+    private static async Task<string> ServeHttpResponseAsync(
         TcpListener listener,
         string body,
         CancellationToken cancellationToken)
@@ -3657,7 +3781,28 @@ public sealed class PackageSourceClientTests
             await listener.AcceptTcpClientAsync(cancellationToken);
         await using NetworkStream stream = connection.GetStream();
         var request = new byte[4096];
-        _ = await stream.ReadAsync(request, cancellationToken);
+        int requestLength = 0;
+        while (requestLength < request.Length)
+        {
+            int read = await stream.ReadAsync(
+                request.AsMemory(requestLength),
+                cancellationToken);
+            if (read == 0)
+                break;
+
+            requestLength += read;
+            if (request.AsSpan(0, requestLength).IndexOf(
+                    "\r\n\r\n"u8) >= 0)
+            {
+                break;
+            }
+        }
+
+        string requestText =
+            Encoding.ASCII.GetString(request, 0, requestLength);
+        string requestLine = requestText.Split(
+            "\r\n",
+            StringSplitOptions.None)[0];
         byte[] content = Encoding.UTF8.GetBytes(body);
         byte[] headers = Encoding.ASCII.GetBytes(
             "HTTP/1.1 200 OK\r\n"
@@ -3666,20 +3811,25 @@ public sealed class PackageSourceClientTests
             + "Connection: close\r\n\r\n");
         await stream.WriteAsync(headers, cancellationToken);
         await stream.WriteAsync(content, cancellationToken);
+        return requestLine;
     }
 
-    private static async Task ServeHttpResponsesAsync(
+    private static async Task<IReadOnlyList<string>> ServeHttpResponsesAsync(
         TcpListener listener,
         IReadOnlyList<string> bodies,
         CancellationToken cancellationToken)
     {
+        var requestLines = new List<string>(bodies.Count);
         foreach (string body in bodies)
         {
-            await ServeHttpResponseAsync(
-                listener,
-                body,
-                cancellationToken);
+            requestLines.Add(
+                await ServeHttpResponseAsync(
+                    listener,
+                    body,
+                    cancellationToken));
         }
+
+        return requestLines;
     }
 
     private sealed class RecordingHandler : HttpMessageHandler

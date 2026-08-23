@@ -9,10 +9,12 @@ namespace NuGetFetch;
 /// </summary>
 /// <remarks>
 /// Raw ASCII query bytes are preserved for signed endpoints, while Unicode
-/// source URLs are escaped with an IDN host. Credentials remain on the source
-/// origin. <c>V3SearchPreservesDeclaredQueryBytes</c>,
+/// source-owned URLs are escaped with an IDN host. Credentials remain on the
+/// source origin. <c>V3SearchPreservesDeclaredQueryBytes</c>,
 /// <c>V3SearchPreservesSignedBytesWhileNormalizingIdn</c>,
-/// <c>V3SearchNormalizesIdnServiceIndex</c>, and
+/// <c>V3SearchNormalizesIdnServiceIndex</c>,
+/// <c>V3SearchNormalizesAdvertisedUnicodeEndpoint</c>,
+/// <c>V3SearchPathlessServiceIndexPreservesSignedQuery</c>, and
 /// <c>CanonicalNuGetOrgV3DiscoversSearchWithoutShortcut</c> gate these rules.
 /// </remarks>
 internal static class NuGetSourceRequest
@@ -24,6 +26,7 @@ internal static class NuGetSourceRequest
         int fragmentStart = original.IndexOf('#', StringComparison.Ordinal);
         if (fragmentStart >= 0)
             original = original[..fragmentStart];
+        original = EnsureRootPath(original);
 
         if (endpoint.UserInfo.Length == 0
             && NuGetHttpRequest.TryCreatePreservingPathAndQuery(
@@ -98,6 +101,48 @@ internal static class NuGetSourceRequest
         }
 
         return escaped;
+    }
+
+    internal static bool TryEndpointUrl(
+        string? endpoint,
+        out string normalized)
+    {
+        normalized = string.Empty;
+        if (string.IsNullOrWhiteSpace(endpoint)
+            || !Uri.TryCreate(endpoint, UriKind.Absolute, out Uri? parsed))
+        {
+            return false;
+        }
+
+        try
+        {
+            normalized = EndpointUrl(parsed);
+            return true;
+        }
+        catch (NuGetSourceResponseException)
+        {
+            return false;
+        }
+    }
+
+    private static string EnsureRootPath(string endpoint)
+    {
+        int schemeEnd = endpoint.IndexOf(
+            "://",
+            StringComparison.Ordinal);
+        if (schemeEnd <= 0)
+            return endpoint;
+
+        int authorityStart = schemeEnd + 3;
+        int suffixStart = endpoint.IndexOfAny(
+            ['/', '?'],
+            authorityStart);
+        if (suffixStart < 0)
+            return endpoint + "/";
+
+        return endpoint[suffixStart] == '?'
+            ? endpoint.Insert(suffixStart, "/")
+            : endpoint;
     }
 
     private static string EscapeAuthorityHost(

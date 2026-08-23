@@ -9,6 +9,7 @@ namespace NuGetFetch;
 /// Only the highest supported capability tier is used, with at most four
 /// equivalent endpoints retained in service-index order.
 /// <c>V3SearchUsesHighestCompatibleResourcesAndFailsOver</c>,
+/// <c>V3SearchNormalizesAdvertisedUnicodeEndpoint</c>,
 /// <c>V3MalformedAdvertisedSearchIsTypedInvalidResponse</c>, and
 /// <c>V3SearchUsesLibraryDeadline</c> gate these properties.
 /// </remarks>
@@ -97,7 +98,10 @@ internal static class NuGetV3SearchResourceDiscovery
                     "@id",
                     out JsonElement idElement)
                 || idElement.ValueKind != JsonValueKind.String
-                || idElement.GetString() is not { } endpoint
+                || idElement.GetString() is not { } declaredEndpoint
+                || !NuGetSourceRequest.TryEndpointUrl(
+                    declaredEndpoint,
+                    out string endpoint)
                 || !IsUsableSearchEndpoint(endpoint))
             {
                 hasMalformedSupportedResource = true;

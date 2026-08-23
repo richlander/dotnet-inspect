@@ -592,6 +592,10 @@ address rejects the request. This preserves private-feed use without granting
 the feed response authority to probe another private service. The shared
 policy canonicalizes bracketed and unbracketed IPv6 host spellings before
 applying the configured-origin exception.
+Configured service indexes and feed-advertised search resources share one URL
+normalization path: it supplies the implicit root slash, normalizes IDN hosts,
+escapes literal Unicode, and preserves existing ASCII path/query escapes that
+may be signed.
 Browser/Wasm avoids unsupported handler credential properties and instead marks
 each request with `BrowserRequestCredentials.Omit` and Fetch
 `redirect: error`; explicit source authorization remains a request header.
@@ -616,6 +620,11 @@ factory uses the bounded desktop redirect policy.
 private-origin exception and feed-directed destination rejection.
 `DefaultV3TransportAllowsConfiguredPrivateIpv6Source` gates IPv6-literal
 configured origins.
+`DefaultV3TransportNormalizesPathlessServiceIndexRoot` gates the implicit root
+path on the desktop wire, while
+`V3SearchPathlessServiceIndexPreservesSignedQuery` gates root insertion before
+an existing query and `V3SearchNormalizesAdvertisedUnicodeEndpoint` gates
+resource normalization.
 `HttpClientFactoryTests.PackageSourceClient_AllowsConfiguredPrivateOriginButBlocksPrivateRedirect`
 gates the same shared address policy across redirect hops.
 `BrowserNuGetRequestsOmitAmbientCredentials` gates the Fetch credential and
