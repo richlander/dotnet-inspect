@@ -43,6 +43,9 @@ public sealed class LayeringTests
             closure,
             path => Path.GetFileNameWithoutExtension(path) == "ILInspector.Metadata");
         Assert.Contains(
+            closure,
+            path => Path.GetFileNameWithoutExtension(path) == "CSharpText");
+        Assert.Contains(
             "Microsoft.CodeAnalysis.BannedApiAnalyzers",
             CommandErrorOwnershipTests.ProjectPackageDependencies(project));
         AssertNoForbiddenImplementations(root, closure, PackageImplementationProjects);
