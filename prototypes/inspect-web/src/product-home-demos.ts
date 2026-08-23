@@ -44,7 +44,7 @@ export function setProductHomeDemoCatalog(
     catalogIdSet.add(entry.id);
 }
 
-export function getProductHomeDemoCatalog(): readonly ProductHomeDemoCatalogEntry[] {
+function getProductHomeDemoCatalog(): readonly ProductHomeDemoCatalogEntry[] {
   return catalogEntries;
 }
 
@@ -102,6 +102,12 @@ function packageTab(member: BrowserHomeDemoMember): {
   }
 
   if (member.kind === "platform" && member.id === "runtime") {
+    // Residual only for the product unversioned `runtime` shape. Explicit pins
+    // are not silently rewritten to the browser runtime-pack defaults.
+    if (member.version || member.framework || member.assembly) {
+      throw new Error(
+        "Product home demo platform 'runtime' is pinned; browser residual maps only the unversioned shape.");
+    }
     // Residual until WorkspaceContextLoader platform groups are the browser substrate.
     return { ...PLATFORM_RUNTIME_PACK };
   }
@@ -144,6 +150,8 @@ export function productHomeDemoLocationHref(
 /** Inputs for the residual imperative multi-package call-graph runner. */
 export function callGraphDemoRunnerSpec(demo: ProductHomeDemoResolved): {
   packages: { id: string; version: string; framework: string }[];
+  /** Package id for the navigation focus tab (primary activation target). */
+  focusPackageId: string;
   typeId: string;
   memberName: string;
   memberKind: string;
@@ -156,6 +164,19 @@ export function callGraphDemoRunnerSpec(demo: ProductHomeDemoResolved): {
   }
 
   const packages = demo.workspaceMembers.map(packageTab);
+  if (packages.length === 0) {
+    throw new Error(`Product home demo '${demo.id}' has no workspace members.`);
+  }
+
+  const focusTabs = demo.tabs.map(tab => packageTab(tab.member));
+  if (focusTabs.length === 0) {
+    throw new Error(`Product home demo '${demo.id}' has no navigation tabs.`);
+  }
+  const focusIndex = Math.min(
+    Math.max(demo.focusTabIndex, 0),
+    focusTabs.length - 1);
+  const focusPackageId = focusTabs[focusIndex].id;
+
   const memberKey = demo.view.memberKey ?? "";
   const colon = memberKey.indexOf(":");
   const memberKind = colon >= 0 ? memberKey.slice(0, colon) : "method";
@@ -167,10 +188,31 @@ export function callGraphDemoRunnerSpec(demo: ProductHomeDemoResolved): {
 
   return {
     packages,
+    focusPackageId,
     typeId: demo.view.type,
     memberName,
     memberKind,
     memberAnchorDigest: demo.view.memberAnchor,
     memberSection: "call-graph",
   };
+}
+
+/**
+ * Pending home-row paint while the Wasm engine catalog is not yet installed.
+ * Layout-only placeholders — titles come from `ListHomeDemos` after bootstrap.
+ */
+export const HOME_DEMO_PENDING_SLOT_COUNT = 3;
+
+export function homeDemoRowHtml(
+  enginePending: boolean,
+  escapeHtml: (value: string) => string,
+): string {
+  const catalog = getProductHomeDemoCatalog();
+  if (catalog.length > 0) {
+    return catalog.map(entry =>
+      `<button class="home-demo" data-home-demo="${escapeHtml(entry.id)}" ${enginePending ? "disabled" : ""}><strong>${escapeHtml(entry.title)}</strong><small>${escapeHtml(entry.summary)}</small></button>`).join("");
+  }
+  if (!enginePending) return "";
+  return Array.from({ length: HOME_DEMO_PENDING_SLOT_COUNT }, () =>
+    `<button class="home-demo home-demo-pending" type="button" disabled aria-hidden="true"><strong>&nbsp;</strong><small>&nbsp;</small></button>`).join("");
 }

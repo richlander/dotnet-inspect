@@ -89,7 +89,7 @@ import {
 } from "./shell-controls.ts";
 import {
   callGraphDemoRunnerSpec,
-  getProductHomeDemoCatalog,
+  homeDemoRowHtml,
   productHomeDemoLocationHref,
   setProductHomeDemoCatalog,
   type ProductHomeDemoId,
@@ -5682,9 +5682,8 @@ function renderHomeView() {
           <p class="home-attribution">Built with .NET 11, WebAssembly, TypeScript 7, NuGet, and System.Reflection.Metadata. <a id="home-credits" href="/credits">Credits</a></p>
           <div class="home-demos">
             <span class="home-demos-label">Or jump straight into a demo</span>
-            <div class="home-demo-row">
-              ${getProductHomeDemoCatalog().map(entry =>
-                `<button class="home-demo" data-home-demo="${entry.id}" ${enginePending ? "disabled" : ""}><strong>${escapeHtml(entry.title)}</strong><small>${escapeHtml(entry.summary)}</small></button>`).join("")}
+            <div class="home-demo-row" aria-busy="${enginePending}">
+              ${homeDemoRowHtml(enginePending, escapeHtml)}
             </div>
           </div>
         </div>
@@ -7329,7 +7328,8 @@ async function runCallGraphDemo(demo: ProductHomeDemoResolved) {
     packages.push(loaded);
   }
 
-  const targetPackage = packages[0];
+  const targetPackage = packages.find(item => item.id === spec.focusPackageId)
+    ?? packages[0];
   activatePackage(targetPackage);
   const type = targetPackage.types.find(item => item.id === spec.typeId);
   const member = type && memberGroups(type).find(item =>

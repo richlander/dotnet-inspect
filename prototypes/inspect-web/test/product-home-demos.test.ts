@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { BrowserHomeDemoResolved } from "../src/inspect-web-engine.d.ts";
 import {
+  HOME_DEMO_PENDING_SLOT_COUNT,
   PLATFORM_RUNTIME_PACK,
   callGraphDemoRunnerSpec,
+  homeDemoRowHtml,
   isProductHomeDemoId,
   productHomeDemoLocationHref,
   setProductHomeDemoCatalog,
@@ -221,4 +223,80 @@ test("extensions-callgraph has no deep link and runner spec keeps product pins",
     spec.packages[0].id,
     "Microsoft.Extensions.DependencyInjection.Abstractions",
   );
+  assert.equal(
+    spec.focusPackageId,
+    "Microsoft.Extensions.DependencyInjection.Abstractions",
+  );
+});
+
+test("call-graph runner focus follows navigation focusTabIndex", () => {
+  const reordered: BrowserHomeDemoResolved = {
+    ...callGraphResolved,
+    workspaceMembers: [
+      callGraphResolved.workspaceMembers[1],
+      callGraphResolved.workspaceMembers[0],
+      callGraphResolved.workspaceMembers[2],
+    ],
+    tabs: [
+      {
+        id: "logging",
+        member: callGraphResolved.workspaceMembers[1],
+      },
+      {
+        id: "di",
+        member: callGraphResolved.workspaceMembers[0],
+      },
+    ],
+    focusTabIndex: 1,
+  };
+  const spec = callGraphDemoRunnerSpec(reordered);
+  assert.equal(spec.packages[0].id, "Microsoft.Extensions.Logging");
+  assert.equal(
+    spec.focusPackageId,
+    "Microsoft.Extensions.DependencyInjection.Abstractions",
+  );
+});
+
+test("platform residual rejects pinned runtime coordinates", () => {
+  const pinned = {
+    ...platformResolved,
+    tabs: [
+      platformResolved.tabs[0],
+      {
+        id: "runtime",
+        member: {
+          kind: "platform" as const,
+          id: "runtime",
+          version: "11.0.0",
+          framework: "net11.0",
+          assembly: "System.Private.CoreLib",
+        },
+      },
+    ],
+  };
+  assert.throws(
+    () => productHomeDemoLocationHref(pinned),
+    /unversioned shape/,
+  );
+});
+
+test("home demo row keeps pending slots before the engine catalog installs", () => {
+  setProductHomeDemoCatalog([]);
+  const pending = homeDemoRowHtml(true, value => value);
+  assert.equal(
+    (pending.match(/home-demo-pending/g) || []).length,
+    HOME_DEMO_PENDING_SLOT_COUNT,
+  );
+  assert.match(pending, /disabled/);
+  assert.equal(homeDemoRowHtml(false, value => value), "");
+
+  setProductHomeDemoCatalog([
+    { id: "stj-serializer", title: "System.Text.Json", summary: "Browse a real package API" },
+  ]);
+  const ready = homeDemoRowHtml(false, value => value);
+  assert.match(ready, /data-home-demo="stj-serializer"/);
+  assert.doesNotMatch(ready, /home-demo-pending/);
+  assert.doesNotMatch(ready, /disabled/);
+  const stillLoading = homeDemoRowHtml(true, value => value);
+  assert.match(stillLoading, /disabled/);
 });
