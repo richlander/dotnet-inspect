@@ -890,16 +890,26 @@ Research overlay bridge, and the application layer:
   and `AsyncSiblingTypeSupport_IsLinearForSharedDag` gate representative
   decoding, compatibility, and linear-work behavior; the identity and display
   gates below cover the remaining policy.
+  `LibraryBodyAsyncSiblingDispatchAnalyzer` owns reader-relative type
+  relationships, constructed generic projection, virtual-slot and MethodImpl
+  correspondence, constrained-method suppression, and conservative unknown
+  handling. It receives synchronized external type-definition resolution and
+  the shared per-type method-name index from the assembly builder rather than
+  owning a second reference cache or candidate index.
+  `OptimizationOpportunities_MethodImplSelfDispatchIsSuppressed`,
+  `OptimizationOpportunities_MvidCollisionPreservesRecursiveInterfaceSuppression`,
+  `MethodImplSignature_RequiresByRefDirection`, and
+  `ConstructedInterfaceIdentity_RequiresMatchingArguments` gate that policy.
   `LibraryBodyAnalysisBuilder.AsyncSibling` owns the `sync-call-in-async`
-  opportunity because sibling discovery and recursive-slot suppression require
-  reader-relative MethodDef, MethodImpl, type hierarchy, exact assembly
-  identity, and workspace-resolution evidence. It consumes the stateless
-  matcher and canonical direct-call rows after ordinary opportunity collection
-  and appends only this metadata-bound shape; recoverable sibling-classification
-  failures remain diagnostic without discarding independent ordinary
-  opportunities or body signals. Source-independent synchronous-definition and
-  sibling-candidate discovery is cached by exact callee identity, while
-  accessibility and dispatch suppression remain source-dependent;
+  opportunity orchestration, synchronous-definition and sibling-candidate
+  lookup, exact-callee and per-type caches, accessibility policy, diagnostic
+  containment, and result ordering. It consumes the stateless matcher,
+  dispatch analyzer, and canonical direct-call rows after ordinary opportunity
+  collection and appends only this metadata-bound shape; recoverable
+  sibling-classification failures remain diagnostic without discarding
+  independent ordinary opportunities or body signals. Source-independent
+  lookup is cached by exact callee identity, while accessibility remains
+  source-dependent;
   `OptimizationOpportunities_DistinctCalleesIndexCandidateTypeOnce` gates the
   per-type method index that bounds distinct-callee discovery;
   `AsyncSiblingMethodIndex_ConcurrentReadsBuildTypeOnce` gates synchronized
@@ -928,8 +938,7 @@ Research overlay bridge, and the application layer:
   access, and nested private-access domains are gated by
   `AsyncSiblingPrivateAccess_CyclicDeclaringTypeFailsClosed`,
   `OptimizationOpportunities_PrivateAccessIsDirectionalAcrossNestedTypes`,
-  `OptimizationOpportunities_MethodImplSelfDispatchIsSuppressed`,
-  `OptimizationOpportunities_ReceiverErasureSuppressesUnsealedFriendCandidates`,
+  `OptimizationOpportunities_FriendAccessRequiresProvableReceiver`,
   `AsyncSiblingFriendAccess_StrongNamedGrantorRequiresFullFriendKey`,
   `OptimizationOpportunities_SuppressesSourceGeneratedTypes`,
   and
