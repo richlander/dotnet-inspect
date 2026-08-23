@@ -52,10 +52,13 @@ public class StructuringAuditCommitPointTests
         IReadOnlyList<string> successMethods)
     {
         var invocations = ExecutableNodes(method).OfType<InvocationExpressionSyntax>().ToArray();
+        var auditSteps = invocations
+            .Where(invocation => InvocationName(invocation) is "StepOver" or "StepInto")
+            .ToArray();
         var step = Assert.Single(
-            invocations,
-            invocation => InvocationName(invocation) == "StepOver"
-                && invocation.ArgumentList.ToString().Contains(descriptionFragment, StringComparison.Ordinal));
+            auditSteps);
+        Assert.Equal("StepOver", InvocationName(step));
+        Assert.Contains(descriptionFragment, step.ArgumentList.ToString());
         var install = Assert.Single(
             invocations,
             invocation => InvocationName(invocation) == "ReplaceWith");
@@ -63,17 +66,18 @@ public class StructuringAuditCommitPointTests
             step.SpanStart < install.SpanStart,
             $"Audit step at line {Line(step)} must precede installation at line {Line(install)}.");
 
+        var successRecords = invocations
+            .Where(invocation => InvocationName(invocation) is "RecordStructured" or "RecordRetainedRegion")
+            .ToArray();
+        Assert.Equal(successMethods.Count, successRecords.Length);
         foreach (string successMethod in successMethods)
         {
-            var records = invocations
-                .Where(invocation => InvocationName(invocation) == successMethod)
-                .ToArray();
-            Assert.NotEmpty(records);
-            Assert.All(
-                records,
-                record => Assert.True(
-                    install.SpanStart < record.SpanStart,
-                    $"{successMethod} at line {Line(record)} precedes installation at line {Line(install)}."));
+            var record = Assert.Single(
+                successRecords,
+                invocation => InvocationName(invocation) == successMethod);
+            Assert.True(
+                install.SpanStart < record.SpanStart,
+                $"{successMethod} at line {Line(record)} precedes installation at line {Line(install)}.");
         }
         return step;
     }

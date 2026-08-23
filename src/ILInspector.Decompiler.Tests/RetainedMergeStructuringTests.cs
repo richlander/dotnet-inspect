@@ -41,6 +41,7 @@ public class RetainedMergeStructuringTests
             SequentialRetainedMerges(),
             stepper: successStepper);
 
+        Assert.Equal(1, successDiagnostics.Structured);
         Assert.Equal(2, successDiagnostics.RetainedRegions);
         Assert.Single(
             successStepper.Steps,
@@ -53,9 +54,7 @@ public class RetainedMergeStructuringTests
 
         Assert.Equal(0, declineDiagnostics.RetainedRegions);
         Assert.Empty(declined.Descendants.OfType<WhileLoop>());
-        Assert.DoesNotContain(
-            declineStepper.Steps,
-            step => step.Description.Contains("retained-merge region", StringComparison.Ordinal));
+        Assert.Empty(declineStepper.Steps);
     }
 
     [Fact]
@@ -66,6 +65,7 @@ public class RetainedMergeStructuringTests
             parameters: null,
             usesUpdatedMemorySafetyRules: false,
             out var originalBody);
+        string originalIr = IrPrinter.Dump(function);
         var diagnostics = new StructuringDiagnostics();
         var stepper = new Stepper(enabled: true) { StepLimit = 0 };
 
@@ -75,6 +75,7 @@ public class RetainedMergeStructuringTests
                 new PassContext(stepper, diagnostics)));
 
         Assert.Same(originalBody, function.Body);
+        Assert.Equal(originalIr, IrPrinter.Dump(function));
         Assert.Equal(0, diagnostics.Structured);
         Assert.Equal(0, diagnostics.RetainedRegions);
         Assert.Empty(stepper.Steps);
