@@ -543,7 +543,8 @@ plane explicitly. The `fact, source node, node-kind, and clear actions preserve
 distinct selection semantics` test gates that separation. Product-owned
 body-kind vocabulary supplies the structure labels and ordering. The merged
 view labels only C# and IL transitions rather than repeating a medium on every
-line. Anchored facts have a persistent source affordance before selection,
+line; a single-medium view removes that label lane entirely. Anchored facts
+have a persistent source affordance before selection,
 while construct and region controls use a low-weight shadow treatment for
 loops, branches, lambdas, local functions, and exception structure already
 present in the portable document. When the producer supplies

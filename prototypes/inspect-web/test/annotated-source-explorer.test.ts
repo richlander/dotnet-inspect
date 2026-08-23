@@ -498,6 +498,33 @@ test("merged source labels only C# and IL at medium boundaries", () => {
   assert.equal(html.match(/annotated-line-medium">IL</g)?.length, 1);
   assert.doesNotMatch(html, /C#\/IL/);
   assert.match(html, /annotated-line-medium"><\/span>/);
+
+  for (const medium of ["CSharp", "Il"] as const) {
+    const hiddenMedium = medium === "CSharp" ? "Il" : "CSharp";
+    const singleMediumState = reduceAnnotatedSourceExplorerState(
+      groupedDocument,
+      createAnnotatedSourceExplorerState(groupedDocument),
+      { type: "toggle-medium", medium: hiddenMedium },
+    );
+    const singleMediumHtml = renderAnnotatedSourceExplorer({
+      result: { ...result, document: groupedDocument },
+      state: singleMediumState,
+      title: "Example.Grouped",
+      subtitle: "void Grouped()",
+      escapeHtml,
+    });
+
+    assert.doesNotMatch(singleMediumHtml, /annotated-line-medium/);
+    assert.match(singleMediumHtml, new RegExp(`medium-${medium.toLowerCase()}`));
+  }
+});
+
+test("source carets inherit exact source glyph metrics", () => {
+  assert.match(
+    styles,
+    /\.annotated-node-caret\s*\{[^}]*font:\s*inherit;[^}]*line-height:\s*1\.2;/,
+  );
+  assert.match(styles, /\.annotated-caret-label\s*\{[^}]*font-size:\s*11px;/);
 });
 
 test("C# syntax tokenization is reused across interaction renders", () => {

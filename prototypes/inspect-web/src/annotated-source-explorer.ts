@@ -411,6 +411,7 @@ export function renderAnnotatedSourceExplorer(
   const mediumButtons = MEDIA.map(medium =>
     `<button type="button" class="annotated-medium${view.media[medium] ? " on" : ""}" data-ase-medium="${medium}" aria-pressed="${view.media[medium]}">${escapeHtml(MEDIUM_LABELS[medium])}</button>`,
   ).join("");
+  const showMediumGutter = MEDIA.every(medium => view.media[medium]);
   let previousMedium = "";
   const lines = view.lines.map(line => {
     const lineText = line.segments.map(segment => segment.text).join("");
@@ -483,13 +484,15 @@ export function renderAnnotatedSourceExplorer(
     previousMedium = line.medium;
     const sourceLine = `<div class="annotated-line medium-${line.medium.toLowerCase()}">
       <span class="annotated-line-number">${line.number}</span>
-      <span class="annotated-line-medium">${escapeHtml(mediumLabel)}</span>
+      ${showMediumGutter
+        ? `<span class="annotated-line-medium">${escapeHtml(mediumLabel)}</span>`
+        : ""}
       <span class="annotated-line-text">${segments}</span>
     </div>`;
     const carets = nodeCaretAnnotations.get(line.start)?.map(annotation =>
       `<div class="annotated-node-caret" aria-label="${escapeHtml(annotation.accessibleLabel)}">
         <span class="annotated-line-number"></span>
-        <span class="annotated-line-medium"></span>
+        ${showMediumGutter ? `<span class="annotated-line-medium"></span>` : ""}
         <span class="annotated-line-text" aria-hidden="true">${escapeHtml(annotation.prefix)}<span class="annotated-caret-run">${"^".repeat(annotation.length)}</span>${annotation.label ? `<span class="annotated-caret-label"> ${escapeHtml(annotation.label)}</span>` : ""}</span>
       </div>`,
     ).join("") ?? "";
