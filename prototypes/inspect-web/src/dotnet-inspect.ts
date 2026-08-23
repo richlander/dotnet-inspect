@@ -88,6 +88,13 @@ import {
   type WorkbenchShellBindingActions,
 } from "./shell-controls.ts";
 import {
+  EXTENSIONS_CALLGRAPH,
+  EXTENSIONS_CALLGRAPH_DEMO_ID,
+  PRODUCT_HOME_DEMO_CATALOG,
+  productHomeDemoLocationHref,
+  type ProductHomeDemoId,
+} from "./product-home-demos.ts";
+import {
   createSourceInspectionCoordinator,
   type GraphSourceRequest,
 } from "./source-inspection.ts";
@@ -5634,9 +5641,8 @@ function renderHomeView() {
           <div class="home-demos">
             <span class="home-demos-label">Or jump straight into a demo</span>
             <div class="home-demo-row">
-              <button class="home-demo" data-home-demo="stj" ${enginePending ? "disabled" : ""}><strong>System.Text.Json</strong><small>Browse a real package API</small></button>
-              <button class="home-demo" data-home-demo="callgraph" ${enginePending ? "disabled" : ""}><strong>Cross-package call graph</strong><small>Trace calls across four packages</small></button>
-              <button class="home-demo" data-home-demo="runtime" ${enginePending ? "disabled" : ""}><strong>.NET Platform</strong><small>Inspect platform BCL types</small></button>
+              ${PRODUCT_HOME_DEMO_CATALOG.map(entry =>
+                `<button class="home-demo" data-home-demo="${entry.id}" ${enginePending ? "disabled" : ""}><strong>${escapeHtml(entry.title)}</strong><small>${escapeHtml(entry.summary)}</small></button>`).join("")}
             </div>
           </div>
         </div>
@@ -5680,22 +5686,18 @@ function bindHomeEvents() {
     document.querySelector<HTMLInputElement>("#spotlight-input")?.focus());
 }
 
-// The two package demos jump to a rich, curated deep link (open tabs + selected type +,
-// for the platform, a scoped library) so the buttons showcase the workbench, not a bare
-// package root. pushState keeps them shareable/refreshable; the workspace restore reuses
-// the same path as a shared link. The call-graph demo stays a bespoke multi-package load.
-const HOME_DEMO_LINKS = {
-  stj: "?package=System.Text.Json&w=eyJ0IjpbWyJTeXN0ZW0uVGV4dC5Kc29uIiwiMTAuMC4wIiwibmV0MTAuMCJdXSwiYSI6MCwieSI6IlN5c3RlbS5UZXh0Lkpzb24uSnNvblNlcmlhbGl6ZXIifQ",
-  runtime: "?package=Microsoft.NETCore.App&w=eyJ0IjpbWyJTeXN0ZW0uVGV4dC5Kc29uIiwiMTAuMC4wIiwibmV0MTAuMCJdLFsiTWljcm9zb2Z0Lk5FVENvcmUuQXBwIiwiMTAuMC4xMCIsIm5ldDEwLjAiXV0sImEiOjEsImwiOiJTeXN0ZW0uUHJpdmF0ZS5Db3JlTGliIiwieSI6IlN5c3RlbS5Db2xsZWN0aW9ucy5HZW5lcmljLkxpc3RgMSJ9"
-};
-
-function runHomeDemo(kind: keyof typeof HOME_DEMO_LINKS | "callgraph") {
+// Home buttons use product demo ids (`ProductInspectionDemos` / CLI `demo <id>`).
+// STJ + platform restore via share deep links built from that registry projection;
+// extensions-callgraph stays an imperative multi-package member load (same packages
+// and TryAddEnumerable anchor as the product demo) until WorkspaceContextLoader
+// group run is the browser substrate.
+function runHomeDemo(kind: ProductHomeDemoId) {
   state.home = false;
-  if (kind === "callgraph") {
+  if (kind === EXTENSIONS_CALLGRAPH_DEMO_ID) {
     observeAsync(runCallGraphDemo(), "Loading the call graph demo");
     return;
   }
-  const link = HOME_DEMO_LINKS[kind];
+  const link = productHomeDemoLocationHref(kind);
   if (!link) return;
   workspaceLocation.push(link);
   const loc = parseLocation();
@@ -7228,10 +7230,11 @@ async function runCallGraphDemo() {
   state.loadingSubtitle = "";
   render();
 
+  const [targetSpec, loggingSpec, httpSpec] = EXTENSIONS_CALLGRAPH.packages;
   const targetPackage = await loadPackage(
-    "Microsoft.Extensions.DependencyInjection.Abstractions",
-    "10.0.0",
-    "net10.0",
+    targetSpec.id,
+    targetSpec.version,
+    targetSpec.framework,
     { retryAction: runCallGraphDemo });
   if (!targetPackage) {
     state.retryAction = runCallGraphDemo;
@@ -7239,9 +7242,9 @@ async function runCallGraphDemo() {
     return;
   }
   const loggingPackage = await loadPackage(
-    "Microsoft.Extensions.Logging",
-    "10.0.0",
-    "net10.0",
+    loggingSpec.id,
+    loggingSpec.version,
+    loggingSpec.framework,
     { retryAction: runCallGraphDemo });
   if (!loggingPackage) {
     state.retryAction = runCallGraphDemo;
@@ -7249,9 +7252,9 @@ async function runCallGraphDemo() {
     return;
   }
   const httpPackage = await loadPackage(
-    "Microsoft.Extensions.Http",
-    "10.0.0",
-    "net10.0",
+    httpSpec.id,
+    httpSpec.version,
+    httpSpec.framework,
     { retryAction: runCallGraphDemo });
   if (!httpPackage) {
     state.retryAction = runCallGraphDemo;
@@ -7261,10 +7264,12 @@ async function runCallGraphDemo() {
 
   activatePackage(targetPackage);
   const type = targetPackage.types.find(item =>
-    item.id === "Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions");
+    item.id === EXTENSIONS_CALLGRAPH.typeId);
   const member = type && memberGroups(type).find(item =>
-    item.name === "TryAddEnumerable" && item.kind === "method");
-  const overloadIndex = member?.overloads.findIndex(item => item.anchorDigest === "74b6b4b321") ?? -1;
+    item.name === EXTENSIONS_CALLGRAPH.memberName
+    && item.kind === EXTENSIONS_CALLGRAPH.memberKind);
+  const overloadIndex = member?.overloads.findIndex(item =>
+    item.anchorDigest === EXTENSIONS_CALLGRAPH.memberAnchorDigest) ?? -1;
   if (!type || !member || overloadIndex < 0) {
     state.loading = false;
     state.error = "The call graph demo member was not found in the selected package.";
@@ -7283,7 +7288,7 @@ async function runCallGraphDemo() {
   state.memberBrowseTypeId = type.id;
   state.selectedMemberKey = member.key;
   state.selectedOverloadIndex = overloadIndex;
-  state.memberSection = "call-graph";
+  state.memberSection = EXTENSIONS_CALLGRAPH.memberSection;
   state.loading = false;
   render();
   await loadSelectedMemberCallGraph();
