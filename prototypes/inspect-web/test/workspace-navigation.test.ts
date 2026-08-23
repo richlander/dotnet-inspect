@@ -440,6 +440,14 @@ test("invalid graph identities reject the rich packet without hiding the visible
       m: "method:Build",
       g: [...validGraph.slice(0, 8), "not-a-token"],
     },
+    {
+      t: [["Hidden.Package", "1.0.0", "net10.0"]],
+      a: 0,
+      y: "Example.Widget",
+      m: "method:Build",
+      o: 0,
+      g: [validGraph[0], "", ...validGraph.slice(2)],
+    },
     ...[
       -1,
       0,

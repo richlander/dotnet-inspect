@@ -3017,7 +3017,7 @@ test("call graph navigation prefers exact metadata type identity", () => {
     "");
 });
 
-test("call graph navigation resolves accessor body selectors without a token", () => {
+test("call graph navigation resolves accessor selectors across image-local token skew", () => {
   const groups = [{
     overloads: [{
       graphSelectorKey: "property-selector",
@@ -3031,11 +3031,18 @@ test("call graph navigation resolves accessor body selectors without a token", (
 
   assert.deepEqual(
     graphMemberSelection(groups, {
-      metadataToken: null,
+      metadataToken: 456,
       memberName: "get_P",
       selectorKey: "getter-selector"
     }),
     { groupIndex: 0, overloadIndex: 0 });
+  assert.equal(
+    graphMemberSelection([...groups, ...groups], {
+      metadataToken: 456,
+      memberName: "get_P",
+      selectorKey: "getter-selector"
+    }),
+    null);
 
   const runtimeResolver =
     appSource.match(/function findRuntimeMemberSelection[\s\S]*?\n\}/)?.[0]
@@ -3118,7 +3125,7 @@ test("graph-only member targets round-trip through shared URLs", () => {
     /shared graph member target is invalid/);
 });
 
-test("legacy graph targets preserve absent assembly versions when shared", () => {
+test("shared graph targets require explicit assembly version provenance", () => {
   const target = {
     assembly: "Example",
     typeDefinitionId: "Example.Widget",
@@ -3127,25 +3134,18 @@ test("legacy graph targets preserve absent assembly versions when shared", () =>
     selectorKey: "opaque-selector",
     metadataToken: 0x06000001
   };
-  const restored = graphMemberTargetFromShare(graphMemberShareTarget(target));
-  const pkg = {
-    types: [{
-      assembly: "Example",
-      definitionId: "Example.Widget"
-    }]
-  };
-
-  assert.equal(
-    Object.prototype.hasOwnProperty.call(restored, "assemblyVersion"),
-    false);
-  assert.equal(restored.assembly, target.assembly);
-  assert.equal(restored.typeDefinitionId, target.typeDefinitionId);
-  assert.equal(
-    resolveLoadedGraphTargetCandidate([pkg], target).status,
-    "unique");
-  assert.equal(
-    resolveLoadedGraphTargetCandidate([pkg], restored).status,
-    "unique");
+  assert.equal(graphMemberShareTarget(target), null);
+  assert.equal(graphMemberTargetFromShare([
+    target.assembly,
+    "",
+    null,
+    null,
+    target.typeDefinitionId,
+    target.typeMetadataId,
+    target.memberName,
+    target.selectorKey,
+    target.metadataToken
+  ]), null);
 
   const explicitUnknown = {
     ...target,

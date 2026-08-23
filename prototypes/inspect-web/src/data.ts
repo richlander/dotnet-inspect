@@ -669,7 +669,11 @@ function isMethodDefinitionToken(value: unknown): value is number {
 export function graphMemberShareTarget(
   target: CallGraphTarget | null | undefined,
 ): GraphMemberShareTarget | null {
+  const hasAssemblyVersion = Object.prototype.hasOwnProperty.call(
+    target ?? {},
+    "assemblyVersion");
   if (!target?.assembly
+    || !hasAssemblyVersion
     || !target.typeDefinitionId
     || !target.memberName
     || !target.selectorKey
@@ -677,14 +681,9 @@ export function graphMemberShareTarget(
       && !isMethodDefinitionToken(target.metadataToken))) {
     return null;
   }
-  const assemblyVersion = Object.prototype.hasOwnProperty.call(
-      target,
-      "assemblyVersion")
-    ? target.assemblyVersion ?? null
-    : "";
   return [
     target.assembly,
-    assemblyVersion,
+    target.assemblyVersion ?? null,
     target.assemblyCulture ?? null,
     target.assemblyPublicKeyToken ?? null,
     target.typeDefinitionId,
@@ -783,7 +782,8 @@ export function graphMemberTargetFromShare(
     metadataToken,
   ] = fields;
   if (typeof assembly !== "string"
-    || (assemblyVersion != null && typeof assemblyVersion !== "string")
+    || (assemblyVersion != null
+      && (typeof assemblyVersion !== "string" || assemblyVersion.length === 0))
     || (assemblyCulture != null && typeof assemblyCulture !== "string")
     || (assemblyPublicKeyToken != null
       && typeof assemblyPublicKeyToken !== "string")
@@ -800,9 +800,7 @@ export function graphMemberTargetFromShare(
   }
   return {
     assembly,
-    ...(assemblyVersion !== "" && assemblyVersion !== undefined
-      ? { assemblyVersion }
-      : {}),
+    assemblyVersion: assemblyVersion ?? null,
     assemblyCulture: assemblyCulture ?? null,
     assemblyPublicKeyToken: assemblyPublicKeyToken ?? null,
     typeDefinitionId,
@@ -1321,8 +1319,7 @@ export function graphMemberSelection(
       const overload = group.overloads[overloadIndex];
       if ((overload.bodySelectors ?? []).some(body =>
         body.memberName === target.memberName
-        && body.selectorKey === target.selectorKey
-        && (target.metadataToken == null || body.token === target.metadataToken))) {
+        && body.selectorKey === target.selectorKey)) {
         bodyMatches.push({ groupIndex, overloadIndex });
       }
     }
