@@ -12,10 +12,10 @@
 
 const INDEX_URL = "/assets/platform-index.tsv";
 
-export type PlatformPack = "netcore.app" | "aspnetcore.app" | "netstandard";
-export type PlatformAssemblyKind = "impl" | "facade" | "ref";
+type PlatformPack = "netcore.app" | "aspnetcore.app" | "netstandard";
+type PlatformAssemblyKind = "impl" | "facade" | "ref";
 
-export interface PlatformAssemblyRow {
+interface PlatformAssemblyRow {
   tfm: string;
   pack: PlatformPack;
   assembly: string;
@@ -58,12 +58,18 @@ function parseTsv(text: string): ParsedIndex {
     if (!line) continue;
     const parts = line.split("\t");
     if (parts.length < 8) continue;
+    const pack = parts[1];
+    const kind = parts[4];
+    if (pack !== "netcore.app" && pack !== "aspnetcore.app" && pack !== "netstandard")
+      throw new Error(`Invalid platform pack '${pack}' on index line ${i + 1}.`);
+    if (kind !== "impl" && kind !== "facade" && kind !== "ref")
+      throw new Error(`Invalid platform assembly kind '${kind}' on index line ${i + 1}.`);
     const row: PlatformAssemblyRow = {
       tfm: parts[0],
-      pack: parts[1] as PlatformPack,
+      pack,
       assembly: parts[2],
       file: parts[3],
-      kind: parts[4] as PlatformAssemblyKind,
+      kind,
       forwardsTo: parts[5] || null,
       version: parts[6],
       publicTypes: Number(parts[7]) || 0
@@ -115,7 +121,7 @@ export function loadPlatformIndex(): Promise<PlatformIndex | null> {
       return response.text();
     })
     .then(text => makeIndex(parseTsv(text)))
-    .catch(error => {
+    .catch((error: unknown) => {
       indexPromise = null; // allow retry
       console.warn("platform index load failed", error);
       return null;

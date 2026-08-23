@@ -14,6 +14,13 @@ public record MatchOptions : ApiOptions
     public string? RightSelector { get; init; }
 
     /// <summary>
+    /// Additionally decompile both members and render a Research-owned side-by-side C#/IL
+    /// implementation-diff view alongside the verified structural clone relation (issue #4304
+    /// Slice 4). Decompilation is CPU-expensive, so this stays out of the default view.
+    /// </summary>
+    public bool IncludeImplementation { get; init; }
+
+    /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
     public override bool IsRawOutput => Bare || JsonOutput || Tabular || Jsonl || NoHeader || Count;

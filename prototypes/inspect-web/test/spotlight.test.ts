@@ -80,7 +80,8 @@ function createHarness({
     kindIcon: () => "C",
     searchResults,
     pickResult: () => {},
-    executeCommand: () => {},
+    executeCommand: () => undefined,
+    reportCommandError: () => {},
     commandContext: () => commandContext,
     schedulePackageFetch: () => {},
     resetPackageSearch: () => {},
@@ -182,7 +183,7 @@ test("modal arrow navigation reuses rendered results", () => {
     selectionStart: 7,
     selectionEnd: 7,
     addEventListener: (name, listener) => {
-      listeners.set(name, listener as (event: MockKeyboardEvent) => void);
+      listeners.set(name, listener);
     },
     focus: () => {},
     setAttribute: () => {},
@@ -201,12 +202,15 @@ test("modal arrow navigation reuses rendered results", () => {
     querySelector: selector => selector === "#spotlight-input" ? input : null,
     querySelectorAll: () => [],
   };
+  // The harness temporarily installs its minimal DOM globals and restores them below.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const globals = globalThis as unknown as {
     document?: Document;
     requestAnimationFrame?: (callback: FrameRequestCallback) => number;
   };
   const previousDocument = globals.document;
   const previousRequestAnimationFrame = globals.requestAnimationFrame;
+  // oxlint-disable typescript/no-unsafe-type-assertion
   globals.document = {
     querySelector: (selector: string) => {
       if (selector === "#spotlight-input") return input;
@@ -214,12 +218,15 @@ test("modal arrow navigation reuses rendered results", () => {
       return null;
     },
   } as unknown as Document;
+  // oxlint-enable typescript/no-unsafe-type-assertion
   globals.requestAnimationFrame = (callback: FrameRequestCallback) => {
     callback(0);
     return 0;
   };
 
   try {
+    // The root implements the exact ParentNode query surface Spotlight consumes.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     spotlight.bind(root as unknown as ParentNode, "modal");
     for (let index = 0; index < 4; index++) {
       listeners.get("keydown")!({
@@ -277,13 +284,20 @@ test("workspace Spotlight exposes commands as a dedicated scope", () => {
 test("home Spotlight keeps the shared typed UI without workspace commands", () => {
   const { spotlight } = createHarness();
 
-  const html = spotlight.inlineHtml(true);
-  assert.match(html, /class="home-search-content" inert/);
-  assert.match(html, /id="spotlight-input"/);
-  assert.match(html, /package, type, or member…/);
-  assert.doesNotMatch(html, /or command/);
-  assert.match(html, /data-sl-scope="runtime"[^>]*>Platform/);
-  assert.doesNotMatch(html, /data-sl-scope="commands"/);
+  const pendingHtml = spotlight.inlineHtml(true);
+  assert.match(pendingHtml, /class="home-search-content" inert/);
+  assert.match(pendingHtml, /id="spotlight-input"/);
+  assert.match(pendingHtml, /package, type, or member…/);
+  assert.doesNotMatch(pendingHtml, /or command/);
+  assert.match(pendingHtml, /data-sl-scope="runtime"[^>]*>Platform/);
+  assert.doesNotMatch(pendingHtml, /data-sl-scope="commands"/);
+  assert.doesNotMatch(pendingHtml, /home-search-glint/);
+
+  const readyHtml = spotlight.inlineHtml(false, true);
+  assert.match(readyHtml, /class="home-search-glint" aria-hidden="true"/);
+  assert.match(readyHtml, /class="home-search-glint-glow" pathLength="1"/);
+  assert.match(readyHtml, /class="home-search-glint-line" pathLength="1"/);
+  assert.doesNotMatch(spotlight.inlineHtml(false), /home-search-glint/);
 });
 
 test("command queries and command metadata are escaped in Spotlight markup", () => {
@@ -300,4 +314,3 @@ test("command queries and command metadata are escaped in Spotlight markup", () 
   assert.doesNotMatch(html, /<script/);
   assert.match(html, /find &lt;script class=&quot;x&quot;&gt;/);
 });
-

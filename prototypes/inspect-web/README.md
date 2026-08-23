@@ -57,11 +57,41 @@ shortening the selected assembly set.
    shared resolver, retry, response-body, archive-validation, and store paths;
    expiry is surfaced as a visible timeout instead of leaving the page behind
    an unbounded loading indicator.
-   Gallery version enumeration currently exposes raw flat-container versions
-   with unknown listing state. The version picker may display that partial
-   enumeration, but dependency wildcard and range selection fails closed until
-   registration-backed listing state is implemented; exact dependency pins
-   remain available.
+   Gallery version enumeration joins the flat-container list with bounded
+   SemVer2 registration metadata. Listed and unlisted versions remain visible
+   to the version picker, while dependency wildcard and range selection uses
+   listed versions only. A registration outage returns a typed partial list
+   with unknown state, keeps the picker available, and makes range selection
+   fail closed; exact dependency pins remain available.
+   `GalleryEnumerationJoinsAuthoritativeListingState`,
+   `GalleryExternalRegistrationPageIsValidatedAndRebased`,
+   `GalleryExternalPagesUseBoundedConcurrency`,
+   `GalleryRegistrationParserRetainsOnlyFlatCandidates`,
+   `GalleryRegistrationAggregateByteLimitIsTypedPartialEnumeration`,
+   `GalleryRegistrationDefaultAggregateCoversMeasuredMassTransitCanary`,
+   `GalleryRegistrationDefaultBatchExceedsPerResponseLimit`,
+   `GalleryRegistrationReservationWaitsForReturnedCapacity`,
+   `GalleryRegistrationMaterializationBudgetReturnsFailedAttemptCapacity`,
+   `GalleryLatePageDeadlineReturnsMaterializationCapacity`,
+   `GalleryCleanupFailureReturnsMaterializationCapacity`,
+   `GalleryRegistrationAggregateCountsFailedAttemptBytes`,
+   `GalleryRegistrationLeafLimitIsTypedPartialEnumeration`,
+   `GalleryRegistrationPageLimitIsTypedPartialEnumeration`,
+   `GalleryRegistrationTraversalHonorsCallerCancellation`,
+   `GalleryRegistrationTraversalUsesMonotonicDeadline`,
+   `RegistrationResourceLimitsMapToResponseRejected`,
+   `GalleryMalformedRegistrationIsTypedPartialEnumeration`,
+   `GalleryCorruptEncodedRegistrationIsTypedPartialEnumeration`,
+   `GalleryIncompleteRegistrationIsTypedPartialEnumeration`, and
+   `GalleryFinalListingProjectionExpiresToPartial` gate the source contract.
+   `GalleryCallerCancellationDuringRegistrationRemainsCancellation` and
+   `GalleryCallerCancellationOutranksConcurrentRegistrationFault` distinguish
+   actual caller cancellation from optional-registration fallback.
+   `DependencyRangeUsesAuthoritativeGalleryListingState`,
+   `DependencyRangeFailsClosedWhenGalleryRegistrationTimesOut`,
+   `BrowserGalleryDeadlineLeavesTimeForPartialRegistration`, and
+   `VersionPickerRetainsFlatListWhenRegistrationTimesOut` gate Browser
+   consumption.
 3. **Hand the group to a query.** The participants open one `InspectionWorkspace`
    and one binding-consistent `AssemblyContextGroup`. `BrowserInspectionScope`
    exposes exactly two hand-offs — `Use(group => query(group))` and
@@ -130,7 +160,7 @@ body selector even when the graph has no `MethodDef` token.
 | `engine/BrowserStyleOptions.cs` | resolving the client's style ids through `StyleOptionCatalog` |
 | `engine/BrowserXmlDocumentation.cs` | reading one member's package-shipped XML documentation |
 | `engine/InspectionEngine.cs` | the supported `[JSExport]` operations |
-| `engine/BrowserSourceOperations.cs` | pathless authored-or-decompiled type/member source and Browser source capabilities |
+| `engine/BrowserSourceOperations.cs` | pathless PDB-mapped-or-decompiled type/member source and Browser source capabilities |
 | `engine/BrowserUnsupportedOperations.cs` | the `[JSExport]` operations this engine refuses |
 
 Inspected assemblies are read with System.Reflection.Metadata only, are never
@@ -269,7 +299,7 @@ visible failure, not a silently ignored selection.
 
 The three source exports resolve the exact structured type identity and opaque
 member body selector against the implementation participant before calling
-`AssemblyContextSourceQuery`. The query tries checksum-verified authored source
+`AssemblyContextSourceQuery`. The query tries checksum-verified PDB source
 through Browser HTTP and explicit nuget.org authorization, then falls back to
 pathless decompilation under the workspace binding policy. Symbol-package
 responses are capped at 24 MiB, expanded PDBs at 8 MiB, and archives at 2,048
@@ -305,10 +335,12 @@ bounded cache operation for other consumers; `CancelledWait_ReleasesSharedPackag
 gates that separation. Source lookup therefore adds no ambient filesystem
 dependency or unbounded retained cache. Typed rejection and unavailable
 outcomes become visible failures; only an `Available` result crosses the
-bridge. Decompiled results disclose why the authored attempt was unavailable.
+bridge. Decompiled results disclose why the PDB-source attempt was unavailable.
+`BrowserEngineBoundaryTests.DecompiledSources_CarryPdbAttemptLimitation` gates
+that adapter wiring.
 Reference-only type source is refused rather than presented as a body-free
 decompilation. Printer options apply to decompiled fallback and never rewrite
-authored source. Whole-member source remains MethodDef-scoped: a
+PDB source. Whole-member source remains MethodDef-scoped: a
 call-graph accessor body reports that limitation rather than returning its owner
 property or the whole type as a success-shaped substitute, and bodiless API
 groups do not offer a Source section.
@@ -463,16 +495,90 @@ and shared-workspace deep links retain the full loading interstitial. The `bare
 home paints before wasm engine download` JavaScript test gates this startup
 boundary.
 
+The home page identifies the browser stack below its search surface and links
+to the client-rendered `/credits` route. `src/credits-panel.ts` owns that page's
+markup, route recognition, and rendered control bindings. Azure Static Web Apps
+rewrites direct Credits requests to the non-cacheable `index.html`; the
+document's root base keeps SDK-generated framework imports valid on both
+`/credits` and `/credits/`. `scripts/verify-site-artifact.js` gates that base
+and its ordering in the Vite bundle and SDK-published site. Other application
+routes use the navigation fallback, while API, asset, and framework requests
+remain excluded.
+
 The .NET 11 preview Emscripten wrapper currently mishandles an SDK packs path
 that contains whitespace. If that applies to the local SDK installation, pass
 `EmscriptenSdkToolsPath` pointing to a no-whitespace link to the installed
 Emscripten `tools` directory.
+
+## Static analysis
+
+Run both frontend analysis gates locally with:
+
+```bash
+cd prototypes/inspect-web
+npm run typecheck
+npm run analyze
+```
+
+The TypeScript gate checks product and test projects with `strict`,
+`exactOptionalPropertyTypes`, and `noImplicitReturns`. `npm run analyze` then
+runs Oxlint with its tsgolint backend against the same TypeScript 7.0.2
+toolchain used to build the product. Correctness and suspicious diagnostics,
+type-aware promise and unsafe-operation checks, warnings, and unused
+suppression directives all fail the gate. Browser/background promises must
+either preserve sequencing or surface unexpected rejection visibly. The exact
+`node:test` `test` call is the only configured safe promise-returning call
+because the test runner owns and observes that returned promise.
+
+Oxlint checks both checked-in tsbindgen outputs as consumer contracts:
+`src/inspect-web-engine.d.ts` receives the TypeScript rules, while
+`engine/wwwroot/inspect-web-engine.js` receives the JavaScript correctness and
+suspicious rules described below. TypeScript compilation and the generated
+surface drift gate provide independent declaration coverage. The toolchain
+test pins both generated lint inputs so a generator change cannot silently
+leave analysis coverage. The configuration disables four non-correctness
+rules: underscore spelling, function relocation, listener API preference, and
+`Array.prototype.sort`. Those rules prescribe naming/layout churn or, for
+sorting, the ES2023 `toSorted` API while this project targets ES2022.
+
+Existing JavaScript tests and verification scripts remain covered by Oxlint's
+correctness and suspicious rules, but not by its unsafe-operation type rules:
+adding a shadow type model or migrating those files to TypeScript is outside
+this analysis change. Their dependency and reachability graph remains covered
+by Knip.
+
+Knip checks authored source, every TypeScript and JavaScript test, and
+build/verification scripts for unused files, exports, and dependencies.
+`knip.json` excludes only `engine/wwwroot/inspect-web-engine.js`: that generated
+publish artifact imports `./_framework/dotnet.js`, which exists only after Wasm
+publish. The exclusion is specific to Knip reachability; Oxlint still checks
+the generated module.
+
+The tsgolint semantic backend publishes native binaries for x64 and arm64 hosts
+running macOS, Linux (glibc or musl), or Windows. Those are the supported
+development-analysis hosts; `npm run lint` fails before launching the analyzer
+on other operating-system or architecture combinations, including Linux
+ppc64le and s390x. Oxlint itself supports additional hosts, but type-aware
+analysis is the limiting capability. This approved development-tool exception
+does not affect the browser/Wasm product runtime or artifact. The host-matrix
+unit test derives the supported intersection from the locked Oxlint and
+tsgolint package metadata, requires both Linux libc variants, and pins the npm
+preflight wiring; `npm run analyze` on macOS arm64 and the Linux x64 CI host
+gates the supported paths.
+
+`noUncheckedIndexedAccess` is not enabled yet. A TypeScript 7.0.2 migration
+probe reports 77 findings across 15 files: 65 in nine product files and 12 in
+six test files. [Issue #4549](https://github.com/richlander/dotnet-inspect/issues/4549)
+records the probe commands, file distribution, and migration discipline; the
+set should be migrated with close negative tests for indexing behavior rather
+than hidden behind assertions.
 
 ## Test
 
 ```bash
 cd prototypes/inspect-web
 npm ci
+npm run analyze
 npm run build
 npm test
 cd ../..
@@ -514,9 +620,9 @@ above on every browser-engine CI run.
 Pull requests that change the browser prototype, its shared annotated-source
 viewer, product dependencies, or repository build inputs run the `inspect-web`
 CI job. That job installs the locked Node dependencies, checks and bundles the
-TypeScript/JavaScript frontend, compiles the platform-index generator, publishes
-the Release Wasm bundle, runs the browser-engine tests, and runs both frontend
-test suites.
+TypeScript/JavaScript frontend, rejects unused authored files, exports, and
+dependencies, compiles the platform-index generator, publishes the Release Wasm
+bundle, runs the browser-engine tests, and runs both frontend test suites.
 The `eng/CiChangeDetection` gate, invoked through
 `eng/test-ci-change-detection.cs`, gates the path classification, and
 `ci-required` includes the job's result.
@@ -627,9 +733,10 @@ removal, and both silent transient-failure paths; the composition-root gate
 checks that network and DOM authority remain outside the coordinator.
 
 The typed `src/status-bar.ts` component renders both the full-width workspace
-data bar and the home readiness bar. The workspace bar occupies the bottom row
-formerly used by the persistent command prompt, giving the bar the full
-viewport width. By default the bar shows a compact, single-line summary in
+data bar and the home readiness bar and owns their rendered toggle binding.
+The workspace bar occupies the bottom row formerly used by the persistent
+command prompt, giving the bar the full viewport width. By default the bar
+shows a compact, single-line summary in
 priority order: app version/commit, package provenance, build date, and a
 one-line performance summary. A dedicated toggle button at the end of the bar
 (so it never overlaps the commit link) expands and collapses the view,
@@ -646,113 +753,160 @@ Symbol/PDB acquisition status is not yet surfaced here — no backend contract
 reports it today — and is a tracked fast-follow.
 
 `src/type-panel.ts` owns the type selector (the "PUBLIC TYPES" / "MEMBERS" nav
-pane) and the type viewer (the type heading, metadata, and source sections
-shown for the "type" scope) as pure, dependency-injected render functions.
+pane), its rendered DOM control bindings (including member filters,
+composition jumps, member navigation, and member/type copy controls), and the
+type viewer (the type heading, metadata, and source sections shown for the
+"type" scope).
 `dotnet-inspect.ts` still owns the type index, filtering, member grouping, and
-click/keyboard navigation, and passes each computed slice in explicitly; the
+navigation state transitions, and supplies them through typed callbacks; the
 shared text helpers used well beyond the type panel (`kindIcon`, `shortKind`,
 `typeDisplayName`, `highlight`, `highlightCSharp`, `factRows`,
 `relatedTypeChip`) stay in `dotnet-inspect.ts` and are injected the same way.
-`test/type-panel.test.ts` gates namespace grouping and selection in the type
-list, active-group and overload selection in the member list, the type
-heading's package/library fields, the metadata- and source-signature cache
-keys, and the metadata/source panels' loading, error, and loaded states.
+`test/type-panel.test.ts` gates every rendered control binding, type-filter
+keyboard behavior, namespace grouping and selection in the type list,
+active-group and overload selection in the member list, the type heading's
+package/library fields, the metadata- and source-signature cache keys, and the
+metadata/source panels' loading, error, and loaded states.
 
 `src/package-bar.ts` owns the package tab strip (including the always-present
-Platform tab), the open-package query form, and their keyboard/mouse/wheel
-interaction. `dotnet-inspect.ts` supplies the workspace effects — selecting, closing, and
-opening a package or the runtime pack — so the component acquires no engine or
-workspace authority. `test/package-bar.test.ts` gates tab markup, active/close
-state, escaping, and open-package query parsing.
+Platform tab), the open-package query form, package framework/version controls,
+and their keyboard/mouse/wheel interaction. `dotnet-inspect.ts` supplies the
+workspace effects — selecting, closing, opening, or changing a package or the
+runtime pack — so the component acquires no engine or workspace authority.
+`test/package-bar.test.ts` gates tab markup, active/close state, escaping,
+open-package query parsing, and package selection dispatch.
+
+`src/package-view.ts` owns package-level dependency, overview, type-graph, and
+performance navigation bindings. `dotnet-inspect.ts` still owns package and
+filter state, in-place dependency updates, navigation effects, and member
+inspection effects behind typed callbacks. `test/package-view.test.ts` gates
+dataset decoding, missing values, replacement dependency-list binding, inactive
+surfaces, and no eager dispatch.
+
+`src/library-controls.ts` owns library/accessibility filters, the primary
+Platform library selector, and the lens-scoped Platform library selectors.
+`dotnet-inspect.ts` still owns filter mutation, runtime-pack acquisition,
+generation checks, visible retry state, and lens reload effects behind typed
+callbacks. `test/library-controls.test.ts` gates selector mapping, pack
+provenance/defaults, empty selections, inactive surfaces, and no eager
+dispatch.
+
+`src/shell-controls.ts` owns the rendered workbench chrome, home demo/theme
+controls, and load-error retry/query/detail bindings. It reuses the package
+query grammar from `package-bar.ts`; `dotnet-inspect.ts` still owns notice and
+package state, navigation/history, sharing, theme effects, demo orchestration,
+retry selection, and package loading behind typed callbacks.
+`test/shell-controls.test.ts` gates every selector, valid and invalid home demo
+identities, replacement-package parsing, local error-detail state, inactive
+surfaces, and no eager dispatch.
+
+`src/graph-interactions.ts` owns graph-back, pan/zoom, pointer, keyboard, zoom
+button, and rendered Mermaid node bindings for type, dependency, and call
+graphs. `dotnet-inspect.ts` still owns typed graph-target resolution, package
+and member navigation, platform descent, graph rendering, and stale-render
+suppression behind callback resolvers. `test/graph-interactions.test.ts` gates
+stable Mermaid node identity decoding, navigable and informational nodes,
+drag-click suppression, every pan/zoom input, inactive surfaces, and no eager
+dispatch.
 
 `src/settings-panel.ts` owns the Settings page and the decompiler "taste"
-popover it shares its style catalog with, as pure, dependency-injected render
-functions. `dotnet-inspect.ts` still owns `state`, localStorage persistence for theme and
-taste, and event wiring (`setTheme`, `toggleTaste`, `clearTaste`), and passes
-each computed slice in explicitly. `test/settings-panel.test.ts` gates the
-style catalog's tier grouping, byte-divergent badges, and checked state; the
-taste popover's active/default states; and the Settings page's theme segment,
-close-button label, and active-style-count states.
+popover it shares its style catalog with, including each surface's rendered DOM
+bindings and the home/workbench controls that open them. `dotnet-inspect.ts`
+still owns `state`, localStorage persistence, and the
+theme/taste/open/close effects, supplying those actions through typed callbacks.
+`test/settings-panel.test.ts` gates the mutually exclusive Settings and popover
+binding shapes, input validation, the style catalog's tier grouping,
+byte-divergent badges and checked state, the taste popover's active/default
+states, and the Settings page's theme, close, and active-style-count states.
 
 `src/scope-bar.ts` owns the scope switcher and lens strip (the segmented
 Package/Types/Member control and the buttons beside it for the active scope's
-lenses or member sections) as a pure, dependency-injected render function.
+lenses or member sections), including their rendered DOM bindings.
 `dotnet-inspect.ts` still owns the current scope, the package/type/member lens
-definitions, and the active lens/section per scope, and passes each computed
-slice in explicitly. `test/scope-bar.test.ts` gates the active scope segment,
-the active lens/section marking per scope, keyboard-shortcut indices, and
-label escaping.
+definitions, and each navigation state transition, supplying those effects
+through typed callbacks. `test/scope-bar.test.ts` gates each mutually exclusive
+binding shape, the active scope segment, active lens/section marking,
+keyboard-shortcut indices, and label escaping.
 
 `src/metadata-viewer.ts` owns the Metadata lens (the image-level summary of each
 assembly — format stamp, heap sizes, ECMA-335 table row counts, and PE/CLI
 headers) and the Metadata Explorer (the spatial table/heap drill-down laid over
-it) as pure, dependency-injected render functions; both describe the metadata
+it), including the explorer's rendered DOM bindings. Both describe the metadata
 image rather than the API surface within it, so they share one module the way
 `type-panel.ts` combines the type selector and the type viewer.
 `package-inspection.ts` coordinates the package-level image request, while
 `metadata-inspection.ts` coordinates type metadata and the explorer's
 table-window and heap-listing requests. `dotnet-inspect.ts` still owns `state`,
-the explorer's focus/history stack, the DOM event binding, the
-`IntersectionObserver` that hydrates cards lazily, the resize listener, and
-the global keydown handler, and passes each computed slice in explicitly; the
-shared helpers used well beyond these views (`escapeHtml`, `fmtBytes`,
+the explorer's focus/history stack, lazy `IntersectionObserver` hydration,
+resize coordination, and the global keydown handler, supplying those effects
+through typed callbacks; the shared helpers used well beyond these views
+(`escapeHtml`, `fmtBytes`,
 `platformLensPicker`, `scopedPlatformLibrary`, `packageScopeSignature`) stay
 in `dotnet-inspect.ts` and are injected the same way.
 `test/metadata-viewer.test.ts` gates the lens's picker, loading, failure,
 stale-scope, partial-read, and empty-image states and its heap/table ordering;
-the explorer's chips, history-button
-enablement, overview versus focus lightbox, lazy-load hooks, pager bounds, row
-highlight and selection, ref->def jump targets, cell escaping, heap addressing
-and coverage notes, and the row inspector.
+the Metadata-lens table/heap entry controls, the explorer's mutually exclusive
+overview/focus binding shapes, chips, history-button enablement, overview
+versus focus lightbox, lazy-load hooks, pager bounds, row highlight and
+selection, ref->def jump targets, cell escaping, heap addressing and coverage
+notes, and the row inspector.
 
 `src/doc-viewer.ts` owns the package document modal (the Markdown reader
-opened from a package's documents list) as a pure, dependency-injected render
-function. `src/document-inspection.ts` owns its sequence-guarded async
-load/close lifecycle, visible failure, and frontmatter projection.
+opened from a package's documents list) and that list's markup, including its
+open, close, and bare-backdrop bindings. `src/document-inspection.ts` owns its
+sequence-guarded async load/close lifecycle, visible failure, and frontmatter
+projection.
 `dotnet-inspect.ts` validates the selected package document and supplies the
 engine, sanitized Markdown-rendering, state, and render ports.
 `test/doc-viewer.test.ts` gates the closed/no-document fallback, loading and
 error presentation, the
 frontmatter card's presence and fields, and title/subtitle/frontmatter-name
-escaping; `test/document-inspection.test.ts` gates exact request coordinates,
+escaping, package-document list output, open dispatch, and button/backdrop
+close dispatch;
+`test/document-inspection.test.ts` gates exact request coordinates,
 frontmatter projection, stale-stage suppression, visible failures, and close
 invalidation (the rendered document body is trusted, pre-sanitized Markdown
 HTML and is not escaped).
 
 `src/graph-source.ts` owns the member source modal (the code viewer opened
-from a call graph node) as a pure, dependency-injected render function.
+from a call graph node), including its rendered close and bare-backdrop
+bindings.
 `source-inspection.ts` owns its sequence-guarded async lifecycle;
 `dotnet-inspect.ts` supplies `state`, the typed engine port, and the
 `highlightCSharp` Prism wrapper, and passes each computed slice explicitly.
 `test/graph-source.test.ts` gates the loading state, the
 original-versus-decompiled provenance labels, the open-source link's presence
 only when a `url` is provided, the error state's fallback message, and title
-escaping in both the header and loading status.
+escaping in both the header and loading status, plus button/backdrop close
+dispatch.
 
 `src/annotated-source.ts` owns the annotated source result (the
-fact-annotated C#/IL dual view shown for a member overload) as a pure,
-dependency-injected render function; it composes `annotated-source-view.ts`'s
-`buildAnnotatedView` projection into markup. `member-detail-inspection.ts` owns
-the sequence-guarded async load lifecycle; `dotnet-inspect.ts` still owns
-`state` and the medium-toggle/fact-selection event handlers, and passes each
-computed slice in explicitly.
+fact-annotated C#/IL dual view shown for a member overload), including its
+rendered copy, medium, fact, source-offset, and clear-selection bindings; it
+composes `annotated-source-view.ts`'s `buildAnnotatedView` projection into
+markup. `member-detail-inspection.ts` owns the sequence-guarded async load
+lifecycle; `dotnet-inspect.ts` still owns `state`, document interpretation,
+copy/render effects, and the selection transitions, supplying them through
+typed callbacks.
 `test/annotated-source.test.ts` gates the rejected-document fallback, the
 medium toggles and hidden-line count, the context-limitation notice, anchored
-versus unanchored fact rendering, selection state, and source-text escaping.
+versus unanchored fact rendering, selection state, binding dispatch and
+malformed dataset behavior, and source-text escaping.
 
 `src/package-opportunities.ts` owns the package/platform "Integration
 opportunities" lens (the ecosystem auth/cloud/config/database/AI-client
-integration suggestions for a package or platform library) as a pure,
-dependency-injected render function, including its opportunity-row API-name
-splitting, package-chip detection, and "look for" chip rendering. `dotnet-inspect.ts`
-still owns `state` and the platform library picker, `package-inspection.ts`
-owns the scan-scope-keyed async load lifecycle, and the root passes each
-computed slice into the renderer explicitly.
+integration suggestions for a package or platform library), including its
+rendered DOM bindings, opportunity-row API-name splitting, package-chip
+detection, and "look for" chip rendering. `dotnet-inspect.ts` still owns
+`state`, target resolution, navigation effects, and the platform library
+picker, `package-inspection.ts` owns the scan-scope-keyed async load lifecycle,
+and the root supplies behavior through typed callbacks.
 `test/package-opportunities.test.ts` gates the platform pick-a-library prompt,
 the scanning/loading/error states (fresh versus stale scope), the
 no-opportunities and inspection-error banners, the category summary counts,
 API name splitting, package-chip versus plain-text kind rendering, look-for
-chip/wildcard/empty rendering, and text escaping.
+chip/wildcard/empty rendering, binding dispatch and empty-value behavior, and
+text escaping.
 
 - `Cmd/Ctrl+K` opens Spotlight in the Commands scope.
 - `Cmd/Ctrl+P` opens Spotlight in the All scope.

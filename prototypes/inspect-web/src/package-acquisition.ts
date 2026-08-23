@@ -179,7 +179,7 @@ export interface NuGetPackageRequest {
 
 export interface RuntimeAcquisitionResult {
   packageModel: AppPackage | null;
-  error: unknown | null;
+  error: unknown;
 }
 
 export interface PackageAcquisition {
@@ -202,8 +202,9 @@ export function createPackageAcquisition(
   let runtimeOperation: Promise<AppPackage | null> | null = null;
 
   const waitForRuntimeOperation = async () => {
-    while (runtimeOperation) {
+    for (;;) {
       const pending = runtimeOperation;
+      if (!pending) return;
       try {
         await pending;
       } catch {
@@ -291,7 +292,7 @@ export function createPackageAcquisition(
             === requestedFramework.toLowerCase())
         && resident.assemblies.some(assembly =>
           assembly.name.toLowerCase()
-            === String(assemblyFileName).toLowerCase())) {
+            === assemblyFileName.toLowerCase())) {
         return { packageModel: resident, error: null };
       }
 

@@ -1,6 +1,7 @@
 import {
   activeSourceOperationKind,
   assemblyDescriptorForType,
+  pdbSourceLimitationHtml,
   callGraphDiagnosticsMessage,
   callGraphTargetMatchesType,
   callGraphTargetTypeId,
@@ -8,7 +9,6 @@ import {
   createDependencyGraphRenderSequence,
   dependencyCoordinateCandidates,
   dependencyGroupSelectionMessage,
-  dependencyGraphGroupSelectionIndex,
   dependencyGraphRenderSignature,
   graphTargetNavigationDisposition,
   graphMemberSelection,
@@ -17,7 +17,6 @@ import {
   MAX_WORKSPACE_PACKAGES,
   memberRequestKey,
   memberSectionIdsFor,
-  mermaidLabel,
   packageCoordinateMatchesLocation,
   packageForView,
   packageIdentityKey,
@@ -30,7 +29,6 @@ import {
   scopedRequestState,
   sourceReloadKind,
   sourceRequestNeedsLoad,
-  selectedDependencyGroup,
   spotlightCandidateKey,
   spotlightCandidateSignature,
   type DependencyGroupData,
@@ -51,7 +49,6 @@ import {
   restoreLibraryScope,
   restoreMemberHistoryState,
   type BodyTarget,
-  type FilterableMemberGroup,
 } from "./member-filtering.ts";
 import {
   createNavigationHistory,
@@ -73,6 +70,24 @@ import {
   type PackagePerformance,
 } from "./package-inspection.ts";
 import {
+  bindPackageDependencyList,
+  bindPackageView,
+  type PackageViewBindingActions,
+} from "./package-view.ts";
+import {
+  bindLibraryControls,
+  type LibraryControlBindingActions,
+  type PlatformLibraryLens,
+} from "./library-controls.ts";
+import {
+  bindHomeShell,
+  bindLoadErrorShell,
+  bindWorkbenchShell,
+  type HomeShellBindingActions,
+  type LoadErrorShellBindingActions,
+  type WorkbenchShellBindingActions,
+} from "./shell-controls.ts";
+import {
   createSourceInspectionCoordinator,
   type GraphSourceRequest,
 } from "./source-inspection.ts";
@@ -82,7 +97,6 @@ import {
 } from "./metadata-inspection.ts";
 import {
   createMemberDetailInspectionCoordinator,
-  type MemberFactRow,
   type MemberFacts,
 } from "./member-detail-inspection.ts";
 import {
@@ -100,23 +114,44 @@ import {
   buildTypeGraphMermaid
 } from "./graph-mermaid.ts";
 import {
+  bindDependencyGraphNodes,
+  bindGraphBack,
+  bindGraphPanZoom,
+  bindTypeGraphNodes,
+  type CallGraphNodeBinding,
+  type GraphBackBindingActions,
+} from "./graph-interactions.ts";
+import {
   factsForNode,
   MEDIA,
   nodeAtOffset,
   validateAnnotatedSourceDocument,
 } from "./annotated-source-view.ts";
-import { renderScopeBar as renderScopeBarPure } from "./scope-bar.ts";
 import {
+  bindScopeBar,
+  renderScopeBar as renderScopeBarPure,
+} from "./scope-bar.ts";
+import {
+  bindDocViewer,
   renderDocViewer as renderDocViewerPure,
+  renderPackageDocuments,
   type DocViewerMeta,
 } from "./doc-viewer.ts";
-import { renderGraphSource as renderGraphSourcePure } from "./graph-source.ts";
 import {
+  bindGraphSource,
+  renderGraphSource as renderGraphSourcePure,
+} from "./graph-source.ts";
+import {
+  bindAnnotatedSource,
   renderAnnotatedSource as renderAnnotatedSourcePure,
   type AnnotatedSourceResult,
 } from "./annotated-source.ts";
-import { renderPackageOpportunities as renderPackageOpportunitiesPure } from "./package-opportunities.ts";
 import {
+  bindPackageOpportunities,
+  renderPackageOpportunities as renderPackageOpportunitiesPure,
+} from "./package-opportunities.ts";
+import {
+  bindTypePanel,
   renderMemberNav,
   renderTypeMetadata,
   renderTypeNav,
@@ -126,8 +161,14 @@ import {
   typeMetadataSignature,
   typeSourceSignature,
 } from "./type-panel.ts";
-import { createPackageBar, type PackageBarPackage } from "./package-bar.ts";
 import {
+  createPackageBar,
+  findPackageTabForQuery,
+  type PackageBarPackage,
+  type ParsedPackageQuery,
+} from "./package-bar.ts";
+import {
+  bindMetadataExplorer,
   cssEscape,
   estimateExplorerPageSize,
   EXPLORER_PAGE,
@@ -142,6 +183,7 @@ import {
   type PackageMetadata,
 } from "./metadata-viewer.ts";
 import {
+  bindSettingsPanel,
   renderSettingsView,
   renderTastePopover,
   type StyleOption,
@@ -160,10 +202,13 @@ import {
   createCatalogRequests,
   type DotnetRelease,
 } from "./catalog-requests.ts";
-import { fmtBytes, statusBarHtml } from "./status-bar.ts";
+import { bindStatusBar, fmtBytes, statusBarHtml } from "./status-bar.ts";
+import {
+  bindCreditsPanel,
+  isCreditsPath,
+  renderCreditsPage,
+} from "./credits-panel.ts";
 import type {
-  BrowserAnnotatedSource,
-  BrowserAssemblyReference,
   BrowserBuildIdentity,
   BrowserCallGraph,
   BrowserCallGraphTarget,
@@ -300,8 +345,10 @@ interface AppMemberSurface extends BrowserMemberSurface {
 
 function loadStoredTaste() {
   try {
-    const value = JSON.parse(localStorage.getItem("inspect-taste") || "[]");
-    return Array.isArray(value) ? value.filter(item => typeof item === "string") : [];
+    const value: unknown = JSON.parse(localStorage.getItem("inspect-taste") || "[]");
+    if (!Array.isArray(value)) return [];
+    const entries: unknown[] = value;
+    return entries.filter((item): item is string => typeof item === "string");
   } catch {
     return [];
   }
@@ -317,10 +364,13 @@ const RECENT_PACKAGES_MAX = 12;
 // browser HTTP cache when still present).
 function loadRecentPackages() {
   try {
-    const value = JSON.parse(localStorage.getItem("inspect-recent-packages") || "[]");
+    const value: unknown = JSON.parse(
+      localStorage.getItem("inspect-recent-packages") || "[]");
     if (!Array.isArray(value)) return [];
-    return value
-      .filter(entry => entry && typeof entry.id === "string" && entry.id)
+    const entries: unknown[] = value;
+    return entries
+      .filter((entry): entry is Record<string, unknown> & { id: string } =>
+        isRecord(entry) && typeof entry.id === "string" && entry.id.length > 0)
       .map(entry => ({
         id: entry.id,
         version: typeof entry.version === "string" && entry.version ? entry.version : "latest",
@@ -339,10 +389,13 @@ function loadRecentPackages() {
 // remembered ASP.NET Core library re-materialises from the right shared framework.
 function loadPlatformRecent() {
   try {
-    const value = JSON.parse(localStorage.getItem("inspect-platform-recent") || "[]");
+    const value: unknown = JSON.parse(
+      localStorage.getItem("inspect-platform-recent") || "[]");
     if (!Array.isArray(value)) return [];
-    return value
-      .filter(entry => entry && typeof entry.assembly === "string")
+    const entries: unknown[] = value;
+    return entries
+      .filter((entry): entry is Record<string, unknown> & { assembly: string } =>
+        isRecord(entry) && typeof entry.assembly === "string")
       .map(entry => ({
         assembly: entry.assembly.replace(/\.dll$/i, ""),
         pack: entry.pack === "aspnetcore.app" ? "aspnetcore.app" : "netcore.app",
@@ -353,7 +406,7 @@ function loadPlatformRecent() {
   }
 }
 
-type RetryAction = (() => unknown) | null;
+type RetryAction = (() => void | Promise<unknown>) | null;
 
 interface SpotlightCache {
   signature: string;
@@ -401,16 +454,24 @@ interface Diagnostics {
 type MemberSection = "overview" | "source" | "annotated" | "call-graph" | "facts";
 
 function isMemberSection(value: string): value is MemberSection {
-  return memberSections.includes(value as MemberSection);
+  return memberSections.some(section => section === value);
+}
+
+function isAnnotatedMedium(value: string): value is (typeof MEDIA)[number] {
+  return MEDIA.some(medium => medium === value);
 }
 
 let spotlightCache: SpotlightCache | null = null;
+const HOME_BOT_ANIMATION_DURATION_MS = 5500;
+let homeBotAnimationStartedAt: number | null = null;
+let homeReadyGlintPending = true;
 const initialState = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   statusBarExpanded: false,
   packages: [],
   package: null,
   home: false,
+  credits: false,
   platformIndex: null,
   queryNotice: "",
   queryNoticeRetryAction: null,
@@ -421,7 +482,7 @@ const initialState = {
   selectedMemberKey: "",
   memberBrowseTypeId: "",
   selectedOverloadIndex: null,
-  memberSection: "overview",
+  memberSection: "overview" as const,
   memberKindFilter: "all",
   memberAccessibilityFilter: "all",
   memberTraitFilter: "",
@@ -504,7 +565,7 @@ const initialState = {
   spotlightQuery: "",
   spotlightIndex: 0,
   spotlightScope: "all",
-  spotlightFocus: "input",
+  spotlightFocus: "input" as const,
   spotlightChipIndex: 0,
   spotlightPkgHits: [],
   spotlightPkgLoading: false,
@@ -541,6 +602,7 @@ const initialState = {
   loadingMessage: "Starting browser inspection engine…",
   loadingSubtitle: "",
   engineReady: false,
+  engineStartupFailed: false,
   engineStatus: "Loading browser WebAssembly…",
   error: "",
   errorTitle: "",
@@ -602,7 +664,7 @@ interface StateOverrides {
 
 type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides;
 
-const state = initialState as AppState;
+const state: AppState = initialState;
 const sourceInspection = createSourceInspectionCoordinator({
   state,
   queryMemberSource: request => inspectMemberSource(
@@ -832,11 +894,16 @@ function applyView(view: WorkspaceView) {
   state.selectedBodyTarget = memberHistory.selectedBodyTarget;
   navigationHistory.normalizeCurrent();
   if (!state.atPackageRoot && state.lens === "api" && state.selectedMemberKey && member) {
-    if (state.memberSection === "source") loadSelectedMemberSource();
-    else if (state.memberSection === "annotated") loadSelectedMemberAnnotatedSource();
-    else if (state.memberSection === "call-graph") loadSelectedMemberCallGraph();
-    else if (state.memberSection === "facts") loadSelectedMemberFacts();
-    else loadSelectedMemberDocumentation();
+    if (state.memberSection === "source")
+      observeAsync(loadSelectedMemberSource(), "Loading member source");
+    else if (state.memberSection === "annotated")
+      observeAsync(loadSelectedMemberAnnotatedSource(), "Loading annotated member source");
+    else if (state.memberSection === "call-graph")
+      observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
+    else if (state.memberSection === "facts")
+      observeAsync(loadSelectedMemberFacts(), "Loading member facts");
+    else
+      observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
   } else {
     render();
   }
@@ -907,7 +974,9 @@ const initialLocation = parseLocation();
 // A bare visit (no package, no shared workspace packet) lands on the intro/home page
 // instead of auto-loading a package. Any deep link or shared link skips home and restores
 // its workspace directly.
-state.home = !initialLocation.package && !(initialLocation.tabs && initialLocation.tabs.length);
+state.credits = isCreditsPath(location.pathname);
+state.home = state.credits
+  || (!initialLocation.package && !(initialLocation.tabs && initialLocation.tabs.length));
 state.queryNotice = initialLocation.workspaceNotice || "";
 if (initialLocation.package) {
   state.requestedPackage = initialLocation.package;
@@ -935,15 +1004,18 @@ const initialDeepLink = {
   memberTraitFilter: initialLocation.memberTraitFilter
 };
 
-function requireElement<T extends Element>(selector: string): T {
-  const element = document.querySelector<T>(selector);
+function requireElement(selector: string): HTMLElement {
+  const element = document.querySelector<HTMLElement>(selector);
   if (!element) throw new Error(`Required element '${selector}' is missing.`);
   return element;
 }
 
-const app = requireElement<HTMLElement>("#app");
-let mermaidModule;
-let markdownModule;
+const app = requireElement("#app");
+type MermaidModule = typeof import("https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.esm.min.mjs");
+type MarkedModule = typeof import("https://cdn.jsdelivr.net/npm/marked@15.0.7/lib/marked.esm.js");
+type DomPurifyModule = typeof import("https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.es.mjs");
+let mermaidModule: Promise<MermaidModule> | undefined;
+let markdownModule: Promise<[MarkedModule, DomPurifyModule]> | undefined;
 const depGraphRenderSequence = createDependencyGraphRenderSequence();
 let callGraphRenderSeq = 0;
 let spotlightFocusGeneration = 0;
@@ -958,11 +1030,49 @@ function escapeHtml(value: unknown) {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error ?? "");
+  if (error instanceof Error) return error.message;
+  if (isRecord(error) && typeof error.message === "string") return error.message;
+  if (typeof error === "string") return error;
+  if (typeof error === "number" || typeof error === "boolean" || typeof error === "bigint")
+    return String(error);
+  return "";
 }
 
+function reportAsyncFailure(description: string, error: unknown): void {
+  console.error(`${description} failed.`, error);
+  appendQueryNotice(
+    `${description} failed: ${errorMessage(error) || "Unknown error."}`);
+  render();
+}
+
+function observeAsync(
+  operation: Promise<unknown> | undefined,
+  description: string,
+): void {
+  if (!operation) return;
+  operation.catch((error: unknown) => {
+    reportAsyncFailure(description, error);
+  });
+}
+
+function observeAction(
+  action: () => void | Promise<unknown>,
+  description: string,
+): void {
+  try {
+    observeAsync(Promise.resolve(action()), description);
+  } catch (error) {
+    reportAsyncFailure(description, error);
+  }
+}
+
+// The Wasm engine is an in-process producer whose DTO surface is generated by tsbindgen.
+// Runtime validators are not generated yet, so this is the one trusted JSON/type boundary.
+// oxlint-disable-next-line typescript/no-unnecessary-type-parameters
 function parseEngineJson<T>(json: string): T {
-  return JSON.parse(json) as T;
+  const parsed: unknown = JSON.parse(json);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return parsed as T;
 }
 
 function currentPackage(): AppPackage {
@@ -993,11 +1103,13 @@ const spotlight = createSpotlight({
   searchResults: spotlightResults,
   pickResult: pickSpotlightResult,
   executeCommand,
+  reportCommandError: error =>
+    reportAsyncFailure("Running a Spotlight command", error),
   commandContext: () => !state.home && state.package
     ? { command: state.spotlightQuery, package: state.package }
     : null,
-  schedulePackageFetch: spotlightPackageSearch.schedule,
-  resetPackageSearch: spotlightPackageSearch.reset,
+  schedulePackageFetch: () => spotlightPackageSearch.schedule(),
+  resetPackageSearch: () => spotlightPackageSearch.reset(),
   packageSearchLoading: () => state.spotlightPkgLoading,
   packageCount: () => state.packages.length,
   activeFramework: () => state.package?.activeFramework || "",
@@ -1037,11 +1149,11 @@ function focusTypeList(generation = spotlightFocusGeneration) {
   });
 }
 
-function openSpotlight(seed = "", scope = "all") {
+function openSpotlight(seed = "", spotlightScope = "all") {
   if (state.loading || state.error) return;
   state.tasteOpen = false;
   beginSpotlightNavigation();
-  spotlight.open(seed, scope);
+  spotlight.open(seed, spotlightScope);
 }
 
 function closeSpotlight() {
@@ -1055,8 +1167,23 @@ const packageBar = createPackageBar({
   runtimePackPackage,
   selectPackageTab,
   closePackageTab,
-  openRuntimePack: openRuntimePackFromHome,
-  openPackage: (packageId, version) => loadPackage(packageId, version, ""),
+  openRuntimePack: () =>
+    observeAsync(openRuntimePackFromHome(), "Opening the .NET Platform"),
+  openPackage: openPackageQuery,
+  selectFramework: framework =>
+    observeAsync(
+      switchPackageFramework(framework),
+      "Switching the package framework"),
+  selectVersion: version => {
+    if (state.package?.isRuntimePack)
+      observeAsync(
+        switchPlatformVersion(version),
+        "Switching the platform version");
+    else
+      observeAsync(
+        switchPackageVersion(version),
+        "Switching the package version");
+  },
   showToast,
 });
 
@@ -1649,7 +1776,7 @@ function openMemberGroup(key: string) {
   state.selectedMemberKey = key;
   state.selectedOverloadIndex = null;
   resetMemberSectionState();
-  loadSelectedMemberDocumentation();
+  observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
 }
 
 function enterMemberScope() {
@@ -1691,7 +1818,7 @@ function normalizeMemberSelection() {
 function openOverload(index: number) {
   state.selectedOverloadIndex = index;
   resetMemberSectionState();
-  loadSelectedMemberDocumentation();
+  observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
 }
 
 // Switch the open member's section (Overview / Call graph / Facts / Source / Annotated) and
@@ -1707,11 +1834,16 @@ function applyMemberSection(id: MemberSection) {
     invalidateMemberCallGraphWork(state);
   }
   state.memberSection = id;
-  if (id === "source") loadSelectedMemberSource();
-  else if (id === "annotated") loadSelectedMemberAnnotatedSource();
-  else if (id === "call-graph") loadSelectedMemberCallGraph();
-  else if (id === "facts") loadSelectedMemberFacts();
-  else if (id === "overview") loadSelectedMemberDocumentation();
+  if (id === "source")
+    observeAsync(loadSelectedMemberSource(), "Loading member source");
+  else if (id === "annotated")
+    observeAsync(loadSelectedMemberAnnotatedSource(), "Loading annotated member source");
+  else if (id === "call-graph")
+    observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
+  else if (id === "facts")
+    observeAsync(loadSelectedMemberFacts(), "Loading member facts");
+  else if (id === "overview")
+    observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
   else render();
 }
 
@@ -1879,6 +2011,11 @@ function render() {
     renderMetadataExplorer();
     return;
   }
+  if (state.credits) {
+    loadingBotSrc = null;
+    renderCreditsView();
+    return;
+  }
   // A loading/interstitial view holds one random bot for its whole appearance; any non-loading
   // view resets it so the next interstitial picks a fresh random bot (see interstitialBotSrc).
   const showingInterstitial = state.loading || state.error || (!state.home && !state.package);
@@ -2029,7 +2166,7 @@ function render() {
   if (scope() === "member"
     && state.memberSection === "call-graph"
     && currentCallGraph()?.mermaid) {
-    renderMermaidCallGraph();
+    observeAsync(renderMermaidCallGraph(), "Rendering the member call graph");
   }
 }
 
@@ -2042,9 +2179,11 @@ function maybeAutoLoadVisibleSource() {
         state.graphSourceLoading,
         state.graphSource,
         state.graphSourceError)) {
-      openGraphSource(
-        state.graphSourceRequest.request,
-        state.graphSourceRequest.title);
+      observeAsync(
+        openGraphSource(
+          state.graphSourceRequest.request,
+          state.graphSourceRequest.title),
+        "Loading graph source");
     }
     return;
   }
@@ -2058,7 +2197,7 @@ function maybeAutoLoadVisibleSource() {
         state.typeSourceLoading,
         state.typeSource,
         state.typeSourceError)) {
-      loadSelectedTypeSource();
+      observeAsync(loadSelectedTypeSource(), "Loading type source");
     }
     return;
   }
@@ -2072,7 +2211,7 @@ function maybeAutoLoadVisibleSource() {
         state.memberSourceLoading,
         state.memberSource,
         state.memberSourceError)) {
-      loadSelectedMemberSource();
+      observeAsync(loadSelectedMemberSource(), "Loading member source");
     }
   }
 }
@@ -2083,10 +2222,11 @@ function maybeAutoLoadTypeMetadata() {
   if (!type) return;
   const signature = typeMetadataSignature(type, currentPackage());
   if (state.typeMetadataKey === signature) {
-    if (state.typeMetadata && state.typeMetadata.graphNodes.length > 1) renderTypeGraph();
+    if (state.typeMetadata && state.typeMetadata.graphNodes.length > 1)
+      observeAsync(renderTypeGraph(), "Rendering the type graph");
     return;
   }
-  loadSelectedTypeMetadata();
+  observeAsync(loadSelectedTypeMetadata(), "Loading type metadata");
 }
 
 function renderNavPane(
@@ -2103,7 +2243,7 @@ function renderTypeNavPane(
   visible: readonly BrowserTypeSurface[],
 ) {
   return renderTypeNav({
-    current,
+    current: current ?? null,
     visible,
     typeGroups: typeGroups(),
     typeFilter: state.typeFilter,
@@ -2344,23 +2484,8 @@ function patchDependenciesGroup() {
       "active",
       Number(button.dataset.depGroup) === selectedGroupIndex));
   listSection.outerHTML = dependencyListSectionHtml(groups, selectedGroupIndex);
-  bindDependencyListHandlers();
-  renderDependencyGraph();
-}
-
-function bindDependencyListHandlers() {
-  document.querySelectorAll<HTMLElement>("[data-dep-open]").forEach(button => {
-    button.onclick = () => {
-      const key = button.dataset.depOpen;
-      if (key) switchToPackageForDependencies(key);
-    };
-  });
-  document.querySelectorAll<HTMLElement>("[data-dep-load]").forEach(button => {
-    button.onclick = () => {
-      const id = button.dataset.depLoad;
-      if (id) openDependencyPackage(id, button.dataset.depVersion || "");
-    };
-  });
+  bindPackageDependencyListEvents();
+  observeAsync(renderDependencyGraph(), "Rendering the dependency graph");
 }
 
 function resolveDependenciesGroupIndex(
@@ -2441,12 +2566,12 @@ function maybeAutoLoadPackageDependencies() {
   if (!state.atPackageRoot || state.packageLens !== "dependencies") return;
   if (state.packageDependenciesKey === packageDependenciesSignature()) {
     if (state.packageDependencies) {
-      renderDependencyGraph();
-      ensureWorkspaceDependencies();
+      observeAsync(renderDependencyGraph(), "Rendering the dependency graph");
+      observeAsync(ensureWorkspaceDependencies(), "Loading workspace dependencies");
     }
     return;
   }
-  loadPackageDependencies();
+  observeAsync(loadPackageDependencies(), "Loading package dependencies");
 }
 
 // Fetches dependency manifests for every other open package so the dependency graph can
@@ -2511,7 +2636,7 @@ function renderPackageIntegrations() {
     : "";
 
   if (!categories.length) {
-    return `${platformPicker}${warning}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No ecosystem integrations detected</h2><p>The public surface of ${isPlatform ? `${escapeHtml(scopedLib)}` : escapeHtml(pkg.activeFramework)} shows no known DI, logging, OpenTelemetry, ASP.NET Core, AI, or hosting signals.</p></section>`;
+    return `${platformPicker}${warning}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No ecosystem integrations detected</h2><p>The public surface of ${isPlatform ? escapeHtml(scopedLib) : escapeHtml(pkg.activeFramework)} shows no known DI, logging, OpenTelemetry, ASP.NET Core, AI, or hosting signals.</p></section>`;
   }
 
   const summary = `
@@ -2559,7 +2684,7 @@ async function loadPackageIntegrations() {
 function maybeAutoLoadPackageIntegrations() {
   if (!state.atPackageRoot || state.packageLens !== "integrations") return;
   if (state.packageIntegrationsKey === packageIntegrationsSignature()) return;
-  loadPackageIntegrations();
+  observeAsync(loadPackageIntegrations(), "Loading package integrations");
 }
 
 function packageScopeSignature() {
@@ -2608,7 +2733,7 @@ function maybeAutoLoadPackageOpportunities() {
   if (!state.atPackageRoot || state.packageLens !== "opportunities") return;
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
   if (state.packageOpportunitiesKey === packageScopeSignature()) return;
-  loadPackageOpportunities();
+  observeAsync(loadPackageOpportunities(), "Loading package opportunities");
 }
 
 function renderPackagePerformance() {
@@ -2681,7 +2806,7 @@ function maybeAutoLoadPackagePerformance() {
   if (!state.atPackageRoot || state.packageLens !== "analysis") return;
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
   if (state.packagePerformanceKey === packageScopeSignature()) return;
-  loadPackagePerformance();
+  observeAsync(loadPackagePerformance(), "Loading package analysis");
 }
 
 // The Metadata lens: the image-level "container" view of each assembly — metadata format
@@ -2690,7 +2815,7 @@ function maybeAutoLoadPackagePerformance() {
 // it scopes to one runtime-pack assembly (the shared framework is ~160 assemblies); for a
 // NuGet package it describes every active-framework lib/ assembly.
 function renderPackageMetadata() {
-  const isPlatform = Boolean(state.package?.isRuntimePack);
+  const isPlatform = state.package?.isRuntimePack === true;
   const fresh = state.packageMetadataKey === packageScopeSignature();
   return renderPackageMetadataHtml({
     isPlatform,
@@ -2698,7 +2823,7 @@ function renderPackageMetadata() {
     activeFramework: state.package?.activeFramework || "",
     pickerHtml: isPlatform ? platformLensPicker("data-platform-metadata-library") : "",
     fresh,
-    loading: Boolean(state.packageMetadataLoading),
+    loading: state.packageMetadataLoading,
     error: state.packageMetadataError || "",
     metadata: state.packageMetadata || null,
     escapeHtml,
@@ -2719,7 +2844,7 @@ function maybeAutoLoadPackageMetadata() {
   if (!state.atPackageRoot || state.packageLens !== "metadata") return;
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
   if (state.packageMetadataKey === packageScopeSignature()) return;
-  loadPackageMetadata();
+  observeAsync(loadPackageMetadata(), "Loading package metadata");
 }
 
 // ─── Metadata Explorer ─────────────────────────────────────────────────────────
@@ -2740,7 +2865,7 @@ function explorerPageSize() {
 function openExplorer(assemblyFileName: string, tableIndex: number, rowId = 0) {
   const ex = buildBaseExplorer(assemblyFileName);
   if (!ex) return;
-  ex.history = [{ index: Number(tableIndex), rowId: Number(rowId) || 0 }];
+  ex.history = [{ index: tableIndex, rowId: rowId || 0 }];
   ex.historyPos = 0;
   state.explorer = ex;
   applyExplorerFocus();
@@ -2879,7 +3004,8 @@ function applyExplorerFocus() {
     ex.focusHeap = entry.heap;
     ex.highlight = null;
     ex.detail = null;
-    if (!ex.heapWindows[entry.heap]) loadExplorerHeap(entry.heap);
+    if (!ex.heapWindows[entry.heap])
+      observeAsync(loadExplorerHeap(entry.heap), "Loading metadata heap rows");
     else render();
   } else {
     if (entry.index == null) return;
@@ -2892,7 +3018,7 @@ function applyExplorerFocus() {
     const onScreen = win?.data && (!entry.rowId
       || (entry.rowId >= win.data.startRowId && entry.rowId < win.data.startRowId + (win.data.rows?.length || 0)));
     if (onScreen) render();
-    else loadExplorerWindow(entry.index, start);
+    else observeAsync(loadExplorerWindow(entry.index, start), "Loading metadata table rows");
   }
   ex.pendingScroll = true;
   explorerScrollToFocus();
@@ -2943,12 +3069,13 @@ function syncExplorerPageSize() {
   const win = ex.windows[ex.focusIndex];
   const rows = win?.data?.rows ?? [];
   if (win?.data && rows.length < fit && rows.length < win.data.rowCount) {
-    loadExplorerWindow(ex.focusIndex, win.data.startRowId, fit);
+    observeAsync(
+      loadExplorerWindow(ex.focusIndex, win.data.startRowId, fit),
+      "Loading metadata table rows");
   }
 }
 
-// Renders the explorer surface owned by metadata-viewer.ts, then binds its events. The state
-// snapshot is passed explicitly; the module owns markup only.
+// Renders the explorer surface owned by metadata-viewer.ts, then binds its events.
 function renderMetadataExplorer() {
   const explorer = state.explorer;
   if (!explorer) return;
@@ -2957,69 +3084,40 @@ function renderMetadataExplorer() {
     escapeHtml,
     fmtBytes,
   });
-  bindMetadataExplorerEvents();
+  bindMetadataViewerEvents();
 }
 
 let explorerObserver: IntersectionObserver | null = null;
-function bindMetadataExplorerEvents() {
+function bindMetadataViewerEvents() {
   const ex = state.explorer;
-  document.querySelector("#mde-exit")?.addEventListener("click", closeExplorer);
-  document.querySelector("#mde-hist-back")?.addEventListener("click", explorerHistoryBack);
-  document.querySelector("#mde-hist-fwd")?.addEventListener("click", explorerHistoryForward);
+  bindMetadataExplorer(document, ex, {
+    onClose: closeExplorer,
+    onHistoryBack: explorerHistoryBack,
+    onHistoryForward: explorerHistoryForward,
+    onHeapFocus: heap => pushExplorerFocus({ heap }),
+    onJump: explorerJump,
+    onOpenHeap: openExplorerHeap,
+    onOpenTable: openExplorer,
+    onPage: (index, startRowId) =>
+      observeAsync(
+        loadExplorerWindow(index, startRowId),
+        "Loading metadata table rows"),
+    onRowFocus: (index, rowId) => {
+      if (!ex) return;
+      const already =
+        ex.detail && ex.detail.index === index && ex.detail.rowId === rowId;
+      ex.detail = already ? null : { index, rowId };
+      ex.highlight = already ? null : { index, rowId };
+      const current = ex.history[ex.historyPos];
+      if (current && current.index === index) {
+        current.rowId = already ? 0 : rowId;
+      }
+      render();
+    },
+    onShowOverview: explorerShowOverview,
+    onTableFocus: (index, rowId) => pushExplorerFocus({ index, rowId }),
+  });
   if (!ex) return;
-  document.querySelectorAll<HTMLElement>("[data-mde-chip]").forEach(chip =>
-    chip.addEventListener("click", () => pushExplorerFocus({ index: Number(chip.dataset.mdeChip), rowId: 0 })));
-  document.querySelectorAll<HTMLElement>("[data-mde-jump]").forEach(btn =>
-    btn.addEventListener("click", event => {
-      event.stopPropagation();
-      const [index, rowId] = (btn.dataset.mdeJump ?? "").split(":").map(Number);
-      explorerJump(index, rowId);
-    }));
-  // The corner ✕ on the focus panel zooms back out to the all-tables wall.
-  document.querySelectorAll<HTMLElement>("[data-mde-overview]").forEach(btn =>
-    btn.addEventListener("click", event => { event.stopPropagation(); explorerShowOverview(); }));
-  document.querySelectorAll<HTMLElement>("[data-mde-page]").forEach(btn =>
-    btn.addEventListener("click", () => {
-      const [index, start] = (btn.dataset.mdePage ?? "").split(":").map(Number);
-      loadExplorerWindow(index, start);
-    }));
-  document.querySelectorAll<HTMLElement>("[data-mde-heap-chip]").forEach(chip =>
-    chip.addEventListener("click", () => pushExplorerFocus({ heap: chip.dataset.mdeHeapChip })));
-
-  if (ex?.overview) {
-    // All-tables view: clicking a card head, a ref, or a row focuses that table.
-    document.querySelectorAll<HTMLElement>(".mde-wall .mde-card[data-mde-index] .mde-card-head").forEach(head =>
-      head.addEventListener("click", () => {
-        const card = head.closest<HTMLElement>(".mde-card");
-        if (card) pushExplorerFocus({ index: Number(card.dataset.mdeIndex), rowId: 0 });
-      }));
-    document.querySelectorAll<HTMLElement>(".mde-wall .mde-heap-card[data-mde-heap] .mde-card-head").forEach(head =>
-      head.addEventListener("click", () => {
-        const card = head.closest<HTMLElement>(".mde-heap-card");
-        if (card) pushExplorerFocus({ heap: card.dataset.mdeHeap });
-      }));
-    document.querySelectorAll<HTMLElement>(".mde-wall .mde-row[data-mde-row]").forEach(tr =>
-      tr.addEventListener("click", () => {
-        const [index, rowId] = (tr.dataset.mdeRow ?? "").split(":").map(Number);
-        pushExplorerFocus({ index, rowId });
-      }));
-  } else {
-    // Focus view: clicking anywhere on the dim wall behind the lightbox zooms out ("click away").
-    document.querySelector("#mde-canvas")?.addEventListener("click", explorerShowOverview);
-    // Selecting a row in the focus panel updates the inspector in place — it refines the current
-    // position (remembered for Back/Forward). Clicking the selected row again deselects it.
-    document.querySelectorAll<HTMLElement>(".mde-focus .mde-row[data-mde-row]").forEach(tr =>
-      tr.addEventListener("click", () => {
-        const [index, rowId] = (tr.dataset.mdeRow ?? "").split(":").map(Number);
-        const already = ex.detail && ex.detail.index === index && ex.detail.rowId === rowId;
-        ex.detail = already ? null : { index, rowId };
-        ex.highlight = already ? null : { index, rowId };
-        const cur = ex.history[ex.historyPos];
-        if (cur && cur.index === index) cur.rowId = already ? 0 : rowId;
-        render();
-      }));
-  }
-
   // Hydrate cards as they scroll into view (the "wall of tables filling in as you pan" feel).
   explorerObserver?.disconnect();
   const observer = new IntersectionObserver(entries => {
@@ -3027,9 +3125,13 @@ function bindMetadataExplorerEvents() {
       if (entry.isIntersecting) {
         if (!(entry.target instanceof HTMLElement)) continue;
         if (entry.target.dataset.mdeHeapNeedsLoad != null) {
-          loadExplorerHeap(entry.target.dataset.mdeHeapNeedsLoad);
+          observeAsync(
+            loadExplorerHeap(entry.target.dataset.mdeHeapNeedsLoad),
+            "Loading metadata heap rows");
         } else {
-          loadExplorerWindow(Number(entry.target.dataset.mdeNeedsLoad));
+          observeAsync(
+            loadExplorerWindow(Number(entry.target.dataset.mdeNeedsLoad)),
+            "Loading metadata table rows");
         }
       }
     }
@@ -3041,9 +3143,13 @@ function bindMetadataExplorerEvents() {
   // Always ensure the focused table or heap is loaded (its window backs the focus panel).
   if (state.explorer) {
     if (state.explorer.focusHeap && !state.explorer.heapWindows[state.explorer.focusHeap]) {
-      loadExplorerHeap(state.explorer.focusHeap);
+      observeAsync(
+        loadExplorerHeap(state.explorer.focusHeap),
+        "Loading metadata heap rows");
     } else if (!state.explorer.focusHeap && !state.explorer.windows[state.explorer.focusIndex]) {
-      loadExplorerWindow(state.explorer.focusIndex);
+      observeAsync(
+        loadExplorerWindow(state.explorer.focusIndex),
+        "Loading metadata table rows");
     }
     // Once the focus panel is laid out, size the row window to its actual height.
     if (!state.explorer.overview && !state.explorer.focusHeap) {
@@ -3098,7 +3204,7 @@ function drillToPerfMember(token: string, assembly: string, typeId: string) {
   resetMemberSectionState();
   state.memberSection = "facts";
   state.typeCursor = filteredTypes().findIndex(candidate => candidate.id === targetType.id);
-  loadSelectedMemberFacts();
+  observeAsync(loadSelectedMemberFacts(), "Loading member facts");
 }
 
 function renderPackageOverview() {
@@ -3190,32 +3296,15 @@ function renderPackageOverview() {
     const ns = type.namespace || "global";
     nsCounts.set(ns, (nsCounts.get(ns) || 0) + 1);
   }
-  const namespaces = [...nsCounts.entries()]
+  const namespaceChips = [...nsCounts.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, 12)
     .map(([ns, count]) => `<button class="type-chip" data-namespace-jump="${escapeHtml(ns)}"><span class="ns-count">${count}</span>${escapeHtml(ns)}</button>`)
     .join("");
   const nsOverflow = nsCounts.size > 12 ? `<span class="ns-overflow">+${nsCounts.size - 12} more</span>` : "";
 
-  // Package-shipped Markdown: README/PACKAGE at the root and skill files under skills/.
-  // Presence comes from the surface manifest; the body is fetched on demand when opened.
-  const docKindLabel: Record<string, string> =
-    { readme: "Readme", package: "Package", skill: "Skill" };
-  const docKindGlyph: Record<string, string> =
-    { readme: "▤", package: "▤", skill: "◆" };
-  const documents = (pkg.documents || [])
-    .map(doc => `<button class="doc-chip doc-${escapeHtml(doc.kind)}" data-doc-path="${escapeHtml(doc.path)}" title="${escapeHtml(doc.path)} · ${doc.size.toLocaleString()} bytes">
-        <span class="doc-glyph">${docKindGlyph[doc.kind] || "▤"}</span>
-        <span class="doc-name">${escapeHtml(doc.name)}</span>
-        <span class="doc-kind">${docKindLabel[doc.kind] || doc.kind}</span>
-      </button>`)
-    .join("");
-  const documentsSection = (pkg.documents || []).length
-    ? `<section class="document-section">
-      <div class="section-title"><h2>Documentation</h2><span>${pkg.documents.length} file${pkg.documents.length === 1 ? "" : "s"} — click to read</span></div>
-      <div class="doc-chip-list">${documents}</div>
-    </section>`
-    : "";
+  const documentsSection =
+    renderPackageDocuments(pkg.documents || [], escapeHtml);
 
   return `
     <section class="document-section">
@@ -3229,7 +3318,7 @@ function renderPackageOverview() {
     </section>
     <section class="document-section">
       <div class="section-title"><h2>Namespaces</h2><span>${nsCounts.size} — click to filter</span></div>
-      <div class="type-chip-list">${namespaces}${nsOverflow}</div>
+      <div class="type-chip-list">${namespaceChips}${nsOverflow}</div>
     </section>${documentsSection}`;
 }
 
@@ -3403,7 +3492,7 @@ function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
     const platformView = drilled || Boolean(state.package?.isRuntimePack);
     const callers = active?.callers?.children ?? [];
     const callees = active?.callees?.children ?? [];
-    const scope = active?.scope;
+    const graphScope = active?.scope;
     const otherWorkspaceLibraries = Math.max(
       0,
       state.packages.filter(packageItem => !packageItem.isRuntimePack).length - 1);
@@ -3413,11 +3502,11 @@ function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
           <span class="graph-crumbs">${escapeHtml(platformCrumbTrail())}</span>
         </div>`
       : "";
-    const scopeLine = !scope
+    const scopeLine = !graphScope
       ? ""
       : platformView
-      ? `<div class="graph-scope"><strong>Platform${drilled ? " descent" : ""}</strong><span>${escapeHtml(scope.calleeScope)} · runtime pack</span><strong>Callees</strong><span>depth 2</span></div>`
-      : `<div class="graph-scope"><strong>Workspace callers</strong><span>${scope.packages} loaded packages · ${scope.callerAssemblies} scanned assemblies</span><strong>Callees</strong><span>${escapeHtml(scope.calleeScope)} · depth 2</span></div>`;
+      ? `<div class="graph-scope"><strong>Platform${drilled ? " descent" : ""}</strong><span>${escapeHtml(graphScope.calleeScope)} · runtime pack</span><strong>Callees</strong><span>depth 2</span></div>`
+      : `<div class="graph-scope"><strong>Workspace callers</strong><span>${graphScope.packages} loaded packages · ${graphScope.callerAssemblies} scanned assemblies</span><strong>Callees</strong><span>${escapeHtml(graphScope.calleeScope)} · depth 2</span></div>`;
     const diagnostics = active?.diagnostics;
     const diagnosticsMessage = callGraphDiagnosticsMessage(diagnostics);
     const incompleteGraph = diagnosticsMessage
@@ -3465,10 +3554,10 @@ function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
         : `<section class="document-section empty-member-section"><h2>Annotated source query failed</h2><p>${escapeHtml(state.memberAnnotatedError || "No annotated source result was returned.")}</p></section>`;
   } else {
     content = state.memberSourceLoading
-      ? `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving source…</h2><p>Trying checksum-verified SourceLink source, then dotnet-inspect decompilation.</p></section>`
+      ? `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`
       : state.memberSource
         ? `<section class="document-section source-result">
-            <div class="source-provenance"><strong>${state.memberSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.memberSource.provenance)}</span>${state.memberSource.url ? `<a href="${escapeHtml(state.memberSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}<button id="copy-source" type="button">copy</button></div>
+            <div class="source-provenance"><strong>${state.memberSource.provider === "pdb" ? "PDB Source" : "Decompiled source"}</strong><span>${escapeHtml(state.memberSource.provenance)}</span>${state.memberSource.url ? `<a href="${escapeHtml(state.memberSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}${pdbSourceLimitationHtml(state.memberSource)}<button id="copy-source" type="button">copy</button></div>
             <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(state.memberSource.text)}</code></pre>
           </section>`
         : `<section class="document-section empty-member-section"><h2>Source query failed</h2><p>${escapeHtml(state.memberSourceError || "No source result was returned.")}</p></section>`;
@@ -3530,7 +3619,9 @@ function renderMemberFacts(
     ${renderFactTable("Allocation facts", facts.allocations, [
       ["IL", "offset"], ["Kind", "kind"], ["Type", "type"], ["Multiplicity", "multiplicity"],
       ["Path", "path"], ["Escape", "escape"], ["Loop", row => row.inLoop ? "yes" : ""],
-      ["Size", row => row.estimatedSizeBytes == null ? "" : `${row.estimatedSizeBytes} B`]
+      ["Size", row => typeof row.estimatedSizeBytes === "number"
+        ? `${row.estimatedSizeBytes} B`
+        : ""]
     ], "No heap-allocation occurrences were found in this method.")}
     ${renderFactTable("Calls", facts.calls, [
       ["IL", "offset"], ["Opcode", "opcode"], ["Callee", "callee"],
@@ -3641,8 +3732,8 @@ function highlight(value: string) {
     .replace(/\b(string|object|void|Type|Stream|Task|ValueTask|CancellationToken|TValue)\b/g, '<span class="primitive">$1</span>');
 }
 
-function highlightCSharp(value: unknown) {
-  const source = String(value ?? "");
+function highlightCSharp(value: string) {
+  const source = value;
   if (window.Prism?.languages?.csharp) {
     return window.Prism.highlight(
       source,
@@ -3652,53 +3743,21 @@ function highlightCSharp(value: unknown) {
   return escapeHtml(source);
 }
 
-function bindStatusBarToggle() {
-  document.querySelectorAll<HTMLElement>("[data-status-bar-toggle-button]").forEach(button => button.addEventListener("click", () => {
-    state.statusBarExpanded = !state.statusBarExpanded;
-    render();
-  }));
-}
-
-function bindEvents() {
-  bindStatusBarToggle();
-  packageBar.bind(document);
-  document.querySelectorAll<HTMLElement>("[data-scope]").forEach(button => button.addEventListener("click", () => {
-    const target = button.dataset.scope;
-    if (target === "package") {
-      state.atPackageRoot = true;
-    } else if (target === "type") {
-      // Pop out to the type level: leave the package root and drop any open member so the
-      // type lenses (API / Metadata / Source) take the strip. Ensure a type is selected.
-      state.atPackageRoot = false;
-      if (!state.selectedTypeId) {
-        const first = filteredTypes()[0];
-        if (first) state.selectedTypeId = first.id;
-      }
-      state.selectedMemberKey = "";
-      state.memberBrowseTypeId = "";
-      state.selectedOverloadIndex = null;
-    } else if (target === "member") {
-      enterMemberScope();
-    }
-    render();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-package-lens]").forEach(button => button.addEventListener("click", () => {
-    state.packageLens = button.dataset.packageLens ?? "overview";
-    render();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-framework-chip]").forEach(button => button.addEventListener("click", () => {
-    switchPackageFramework(button.dataset.frameworkChip ?? "");
-  }));
-  document.querySelectorAll<HTMLElement>("[data-dep-group]").forEach(button => button.addEventListener("click", () => {
-    const index = Number(button.dataset.depGroup);
+const packageViewActions: PackageViewBindingActions = {
+  onDependencyGroupSelect: index => {
     if (state.dependenciesGroupIndex === index) return;
     state.dependenciesGroupIndex = index;
     patchDependenciesGroup();
-  }));
-  bindDependencyListHandlers();
-  document.querySelectorAll<HTMLElement>("[data-kind-jump]").forEach(button => button.addEventListener("click", () => {
+  },
+  onDependencyLoad: (id, version) =>
+    observeAsync(
+      openDependencyPackage(id, version),
+      "Opening a dependency package"),
+  onDependencyOpen: switchToPackageForDependencies,
+  onGraphTypeSelect: navigateToTypeByName,
+  onKindJump: kind => {
     state.atPackageRoot = false;
-    state.kindFilter = button.dataset.kindJump ?? "";
+    state.kindFilter = kind;
     state.namespaceFilter = "";
     state.typeFilter = "";
     state.selectedMemberKey = "";
@@ -3708,10 +3767,27 @@ function bindEvents() {
     const first = filteredTypes()[0];
     if (first) state.selectedTypeId = first.id;
     render();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-namespace-jump]").forEach(button => button.addEventListener("click", () => {
+  },
+  onLibraryScopeSelect: (library, kind) => {
     state.atPackageRoot = false;
-    state.namespaceFilter = button.dataset.namespaceJump ?? "";
+    if (!library) return;
+    state.libraryScope = new Set([library]);
+    if (state.package?.isRuntimePack)
+      recordPlatformRecent(library, platformPackForAssembly(library));
+    state.kindFilter = kind;
+    state.namespaceFilter = "";
+    state.typeFilter = "";
+    state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
+    resetMemberFilters();
+    state.typeCursor = 0;
+    const first = filteredTypes()[0];
+    if (first) state.selectedTypeId = first.id;
+    render();
+  },
+  onNamespaceJump: namespace => {
+    state.atPackageRoot = false;
+    state.namespaceFilter = namespace;
     state.kindFilter = "";
     state.typeFilter = "";
     state.selectedMemberKey = "";
@@ -3721,62 +3797,147 @@ function bindEvents() {
     const first = filteredTypes()[0];
     if (first) state.selectedTypeId = first.id;
     render();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-lib-scope]").forEach(button => button.addEventListener("click", () => {
-    state.atPackageRoot = false;
-    const library = button.dataset.libScope;
-    if (!library) return;
-    state.libraryScope = new Set([library]);
-    if (state.package?.isRuntimePack)
-      recordPlatformRecent(library, platformPackForAssembly(library));
-    state.kindFilter = button.dataset.libKind || "";
-    state.namespaceFilter = "";
-    state.typeFilter = "";
-    state.selectedMemberKey = "";
-    state.memberBrowseTypeId = "";
-    resetMemberFilters();
-    state.typeCursor = 0;
-    const first = filteredTypes()[0];
-    if (first) state.selectedTypeId = first.id;
-    render();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-lens]").forEach(button => button.addEventListener("click", () => {
-    state.lens = button.dataset.lens ?? "api";
-    state.selectedMemberKey = "";
-    state.memberBrowseTypeId = "";
-    render();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-type]").forEach(button => button.addEventListener("click", () => {
-    state.atPackageRoot = false;
-    state.selectedTypeId = button.dataset.type ?? "";
-    state.selectedMemberKey = "";
-    state.memberBrowseTypeId = "";
-    resetMemberFilters();
-    state.typeCursor = filteredTypes().findIndex(item => item.id === state.selectedTypeId);
-    render();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-graph-type]").forEach(button => button.addEventListener("click", () => {
-    navigateToTypeByName(button.dataset.graphType ?? "");
-  }));
-  document.querySelectorAll<HTMLElement>("[data-perf-token]").forEach(button => button.addEventListener("click", () => {
+  },
+  onPerformanceMemberSelect: target => {
     drillToPerfMember(
-      button.dataset.perfToken ?? "",
-      button.dataset.perfAssembly ?? "",
-      button.dataset.perfType ?? "");
-  }));
-  document.querySelectorAll<HTMLElement>("[data-opp-type]").forEach(button => button.addEventListener("click", () => {
-    const id = button.dataset.oppType ?? "";
-    const target = currentPackage().types.find(item => item.id === id);
-    if (!target) { openSpotlight(shortTypeName(id)); return; }
-    state.atPackageRoot = false;
-    navigateToTypeByName(id);
-  }));
-  document.querySelectorAll<HTMLElement>("[data-opp-package]").forEach(button => button.addEventListener("click", () => {
-    openDependencyPackage(button.dataset.oppPackage ?? "", "");
-  }));
-  document.querySelectorAll<HTMLElement>("[data-opp-lookfor]").forEach(button => button.addEventListener("click", () => {
-    openSpotlight(button.dataset.oppLookfor ?? "");
-  }));
+      target.metadataToken,
+      target.assembly,
+      target.typeId);
+  },
+};
+
+interface NoticeRetryState {
+  action: RetryAction;
+  previous: string;
+  appended: string;
+}
+
+const libraryControlActions: LibraryControlBindingActions = {
+  onAccessibilityChipSelect: accessibility => {
+    toggleAccessibilityChip(accessibility);
+    afterLibraryScopeChange();
+  },
+  onLibraryChipSelect: library => {
+    toggleLibraryChip(library);
+    afterLibraryScopeChange();
+  },
+  onLibraryJump: library => {
+    state.libraryScope = library ? new Set([library]) : null;
+    afterLibraryScopeChange();
+  },
+  onPlatformLibrarySelect: (name, pack) =>
+    observeAsync(
+      openPlatformLibrary(name, pack),
+      "Opening a platform library"),
+  onPlatformLensLibrarySelect: (lens, name, pack) =>
+    observeAsync(
+      openPlatformLensLibrary(lens, name, pack),
+      "Opening a platform library"),
+};
+
+async function openPlatformLensLibrary(
+  lens: PlatformLibraryLens,
+  name: string,
+  selectedPack: string | undefined,
+  originPackage: AppPackage = currentPackage(),
+  noticeRetryState: NoticeRetryState | null = null,
+) {
+  if (!state.packages.includes(originPackage)
+    || !packageIdentityEquals(state.package, originPackage)
+    || state.home
+    || !state.atPackageRoot
+    || state.packageLens !== lens) {
+    return;
+  }
+  if (noticeRetryState
+    && state.queryNoticeRetryAction === noticeRetryState.action) {
+    state.queryNotice = removeAppendedNotice(
+      state.queryNotice,
+      noticeRetryState.previous,
+      noticeRetryState.appended);
+    state.queryNoticeRetryAction = null;
+  }
+  const navigationSeq = navigationSequence.begin();
+  const isCurrent = () =>
+    navigationSequence.isCurrent(navigationSeq)
+    && !state.home
+    && state.atPackageRoot
+    && state.packageLens === lens
+    && packageIdentityEquals(state.package, originPackage);
+  const key = name.replace(/\.dll$/i, "");
+  const pack = selectedPack || platformPackForAssembly(key);
+  const resident = (runtimePackPackage()?.types || [])
+    .some(type => libraryKey(type) === key);
+  if (!resident) {
+    const runtimeResult = await loadRuntimePackAssembly(
+      platformScopeTfm(),
+      `${key}.dll`,
+      pack,
+      () => state.packages.includes(originPackage));
+    const loaded = runtimeResult.packageModel;
+    if (!loaded) {
+      if (isCurrent()) {
+        const noticeState: NoticeRetryState = {
+          action: null,
+          previous: state.queryNotice,
+          appended: "",
+        };
+        const retryAction = () =>
+          openPlatformLensLibrary(
+            lens,
+            name,
+            pack,
+            originPackage,
+            noticeState);
+        noticeState.action = retryAction;
+        appendQueryNotice(
+          `Couldn’t load ${key}: ${runtimeResult.failureMessage
+            || state.runtimePackError
+            || "runtime pack acquisition failed."}`,
+          retryAction);
+        noticeState.appended = state.queryNotice;
+        render();
+      }
+      return;
+    }
+  }
+  if (!isCurrent()) return;
+  state.libraryScope = new Set([key]);
+  recordPlatformRecent(key, pack);
+  state.atPackageRoot = true;
+  state.packageLens = lens;
+  state.namespaceFilter = "";
+  state.typeFilter = "";
+  state.kindFilter = "";
+  normalizeLibrarySelection();
+  if (lens === "integrations") await loadPackageIntegrations();
+  else if (lens === "opportunities") await loadPackageOpportunities();
+  else if (lens === "analysis") await loadPackagePerformance();
+  else await loadPackageMetadata();
+}
+
+function bindPackageViewEvents() {
+  bindPackageView(document, packageViewActions);
+}
+
+function bindPackageDependencyListEvents() {
+  bindPackageDependencyList(document, packageViewActions);
+}
+
+function bindStatusBarEvents() {
+  bindStatusBar(document, {
+    onToggle: () => {
+      state.statusBarExpanded = !state.statusBarExpanded;
+      render();
+    },
+  });
+}
+
+function bindLibraryControlsEvents() {
+  bindLibraryControls(document, libraryControlActions);
+}
+
+function bindTypePanelEvents() {
   const renderMemberFilterAndRestoreFocus = (selector = "") => {
     const preserved = captureMemberFocus(document);
     if (selector) {
@@ -3785,435 +3946,390 @@ function bindEvents() {
     }
     renderWithMemberFocus(preserved);
   };
-  document.querySelectorAll<HTMLElement>("[data-member-kind-filter]").forEach(button => button.addEventListener("click", () => {
-    const value = button.dataset.memberKindFilter;
-    state.memberKindFilter = value ?? "all";
-    normalizeMemberSelection();
-    renderMemberFilterAndRestoreFocus();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-member-access-filter]").forEach(button => button.addEventListener("click", () => {
-    const value = button.dataset.memberAccessFilter;
-    state.memberAccessibilityFilter = value ?? "all";
-    normalizeMemberSelection();
-    renderMemberFilterAndRestoreFocus();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-member-trait-filter]").forEach(button => button.addEventListener("click", () => {
-    const value = button.dataset.memberTraitFilter;
-    state.memberTraitFilter = value ?? "";
-    normalizeMemberSelection();
-    renderMemberFilterAndRestoreFocus();
-  }));
-  const memberFilter = document.querySelector<HTMLInputElement>("#member-filter");
-  memberFilter?.addEventListener("input", event => {
-    state.memberTextFilter = memberFilter.value;
-    normalizeMemberSelection();
-    renderPreservingMemberFocus();
-  });
-  memberFilter?.addEventListener("keydown", event => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      if (navMode() === "member") {
-        exitMemberScope();
-      } else {
-        state.memberTextFilter = "";
-        normalizeMemberSelection();
-        renderMemberFilterAndRestoreFocus("#member-filter");
-      }
-      return;
-    }
-    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
-    event.preventDefault();
-    stepMemberNav(event.key === "ArrowDown" ? 1 : -1, true);
-  });
-  document.querySelector("#clear-member-filter")?.addEventListener("click", () => {
-    resetMemberFilters();
-    normalizeMemberSelection();
-    renderMemberFilterAndRestoreFocus("#clear-member-filter");
-  });
   const enterMemberNavigation = (action: () => void) => {
     const focusGeneration = beginSpotlightNavigation();
     action();
     focusTypeList(focusGeneration);
   };
-  document.querySelectorAll<HTMLElement>("[data-member-jump-kind]").forEach(button => button.addEventListener("click", () => {
-    enterMemberNavigation(() => {
-      resetMemberFilters();
-      state.memberKindFilter = button.dataset.memberJumpKind ?? "all";
-      enterMemberScope();
+  bindTypePanel(document, {
+    onClearFilters: () => {
+      state.typeFilter = "";
+      state.namespaceFilter = "";
+      state.kindFilter = "";
+      state.libraryScope = null;
+      state.accessibilityFilter = defaultAccessibilityFilter(state.package);
       render();
-    });
-  }));
-  document.querySelectorAll<HTMLElement>("[data-member-jump-access]").forEach(button => button.addEventListener("click", () => {
-    enterMemberNavigation(() => {
+      focusFilter({ immediate: true });
+    },
+    onCopyAnchor: anchor => {
+      const type = selectedType();
+      const member = selectedMember(type);
+      const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
+      const values = {
+        selector: overload?.stableSelector,
+        digest: overload?.anchorDigest,
+        canonical: overload?.canonicalSignature
+      };
+      const value = anchor ? values[anchor] : undefined;
+      if (value) void copyText(value, `${anchor} copied`);
+    },
+    onCopyMemberSource: () => {
+      if (state.memberSource)
+        void copyText(state.memberSource.text, "source copied");
+    },
+    onCopyName: () => {
+      const type = selectedType();
+      if (!type) return;
+      const typeName = `${type.namespace ? `${type.namespace}.` : ""}${type.name}`;
+      const member = selectedMember(type);
+      const fullName = member ? `${typeName}.${member.name}` : typeName;
+      void copyText(fullName, "name copied");
+    },
+    onCopySignature: () => {
+      const type = selectedType();
+      const member = selectedMember(type);
+      const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
+      if (overload)
+        void copyText(overload.signature, "signature copied");
+    },
+    onCopyTypeSource: () => {
+      if (state.typeSource)
+        void copyText(state.typeSource.text, "source copied");
+    },
+    onKindSelect: kind => {
+      state.kindFilter = kind;
+      state.typeCursor = 0;
+      const first = filteredTypes()[0];
+      if (first) state.selectedTypeId = first.id;
+      state.selectedMemberKey = "";
+      state.memberBrowseTypeId = "";
       resetMemberFilters();
-      state.memberAccessibilityFilter = button.dataset.memberJumpAccess ?? "all";
-      enterMemberScope();
       render();
-    });
-  }));
-  document.querySelectorAll<HTMLElement>("[data-member-jump-trait]").forEach(button => button.addEventListener("click", () => {
-    enterMemberNavigation(() => {
+    },
+    onListKeyDown: handleTypeKeys,
+    onMemberAccessibilityFilterSelect: value => {
+      state.memberAccessibilityFilter = value ?? "all";
+      normalizeMemberSelection();
+      renderMemberFilterAndRestoreFocus();
+    },
+    onMemberBack: drillOut,
+    onMemberCompositionAccessibilitySelect: value => {
+      enterMemberNavigation(() => {
+        resetMemberFilters();
+        state.memberAccessibilityFilter = value;
+        enterMemberScope();
+        render();
+      });
+    },
+    onMemberCompositionKindSelect: value => {
+      enterMemberNavigation(() => {
+        resetMemberFilters();
+        state.memberKindFilter = value;
+        enterMemberScope();
+        render();
+      });
+    },
+    onMemberCompositionTraitSelect: value => {
+      enterMemberNavigation(() => {
+        resetMemberFilters();
+        state.memberTraitFilter = value;
+        enterMemberScope();
+        render();
+      });
+    },
+    onMemberFilterChange: value => {
+      state.memberTextFilter = value;
+      normalizeMemberSelection();
+      renderPreservingMemberFocus();
+    },
+    onMemberFilterClear: () => {
       resetMemberFilters();
-      state.memberTraitFilter = button.dataset.memberJumpTrait ?? "";
-      enterMemberScope();
-      render();
-    });
-  }));
-  document.querySelectorAll<HTMLElement>("[data-member]").forEach(button => button.addEventListener("click", () => {
-    enterMemberNavigation(() => openMemberGroup(button.dataset.member ?? ""));
-  }));
-  document.querySelectorAll<HTMLElement>("[data-overload]").forEach(button => button.addEventListener("click", () => {
-    openOverload(Number(button.dataset.overload));
-  }));
-  document.querySelectorAll<HTMLElement>("[data-nav-member]").forEach(button => button.addEventListener("click", () => {
-    const group = memberGroups(selectedType()).find(item => item.key === button.dataset.navMember);
-    if (group) selectMemberNavEntry({ kind: "member", group }, false);
-  }));
-  document.querySelectorAll<HTMLElement>("[data-nav-overload]").forEach(button => button.addEventListener("click", () => {
-    const group = selectedMember(selectedType());
-    if (group) selectMemberNavEntry({ kind: "overload", group, index: Number(button.dataset.navOverload) }, false);
-  }));
-  document.querySelector("#nav-to-types")?.addEventListener("click", () => {
-    exitMemberScope();
-  });
-  document.querySelectorAll<HTMLElement>("[data-member-section]").forEach(button => button.addEventListener("click", () => {
-    const section = button.dataset.memberSection;
-    if (section && isMemberSection(section)) applyMemberSection(section);
-  }));
-  document.querySelector("#member-back")?.addEventListener("click", () => {
-    drillOut();
-  });
-  document.querySelector("#copy-name")?.addEventListener("click", async () => {
-    const type = selectedType();
-    if (!type) return;
-    const typeName = `${type.namespace ? `${type.namespace}.` : ""}${type.name}`;
-    const member = selectedMember(type);
-    const fullName = member ? `${typeName}.${member.name}` : typeName;
-    await copyText(fullName, "name copied");
-  });
-  document.querySelector("#copy-signature")?.addEventListener("click", async () => {
-    const type = selectedType();
-    const member = selectedMember(type);
-    const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
-    if (overload) await copyText(overload.signature, "signature copied");
-  });
-  document.querySelectorAll<HTMLElement>("[data-copy-anchor]").forEach(button => button.addEventListener("click", async () => {
-    const type = selectedType();
-    const member = selectedMember(type);
-    const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
-    const values = {
-      selector: overload?.stableSelector,
-      digest: overload?.anchorDigest,
-      canonical: overload?.canonicalSignature
-    };
-    const anchor = button.dataset.copyAnchor as keyof typeof values | undefined;
-    const value = anchor ? values[anchor] : undefined;
-    if (value) await copyText(value, `${anchor} copied`);
-  }));
-  document.querySelector("#copy-source")?.addEventListener("click", async () => {
-    if (state.memberSource) await copyText(state.memberSource.text, "source copied");
-  });
-  document.querySelector("#copy-annotated")?.addEventListener("click", async () => {
-    if (state.memberAnnotated) await copyText(state.memberAnnotated.document.text, "annotated source copied");
-  });
-  document.querySelectorAll<HTMLElement>("[data-annotated-medium]").forEach(button => button.addEventListener("click", () => {
-    const medium = button.dataset.annotatedMedium;
-    if (!medium || !MEDIA.includes(medium as (typeof MEDIA)[number])) return;
-    const typedMedium = medium as (typeof MEDIA)[number];
-    const next = {
-      ...state.memberAnnotatedMedia,
-      [typedMedium]: !state.memberAnnotatedMedia[typedMedium],
-    };
-    // Both media off would render an empty document that looks like an empty result.
-    if (!MEDIA.some(candidate => next[candidate])) return;
-    state.memberAnnotatedMedia = next;
-    render();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-annotated-fact]").forEach(button => button.addEventListener("click", () => {
-    const factId = Number(button.dataset.annotatedFact);
-    state.memberAnnotatedFactId = state.memberAnnotatedFactId === factId ? null : factId;
-    state.memberAnnotatedNodeIds = [];
-    render();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-annotated-offset]").forEach(span => span.addEventListener("click", () => {
-    if (!state.memberAnnotated) return;
-    const node = nodeAtOffset(state.memberAnnotated.document, Number(span.dataset.annotatedOffset));
-    state.memberAnnotatedFactId = null;
-    state.memberAnnotatedNodeIds = node ? [node.id] : [];
-    // Selecting the text a fact is about also selects that fact when exactly one owns the node.
-    const owning = node ? factsForNode(state.memberAnnotated.document, node.id) : [];
-    if (owning.length === 1) state.memberAnnotatedFactId = owning[0].id;
-    render();
-  }));
-  document.querySelector("#annotated-clear")?.addEventListener("click", () => {
-    state.memberAnnotatedFactId = null;
-    state.memberAnnotatedNodeIds = [];
-    render();
-  });
-  document.querySelector("#copy-type-source")?.addEventListener("click", async () => {
-    if (state.typeSource) await copyText(state.typeSource.text, "source copied");
-  });
-  document.querySelectorAll<HTMLElement>("[data-namespace]").forEach(button => button.addEventListener("click", () => {
-    state.namespaceFilter = button.dataset.namespace ?? "";
-    state.typeCursor = 0;
-    const first = filteredTypes()[0];
-    if (first) state.selectedTypeId = first.id;
-    state.selectedMemberKey = "";
-    state.memberBrowseTypeId = "";
-    resetMemberFilters();
-    render();
-  }));
-  const namespaceJump = document.querySelector<HTMLSelectElement>("#namespace-jump");
-  if (namespaceJump) namespaceJump.addEventListener("change", () => {
-    state.namespaceFilter = namespaceJump.value;
-    state.typeCursor = 0;
-    const first = filteredTypes()[0];
-    if (first) state.selectedTypeId = first.id;
-    state.selectedMemberKey = "";
-    state.memberBrowseTypeId = "";
-    resetMemberFilters();
-    render();
-  });
-  document.querySelectorAll<HTMLElement>("[data-kind-filter]").forEach(button => button.addEventListener("click", () => {
-    state.kindFilter = button.dataset.kindFilter ?? "";
-    state.typeCursor = 0;
-    const first = filteredTypes()[0];
-    if (first) state.selectedTypeId = first.id;
-    state.selectedMemberKey = "";
-    state.memberBrowseTypeId = "";
-    resetMemberFilters();
-    render();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-library-chip]").forEach(button => button.addEventListener("click", () => {
-    toggleLibraryChip(button.dataset.libraryChip ?? "");
-    afterLibraryScopeChange();
-  }));
-  document.querySelectorAll<HTMLElement>("[data-access-chip]").forEach(button => button.addEventListener("click", () => {
-    toggleAccessibilityChip(button.dataset.accessChip ?? "");
-    afterLibraryScopeChange();
-  }));
-  const libraryJump = document.querySelector<HTMLSelectElement>("#library-jump");
-  if (libraryJump) libraryJump.addEventListener("change", () => {
-    state.libraryScope = libraryJump.value ? new Set([libraryJump.value]) : null;
-    afterLibraryScopeChange();
-  });
-  document.querySelectorAll<HTMLSelectElement>("[data-platform-library-select]").forEach(select => select.addEventListener("change", () => {
-    const name = select.value;
-    if (!name) return;
-    const pack = select.selectedOptions[0]?.dataset.pack || "netcore.app";
-    openPlatformLibrary(name, pack);
-  }));
-  // The lens-scoped library pickers (Integrations, Opportunities, Analysis) scope the scan
-  // without leaving the lens: unlike the main platform selector they keep package (platform)
-  // root + the active lens, then rescan. Types are loaded too so switching to Types/Overview
-  // afterward isn't empty.
-  interface NoticeRetryState {
-    action: RetryAction;
-    previous: string;
-    appended: string;
-  }
-  const bindPlatformLensPicker = (
-    dataAttr: string,
-    lens: string,
-    loader: () => unknown,
-  ) => {
-    const openLibrary = async (
-      name: string,
-      pack: string,
-      originPackage: AppPackage = currentPackage(),
-      noticeRetryState: NoticeRetryState | null = null) => {
-      if (!state.packages.includes(originPackage)
-        || !packageIdentityEquals(state.package, originPackage)
-        || state.home
-        || !state.atPackageRoot
-        || state.packageLens !== lens) {
+      normalizeMemberSelection();
+      renderMemberFilterAndRestoreFocus("#clear-member-filter");
+    },
+    onMemberFilterKeyDown: (event, value) => {
+      if (event.key === "Escape") {
+        if (navMode() !== "member" && value === "") return;
+        event.preventDefault();
+        if (navMode() === "member") {
+          exitMemberScope();
+        } else {
+          state.memberTextFilter = "";
+          normalizeMemberSelection();
+          renderMemberFilterAndRestoreFocus("#member-filter");
+        }
         return;
       }
-      if (noticeRetryState
-        && state.queryNoticeRetryAction === noticeRetryState.action) {
-        state.queryNotice = removeAppendedNotice(
-          state.queryNotice,
-          noticeRetryState.previous,
-          noticeRetryState.appended);
-        state.queryNoticeRetryAction = null;
-      }
-      const navigationSeq = navigationSequence.begin();
-      const isCurrent = () =>
-        navigationSequence.isCurrent(navigationSeq)
-        && !state.home
-        && state.atPackageRoot
-        && state.packageLens === lens
-        && packageIdentityEquals(state.package, originPackage);
-      const key = name.replace(/\.dll$/i, "");
-      const resident = (runtimePackPackage()?.types || []).some(type => libraryKey(type) === key);
-      if (!resident) {
-        const runtimeResult = await loadRuntimePackAssembly(
-          platformScopeTfm(),
-          `${key}.dll`,
-          pack,
-          () => state.packages.includes(originPackage));
-        const loaded = runtimeResult.packageModel;
-        if (!loaded) {
-          if (isCurrent()) {
-                  const noticeState: NoticeRetryState = {
-              action: null,
-              previous: state.queryNotice,
-              appended: "",
-            };
-            const retryAction = () =>
-              openLibrary(name, pack, originPackage, noticeState);
-            noticeState.action = retryAction;
-            appendQueryNotice(
-              `Couldn’t load ${key}: ${runtimeResult.failureMessage
-                || state.runtimePackError
-                || "runtime pack acquisition failed."}`,
-              retryAction);
-            noticeState.appended = state.queryNotice;
-            render();
-          }
-          return;
-        }
-      }
-      if (!isCurrent()) return;
-      state.libraryScope = new Set([key]);
-      recordPlatformRecent(key, pack);
-      state.atPackageRoot = true;
-      state.packageLens = lens;
-      state.namespaceFilter = "";
-      state.typeFilter = "";
-      state.kindFilter = "";
-      normalizeLibrarySelection();
-      loader();
-    };
-    document.querySelectorAll<HTMLSelectElement>(`[${dataAttr}]`).forEach(select => select.addEventListener("change", () => {
-      const name = select.value;
-      if (!name) return;
-      const key = name.replace(/\.dll$/i, "");
-      const pack = select.selectedOptions[0]?.dataset.pack || platformPackForAssembly(key);
-      openLibrary(name, pack);
-    }));
-  };
-  bindPlatformLensPicker("data-platform-integrations-library", "integrations", loadPackageIntegrations);
-  bindPlatformLensPicker("data-platform-opportunities-library", "opportunities", loadPackageOpportunities);
-  bindPlatformLensPicker("data-platform-analysis-library", "analysis", loadPackagePerformance);
-  bindPlatformLensPicker("data-platform-metadata-library", "metadata", loadPackageMetadata);
-  document.querySelectorAll<HTMLElement>("[data-mde-open]").forEach(btn =>
-    btn.addEventListener("click", () => {
-      const [assembly = "", tableIndex = "0"] =
-        (btn.dataset.mdeOpen ?? "").split("|");
-      openExplorer(assembly, Number(tableIndex));
-    }));
-  document.querySelectorAll<HTMLElement>("[data-mde-open-heap]").forEach(btn =>
-    btn.addEventListener("click", () => {
-      const [assembly = "", heapName = ""] =
-        (btn.dataset.mdeOpenHeap ?? "").split("|");
-      openExplorerHeap(assembly, heapName);
-    }));
-  const frameworkSelect = document.querySelector<HTMLSelectElement>("#framework");
-  frameworkSelect?.addEventListener("change", () => {
-    switchPackageFramework(frameworkSelect.value);
-  });
-  const packageVersionSelect =
-    document.querySelector<HTMLSelectElement>("#package-version");
-  packageVersionSelect?.addEventListener("change", () => {
-    if (state.package?.isRuntimePack)
-      switchPlatformVersion(packageVersionSelect.value);
-    else switchPackageVersion(packageVersionSelect.value);
-  });
-  ensurePackageVersions(state.package);
-  if (state.package?.isRuntimePack) ensureDotnetReleases();
-  const filter = document.querySelector<HTMLInputElement>("#type-filter");
-  filter?.addEventListener("input", () => {
-    state.typeFilter = filter.value;
-    state.typeCursor = 0;
-    const first = filteredTypes()[0];
-    if (first) state.selectedTypeId = first.id;
-    state.selectedMemberKey = "";
-    state.memberBrowseTypeId = "";
-    resetMemberFilters();
-    render();
-    focusFilter();
-  });
-  filter?.addEventListener("keydown", event => {
-    if (event.key === "ArrowDown") {
+      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
       event.preventDefault();
-      document.querySelector<HTMLElement>("#type-list")?.focus();
-    } else if (event.key === "Escape") {
+      stepMemberNav(event.key === "ArrowDown" ? 1 : -1, true);
+    },
+    onMemberGroupOpen: memberKey => {
+      enterMemberNavigation(() => openMemberGroup(memberKey));
+    },
+    onMemberKindFilterSelect: value => {
+      state.memberKindFilter = value ?? "all";
+      normalizeMemberSelection();
+      renderMemberFilterAndRestoreFocus();
+    },
+    onMemberOverloadOpen: openOverload,
+    onMemberSelect: memberKey => {
+      const group = memberGroups(selectedType())
+        .find(item => item.key === memberKey);
+      if (group) selectMemberNavEntry({ kind: "member", group }, false);
+    },
+    onMemberTraitFilterSelect: value => {
+      state.memberTraitFilter = value ?? "";
+      normalizeMemberSelection();
+      renderMemberFilterAndRestoreFocus();
+    },
+    onNamespaceSelect: namespace => {
+      state.namespaceFilter = namespace;
+      state.typeCursor = 0;
+      const first = filteredTypes()[0];
+      if (first) state.selectedTypeId = first.id;
+      state.selectedMemberKey = "";
+      state.memberBrowseTypeId = "";
+      resetMemberFilters();
+      render();
+    },
+    onOverloadSelect: index => {
+      const group = selectedMember(selectedType());
+      if (group) selectMemberNavEntry({ kind: "overload", group, index }, false);
+    },
+    onShowTypes: exitMemberScope,
+    onTypeFilterChange: value => {
+      state.typeFilter = value;
+      state.typeCursor = 0;
+      const first = filteredTypes()[0];
+      if (first) state.selectedTypeId = first.id;
+      state.selectedMemberKey = "";
+      state.memberBrowseTypeId = "";
+      resetMemberFilters();
+      render();
+      focusFilter({ immediate: true });
+    },
+    onTypeFilterEscape: () => {
       state.typeFilter = "";
       render();
-    }
+      focusFilter({ immediate: true });
+    },
+    onTypeSelect: typeId => {
+      state.atPackageRoot = false;
+      state.selectedTypeId = typeId;
+      state.selectedMemberKey = "";
+      state.memberBrowseTypeId = "";
+      resetMemberFilters();
+      state.typeCursor = filteredTypes()
+        .findIndex(item => item.id === state.selectedTypeId);
+      render();
+    },
   });
-  document.querySelector<HTMLElement>("#type-list")
-    ?.addEventListener("keydown", handleTypeKeys);
-  if (state.spotlightOpen) spotlight.bind(document, "modal");
-  document.querySelector("#graph-source-backdrop")?.addEventListener("mousedown", event => {
-    if (event.target instanceof HTMLElement
-        && event.target.id === "graph-source-backdrop") closeGraphSource();
-  });
-  document.querySelector("#graph-source-close")?.addEventListener("click", closeGraphSource);
-  document.querySelectorAll<HTMLElement>("[data-doc-path]").forEach(button =>
-    button.addEventListener(
-      "click",
-      () => openPackageDocument(button.dataset.docPath ?? "")));
-  document.querySelector("#doc-viewer-backdrop")?.addEventListener("mousedown", event => {
-    if (event.target instanceof HTMLElement
-        && event.target.id === "doc-viewer-backdrop") closeDocViewer();
-  });
-  document.querySelector("#doc-viewer-close")?.addEventListener("click", closeDocViewer);
-  document.querySelector("#taste-btn")?.addEventListener("click", event => {
-    event.stopPropagation();
-    state.tasteOpen = !state.tasteOpen;
-    render();
-  });
-  document.querySelectorAll<HTMLElement>("#taste-popover [data-taste]").forEach(checkbox =>
-    checkbox.addEventListener(
-      "change",
-      () => toggleTaste(checkbox.dataset.taste ?? "")));
-  document.querySelector("#taste-clear")?.addEventListener("click", clearTaste);
-  document.querySelector("#clear-filter")?.addEventListener("click", () => {
-    state.typeFilter = "";
-    state.namespaceFilter = "";
-    state.kindFilter = "";
-    state.libraryScope = null;
-    state.accessibilityFilter = defaultAccessibilityFilter(state.package);
-    render();
-    focusFilter();
-  });
+}
 
-  document.querySelector("#share")?.addEventListener("click", share);
-  document.querySelector("[data-graph-back]")?.addEventListener("click", popPlatformDrill);
-  document.querySelector("#dismiss-notice")?.addEventListener("click", () => {
+function bindScopeBarEvents() {
+  bindScopeBar(document, {
+    onMemberSectionSelect: section => {
+      if (section && isMemberSection(section)) applyMemberSection(section);
+    },
+    onPackageLensSelect: lens => {
+      state.packageLens = lens;
+      render();
+    },
+    onScopeSelect: target => {
+      if (target === "package") {
+        state.atPackageRoot = true;
+      } else if (target === "type") {
+        // Pop out to the type level: leave the package root and drop any open member so the
+        // type lenses (API / Metadata / Source) take the strip. Ensure a type is selected.
+        state.atPackageRoot = false;
+        if (!state.selectedTypeId) {
+          const first = filteredTypes()[0];
+          if (first) state.selectedTypeId = first.id;
+        }
+        state.selectedMemberKey = "";
+        state.memberBrowseTypeId = "";
+        state.selectedOverloadIndex = null;
+      } else if (target === "member") {
+        enterMemberScope();
+      }
+      render();
+    },
+    onTypeLensSelect: lens => {
+      state.lens = lens;
+      state.selectedMemberKey = "";
+      state.memberBrowseTypeId = "";
+      render();
+    },
+  });
+}
+
+function bindSettingsPanelEvents() {
+  bindSettingsPanel(document, {
+    onClose: closeSettings,
+    onOpen: openSettings,
+    onTasteClear: clearTaste,
+    onTasteOpenToggle: () => {
+      state.tasteOpen = !state.tasteOpen;
+      render();
+    },
+    onTasteToggle: toggleTaste,
+    onThemeSelect: setTheme,
+  });
+}
+
+function bindPackageOpportunitiesEvents() {
+  bindPackageOpportunities(document, {
+    onLookForSelect: openSpotlight,
+    onPackageSelect: packageId =>
+      observeAsync(
+        openDependencyPackage(packageId, ""),
+        "Opening an opportunity package"),
+    onTypeSelect: typeId => {
+      const target = currentPackage().types.find(item => item.id === typeId);
+      if (!target) {
+        openSpotlight(shortTypeName(typeId));
+        return;
+      }
+      state.atPackageRoot = false;
+      navigateToTypeByName(typeId);
+    },
+  });
+}
+
+function bindGraphSourceEvents() {
+  bindGraphSource(document, {
+    onClose: closeGraphSource,
+  });
+}
+
+function bindDocViewerEvents() {
+  bindDocViewer(document, {
+    onClose: closeDocViewer,
+    onOpenDocument: path =>
+      observeAsync(openPackageDocument(path), "Opening a package document"),
+  });
+}
+
+function bindAnnotatedSourceEvents() {
+  bindAnnotatedSource(document, {
+    onClearSelection: () => {
+      state.memberAnnotatedFactId = null;
+      state.memberAnnotatedNodeIds = [];
+      render();
+    },
+    onCopy: () => {
+      if (state.memberAnnotated) {
+        void copyText(
+          state.memberAnnotated.document.text,
+          "annotated source copied");
+      }
+    },
+    onFactSelect: factId => {
+      state.memberAnnotatedFactId =
+        state.memberAnnotatedFactId === factId ? null : factId;
+      state.memberAnnotatedNodeIds = [];
+      render();
+    },
+    onMediumToggle: medium => {
+      if (!isAnnotatedMedium(medium)) return;
+      const typedMedium = medium;
+      const next = {
+        ...state.memberAnnotatedMedia,
+        [typedMedium]: !state.memberAnnotatedMedia[typedMedium],
+      };
+      // Both media off would look like a successful empty result.
+      if (!MEDIA.some(candidate => next[candidate])) return;
+      state.memberAnnotatedMedia = next;
+      render();
+    },
+    onOffsetSelect: offset => {
+      if (!state.memberAnnotated) return;
+      const node = nodeAtOffset(state.memberAnnotated.document, offset);
+      state.memberAnnotatedFactId = null;
+      state.memberAnnotatedNodeIds = node ? [node.id] : [];
+      const owning = node
+        ? factsForNode(state.memberAnnotated.document, node.id)
+        : [];
+      if (owning.length === 1) state.memberAnnotatedFactId = owning[0].id;
+      render();
+    },
+  });
+}
+
+const workbenchShellActions: WorkbenchShellBindingActions = {
+  onDismissNotice: () => {
     state.queryNotice = "";
     state.queryNoticeRetryAction = null;
     render();
-  });
-  document.querySelector("#retry-notice")?.addEventListener("click", () =>
-    state.queryNoticeRetryAction?.());
-  document.querySelector("#dismiss-package-notice")?.addEventListener("click", () => {
+  },
+  onDismissPackageNotice: () => {
     currentPackage().inspectionError = "";
     render();
-  });
-  document.querySelector("#nav-back")?.addEventListener("click", navBack);
-  document.querySelector("#nav-forward")?.addEventListener("click", navForward);
-  document.querySelector("#go-home")?.addEventListener("click", goHome);
-  document.querySelector("#theme-toggle")?.addEventListener("click", toggleTheme);
-  document.querySelector("#open-settings")?.addEventListener("click", () => openSettings("workbench"));
-  document.querySelector("#help")?.addEventListener("click", () => showToast("⌘K command · ⌘P / type to find a type · ⌘F filter · 1—5 lenses · ↑↓ types · Alt+←/→ back/forward · graph: wheel zoom, click node to open, +/− zoom, 0 fit, arrows pan"));
+  },
+  onGoHome: goHome,
+  onHelp: () => showToast(
+    "⌘K command · ⌘P / type to find a type · ⌘F filter · "
+    + "1—5 lenses · ↑↓ types · Alt+←/→ back/forward · "
+    + "graph: wheel zoom, click node to open, +/− zoom, 0 fit, arrows pan"),
+  onNavigateBack: navBack,
+  onNavigateForward: navForward,
+  onRetryNotice: () => {
+    const retryAction = state.queryNoticeRetryAction;
+    if (retryAction) observeAction(retryAction, "Retrying the inspection");
+  },
+  onShare: () => void share(),
+  onToggleTheme: toggleTheme,
+};
+
+const graphBackActions: GraphBackBindingActions = {
+  onBack: popPlatformDrill,
+};
+
+function bindEvents() {
+  bindStatusBarEvents();
+  packageBar.bind(document);
+  bindTypePanelEvents();
+  bindScopeBarEvents();
+  bindSettingsPanelEvents();
+  bindMetadataViewerEvents();
+  bindPackageOpportunitiesEvents();
+  bindGraphSourceEvents();
+  bindDocViewerEvents();
+  bindAnnotatedSourceEvents();
+  bindPackageViewEvents();
+  bindLibraryControlsEvents();
+  bindWorkbenchShell(document, workbenchShellActions);
+  bindGraphBack(document, graphBackActions);
+  observeAsync(ensurePackageVersions(state.package), "Loading package versions");
+  if (state.package?.isRuntimePack)
+    observeAsync(ensureDotnetReleases(), "Loading .NET release information");
+  if (state.spotlightOpen) spotlight.bind(document, "modal");
 }
 
 function toggleTheme() {
   setTheme(state.theme === "dark" ? "light" : "dark");
 }
 
+function toggleCreditsTheme(): "light" | "dark" {
+  setTheme(state.theme === "dark" ? "light" : "dark", false);
+  return state.theme === "light" ? "light" : "dark";
+}
+
 // Apply and persist a specific theme, refreshing any live graphs whose colors are theme-bound.
-function setTheme(theme: "light" | "dark") {
+function setTheme(theme: "light" | "dark", renderView = true) {
   state.theme = theme === "light" ? "light" : "dark";
   localStorage.setItem("inspect-theme", state.theme);
   document.documentElement.dataset.theme = state.theme;
+  if (!renderView) return;
   render();
-  if (state.memberCallGraph) renderMermaidCallGraph();
+  if (state.memberCallGraph)
+    observeAsync(renderMermaidCallGraph(), "Rendering the member call graph");
   const depGraph = document.querySelector<HTMLElement>("#dependency-graph-diagram");
-  if (depGraph) { depGraph.dataset.graphDef = ""; renderDependencyGraph(); }
+  if (depGraph) {
+    depGraph.dataset.graphDef = "";
+    observeAsync(renderDependencyGraph(), "Rendering the dependency graph");
+  }
 }
 
 function handleTypeKeys(event: KeyboardEvent) {
@@ -4606,11 +4722,11 @@ function mostRecentAvailableLibrary() {
 // exclude anything already open.
 function spotlightResults(): SpotlightResult[] {
   const query = state.spotlightQuery.trim();
-  const scope = state.spotlightScope;
-  const all = scope === "all";
+  const spotlightScope = state.spotlightScope;
+  const all = spotlightScope === "all";
   const results: SpotlightResult[] = [];
 
-  if (scope === "runtime") {
+  if (spotlightScope === "runtime") {
     if (state.runtimePackLoading) {
       results.push({ kind: "rtpack-status", loading: true });
       return results;
@@ -4646,7 +4762,7 @@ function spotlightResults(): SpotlightResult[] {
     return results;
   }
 
-  if (all || scope === "packages") {
+  if (all || spotlightScope === "packages") {
     const loaded = spotlightLoadedPackageMatches(query).slice(0, all ? 3 : 20);
     for (const match of loaded) results.push({ kind: "pkg-loaded", pkg: match.pkg, ranges: match.ranges });
     const openIds = new Set(state.packages.map(pkg => pkg.id.toLowerCase()));
@@ -4675,17 +4791,17 @@ function spotlightResults(): SpotlightResult[] {
       if (all && ++added >= 4) break;
     }
   }
-  if ((all || scope === "types") && query) {
+  if ((all || spotlightScope === "types") && query) {
     for (const match of spotlightTypeMatches(query).slice(0, all ? 6 : 50)) results.push({ ...match, kind: "type" });
-  } else if (scope === "types" && !query) {
+  } else if (spotlightScope === "types" && !query) {
     for (const match of spotlightTypeMatches("").slice(0, 40)) results.push({ ...match, kind: "type" });
   }
-  if ((all || scope === "members") && query) {
+  if ((all || spotlightScope === "members") && query) {
     for (const match of spotlightMemberMatches(query).slice(0, all ? 6 : 50)) results.push({ ...match, kind: "member" });
   }
   // Offer the runtime pack when the user is clearly hunting a platform type but it isn't
   // loaded yet — one gesture makes BCL types (TextWriter, String…) searchable session-wide.
-  if ((all || scope === "types") && query.length >= 2 && !runtimePackLoaded() && !state.runtimePackLoading) {
+  if ((all || spotlightScope === "types") && query.length >= 2 && !runtimePackLoaded() && !state.runtimePackLoading) {
     results.push({ kind: "rtpack-suggest" });
   }
   return results;
@@ -4701,12 +4817,38 @@ interface NugetSearchResponse {
   data?: NugetSearchResult[];
 }
 
+interface DotnetReleaseIndexEntry {
+  "channel-version": string;
+  "latest-release": string;
+}
+
+function isNugetSearchResult(value: unknown): value is NugetSearchResult {
+  return isRecord(value)
+    && typeof value.id === "string"
+    && typeof value.version === "string"
+    && (value.description === undefined || typeof value.description === "string");
+}
+
+function isDotnetReleaseIndexEntry(
+  value: unknown,
+): value is DotnetReleaseIndexEntry {
+  return isRecord(value)
+    && typeof value["channel-version"] === "string"
+    && typeof value["latest-release"] === "string";
+}
+
 async function querySpotlightPackages(query: string): Promise<SpotlightPackageHit[]> {
   const url = `https://azuresearch-usnc.nuget.org/query?q=${encodeURIComponent(query)}&take=8&prerelease=true&semVerLevel=2.0.0`;
   const response = await fetch(url);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const payload = await response.json() as NugetSearchResponse;
-  return (payload.data || []).map(item => ({
+  const payload: unknown = await response.json();
+  if (!isRecord(payload)
+      || (payload.data !== undefined
+        && (!Array.isArray(payload.data) || !payload.data.every(isNugetSearchResult)))) {
+    throw new TypeError("NuGet search returned an invalid response.");
+  }
+  const typedPayload: NugetSearchResponse = payload;
+  return (typedPayload.data || []).map(item => ({
     id: item.id,
     version: item.version,
     description: item.description || "",
@@ -4751,13 +4893,16 @@ async function queryDotnetReleases(): Promise<DotnetRelease[]> {
   const url = "https://raw.githubusercontent.com/dotnet/core/refs/heads/main/release-notes/releases-index.json";
   const response = await fetch(url);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const payload = await response.json() as {
-    "releases-index"?: Array<{
-      "channel-version": string;
-      "latest-release": string;
-    }>;
-  };
-  return (payload["releases-index"] || [])
+  const payload: unknown = await response.json();
+  if (!isRecord(payload)) throw new TypeError("The .NET release index was invalid.");
+  const releases = payload["releases-index"];
+  if (releases !== undefined
+      && (!Array.isArray(releases)
+        || !releases.every(isDotnetReleaseIndexEntry))) {
+    throw new TypeError("The .NET release index contained an invalid release.");
+  }
+  const typedReleases: DotnetReleaseIndexEntry[] = releases || [];
+  return typedReleases
     .map(entry => {
       const major = parseInt(entry["channel-version"], 10);
       return {
@@ -4835,7 +4980,7 @@ async function switchPlatformVersion(
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   render();
-  loadSelectionData();
+  observeAsync(loadSelectionData(), "Loading selection data");
 }
 
 function ensurePackageVersions(pkg: AppPackage | null) {
@@ -4881,14 +5026,35 @@ function pickSpotlightResult(result: SpotlightResult) {
   if (!result) { closeSpotlight(); return; }
   switch (result.kind) {
     case "pkg-loaded": pickSpotlightLoadedPackage(result.pkg); break;
-    case "pkg-nuget": loadPackageFromSpotlight(result.hit.id, result.hit.version); break;
-    case "pkg-recent": loadPackageFromSpotlight(result.entry.id, result.entry.version, result.entry.framework); break;
-    case "member": pickSpotlightMember(result); break;
+    case "pkg-nuget":
+      observeAsync(
+        loadPackageFromSpotlight(result.hit.id, result.hit.version),
+        "Loading a Spotlight package");
+      break;
+    case "pkg-recent":
+      observeAsync(
+        loadPackageFromSpotlight(
+          result.entry.id,
+          result.entry.version,
+          result.entry.framework),
+        "Loading a recent package");
+      break;
+    case "member":
+      observeAsync(pickSpotlightMember(result), "Opening a Spotlight member");
+      break;
     case "rtpack-suggest": state.spotlightScope = "runtime"; state.spotlightIndex = 0; activateRuntimePack(); break;
-    case "platform-lib": openPlatformLibrary(result.assembly, result.pack); break;
+    case "platform-lib":
+      observeAsync(
+        openPlatformLibrary(result.assembly, result.pack),
+        "Opening a platform library");
+      break;
     case "rtpack-status": break;
-    case "type": pickSpotlight(result.pkg, result.type.id); break;
-    default: executeCommand(result.value, result); break;
+    case "type":
+      observeAsync(pickSpotlight(result.pkg, result.type.id), "Opening a Spotlight type");
+      break;
+    default:
+      observeAsync(executeCommand(result.value, result), "Running a Spotlight command");
+      break;
   }
 }
 
@@ -4917,10 +5083,12 @@ function activateRuntimePack() {
     framework,
     () => navigationSequence.isCurrent(navigationSeq)); // sets runtimePackLoading synchronously
   spotlight.refresh();
-  pending.then(() => {
-    if (!state.spotlightOpen && !state.home) return;
-    spotlight.refresh();
-  });
+  observeAsync(
+    pending.then(() => {
+      if (!state.spotlightOpen && !state.home) return;
+      spotlight.refresh();
+    }),
+    "Loading the runtime pack");
 }
 
 // Drill into one platform library from the index-first Platform scope: lazily fetch just
@@ -4942,7 +5110,7 @@ async function openPlatformLibrary(
   const scopeOnly = options.scopeOnly === true;
   const focusGeneration = scopeOnly ? null : beginSpotlightNavigation();
   const navigationSeq = options.navigationSeq ?? navigationSequence.begin();
-  if (!navigationSequence.isCurrent(navigationSeq)) return;
+  if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
   spotlight.reset();
   const key = (assembly || "").replace(/\.dll$/i, "");
   const fileName = key ? `${key}.dll` : "";
@@ -4962,7 +5130,7 @@ async function openPlatformLibrary(
       pack,
       () => navigationSequence.isCurrent(navigationSeq));
     const loaded = runtimeResult.packageModel;
-    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
     if (!loaded) {
       state.loading = false;
       const failureMessage =
@@ -4974,11 +5142,11 @@ async function openPlatformLibrary(
       state.retryAction = options.retryAction
         ?? (() => openPlatformLibrary(assembly, pack));
       render();
-      return;
+      return undefined;
     }
   }
   const pkg = runtimePackPackage();
-  if (!pkg) { render(); return; }
+  if (!pkg) { render(); return undefined; }
   activatePackage(pkg, { resetAccessibility: true });
   state.home = false;
   const hasLib = pkg.types.some(type => libraryKey(type) === key);
@@ -5001,6 +5169,7 @@ async function openPlatformLibrary(
   render();
   await selectionData;
   if (focusGeneration != null) focusTypeList(focusGeneration);
+  return undefined;
 }
 
 function pickSpotlightLoadedPackage(pkg: {
@@ -5149,20 +5318,27 @@ function executeCommand(
   } else if (verb === "find" || verb === "types") {
     state.typeFilter = argument.replace(/^public\s*/, "");
   } else if (verb === "share") {
-    share();
+    operation = share();
   }
   state.history = [value, ...state.history.filter(item => item !== value)].slice(0, 5);
   return operation;
 }
 
-function focusFilter() {
-  requestAnimationFrame(() => {
+function focusFilter(
+  { immediate = false }: { immediate?: boolean } = {},
+) {
+  const focus = () => {
     const input = document.querySelector<HTMLInputElement>(
       "#member-filter, #type-filter");
     if (!input) return;
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
-  });
+  };
+  if (immediate) {
+    focus();
+    return;
+  }
+  requestAnimationFrame(focus);
 }
 
 const memberFocusRestorer = createMemberFocusRestorer();
@@ -5365,17 +5541,17 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
 // Kick off the async data load implied by the current lens/section so a restored or
 // history-navigated view fills in its content.
 function loadSelectionData() {
-  if (state.atPackageRoot) return;
+  if (state.atPackageRoot) return undefined;
   if (state.lens === "source") {
     return loadSelectedTypeSource();
   }
   if (state.lens === "metadata") {
     return loadSelectedTypeMetadata();
   }
-  if (state.lens !== "api" || !state.selectedMemberKey) return;
+  if (state.lens !== "api" || !state.selectedMemberKey) return undefined;
   const member = selectedMember(selectedType());
-  if (!member) return;
-  if (member.overloads.length > 1 && state.selectedOverloadIndex == null) return;
+  if (!member) return undefined;
+  if (member.overloads.length > 1 && state.selectedOverloadIndex == null) return undefined;
   if (state.memberSection === "source") return loadSelectedMemberSource();
   if (state.memberSection === "annotated") return loadSelectedMemberAnnotatedSource();
   if (state.memberSection === "call-graph") return loadSelectedMemberCallGraph();
@@ -5450,6 +5626,15 @@ async function copyText(value: string, confirmation: string) {
 function renderHomeView() {
   document.title = "dotnet-inspect -- Inspect any NuGet package: types, methods, metadata, decompilation.";
   const enginePending = !state.engineReady;
+  const showReadyGlint = state.engineReady && homeReadyGlintPending;
+  if (showReadyGlint) homeReadyGlintPending = false;
+  if (state.engineReady && homeBotAnimationStartedAt === null) {
+    homeBotAnimationStartedAt = performance.now();
+  }
+  const botAnimationDelay = homeBotAnimationStartedAt === null
+    ? 0
+    : -((performance.now() - homeBotAnimationStartedAt)
+      % HOME_BOT_ANIMATION_DURATION_MS);
   app.innerHTML = `
     <div class="home">
       <header class="home-bar">
@@ -5472,9 +5657,8 @@ function renderHomeView() {
           <p class="home-kicker">Browser-native · WebAssembly · zero install</p>
           <h1 class="home-title">Inspect any NuGet package: types, methods, metadata, decompilation.</h1>
           <p class="home-lede">Explore NuGet packages and the .NET platform — types, members, public API surface, dependencies, call graphs, and decompiled C# — all computed locally in your browser. Nothing to install, nothing uploaded.</p>
-          <p class="home-availability">Also available as a <a href="https://www.nuget.org/packages/dotnet-inspect" target="_blank" rel="noreferrer">CLI tool</a> and <a href="https://github.com/richlander/dotnet-skills" target="_blank" rel="noreferrer">agent skill</a>.</p>
           <div class="home-search ${enginePending ? "engine-pending" : ""}" role="search" aria-busy="${enginePending}">
-            ${spotlight.inlineHtml(enginePending)}
+            ${spotlight.inlineHtml(enginePending, showReadyGlint)}
             ${enginePending
               ? `<div class="home-engine-status" role="status" aria-live="polite">
                   <span class="loader" aria-hidden="true"></span>
@@ -5482,6 +5666,8 @@ function renderHomeView() {
                 </div>`
               : ""}
           </div>
+          <p class="home-availability">Also available as a <a href="https://www.nuget.org/packages/dotnet-inspect" target="_blank" rel="noreferrer">CLI tool</a> and <a href="https://github.com/richlander/dotnet-skills" target="_blank" rel="noreferrer">agent skill</a>.</p>
+          <p class="home-attribution">Built with .NET 11, WebAssembly, TypeScript 7, NuGet, and System.Reflection.Metadata. <a id="home-credits" href="/credits">Credits</a></p>
           <div class="home-demos">
             <span class="home-demos-label">Or jump straight into a demo</span>
             <div class="home-demo-row">
@@ -5491,7 +5677,7 @@ function renderHomeView() {
             </div>
           </div>
         </div>
-        <aside class="home-art">${homeArtSvg()}</aside>
+        <aside class="home-art ${enginePending ? "engine-pending" : "engine-ready"}" style="--home-bot-animation-delay: ${botAnimationDelay}ms">${homeArtSvg()}</aside>
       </main>
       ${statusBarHtml({
         variant: "home",
@@ -5512,23 +5698,22 @@ function homeArtSvg() {
   return `<img class="home-art-img" src="/assets/dotnet-inspect-bot.png" width="680" height="680" alt="dotnet-bot inspecting through a magnifying glass" />`;
 }
 
-function bindHomeEvents() {
-  bindStatusBarToggle();
-  document.querySelector("#home-theme")?.addEventListener("click", toggleTheme);
-  document.querySelector("#home-settings")?.addEventListener("click", () => openSettings("home"));
-  document.querySelector("#dismiss-notice")?.addEventListener("click", () => {
+const homeShellActions: HomeShellBindingActions = {
+  onDemo: runHomeDemo,
+  onDismissNotice: () => {
     state.queryNotice = "";
     state.queryNoticeRetryAction = null;
     render();
-  });
+  },
+  onOpenCredits: openCredits,
+  onToggleTheme: toggleTheme,
+};
+
+function bindHomeEvents() {
+  bindStatusBarEvents();
+  bindSettingsPanelEvents();
+  bindHomeShell(document, homeShellActions);
   spotlight.bind(document, "inline");
-  document.querySelectorAll<HTMLElement>("[data-home-demo]").forEach(button =>
-    button.addEventListener("click", () => {
-      const demo = button.dataset.homeDemo;
-      if (demo === "stj" || demo === "runtime" || demo === "callgraph") {
-        runHomeDemo(demo);
-      }
-    }));
   requestAnimationFrame(() =>
     document.querySelector<HTMLInputElement>("#spotlight-input")?.focus());
 }
@@ -5544,22 +5729,43 @@ const HOME_DEMO_LINKS = {
 
 function runHomeDemo(kind: keyof typeof HOME_DEMO_LINKS | "callgraph") {
   state.home = false;
-  if (kind === "callgraph") { runCallGraphDemo(); return; }
+  if (kind === "callgraph") {
+    observeAsync(runCallGraphDemo(), "Loading the call graph demo");
+    return;
+  }
   const link = HOME_DEMO_LINKS[kind];
   if (!link) return;
   workspaceLocation.push(link);
   const loc = parseLocation();
-  restoreWorkspaceFromLocation(loc, loc);
+  observeAsync(restoreWorkspaceFromLocation(loc, loc), "Loading the demo workspace");
 }
 
 // Return to the intro/home page without tearing down the warm engine or the loaded packages.
 // Soft in-app navigation (pushState "/") so a refresh stays on home and Back returns to the
 // workbench; the home search reuses the still-resident package list.
 function goHome() {
+  state.credits = false;
   state.home = true;
   spotlight.reset();
   workspaceLocation.push("/");
   render();
+}
+
+function openCredits() {
+  state.credits = true;
+  state.home = true;
+  spotlight.reset();
+  workspaceLocation.push("/credits");
+  render();
+}
+
+function renderCreditsView() {
+  document.title = "Credits · dotnet-inspect";
+  app.innerHTML = renderCreditsPage(state.theme === "light" ? "light" : "dark");
+  bindCreditsPanel(document, {
+    onClose: goHome,
+    onToggleTheme: toggleCreditsTheme,
+  });
 }
 
 // Loads the resident runtime pack and lands on its package Overview (the runtime pack has no
@@ -5608,7 +5814,7 @@ async function openRuntimePackFromHome() {
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   render();
-  loadSelectionData();
+  observeAsync(loadSelectionData(), "Loading selection data");
 }
 
 // The inspector-bot mascot series shown on interstitial (loading) screens. Each entry is a
@@ -5635,16 +5841,37 @@ function interstitialBotSrc(): string {
   return loadingBotSrc;
 }
 
-function openPackageFromError(packageId: string, version: string) {
+function openPackageQuery(query: ParsedPackageQuery) {
+  const packageTab = findPackageTabForQuery(state, query);
+  if (packageTab) {
+    state.loading = false;
+    state.error = "";
+    state.errorTitle = "";
+    state.errorDetail = "";
+    state.retryAction = null;
+    selectPackageTab(packageTab);
+    return;
+  }
+
   if (!state.engineReady) {
     const url = new URL("/", window.location.href);
-    url.searchParams.set("package", packageId);
-    url.searchParams.set("version", version);
+    url.searchParams.set("package", query.packageId);
+    url.searchParams.set("version", query.version);
     window.location.assign(url);
     return;
   }
-  loadPackage(packageId, version, "");
+  observeAsync(
+    loadPackage(query.packageId, query.version, ""),
+    "Loading a package");
 }
+
+const loadErrorShellActions: LoadErrorShellBindingActions = {
+  onOpenPackage: openPackageQuery,
+  onRetry: () =>
+    observeAction(
+      state.retryAction ?? bootstrap,
+      "Retrying the inspection"),
+};
 
 function renderLoading() {
   app.innerHTML = `
@@ -5666,24 +5893,7 @@ function renderLoading() {
            </div>`
         : `<div class="load-progress"><img class="loading-bot" src="${interstitialBotSrc()}" width="200" height="200" alt="dotnet-bot inspector mascot" /><span class="loader"></span><strong>${escapeHtml(state.loadingMessage)}</strong><small>${state.loadingSubtitle ? escapeHtml(state.loadingSubtitle) : `${escapeHtml(state.requestedPackage)}@${escapeHtml(state.requestedVersion)} · ${escapeHtml(state.requestedFramework || "best framework")}`}</small></div>`}
     </div>`;
-  document.querySelector("#retry-load")?.addEventListener(
-    "click",
-    () => (state.retryAction ?? bootstrap)());
-  document.querySelector("#error-package-query")?.addEventListener("submit", event => {
-    event.preventDefault();
-    const input =
-      document.querySelector<HTMLInputElement>("#error-package-input");
-    const value = input?.value.trim() ?? "";
-    const separator = value.lastIndexOf("@");
-    if (!value || separator === value.length - 1) return;
-    const packageId = separator > 0 ? value.slice(0, separator) : value;
-    const version = separator > 0 ? value.slice(separator + 1) : "latest";
-    openPackageFromError(packageId, version);
-  });
-  document.querySelector("#toggle-error-detail")?.addEventListener("click", () => {
-    const pre = document.querySelector<HTMLElement>(".load-error-detail");
-    if (pre) pre.hidden = !pre.hidden;
-  });
+  bindLoadErrorShell(document, loadErrorShellActions);
 }
 
 async function loadSelectedMemberDocumentation() {
@@ -5788,7 +5998,7 @@ function memberRequestSignature(
     type?.queryId ?? type?.id,
     type?.definitionId ?? type?.id,
     overload?.stableSelector ?? overload?.canonicalSignature ?? overload?.signature
-  ].map(value => String(value ?? ""));
+  ].map(value => value ?? "");
   if (includeBody) {
     parts.push(
       String(state.selectedBodyTarget?.metadataToken ?? ""),
@@ -5893,7 +6103,8 @@ async function renderTypeGraph() {
     const rootStyle = getComputedStyle(document.documentElement);
     const resolved = definition.replace(
       /var\((--[\w-]+)\)/g,
-      (whole, name) => rootStyle.getPropertyValue(name).trim() || whole
+      (whole: string, name: string) =>
+        rootStyle.getPropertyValue(name).trim() || whole
     );
     const { svg } = await mermaid.render(id, resolved);
     if (document.querySelector("#type-graph-diagram") !== container) return;
@@ -5908,31 +6119,21 @@ async function renderTypeGraph() {
       container.querySelector<HTMLElement>(".graph-viewport");
     if (!viewport) return;
     viewport.innerHTML = svg;
-    attachGraphPanZoom(container, viewport);
-    viewport.querySelectorAll<SVGGElement>("g.node").forEach(node => {
-      const dataId = node.getAttribute("data-id");
-      const idMatch = node.id.match(/(?:^|flowchart-)(t\d+)(?:-|$)/);
-      const nodeId = dataId || idMatch?.[1];
+    bindGraphPanZoom(container, viewport);
+    bindTypeGraphNodes(viewport, nodeId => {
       const graphNode = nodeId ? graphNodeOf.get(nodeId) : null;
-      if (!graphNode) return;
+      if (!graphNode) return null;
       const fullName = graphNode.id;
       const pkg = currentPackage();
       const target = graphNode.role === "self"
         ? selectedType()
         : uniqueTypeByQueryId(pkg.types, fullName);
-      if (target) {
-        node.classList.add("nav-node");
-        node.style.cursor = "pointer";
-        node.addEventListener("click", () => navigateToType(target));
-        return;
-      }
-      // Reported by metadata but not in the browsable surface (internal type or a
-      // type in another assembly). Mark it non-navigable with a native tooltip so
-      // the dead node reads as informational rather than broken.
-      node.classList.add("non-nav");
-      const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
-      title.textContent = `${fullName} — not in the browsable public surface`;
-      node.insertBefore(title, node.firstChild);
+      return target
+        ? { onSelect: () => navigateToType(target) }
+        : {
+            unavailableLabel:
+              `${fullName} — not in the browsable public surface`,
+          };
     });
   } catch (error) {
     if (document.querySelector("#type-graph-diagram") === container) {
@@ -6004,9 +6205,13 @@ async function renderDependencyGraph() {
   if (!pkg) return;
   const built = buildDependencyGraphMermaid(
     {
-      ...state,
       package: pkg,
-      packageDependencies: state.packageDependencies ?? undefined,
+      packages: state.packages,
+      dependenciesGroupIndex: state.dependenciesGroupIndex,
+      workspaceDependencies: state.workspaceDependencies,
+      ...(state.packageDependencies
+        ? { packageDependencies: state.packageDependencies }
+        : {}),
     },
     (_packages, packageId, versionRange) =>
       uniqueCompatiblePackage(state.packages, packageId, versionRange));
@@ -6042,7 +6247,8 @@ async function renderDependencyGraph() {
     const rootStyle = getComputedStyle(document.documentElement);
     const resolved = built.definition.replace(
       /var\((--[\w-]+)\)/g,
-      (whole, name) => rootStyle.getPropertyValue(name).trim() || whole
+      (whole: string, name: string) =>
+        rootStyle.getPropertyValue(name).trim() || whole
     );
     const { svg } = await mermaid.render(id, resolved);
     // A newer render superseded this one, or the container was swapped out — bail without touching the DOM.
@@ -6063,21 +6269,20 @@ async function renderDependencyGraph() {
     if (!viewport) return;
     viewport.innerHTML = svg;
     container.dataset.graphDef = signature;
-    attachGraphPanZoom(container, viewport);
-    viewport.querySelectorAll<SVGGElement>("g.node").forEach(node => {
-      const dataId = node.getAttribute("data-id");
-      const idMatch = node.id.match(/(?:^|flowchart-)(d\d+)(?:-|$)/);
-      const nodeId = dataId || idMatch?.[1];
+    bindGraphPanZoom(container, viewport);
+    bindDependencyGraphNodes(viewport, nodeId => {
       const info = nodeId ? built.nodeInfoById.get(nodeId) : null;
-      if (!info || info.kind === "self") return;
-      node.classList.add("nav-node");
-      node.style.cursor = "pointer";
-      node.addEventListener("click", () => {
-        if (info.kind === "open" && info.packageKey)
-          switchToPackageForDependencies(info.packageKey);
-        else if (info.id)
-          openDependencyPackage(info.id, info.versionRange);
-      });
+      if (!info || info.kind === "self") return null;
+      return {
+        onSelect: () => {
+          if (info.kind === "open" && info.packageKey)
+            switchToPackageForDependencies(info.packageKey);
+          else if (info.id)
+            observeAsync(
+              openDependencyPackage(info.id, info.versionRange),
+              "Opening a dependency package");
+        },
+      };
     });
   } catch (error) {
     // Only surface the error if this is still the latest render and nothing else has drawn a graph.
@@ -6209,7 +6414,7 @@ function patchCallGraphSection(previousMermaid: string | undefined) {
   const graph = state.memberCallGraph;
   const callers = graph?.callers?.children ?? [];
   const callees = graph?.callees?.children ?? [];
-  const scope = graph?.scope;
+  const graphScope = graph?.scope;
   const countSpan = section.querySelector(".section-title span");
   if (countSpan) {
     countSpan.textContent =
@@ -6225,13 +6430,14 @@ function patchCallGraphSection(previousMermaid: string | undefined) {
     warning.textContent = diagnosticsMessage;
     scopeEl?.before(warning);
   }
-  if (scopeEl && scope) {
+  if (scopeEl && graphScope) {
     scopeEl.innerHTML =
-      `<strong>Workspace callers</strong><span>${scope.packages} loaded packages · ${scope.callerAssemblies} scanned assemblies</span><strong>Callees</strong><span>${escapeHtml(scope.calleeScope)} · depth 2</span>`;
+      `<strong>Workspace callers</strong><span>${graphScope.packages} loaded packages · ${graphScope.callerAssemblies} scanned assemblies</span><strong>Callees</strong><span>${escapeHtml(graphScope.calleeScope)} · depth 2</span>`;
   }
   const sourceCode = section.querySelector(".graph-mermaid pre code");
   if (sourceCode) sourceCode.textContent = graph?.mermaid ?? "";
-  if (graph?.mermaid && graph.mermaid !== previousMermaid) renderMermaidCallGraph();
+  if (graph?.mermaid && graph.mermaid !== previousMermaid)
+    observeAsync(renderMermaidCallGraph(), "Rendering the member call graph");
 }
 
 async function renderMermaidCallGraph() {
@@ -6259,7 +6465,8 @@ async function renderMermaidCallGraph() {
     const rootStyle = getComputedStyle(document.documentElement);
     const definition = active.mermaid.replace(
       /var\((--[\w-]+)\)/g,
-      (whole, name) => rootStyle.getPropertyValue(name).trim() || whole
+      (whole: string, name: string) =>
+        rootStyle.getPropertyValue(name).trim() || whole
     );
     const { svg } = await mermaid.render(id, definition);
     if (seq === callGraphRenderSeq
@@ -6277,7 +6484,10 @@ async function renderMermaidCallGraph() {
       if (!viewport) return;
       viewport.innerHTML = svg;
       container.dataset.graphDef = active.mermaid;
-      attachGraphPanZoom(container, viewport, true, active);
+      bindGraphPanZoom(container, viewport, {
+        resolveCallGraphNode: nodeId =>
+          callGraphNodeBinding(active, nodeId),
+      });
     }
   } catch (error) {
     if (seq === callGraphRenderSeq
@@ -6293,188 +6503,65 @@ async function renderMermaidCallGraph() {
   }
 }
 
-function attachGraphPanZoom(
-  container: HTMLElement,
-  viewport: HTMLElement,
-  bindCallGraphNodes = false,
-  callGraph: BrowserCallGraph | null = null,
-) {
-  const svg = viewport.querySelector<SVGSVGElement>("svg");
-  if (!svg) return;
-  const renderedSvg = svg;
+function callGraphNodeBinding(
+  callGraph: BrowserCallGraph,
+  nodeId: string,
+): CallGraphNodeBinding | null {
+  const target =
+    callGraph.targets?.find(candidate => candidate.id === nodeId) ?? null;
+  if (!target) return null;
+  const typeId = callGraphTargetTypeId(target);
 
-  const box = svg.viewBox?.baseVal;
-  const naturalWidth = box && box.width ? box.width : svg.getBoundingClientRect().width;
-  const naturalHeight = box && box.height ? box.height : svg.getBoundingClientRect().height;
-  svg.setAttribute("width", String(naturalWidth));
-  svg.setAttribute("height", String(naturalHeight));
-
-  const minScale = 0.2;
-  const maxScale = 8;
-  const view = { scale: 1, x: 0, y: 0 };
-  const clampScale = (value: number) =>
-    Math.min(maxScale, Math.max(minScale, value));
-
-  function apply() {
-    renderedSvg.style.transform =
-      `translate(${view.x}px, ${view.y}px) scale(${view.scale})`;
+  // Inside a platform descent the whole graph lives in the runtime pack, not
+  // the workspace, so clicked callees descend through the platform graph.
+  const drilled =
+    state.platformStack.length > 0 || Boolean(state.package?.isRuntimePack);
+  if (drilled) {
+    if (target.id === "n0" || !target.assembly || !typeId) return null;
+    return {
+      platform: true,
+      onSelect: () =>
+        observeAsync(
+          navigateOrDrillPlatform(target),
+          "Opening a platform call-graph target"),
+    };
   }
 
-  function fit() {
-    const rect = viewport.getBoundingClientRect();
-    if (!naturalWidth || !naturalHeight || !rect.width) return;
-    // Cap at 1:1 so a tiny graph (e.g. two nodes) renders at its natural size,
-    // centered, instead of being upscaled to fill the tall viewport.
-    const fitScale = Math.min(rect.width / naturalWidth, rect.height / naturalHeight) * 0.92;
-    view.scale = clampScale(Math.min(fitScale, 1));
-    view.x = (rect.width - naturalWidth * view.scale) / 2;
-    view.y = (rect.height - naturalHeight * view.scale) / 2;
-    apply();
-  }
-
-  function zoomAt(px: number, py: number, factor: number) {
-    const next = clampScale(view.scale * factor);
-    const ratio = next / view.scale;
-    view.x = px - (px - view.x) * ratio;
-    view.y = py - (py - view.y) * ratio;
-    view.scale = next;
-    apply();
-  }
-
-  viewport.addEventListener("wheel", event => {
-    event.preventDefault();
-    const rect = viewport.getBoundingClientRect();
-    zoomAt(event.clientX - rect.left, event.clientY - rect.top, Math.exp(-event.deltaY * 0.0015));
-  }, { passive: false });
-
-  let pointerId: number | null = null;
-  let moved = false;
-  let capturing = false;
-  const panThreshold = 5;
-  const start = { x: 0, y: 0, vx: 0, vy: 0 };
-  viewport.addEventListener("pointerdown", event => {
-    if (event.button !== 0) return;
-    pointerId = event.pointerId;
-    moved = false;
-    capturing = false;
-    start.x = event.clientX;
-    start.y = event.clientY;
-    start.vx = view.x;
-    start.vy = view.y;
-  });
-  viewport.addEventListener("pointermove", event => {
-    if (pointerId !== event.pointerId) return;
-    const dx = event.clientX - start.x;
-    const dy = event.clientY - start.y;
-    if (!capturing) {
-      if (Math.abs(dx) + Math.abs(dy) <= panThreshold) return;
-      capturing = true;
-      moved = true;
-      viewport.setPointerCapture(pointerId);
-      viewport.classList.add("panning");
-    }
-    view.x = start.vx + dx;
-    view.y = start.vy + dy;
-    apply();
-  });
-  function endPan(event: PointerEvent) {
-    if (pointerId !== event.pointerId) return;
-    if (capturing) {
-      viewport.releasePointerCapture(pointerId);
-      viewport.classList.remove("panning");
-    }
-    capturing = false;
-    pointerId = null;
-  }
-  viewport.addEventListener("pointerup", endPan);
-  viewport.addEventListener("pointercancel", endPan);
-
-  container.querySelectorAll<HTMLElement>(".graph-controls button")
-    .forEach(button => {
-    button.addEventListener("click", () => {
-      const rect = viewport.getBoundingClientRect();
-      const mode = button.dataset.zoom;
-      if (mode === "in") zoomAt(rect.width / 2, rect.height / 2, 1.25);
-      else if (mode === "out") zoomAt(rect.width / 2, rect.height / 2, 0.8);
-      else fit();
-    });
-  });
-
-  viewport.tabIndex = 0;
-  viewport.addEventListener("keydown", event => {
-    const rect = viewport.getBoundingClientRect();
-    const step = 45;
-    if (event.key === "+" || event.key === "=") zoomAt(rect.width / 2, rect.height / 2, 1.25);
-    else if (event.key === "-" || event.key === "_") zoomAt(rect.width / 2, rect.height / 2, 0.8);
-    else if (event.key === "0") fit();
-    else if (event.key === "ArrowLeft") { view.x += step; apply(); }
-    else if (event.key === "ArrowRight") { view.x -= step; apply(); }
-    else if (event.key === "ArrowUp") { view.y += step; apply(); }
-    else if (event.key === "ArrowDown") { view.y -= step; apply(); }
-    else return;
-    event.preventDefault();
-  });
-
-  if (bindCallGraphNodes) {
-    // Inside a platform descent the whole graph lives in the runtime pack, not the
-    // workspace, so a clicked callee must resolve against the active platform graph
-    // and descend further — routing it through the workspace resolvers would look the
-    // type up in the loaded package and fail (e.g. "Type 'TextWriter' is not in Markout.dll").
-    // A resident runtime pack's base member graph is itself a platform graph, so its
-    // callees descend the same way from the start.
-    const drilled = state.platformStack.length > 0 || Boolean(state.package?.isRuntimePack);
-    svg.querySelectorAll<SVGGElement>("g.node").forEach(node => {
-      const target = graphTargetForSvgNode(callGraph, node);
-      if (!target) return;
-      const typeId = callGraphTargetTypeId(target);
-      if (drilled) {
-        if (target.id === "n0" || !target.assembly || !typeId)
-          return;
-        node.classList.add("nav-node", "platform-node");
-        node.style.cursor = "pointer";
-        node.addEventListener("click", () => {
-          if (moved) return;
-          navigateOrDrillPlatform(target);
-        });
-        return;
-      }
-      const packages = [
-        state.package,
-        ...state.packages.filter(item => item !== state.package),
-      ].filter((pkg): pkg is AppPackage => pkg != null);
-      const candidate =
-        resolveLoadedGraphTargetCandidate<AppPackage, BrowserTypeSurface>(
-          packages,
+  const packages = [
+    state.package,
+    ...state.packages.filter(item => item !== state.package),
+  ].filter((pkg): pkg is AppPackage => pkg != null);
+  const candidate =
+    resolveLoadedGraphTargetCandidate<AppPackage, BrowserTypeSurface>(
+      packages,
+      target);
+  const disposition = graphTargetNavigationDisposition(candidate, target);
+  if (disposition === "blocked" || disposition === "none") return null;
+  const loaded = disposition === "loaded" && candidate.status === "unique"
+    ? resolveLoadedGraphTarget(target, candidate)
+    : null;
+  const platform = disposition === "platform";
+  return {
+    platform,
+    onSelect: () => {
+      if (loaded?.group) {
+        navigateToMember(
+          loaded.pkg,
+          loaded.type,
+          loaded.group,
+          loaded.overloadIndex,
           target);
-      const disposition = graphTargetNavigationDisposition(candidate, target);
-      if (disposition === "blocked" || disposition === "none") return;
-      const loaded = disposition === "loaded"
-        && candidate.status === "unique"
-        ? resolveLoadedGraphTarget(target, candidate)
-        : null;
-      const platform = disposition === "platform";
-      node.classList.add("nav-node");
-      if (platform) node.classList.add("platform-node");
-      node.style.cursor = "pointer";
-      node.addEventListener("click", () => {
-        if (moved) return;
-        if (loaded?.group) {
-          navigateToMember(
-            loaded.pkg,
-            loaded.type,
-            loaded.group,
-            loaded.overloadIndex,
-            target);
-        } else if (loaded) {
-          openGraphSource(loaded.request, loaded.title);
-        } else if (platform) {
-          navigateOrDrillPlatform(target);
-        }
-      });
-    });
-  }
-
-  fit();
+      } else if (loaded) {
+        observeAsync(
+          openGraphSource(loaded.request, loaded.title),
+          "Loading graph source");
+      } else if (platform) {
+        observeAsync(
+          navigateOrDrillPlatform(target),
+          "Opening a platform call-graph target");
+      }
+    },
+  };
 }
 
 function currentCallGraph() {
@@ -6488,18 +6575,6 @@ function platformCrumbTrail() {
     ? state.memberCallGraph.callees.label.replace(/\(.*$/, "")
     : "member";
   return [root, ...state.platformStack.map(entry => entry.title)].join(" › ");
-}
-
-function graphTargetForSvgNode(
-  graph: BrowserCallGraph | null,
-  node: Element,
-) {
-  const dataId = node.getAttribute("data-id");
-  const idMatch = node.id.match(/(?:^|flowchart-)(n\d+)(?:-|$)/);
-  const nodeId = dataId || idMatch?.[1];
-  return nodeId
-    ? graph?.targets?.find(target => target.id === nodeId) ?? null
-    : null;
 }
 
 function resolveLoadedGraphTarget(
@@ -6561,7 +6636,9 @@ async function drillPlatformNode(node: BrowserCallGraphTarget) {
 }
 
 function popPlatformDrill() {
-  callGraphInspection.popDrill();
+  observeAsync(
+    callGraphInspection.popDrill(),
+    "Returning to the previous platform call graph");
 }
 
 // A clicked platform (BCL) call-graph node should land the user *inside* the resident
@@ -6657,7 +6734,7 @@ function navigateToRuntimeMember(
   state.memberAnnotatedError = "";
   state.selectedBodyTarget = bodyTarget;
   state.typeCursor = Math.max(0, filteredTypes().findIndex(item => item.id === type.id));
-  loadSelectedMemberCallGraph();
+  observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
 }
 
 // Resolve a platform call-graph node's structured identity to a concrete type, member
@@ -6722,22 +6799,22 @@ async function markdownLibs() {
   return { marked, DOMPurify };
 }
 
-async function renderMarkdown(text: unknown) {
+async function renderMarkdown(text: string) {
   const { marked, DOMPurify } = await markdownLibs();
-  const html = marked.parse(String(text ?? ""), { gfm: true, breaks: false });
+  const html = marked.parse(text, { gfm: true, breaks: false });
   return DOMPurify.sanitize(html, MARKDOWN_SANITIZE_OPTIONS);
 }
 
-async function renderMarkdownInline(text: unknown) {
+async function renderMarkdownInline(text: string) {
   const { marked, DOMPurify } = await markdownLibs();
-  const html = marked.parseInline(String(text ?? ""), { gfm: true });
+  const html = marked.parseInline(text, { gfm: true });
   return DOMPurify.sanitize(html, MARKDOWN_SANITIZE_OPTIONS);
 }
 
 function openPackageDocument(path: string) {
   const pkg = state.package;
   const doc = (pkg?.documents || []).find(candidate => candidate.path === path);
-  if (!pkg || !doc) return;
+  if (!pkg || !doc) return undefined;
   return documentInspection.open({
     packageId: pkg.id,
     version: pkg.version,
@@ -6792,19 +6869,23 @@ function reloadVisibleSource() {
   switch (sourceReloadKind(state)) {
     case "graph":
       if (state.graphSourceRequest) {
-        openGraphSource(
-          state.graphSourceRequest.request,
-          state.graphSourceRequest.title);
+        observeAsync(
+          openGraphSource(
+            state.graphSourceRequest.request,
+            state.graphSourceRequest.title),
+          "Reloading graph source");
       }
       break;
     case "type":
-      loadSelectedTypeSource();
+      observeAsync(loadSelectedTypeSource(), "Reloading type source");
       break;
     case "member":
-      loadSelectedMemberSource();
+      observeAsync(loadSelectedMemberSource(), "Reloading member source");
       break;
     case "annotated":
-      loadSelectedMemberAnnotatedSource();
+      observeAsync(
+        loadSelectedMemberAnnotatedSource(),
+        "Reloading annotated member source");
       break;
   }
 }
@@ -6867,22 +6948,7 @@ function renderSettingsViewHtml() {
     },
     escapeHtml,
   });
-  bindSettingsEvents();
-}
-
-function bindSettingsEvents() {
-  document.querySelector("#settings-close")?.addEventListener("click", closeSettings);
-  document.querySelectorAll<HTMLElement>(".settings-seg[data-theme]").forEach(button =>
-    button.addEventListener("click", () => {
-      const theme = button.dataset.theme;
-      if (theme === "dark" || theme === "light") setTheme(theme);
-    }));
-  document.querySelectorAll<HTMLElement>(".settings-taste [data-taste]").forEach(checkbox =>
-    checkbox.addEventListener("change", () => {
-      const taste = checkbox.dataset.taste;
-      if (taste) toggleTaste(taste);
-    }));
-  document.querySelector("#settings-taste-clear")?.addEventListener("click", clearTaste);
+  bindSettingsPanelEvents();
 }
 
 function renderGraphSource() {
@@ -6921,7 +6987,7 @@ function navigateToMember(
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
   state.selectedBodyTarget = bodyTarget;
-  loadSelectedMemberDocumentation();
+  observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
 }
 
 async function loadSelectedMemberFacts() {
@@ -6996,10 +7062,12 @@ async function loadPackage(
       packageId,
       version,
       framework,
-      replacePackage: options.replacePackage,
-      isCurrent: navigationSeq == null
-        ? undefined
-        : () => navigationSequence.isCurrent(navigationSeq),
+      ...(options.replacePackage !== undefined
+        ? { replacePackage: options.replacePackage }
+        : {}),
+      ...(navigationSeq == null
+        ? {}
+        : { isCurrent: () => navigationSequence.isCurrent(navigationSeq) }),
     });
     if (!packageModel) return null;
     if (background) return packageModel;
@@ -7039,6 +7107,8 @@ async function loadPackage(
       return null;
     }
     state.loading = false;
+    const retryOptions: LoadPackageOptions = { ...options };
+    delete retryOptions.navigationSeq;
     if (prevPackage) {
       // A failed *new* query must not blow away an already-open workbench and trap the user
       // on a full-screen error. Keep them in their current package and restore the requested
@@ -7056,7 +7126,7 @@ async function loadPackage(
           packageId,
           version,
           framework,
-          { ...options, navigationSeq: undefined })));
+          retryOptions)));
       render();
     } else {
       state.error = state.queryNotice
@@ -7070,7 +7140,7 @@ async function loadPackage(
         packageId,
         version,
         framework,
-        { ...options, navigationSeq: undefined });
+        retryOptions);
       render();
     }
     return null;
@@ -7115,7 +7185,7 @@ function platformLibrarySelectHtml(
   if (!roster.length) return "";
   const byAssembly = new Map(roster.map(lib => [lib.assembly, lib]));
   const scoped = selectedKey !== undefined
-    ? String(selectedKey || "")
+    ? selectedKey ?? ""
     : (state.libraryScope && state.libraryScope.size === 1 ? [...state.libraryScope][0] : "");
   // Recent = the loaded/most-recently-accessed libraries: the explicit MRU first
   // (persisted across sessions), then any other currently-loaded libraries such as
@@ -7159,7 +7229,7 @@ function platformLibrarySelectHtml(
 // re-running LoadRuntimePack (per TFM), not GetPackageBytesAsync. This id test lets the
 // restore path route it correctly instead of 404-ing on a nupkg fetch.
 function isRuntimePackId(id: string | null | undefined) {
-  return String(id || "").toLowerCase() === "microsoft.netcore.app";
+  return (id ?? "").toLowerCase() === "microsoft.netcore.app";
 }
 
 const packageAcquisition = createPackageAcquisition({
@@ -7324,13 +7394,13 @@ async function restoreWorkspaceFromLocation(
   };
   const matchesFramework = (tab: RestorableCoordinate) =>
     !target.framework
-    || String(tab.framework || tab.activeFramework || "").toLowerCase()
-      === String(target.framework).toLowerCase();
+    || (tab.framework || tab.activeFramework || "").toLowerCase()
+      === target.framework.toLowerCase();
   const matchesTarget = (tab: RestorableCoordinate) =>
     isRuntimePackId(tab.id)
       ? isRuntimePackId(target.id) && matchesFramework(tab)
       : (tab.id.toLowerCase() === target.id.toLowerCase()
-        && String(tab.version).toLowerCase() === String(target.version).toLowerCase()
+        && tab.version.toLowerCase() === target.version.toLowerCase()
         && matchesFramework(tab));
   if (!tabs.some(matchesTarget)) {
     if (tabs.length === MAX_WORKSPACE_PACKAGES) {
@@ -7396,7 +7466,7 @@ async function restoreWorkspaceFromLocation(
     applyDeepLink(deep);
     state.loading = false;
     render();
-    loadSelectionData();
+    await loadSelectionData();
   } else if (!isRuntimePackId(target.id)) {
     // The focused NuGet target failed to load during the silent background pass; re-run it in
     // the foreground so its error (e.g. a 404) surfaces properly instead of a blank workbench.
@@ -7457,6 +7527,7 @@ function isStyleOption(value: unknown): value is StyleOption {
 async function bootstrap() {
   state.loading = !state.home;
   state.engineReady = false;
+  state.engineStartupFailed = false;
   state.engineStatus = "Loading browser WebAssembly…";
   state.error = "";
   state.retryAction = null;
@@ -7468,14 +7539,14 @@ async function bootstrap() {
     const reportEngineStatus = (message: string) => {
       state.loadingMessage = message;
       state.engineStatus = message;
-      render();
+      if (!state.credits) render();
     };
     await initializeEngine(reportEngineStatus);
     reportEngineStatus("Reading package assemblies…");
     state.buildIdentity = inspectBuildIdentity();
     const tEngine = performance.now();
     try {
-      const vocabulary = await inspectVocabulary();
+      const vocabulary = inspectVocabulary();
       const sections = vocabulary?.sections || [];
       state.styleTiers = (
         sections.find(section => section.id === "csharp.style-tiers")?.values
@@ -7494,7 +7565,7 @@ async function bootstrap() {
       // Engine is warm and search is ready; show the intro/home page without loading a package.
       state.loading = false;
       state.diag = computeDiagnostics(tStart, tEngine, performance.now());
-      render();
+      if (!state.credits) render();
       return;
     }
     await restoreInitialWorkspace();
@@ -7504,6 +7575,7 @@ async function bootstrap() {
   } catch (error) {
     state.loading = false;
     state.engineReady = false;
+    state.engineStartupFailed = true;
     state.engineStatus = "";
     state.error = "Couldn’t start the inspection engine. Retry, or open a different package.";
     state.errorTitle = "Startup failed";
@@ -7511,7 +7583,7 @@ async function bootstrap() {
       ? error.stack || error.message
       : String(error);
     state.retryAction = () => window.location.reload();
-    render();
+    if (!state.credits) render();
   }
 }
 
@@ -7628,7 +7700,7 @@ document.addEventListener("keydown", event => {
     }
     return;
   }
-  if (event.key === "Escape" && state.tasteOpen) {
+  if (event.key === "Escape" && !event.defaultPrevented && state.tasteOpen) {
     event.preventDefault();
     state.tasteOpen = false;
     render();
@@ -7703,6 +7775,14 @@ document.addEventListener("mousedown", event => {
 // Re-apply state when the address bar changes underneath us (browser back/forward, or a
 // hand-edited URL). Within the loaded package we mutate selection directly; a different
 // package is (re)loaded with the URL selection queued as a deep link.
+function clearNavigationError() {
+  if (state.engineStartupFailed) return;
+  state.error = "";
+  state.errorTitle = "";
+  state.errorDetail = "";
+  state.retryAction = null;
+}
+
 window.addEventListener("popstate", () => {
   const navigationSeq = navigationSequence.begin();
   state.memberCallGraphSeq++;
@@ -7710,33 +7790,46 @@ window.addEventListener("popstate", () => {
   const loc = parseLocation();
   state.queryNotice = loc.workspaceNotice || "";
   state.queryNoticeRetryAction = null;
-  const bareHome = !loc.package && !(loc.tabs && loc.tabs.length);
-  if (bareHome) {
-    // Navigated back to the bare root — show the intro/home page (engine stays warm).
-    state.error = "";
-    state.errorTitle = "";
-    state.errorDetail = "";
-    state.retryAction = null;
+  if (isCreditsPath(location.pathname)) {
+    clearNavigationError();
+    state.credits = true;
     state.home = true;
     spotlight.reset();
     render();
     return;
   }
+  const bareHome = !loc.package && !(loc.tabs && loc.tabs.length);
+  if (bareHome) {
+    // Navigated back to the bare root — show the intro/home page (engine stays warm).
+    clearNavigationError();
+    state.credits = false;
+    state.home = true;
+    spotlight.reset();
+    render();
+    return;
+  }
+  state.credits = false;
   resetLocationFilters();
   const deep = loc;
   if (!state.package) {
-    restoreWorkspaceFromLocation(loc, deep, navigationSeq);
+    observeAsync(
+      restoreWorkspaceFromLocation(loc, deep, navigationSeq),
+      "Restoring workspace history");
     return;
   }
   if (loc.tabs?.length && !workspaceCoordinatesMatch(state.packages, loc.tabs)) {
-    restoreWorkspaceFromLocation(loc, deep, navigationSeq);
+    observeAsync(
+      restoreWorkspaceFromLocation(loc, deep, navigationSeq),
+      "Restoring workspace history");
     return;
   }
   if (loc.tabs?.length) {
     const target = state.packages.find(candidate =>
       packageCoordinateMatchesLocation(candidate, loc));
     if (!target) {
-      restoreWorkspaceFromLocation(loc, deep, navigationSeq);
+      observeAsync(
+        restoreWorkspaceFromLocation(loc, deep, navigationSeq),
+        "Restoring workspace history");
       return;
     }
     activatePackage(target, { resetAccessibility: true });
@@ -7748,22 +7841,28 @@ window.addEventListener("popstate", () => {
     if (isRuntimePackId(state.package.id)) {
       // Back/forward within the platform: re-scope to the target library (or the
       // aggregate) before restoring selection, since scope is part of the view.
-      restorePlatformScopeThenDeepLink(loc, navigationSeq);
+      observeAsync(
+        restorePlatformScopeThenDeepLink(loc, navigationSeq),
+        "Restoring platform history");
     } else {
       applyDeepLink(loc);
       render();
-      loadSelectionData();
+      observeAsync(loadSelectionData(), "Loading selection data");
     }
   } else if (isRuntimePackId(loc.package)) {
     // The runtime pack has no nupkg; rebuild it from its TFM instead of 404-ing
     // on a NuGet fetch when back/forward lands on a platform state.
-    restoreRuntimePackFromHistory(loc, deep, navigationSeq);
+    observeAsync(
+      restoreRuntimePackFromHistory(loc, deep, navigationSeq),
+      "Restoring runtime-pack history");
   } else {
-    loadPackage(loc.package, loc.version || "latest", loc.framework || "", {
-      deepLink: deep,
-      navigationSeq,
-      queryNotice: loc.workspaceNotice
-    });
+    observeAsync(
+      loadPackage(loc.package, loc.version || "latest", loc.framework || "", {
+        deepLink: deep,
+        navigationSeq,
+        queryNotice: loc.workspaceNotice
+      }),
+      "Restoring package history");
   }
 });
 
@@ -7786,19 +7885,19 @@ async function restorePlatformScopeThenDeepLink(
   applyDeepLink(loc);
   state.loading = false;
   render();
-  loadSelectionData();
+  await loadSelectionData();
 }
 
 // Load and scope to a single platform library key (or clear the scope when null). Reuses
 // openPlatformLibrary so a restored view matches clicking the library in the selector.
 async function applyPlatformLibraryScope(
-  libraryKey: string | null,
+  requestedLibraryKey: string | null,
   navigationSeq: number | null = null,
   retryAction: RetryAction = null,
 ) {
   if (navigationSeq != null && !navigationSequence.isCurrent(navigationSeq))
-    return;
-  const key = String(libraryKey || "").replace(/\.dll$/i, "");
+    return undefined;
+  const key = (requestedLibraryKey ?? "").replace(/\.dll$/i, "");
   if (!key) { state.libraryScope = null; return true; }
   // The pack (CoreCLR vs ASP.NET Core) is resolved from the static index roster; ensure it
   // is loaded on a cold shared/refreshed link so the right assembly is fetched.
@@ -7806,12 +7905,12 @@ async function applyPlatformLibraryScope(
     try { state.platformIndex = await loadPlatformIndex(); } catch { /* best effort; defaults to CoreCLR */ }
   }
   if (navigationSeq != null && !navigationSequence.isCurrent(navigationSeq))
-    return;
+    return undefined;
   return Boolean(await openPlatformLibrary(
     key,
     platformPackForAssembly(key),
     {
-      navigationSeq: navigationSeq ?? undefined,
+      ...(navigationSeq === null ? {} : { navigationSeq }),
       retryAction,
       scopeOnly: true,
     }));
@@ -7855,14 +7954,18 @@ async function restoreRuntimePackFromHistory(
         || "runtime pack acquisition failed."}`);
   }
   render();
-  loadSelectionData();
+  await loadSelectionData();
 }
 
-bootstrap();
+observeAsync(bootstrap(), "Starting dotnet-inspect");
 
 // Warm the static platform-assembly/facade index in the background. It is a
 // hint layer (facade badges, per-library overview roster, library-scope
 // selector) built on top of the app; prefetching keeps it ready without
 // blocking boot. Cached on state once resolved; exposed for verification.
 window.__platformIndex = loadPlatformIndex();
-window.__platformIndex.then(index => { if (index) state.platformIndex = index; });
+observeAsync(
+  window.__platformIndex.then(index => {
+    if (index) state.platformIndex = index;
+  }),
+  "Loading the platform index");

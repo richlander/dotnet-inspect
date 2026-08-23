@@ -485,7 +485,7 @@ public static class DiffOutputFormatter
                 {
                     ResearchChangeMechanism.CSharp => "C#",
                     ResearchChangeMechanism.IlBody => "IL",
-                    ResearchChangeMechanism.Source => "Source",
+                    ResearchChangeMechanism.Source => "PDB Source",
                     _ => change.Mechanism.ToString()
                 };
                 var evidenceLines = ImplementationDiff.UnifiedLines(change);
@@ -523,7 +523,7 @@ public static class DiffOutputFormatter
                 {
                     rows.Add(new ImplementationDiffRow(
                         member.Subject.Display,
-                        "Source",
+                        "PDB Source",
                         "",
                         sourceComparison.IsExact ? "unavailable" : "changed",
                         sourceState));
@@ -533,7 +533,7 @@ public static class DiffOutputFormatter
 
         var csharpCount = rows.Count(row => row.Mechanism == "C#");
         var ilCount = rows.Count(row => row.Mechanism == "IL");
-        var sourceCount = rows.Count(row => row.Mechanism == "Source");
+        var sourceCount = rows.Count(row => row.Mechanism == "PDB Source");
         bool hasSourceLane = diff.Members.Any(member =>
             member.SourceComparison is not null);
         var summary = rows.Count == 0
@@ -542,7 +542,7 @@ public static class DiffOutputFormatter
                 ? $"{diff.Members.Count} changed member{(diff.Members.Count == 1 ? "" : "s")}; "
                   + $"{csharpCount} C# and {ilCount} IL evidence row{(rows.Count == 1 ? "" : "s")}."
                 : $"{diff.Members.Count} changed member{(diff.Members.Count == 1 ? "" : "s")}; "
-                  + $"{csharpCount} decompiled C#, {ilCount} IL, and {sourceCount} authored Source "
+                  + $"{csharpCount} decompiled C#, {ilCount} IL, and {sourceCount} PDB Source "
                   + $"evidence row{(rows.Count == 1 ? "" : "s")}.";
 
         return new ImplementationDiffView(
@@ -555,7 +555,7 @@ public static class DiffOutputFormatter
                 : new Callout(
                     CalloutSeverity.Note,
                     hasSourceLane
-                        ? "C# is decompiled evidence; Source is checksum-verified authored evidence; IL is shipped body evidence. These peer lanes do not replace one another and are not public API compatibility."
+                        ? "C# is decompiled evidence; PDB Source is checksum-verified PDB-mapped evidence; IL is shipped body evidence. These peer lanes do not replace one another and are not public API compatibility."
                         : "C# and IL implementation evidence is body-level evidence, not public API compatibility."),
             Rows = rows.Count > 0 ? rows : null
         };

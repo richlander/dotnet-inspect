@@ -102,10 +102,10 @@ public static class SectionNames
     /// <summary>Section for explicit inter-method semantics/safety annotations over the decompiled C# method body.</summary>
     public const string SemanticsOverlay = "Semantics Overlay";
 
-    /// <summary>Section for original method source code resolved via SourceLink.</summary>
-    public const string OriginalSource = "Original Source";
+    /// <summary>Section for method source selected and checksum-verified through a Portable PDB.</summary>
+    public const string PdbSource = "PDB Source";
 
-    /// <summary>Section for a line diff between original and decompiled method source.</summary>
+    /// <summary>Section for a line diff between PDB-selected and decompiled method source.</summary>
     public const string SourceDiff = "Source Diff";
 
     /// <summary>Section for SourceLink source file URLs for a type (API/package scope).</summary>

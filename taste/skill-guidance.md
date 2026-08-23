@@ -36,7 +36,7 @@ Recent decompiler work improved collection expression lowering and pointer lower
 Why it is bad:
 
 - It inventories implementation changes instead of teaching what agents can rely on.
-- Prefer fidelity guidance: `Original Source` is SourceLink-backed original source when available; `Decompiled Source` is lowered C# readable best-effort; raw/annotated IL is highest fidelity.
+- Prefer fidelity guidance: `PDB Source` is checksum-matched source selected by Portable PDB evidence when available; `Decompiled Source` is lowered C# readable best-effort; raw/annotated IL is highest fidelity.
 
 ```md
 Use `--plaintext` for text-only output.

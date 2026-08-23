@@ -78,7 +78,7 @@ export function createNavigationSequence(): NavigationSequence {
   };
 }
 
-export interface NavigationHistory<TView> {
+export interface NavigationHistory {
   record(): void;
   normalizeCurrent(): void;
   canBack(): boolean;
@@ -101,7 +101,7 @@ interface NavigationEntry<TView> {
 
 export function createNavigationHistory<TView>(
   dependencies: NavigationHistoryDependencies<TView>,
-): NavigationHistory<TView> {
+): NavigationHistory {
   const navigation = {
     stack: [] as NavigationEntry<TView>[],
     index: -1,
@@ -266,7 +266,10 @@ export function encodeWorkspaceShareState(state: WorkspaceUrlState): string {
     if (state.selectedOverloadIndex != null) packet.o = state.selectedOverloadIndex;
     if (state.memberSection && state.memberSection !== "overview")
       packet.c = state.memberSection;
-    if (state.selectedBodyTarget) packet.d = encodeBodyTarget(state.selectedBodyTarget) ?? undefined;
+    if (state.selectedBodyTarget) {
+      const encodedBodyTarget = encodeBodyTarget(state.selectedBodyTarget);
+      if (encodedBodyTarget) packet.d = encodedBodyTarget;
+    }
     if (state.memberBrowse) packet.b = 1;
     if (state.memberTextFilter) packet.q = state.memberTextFilter;
     if (state.memberKindFilter !== "all") packet.k = state.memberKindFilter;
@@ -314,17 +317,19 @@ function decodeWorkspaceShareState(value: string | null): ShareStateResult {
           : 0,
         view: typeof raw.v === "string" ? raw.v : "",
         rich: true,
-        type: raw.y != null ? String(raw.y) : null,
-        member: raw.m != null ? String(raw.m) : null,
-        overload: raw.o != null ? String(raw.o) : null,
-        section: raw.c != null ? String(raw.c) : null,
+        type: typeof raw.y === "string" ? raw.y : null,
+        member: typeof raw.m === "string" ? raw.m : null,
+        overload: typeof raw.o === "string" || typeof raw.o === "number"
+          ? String(raw.o)
+          : null,
+        section: typeof raw.c === "string" ? raw.c : null,
         bodyTarget: decodeBodyTarget(raw.d),
-        library: raw.l != null ? String(raw.l) : null,
+        library: typeof raw.l === "string" ? raw.l : null,
         memberBrowse: raw.b === 1,
-        memberTextFilter: raw.q != null ? String(raw.q) : "",
-        memberKindFilter: raw.k != null ? String(raw.k) : "all",
-        memberAccessibilityFilter: raw.e != null ? String(raw.e) : "all",
-        memberTraitFilter: raw.r != null ? String(raw.r) : "",
+        memberTextFilter: typeof raw.q === "string" ? raw.q : "",
+        memberKindFilter: typeof raw.k === "string" ? raw.k : "all",
+        memberAccessibilityFilter: typeof raw.e === "string" ? raw.e : "all",
+        memberTraitFilter: typeof raw.r === "string" ? raw.r : "",
       };
     }
     return { error: "The shared workspace state is invalid and was ignored." };
