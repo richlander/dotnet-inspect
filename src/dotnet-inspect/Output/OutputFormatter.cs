@@ -314,12 +314,15 @@ public static class OutputFormatter
     /// silently included.
     /// </summary>
     public static void WriteVersionListings(IEnumerable<PackageVersionInfo> versions,
-        bool tsv, bool jsonl, TextWriter output)
+        InspectionOptions options, TextWriter output)
     {
         var rows = versions.Select(v => new[] { v.Version, v.Listed ? "listed" : "unlisted" }).ToArray();
-        WriteTable(output, showHeader: false, (writer, formatter) =>
+        WriteTable(output, showHeader: !options.NoHeader, (writer, formatter) =>
         {
-            var markoutWriter = new MarkoutWriter(writer, formatter, CreateTableWriterOptions(tsv, jsonl));
+            var markoutWriter = new MarkoutWriter(
+                writer,
+                formatter,
+                CreateTableWriterOptions(options.Tsv, options.Jsonl));
             markoutWriter.WriteTable(["Version", "Listing"], ["version", "listing"], rows);
             markoutWriter.Flush();
         });

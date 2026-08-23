@@ -1796,7 +1796,7 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildImplementationDiffView_LabelsAuthoredSourceAsIndependentLane()
+    public void BuildImplementationDiffView_LabelsPdbSourceAsIndependentLane()
     {
         var subject = new ResearchSubjectKey(
             ResearchSubjectKind.Member,
@@ -1808,9 +1808,9 @@ public class DiffCommandTests
             [.. TextFindings.Inspect("return 1;", new FindingSubject("old", "old"))]);
         var newInspection = new FindingInspection<string>.Complete(
             [.. TextFindings.Inspect("return 2;", new FindingSubject("new", "new"))]);
-        var result = ImplementationDiff.WithAuthoredSourceComparisons(
+        var result = ImplementationDiff.WithPdbSourceComparisons(
             new ImplementationDiffResult([], new ResearchComparison([])),
-            [new AuthoredSourceComparisonInput(subject, oldInspection, newInspection)]);
+            [new PdbSourceComparisonInput(subject, oldInspection, newInspection)]);
 
         var view = DiffOutputFormatter.BuildImplementationDiffView(
             "Sample",
@@ -1819,14 +1819,14 @@ public class DiffCommandTests
             "new");
 
         Assert.Contains(view.Rows!, row =>
-            row.Mechanism == "Source"
+            row.Mechanism == "PDB Source"
             && row.Evidence.Contains("return 2", StringComparison.Ordinal));
-        Assert.Contains("authored Source", view.Summary, StringComparison.Ordinal);
+        Assert.Contains("PDB Source", view.Summary, StringComparison.Ordinal);
         Assert.Contains("C# is decompiled", view.Status.Message, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void BuildImplementationDiffView_RendersAuthoredSourceAbsence()
+    public void BuildImplementationDiffView_RendersPdbSourceAbsence()
     {
         var subject = new ResearchSubjectKey(
             ResearchSubjectKind.Member,
@@ -1834,10 +1834,10 @@ public class DiffCommandTests
             "Sample.M()",
             "Sample",
             "M");
-        var result = ImplementationDiff.WithAuthoredSourceComparisons(
+        var result = ImplementationDiff.WithPdbSourceComparisons(
             new ImplementationDiffResult([], new ResearchComparison([])),
             [
-                new AuthoredSourceComparisonInput(
+                new PdbSourceComparisonInput(
                     subject,
                     new FindingInspection<string>.Absent("old PDB unavailable"),
                     new FindingInspection<string>.Absent("new PDB unavailable"))
@@ -1850,14 +1850,14 @@ public class DiffCommandTests
             "new");
 
         var row = Assert.Single(view.Rows!);
-        Assert.Equal("Source", row.Mechanism);
+        Assert.Equal("PDB Source", row.Mechanism);
         Assert.Equal("unavailable", row.Change);
         Assert.Contains("old PDB unavailable", row.Evidence, StringComparison.Ordinal);
         Assert.Contains("new PDB unavailable", row.Evidence, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void BuildImplementationDiffView_RendersAuthoredSourceFailure()
+    public void BuildImplementationDiffView_RendersPdbSourceFailure()
     {
         var subject = new ResearchSubjectKey(
             ResearchSubjectKind.Member,
@@ -1869,10 +1869,10 @@ public class DiffCommandTests
             new FindingSubject(subject.Id, subject.Display),
             TextFindings.LineDescriptor,
             "checksum mismatch"));
-        var result = ImplementationDiff.WithAuthoredSourceComparisons(
+        var result = ImplementationDiff.WithPdbSourceComparisons(
             new ImplementationDiffResult([], new ResearchComparison([])),
             [
-                new AuthoredSourceComparisonInput(
+                new PdbSourceComparisonInput(
                     subject,
                     failure,
                     new FindingInspection<string>.Absent("new source unavailable"))
@@ -1885,7 +1885,7 @@ public class DiffCommandTests
             "new");
 
         var row = Assert.Single(view.Rows!);
-        Assert.Equal("Source", row.Mechanism);
+        Assert.Equal("PDB Source", row.Mechanism);
         Assert.Equal("failed", row.Change);
         Assert.Contains("checksum mismatch", row.Evidence, StringComparison.Ordinal);
     }
@@ -2015,18 +2015,18 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_AuthoredSourceWithoutImplementationDiff_ReturnsError()
+    public async Task ExecuteAsync_PdbSourceWithoutImplementationDiff_ReturnsError()
     {
         var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
             DiffCommand.ExecuteAsync(new DiffOptions
             {
-                IncludeAuthoredSource = true
+                IncludePdbSource = true
             }));
 
         Assert.Equal(1, exitCode);
         Assert.Empty(output);
         Assert.Contains(
-            "--authored-source requires the Implementation Diff section",
+            "PDB source acquisition requires the Implementation Diff section",
             error,
             StringComparison.Ordinal);
     }

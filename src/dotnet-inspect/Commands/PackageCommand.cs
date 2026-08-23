@@ -344,7 +344,10 @@ public class PackageCommand
                                 out var rangeListingExit,
                                 ["Version", "Listing"]))
                             return rangeListingExit;
-                        OutputFormatter.WriteVersionListings(visibleRangeRows, options.Tsv, options.Jsonl, Console.Out);
+                        OutputFormatter.WriteVersionListings(
+                            visibleRangeRows,
+                            options,
+                            Console.Out);
                         return 0;
                     }
 
@@ -445,7 +448,10 @@ public class PackageCommand
                             ["Version", "Listing"]))
                         return knownPinnedExit;
                     if (options.IncludeUnlisted)
-                        OutputFormatter.WriteVersionListings(visiblePinned, options.Tsv, options.Jsonl, Console.Out);
+                        OutputFormatter.WriteVersionListings(
+                            visiblePinned,
+                            options,
+                            Console.Out);
                     else
                         WriteVersions(
                             visiblePinned.Select(row => row.Version).ToArray(),
@@ -507,8 +513,7 @@ public class PackageCommand
                         visibleLatest
                             .Select(version => new PackageVersionInfo(version, Listed: true))
                             .ToArray(),
-                        options.Tsv,
-                        options.Jsonl,
+                        options,
                         Console.Out);
                     return 0;
                 }
@@ -604,7 +609,10 @@ public class PackageCommand
                         out var listingExit,
                         ["Version", "Listing"]))
                     return listingExit;
-                OutputFormatter.WriteVersionListings(visibleListings, options.Tsv, options.Jsonl, Console.Out);
+                OutputFormatter.WriteVersionListings(
+                    visibleListings,
+                    options,
+                    Console.Out);
                 return 0;
             }
 

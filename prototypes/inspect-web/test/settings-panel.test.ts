@@ -1,10 +1,87 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  bindSettingsPanel,
   renderSettingsView,
   renderTastePopover,
+  type SettingsPanelBindingActions,
   styleCatalogGroupsHtml,
 } from "../src/settings-panel.ts";
+import { fakeDom } from "./fake-dom.ts";
+
+class FakeElement {
+  readonly dataset: Record<string, string | undefined>;
+  private readonly listeners = new Map<string, EventListener[]>();
+
+  constructor(dataset: Record<string, string | undefined> = {}) {
+    this.dataset = dataset;
+  }
+
+  addEventListener(type: string, listener: EventListener) {
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  dispatch(type: string, event: Event = fakeDom.event()) {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener(event);
+    }
+  }
+}
+
+class FakeRoot {
+  private readonly single = new Map<string, FakeElement>();
+  private readonly multiple = new Map<string, FakeElement[]>();
+  private readonly selectorQueries: string[] = [];
+
+  add(selector: string, element: FakeElement) {
+    this.single.set(selector, element);
+    return element;
+  }
+
+  addAll(selector: string, ...elements: FakeElement[]) {
+    this.multiple.set(selector, elements);
+    return elements;
+  }
+
+  querySelector(selector: string) {
+    this.selectorQueries.push(`one:${selector}`);
+    return this.single.get(selector) ?? null;
+  }
+
+  querySelectorAll(selector: string) {
+    this.selectorQueries.push(`all:${selector}`);
+    return this.multiple.get(selector) ?? [];
+  }
+
+  assertSelectorQueries() {
+    assert.deepEqual(
+      [...this.selectorQueries].sort(),
+      [
+        "all:#taste-popover [data-taste]",
+        "all:.settings-seg[data-theme]",
+        "all:.settings-taste [data-taste]",
+        "one:#home-settings",
+        "one:#open-settings",
+        "one:#settings-close",
+        "one:#settings-taste-clear",
+        "one:#taste-btn",
+        "one:#taste-clear",
+      ].sort());
+  }
+}
+
+function recordingActions(calls: string[]): SettingsPanelBindingActions {
+  return {
+    onClose: () => calls.push("close"),
+    onOpen: from => calls.push(`open:${from}`),
+    onTasteClear: () => calls.push("clear"),
+    onTasteOpenToggle: () => calls.push("taste-open"),
+    onTasteToggle: taste => calls.push(`taste:${taste}`),
+    onThemeSelect: theme => calls.push(`theme:${theme}`),
+  };
+}
 
 function escapeHtml(value: unknown) {
   return String(value)
@@ -23,6 +100,103 @@ const styleOptions = [
   { id: "readable-locals", tier: "naming", title: "Readable local names", summary: "Synthesize readable local names.", oracle_endorsed: true },
   { id: "expanded-braces", tier: "layout", title: "Expanded braces", summary: "Always use braces." },
 ];
+
+test("settings bindings dispatch entry controls and contain taste clicks", () => {
+  const root = new FakeRoot();
+  const home = root.add("#home-settings", new FakeElement());
+  const workbench = root.add("#open-settings", new FakeElement());
+  const taste = root.add("#taste-btn", new FakeElement());
+  const propagation = { stopped: false };
+  const event = fakeDom.event({
+    stopPropagation: () => {
+      propagation.stopped = true;
+    },
+  });
+  const calls: string[] = [];
+
+  bindSettingsPanel(
+    fakeDom.parentNode(root),
+    recordingActions(calls));
+  root.assertSelectorQueries();
+
+  assert.deepEqual(calls, []);
+  home.dispatch("click");
+  assert.deepEqual(calls, ["open:home"]);
+  workbench.dispatch("click");
+  assert.deepEqual(calls, ["open:home", "open:workbench"]);
+  taste.dispatch("click", event);
+  assert.deepEqual(calls, ["open:home", "open:workbench", "taste-open"]);
+  assert.equal(propagation.stopped, true);
+});
+
+test("settings bindings dispatch valid settings-page controls", () => {
+  const root = new FakeRoot();
+  const close = root.add("#settings-close", new FakeElement());
+  const dark = new FakeElement({ theme: "dark" });
+  const light = new FakeElement({ theme: "light" });
+  const invalidTheme = new FakeElement({ theme: "system" });
+  root.addAll(
+    ".settings-seg[data-theme]",
+    dark,
+    light,
+    invalidTheme);
+  const taste = new FakeElement({ taste: "readable-locals" });
+  const missingTaste = new FakeElement();
+  root.addAll(".settings-taste [data-taste]", taste, missingTaste);
+  const clear = root.add("#settings-taste-clear", new FakeElement());
+  const calls: string[] = [];
+  bindSettingsPanel(
+    fakeDom.parentNode(root),
+    recordingActions(calls));
+  root.assertSelectorQueries();
+
+  close.dispatch("click");
+  dark.dispatch("click");
+  light.dispatch("click");
+  invalidTheme.dispatch("click");
+  taste.dispatch("change");
+  missingTaste.dispatch("change");
+  clear.dispatch("click");
+
+  assert.deepEqual(calls, [
+    "close",
+    "theme:dark",
+    "theme:light",
+    "taste:readable-locals",
+    "clear",
+  ]);
+});
+
+test("taste popover bindings dispatch its optional controls", () => {
+  const root = new FakeRoot();
+  const taste = new FakeElement({ taste: "expanded-braces" });
+  const missingTaste = new FakeElement();
+  root.addAll("#taste-popover [data-taste]", taste, missingTaste);
+  const clear = root.add("#taste-clear", new FakeElement());
+  const calls: string[] = [];
+  bindSettingsPanel(
+    fakeDom.parentNode(root),
+    recordingActions(calls));
+  root.assertSelectorQueries();
+
+  taste.dispatch("change");
+  missingTaste.dispatch("change");
+  clear.dispatch("click");
+
+  assert.deepEqual(calls, [
+    "taste:expanded-braces",
+    "taste:",
+    "clear",
+  ]);
+});
+
+test("settings binding tolerates controls from the inactive surface being absent", () => {
+  const root = new FakeRoot();
+  assert.doesNotThrow(() => bindSettingsPanel(
+    fakeDom.parentNode(root),
+    recordingActions([])));
+  root.assertSelectorQueries();
+});
 
 test("style catalog groups render tiers, byte-divergent badges, and checked state", () => {
   const html = styleCatalogGroupsHtml(
