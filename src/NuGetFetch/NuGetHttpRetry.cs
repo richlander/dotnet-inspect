@@ -62,6 +62,7 @@ internal static class NuGetHttpRetry
         || exception is IOException
             and not NuGetMetadataResponseTooLargeException
             and not NuGetRedirectLimitExceededException
+            and not NuGetRegistrationResourceLimitExceededException
         || exception is HttpRequestException request
             && (request.StatusCode is null
                 || request.StatusCode is
