@@ -395,10 +395,7 @@ public static class PackageSourceClientFactory
     public static IPackageSourceClient CreateGallery(
         NuGetFetchOptions? options = null) =>
         new NuGetGalleryPackageSourceClient(
-            new HttpClient
-            {
-                Timeout = Timeout.InfiniteTimeSpan,
-            },
+            CreateGalleryTransport(),
             options ?? new NuGetFetchOptions());
 
     /// <summary>
@@ -411,12 +408,9 @@ public static class PackageSourceClientFactory
     {
         ArgumentNullException.ThrowIfNull(ownedCredentialFreeTransport);
         return new NuGetGalleryPackageSourceClient(
-            new HttpClient(
+            CreateGalleryTransport(
                 ownedCredentialFreeTransport,
-                disposeHandler: true)
-            {
-                Timeout = Timeout.InfiniteTimeSpan,
-            },
+                OperatingSystem.IsBrowser()),
             options ?? new NuGetFetchOptions());
     }
 
@@ -493,6 +487,43 @@ public static class PackageSourceClientFactory
         {
             Timeout = Timeout.InfiniteTimeSpan,
         };
+    }
+
+    private static HttpClient CreateGalleryTransport()
+    {
+        bool isBrowser = OperatingSystem.IsBrowser();
+        HttpMessageHandler handler = CreateGalleryTransportHandler(isBrowser);
+        return CreateGalleryTransport(handler, isBrowser);
+    }
+
+    internal static HttpClient CreateGalleryTransport(
+        HttpMessageHandler handler,
+        bool isBrowser)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        if (!isBrowser)
+        {
+            handler = new NuGetCredentialRedirectHandler(handler);
+        }
+
+        return new HttpClient(handler, disposeHandler: true)
+        {
+            Timeout = Timeout.InfiniteTimeSpan,
+        };
+    }
+
+    internal static HttpClientHandler CreateGalleryTransportHandler(
+        bool isBrowser)
+    {
+        HttpClientHandler handler =
+            CreateCredentialFreeTransportHandler(isBrowser);
+        if (!isBrowser)
+        {
+            handler.AutomaticDecompression =
+                System.Net.DecompressionMethods.All;
+        }
+
+        return handler;
     }
 
     internal static HttpClientHandler CreateCredentialFreeTransportHandler(
