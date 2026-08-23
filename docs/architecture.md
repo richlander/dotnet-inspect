@@ -900,11 +900,21 @@ Research overlay bridge, and the application layer:
   `OptimizationOpportunities_MvidCollisionPreservesRecursiveInterfaceSuppression`,
   `MethodImplSignature_RequiresByRefDirection`, and
   `ConstructedInterfaceIdentity_RequiresMatchingArguments` gate that policy.
+  `LibraryBodyAsyncSiblingAccessibilityAnalyzer` owns CLR member-access,
+  protected-receiver, friend-assembly identity, and directional nested-private
+  access policy. It consumes the primary reader and assembly identity plus the
+  dispatch analyzer's source-type relationship proof, without owning metadata
+  resolution or caches.
+  `OptimizationOpportunities_PrivateAccessIsDirectionalAcrossNestedTypes`,
+  `OptimizationOpportunities_FriendAccessRequiresProvableReceiver`,
+  `AsyncSiblingPrivateAccess_CyclicDeclaringTypeFailsClosed`, and
+  `AsyncSiblingFriendAccess_StrongNamedGrantorRequiresFullFriendKey` gate that
+  policy.
   `LibraryBodyAnalysisBuilder.AsyncSibling` owns the `sync-call-in-async`
   opportunity orchestration, synchronous-definition and sibling-candidate
-  lookup, exact-callee and per-type caches, accessibility policy, diagnostic
-  containment, and result ordering. It consumes the stateless matcher,
-  dispatch analyzer, and canonical direct-call rows after ordinary opportunity
+  lookup, exact-callee and per-type caches, diagnostic containment, and result
+  ordering. It consumes the stateless matcher, dispatch and accessibility
+  analyzers, and canonical direct-call rows after ordinary opportunity
   collection and appends only this metadata-bound shape; recoverable
   sibling-classification failures remain diagnostic without discarding
   independent ordinary opportunities or body signals. Source-independent
