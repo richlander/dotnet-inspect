@@ -2,7 +2,7 @@ import type {
   BrowserOpportunityItem,
   BrowserPackageOpportunities,
 } from "./inspect-web-engine.d.ts";
-import type { AsyncResource } from "./data.ts";
+import { assertNever, type AsyncResource } from "./data.ts";
 
 export type OpportunityItem = BrowserOpportunityItem;
 type PackageOpportunities = Pick<
@@ -155,18 +155,28 @@ export function renderPackageOpportunities(options: RenderPackageOpportunitiesOp
     return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Pick a library to scan</h2><p>Choose a .NET platform library above to compare its public surface against ecosystem integration patterns.</p></section>`;
   }
   const scanScope = isPlatform ? `${escapeHtml(scopedLibrary)} · ${escapeHtml(activeFramework)}` : escapeHtml(activeFramework);
-  const fresh = resource.status !== "idle" && resource.key === signature;
-  if (fresh && resource.status === "loading") {
-    return `${picker}<section class="document-section source-progress"><span class="loader"></span><h2>Scanning opportunities…</h2><p>Comparing the public surface against ecosystem integration patterns.</p></section>`;
-  }
-  if (fresh && resource.status === "failed") {
-    return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Opportunity scan failed</h2><p>${escapeHtml(resource.error)}</p></section>`;
-  }
-  const resolved = fresh && resource.status === "ready"
-    ? resource.data
-    : null;
-  if (!resolved) {
-    return `${picker}<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
+  const pending = `${picker}<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
+
+  // "Nothing has been requested" and "what we have describes a different scan" are the two
+  // cases where the placeholder is the honest answer, and neither is a question about which
+  // state a live resource is in. Settling both first is what leaves a plain dispatch below
+  // that has to be exhaustive. Mixing them in was how the old form acquired a trailing
+  // catch-all: `fresh && status === ...` tests left every other combination to a final
+  // `if (!resolved)`, so an added member rendered as an indefinite "Loading…" spinner with
+  // no compile error.
+  if (resource.status === "idle" || resource.key !== signature) return pending;
+
+  let resolved: PackageOpportunities;
+  switch (resource.status) {
+    case "loading":
+      return `${picker}<section class="document-section source-progress"><span class="loader"></span><h2>Scanning opportunities…</h2><p>Comparing the public surface against ecosystem integration patterns.</p></section>`;
+    case "failed":
+      return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Opportunity scan failed</h2><p>${escapeHtml(resource.error)}</p></section>`;
+    case "ready":
+      resolved = resource.data;
+      break;
+    default:
+      return assertNever(resource, "AsyncResource");
   }
 
   const categories = resolved.categories || [];

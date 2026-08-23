@@ -639,6 +639,59 @@ test("opportunity failures and stale results preserve request ownership", async 
   });
 });
 
+// The staleness test above changes the key between the two requests, so key equality and
+// object identity give the same answer and it cannot tell them apart. Adversarial review
+// used exactly that gap: replacing both ownership checks with `status !== "idle" && key
+// === signature` left all 23 tests green, even though a late completion could then publish
+// into a newer request that happens to share its key.
+//
+// This is the interleaving that separates them. Scope A is requested, abandoned for B, and
+// then requested again -- one user navigating away and back. Both A requests carry the same
+// key, so only object identity can tell the first from the second.
+test("a re-requested scope keeps the newest result when the abandoned one lands late", async () => {
+  const packageItem = packageModel();
+  const first = deferred<BrowserPackageOpportunities>();
+  const second = deferred<BrowserPackageOpportunities>();
+  const other = deferred<BrowserPackageOpportunities>();
+  const pending = [first, second];
+  const state = inspectionState();
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPackageOpportunities: async ({ id }) =>
+        id === packageItem.id
+          ? (pending.shift() ?? first).promise
+          : other.promise,
+    }));
+
+  const abandoned = coordinator.loadOpportunities(packageItem, "scope-a", null);
+
+  // Navigating to B releases A's ownership, so the re-request below is a genuinely new
+  // request object rather than a reuse of the in-flight one.
+  const otherPackage = packageModel({ id: "Example.Other" });
+  const otherLoad = coordinator.loadOpportunities(otherPackage, "scope-b", null);
+  other.resolve(opportunitiesResult());
+  await otherLoad;
+
+  const reloaded = coordinator.loadOpportunities(packageItem, "scope-a", null);
+  second.resolve({ ...opportunitiesResult(), totalOpportunities: 99 });
+  await reloaded;
+  assert.deepEqual(state.packageOpportunities, {
+    status: "ready",
+    key: "scope-a",
+    data: { ...opportunitiesResult(), totalOpportunities: 99 },
+  });
+
+  // The abandoned request now lands, carrying the same key as the live one. Identity
+  // ownership rejects it; key equality would accept it and show the stale count.
+  first.resolve({ ...opportunitiesResult(), totalOpportunities: 1 });
+  await abandoned;
+  assert.deepEqual(state.packageOpportunities, {
+    status: "ready",
+    key: "scope-a",
+    data: { ...opportunitiesResult(), totalOpportunities: 99 },
+  });
+});
+
 test("stale package lens rejection cannot overwrite newer state", async () => {
   const packageItem = packageModel();
   const request = deferred<PackagePerformance>();
