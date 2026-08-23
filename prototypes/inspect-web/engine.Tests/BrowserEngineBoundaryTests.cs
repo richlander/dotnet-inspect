@@ -1730,6 +1730,98 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Equal("999999.0.0", resolved);
     }
 
+    [Fact]
+    public async Task DependencyRangeUsesAuthoritativeGalleryListingState()
+    {
+        var handler = new GalleryVersionHandler();
+        using IPackageSourceClient source = Gallery(handler);
+
+        string resolved =
+            await BrowserPackageWorkspace.ResolveDependencyVersionAsync(
+                "Contoso",
+                "[1.0.0,2.0.0)",
+                source,
+                TimeSpan.FromSeconds(5));
+
+        Assert.Equal("1.1.0", resolved);
+        Assert.Equal(
+            [
+                "https://globalcdn.nuget.org/v3-flatcontainer/contoso/index.json",
+                "https://globalcdn.nuget.org/v3/registration5-gz-semver2/contoso/index.json",
+            ],
+            handler.Requested);
+    }
+
+    [Fact]
+    public async Task DependencyRangeFailsClosedWhenGalleryRegistrationTimesOut()
+    {
+        var handler = new StallingGalleryRegistrationHandler();
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(
+                handler,
+                new NuGetFetchOptions
+                {
+                    RequestTimeout = TimeSpan.FromMilliseconds(100),
+                    OperationTimeout = TimeSpan.FromSeconds(5),
+                });
+
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => BrowserPackageWorkspace.ResolveDependencyVersionAsync(
+                    "contoso",
+                    "[1.0.0,2.0.0)",
+                    source,
+                    TimeSpan.FromSeconds(10)));
+
+        Assert.Contains(
+            "authoritative Gallery listing state is unavailable",
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(1, handler.FlatContainerRequests);
+        Assert.True(handler.RegistrationRequests >= 1);
+    }
+
+    [Fact]
+    public void BrowserGalleryDeadlineLeavesTimeForPartialRegistration()
+    {
+        Assert.Equal(
+            TimeSpan.FromSeconds(5),
+            BrowserPackageWorkspace.PackageOperationTimeout
+            - BrowserPackageWorkspace.GalleryOperationTimeout);
+        NuGetGalleryPackageSourceClient gallery =
+            Assert.IsType<NuGetGalleryPackageSourceClient>(
+                BrowserPackageWorkspace.Gallery);
+        Assert.Equal(
+            BrowserPackageWorkspace.GalleryOperationTimeout,
+            gallery.RequestTimeout);
+        Assert.Equal(
+            BrowserPackageWorkspace.GalleryOperationTimeout,
+            gallery.OperationTimeout);
+    }
+
+    [Fact]
+    public async Task VersionPickerRetainsFlatListWhenRegistrationTimesOut()
+    {
+        var handler = new StallingGalleryRegistrationHandler();
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(
+                handler,
+                new NuGetFetchOptions
+                {
+                    RequestTimeout = TimeSpan.FromMilliseconds(100),
+                    OperationTimeout = TimeSpan.FromSeconds(5),
+                });
+
+        string[] versions = await BrowserPackageWorkspace.GetVersionsAsync(
+            "contoso",
+            source,
+            TimeSpan.FromSeconds(10));
+
+        Assert.Equal(["1.0.0"], versions);
+        Assert.Equal(1, handler.FlatContainerRequests);
+        Assert.True(handler.RegistrationRequests >= 1);
+    }
+
     private static BrowserDependencyCoordinateMatch MatchDependencyCoordinate(
         BrowserDependencyCoordinateCandidate[] candidates,
         string packageId,
@@ -2178,6 +2270,92 @@ public sealed class BrowserEngineBoundaryTests
             }
 
             return Task.FromResult(response);
+        }
+    }
+
+    sealed class GalleryVersionHandler : HttpMessageHandler
+    {
+        public List<string> Requested { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string url = request.RequestUri!.AbsoluteUri;
+            Requested.Add(url);
+            string? json = url switch
+            {
+                "https://globalcdn.nuget.org/v3-flatcontainer/contoso/index.json" =>
+                    """{"versions":["1.0.0","1.1.0","1.2.0"]}""",
+                "https://globalcdn.nuget.org/v3/registration5-gz-semver2/contoso/index.json" =>
+                    """
+                    {
+                      "items": [
+                        {
+                          "items": [
+                            {
+                              "catalogEntry": {
+                                "version": "1.0.0",
+                                "listed": false
+                              }
+                            },
+                            {
+                              "catalogEntry": {
+                                "version": "1.1.0"
+                              }
+                            },
+                            {
+                              "catalogEntry": {
+                                "version": "1.2.0"
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                    """,
+                _ => null,
+            };
+            return Task.FromResult(
+                new HttpResponseMessage(
+                    json is null
+                        ? System.Net.HttpStatusCode.NotFound
+                        : System.Net.HttpStatusCode.OK)
+                {
+                    Content = new StringContent(json ?? ""),
+                });
+        }
+    }
+
+    sealed class StallingGalleryRegistrationHandler : HttpMessageHandler
+    {
+        public int FlatContainerRequests { get; private set; }
+        public int RegistrationRequests { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (request.RequestUri!.AbsoluteUri.Contains(
+                    "v3-flatcontainer",
+                    StringComparison.Ordinal))
+            {
+                FlatContainerRequests++;
+                return new HttpResponseMessage(
+                    System.Net.HttpStatusCode.OK)
+                {
+                    Content =
+                        new StringContent("""{"versions":["1.0.0"]}"""),
+                };
+            }
+
+            RegistrationRequests++;
+            await Task.Delay(
+                Timeout.InfiniteTimeSpan,
+                cancellationToken);
+            throw new InvalidOperationException(
+                "The registration stall completed without cancellation.");
         }
     }
 

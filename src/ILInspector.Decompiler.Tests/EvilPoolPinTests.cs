@@ -359,9 +359,9 @@ public class EvilPoolPinTests
         startInfo.ArgumentList.Add("--");
         startInfo.ArgumentList.Add("--list-pin-rules");
 
-        using var process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException("could not start the sweep");
-        string output = ReadToExit(process, out string errors);
+        using EvilPoolSweepRun run = EvilPoolSweepProcess.Start(startInfo);
+        Process process = run.Process;
+        string output = ReadToExit(run, out string errors);
 
         Assert.True(
             process.ExitCode == 0,
@@ -432,14 +432,15 @@ public class EvilPoolPinTests
     /// nothing. The bound is minutes rather than seconds because a cold
     /// <c>dotnet run</c> of a file-based app builds it first.</para>
     /// </summary>
-    static string ReadToExit(Process process, out string errors)
+    static string ReadToExit(EvilPoolSweepRun run, out string errors)
     {
+        Process process = run.Process;
         var output = process.StandardOutput.ReadToEndAsync();
         var failures = process.StandardError.ReadToEndAsync();
 
         if (!process.WaitForExit((int)TimeSpan.FromMinutes(3).TotalMilliseconds))
         {
-            process.Kill(entireProcessTree: true);
+            run.Terminate();
             Assert.Fail(
                 "the sweep did not exit within three minutes, so it is hanging where it "
                 + "owes a stated refusal");
@@ -462,9 +463,9 @@ public class EvilPoolPinTests
         startInfo.ArgumentList.Add("1");
         startInfo.ArgumentList.Add("1");
 
-        using var process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException("could not start the sweep");
-        string output = ReadToExit(process, out string errors);
+        using EvilPoolSweepRun run = EvilPoolSweepProcess.Start(startInfo);
+        Process process = run.Process;
+        string output = ReadToExit(run, out string errors);
         return (process.ExitCode, output, errors);
     }
 
@@ -505,9 +506,9 @@ public class EvilPoolPinTests
         foreach (string path in paths)
             startInfo.ArgumentList.Add(path);
 
-        using var process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException("could not start the sweep");
-        string output = ReadToExit(process, out string errors);
+        using EvilPoolSweepRun run = EvilPoolSweepProcess.Start(startInfo);
+        Process process = run.Process;
+        string output = ReadToExit(run, out string errors);
 
         string[] lines = output
             .Split('\n', StringSplitOptions.RemoveEmptyEntries)
