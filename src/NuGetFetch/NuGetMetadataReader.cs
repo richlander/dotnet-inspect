@@ -26,14 +26,27 @@ internal static class NuGetMetadataReader
         return await RunWithBodyTimeoutAsync(
             async bodyToken =>
             {
-                await using Stream body = await response.Content
-                    .ReadAsStreamAsync(bodyToken)
-                    .ConfigureAwait(false);
-                return await ReadStreamCoreAsync(
-                    body,
-                    deserialize,
-                    options.MaxMetadataResponseBytes,
-                    bodyToken).ConfigureAwait(false);
+                T result = default!;
+                bool hasResult = false;
+                try
+                {
+                    await using Stream body = await response.Content
+                        .ReadAsStreamAsync(bodyToken)
+                        .ConfigureAwait(false);
+                    result = await ReadStreamCoreAsync(
+                        body,
+                        deserialize,
+                        options.MaxMetadataResponseBytes,
+                        bodyToken).ConfigureAwait(false);
+                    hasResult = true;
+                    return result;
+                }
+                catch
+                {
+                    if (hasResult)
+                        NuGetRejectedResult.RejectIfOwned(result);
+                    throw;
+                }
             },
             options,
             cancellationToken).ConfigureAwait(false);
@@ -88,21 +101,29 @@ internal static class NuGetMetadataReader
         try
         {
             T result = await operation(timeout.Token).ConfigureAwait(false);
-            cancellationToken.ThrowIfCancellationRequested();
-            if (HasBodyTimeoutExpired(
-                    started,
-                    timeout,
-                    options.MetadataBodyTimeout))
+            try
             {
-                var cancellation = new OperationCanceledException(
-                    "NuGet metadata body completed after its deadline expired.",
-                    timeout.Token);
-                throw new NuGetMetadataBodyTimeoutException(
-                    options.MetadataBodyTimeout,
-                    cancellation);
-            }
+                cancellationToken.ThrowIfCancellationRequested();
+                if (HasBodyTimeoutExpired(
+                        started,
+                        timeout,
+                        options.MetadataBodyTimeout))
+                {
+                    var cancellation = new OperationCanceledException(
+                        "NuGet metadata body completed after its deadline expired.",
+                        timeout.Token);
+                    throw new NuGetMetadataBodyTimeoutException(
+                        options.MetadataBodyTimeout,
+                        cancellation);
+                }
 
-            return result;
+                return result;
+            }
+            catch
+            {
+                NuGetRejectedResult.RejectIfOwned(result);
+                throw;
+            }
         }
         catch (OperationCanceledException ex)
             when (cancellationToken.IsCancellationRequested)
@@ -161,6 +182,7 @@ internal static class NuGetMetadataReader
         exception is IOException
             and not NuGetMetadataResponseTooLargeException
             and not NuGetRedirectLimitExceededException
+            and not NuGetRegistrationResourceLimitExceededException
             or HttpRequestException
             or ObjectDisposedException;
 

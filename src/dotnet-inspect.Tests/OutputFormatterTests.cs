@@ -387,6 +387,41 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void VersionListings_HeadersAreDefaultAndHeaderlessIsOptIn()
+    {
+        PackageVersionInfo[] versions =
+        [
+            new("2.0.0", Listed: true),
+            new("1.0.0-preview.1", Listed: false),
+        ];
+        var withHeader = new StringWriter { NewLine = "\n" };
+        var withoutHeader = new StringWriter { NewLine = "\n" };
+
+        OutputFormatter.WriteVersionListings(
+            versions,
+            new InspectionOptions { Tsv = true },
+            withHeader);
+        OutputFormatter.WriteVersionListings(
+            versions,
+            new InspectionOptions
+            {
+                Tsv = true,
+                NoHeader = true,
+            },
+            withoutHeader);
+
+        Assert.Equal(
+            "version\tlisting\n"
+            + "2.0.0\tlisted\n"
+            + "1.0.0-preview.1\tunlisted\n",
+            withHeader.ToString());
+        Assert.Equal(
+            "2.0.0\tlisted\n"
+            + "1.0.0-preview.1\tunlisted\n",
+            withoutHeader.ToString());
+    }
+
+    [Fact]
     public void WriteTable_ToLineLimitingWriter_PreservesBufferedSemantics()
     {
         // The line-limiting writer counts newlines per write call, so WriteTable must keep the

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DotNetCliTool Version="2">
+  <Commands>
+    <Command Name="dotnet-inspect-fixture" />
+  </Commands>
+  <RuntimeIdentifierPackages>
+    <RuntimeIdentifierPackage RuntimeIdentifier="linux-x64" Id="DotnetInspect.TestAssets.ToolV2.linux-x64" />
+    <RuntimeIdentifierPackage RuntimeIdentifier="win-x64" Id="DotnetInspect.TestAssets.ToolV2.win-x64" />
+  </RuntimeIdentifierPackages>
+</DotNetCliTool>
