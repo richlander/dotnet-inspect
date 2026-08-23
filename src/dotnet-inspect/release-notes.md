@@ -39,6 +39,9 @@
   output. Markdown, plaintext, bare, and print projections continue to render
   the explanatory payload. PDB Source can also use checksum-verified local
   documents without requiring a SourceLink map (#4385).
+- Bodyless members now report that fact instead of a missing-PDB-mapping reason
+  when platform API shape comes from a reference assembly and source lookup
+  uses a different runtime image (#4588).
 
 ### Package acquisition and audit
 
@@ -50,11 +53,20 @@
 - Package signature inspection now verifies signed archive content against its
   embedded hash and validates NuGet signer, repository, certificate, and
   accepted timestamp profiles before reporting valid provenance. Malformed
-  signature entries and invalid profiles fail closed (#4408).
+  signature entries and invalid profiles fail closed. The `Repository` field
+  now reports the verified repository certificate identity instead of a fixed
+  `nuget.org` value, and `Repository Verified` is present only for a valid
+  repository countersignature (#4408).
+- Package Signals now include default `Provenance / Signature` and
+  `NuGet / Listing` rows for the verified signature and Gallery listing facts
+  already acquired by package inspection (#4408, #4486).
 - Uses authoritative Gallery registration metadata for package listing and
   version state. Pagination, malformed responses, deadline exhaustion, and
   rejected results remain explicit rather than being interpreted as complete
   package history (#4486).
+- **Breaking:** `package --versions --include-unlisted` now emits column
+  headers by default in Markdown, table, and TSV output. Use `--no-headers` to
+  retain the v0.21.0 headerless shape (#4486).
 
 ### Performance analysis
 
