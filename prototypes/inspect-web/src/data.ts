@@ -5,6 +5,15 @@
 // wiring; these functions are pure transforms over explicit inputs/outputs so they can be
 // unit-tested and reused (e.g. by `graph-mermaid.ts`) without the render/event-wiring layer.
 
+// Exhaustiveness guard for the closed vocabularies below. The unions in this module are
+// derived from catalogs that also drive visible UI choices, so adding a catalog entry both
+// widens the union and offers the new value to users. Passing the switched value here makes
+// the compiler reject that addition until every consumer states what the new value does; the
+// throw is the residual runtime signal if a value ever reaches a consumer past its validator.
+export function assertNever(value: never, vocabulary: string): never {
+  throw new Error(`Unhandled ${vocabulary}: ${JSON.stringify(value)}`);
+}
+
 // Not exported: every consumer now goes through `typeLensesFor`, which applies the
 // runtime-pack filter. A direct export would be a way to skip it.
 const lenses = [
@@ -1537,6 +1546,16 @@ export interface SectionableMember {
   kind?: string;
 }
 
+// The full roster is derived from the catalog rather than restated, so a new section is
+// offered as soon as it is defined. Restating it was the durable defect: the compiler
+// rejects a *removal* from the catalog, because the literal would stop being assignable,
+// but nothing caught an *addition*, which silently never reached the UI at all.
+const allMemberSections: readonly MemberSection[] =
+  memberSectionDefinitions.map(([id]) => id);
+
+const sourceBackedMemberSections: ReadonlySet<MemberSection> =
+  new Set<MemberSection>(["source", "annotated"]);
+
 export function memberSectionIdsFor(
   member: SectionableMember | null | undefined,
   isRuntimePack = false,
@@ -1547,8 +1566,8 @@ export function memberSectionIdsFor(
     return ["overview"];
   }
   const sections = isRuntimePack
-    ? ["overview", "call-graph", "facts"]
-    : ["overview", "call-graph", "facts", "source", "annotated"];
+    ? allMemberSections.filter(section => !sourceBackedMemberSections.has(section))
+    : [...allMemberSections];
   return hasSelectedBody
     && ["property", "event"].includes(member?.kind ?? "")
     ? sections.filter(id => id !== "source")

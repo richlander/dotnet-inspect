@@ -663,6 +663,29 @@ decoded assembly descriptors reported through the existing visible failure
 paths. Close-negative tests cover those boundaries rather than relying on
 non-null assertions.
 
+The scope, lens, and member-section vocabularies are closed union types derived
+from the catalogs that render them, so `data.ts` and `spotlight.ts` are the only
+places those spellings exist. Values arriving from `dataset` attributes, URL
+query parameters, hashes, and share packets are admitted through `isTypeLens`,
+`isPackageLens`, `isMemberSection`, `isWorkspaceScope`, and `availableScope`;
+an unrecognized value is rejected at that boundary rather than cast into typed
+state.
+
+Because those catalogs also render the choices a user can pick, adding an entry
+widens the union *and* immediately offers the new value. Every consumer that
+branches on one therefore ends in `assertNever`, so adding a catalog entry fails
+compilation until each consumer says what the new value does. Nothing at runtime
+can observe that property — an unhandled value would simply take whichever
+branch the consumer fell through to — so the gate is the compiler, and
+`widening a UI vocabulary catalog fails compilation until every consumer handles it`
+in `test/vocabulary-exhaustiveness.test.ts` is that gate. It widens each catalog
+in a throwaway copy of `src/` and asserts `tsc` reports exactly the expected
+number of `assertNever` rejections, so deleting any one exhaustive dispatch
+turns it red. `renderPackageView` is deliberately not exhaustive: an unwired
+package lens renders a visible "not wired yet" panel rather than another lens's
+content, which is already the failure-visible outcome exhaustiveness exists to
+force.
+
 ## Test
 
 ```bash

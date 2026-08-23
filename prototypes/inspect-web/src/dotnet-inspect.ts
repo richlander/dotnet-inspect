@@ -2,6 +2,7 @@ import {
   accessibilityFilterIncludingType,
   activeSourceOperationKind,
   assemblyDescriptorForType,
+  assertNever,
   pdbSourceLimitationHtml,
   callGraphDiagnosticsMessage,
   callGraphTargetTypeId,
@@ -3606,9 +3607,23 @@ function renderTypeSourceHtml(item: BrowserTypeSurface) {
 function renderLens(item: AppTypeSurface | null | undefined) {
   if (state.atPackageRoot) return renderPackageView();
   if (!item) return "";
+  switch (state.lens) {
+    case "source":
+      return `
+      ${typeHeadingHtml(item)}
+      ${renderTypeSourceHtml(item)}`;
+    case "metadata":
+      return `${typeHeadingHtml(item)}${renderTypeMetadataHtml(item)}`;
+    case "api":
+      return renderApiLens(item);
+    default:
+      return assertNever(state.lens, "type lens");
+  }
+}
+
+function renderApiLens(item: BrowserTypeSurface) {
   const pending = state.pendingGraphMemberDeepLink;
-  if (state.lens === "api"
-    && pending
+  if (pending
     && graphMemberPendingMatchesView(
       pending,
       packageIdentityKey(state.package),
@@ -3619,8 +3634,8 @@ function renderLens(item: AppTypeSurface | null | undefined) {
     return renderGraphMemberPendingHtml(item, title);
   }
   const member = selectedMember(item);
-  if (state.lens === "api" && member) return renderMember(item, member);
-  if (state.lens === "api" && state.memberBrowseTypeId === item.id) {
+  if (member) return renderMember(item, member);
+  if (state.memberBrowseTypeId === item.id) {
     return `
       ${typeHeadingHtml(item)}
       <section class="document-section empty-document">
@@ -3628,14 +3643,6 @@ function renderLens(item: AppTypeSurface | null | undefined) {
         <h2>No member selected</h2>
         <p>Adjust the member filters or choose a member from the list.</p>
       </section>`;
-  }
-  if (state.lens === "source") {
-    return `
-      ${typeHeadingHtml(item)}
-      ${renderTypeSourceHtml(item)}`;
-  }
-  if (state.lens === "metadata") {
-    return `${typeHeadingHtml(item)}${renderTypeMetadataHtml(item)}`;
   }
   const { publicMembers, graphMembers } =
     partitionGraphMembers(item.api);
@@ -3856,7 +3863,7 @@ function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
       : state.memberAnnotated
         ? renderAnnotatedSource(state.memberAnnotated)
         : `<section class="document-section empty-member-section"><h2>Annotated source query failed</h2><p>${escapeHtml(state.memberAnnotatedError || "No annotated source result was returned.")}</p></section>`;
-  } else {
+  } else if (state.memberSection === "source") {
     content = state.memberSourceLoading
       ? `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`
       : state.memberSource
@@ -3865,6 +3872,8 @@ function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
             <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(state.memberSource.text)}</code></pre>
           </section>`
         : `<section class="document-section empty-member-section"><h2>Source query failed</h2><p>${escapeHtml(state.memberSourceError || "No source result was returned.")}</p></section>`;
+  } else {
+    assertNever(state.memberSection, "member section");
   }
   // The member-mode strip (Overview / Call graph / Facts / Source / Annotated) now lives in
   // the top scope+lens bar, so the detail view renders only the section content itself.
@@ -5059,47 +5068,69 @@ function mostRecentAvailableLibrary() {
 // In "all" each group is capped so every target stays visible; a focused scope shows a
 // deeper single-target list. Loaded packages rank ahead of NuGet discovery hits, which
 // exclude anything already open.
+function runtimeSpotlightResults(query: string): SpotlightResult[] {
+  const results: SpotlightResult[] = [];
+  if (state.runtimePackLoading) {
+    results.push({ kind: "rtpack-status", loading: true });
+    return results;
+  }
+  if (state.runtimePackError && !runtimePackLoaded()) {
+    results.push({ kind: "rtpack-status", error: state.runtimePackError });
+  }
+  // Index-first: the platform library roster needs no pack download. Selecting
+  // "Platform" instantly lists the CoreCLR + ASP.NET Core libraries the static
+  // index knows for the active framework, filterable by name.
+  const roster = platformLibraryRoster(query);
+  for (const lib of roster.slice(0, 200)) {
+    results.push({ ...lib, kind: "platform-lib" });
+  }
+  // Once a pack is resident, blend its type/member matches so drilled-in
+  // platform content stays searchable alongside the library roster.
+  if (platformSurfaceLoaded()) {
+    const typeSource = query ? spotlightTypeMatches(query) : [];
+    for (const match of typeSource.filter(item => item.pkg?.isRuntimePack).slice(0, 50)) {
+      results.push({ ...match, kind: "type" });
+    }
+    if (query) {
+      for (const match of spotlightMemberMatches(query).filter(item => item.pkg?.isRuntimePack).slice(0, 50)) {
+        results.push({ ...match, kind: "member" });
+      }
+    }
+  }
+  // Only when the static index is unavailable do we fall back to the old
+  // download-first prompt, so the scope is never empty and inert.
+  if (!roster.length && !runtimePackLoaded()) {
+    results.push({ kind: "rtpack-suggest" });
+  }
+  return results;
+}
+
 function spotlightResults(): SpotlightResult[] {
   const query = state.spotlightQuery.trim();
   const spotlightScope = state.spotlightScope;
+  // Exhaustive scope dispatch. "all" blends the package, type and member scopes, so those four
+  // arms share the composed body below instead of each owning a renderer. Adding an entry to the
+  // spotlight scope catalog offers it to users immediately, so it must fail compilation here
+  // until it declares which of these shapes it is.
+  switch (spotlightScope) {
+    case "runtime":
+      return runtimeSpotlightResults(query);
+    case "commands":
+      // `spotlight.ts` answers the command scope from the command palette and never delegates
+      // here. Reaching this arm means that interception was removed, which is a wiring failure
+      // and not an empty result set.
+      throw new Error("Spotlight delegated the command scope to the workspace search results.");
+    case "all":
+    case "packages":
+    case "types":
+    case "members":
+      break;
+    default:
+      return assertNever(spotlightScope, "spotlight scope");
+  }
+
   const all = spotlightScope === "all";
   const results: SpotlightResult[] = [];
-
-  if (spotlightScope === "runtime") {
-    if (state.runtimePackLoading) {
-      results.push({ kind: "rtpack-status", loading: true });
-      return results;
-    }
-    if (state.runtimePackError && !runtimePackLoaded()) {
-      results.push({ kind: "rtpack-status", error: state.runtimePackError });
-    }
-    // Index-first: the platform library roster needs no pack download. Selecting
-    // "Platform" instantly lists the CoreCLR + ASP.NET Core libraries the static
-    // index knows for the active framework, filterable by name.
-    const roster = platformLibraryRoster(query);
-    for (const lib of roster.slice(0, 200)) {
-      results.push({ ...lib, kind: "platform-lib" });
-    }
-    // Once a pack is resident, blend its type/member matches so drilled-in
-    // platform content stays searchable alongside the library roster.
-    if (platformSurfaceLoaded()) {
-      const typeSource = query ? spotlightTypeMatches(query) : [];
-      for (const match of typeSource.filter(item => item.pkg?.isRuntimePack).slice(0, 50)) {
-        results.push({ ...match, kind: "type" });
-      }
-      if (query) {
-        for (const match of spotlightMemberMatches(query).filter(item => item.pkg?.isRuntimePack).slice(0, 50)) {
-          results.push({ ...match, kind: "member" });
-        }
-      }
-    }
-    // Only when the static index is unavailable do we fall back to the old
-    // download-first prompt, so the scope is never empty and inert.
-    if (!roster.length && !runtimePackLoaded()) {
-      results.push({ kind: "rtpack-suggest" });
-    }
-    return results;
-  }
 
   if (all || spotlightScope === "packages") {
     const loaded = spotlightLoadedPackageMatches(query).slice(0, all ? 3 : 20);
@@ -6019,11 +6050,14 @@ function loadSelectionData() {
   const member = selectedMember(selectedType());
   if (!member) return undefined;
   if (member.overloads.length > 1 && state.selectedOverloadIndex == null) return undefined;
-  if (state.memberSection === "source") return loadSelectedMemberSource();
-  if (state.memberSection === "annotated") return loadSelectedMemberAnnotatedSource();
-  if (state.memberSection === "call-graph") return loadSelectedMemberCallGraph();
-  if (state.memberSection === "facts") return loadSelectedMemberFacts();
-  return loadSelectedMemberDocumentation();
+  switch (state.memberSection) {
+    case "source": return loadSelectedMemberSource();
+    case "annotated": return loadSelectedMemberAnnotatedSource();
+    case "call-graph": return loadSelectedMemberCallGraph();
+    case "facts": return loadSelectedMemberFacts();
+    case "overview": return loadSelectedMemberDocumentation();
+    default: return assertNever(state.memberSection, "member section");
+  }
 }
 
 async function share() {

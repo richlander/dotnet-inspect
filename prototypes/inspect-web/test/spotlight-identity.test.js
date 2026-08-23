@@ -42,6 +42,7 @@ import {
   MAX_SHARE_STATE_CHARACTERS,
   MAX_WORKSPACE_PACKAGES,
   memberRequestKey,
+  memberSectionDefinitions,
   memberSectionIdsFor,
   mergeInspectionErrors,
   mermaidLabel,
@@ -2243,9 +2244,13 @@ test("lens-scoped Platform library changes reset type-specific member state", ()
 });
 
 test("Platform Spotlight distinguishes resident content from core readiness", () => {
+  // The runtime scope moved out of `spotlightResults` into its own renderer when the
+  // scope dispatch became exhaustive, so this scans the function that now owns the two
+  // predicates rather than the one that used to.
   const results =
-    appSource.match(/function spotlightResults\(\): SpotlightResult\[\] \{[\s\S]*?\n}\n\ninterface NugetSearchResult/)?.[0]
+    appSource.match(/function runtimeSpotlightResults\(query: string\): SpotlightResult\[\] \{[\s\S]*?\n}\n/)?.[0]
     ?? "";
+  assert.ok(results, "runtimeSpotlightResults was not found");
   assert.match(
     results,
     /if \(platformSurfaceLoaded\(\)\) \{[\s\S]*spotlightTypeMatches\(query\)/);
@@ -2932,6 +2937,17 @@ test("MethodDef-only member sections are hidden for bodiless APIs", () => {
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }),
     ["overview", "call-graph", "facts", "source", "annotated"]);
+});
+
+// `memberSectionIdsFor` is the admission set for the member strip, for the URL `?section=`
+// token, and for the share packet's `c` token, so a section the catalog defines but this
+// function omits is defined and never reachable. It used to restate the roster, which the
+// compiler could not check in that direction. This is the gate for it deriving instead:
+// restoring a hand-written list makes a catalog addition stop appearing here.
+test("the full member-section roster is derived from the catalog, not restated", () => {
+  assert.deepEqual(
+    memberSectionIdsFor({ kind: "method" }),
+    memberSectionDefinitions.map(([id]) => id));
 });
 
 test("source requests carry exact type and member identities", () => {
