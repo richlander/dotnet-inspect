@@ -469,27 +469,30 @@ public static class StructuralCloneCrossAssemblyCorpus
         text.Append("Query selection: ")
             .Append(report.TotalQueries)
             .AppendLine(
-                " methods named by the committed ledger in the "
+                " methods named by the loaded ledger in the "
                     + "query artifact");
         text.AppendLine(
-            "Candidate scope: all methods in the ledger-declared "
-                + "right-side type");
+            "Submitted candidate population: all methods in the "
+                + "ledger-declared right-side type; RetrieveSimilar ranks "
+                + "only methods with completed body analysis and a "
+                + "query-compatible signature");
         text.Append("Expectations met: ")
             .Append(report.PassedQueries)
             .Append('/')
             .Append(report.TotalQueries)
             .AppendLine(" queries");
-        text.Append("Reviewed results: ")
+        text.Append("Results within declared review depth: ")
             .Append(report.ReviewedCandidates)
             .Append('/')
             .Append(report.RequestedReviewSlots)
             .AppendLine(" requested");
-        text.Append("Relevant peers among reviewed results: ")
+        text.Append("Relevant peers within reviewed depth: ")
             .Append(report.RelevantAtK)
             .Append('/')
             .Append(report.ReviewedCandidates)
-            .AppendLine();
-        text.Append("Precision over reviewed results: ")
+            .AppendLine(" results");
+        text.Append(
+                "Precision over labeled results within reviewed depth: ")
             .Append(Percentage(report.PrecisionBasisPoints))
             .AppendLine();
         text.Append("Recall at reviewed depth over declared peers: ")
@@ -533,16 +536,25 @@ public static class StructuralCloneCrossAssemblyCorpus
             text.Append("  Retrieval status: ")
                 .Append(query.RetrievalDisposition)
                 .AppendLine();
+            text.Append("  Candidate methods submitted: ")
+                .Append(query.RetrievalReceipt.InputMethods)
+                .Append("; completed body analysis: ")
+                .Append(query.RetrievalReceipt.EligibleMethods)
+                .Append("; ranked candidates: ")
+                .Append(query.RetrievalReceipt.RankedCandidates)
+                .Append("; retrieval returned candidates: ")
+                .Append(query.RetrievalReceipt.ReturnedCandidates)
+                .AppendLine();
             text.Append("  Review depth: ")
                 .Append(query.ReviewedTopK)
-                .Append("; returned results: ")
+                .Append("; results within depth: ")
                 .Append(query.TopCandidates.Length)
                 .Append("; relevant peers: ")
                 .Append(query.RelevantAtK)
                 .Append('/')
                 .Append(query.TopCandidates.Length)
                 .AppendLine();
-            text.Append("  Precision over returned results: ")
+            text.Append("  Precision over labeled results at depth: ")
                 .Append(Percentage(query.PrecisionBasisPoints))
                 .Append("; recall@")
                 .Append(query.ReviewedTopK)
@@ -571,8 +583,8 @@ public static class StructuralCloneCrossAssemblyCorpus
             if (!query.TopKFullyReviewed)
             {
                 text.AppendLine(
-                    "  INCOMPLETE REVIEW: returned top-K is incomplete "
-                        + "or contains results with unknown relevance");
+                    "  INCOMPLETE REVIEW: results within top-K are "
+                        + "incomplete or include unknown relevance");
             }
             foreach (StructuralCloneCrossAssemblyLabelResult label
                 in query.Labels.Where(static label => !label.Passed))

@@ -48,17 +48,22 @@ public class StructuralCloneCrossAssemblyCorpusTests
 
         string text = StructuralCloneCrossAssemblyCorpus.Format(report);
         Assert.Contains(
-            "Query selection: 7 methods named by the committed ledger "
+            "Query selection: 7 methods named by the loaded ledger "
                 + "in the query artifact",
             text);
         Assert.Contains(
-            "Candidate scope: all methods in the "
-                + "ledger-declared right-side type",
+            "Submitted candidate population: all methods in the "
+                + "ledger-declared right-side type; RetrieveSimilar ranks "
+                + "only methods with completed body analysis and a "
+                + "query-compatible signature",
             text);
         Assert.Contains("Expectations met: 7/7 queries", text);
-        Assert.Contains("Reviewed results: 14/14 requested", text);
         Assert.Contains(
-            "Precision over reviewed results: 42.85%",
+            "Results within declared review depth: 14/14 requested",
+            text);
+        Assert.Contains(
+            "Precision over labeled results within reviewed depth: "
+                + "42.85%",
             text);
         Assert.Contains(
             "Recall at reviewed depth over declared peers: "
@@ -73,7 +78,12 @@ public class StructuralCloneCrossAssemblyCorpusTests
                 + "  Query method: Stable",
             text);
         Assert.Contains(
-            "Precision over returned results: 50.00%; "
+            "Candidate methods submitted: 36; completed body analysis: "
+                + "32; ranked candidates: 6; "
+                + "retrieval returned candidates: 6",
+            text);
+        Assert.Contains(
+            "Precision over labeled results at depth: 50.00%; "
                 + "recall@2 over declared peers: 100.00% (1/1)",
             text);
         Assert.Contains(
@@ -133,9 +143,22 @@ public class StructuralCloneCrossAssemblyCorpusTests
             static candidate => candidate.Relevance is null);
         Assert.Null(query.PrecisionBasisPoints);
         Assert.Null(report.PrecisionBasisPoints);
+        string text = StructuralCloneCrossAssemblyCorpus.Format(report);
         Assert.Contains(
             "unreviewed (relevance unknown)",
-            StructuralCloneCrossAssemblyCorpus.Format(report));
+            text);
+        Assert.Contains(
+            "Results within declared review depth: 15/15 requested",
+            text);
+        Assert.DoesNotContain("Reviewed results:", text);
+        Assert.Contains(
+            "Review depth: 3; results within depth: 3; "
+                + "relevant peers: 1/3",
+            text);
+        Assert.Contains(
+            "INCOMPLETE REVIEW: results within top-K are incomplete "
+                + "or include unknown relevance",
+            text);
     }
 
     [Fact]

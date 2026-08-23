@@ -108,17 +108,21 @@ explicit peer beyond the reviewed depth of two. The two assembly paths passed
 on the command line select the A and A-prime artifacts; they do not select one
 method. For each ledger query, the harness resolves the named method in the
 left artifact and calls the product's cross-image `RetrieveSimilar` overload
-against all methods in the ledger-declared right-side type. The harness
-requires distinct MVIDs and resolves methods through SRM. It does not
-reconstruct portable operand categories or claim that a score proves a
-relationship; cross-reader `Compare` remains a separate future producer.
+with every method in the ledger-declared right-side type as the submitted
+candidate population. The product ranks the subset with completed body
+analysis and a query-compatible signature. The harness requires distinct MVIDs
+and resolves methods through SRM. It does not reconstruct portable operand
+categories or claim that a score proves a relationship; cross-reader `Compare`
+remains a separate future producer.
 
 The text report uses standard information-retrieval terms where they fit:
 
 - **query method** is the ledger-selected left-side method;
-- **candidate population** is every method in the declared right-side type;
-- **precision over reviewed results** is relevant peers divided by returned,
-  independently reviewed results;
+- **submitted candidate population** is every method in the declared right-side
+  type, while the ranked population is the supported, signature-compatible
+  subset;
+- **precision over labeled results within reviewed depth** is relevant peers
+  divided by independently labeled results within K;
 - **recall@K over declared peers** is declared relevant peers recovered within
   the reviewed depth, divided by all relevant peers declared for that query;
 - **hard negative** is a deliberately plausible but unrelated candidate.

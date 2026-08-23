@@ -345,16 +345,17 @@ method addresses without reconstructing portable features.
 
 The two assembly paths passed on the command line select the A and A-prime
 artifacts, while each ledger entry selects one left-side query method.
-`RetrieveSimilar` searches that query against every method in the
-ledger-declared right-side type.
+The harness submits every method in the ledger-declared right-side type to
+`RetrieveSimilar`; the product ranks the subset with completed body analysis
+and a query-compatible signature.
 
 The seven-query ledger labels every actual top-two result and includes stable,
 multi-edit, user-string, call-target, branch-target, type-token, and allocation
 regression cases. Its 14 reviewed results contain six relevant peers, six hard
 negatives, and two semantic lookalikes whose behavior differs. Six of seven
 declared relevant peers are recovered at K for 42.85% precision over reviewed
-results and 85.71% recall at the reviewed depth over declared peers; the
-evolved allocation-loop member remains an explicit relevant peer at rank
+labeled results and 85.71% recall at the reviewed depth over declared peers;
+the evolved allocation-loop member remains an explicit relevant peer at rank
 three, beyond the reviewed depth of two.
 
 The text report says **expectations met** when a query satisfies the ledger's
