@@ -1066,16 +1066,19 @@ function applyView(view: WorkspaceView) {
   }
   navigationHistory.normalizeCurrent();
   if (!state.atPackageRoot && state.lens === "api" && state.selectedMemberKey && member) {
-    if (state.memberSection === "source")
+    const section = state.memberSection;
+    if (section === "source")
       observeAsync(loadSelectedMemberSource(), "Loading member source");
-    else if (state.memberSection === "annotated")
+    else if (section === "annotated")
       observeAsync(loadSelectedMemberAnnotatedSource(), "Loading annotated member source");
-    else if (state.memberSection === "call-graph")
+    else if (section === "call-graph")
       observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
-    else if (state.memberSection === "facts")
+    else if (section === "facts")
       observeAsync(loadSelectedMemberFacts(), "Loading member facts");
-    else
+    else if (section === "overview")
       observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
+    else
+      assertNever(section, "member section");
   } else {
     render();
   }
@@ -1930,6 +1933,28 @@ function scope(): WorkspaceScope {
   return memberScopeIsActive(state, selectedType()?.id) ? "member" : "type";
 }
 
+function selectScopeLensByIndex(index: number, workspaceScope: WorkspaceScope): void {
+  if (workspaceScope === "package") {
+    const selected = packageLensesFor(state.package)[index];
+    if (selected) {
+      state.packageLens = selected[0];
+      render();
+    }
+  } else if (workspaceScope === "type") {
+    const selected = typeLensesFor(state.package)[index];
+    if (selected) {
+      state.lens = selected[0];
+      render();
+    }
+  } else if (workspaceScope === "member") {
+    const member = selectedMember(selectedType());
+    const selected = member ? memberSectionsFor(member)[index] : undefined;
+    if (selected) applyMemberSection(selected[0]);
+  } else {
+    assertNever(workspaceScope, "workspace scope");
+  }
+}
+
 // The resident runtime pseudo-package (Microsoft.NETCore.App) has no NuGet nupkg, so the
 // package lenses that fetch one would 404. Integrations and Opportunities scan a
 // selected library through the content-backed platform workspace; dependencies remain
@@ -2056,7 +2081,8 @@ function applyMemberSection(id: MemberSection) {
     observeAsync(loadSelectedMemberFacts(), "Loading member facts");
   else if (id === "overview")
     observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
-  else render();
+  else
+    assertNever(id, "member section");
 }
 
 // Flattened, ordered nav rows for member mode: filtered public groups plus the selected
@@ -8961,25 +8987,7 @@ keybindings.register({
     && !event.metaKey
     && !event.ctrlKey,
   run: event => {
-    const index = Number(event.key) - 1;
-    const sc = scope();
-    if (sc === "package") {
-      const selected = packageLensesFor(state.package)[index];
-      if (selected) {
-        state.packageLens = selected[0];
-        render();
-      }
-    } else if (sc === "member") {
-      const member = selectedMember(selectedType());
-      const selected = member ? memberSectionsFor(member)[index] : undefined;
-      if (selected) applyMemberSection(selected[0]);
-    } else {
-      const selected = typeLensesFor(state.package)[index];
-      if (selected) {
-        state.lens = selected[0];
-        render();
-      }
-    }
+    selectScopeLensByIndex(Number(event.key) - 1, scope());
     return true;
   },
 });

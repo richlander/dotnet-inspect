@@ -14,6 +14,14 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  parseSync,
+  visitorKeys,
+  type Node,
+  type Program,
+  type TSTypeAliasDeclaration,
+} from "oxc-parser";
+
 const projectRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const tscBin = join(projectRoot, "node_modules", "typescript", "bin", "tsc");
 
@@ -46,7 +54,7 @@ const widenings = [
     find: '  ["annotated", "Annotated source"],\n] as const;',
     replace: '  ["annotated", "Annotated source"],\n  ["probe-member-section", "Probe"],\n] as const;',
     token: "probe-member-section",
-    dispatches: ["renderMember", "loadSelectionData"],
+    dispatches: ["applyMemberSection", "applyView", "renderMember", "loadSelectionData"],
   },
   {
     vocabulary: "WorkspaceScope",
@@ -54,7 +62,7 @@ const widenings = [
     find: 'const workspaceScopes = ["package", "type", "member"] as const;',
     replace: 'const workspaceScopes = ["package", "type", "member", "probe-workspace-scope"] as const;',
     token: "probe-workspace-scope",
-    dispatches: ["renderScopeBar", "onScopeSelect"],
+    dispatches: ["onScopeSelect", "renderScopeBar", "selectScopeLensByIndex"],
   },
   {
     vocabulary: "SpotlightScope",
@@ -75,11 +83,16 @@ interface WidenedCompilation {
 
 function compileWidenedSource(): WidenedCompilation {
   const scratch = mkdtempSync(join(tmpdir(), "inspect-web-exhaustiveness-"));
+  const compilationRoot = join(scratch, "inspect-web");
   try {
-    cpSync(join(projectRoot, "src"), join(scratch, "src"), { recursive: true });
-    cpSync(join(projectRoot, "tsconfig.json"), join(scratch, "tsconfig.json"));
+    cpSync(join(projectRoot, "src"), join(compilationRoot, "src"), { recursive: true });
+    cpSync(join(projectRoot, "tsconfig.json"), join(compilationRoot, "tsconfig.json"));
+    cpSync(
+      join(projectRoot, "..", "annotated-source-viewer", "src"),
+      join(scratch, "annotated-source-viewer", "src"),
+      { recursive: true });
     for (const widening of widenings) {
-      const path = join(scratch, "src", widening.file);
+      const path = join(compilationRoot, "src", widening.file);
       const original = readFileSync(path, "utf8");
       assert.ok(
         original.includes(widening.find),
@@ -87,16 +100,21 @@ function compileWidenedSource(): WidenedCompilation {
         + "The catalog moved; update this gate's anchor rather than deleting the case.");
       writeFileSync(path, original.replace(widening.find, widening.replace));
     }
-    const result = spawnSync(process.execPath, [tscBin, "--noEmit", "-p", join(scratch, "tsconfig.json")], {
+    const result = spawnSync(process.execPath, [
+      tscBin,
+      "--noEmit",
+      "-p",
+      join(compilationRoot, "tsconfig.json"),
+    ], {
       encoding: "utf8",
-      cwd: scratch,
+      cwd: compilationRoot,
     });
     const diagnostics = `${result.stdout ?? ""}${result.stderr ?? ""}`;
     const sources = new Map<string, string>();
     for (const match of diagnostics.matchAll(/^(\S+)\(\d+,\d+\): error TS/gm)) {
       const file = match[1];
       if (!file || sources.has(file)) continue;
-      const absolute = file.startsWith("/") ? file : join(scratch, file);
+      const absolute = file.startsWith("/") ? file : join(compilationRoot, file);
       sources.set(file, readFileSync(absolute, "utf8"));
     }
     return { diagnostics, sources };
@@ -126,19 +144,57 @@ function enclosingFunction(source: string, line: number): string {
   return "<unknown>";
 }
 
-test("every closed UI vocabulary is covered by this gate", () => {
-  // Derive the roster instead of restating it. Every union declared from an `as const`
-  // catalog is a closed vocabulary whose members reach a dispatch, so a new one that nobody
-  // adds here fails immediately rather than sitting silently uncovered -- which is exactly
-  // how `PackageLens` and `WorkspaceScope` went ungated through three rounds.
-  const declared = new Set<string>();
-  for (const file of ["data.ts", "spotlight.ts"]) {
-    const source = readFileSync(join(projectRoot, "src", file), "utf8");
-    for (const match of source.matchAll(
-      /export type ([A-Za-z_$][\w$]*) =\s*\|?\s*\(typeof [A-Za-z_$][\w$]*\)\[number\]/g)) {
-      if (match[1]) declared.add(match[1]);
+function parse(file: string): Program {
+  const source = readFileSync(join(projectRoot, "src", file), "utf8");
+  const parsed = parseSync(file, source);
+  assert.deepEqual(
+    parsed.errors,
+    [],
+    `${file} must parse before its vocabulary declarations can be inspected`);
+  return parsed.program;
+}
+
+function isNode(value: unknown): value is Node {
+  return typeof value === "object"
+    && value !== null
+    && typeof Reflect.get(value, "type") === "string";
+}
+
+function containsTypeQuery(node: Node): boolean {
+  if (node.type === "TSTypeQuery") return true;
+  for (const key of visitorKeys[node.type] ?? []) {
+    const child = Reflect.get(node, key) as unknown;
+    if (Array.isArray(child)) {
+      if (child.some(candidate => isNode(candidate) && containsTypeQuery(candidate)))
+        return true;
+    } else if (isNode(child) && containsTypeQuery(child)) {
+      return true;
     }
   }
+  return false;
+}
+
+function catalogTypeAliases(program: Program): TSTypeAliasDeclaration[] {
+  return program.body.flatMap(node => {
+    const declaration = node.type === "ExportNamedDeclaration"
+      ? node.declaration
+      : null;
+    return declaration?.type === "TSTypeAliasDeclaration"
+      && containsTypeQuery(declaration.typeAnnotation)
+      ? [declaration]
+      : [];
+  });
+}
+
+test("every closed UI vocabulary is covered by this gate", () => {
+  // Derive the roster from every exported type alias that queries a catalog, independent of
+  // formatting, tuple indexing, or union shape. A new catalog-derived vocabulary that nobody
+  // adds here fails rather than sitting silently uncovered -- which is exactly how
+  // `PackageLens` and `WorkspaceScope` went ungated through three rounds.
+  const declared = new Set(
+    ["data.ts", "spotlight.ts"]
+      .flatMap(file => catalogTypeAliases(parse(file)))
+      .map(declaration => declaration.id.name));
 
   // Non-vacuity: an anchor that stopped matching would otherwise turn this into a test that
   // derives an empty roster and passes.
@@ -159,6 +215,13 @@ test("widening a UI vocabulary catalog fails compilation until every consumer ha
   assert.ok(
     diagnostics.trim().length > 0,
     "Widening every vocabulary catalog compiled cleanly, so no consumer is exhaustive.");
+  assert.deepEqual(
+    [...diagnostics.matchAll(/error TS(\d+):/g)]
+      .map(match => match[1])
+      .filter(code => code !== undefined)
+      .filter((code, index, codes) => codes.indexOf(code) === index),
+    ["2345"],
+    "The widened compile has an unrelated diagnostic, so its exhaustiveness evidence is invalid.");
 
   for (const widening of widenings) {
     // `assertNever` takes `never`, so an unhandled member is reported as the new string

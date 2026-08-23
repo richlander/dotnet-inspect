@@ -672,19 +672,23 @@ an unrecognized value is rejected at that boundary rather than cast into typed
 state.
 
 Because those catalogs also render the choices a user can pick, adding an entry
-widens the union *and* immediately offers the new value. Every consumer that
-branches on one therefore ends in `assertNever`, so adding a catalog entry fails
-compilation until each consumer says what the new value does. Nothing at runtime
-can observe that property — an unhandled value would simply take whichever
-branch the consumer fell through to — so the gate is the compiler, and
+widens the union *and* immediately offers the new value. Every dispatch named by
+the exhaustiveness gate therefore ends in `assertNever`, so adding a catalog
+entry fails compilation until each such dispatch says what the new value does.
+The gate derives its vocabulary roster from every exported type alias in
+`data.ts` and `spotlight.ts` that queries a catalog; it is not tied to one
+formatting or indexing shape.
+
+Nothing at runtime can observe that property — an unhandled value would simply
+take whichever branch the consumer fell through to — so the gate is the compiler, and
 `widening a UI vocabulary catalog fails compilation until every consumer handles it`
 in `test/vocabulary-exhaustiveness.test.ts` is that gate. It widens each catalog
-in a throwaway copy of `src/` and asserts `tsc` reports exactly the expected
-number of `assertNever` rejections, so deleting any one exhaustive dispatch
-turns it red. `renderPackageView` is deliberately not exhaustive: an unwired
-package lens renders a visible "not wired yet" panel rather than another lens's
-content, which is already the failure-visible outcome exhaustiveness exists to
-force.
+in a throwaway copy of the real TypeScript source graph and asserts `tsc`
+reports the expected `assertNever` location in every named dispatch, with no
+unrelated diagnostic. Deleting any one exhaustive dispatch turns it red.
+`packageLensBody` is exhaustive too: an unwired package lens used to render a
+placeholder that was indistinguishable from an empty lens, but now fails
+compilation until its behavior is explicit.
 
 ## Test
 
