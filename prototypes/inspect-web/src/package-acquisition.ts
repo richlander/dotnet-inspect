@@ -309,17 +309,22 @@ export function createPackageAcquisition(
             assemblyFileName,
             pack || ""));
         if (!isCurrent()) return null;
-        const assembly = defaultAssembly(
-          result,
-          "The platform assembly query did not return its selected assembly descriptor.");
         dependencies.refreshPackageStats();
         const existing = dependencies.runtimePackage();
         if (existing
           && (!requestedFramework
             || existing.activeFramework.toLowerCase()
               === requestedFramework.toLowerCase())) {
+          // The merge reads types, assemblies, accessibility, and counts -- never the
+          // selected descriptor. Validating it here would reject a surface the merge
+          // handles correctly: the engine emits an empty `assemblies` list with an
+          // unmatched `defaultAssemblyId` whenever extraction truncates
+          // (`InspectionEngine.cs`), and that surface still carries types worth merging.
           return mergeRuntimePackageSurface(existing, result);
         }
+        const assembly = defaultAssembly(
+          result,
+          "The platform assembly query did not return its selected assembly descriptor.");
         const packageModel = createRuntimeAssemblyPackageModel(result, assembly);
         dependencies.retainPackage(packageModel, existing);
         return packageModel;

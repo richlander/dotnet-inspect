@@ -55,6 +55,26 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
   );
 });
 
+test("the strictness options this project relies on stay enabled", () => {
+  // Adversarial review (Claude Opus 5) pointed out that deleting
+  // `noUncheckedIndexedAccess` left the entire suite green: the option is this project's
+  // deliverable and nothing asserted it. Every guard written to satisfy it would still
+  // compile without it, so its removal is silent and permanent.
+  //
+  // A configuration value has nothing to derive from -- the config *is* the fact -- so
+  // this is a pin, and its whole job is to make removal fail. The test project inherits
+  // through `extends`, so pinning that link covers both compilers.
+  for (const option of ["strict", "noUncheckedIndexedAccess", "noImplicitReturns"]) {
+    assert.equal(
+      browserTsconfig.compilerOptions[option],
+      true,
+      `${option} must stay enabled`);
+  }
+  assert.equal(testTsconfig.extends, "../tsconfig.json");
+  assert.equal(testTsconfig.compilerOptions.noUncheckedIndexedAccess, undefined,
+    "the test project must inherit the option rather than restate it");
+});
+
 const linuxLibcs = ["glibc", "musl"];
 
 function optionalNativeVariants(packagePath, dependencyPrefix) {
