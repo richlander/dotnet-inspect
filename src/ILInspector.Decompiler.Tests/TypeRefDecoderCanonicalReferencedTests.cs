@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 using Xunit;
 
 namespace ILInspector.Decompiler.Tests;
@@ -198,7 +199,12 @@ public sealed class TypeRefDecoderCanonicalSelfTests
         using var provider = MetadataReaderProvider.FromMetadataImage(image.ToImmutableArray());
         var reader = provider.GetMetadataReader();
         if (trusted)
-            CoreLibraryIdentityTrust.GrantCoreLibraryIdentity(reader);
+            CoreLibraryIdentityTrust.GrantIfEntitled(
+                reader,
+                AssemblyResolutionProvenance.Platform(
+                    "test",
+                    frameworkVersion: null,
+                    "TypeRefDecoderCanonicalReferencedTests"));
         var handle = reader.TypeDefinitions.Single(h => reader.GetString(reader.GetTypeDefinition(h).Name) == "Decimal");
         return TypeRefDecoder.Instance.GetTypeFromDefinition(reader, handle, rawTypeKind: 0);
     }

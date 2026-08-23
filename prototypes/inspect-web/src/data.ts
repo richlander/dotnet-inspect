@@ -40,7 +40,11 @@ export function packageIdentityKey(pkg: PackageIdentity | null | undefined): str
 export interface AssemblyDescriptor {
   id?: string;
   name?: string;
+  version?: string;
+  culture?: string | null;
+  publicKeyToken?: string | null;
   publicMembers?: number;
+  platformPack?: string | null;
 }
 
 export interface AssemblyDescribedType {
@@ -62,6 +66,78 @@ export function assemblyDescriptorForType(
     assembly.name === name
     || assembly.name === bare
     || assembly.name === `${bare}.dll`) ?? null;
+}
+
+export function mergeInspectionErrors(
+  current: string | null | undefined,
+  next: string | null | undefined,
+): string {
+  const messages = [current, next]
+    .map(value => (value ?? "").trim())
+    .filter(Boolean);
+  return [...new Set(messages)].join("; ");
+}
+
+export type PlatformPack = "netcore.app" | "aspnetcore.app";
+
+export function platformPackToken(value: unknown): PlatformPack | null {
+  return value === "netcore.app" || value === "aspnetcore.app"
+    ? value
+    : null;
+}
+
+export interface PlatformPackAssembly {
+  name?: string;
+  platformPack?: string | null;
+}
+
+export interface PlatformPackHint {
+  assembly?: string;
+  pack?: string | null;
+}
+
+export function platformPackFromProvenance(
+  assembly: string,
+  exactPack: unknown,
+  loadedAssemblies: readonly PlatformPackAssembly[] | null | undefined,
+  recent: readonly PlatformPackHint[] | null | undefined,
+  roster: readonly PlatformPackHint[] | null | undefined,
+): PlatformPack {
+  const exact = platformPackToken(exactPack);
+  if (exact) return exact;
+  const normalized = assembly.replace(/\.dll$/i, "");
+  const normalizedLower = normalized.toLowerCase();
+
+  const selectPack = (
+    candidates: readonly {
+      assembly?: string | undefined;
+      pack?: string | null | undefined;
+    }[],
+  ): PlatformPack | null => {
+    const packs = new Set<PlatformPack>();
+    for (const candidate of candidates) {
+      if ((candidate.assembly ?? "").replace(/\.dll$/i, "").toLowerCase() === normalizedLower) {
+        const pack = platformPackToken(candidate.pack);
+        if (pack) packs.add(pack);
+      }
+    }
+    if (packs.size > 1) {
+      throw new Error(
+        `Platform assembly '${normalized}' is available from multiple platform packs; select an exact pack.`);
+    }
+    return packs.values().next().value ?? null;
+  };
+
+  const loaded = selectPack((loadedAssemblies || []).map(candidate => ({
+    assembly: candidate.name,
+    pack: candidate.platformPack,
+  })));
+  if (loaded) return loaded;
+  const indexed = selectPack(roster || []);
+  if (indexed) return indexed;
+  const remembered = selectPack(recent || []);
+  if (remembered) return remembered;
+  return "netcore.app";
 }
 
 export interface DependencyCoordinateCandidate extends PackageIdentity {
@@ -524,8 +600,8 @@ export function uniqueTypeByQueryId<T extends QueryIdentifiedType>(
 export interface CallGraphAssembly {
   name?: string;
   version?: string;
-  culture?: string;
-  publicKeyToken?: string;
+  culture?: string | null;
+  publicKeyToken?: string | null;
 }
 
 export function callGraphAssemblyIdentityMatches(
@@ -561,6 +637,59 @@ export interface ResolvableGraphPackage<TType extends ResolvableGraphType = Reso
   assembly?: string;
   types?: readonly TType[];
   assemblies?: readonly AssemblyDescriptor[];
+}
+
+export interface OpportunitySourceIdentity {
+  sourceDefinitionId?: string | null;
+  sourceAssembly?: string | null;
+  sourceAssemblyVersion?: string | null;
+  sourceAssemblyCulture?: string | null;
+  sourceAssemblyPublicKeyToken?: string | null;
+}
+
+export function resolvePlatformGraphTargetType<
+  TType extends ResolvableGraphType,
+>(
+  pack: {
+    types?: readonly TType[];
+    assemblies?: readonly AssemblyDescriptor[];
+  } | null | undefined,
+  target: CallGraphTarget | null | undefined,
+): TType | null {
+  const typeId = callGraphTargetTypeId(target);
+  if (!pack || !typeId || !target?.assembly) return null;
+  const targetAssembly = target.assembly
+    .replace(/\.dll$/i, "")
+    .toLowerCase();
+  const matches = (pack.types ?? []).filter(type => {
+    const descriptor = assemblyDescriptorForType(pack.assemblies, type);
+    const assembly = (type.assemblyName ?? descriptor?.name ?? type.assembly ?? "")
+      .replace(/\.dll$/i, "")
+      .toLowerCase();
+    return assembly === targetAssembly
+      && callGraphAssemblyIdentityMatches(target, descriptor)
+      && callGraphTargetMatchesType(target, type);
+  });
+  return matches.length === 1 ? matches[0] : null;
+}
+
+export function resolveOpportunitySourceType<
+  TType extends ResolvableGraphType,
+>(
+  pack: {
+    types?: readonly TType[];
+    assemblies?: readonly AssemblyDescriptor[];
+  } | null | undefined,
+  opportunity: OpportunitySourceIdentity | null | undefined,
+): TType | null {
+  if (!opportunity?.sourceDefinitionId) return null;
+  return resolvePlatformGraphTargetType(pack, {
+    assembly: opportunity.sourceAssembly ?? null,
+    assemblyVersion: opportunity.sourceAssemblyVersion ?? null,
+    assemblyCulture: opportunity.sourceAssemblyCulture ?? null,
+    assemblyPublicKeyToken: opportunity.sourceAssemblyPublicKeyToken ?? null,
+    typeDefinitionId: opportunity.sourceDefinitionId
+  });
 }
 
 export type GraphTargetCandidate<TPackage, TType> =
@@ -891,10 +1020,23 @@ export interface SectionableMember {
   kind?: string;
 }
 
-export function memberSectionIdsFor(member: SectionableMember | null | undefined): string[] {
-  return ["property", "field", "event", "constant"].includes(member?.kind ?? "")
-    ? ["overview"]
+export function memberSectionIdsFor(
+  member: SectionableMember | null | undefined,
+  isRuntimePack = false,
+): string[] {
+  if (["property", "field", "event", "constant"].includes(member?.kind ?? ""))
+    return ["overview"];
+  return isRuntimePack
+    ? ["overview", "call-graph", "facts"]
     : ["overview", "call-graph", "facts", "source", "annotated"];
+}
+
+export function typeLensesFor(
+  pkg: { isRuntimePack?: boolean } | null | undefined,
+): readonly (readonly [string, string])[] {
+  return pkg?.isRuntimePack
+    ? lenses.filter(([id]) => id === "api")
+    : lenses;
 }
 
 const FORMAT_CHARACTER = /^\p{Cf}$/u;
