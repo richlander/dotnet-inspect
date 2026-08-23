@@ -52,8 +52,12 @@ export function bindLibraryControls(
       select.addEventListener("change", () => {
         const name = select.value;
         if (!name) return;
-        const pack =
-          select.selectedOptions[0]?.dataset.pack || "netcore.app";
+        // A missing payload used to be rewritten to a *different, specific* runtime pack,
+        // which is a silent substitution rather than a default: the user would be shown
+        // another pack's library without anything reporting it. There is no correct pack to
+        // guess, so the selection is not made.
+        const pack = select.selectedOptions[0]?.dataset.pack;
+        if (!pack) return;
         actions.onPlatformLibrarySelect(name, pack);
       }));
 

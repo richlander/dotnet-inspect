@@ -619,9 +619,15 @@ Closed workspace scopes, type and package lenses, member sections, and
 Spotlight scopes are literal unions derived from their UI catalogs. DOM and URL
 tokens are decoded before they reach typed state or actions; the scope-bar and
 workspace-navigation tests gate rejection of unknown values.
-Numeric DOM payloads accept only non-negative safe decimal integers; metadata
-tokens additionally accept hexadecimal UInt32 notation. The `dom-data` and
-owning binding tests gate malformed-value rejection.
+Numeric DOM and URL payloads accept only non-negative safe decimal integers,
+bounded to UInt32 for metadata tokens. `dom-data` and the owning binding tests
+gate what the parsers reject; `dom-payload-boundary` gates that call sites use
+them, by deriving from the sources that no browser payload is coerced with
+`Number`, `parseInt`, or unary `+` outside the parser module, and that an
+attribute parsed as a number in one place is not read raw in another. A malformed
+URL field -- a bad percent-escape in a package route, an unknown lens or member
+section, a non-canonical overload -- is reported in the workspace notice rather
+than becoming a default view.
 
 Oxlint checks both checked-in tsbindgen outputs as consumer contracts:
 `src/inspect-web-engine.d.ts` receives the TypeScript rules, while

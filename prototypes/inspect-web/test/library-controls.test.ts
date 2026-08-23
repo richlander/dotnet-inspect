@@ -86,14 +86,16 @@ test("library controls decode every rendered selector without eager work", () =>
   const platform = new FakeElement();
   platform.value = "System.Private.CoreLib";
   platform.selectedOptions = [new FakeElement({ pack: "netcore.app" })];
-  const defaultPlatformPack = new FakeElement();
-  defaultPlatformPack.value = "System.Runtime";
-  defaultPlatformPack.selectedOptions = [new FakeElement()];
+  // A platform option carrying no pack payload. This used to be rewritten to the specific
+  // pack "netcore.app", showing a different pack's library with nothing reporting it.
+  const packlessPlatform = new FakeElement();
+  packlessPlatform.value = "System.Runtime";
+  packlessPlatform.selectedOptions = [new FakeElement()];
   const emptyPlatform = new FakeElement();
   root.addAll(
     "[data-platform-library-select]",
     platform,
-    defaultPlatformPack,
+    packlessPlatform,
     emptyPlatform);
 
   const integrations = new FakeElement();
@@ -127,7 +129,7 @@ test("library controls decode every rendered selector without eager work", () =>
   libraryJump.value = "";
   libraryJump.dispatch("change");
   platform.dispatch("change");
-  defaultPlatformPack.dispatch("change");
+  packlessPlatform.dispatch("change");
   emptyPlatform.dispatch("change");
   integrations.dispatch("change");
   opportunities.dispatch("change");
@@ -143,7 +145,8 @@ test("library controls decode every rendered selector without eager work", () =>
     "library-jump:System.Collections",
     "library-jump:",
     "platform:System.Private.CoreLib:netcore.app",
-    "platform:System.Runtime:netcore.app",
+    // No "platform:System.Runtime:..." entry: a missing pack payload makes no selection
+    // rather than substituting one.
     "platform-lens:integrations:System.Net.Http:netcore.app",
     "platform-lens:opportunities:System.Text.Json:undefined",
     "platform-lens:analysis:System.Linq:undefined",

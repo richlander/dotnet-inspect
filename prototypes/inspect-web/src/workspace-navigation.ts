@@ -16,6 +16,7 @@ import {
   type TypeLens,
   type WorkspaceTab,
 } from "./data.ts";
+import { parseNonNegativeInteger } from "./dom-data.ts";
 import {
   decodeBodyTarget,
   encodeBodyTarget,
@@ -256,7 +257,7 @@ export function createNavigationHistory<TView>(
 export interface WorkspaceDeepLink {
   type?: string | null;
   member?: string | null;
-  overload?: string | null;
+  overload?: number | null;
   section?: MemberSection | null;
   bodyTarget?: BodyTarget | null;
   memberBrowse?: boolean;
@@ -495,18 +496,37 @@ function resolveView(token: string): {
   lens: TypeLens | null;
   atPackageRoot: boolean;
   packageLens: PackageLens | null;
+  rejected: string | null;
 } {
   const atPackageRoot = token === "pkg" || token.startsWith("pkg:");
   const packageLensToken = atPackageRoot ? token.split(":")[1] : undefined;
-  return {
-    lens: isTypeLens(token) ? token : null,
-    atPackageRoot,
-    packageLens: atPackageRoot
-      ? (isPackageLens(packageLensToken)
-        ? packageLensToken
-        : "overview")
-      : null,
-  };
+  const lens = isTypeLens(token) ? token : null;
+  const packageLens = atPackageRoot
+    ? (isPackageLens(packageLensToken) ? packageLensToken : "overview")
+    : null;
+  // A view token that matches no vocabulary used to become an ordinary Overview or API
+  // view, so a stale or mistyped link looked like it had worked while showing something
+  // else. Only a token that named nothing is a rejection: an empty hash is "no view".
+  let rejected: string | null = null;
+  if (token !== "" && lens === null) {
+    if (!atPackageRoot) rejected = "view";
+    else if (packageLensToken !== undefined && !isPackageLens(packageLensToken)) {
+      rejected = "view";
+    }
+  }
+  return { lens, atPackageRoot, packageLens, rejected };
+}
+
+// The browser accepts a pathname containing a malformed escape sequence, but
+// `decodeURIComponent` throws `URIError` on one. The first parse runs synchronously during
+// module initialization, before there is any state or error surface, so a thrown error there
+// leaves the application uninitialized rather than showing a failure.
+function decodeRouteComponent(value: string): string | null {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
 }
 
 export interface WorkspaceLocationSnapshot {
@@ -521,21 +541,37 @@ export function parseWorkspaceLocation(location: WorkspaceLocationSnapshot) {
   const route = location.pathname.split("/").filter(Boolean);
   const packageAt = route.findIndex(part => part.toLowerCase() === "packages");
   const share = decodeWorkspaceShareState(params.get("w"));
+  // Every URL field that names nothing is recorded here rather than silently becoming a
+  // default, so a stale or mistyped link fails visibly instead of appearing to have worked.
+  const rejectedFields: string[] = [];
 
-  let pkg = packageAt >= 0
-    ? decodeURIComponent(route[packageAt + 1] || "")
-    : params.get("package");
-  let version = packageAt >= 0
-    ? decodeURIComponent(route[packageAt + 2] || "")
-    : params.get("version");
+  let pkg: string | null;
+  let version: string | null;
+  if (packageAt >= 0) {
+    pkg = decodeRouteComponent(route[packageAt + 1] || "");
+    version = decodeRouteComponent(route[packageAt + 2] || "");
+    if (pkg === null) rejectedFields.push("package");
+    if (version === null) rejectedFields.push("version");
+  } else {
+    pkg = params.get("package");
+    version = params.get("version");
+  }
   let framework = params.get("framework");
   let type = params.get("type");
   let member = params.get("member");
-  let overload = params.get("overload");
+  const overloadToken = params.get("overload");
+  // The overload coordinate used to survive as a raw string and be coerced with `Number()`
+  // at its use site, so `"+1"`, `" 1"`, `"1e0"`, `"01"`, and `"-0"` all selected a real
+  // overload. It is parsed once here with the canonical validator.
+  let overload = overloadToken === null
+    ? null
+    : parseNonNegativeInteger(overloadToken);
+  if (overloadToken !== null && overload === null) rejectedFields.push("overload");
   const sectionToken = params.get("section");
   let section: MemberSection | null = isMemberSection(sectionToken)
     ? sectionToken
     : null;
+  if (sectionToken !== null && section === null) rejectedFields.push("section");
   let bodyTarget: BodyTarget | null = null;
   let viewToken = location.hash.slice(1);
   let tabs: WorkspaceTab[] = [];
@@ -548,7 +584,7 @@ export function parseWorkspaceLocation(location: WorkspaceLocationSnapshot) {
   let memberAccessibilityFilter = "all";
   let memberTraitFilter = "";
   let graphTarget: GraphMemberShareIdentity | null = null;
-  const workspaceNotice = share && "error" in share ? share.error : "";
+  const shareError = share && "error" in share ? share.error : "";
 
   if (share && !("error" in share)) {
     tabs = share.tabs;
@@ -563,7 +599,12 @@ export function parseWorkspaceLocation(location: WorkspaceLocationSnapshot) {
       if (share.view) viewToken = share.view;
       type = share.type;
       member = share.member;
-      overload = share.overload;
+      // A share packet is untrusted input from the URL just like a query parameter, so its
+      // overload takes the same canonical parse rather than a raw `String(...)`.
+      overload = share.overload === null
+        ? null
+        : parseNonNegativeInteger(share.overload);
+      if (share.overload !== null && overload === null) rejectedFields.push("overload");
       section = share.section;
       bodyTarget = share.bodyTarget;
       library = share.library;
@@ -590,6 +631,13 @@ export function parseWorkspaceLocation(location: WorkspaceLocationSnapshot) {
   }
 
   const view = resolveView(viewToken);
+  if (view.rejected) rejectedFields.push(view.rejected);
+
+  const workspaceNotice = shareError || (rejectedFields.length
+    ? `Part of this link could not be read and was ignored: ${
+      [...new Set(rejectedFields)].join(", ")}.`
+    : "");
+
   return {
     package: pkg,
     version,

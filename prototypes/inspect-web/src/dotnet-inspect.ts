@@ -90,7 +90,7 @@ import {
   type WorkspaceUrlState,
   type WorkspaceView,
 } from "./workspace-navigation.ts";
-import { parseNonNegativeInteger } from "./dom-data.ts";
+import { isSelectedGroupChip, parseNonNegativeInteger } from "./dom-data.ts";
 import {
   createWorkbenchKeybindings,
   WORKBENCH_KEYBINDING_PRIORITY,
@@ -2759,7 +2759,7 @@ function patchDependenciesGroup() {
   document.querySelectorAll<HTMLElement>("#dep-tfm-chips [data-dep-group]").forEach(button =>
     button.classList.toggle(
       "active",
-      parseNonNegativeInteger(button.dataset.depGroup) === selectedGroupIndex));
+      isSelectedGroupChip(button.dataset.depGroup, selectedGroupIndex)));
   listSection.outerHTML = dependencyListSectionHtml(groups, selectedGroupIndex);
   bindPackageDependencyListEvents();
   observeAsync(renderDependencyGraph(), "Rendering the dependency graph");
@@ -6044,11 +6044,10 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
     } else if (disposition === "public" && group && deep.member) {
       state.memberBrowseTypeId = type.id;
       state.selectedMemberKey = deep.member ?? "";
-      const overloadIndex = Number(deep.overload);
-      if (deep.overload != null && deep.overload !== ""
-        && Number.isInteger(overloadIndex) && overloadIndex >= 0
-        && overloadIndex < group.overloads.length) {
-        state.selectedOverloadIndex = overloadIndex;
+      // `deep.overload` arrives already parsed by the canonical validator at the URL
+      // boundary, so the only question left here is whether it names a real overload.
+      if (deep.overload != null && deep.overload < group.overloads.length) {
+        state.selectedOverloadIndex = deep.overload;
       }
       const restoredOverload = group.overloads[
         state.selectedOverloadIndex ?? (group.overloads.length === 1 ? 0 : -1)];

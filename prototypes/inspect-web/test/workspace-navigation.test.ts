@@ -282,7 +282,7 @@ test("rich workspace URLs round-trip coordinates, scope, and member selection", 
   assert.equal(parsed.libraryPack, "netcore.app");
   assert.equal(parsed.type, "Example.Widget");
   assert.equal(parsed.member, "method:Build");
-  assert.equal(parsed.overload, "2");
+  assert.equal(parsed.overload, 2);
   assert.equal(parsed.section, "facts");
   assert.deepEqual(parsed.bodyTarget, state.selectedBodyTarget);
   assert.equal(parsed.memberBrowse, true);
@@ -414,7 +414,9 @@ test("legacy workspace packets retain visible-location authority", () => {
   assert.equal(parsed.active, 1);
 });
 
-test("unknown workspace view and member-section tokens are ignored", () => {
+test("unknown workspace view and member-section tokens are rejected visibly", () => {
+  // These used to be silently dropped, so a stale or mistyped shared link looked like it had
+  // worked while showing a different view. The valid coordinates are still recovered.
   const unknownLens = parseWorkspaceLocation(locationSnapshot(
     "https://inspect.example/?package=Example.Package"
       + "&section=history#implementation"));
@@ -422,11 +424,90 @@ test("unknown workspace view and member-section tokens are ignored", () => {
   assert.equal(unknownLens.atPackageRoot, false);
   assert.equal(unknownLens.packageLens, null);
   assert.equal(unknownLens.section, null);
+  assert.equal(unknownLens.package, "Example.Package");
+  assert.match(unknownLens.workspaceNotice, /could not be read/);
+  assert.match(unknownLens.workspaceNotice, /section/);
+  assert.match(unknownLens.workspaceNotice, /view/);
 
   const unknownPackageLens = parseWorkspaceLocation(locationSnapshot(
     "https://inspect.example/?package=Example.Package#pkg:files"));
   assert.equal(unknownPackageLens.atPackageRoot, true);
   assert.equal(unknownPackageLens.packageLens, "overview");
+  assert.match(unknownPackageLens.workspaceNotice, /could not be read/);
+});
+
+test("a recognized view and an absent hash produce no rejection notice", () => {
+  // The rejection notice has to distinguish "named nothing" from "named nothing at all";
+  // otherwise every ordinary link carries a failure message.
+  for (const href of [
+    "https://inspect.example/?package=Example.Package",
+    "https://inspect.example/?package=Example.Package#source",
+    "https://inspect.example/?package=Example.Package#pkg",
+    "https://inspect.example/?package=Example.Package#pkg:dependencies",
+    "https://inspect.example/?package=Example.Package&section=source#source",
+    "https://inspect.example/?package=Example.Package&overload=0",
+  ]) {
+    assert.equal(
+      parseWorkspaceLocation(locationSnapshot(href)).workspaceNotice,
+      "",
+      `${href} should not report a rejection`);
+  }
+});
+
+test("a malformed percent-escape in a package route fails visibly instead of throwing", () => {
+  // `decodeURIComponent` throws `URIError` on a malformed escape, and the first parse runs
+  // during module initialization, before there is any state or error surface to report it.
+  // A shared link with a bad escape used to leave the application uninitialized.
+  for (const pathname of ["/packages/%/1.0.0", "/packages/%E0%A4%A/1.0.0"]) {
+    const parsed = parseWorkspaceLocation({
+      href: `https://inspect.example${pathname}`,
+      pathname,
+      search: "",
+      hash: "",
+    });
+    assert.equal(parsed.package, null);
+    assert.match(parsed.workspaceNotice, /could not be read/);
+    assert.match(parsed.workspaceNotice, /package/);
+  }
+
+  const badVersion = parseWorkspaceLocation({
+    href: "https://inspect.example/packages/Example.Package/%zz",
+    pathname: "/packages/Example.Package/%zz",
+    search: "",
+    hash: "",
+  });
+  assert.equal(badVersion.package, "Example.Package");
+  assert.equal(badVersion.version, null);
+  assert.match(badVersion.workspaceNotice, /version/);
+});
+
+test("the overload coordinate is parsed once, canonically, at the URL boundary", () => {
+  // It used to survive as a raw string and be coerced with `Number()` at its use site, so
+  // every one of these aliases selected a real overload.
+  for (const alias of ["+1", " 1", "1e0", "01", "-0", "1.0", "0x1", "Infinity", ""]) {
+    const parsed = parseWorkspaceLocation(locationSnapshot(
+      `https://inspect.example/?package=Example.Package&overload=${encodeURIComponent(alias)}`));
+    assert.equal(parsed.overload, null, `overload=${JSON.stringify(alias)} should be rejected`);
+    assert.match(parsed.workspaceNotice, /overload/);
+  }
+
+  const accepted = parseWorkspaceLocation(locationSnapshot(
+    "https://inspect.example/?package=Example.Package&overload=1"));
+  assert.equal(accepted.overload, 1);
+  assert.equal(accepted.workspaceNotice, "");
+
+  // A share packet is untrusted URL input too, so it takes the same parse.
+  const packet = Buffer.from(JSON.stringify({
+    t: [["Example.Package", "1.0.0", "net10.0"]],
+    a: 0,
+    y: "Example.Widget",
+    m: "method:Serialize",
+    o: "01",
+  })).toString("base64url");
+  const shared = parseWorkspaceLocation(locationSnapshot(
+    `https://inspect.example/?w=${packet}`));
+  assert.equal(shared.overload, null);
+  assert.match(shared.workspaceNotice, /overload/);
 });
 
 test("invalid and oversized workspace packets stay visible", () => {

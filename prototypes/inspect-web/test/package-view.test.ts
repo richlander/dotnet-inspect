@@ -91,8 +91,10 @@ test("package view bindings decode navigation controls without eager work", () =
   const defaultLibrary = new FakeElement();
   const graphType = new FakeElement({ graphType: "System.String" });
   const defaultGraphType = new FakeElement();
+  // The producer interpolates `member.metadataToken`, a number, so a rendered payload is
+  // always decimal. The hexadecimal spelling these fixtures used to carry had no producer.
   const performance = new FakeElement({
-    perfToken: "0x06000001",
+    perfToken: "100663297",
     perfAssembly: "Example.dll",
     perfType: "Example.Type",
   });
@@ -101,13 +103,18 @@ test("package view bindings decode navigation controls without eager work", () =
     perfAssembly: "Example.dll",
     perfType: "Example.Type",
   });
+  const hexPerformanceToken = new FakeElement({
+    perfToken: "0x06000001",
+    perfAssembly: "Example.dll",
+    perfType: "Example.Type",
+  });
   const invalidPerformanceAssembly = new FakeElement({
-    perfToken: "0x06000002",
+    perfToken: "100663298",
     perfAssembly: "",
     perfType: "Example.Type",
   });
   const invalidPerformanceType = new FakeElement({
-    perfToken: "0x06000003",
+    perfToken: "100663299",
     perfAssembly: "Example.dll",
     perfType: "",
   });
@@ -121,6 +128,7 @@ test("package view bindings decode navigation controls without eager work", () =
   root.addAll(
     "[data-perf-token]",
     performance,
+    hexPerformanceToken,
     invalidPerformanceToken,
     invalidPerformanceAssembly,
     invalidPerformanceType);
