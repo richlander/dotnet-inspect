@@ -51,6 +51,7 @@ import {
   packageForView,
   packageIdentityKey,
   parameterTitleHtml,
+  partitionGraphMembers,
   platformPackForGraphAssembly,
   platformPackFromAcquiredProvenance,
   platformPackFromProvenance,
@@ -3040,6 +3041,24 @@ test("graph-only member targets round-trip through shared URLs", () => {
     ...target,
     typeDefinitionId: ""
   }), null);
+  for (const metadataToken of [
+    -1,
+    0,
+    0x02000001,
+    0x06000000,
+    0x07000000,
+    0x106000001,
+  ]) {
+    assert.equal(
+      graphMemberShareTarget({ ...target, metadataToken }),
+      null);
+    assert.equal(
+      graphMemberTargetFromShare([
+        ...encoded.slice(0, 8),
+        metadataToken,
+      ]),
+      null);
+  }
   assert.equal(graphMemberTargetFromShare([
     "Example",
     "1.2.3.4",
@@ -3278,15 +3297,27 @@ test("platform graph navigation supersedes package member loading immediately", 
 });
 
 test("projected members remain distinct from the public API surface", () => {
+  const publicMember = {
+    name: "M",
+    graphOnly: false
+  };
+  const projectedMember = {
+    name: "M",
+    graphOnly: true
+  };
+  const { publicMembers, graphMembers } =
+    partitionGraphMembers([publicMember, projectedMember]);
   const publicGroup = {
     key: "method:M",
-    overloads: [{ name: "M", graphOnly: false }]
+    overloads: [publicMember]
   };
   const projectedGroup = {
     key: "graph:method:M",
-    overloads: [{ name: "M", graphOnly: true }]
+    overloads: [projectedMember]
   };
 
+  assert.deepEqual(publicMembers, [publicMember]);
+  assert.deepEqual(graphMembers, [projectedMember]);
   assert.deepEqual(
     searchableMemberGroups([publicGroup, projectedGroup]),
     [publicGroup]);
@@ -3295,7 +3326,7 @@ test("projected members remain distinct from the public API surface", () => {
     /Graph-discovered implementation members/);
   assert.match(
     appSource,
-    /item\.api\?\.filter\(member => !member\.graphOnly\)/);
+    /partitionGraphMembers\(item\.api\)/);
   assert.match(
     appSource,
     /\$\{member\.graphOnly \? "graph:" : ""\}\$\{member\.kind\}:\$\{member\.name\}/);
@@ -3976,6 +4007,13 @@ test("an exact resident runtime target wins over package identity skew", () => {
       { status: "skew" },
       { status: "missing" },
       target),
+    "blocked");
+  assert.equal(
+    combinedGraphTargetNavigationDisposition(
+      { status: "missing" },
+      { status: "ambiguous" },
+      target,
+      true),
     "blocked");
   assert.equal(
     combinedGraphTargetNavigationDisposition(

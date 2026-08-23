@@ -27,6 +27,7 @@ import {
   packageIdentityKey,
   packageLenses,
   parameterTitleHtml,
+  partitionGraphMembers,
   platformPackForGraphAssembly,
   platformPackFromProvenance,
   removeWorkspacePackage,
@@ -3592,14 +3593,16 @@ function renderLens(item: AppTypeSurface | null | undefined) {
   if (state.lens === "metadata") {
     return `${typeHeadingHtml(item)}${renderTypeMetadataHtml(item)}`;
   }
+  const { publicMembers, graphMembers } =
+    partitionGraphMembers(item.api);
   const publicSurface = {
     ...item,
-    api: (item.api ?? []).filter(candidate => !candidate.graphOnly)
+    api: publicMembers
   };
   const publicGroups = memberGroups(publicSurface);
   const graphGroups = memberGroups({
     ...item,
-    api: (item.api ?? []).filter(candidate => candidate.graphOnly)
+    api: graphMembers
   });
   const visibleGroups = visibleMemberGroups(publicSurface);
   return `

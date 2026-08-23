@@ -659,6 +659,13 @@ export interface GraphMemberShareIdentity extends CallGraphTarget {
   metadataToken: number | null;
 }
 
+function isMethodDefinitionToken(value: unknown): value is number {
+  return typeof value === "number"
+    && Number.isInteger(value)
+    && value >= 0x06000001
+    && value <= 0x06ffffff;
+}
+
 export function graphMemberShareTarget(
   target: CallGraphTarget | null | undefined,
 ): GraphMemberShareTarget | null {
@@ -666,7 +673,8 @@ export function graphMemberShareTarget(
     || !target.typeDefinitionId
     || !target.memberName
     || !target.selectorKey
-    || (target.metadataToken != null && !Number.isInteger(target.metadataToken))) {
+    || (target.metadataToken != null
+      && !isMethodDefinitionToken(target.metadataToken))) {
     return null;
   }
   const assemblyVersion = Object.prototype.hasOwnProperty.call(
@@ -787,9 +795,7 @@ export function graphMemberTargetFromShare(
     || typeDefinitionId.length === 0
     || memberName.length === 0
     || selectorKey.length === 0
-    || (metadataToken != null
-      && (typeof metadataToken !== "number"
-        || !Number.isInteger(metadataToken)))) {
+    || (metadataToken != null && !isMethodDefinitionToken(metadataToken))) {
     return null;
   }
   return {
@@ -1339,6 +1345,17 @@ export function searchableMemberGroups<
 >(groups: readonly T[]): T[] {
   return groups.filter(group =>
     !group.overloads.some(overload => overload.graphOnly));
+}
+
+export function partitionGraphMembers<T extends { graphOnly?: boolean }>(
+  members: readonly T[] | null | undefined,
+): { publicMembers: T[]; graphMembers: T[] } {
+  const publicMembers: T[] = [];
+  const graphMembers: T[] = [];
+  for (const member of members ?? []) {
+    (member.graphOnly ? graphMembers : publicMembers).push(member);
+  }
+  return { publicMembers, graphMembers };
 }
 
 export interface ScopedRequestState {

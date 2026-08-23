@@ -7,8 +7,10 @@ import {
   createNavigationSequence,
   createWorkspaceLocationPersistence,
   parseWorkspaceLocation,
+  workspaceViewSignature,
   type WorkspaceLocationSnapshot,
   type WorkspaceUrlState,
+  type WorkspaceView,
 } from "../src/workspace-navigation.ts";
 
 interface TestView {
@@ -67,6 +69,41 @@ function sharePacket(url: URL): Record<string, unknown> {
     Buffer.from(encoded, "base64url").toString("utf8"));
   assert.ok(value && typeof value === "object" && !Array.isArray(value));
   return Object.fromEntries(Object.entries(value));
+}
+
+function workspaceView(
+  overrides: Partial<WorkspaceView> = {},
+): WorkspaceView {
+  const graphTarget = {
+    assembly: "Example.Second",
+    assemblyVersion: "2.0.0.0",
+    assemblyCulture: null,
+    assemblyPublicKeyToken: null,
+    typeDefinitionId: "T:Example.Widget",
+    typeMetadataId: "Example.Widget",
+    memberName: "Build",
+    selectorKey: "Build|System.String",
+    metadataToken: 0x0600002a,
+  };
+  return {
+    package: "Example.Second",
+    packageKey: "example.second@2.0.0/net10.0",
+    lens: "api",
+    selectedTypeId: "Example.Widget",
+    selectedMemberKey: "graph:method:Build",
+    memberBrowseTypeId: "Example.Widget",
+    memberKindFilter: "all",
+    memberAccessibilityFilter: "all",
+    memberTraitFilter: "",
+    memberTextFilter: "",
+    selectedOverloadIndex: 0,
+    bodyTarget: graphTarget,
+    memberSection: "overview",
+    atPackageRoot: false,
+    packageLens: "overview",
+    libraryScope: null,
+    ...overrides,
+  };
 }
 
 test("navigation history skips stale views and truncates a forward branch", () => {
@@ -283,6 +320,32 @@ test("graph member URLs retain exact identity instead of a lossy body target", (
   assert.equal(parsed.overload, String(state.selectedOverloadIndex));
 });
 
+test("history signatures distinguish exact graph member identity", () => {
+  const original = workspaceView();
+  const originalTarget = {
+    assembly: "Example.Second",
+    assemblyVersion: "2.0.0.0",
+    assemblyCulture: null,
+    assemblyPublicKeyToken: null,
+    typeDefinitionId: "T:Example.Widget",
+    typeMetadataId: "Example.Widget",
+    memberName: "Build",
+    selectorKey: "Build|System.String",
+    metadataToken: 0x0600002a,
+  };
+  const variants = [
+    { ...originalTarget, memberName: "BuildAsync" },
+    { ...originalTarget, selectorKey: "Build|System.Int32" },
+    { ...originalTarget, metadataToken: 0x0600002b },
+  ];
+
+  for (const bodyTarget of variants) {
+    assert.notEqual(
+      workspaceViewSignature(original),
+      workspaceViewSignature(workspaceView({ bodyTarget })));
+  }
+});
+
 test("package-root URLs omit stale type selection and retain their package lens", () => {
   const url = buildWorkspaceStateUrl(
     "https://inspect.example/",
@@ -377,6 +440,21 @@ test("invalid graph identities reject the rich packet without hiding the visible
       m: "method:Build",
       g: [...validGraph.slice(0, 8), "not-a-token"],
     },
+    ...[
+      -1,
+      0,
+      0x02000001,
+      0x06000000,
+      0x07000000,
+      0x106000001,
+    ].map(metadataToken => ({
+      t: [["Hidden.Package", "1.0.0", "net10.0"]],
+      a: 0,
+      y: "Example.Widget",
+      m: "method:Build",
+      o: 0,
+      g: [...validGraph.slice(0, 8), metadataToken],
+    })),
     {
       t: [["Hidden.Package", "1.0.0", "net10.0"]],
       a: 0,
