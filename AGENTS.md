@@ -348,6 +348,10 @@ skill listing.
 
 - Treat cross-platform operation as the default requirement for product
   libraries and reusable feature paths. Browser/Wasm compatibility is a design target.
+- Windows Metadata (`.winmd`, including `MetadataKind.WindowsMetadata` and
+  `MetadataKind.ManagedWindowsMetadata`) is not a supported input format.
+  Adding WinMD support requires separately approved project scope; do not add
+  compatibility paths incidentally while changing ordinary ECMA-335 inspection.
 - Before introducing a dependency, API, or design that cannot run on a
   supported platform -- especially single-threaded Browser/Wasm -- stop and
   obtain explicit user approval for that specific exception.

@@ -18,6 +18,10 @@ Resume consolidation in `ILInspector.MetadataPrimitives`, but consolidate
 - A lossless raw-row reader is allowed only for a named table where public SRM
   APIs discard required evidence or allocate it before product charging. The
   first and only registered exception is `MethodSemantics`.
+- MetadataPrimitives and its consumers support only `MetadataKind.Ecma335`
+  assembly metadata. Windows Metadata (`WindowsMetadata` and
+  `ManagedWindowsMetadata`) is outside project scope, not another semantic
+  model this layer must normalize.
 - Metadata, Analysis, Decompiler, Instructions, and ILDiff retain their own
   semantic models, signature providers, projections, and failure policy.
 - Analysis and Decompiler keep separate `TypeRef` types. They answer different
@@ -149,11 +153,11 @@ MetadataPrimitives-owned `MethodSemanticsReadBudget` that bounds retained
 associations. Metadata creates that neutral budget only after
 `MetadataOperationContext.AdmitImage` succeeds; the closure gate verifies this
 wiring without making the leaf reference the higher-layer operation type. The
-admission call is unconditional: a compatibility caller may use an explicit
-`Unbounded` policy, while product entry points must supply a finite policy
-before semantic cutover. The reader obtains both the `MetadataReader` and
-metadata block from the one PE owner. It must not accept an independently
-supplied reader/block pair:
+admission call is unconditional for every supported image: a compatibility
+caller may use an explicit `Unbounded` policy, while product entry points must
+supply a finite policy before semantic cutover. The reader obtains both the
+`MetadataReader` and metadata block from the one PE owner. It must not accept
+an independently supplied reader/block pair:
 an in-bounds whole-PE offset can otherwise be mistaken for a metadata-relative
 offset with no identity check capable of detecting the mismatch. The
 acquisition owner retains the lease; the primitive does not reopen a path, own
@@ -166,11 +170,18 @@ a contract violation. It is the sole product invocation owner. Direct primitive
 calls are confined to this leaf's boundary tests, where the test owns the
 reader lifetime.
 
-The implementation may use only public SRM layout facts to locate the table:
-its metadata offset, row size, table row counts used to derive ECMA-defined
-index widths, and `PEMemoryBlock.GetReader(start, length)` over the same
-`PEReader`. It rejects non-ECMA-335 metadata. It decodes the table's complete
-three-column schema:
+The Metadata-owned session rejects any `MetadataKind` other than `Ecma335`
+before image admission or primitive invocation. A direct boundary-test call
+receives the same typed unsupported-kind rejection from the leaf before it
+reads table layout. Unsupported Windows Metadata is not reported as malformed
+ECMA-335, and this boundary adds no projected-accessor fallback, dual-reader
+correspondence, or compatibility adapter.
+
+For a supported image, the implementation may use only public SRM layout facts
+to locate the table: its metadata offset, row size, table row counts used to
+derive ECMA-defined index widths, and
+`PEMemoryBlock.GetReader(start, length)` over the same `PEReader`. It decodes
+the table's complete three-column schema:
 
 - raw `Semantics` bits;
 - a `MethodDef` row identifier; and
@@ -230,10 +241,12 @@ slice 8. Its outcome tests must establish:
 
 - ordered-multiset equality with `ildasm` over association owner, semantic
   role, and method for conventional valid metadata in the required CI
-  environment; `ilasm`/`MetadataBuilder` and byte-patched fixtures whose
-  expected physical row numbers and raw bits are fixed by construction remain
-  non-vacuous when a local oracle run is skipped; `mdv` is explicitly not this
-  oracle because it folds the rows;
+  environment; construction-known `ilasm` fixtures run in that same
+  external-tool-dependent group, and both may skip together locally;
+  tool-independent `MetadataBuilder` and byte-patched fixtures whose expected
+  physical row numbers and raw bits are fixed by construction provide the
+  non-skipping floor; `mdv` is explicitly not this oracle because it folds the
+  rows;
 - aggregate equality with SRM convenience accessors for conventional valid
   property/event metadata;
 - exact preservation of multiple `Other` and duplicate standard-role rows,
@@ -248,8 +261,11 @@ slice 8. Its outcome tests must establish:
   each asserts decoded values, while SRM row-size equality separately checks
   the total width;
 - bounded work and allocation before retention on oversized tables; and
-- non-ECMA-335 rejection plus the same supported result under Browser/Wasm and
-  NativeAOT-compatible hosts.
+- typed unsupported-kind rejection for `WindowsMetadata` and
+  `ManagedWindowsMetadata` during session construction before primitive
+  invocation, the same close-negative at the direct leaf boundary, and the
+  same supported ECMA-335 result under Browser/Wasm and NativeAOT-compatible
+  hosts.
 
 ## Why `TypeRef` remains local
 

@@ -145,6 +145,11 @@ Given an assembly image, enumerate the ECMA-335 metadata tables (`Module`,
 `AssemblyRef`, `ExportedType`, `GenericParam`, `MethodSpec`, …) and produce, per
 table, its rows with:
 
+This projection supports only `MetadataKind.Ecma335`. Windows Metadata
+(`WindowsMetadata` and `ManagedWindowsMetadata`) is outside dotnet-inspect's
+current project scope and fails as an unsupported input rather than being
+projected through SRM's WinRT view.
+
 1. **Each column value in raw form**, plus a friendly decode where cheap (flag
    enums, a name/namespace pulled from the string heap, well-known GUIDs). The
    friendly decode is strictly **additive**: it is a convenience column *beside*
@@ -1114,12 +1119,14 @@ oversights:
   general projector still has no `MethodSemantics` descriptor, and reverse
   search must report the table as unscanned until this projection itself covers
   every row and column. If that descriptor is added, it consumes the shared
-  three-column primitive and maps its neutral rows into this projection's
-  model; "this projection itself" means complete descriptor and traversal
-  coverage, not ownership of another decoder. That implementation must thread
-  the acquisition-owned `PEReader` through `MetadataTableProjectionEngine`
-  rather than reconstructing the primitive from the engine's current
-  `MetadataReader`-only row methods.
+  completed neutral rows through `MethodSemanticsAssociationSession` and maps
+  them into this projection's model; "this projection itself" means complete
+  descriptor and traversal coverage, not ownership of another decoder. The
+  projector's caller must therefore carry the genuine owned or borrowed
+  `AssemblyImage` lease and finite `MetadataOperationContext` required by that
+  session. `MetadataTableProjectionEngine` receives completed neutral rows; it
+  must not accept a bare `PEReader`, call `MethodSemanticsRowReader`, or
+  reconstruct the primitive from its current `MetadataReader`-only row methods.
 - **`UnscannedTables` is derived from the traversal, not declared.** The scan
   records a table only after examining every row the image says it has, and the
   blind spot is the populated tables missing from that record. Computing it from
