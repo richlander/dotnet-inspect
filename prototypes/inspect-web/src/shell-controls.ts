@@ -1,4 +1,7 @@
-import { parsePackageQuery } from "./package-bar.ts";
+import {
+  parsePackageQuery,
+  type ParsedPackageQuery,
+} from "./package-bar.ts";
 import {
   isProductHomeDemoId,
   type ProductHomeDemoId,
@@ -27,7 +30,7 @@ export interface HomeShellBindingActions {
 }
 
 export interface LoadErrorShellBindingActions {
-  onOpenPackage: (packageId: string, version: string) => void;
+  onOpenPackage: (query: ParsedPackageQuery) => void;
   onRetry: () => void;
 }
 
@@ -96,7 +99,7 @@ export function bindLoadErrorShell(
       const input =
         root.querySelector<HTMLInputElement>("#error-package-input");
       const parsed = parsePackageQuery(input?.value ?? "");
-      if (parsed) actions.onOpenPackage(parsed.packageId, parsed.version);
+      if (parsed) actions.onOpenPackage(parsed);
     });
   root.querySelector("#toggle-error-detail")
     ?.addEventListener("click", () => {

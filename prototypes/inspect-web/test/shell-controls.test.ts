@@ -163,7 +163,8 @@ test("load error shell parses replacement packages and owns local detail state",
   const calls: string[] = [];
 
   bindLoadErrorShell(fakeDom.parentNode(root), {
-    onOpenPackage: (id, version) => calls.push(`open:${id}@${version}`),
+    onOpenPackage: query =>
+      calls.push(`open:${query.packageId}@${query.version}:${query.explicitVersion}`),
     onRetry: () => calls.push("retry"),
   });
 
@@ -183,8 +184,8 @@ test("load error shell parses replacement packages and owns local detail state",
   assert.equal(detail.hidden, true);
   assert.deepEqual(calls, [
     "retry",
-    "open:Example.Package@2.0.0",
-    "open:Latest.Package@latest",
+    "open:Example.Package@2.0.0:true",
+    "open:Latest.Package@latest:false",
   ]);
 });
 
