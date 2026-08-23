@@ -177,7 +177,9 @@ public class PdbSourceAcquisitionTests
         byte[] actual = Encoding.UTF8.GetBytes(Source.ReplaceLineEndings("\r\n"));
         var handler = new QueueHandler(actual);
         using var client = new HttpClient(handler);
-        var fetcher = new SourceFetcher(client);
+        var fetcher = new SourceFetcher(
+            client,
+            new InMemorySourceContentStore());
 
         VerifiedSourceTextResult result =
             await PdbSourceAcquisition.FetchVerifiedSourceTextAsync(
