@@ -90,7 +90,7 @@ import {
   type WorkspaceUrlState,
   type WorkspaceView,
 } from "./workspace-navigation.ts";
-import { isSelectedGroupChip, parseNonNegativeInteger } from "./dom-data.ts";
+import { parseNonNegativeInteger } from "./dom-data.ts";
 import {
   createWorkbenchKeybindings,
   WORKBENCH_KEYBINDING_PRIORITY,
@@ -110,6 +110,7 @@ import {
 import {
   bindPackageDependencyList,
   bindPackageView,
+  patchDependencyGroupChips,
   type PackageViewBindingActions,
 } from "./package-view.ts";
 import {
@@ -2756,10 +2757,7 @@ function patchDependenciesGroup() {
   const listSection = document.querySelector<HTMLElement>("#dep-list-section");
   if (!groups.length || !listSection) { render(); return; }
   const selectedGroupIndex = resolveDependenciesGroupIndex(groups);
-  document.querySelectorAll<HTMLElement>("#dep-tfm-chips [data-dep-group]").forEach(button =>
-    button.classList.toggle(
-      "active",
-      isSelectedGroupChip(button.dataset.depGroup, selectedGroupIndex)));
+  patchDependencyGroupChips(document, selectedGroupIndex);
   listSection.outerHTML = dependencyListSectionHtml(groups, selectedGroupIndex);
   bindPackageDependencyListEvents();
   observeAsync(renderDependencyGraph(), "Rendering the dependency graph");

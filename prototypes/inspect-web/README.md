@@ -622,12 +622,13 @@ workspace-navigation tests gate rejection of unknown values.
 Numeric DOM and URL payloads accept only non-negative safe decimal integers,
 bounded to UInt32 for metadata tokens. `dom-data` and the owning binding tests
 gate what the parsers reject; `dom-payload-boundary` gates that call sites use
-them, by deriving from the sources that no browser payload is coerced with
-`Number`, `parseInt`, or unary `+` outside the parser module, and that an
-attribute parsed as a number in one place is not read raw in another. A malformed
-URL field -- a bad percent-escape in a package route, an unknown lens or member
-section, a non-canonical overload -- is reported in the workspace notice rather
-than becoming a default view.
+them. It parses the TypeScript AST, compares canonical decoder calls with the
+product-owned numeric-attribute catalog, and rejects direct `Number`,
+`parseInt`, or unary `+` coercions plus numeric attributes read raw elsewhere.
+A malformed URL field -- a bad percent-escape in a package route, an unknown
+lens or member section, or a non-canonical overload in query or rich share
+state -- is reported in the workspace notice rather than becoming a default
+view.
 
 Oxlint checks both checked-in tsbindgen outputs as consumer contracts:
 `src/inspect-web-engine.d.ts` receives the TypeScript rules, while

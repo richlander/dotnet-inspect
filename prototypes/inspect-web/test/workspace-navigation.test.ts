@@ -434,6 +434,12 @@ test("unknown workspace view and member-section tokens are rejected visibly", ()
   assert.equal(unknownPackageLens.atPackageRoot, true);
   assert.equal(unknownPackageLens.packageLens, "overview");
   assert.match(unknownPackageLens.workspaceNotice, /could not be read/);
+
+  const extraPackageLens = parseWorkspaceLocation(locationSnapshot(
+    "https://inspect.example/?package=Example.Package#pkg:dependencies:garbage"));
+  assert.equal(extraPackageLens.atPackageRoot, true);
+  assert.equal(extraPackageLens.packageLens, "overview");
+  assert.match(extraPackageLens.workspaceNotice, /view/);
 });
 
 test("a recognized view and an absent hash produce no rejection notice", () => {
@@ -508,6 +514,13 @@ test("the overload coordinate is parsed once, canonically, at the URL boundary",
     `https://inspect.example/?w=${packet}`));
   assert.equal(shared.overload, null);
   assert.match(shared.workspaceNotice, /overload/);
+  const negativeZeroPacket = Buffer.from(
+    '{"t":[["Example.Package","1.0.0","net10.0"]],"a":0,"o":-0}')
+    .toString("base64url");
+  const negativeZero = parseWorkspaceLocation(locationSnapshot(
+    `https://inspect.example/?w=${negativeZeroPacket}`));
+  assert.equal(negativeZero.overload, null);
+  assert.match(negativeZero.workspaceNotice, /overload/);
 });
 
 test("invalid and oversized workspace packets stay visible", () => {
@@ -553,11 +566,13 @@ test("rich workspace packets keep valid member sections and drop invalid ones", 
       `https://inspect.example/?w=${richPacket(hostile)}`));
     assert.equal(parsed.section, null, hostile);
     assert.equal(parsed.type, "Example.Widget", hostile);
+    assert.match(parsed.workspaceNotice, /section/, hostile);
   }
 
   const nonString = parseWorkspaceLocation(locationSnapshot(
     `https://inspect.example/?w=${richPacket(7)}`));
   assert.equal(nonString.section, null);
+  assert.match(nonString.workspaceNotice, /section/);
 });
 
 test("malformed rich packet fields cannot override the visible package", () => {

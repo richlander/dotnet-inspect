@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   isSelectedGroupChip,
+  parseExplorerCoordinates,
   parseMetadataToken,
   parseNonNegativeInteger,
 } from "../src/dom-data.ts";
@@ -55,6 +56,7 @@ test("metadata-token parsing rejects malformed and out-of-range values", () => {
     "1.5",
     "0x",
     "0x100000000",
+    "4294967296",
     "9007199254740992",
   ]) {
     assert.equal(parseMetadataToken(value), null, String(value));
@@ -78,4 +80,19 @@ test("a dependency chip is active only when its payload names the selected group
 
   // A valid payload with nothing selected is still not active.
   assert.equal(isSelectedGroupChip("0", null), false);
+});
+
+test("metadata explorer coordinates require two canonical integers", () => {
+  assert.deepEqual(parseExplorerCoordinates("2:42"), [2, 42]);
+  for (const value of [
+    undefined,
+    "",
+    "2",
+    "2:42:3",
+    "-0:42",
+    "02:42",
+    "2:4.2",
+  ]) {
+    assert.equal(parseExplorerCoordinates(value), null, String(value));
+  }
 });

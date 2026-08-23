@@ -1,4 +1,7 @@
-import { parseNonNegativeInteger } from "./dom-data.ts";
+import {
+  parseExplorerCoordinates,
+  parseNonNegativeInteger,
+} from "./dom-data.ts";
 
 // The Metadata lens (the image-level summary of each assembly — format stamp, heap sizes,
 // ECMA-335 table row counts, PE/CLI headers) and the Metadata Explorer (the spatial
@@ -211,14 +214,6 @@ export interface MetadataExplorerBindingActions {
   onRowFocus: (index: number, rowId: number) => void;
   onShowOverview: () => void;
   onTableFocus: (index: number, rowId: number) => void;
-}
-
-function parseExplorerCoordinates(value: string | undefined): [number, number] | null {
-  const parts = value?.split(":");
-  if (!parts || parts.length !== 2) return null;
-  const index = parseNonNegativeInteger(parts[0]);
-  const rowId = parseNonNegativeInteger(parts[1]);
-  return index !== null && rowId !== null ? [index, rowId] : null;
 }
 
 export function bindMetadataExplorer(

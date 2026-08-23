@@ -797,6 +797,9 @@ test("typed package view owns package navigation bindings", () => {
   assert.match(
     packageViewSource,
     /export function bindPackageDependencyList\([\s\S]*\[data-dep-open\][\s\S]*\[data-dep-load\]/);
+  assert.match(
+    packageViewSource,
+    /export function patchDependencyGroupChips\([\s\S]*#dep-tfm-chips \[data-dep-group\][\s\S]*isSelectedGroupChip/);
   assert.equal(
     workspaceBinding.match(/\bbindPackageViewEvents\(\)/g)?.length,
     1);
@@ -814,7 +817,7 @@ test("typed package view owns package navigation bindings", () => {
     /\bquerySelector(?:All)?\b|\baddEventListener\b/);
   assert.match(
     dependencyPatch,
-    /listSection\.outerHTML = dependencyListSectionHtml[\s\S]*bindPackageDependencyListEvents\(\);[\s\S]*renderDependencyGraph\(\)/);
+    /patchDependencyGroupChips\(document, selectedGroupIndex\);[\s\S]*listSection\.outerHTML = dependencyListSectionHtml[\s\S]*bindPackageDependencyListEvents\(\);[\s\S]*renderDependencyGraph\(\)/);
   assert.match(
     binding,
     /onDependencyGroupSelect: index => \{[\s\S]*state\.dependenciesGroupIndex === index[\s\S]*state\.dependenciesGroupIndex = index;[\s\S]*patchDependenciesGroup\(\)/);
@@ -842,12 +845,8 @@ test("typed package view owns package navigation bindings", () => {
   assert.match(
     binding,
     /onPerformanceMemberSelect: target => \{[\s\S]*drillToPerfMember\(\s*target\.metadataToken,\s*target\.assembly,\s*target\.typeId\)/);
-  // Match the *attribute*, not a whole selector string. Adversarial review (Claude Opus 5)
-  // showed this assertion passed only because the app root spells the selector
-  // `"#dep-tfm-chips [data-dep-group]"`: the id prefix made the literal not match, so the
-  // gate reported that package-view owned a read the app root was still performing --
-  // which is why that read then went unconverted and untested. The sanctioned reads are
-  // listed by set equality, so an exemption that stops being needed is red too.
+  // Match the *attribute*, not a whole selector string. The patch path now delegates its
+  // chip update too, so package-view owns every read rather than requiring an exemption.
   const ownedAttributes =
     /data-(?:dep-group|dep-open|dep-load|kind-jump|namespace-jump|lib-scope|graph-type|perf-token)/;
   const appRootReads = [...appSource.matchAll(/document\.querySelector(?:All)?<[^>]*>\("([^"]*)"\)/g)]
@@ -856,10 +855,7 @@ test("typed package view owns package navigation bindings", () => {
     .sort();
   assert.deepEqual(
     appRootReads,
-    // `patchDependenciesGroup` repaints the framework chip strip in place. That is a
-    // deliberate no-reflow path with its own assertions, not a binding the extracted module
-    // should own.
-    ["#dep-tfm-chips [data-dep-group]"],
+    [],
     "the application root reads a DOM attribute that the extracted binding module owns");
   assert.doesNotMatch(
     workspaceBinding,

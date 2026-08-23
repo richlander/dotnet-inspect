@@ -1,4 +1,5 @@
 import {
+  isSelectedGroupChip,
   parseMetadataToken,
   parseNonNegativeInteger,
 } from "./dom-data.ts";
@@ -28,6 +29,16 @@ export interface PackageViewBindingActions
   ) => void;
   onNamespaceJump: (namespace: string) => void;
   onPerformanceMemberSelect: (target: PackagePerformanceTarget) => void;
+}
+
+export function patchDependencyGroupChips(
+  root: ParentNode,
+  selectedGroupIndex: number | null,
+) {
+  root.querySelectorAll<HTMLElement>("#dep-tfm-chips [data-dep-group]").forEach(button =>
+    button.classList.toggle(
+      "active",
+      isSelectedGroupChip(button.dataset.depGroup, selectedGroupIndex)));
 }
 
 export function bindPackageDependencyList(

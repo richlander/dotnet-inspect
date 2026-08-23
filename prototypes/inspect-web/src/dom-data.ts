@@ -1,3 +1,22 @@
+// `dom-payload-boundary.test.ts` compares this product-owned contract with every
+// canonical decoder call, so deleting an attribute's only parser is red.
+export const numericDomAttributes = [
+  "annotatedFact",
+  "annotatedOffset",
+  "depGroup",
+  "mdeChip",
+  "mdeIndex",
+  "mdeJump",
+  "mdeNeedsLoad",
+  "mdeOpen",
+  "mdePage",
+  "mdeRow",
+  "navOverload",
+  "overload",
+  "perfToken",
+  "slIndex",
+] as const;
+
 export function parseNonNegativeInteger(
   value: string | undefined,
 ): number | null {
@@ -32,4 +51,14 @@ export function isSelectedGroupChip(
 ): boolean {
   const group = parseNonNegativeInteger(value);
   return group !== null && group === selectedGroupIndex;
+}
+
+export function parseExplorerCoordinates(
+  value: string | undefined,
+): [number, number] | null {
+  const parts = value?.split(":");
+  if (!parts || parts.length !== 2) return null;
+  const index = parseNonNegativeInteger(parts[0]);
+  const rowId = parseNonNegativeInteger(parts[1]);
+  return index !== null && rowId !== null ? [index, rowId] : null;
 }

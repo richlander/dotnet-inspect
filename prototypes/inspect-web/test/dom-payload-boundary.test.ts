@@ -1,170 +1,268 @@
-// Round 2 review (GPT-5.6 Sol, Claude Opus 5) showed that the unit coverage for
-// `parseNonNegativeInteger` and `parseMetadataToken` is strong -- weakening either parser
-// fails several suites -- while nothing at all required a *call site* to use them. Sol
-// replaced one binding's parse with a plausible inline `Number(...)` coercion and both
-// advertised gates stayed green; Opus reverted an application-root read the same way, with
-// 498/498 passing. A parser nobody is obliged to call is not a boundary.
-//
-// These gates are derived from the sources rather than restated as a roster, so a *new*
-// unparsed read is red on the day it is written.
+// Round 2 review (GPT-5.6 Sol, Claude Opus 5) showed that parser unit coverage
+// cannot enforce a boundary when nothing requires call sites to use those parsers.
+// This gate reads TypeScript syntax, so line wrapping, comments, and look-alike
+// function signatures cannot hide an unchecked DOM payload.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const sourceRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
+import {
+  parseSync,
+  visitorKeys,
+  type CallExpression,
+  type Node,
+  type Program,
+} from "oxc-parser";
 
-// `dom-data.ts` is the one place a browser payload legitimately meets `Number(...)`: it is
-// the implementation of the canonical parsers this gate exists to require.
+import { numericDomAttributes } from "../src/dom-data.ts";
+
+const sourceRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
 const parserModule = "dom-data.ts";
 
-// Reads of a numeric attribute that are genuinely not numeric. Asserted by set equality
-// below, so an entry that stops being needed is as red as a missing one -- an exemption
-// roster that only ever grows is the restatement shape this stack keeps being defeated by.
 const exemptRawReads = new Map<string, string>([
   ["navOverload", "member-focus.ts treats every focus-restore descriptor's value as an "
     + "opaque equality key for re-finding the same element, never as an index."],
 ]);
 
-// Derived, not listed. `string | undefined` is exactly the type of a `dataset` read, so a
-// function declaring that parameter is by construction a payload decoder. Adding one makes
-// it approved automatically, and renaming one cannot silently empty this set, because the
-// non-vacuity assertion below would fail.
-function approvedDecoders(): Set<string> {
-  const found = new Set<string>();
-  for (const file of sources()) {
-    const text = withoutComments(file.text);
-    for (const match of text.matchAll(
-      /function ([A-Za-z_$][\w$]*)\s*\(\s*\w+\s*:\s*string \| undefined\s*[,)]/g)) {
-      if (match[1]) found.add(match[1]);
-    }
-  }
-  return found;
-}
-
 interface SourceFile {
   name: string;
   text: string;
+  program: Program;
+}
+
+interface AttributeRead {
+  file: string;
+  line: number;
+  decoder: string | null;
 }
 
 function sources(): SourceFile[] {
   return readdirSync(sourceRoot)
     .filter(name => name.endsWith(".ts"))
-    .map(name => ({ name, text: readFileSync(join(sourceRoot, name), "utf8") }));
+    .map(name => {
+      const text = readFileSync(join(sourceRoot, name), "utf8");
+      const parsed = parseSync(name, text);
+      assert.deepEqual(
+        parsed.errors,
+        [],
+        `${name} must parse before its DOM boundary can be inspected`);
+      return { name, text, program: parsed.program };
+    });
 }
 
-// Line and block comments are stripped so that prose describing a coercion -- this file's
-// own commit message did exactly that -- cannot fail the gate, and so that commenting a
-// violation out is not mistaken for one.
-function withoutComments(text: string): string {
-  return text
-    .replace(/\/\*[\s\S]*?\*\//g, match => match.replace(/[^\n]/g, " "))
-    .replace(/(^|[^:])\/\/[^\n]*/g, (_match, prefix: string) => prefix);
+function isNode(value: unknown): value is Node {
+  return typeof value === "object"
+    && value !== null
+    && "type" in value
+    && typeof value.type === "string";
+}
+
+function walk(
+  node: Node,
+  visit: (node: Node, ancestors: readonly Node[]) => void,
+  ancestors: readonly Node[] = [],
+) {
+  visit(node, ancestors);
+  const nextAncestors = [...ancestors, node];
+  for (const key of visitorKeys[node.type] ?? []) {
+    const child: unknown = Reflect.get(node, key);
+    if (Array.isArray(child)) {
+      for (const item of child) {
+        if (isNode(item)) walk(item, visit, nextAncestors);
+      }
+    } else if (isNode(child)) {
+      walk(child, visit, nextAncestors);
+    }
+  }
+}
+
+function memberName(node: Node): string | null {
+  if (node.type !== "MemberExpression") return null;
+  if (!node.computed && node.property.type === "Identifier") {
+    return node.property.name;
+  }
+  if (node.computed
+    && node.property.type === "Literal"
+    && typeof node.property.value === "string") {
+    return node.property.value;
+  }
+  return null;
+}
+
+function callName(node: CallExpression): string | null {
+  if (node.callee.type === "Identifier") return node.callee.name;
+  const property = memberName(node.callee);
+  if (property !== null
+    && node.callee.type === "MemberExpression"
+    && node.callee.object.type === "Identifier") {
+    return `${node.callee.object.name}.${property}`;
+  }
+  return null;
+}
+
+function dataAttributeName(attribute: string): string {
+  return attribute.slice("data-".length)
+    .replace(/-([a-z])/g, (_match, letter: string) => letter.toUpperCase());
+}
+
+function domAttribute(node: Node): string | null {
+  if (node.type === "MemberExpression"
+    && node.object.type === "MemberExpression"
+    && memberName(node.object) === "dataset") {
+    return memberName(node);
+  }
+  if (node.type === "CallExpression"
+    && memberName(node.callee) === "getAttribute") {
+    const argument = node.arguments[0];
+    if (argument?.type === "Literal"
+      && typeof argument.value === "string"
+      && argument.value.startsWith("data-")) {
+      return dataAttributeName(argument.value);
+    }
+  }
+  return null;
+}
+
+function containsDomRead(root: Node): boolean {
+  let found = false;
+  walk(root, node => {
+    if (domAttribute(node) !== null) found = true;
+  });
+  return found;
+}
+
+function isNumericCoercion(node: Node): boolean {
+  if (node.type === "UnaryExpression") return node.operator === "+";
+  if (node.type !== "CallExpression") return false;
+  return new Set([
+    "Number",
+    "parseInt",
+    "parseFloat",
+    "Number.parseInt",
+    "Number.parseFloat",
+  ]).has(callName(node) ?? "");
 }
 
 function lineOf(text: string, index: number): number {
   return text.slice(0, index).split("\n").length;
 }
 
-test("no browser payload is numerically coerced outside the canonical parsers", () => {
-  // The property is a *derived emptiness*, not a roster: any new `Number(el.dataset.x)`,
-  // `parseInt`, or unary `+` over a DOM read is a violation the moment it is written, with
-  // nothing to update and no entry that can go stale.
-  const domRead = /(?:\.dataset\.[A-Za-z]\w*|\.getAttribute\s*\([^)]*\))/;
-  const coercion =
-    /\b(?:Number|parseInt|parseFloat)\s*\(|\bNumber\.parse(?:Int|Float)\s*\(|(?<![\w$)\]])\+(?=\s*[A-Za-z_$])/g;
+function approvedDecoders(files: readonly SourceFile[]): Set<string> {
+  const parser = files.find(file => file.name === parserModule);
+  assert.ok(parser, `${parserModule} was not parsed`);
+  const names = parser.program.body.flatMap(node => {
+    const declaration = node.type === "ExportNamedDeclaration"
+      ? node.declaration
+      : null;
+    return declaration?.type === "FunctionDeclaration" && declaration.id
+      ? [declaration.id.name]
+      : [];
+  });
+  assert.deepEqual(
+    [...names].sort((left, right) => left.localeCompare(right)),
+    [
+      "isSelectedGroupChip",
+      "parseExplorerCoordinates",
+      "parseMetadataToken",
+      "parseNonNegativeInteger",
+    ],
+    "src/dom-data.ts exports are the canonical DOM decoder roster");
+  return new Set(names);
+}
 
+function attributeReads(
+  files: readonly SourceFile[],
+  decoders: ReadonlySet<string>,
+): Map<string, AttributeRead[]> {
+  const reads = new Map<string, AttributeRead[]>();
+  for (const file of files) {
+    if (file.name === parserModule) continue;
+    walk(file.program, (node, ancestors) => {
+      const attribute = domAttribute(node);
+      if (attribute === null) return;
+      let decoder: CallExpression | undefined;
+      for (let index = ancestors.length - 1; index >= 0; index--) {
+        const ancestor = ancestors[index];
+        if (ancestor?.type === "CallExpression"
+          && decoders.has(callName(ancestor) ?? "")) {
+          decoder = ancestor;
+          break;
+        }
+      }
+      const site = {
+        file: file.name,
+        line: lineOf(file.text, node.start),
+        decoder: decoder ? callName(decoder) : null,
+      };
+      reads.set(attribute, [...(reads.get(attribute) ?? []), site]);
+    });
+  }
+  return reads;
+}
+
+test("no browser payload is numerically coerced outside the canonical parsers", () => {
   const violations: string[] = [];
   for (const file of sources()) {
     if (file.name === parserModule) continue;
-    const text = withoutComments(file.text);
-    for (const match of text.matchAll(coercion)) {
-      // Bound the inspected expression at the statement end so a coercion on one line is
-      // not blamed for a DOM read several statements later.
-      const rest = text.slice(match.index, match.index + 200);
-      const terminator = rest.search(/[;\n]/);
-      const expression = terminator >= 0 ? rest.slice(0, terminator) : rest;
-      if (domRead.test(expression)) {
-        violations.push(`${file.name}:${lineOf(text, match.index)}: ${expression.trim()}`);
-      }
-    }
+    walk(file.program, node => {
+      if (!isNumericCoercion(node) || !containsDomRead(node)) return;
+      violations.push(
+        `${file.name}:${lineOf(file.text, node.start)}: `
+        + file.text.slice(node.start, node.end));
+    });
   }
 
   assert.deepEqual(
     violations,
     [],
-    "a browser payload is coerced to a number directly. Numeric DOM and URL payloads must "
-    + `go through the canonical parsers in src/${parserModule}, which reject the aliases `
-    + "(\"01\", \"+1\", \" 1\", \"1e0\", \"-0\") a bare coercion accepts.");
+    "a browser payload is coerced to a number directly. Numeric DOM payloads must go "
+    + `through the canonical parsers in src/${parserModule}, which reject aliases such as `
+    + "\"01\", \"+1\", \" 1\", \"1e0\", and \"-0\".");
 });
 
-test("every attribute a canonical parser reads has no unparsed read anywhere", () => {
-  // Which attributes carry numbers is derived from the code that already parses them, so
-  // this needs no list of "numeric attributes" to drift. Reverting *one* of an attribute's
-  // reads to a raw coercion -- Opus's mutation, which the whole suite missed -- is red here
-  // even before the coercion gate above sees it, and reverting the *only* read is caught by
-  // that gate, because a revert has to coerce.
-  const decoders = approvedDecoders();
-  assert.ok(
-    decoders.has("parseNonNegativeInteger") && decoders.has("parseMetadataToken")
-      && decoders.has("parseExplorerCoordinates") && decoders.has("isSelectedGroupChip"),
-    `the decoder anchor stopped resolving; found [${[...decoders].join(", ")}]`);
-
-  const numeric = new Map<string, string[]>();
-  const reads = new Map<string, string[]>();
-
-  for (const file of sources()) {
-    if (file.name === parserModule) continue;
-    const text = withoutComments(file.text);
-    for (const match of text.matchAll(/\.dataset\.([A-Za-z]\w*)/g)) {
-      const attribute = match[1];
-      if (attribute === undefined) continue;
-      const site = `${file.name}:${lineOf(text, match.index)}`;
-      const decoder = enclosingCall(text, match.index);
-      const bucket = decoder !== null && decoders.has(decoder) ? numeric : reads;
-      bucket.set(attribute, [...(bucket.get(attribute) ?? []), site]);
-    }
-  }
-
-  // Non-vacuity: if the enclosing-call walk stopped resolving, every attribute would land in
-  // `reads` and the assertion below would pass while proving nothing.
-  assert.ok(
-    numeric.size >= 8,
-    `only ${numeric.size} attributes were seen flowing into a canonical parser, so the `
-    + "call-site walk has stopped resolving and this gate proves nothing.");
-
-  const unparsed = [...numeric.keys()]
-    .filter(attribute => reads.has(attribute))
-    .sort((a, b) => a.localeCompare(b));
+test("every declared numeric attribute reaches a canonical parser at every numeric read", () => {
+  const files = sources();
+  const decoders = approvedDecoders(files);
+  const reads = attributeReads(files, decoders);
+  const expected = [...numericDomAttributes]
+    .sort((left, right) => left.localeCompare(right));
+  const parsed = [...reads]
+    .filter(([, sites]) => sites.some(site => site.decoder !== null))
+    .map(([attribute]) => attribute)
+    .sort((left, right) => left.localeCompare(right));
 
   assert.deepEqual(
+    parsed,
+    expected,
+    "the product-owned numeric DOM attribute catalog and canonical decoder call sites "
+    + "must stay equal; a missing entry has lost its only parser and an extra entry has "
+    + "no declared numeric contract");
+
+  const unparsed = expected.filter(attribute =>
+    (reads.get(attribute) ?? []).some(site => site.decoder === null));
+  assert.deepEqual(
     unparsed,
-    [...exemptRawReads.keys()].sort((a, b) => a.localeCompare(b)),
-    "an attribute that is parsed as a number somewhere is also read raw somewhere else, or "
-    + "an exemption is no longer needed. Both reads see the same payload, so the unparsed "
-    + "one accepts values the parsed one rejects. Sites: "
-    + unparsed.map(name => `data-${name} at ${(reads.get(name) ?? []).join(", ")}`)
-      .join("; "));
+    [...exemptRawReads.keys()].sort((left, right) => left.localeCompare(right)),
+    "a numeric DOM attribute is also read outside a canonical decoder, or an exemption is "
+    + "no longer needed. Sites: "
+    + unparsed.map(attribute => `${attribute} at ${
+      (reads.get(attribute) ?? [])
+        .filter(site => site.decoder === null)
+        .map(site => `${site.file}:${site.line}`)
+        .join(", ")}`).join("; "));
 });
 
-// Resolve the call an expression is an argument of, by walking backwards with bracket
-// balancing. This reads the code's structure rather than matching a source pattern, so a
-// reformatted or renamed call site cannot silently drop out of the enumeration.
-function enclosingCall(text: string, index: number): string | null {
-  let depth = 0;
-  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
-    const character = text[cursor];
-    if (character === ")" || character === "]" || character === "}") depth += 1;
-    else if (character === "(" || character === "[" || character === "{") {
-      if (depth > 0) {
-        depth -= 1;
-        continue;
-      }
-      if (character !== "(") return null;
-      return /([A-Za-z_$][\w$]*)\s*$/.exec(text.slice(Math.max(0, cursor - 64), cursor))?.[1]
-        ?? null;
-    }
-  }
-  return null;
-}
+test("dependency group patching stays behind its selected-chip decoder", () => {
+  const files = sources();
+  const reads = attributeReads(files, approvedDecoders(files));
+  const sites = (reads.get("depGroup") ?? [])
+    .map(site => `${site.file}:${site.decoder}`)
+    .sort((left, right) => left.localeCompare(right));
+
+  assert.deepEqual(sites, [
+    "package-view.ts:isSelectedGroupChip",
+    "package-view.ts:parseNonNegativeInteger",
+  ]);
+});

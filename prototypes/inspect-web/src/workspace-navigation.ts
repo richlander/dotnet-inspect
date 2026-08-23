@@ -316,8 +316,9 @@ interface DecodedShareState {
   rich: boolean;
   type: string | null;
   member: string | null;
-  overload: string | null;
+  overload: string | number | null;
   section: MemberSection | null;
+  rejectedFields: string[];
   bodyTarget: BodyTarget | null;
   library: string | null;
   libraryPack: PlatformPack | null;
@@ -442,6 +443,7 @@ function decodeWorkspaceShareState(value: string | null): ShareStateResult {
         member: null,
         overload: null,
         section: null,
+        rejectedFields: [],
         bodyTarget: null,
         library: null,
         libraryPack: null,
@@ -470,11 +472,22 @@ function decodeWorkspaceShareState(value: string | null): ShareStateResult {
         type: typeof raw.y === "string" ? raw.y : null,
         member: typeof raw.m === "string" ? raw.m : null,
         overload: typeof raw.o === "string" || typeof raw.o === "number"
-          ? String(raw.o)
+          ? raw.o
           : null,
         section: typeof raw.c === "string" && isMemberSection(raw.c)
           ? raw.c
           : null,
+        rejectedFields: [
+          ...(Object.hasOwn(raw, "o")
+            && typeof raw.o !== "string"
+            && typeof raw.o !== "number"
+            ? ["overload"]
+            : []),
+          ...(Object.hasOwn(raw, "c")
+            && (typeof raw.c !== "string" || !isMemberSection(raw.c))
+            ? ["section"]
+            : []),
+        ],
         bodyTarget: decodeBodyTarget(raw.d),
         library: typeof raw.l === "string" ? raw.l : null,
         libraryPack: platformPackToken(raw.p),
@@ -499,10 +512,11 @@ function resolveView(token: string): {
   rejected: string | null;
 } {
   const atPackageRoot = token === "pkg" || token.startsWith("pkg:");
-  const packageLensToken = atPackageRoot ? token.split(":")[1] : undefined;
+  const packageMatch = /^(?:pkg|pkg:([^:]+))$/.exec(token);
+  const packageLensToken = packageMatch?.[1];
   const lens = isTypeLens(token) ? token : null;
   const packageLens = atPackageRoot
-    ? (isPackageLens(packageLensToken) ? packageLensToken : "overview")
+    ? (packageMatch && isPackageLens(packageLensToken) ? packageLensToken : "overview")
     : null;
   // A view token that matches no vocabulary used to become an ordinary Overview or API
   // view, so a stale or mistyped link looked like it had worked while showing something
@@ -510,7 +524,8 @@ function resolveView(token: string): {
   let rejected: string | null = null;
   if (token !== "" && lens === null) {
     if (!atPackageRoot) rejected = "view";
-    else if (packageLensToken !== undefined && !isPackageLens(packageLensToken)) {
+    else if (!packageMatch
+      || (packageLensToken !== undefined && !isPackageLens(packageLensToken))) {
       rejected = "view";
     }
   }
@@ -534,6 +549,13 @@ export interface WorkspaceLocationSnapshot {
   pathname: string;
   search: string;
   hash: string;
+}
+
+function parseOverloadCoordinate(value: string | number): number | null {
+  if (typeof value === "string") return parseNonNegativeInteger(value);
+  return Number.isSafeInteger(value) && value >= 0 && !Object.is(value, -0)
+    ? value
+    : null;
 }
 
 export function parseWorkspaceLocation(location: WorkspaceLocationSnapshot) {
@@ -603,9 +625,10 @@ export function parseWorkspaceLocation(location: WorkspaceLocationSnapshot) {
       // overload takes the same canonical parse rather than a raw `String(...)`.
       overload = share.overload === null
         ? null
-        : parseNonNegativeInteger(share.overload);
+        : parseOverloadCoordinate(share.overload);
       if (share.overload !== null && overload === null) rejectedFields.push("overload");
       section = share.section;
+      rejectedFields.push(...share.rejectedFields);
       bodyTarget = share.bodyTarget;
       library = share.library;
       libraryPack = share.libraryPack;

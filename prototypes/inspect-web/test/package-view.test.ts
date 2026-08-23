@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   bindPackageDependencyList,
   bindPackageView,
+  patchDependencyGroupChips,
 } from "../src/package-view.ts";
 import type {
   PackagePerformanceTarget,
@@ -12,6 +13,16 @@ import { fakeDom } from "./fake-dom.ts";
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
+  private readonly classes = new Set<string>();
+  readonly classList = {
+    contains: (token: string) => this.classes.has(token),
+    toggle: (token: string, force?: boolean) => {
+      const present = force ?? !this.classes.has(token);
+      if (present) this.classes.add(token);
+      else this.classes.delete(token);
+      return present;
+    },
+  };
   private readonly listeners = new Map<string, EventListener[]>();
   onclick: EventListener | null = null;
 
@@ -62,6 +73,28 @@ function recordingActions(calls: string[]): PackageViewBindingActions {
         `performance:${target.metadataToken}:${target.assembly}:${target.typeId}`),
   };
 }
+
+test("dependency group patching activates exactly the selected valid chip", () => {
+  const root = new FakeRoot();
+  const first = new FakeElement({ depGroup: "0" });
+  const second = new FakeElement({ depGroup: "1" });
+  const malformed = new FakeElement({ depGroup: "01" });
+  root.addAll(
+    "#dep-tfm-chips [data-dep-group]",
+    first,
+    second,
+    malformed);
+
+  patchDependencyGroupChips(fakeDom.parentNode(root), null);
+  assert.equal(first.classList.contains("active"), false);
+  assert.equal(second.classList.contains("active"), false);
+  assert.equal(malformed.classList.contains("active"), false);
+
+  patchDependencyGroupChips(fakeDom.parentNode(root), 1);
+  assert.equal(first.classList.contains("active"), false);
+  assert.equal(second.classList.contains("active"), true);
+  assert.equal(malformed.classList.contains("active"), false);
+});
 
 test("package view bindings decode navigation controls without eager work", () => {
   const root = new FakeRoot();
