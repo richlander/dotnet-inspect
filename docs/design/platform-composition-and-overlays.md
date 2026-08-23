@@ -140,16 +140,26 @@ implementation does not deliver**; the second holds today.
 
   If no earlier candidate matches that *filename*, the overlay is simply used:
   it is the first candidate seen, no tier boundary is crossed, and nothing
-  below applies. The interesting case is when something does precede it, and
-  then reaching the overlay requires all of:
+  below applies. Candidates are also filtered by scope before any of this —
+  platform scope considers only trusted-platform, shared-framework, and corpus
+  provenances, so a sibling or package candidate for that filename imposes no
+  condition there at all. What follows concerns the candidates that survive
+  both filters.
+
+  Candidates in the overlay's **own** tier are the easy case: a mismatch or an
+  unreadable file simply moves to the next one, and a later same-tier candidate
+  can still be chosen
+  (`AssemblyDependencyResolverTests.Select_CaseDistinctSameTierCandidateIsMatchedAfterUnavailableCandidate`).
+  The conditions below govern **earlier tiers**, because the boundary logic
+  runs only when the tier actually changes:
 
   1. **Every** earlier candidate fails the *effective identity policy* —
      `MatchesCandidate` weighs version, culture, and public key token, and its
      version test is relaxed by `IgnoreAssemblyVersion` and, in platform scope,
      by `AllowPlatformAssemblyVersionRollForward`. One earlier match ends the
-     search there.
+     search there and that candidate wins.
   2. None of them failed to **open**. An unreadable candidate records a
-     failure, and a recorded failure turns the next tier crossing into an
+     failure, and a recorded failure turns the *next tier crossing* into an
      abandonment — in platform scope too, not only outside it.
   3. The scope permits crossing a tier boundary at all. Non-platform scope
      never does, and this is broader than platform-versus-corpus: resolution is
@@ -230,10 +240,11 @@ earlier candidate fails the effective identity policy (version, culture, or
 public key token, as relaxed by `IgnoreAssemblyVersion` or platform-scope
 roll-forward), none of them failed to open, and the scope allows crossing a
 tier boundary at all. Non-platform scope does not, which confines resolution to
-the first tier that matched the filename. Otherwise the platform copy wins or
-the reference does not resolve at all. So the selected assembly changes with
-option settings, version equality, and even whether an unrelated candidate
-happened to be readable, with no signal in any direction.
+the first tier that matched the filename. Otherwise an earlier candidate wins —
+which may be a sibling or a package, not only the platform copy — or the
+reference does not resolve at all. So the selected assembly changes with option
+settings, version equality, and even whether an unrelated candidate happened to
+be readable, with no signal in any direction.
 
 The rule is that **precedence must be stated rather than emergent**, and that an
 unstated tie is a diagnostic rather than a silent pick. Tracked as **#4593**.
