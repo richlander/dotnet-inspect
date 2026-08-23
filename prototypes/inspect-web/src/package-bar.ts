@@ -13,6 +13,7 @@ export interface PackageBarState {
 export interface ParsedPackageQuery {
   packageId: string;
   version: string;
+  explicitVersion: boolean;
 }
 
 interface PackageBarOptions {
@@ -23,7 +24,7 @@ interface PackageBarOptions {
   selectPackageTab: (pkg: PackageBarPackage) => void;
   closePackageTab: (packageKey: string) => void;
   openRuntimePack: () => void;
-  openPackage: (packageId: string, version: string) => void;
+  openPackage: (query: ParsedPackageQuery) => void;
   selectFramework: (framework: string) => void;
   selectVersion: (version: string) => void;
   showToast: (message: string) => void;
@@ -144,7 +145,25 @@ export function parsePackageQuery(value: string): ParsedPackageQuery | null {
 
   const packageId = separator > 0 ? trimmed.slice(0, separator) : trimmed;
   const version = separator > 0 ? trimmed.slice(separator + 1) : "latest";
-  return { packageId, version };
+  return { packageId, version, explicitVersion: separator > 0 };
+}
+
+export function findPackageTabForQuery(
+  state: PackageBarState,
+  query: ParsedPackageQuery,
+): PackageBarPackage | null {
+  const idMatches = state.packages.filter(item =>
+    !item.isRuntimePack
+    && item.id.toLowerCase() === query.packageId.toLowerCase());
+  const matches = query.explicitVersion
+    ? idMatches.filter(item =>
+      item.version.toLowerCase() === query.version.toLowerCase())
+    : idMatches;
+
+  if (state.package && matches.includes(state.package))
+    return state.package;
+  // Prefer the most recently retained matching tab when another package is active.
+  return matches.at(-1) ?? null;
 }
 
 export function createPackageBar(options: PackageBarOptions) {
@@ -220,7 +239,7 @@ export function createPackageBar(options: PackageBarOptions) {
         showToast("enter a package, optionally followed by @version");
         return;
       }
-      openPackage(parsed.packageId, parsed.version);
+      openPackage(parsed);
     });
   }
 

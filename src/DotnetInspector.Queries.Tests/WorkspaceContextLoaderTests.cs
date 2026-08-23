@@ -3,6 +3,7 @@ using System.IO.Compression;
 using System.Net;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Text;
 
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
@@ -204,7 +205,9 @@ public sealed class WorkspaceContextLoaderTests
             new MemoryStream(
                 Archive(
                     ($"runtimes/linux-x64/lib/{Framework}/Misleading.dll",
-                        File.ReadAllBytes(CallerPath)))),
+                        File.ReadAllBytes(CallerPath)),
+                    ("runtimes/linux-x64/lib/net9.0/Unrelated.dll",
+                        File.ReadAllBytes(TargetPath)))),
             TestContext.Current.CancellationToken);
         using var client = new HttpClient(new FailingHandler());
 
@@ -233,7 +236,57 @@ public sealed class WorkspaceContextLoaderTests
             assemblyName,
             Assert.IsType<RealizedMemberCoordinate.Platform>(
                 member.Realized).Assembly);
+        Assert.Equal(
+            assemblyName,
+            Assert.Single(loaded.AvailablePlatformAssemblies).Assembly);
         _ = InspectionGraphPackageBoundary.Create(loaded);
+    }
+
+    [Fact]
+    public async Task PlatformMember_DuplicateSimpleNameFailsTyped()
+    {
+        string assemblyName = Path.GetFileNameWithoutExtension(TargetPath);
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            RuntimePackPackageId,
+            RuntimePackVersion,
+            Producer(NuGetOrg),
+            new MemoryStream(
+                Archive(
+                    ($"runtimes/linux-x64/lib/{Framework}/v1.dll",
+                        File.ReadAllBytes(TargetPath)),
+                    ($"runtimes/linux-x64/lib/{Framework}/v2.dll",
+                        File.ReadAllBytes(TargetV2Path)))),
+            TestContext.Current.CancellationToken);
+        using var client = new HttpClient(new FailingHandler());
+        using var workspace = new InspectionWorkspace();
+
+        var failed = Failed(
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Platform(
+                            "runtime",
+                            assemblyName,
+                            RuntimePackVersion),
+                    ],
+                },
+                Options(client, store),
+                TestContext.Current.CancellationToken));
+
+        WorkspaceContextLoadFailure failure =
+            Assert.Single(failed.Failures);
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.PlatformAssemblyAmbiguous,
+            failure.Kind);
+        Assert.Equal(
+            assemblyName,
+            Assert.IsType<WorkspaceMemberCoordinate.PlatformMember>(
+                failure.Member).Assembly);
     }
 
     [Fact]
@@ -834,6 +887,95 @@ public sealed class WorkspaceContextLoaderTests
     }
 
     [Fact]
+    public async Task RealizedPlatformCoordinates_ScanSharedPackOnce()
+    {
+        var inner = new InMemoryPackageStore();
+        await inner.CommitAsync(
+            RuntimePackPackageId,
+            RuntimePackVersion,
+            Producer(NuGetOrg),
+            new MemoryStream(RuntimePack()),
+            TestContext.Current.CancellationToken);
+        var store = new EntryCountingPackageStore(inner);
+        using var client = new HttpClient(new FailingHandler());
+        using var workspace = new InspectionWorkspace();
+
+        var loaded = Loaded(
+            await WorkspaceContextLoader.LoadRealizedAsync(
+                workspace,
+                [
+                    new RealizedMemberCoordinate.Platform(
+                        "runtime",
+                        RuntimePackVersion,
+                        Producer(NuGetOrg),
+                        Framework,
+                        Path.GetFileNameWithoutExtension(CallerPath)),
+                    new RealizedMemberCoordinate.Platform(
+                        "runtime",
+                        RuntimePackVersion,
+                        Producer(NuGetOrg),
+                        Framework,
+                        Path.GetFileNameWithoutExtension(TargetPath)),
+                ],
+                Options(client, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(2, loaded.Members.Length);
+        Assert.All(
+            loaded.Members,
+            member => Assert.Equal(
+                Assert.IsType<RealizedMemberCoordinate.Platform>(
+                    member.Realized).Assembly,
+                member.Participant.Assembly.Identity.Name));
+        Assert.Equal(2, store.EntryOpens);
+    }
+
+    [Fact]
+    public async Task RealizedPlatformCoordinates_ReportTheMissingSelectedAssembly()
+    {
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            RuntimePackPackageId,
+            RuntimePackVersion,
+            Producer(NuGetOrg),
+            new MemoryStream(RuntimePack()),
+            TestContext.Current.CancellationToken);
+        using var client = new HttpClient(new FailingHandler());
+        using var workspace = new InspectionWorkspace();
+
+        var failed = Failed(
+            await WorkspaceContextLoader.LoadRealizedAsync(
+                workspace,
+                [
+                    new RealizedMemberCoordinate.Platform(
+                        "runtime",
+                        RuntimePackVersion,
+                        Producer(NuGetOrg),
+                        Framework,
+                        Path.GetFileNameWithoutExtension(CallerPath)),
+                    new RealizedMemberCoordinate.Platform(
+                        "runtime",
+                        RuntimePackVersion,
+                        Producer(NuGetOrg),
+                        Framework,
+                        "Missing.Platform.Assembly"),
+                ],
+                Options(client, store),
+                TestContext.Current.CancellationToken));
+
+        WorkspaceContextLoadFailure failure =
+            Assert.Single(failed.Failures);
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.PlatformAssemblyUnavailable,
+            failure.Kind);
+        Assert.Equal(
+            "Missing.Platform.Assembly",
+            Assert.IsType<WorkspaceMemberCoordinate.PlatformMember>(
+                failure.Member).Assembly);
+        Assert.Contains("Missing.Platform.Assembly", failure.Message);
+    }
+
+    [Fact]
     public async Task RealizedPlatformCoordinate_WithUnauthorizedProducerFailsTyped()
     {
         using var client = new HttpClient(new FailingHandler());
@@ -1343,6 +1485,7 @@ public sealed class WorkspaceContextLoaderTests
     {
         byte[] nupkg = LibraryPackage();
         var store = new InMemoryPackageStore();
+        var transferPolicy = new RecordingTransferPolicy();
         using var workspace = new InspectionWorkspace();
         using var client = new HttpClient(new PayloadHandler(nupkg, Version));
 
@@ -1354,7 +1497,10 @@ public sealed class WorkspaceContextLoaderTests
                     Framework = Framework,
                     Members = [PackageMember(Version)],
                 },
-                Options(client, store),
+                Options(
+                    client,
+                    store,
+                    packageTransferPolicy: transferPolicy),
                 TestContext.Current.CancellationToken));
 
         // Nothing in this path names a filesystem location: the payload came
@@ -1376,6 +1522,73 @@ public sealed class WorkspaceContextLoaderTests
                 loaded.Group.UseAssemblyImage(
                     participant.Assembly,
                     static view => view.Content.Length)));
+        Assert.Equal(PackageId, transferPolicy.Transfer?.Coordinate.PackageId);
+        Assert.Equal(Version, transferPolicy.Transfer?.Coordinate.Version);
+        Assert.True(transferPolicy.Completed);
+        Assert.True(transferPolicy.Disposed);
+    }
+
+    [Fact]
+    public async Task PlatformAcquisition_ForwardsTransferPolicyForDeclaredAndRealizedCoordinates()
+    {
+        byte[] nupkg = RuntimePack();
+        var declaredPolicy = new RecordingTransferPolicy();
+        using var declaredWorkspace = new InspectionWorkspace();
+        using var declaredClient = new HttpClient(
+            new PayloadHandler(
+                nupkg,
+                RuntimePackVersion,
+                RuntimePackPackageId));
+
+        var declared = Loaded(
+            await WorkspaceContextLoader.LoadAsync(
+                declaredWorkspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Platform(
+                            "runtime",
+                            version: RuntimePackVersion),
+                    ],
+                },
+                Options(
+                    declaredClient,
+                    new InMemoryPackageStore(),
+                    packageTransferPolicy: declaredPolicy),
+                TestContext.Current.CancellationToken));
+
+        AssertTransferPolicy(
+            declaredPolicy,
+            RuntimePackPackageId,
+            RuntimePackVersion);
+        RealizedMemberCoordinate.Platform realized =
+            Assert.IsType<RealizedMemberCoordinate.Platform>(
+                declared.Members[0].Realized);
+
+        var realizedPolicy = new RecordingTransferPolicy();
+        using var realizedWorkspace = new InspectionWorkspace();
+        using var realizedClient = new HttpClient(
+            new PayloadHandler(
+                nupkg,
+                RuntimePackVersion,
+                RuntimePackPackageId));
+
+        _ = Loaded(
+            await WorkspaceContextLoader.LoadRealizedAsync(
+                realizedWorkspace,
+                [realized],
+                Options(
+                    realizedClient,
+                    new InMemoryPackageStore(),
+                    packageTransferPolicy: realizedPolicy),
+                TestContext.Current.CancellationToken));
+
+        AssertTransferPolicy(
+            realizedPolicy,
+            RuntimePackPackageId,
+            RuntimePackVersion);
     }
 
     [Fact]
@@ -3072,6 +3285,41 @@ public sealed class WorkspaceContextLoaderTests
     }
 
     [Fact]
+    public async Task BindingEquivalentAssemblyIdentityInOnePackage_CreatesNoGroup()
+    {
+        byte[] target = File.ReadAllBytes(TargetPath);
+        string assemblyName =
+            Path.GetFileNameWithoutExtension(TargetPath);
+        byte[] equivalent = ReplaceAscii(
+            target,
+            assemblyName,
+            assemblyName.ToUpperInvariant());
+        IPackageStore store = await CachedStoreAsync(
+            Version,
+            Archive(
+                ($"lib/{Framework}/original.dll", target),
+                ($"lib/{Framework}/equivalent.dll", equivalent)));
+        using var client = new HttpClient(new FailingHandler());
+        using var workspace = new InspectionWorkspace();
+
+        WorkspaceContextLoadOutcome outcome =
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members = [PackageMember(Version)],
+                },
+                Options(client, store),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.ConflictingAssemblyIdentity,
+            Assert.Single(Failed(outcome).Failures).Kind);
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
     public async Task DuplicateAssemblyIdentityAcrossProducers_CreatesNoGroup()
     {
         var handler = new PerFeedHandler();
@@ -3426,13 +3674,15 @@ public sealed class WorkspaceContextLoaderTests
         IEmbeddedContentProvider? embeddedContent = null,
         IPackageSourceAuthorization? sourceAuthorization = null,
         PackagePayloadLimits? payloadLimits = null,
-        Action<string>? log = null) =>
+        Action<string>? log = null,
+        IPackagePayloadTransferPolicy? packageTransferPolicy = null) =>
         new()
         {
             HttpClient = client,
             SourceAuthorization = sourceAuthorization
                 ?? new UniformPackageSourceAuthorization([NuGetOrg]),
             PackageStore = store,
+            PackageTransferPolicy = packageTransferPolicy,
             EmbeddedContent = embeddedContent,
             PayloadLimits = payloadLimits ?? PackagePayloadLimits.Default,
             Log = log,
@@ -3512,6 +3762,33 @@ public sealed class WorkspaceContextLoaderTests
                 AssemblyResolutionProvenance.Local("fixture identity"))
             .Identity.Version;
 
+    static byte[] ReplaceAscii(
+        byte[] source,
+        string oldValue,
+        string newValue)
+    {
+        Assert.Equal(oldValue.Length, newValue.Length);
+        byte[] result = [.. source];
+        ReadOnlySpan<byte> oldBytes = Encoding.UTF8.GetBytes(oldValue);
+        ReadOnlySpan<byte> newBytes = Encoding.UTF8.GetBytes(newValue);
+        int replacements = 0;
+        for (int offset = 0;
+            offset <= result.Length - oldBytes.Length;)
+        {
+            int relative = result.AsSpan(offset).IndexOf(oldBytes);
+            if (relative < 0)
+                break;
+
+            offset += relative;
+            newBytes.CopyTo(result.AsSpan(offset, newBytes.Length));
+            replacements++;
+            offset += newBytes.Length;
+        }
+
+        Assert.NotEqual(0, replacements);
+        return result;
+    }
+
     static byte[] Archive(params (string EntryPath, byte[] Content)[] entries)
     {
         using var buffer = new MemoryStream();
@@ -3588,7 +3865,21 @@ public sealed class WorkspaceContextLoaderTests
         }
     }
 
-    sealed class PayloadHandler(byte[] nupkg, string version)
+    static void AssertTransferPolicy(
+        RecordingTransferPolicy policy,
+        string packageId,
+        string version)
+    {
+        Assert.Equal(packageId, policy.Transfer?.Coordinate.PackageId);
+        Assert.Equal(version, policy.Transfer?.Coordinate.Version);
+        Assert.True(policy.Completed);
+        Assert.True(policy.Disposed);
+    }
+
+    sealed class PayloadHandler(
+        byte[] nupkg,
+        string version,
+        string packageId = PackageId)
         : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(
@@ -3596,13 +3887,35 @@ public sealed class WorkspaceContextLoaderTests
             CancellationToken cancellationToken)
             => Task.FromResult(
                 request.RequestUri!.ToString().Equals(
-                    $"https://api.nuget.org/v3-flatcontainer/{PackageId}/{version}/{PackageId}.{version}.nupkg",
+                    $"https://api.nuget.org/v3-flatcontainer/{packageId}/{version}/{packageId}.{version}.nupkg",
                     StringComparison.OrdinalIgnoreCase)
                     ? new HttpResponseMessage(HttpStatusCode.OK)
                     {
                         Content = new ByteArrayContent(nupkg),
                     }
                     : new HttpResponseMessage(HttpStatusCode.NotFound));
+    }
+
+    sealed class RecordingTransferPolicy : IPackagePayloadTransferPolicy
+    {
+        public PackagePayloadTransfer? Transfer { get; private set; }
+        public bool Completed { get; private set; }
+        public bool Disposed { get; private set; }
+
+        public IPackagePayloadReservation Reserve(
+            PackagePayloadTransfer transfer)
+        {
+            Transfer = transfer;
+            return new Reservation(this);
+        }
+
+        sealed class Reservation(RecordingTransferPolicy owner)
+            : IPackagePayloadReservation
+        {
+            public void Complete() => owner.Completed = true;
+
+            public void Dispose() => owner.Disposed = true;
+        }
     }
 
     sealed class ListingHandler(byte[] nupkg, string listedVersion)
@@ -3968,6 +4281,94 @@ public sealed class WorkspaceContextLoaderTests
                 nupkg,
                 cancellationToken);
         }
+    }
+
+    sealed class EntryCountingPackageStore(IPackageStore inner) : IPackageStore
+    {
+        int _entryOpens;
+
+        internal int EntryOpens => Volatile.Read(ref _entryOpens);
+
+        public IPackageContent? TryGetCached(
+            string packageName,
+            string version,
+            IReadOnlyList<string>? allowedSourceKeys,
+            Action<string>? log = null) =>
+            inner.TryGetCached(
+                packageName,
+                version,
+                allowedSourceKeys,
+                log) is { } content
+                ? new EntryCountingPackageContent(
+                    content,
+                    () => Interlocked.Increment(ref _entryOpens))
+                : null;
+
+        public ValueTask<IPackageContent> CommitAsync(
+            string packageName,
+            string version,
+            string sourceKey,
+            Stream nupkg,
+            CancellationToken cancellationToken = default) =>
+            inner.CommitAsync(
+                packageName,
+                version,
+                sourceKey,
+                nupkg,
+                cancellationToken);
+    }
+
+    sealed class EntryCountingPackageContent(
+        IPackageContent inner,
+        Action onEntryOpen) : IPackageContent, IPackageContentEntryManifest
+    {
+        public string? RootPath => inner.RootPath;
+        public string? NupkgPath => inner.NupkgPath;
+        public bool FromCache => inner.FromCache;
+        public string ProducerKey => inner.ProducerKey;
+        public bool RequiresArchiveTreeMatch =>
+            inner.RequiresArchiveTreeMatch;
+
+        public bool TryOpenArchive(
+            [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+            out Stream? stream) =>
+            inner.TryOpenArchive(out stream);
+
+        public bool TryOpenEntry(
+            string relativePath,
+            [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+            out Stream? stream)
+        {
+            onEntryOpen();
+            return inner.TryOpenEntry(relativePath, out stream);
+        }
+
+        public bool TryOpenEntry(
+            string relativePath,
+            long maxExpandedBytes,
+            [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+            out Stream? stream)
+        {
+            onEntryOpen();
+            return inner.TryOpenEntry(
+                relativePath,
+                maxExpandedBytes,
+                out stream);
+        }
+
+        public IEnumerable<string> EnumerateEntries() =>
+            inner.EnumerateEntries();
+
+        public bool TryGetEntryLength(
+            string relativePath,
+            out long length) =>
+            ((IPackageContentEntryManifest)inner)
+                .TryGetEntryLength(relativePath, out length);
+
+        public IReadOnlyList<PackageContentEntry>
+            EnumerateEntriesWithLengths() =>
+            ((IPackageContentEntryManifest)inner)
+                .EnumerateEntriesWithLengths();
     }
 
     sealed class FailingHandler : HttpMessageHandler
