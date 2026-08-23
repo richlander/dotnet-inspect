@@ -1,5 +1,4 @@
 import {
-  factsForNode,
   MEDIUM_LABELS,
   MEDIA,
   nodeAtOffset,
@@ -287,10 +286,9 @@ export function reduceAnnotatedSourceExplorerState(
       };
     case "select-offset": {
       const node = nodeAtOffset(document, action.offset);
-      const owningFacts = node ? factsForNode(document, node.id) : [];
       return {
         ...state,
-        selectedFactId: owningFacts.length === 1 ? owningFacts[0].id : null,
+        selectedFactId: null,
         selectedCaptureIndex: null,
         selectedNodeIds: node ? [node.id] : [],
         selectedKind: "",
@@ -390,10 +388,30 @@ export function renderAnnotatedSourceExplorer(
   const selectedRegionSpans = selectedRegions.flatMap(region => region.spans);
   const selectedKindLabel = kindCounts.find(kind => kind.id === state.selectedKind)?.label
     ?? (state.selectedKind === "Instruction" ? "Instruction" : state.selectedKind);
+  const directlySelectedNode =
+    state.selectedFactId === null
+      && state.selectedCaptureIndex === null
+      && state.selectedKind === ""
+      && state.selectedRegionRole === ""
+      && selectedNodes.length === 1
+      ? selectedNodes[0]
+      : null;
+  const directlySelectedNodeFacts = directlySelectedNode
+    ? view.facts.filter(fact => fact.nodeIds.includes(directlySelectedNode.id))
+    : [];
+  const nodeCaretAnnotations = directlySelectedNode
+    ? sourceNodeCaretAnnotations(
+        directlySelectedNode,
+        view.lines,
+        result.document.text,
+        kindLabels.get(directlySelectedNode.kind) ?? directlySelectedNode.kind,
+        directlySelectedNodeFacts)
+    : new Map<number, readonly SourceNodeCaretAnnotation[]>();
 
   const mediumButtons = MEDIA.map(medium =>
     `<button type="button" class="annotated-medium${view.media[medium] ? " on" : ""}" data-ase-medium="${medium}" aria-pressed="${view.media[medium]}">${escapeHtml(MEDIUM_LABELS[medium])}</button>`,
   ).join("");
+  let previousMedium = "";
   const lines = view.lines.map(line => {
     const lineText = line.segments.map(segment => segment.text).join("");
     const syntaxRanges = line.medium === "CSharp" && tokenizeCSharp
@@ -459,12 +477,23 @@ export function renderAnnotatedSourceExplorer(
       }
       return `<span class="annotated-span${selectionClass}">${content}</span>`;
     }).join("");
-    const mediumLabel = line.medium === "Mixed" ? "C#/IL" : MEDIUM_LABELS[line.medium];
-    return `<div class="annotated-line medium-${line.medium.toLowerCase()}">
+    const mediumLabel = line.medium !== previousMedium && line.medium !== "Mixed"
+      ? MEDIUM_LABELS[line.medium]
+      : "";
+    previousMedium = line.medium;
+    const sourceLine = `<div class="annotated-line medium-${line.medium.toLowerCase()}">
       <span class="annotated-line-number">${line.number}</span>
       <span class="annotated-line-medium">${escapeHtml(mediumLabel)}</span>
       <span class="annotated-line-text">${segments}</span>
     </div>`;
+    const carets = nodeCaretAnnotations.get(line.start)?.map(annotation =>
+      `<div class="annotated-node-caret" aria-label="${escapeHtml(annotation.accessibleLabel)}">
+        <span class="annotated-line-number"></span>
+        <span class="annotated-line-medium"></span>
+        <span class="annotated-line-text" aria-hidden="true">${escapeHtml(annotation.prefix)}<span class="annotated-caret-run">${"^".repeat(annotation.length)}</span>${annotation.label ? `<span class="annotated-caret-label"> ${escapeHtml(annotation.label)}</span>` : ""}</span>
+      </div>`,
+    ).join("") ?? "";
+    return sourceLine + carets;
   }).join("");
 
   return `<div class="annotated-explorer" role="dialog" aria-modal="true" aria-label="Annotated source explorer">
@@ -510,7 +539,13 @@ export function renderAnnotatedSourceExplorer(
               ? regionSelectionHtml(selectedRegions, state.prepared, escapeHtml)
               : selectedCapture
                 ? captureSelectionHtml(selectedCapture, nodeById, kindLabels, escapeHtml)
-                : selectionHtml(selectedNodes, escapeHtml)}
+                : directlySelectedNode
+                  ? sourceNodeSelectionHtml(
+                      directlySelectedNode,
+                      directlySelectedNodeFacts,
+                      kindLabels,
+                      escapeHtml)
+                  : selectionHtml(selectedNodes, escapeHtml)}
           </section>
           <section class="ase-inspector-section">
             <div class="ase-section-heading"><div><span>Semantic plane</span><strong>Anchored facts</strong></div><em>${anchoredFacts.length}</em></div>
@@ -523,6 +558,53 @@ export function renderAnnotatedSourceExplorer(
         </aside>
       </div>
     </div>`;
+}
+
+interface SourceNodeCaretAnnotation {
+  accessibleLabel: string;
+  label: string;
+  length: number;
+  prefix: string;
+}
+
+function sourceNodeCaretAnnotations(
+  node: AnnotatedSourceNode,
+  lines: readonly { start: number; end: number }[],
+  text: string,
+  kindLabel: string,
+  facts: readonly AnnotatedViewFact[],
+): ReadonlyMap<number, readonly SourceNodeCaretAnnotation[]> {
+  const annotations = new Map<number, SourceNodeCaretAnnotation[]>();
+  let labelPending = true;
+  for (const line of lines) {
+    for (const span of node.spans) {
+      const spanEnd = span.start + span.length;
+      const start = Math.max(line.start, span.start);
+      const end = Math.min(line.end, spanEnd);
+      if (start >= end) continue;
+      const coordinates = `[${start}..${end})`;
+      const factSummary = facts.length === 0
+        ? ""
+        : ` · ${facts.length} finding${facts.length === 1 ? "" : "s"}: ${facts
+            .map(fact => fact.descriptor)
+            .join(", ")}`;
+      const label = labelPending
+        ? `#${node.id} ${kindLabel} · ${coordinates}${factSummary}`
+        : "";
+      labelPending = false;
+      const annotation = {
+        accessibleLabel:
+          `Selected source node #${node.id} ${kindLabel}, range ${coordinates}${factSummary}`,
+        label,
+        length: end - start,
+        prefix: text.slice(line.start, start).replace(/[^\t]/g, " "),
+      };
+      const existing = annotations.get(line.start);
+      if (existing) existing.push(annotation);
+      else annotations.set(line.start, [annotation]);
+    }
+  }
+  return annotations;
 }
 
 function preparedDocument(document: AnnotatedSourceDocument): PreparedAnnotatedView {
@@ -631,6 +713,25 @@ function captureSelectionHtml(
   return `<div class="ase-capture-selection">
       <p><span>Captured by</span><strong>${escapeHtml(parentLabel)} #${capture.parentNodeId}</strong></p>
       ${selectionHtml(uses, escapeHtml)}
+    </div>`;
+}
+
+function sourceNodeSelectionHtml(
+  node: AnnotatedSourceNode,
+  facts: readonly AnnotatedViewFact[],
+  labels: ReadonlyMap<string, string>,
+  escapeHtml: EscapeHtml,
+): string {
+  const kindLabel = labels.get(node.kind) ?? node.kind;
+  return `<div class="ase-source-node-selection">
+      <p><span>Exact source node</span><strong>#${node.id} ${escapeHtml(kindLabel)}</strong></p>
+      ${selectionHtml([node], escapeHtml)}
+      ${facts.length === 0
+        ? `<p class="ase-node-facts-empty">No Findings target this source node.</p>`
+        : `<div class="ase-node-facts">
+            <span>Findings at this node</span>
+            ${facts.map(fact => factHtml(fact, escapeHtml)).join("")}
+          </div>`}
     </div>`;
 }
 

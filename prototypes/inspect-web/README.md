@@ -471,11 +471,18 @@ spans by canonical line, and prepares the projection once per result; selection
 changes and later reopens reuse that immutable projection. The explorer renders
 canonical lines beside anchored and explicitly unanchored facts; supports C#/IL
 visibility, fact, exact-node, node-kind, and named-region selection; and follows
-pointer or keyboard activation to the tightest structural node. Product-owned
-body-kind vocabulary supplies the structure labels and ordering. Anchored facts
-have a persistent source affordance before selection, while construct and region
-controls overlay loops, branches, lambdas, local functions, and exception
-structure already present in the portable document. When the producer supplies
+pointer or keyboard activation to the tightest structural node. Source
+activation remains a structural selection even when a Finding targets that
+node: an exact caret annotation discloses the selected range and any related
+Findings, and activating one of those Finding controls changes to the semantic
+plane explicitly. The `fact, source node, node-kind, and clear actions preserve
+distinct selection semantics` test gates that separation. Product-owned
+body-kind vocabulary supplies the structure labels and ordering. The merged
+view labels only C# and IL transitions rather than repeating a medium on every
+line. Anchored facts have a persistent source affordance before selection,
+while construct and region controls use a low-weight shadow treatment for
+loops, branches, lambdas, local functions, and exception structure already
+present in the portable document. When the producer supplies
 capture evidence, captured names carry their own ambient marker and the closure
 panel can select one variable, shade its lambda or local-function scope, and
 highlight each exact addressable use. The browser follows capture node ids; it
@@ -486,8 +493,11 @@ across a structural button boundary. Token ranges are cached per document and
 tokenizer for interaction-time reuse. The source panel is one tab stop; arrow
 keys move among its structural spans, while Tab proceeds directly to the
 inspector.
-Selection highlights every targeted node across both media without selecting
-the text between one node's separated spans. Its copy action copies
+Each selection plane keeps its own visual treatment: green Finding affordances,
+orange active Finding targets, blue structural shadows and source-node carets,
+and purple capture scope and uses. Selection highlights every targeted node
+across both media without selecting the text between one node's separated
+spans. Its copy action copies
 `document.text`, so the copied artifact is source and never annotations.
 `member-detail-inspection.ts` owns the sequence-guarded async load lifecycle,
 and `dotnet-inspect.ts` owns the explorer state and DOM event bridge.

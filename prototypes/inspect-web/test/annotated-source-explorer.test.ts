@@ -177,7 +177,7 @@ test("the explorer presents canonical text beside anchored and unanchored facts"
   assert.match(html, /finding available/);
 });
 
-test("fact, source, node-kind, and clear actions preserve typed selection semantics", () => {
+test("fact, source node, node-kind, and clear actions preserve distinct selection semantics", () => {
   const initial = createAnnotatedSourceExplorerState(sampleDocument);
   const fact = reduceAnnotatedSourceExplorerState(
     sampleDocument,
@@ -185,15 +185,38 @@ test("fact, source, node-kind, and clear actions preserve typed selection semant
     { type: "select-fact", factId: 0 },
   );
   assert.equal(fact.selectedFactId, 0);
+  assert.deepEqual(fact.selectedNodeIds, []);
   assert.equal(fact.prepared, initial.prepared);
+  const factHtml = renderAnnotatedSourceExplorer({
+    result,
+    state: fact,
+    title: "Example.Run",
+    subtitle: "public object Run()",
+    escapeHtml,
+  });
+  assert.match(factHtml, /annotated-span addressable has-fact selected semantic/);
+  assert.doesNotMatch(factHtml, /selected structural/);
+  assert.doesNotMatch(factHtml, /class="annotated-node-caret"/);
 
   const source = reduceAnnotatedSourceExplorerState(
     sampleDocument,
     fact,
     { type: "select-offset", offset: sampleDocument.text.indexOf("new object()") },
   );
-  assert.equal(source.selectedFactId, 0);
+  assert.equal(source.selectedFactId, null);
   assert.deepEqual(source.selectedNodeIds, [1]);
+  const sourceHtml = renderAnnotatedSourceExplorer({
+    result,
+    state: source,
+    title: "Example.Run",
+    subtitle: "public object Run()",
+    escapeHtml,
+  });
+  assert.match(sourceHtml, /class="annotated-node-caret"/);
+  assert.match(sourceHtml, /#1 ObjectCreationExpression · \[\d+\.\.\d+\) · 1 finding: alloc\.new/);
+  assert.match(sourceHtml, /Findings at this node/);
+  assert.match(sourceHtml, /data-ase-fact="0" aria-pressed="false"/);
+  assert.doesNotMatch(sourceHtml, /selected semantic/);
 
   const kind = reduceAnnotatedSourceExplorerState(
     sampleDocument,
@@ -317,6 +340,11 @@ test("product labels and regions render as structural overlays", () => {
   assert.match(kindHtml, /data-ase-kind="ForStatement" aria-pressed="true"/);
   assert.match(kindHtml, />For loop<\/span><em>1<\/em>/);
   assert.match(kindHtml, /annotated-span addressable has-fact selected structural/);
+  assert.doesNotMatch(kindHtml, /class="annotated-node-caret"/);
+  assert.match(
+    styles,
+    /\.annotated-region\.selected\s*\{[^}]*background:\s*transparent[^}]*text-shadow:/,
+  );
 
   const regionState = reduceAnnotatedSourceExplorerState(
     sampleDocument,
@@ -437,6 +465,39 @@ test("empty source lines add no selectable characters", () => {
 
   assert.doesNotMatch(html, /&nbsp;/);
   assert.match(html, /annotated-line-text"><\/span>/);
+});
+
+test("merged source labels only C# and IL at medium boundaries", () => {
+  const groupedDocument: AnnotatedSourceDocument = {
+    text: "a\nb\nc\nx\ny",
+    nodes: [
+      { id: 0, kind: "Block", medium: "CSharp", spans: [{ start: 0, length: 5 }] },
+      {
+        id: 1,
+        kind: "Instruction",
+        medium: "Il",
+        spans: [{ start: 6, length: 3 }],
+        il_offset: 0,
+      },
+    ],
+    regions: [],
+    facts: [],
+    targets: [],
+  };
+  validateAnnotatedSourceDocument(groupedDocument);
+
+  const html = renderAnnotatedSourceExplorer({
+    result: { ...result, document: groupedDocument },
+    state: createAnnotatedSourceExplorerState(groupedDocument),
+    title: "Example.Grouped",
+    subtitle: "void Grouped()",
+    escapeHtml,
+  });
+
+  assert.equal(html.match(/annotated-line-medium">C#</g)?.length, 1);
+  assert.equal(html.match(/annotated-line-medium">IL</g)?.length, 1);
+  assert.doesNotMatch(html, /C#\/IL/);
+  assert.match(html, /annotated-line-medium"><\/span>/);
 });
 
 test("C# syntax tokenization is reused across interaction renders", () => {
