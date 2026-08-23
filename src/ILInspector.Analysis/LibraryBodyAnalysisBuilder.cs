@@ -35,6 +35,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         _asyncSourceResolver;
     readonly LibraryBodyAsyncSiblingDispatchAnalyzer
         _asyncSiblingDispatchAnalyzer;
+    readonly LibraryBodyAsyncSiblingAccessibilityAnalyzer
+        _asyncSiblingAccessibilityAnalyzer;
     readonly LibraryBodyReferenceMetadataResolver? _referenceMetadataResolver;
     readonly AssemblyReferenceIdentity _assemblyIdentity;
     readonly object _asyncSiblingLookupCacheGate = new();
@@ -156,6 +158,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 ResolveExternalAsyncSiblingTypeDefinition,
                 AsyncSiblingMethodsByName,
                 HasGenericConstraints);
+        _asyncSiblingAccessibilityAnalyzer =
+            new LibraryBodyAsyncSiblingAccessibilityAnalyzer(
+                reader,
+                _assemblyIdentity,
+                _asyncSiblingDispatchAnalyzer);
     }
 
     public void Dispose() =>
