@@ -286,9 +286,11 @@ public sealed class BrowserEngineBoundaryTests
                 InspectionEngine.ProjectPlatformSurface(resolution),
                 BrowserJsonContext.Default.BrowserPackageSurface));
 
+        BrowserAssemblySurface selectedAssembly =
+            Assert.Single(surface.Assemblies);
         Assert.Equal(
             "aspnetcore.app",
-            Assert.Single(surface.Assemblies).PlatformPack);
+            selectedAssembly.PlatformPack);
         Assert.All(
             surface.Types,
             type => Assert.Equal("aspnetcore.app", type.PlatformPack));
@@ -305,6 +307,9 @@ public sealed class BrowserEngineBoundaryTests
                     "net11.0-ios",
                     "InspectWeb.Engine.Tests",
                     "aspnetcore.app",
+                    selectedAssembly.Version,
+                    selectedAssembly.Culture,
+                    selectedAssembly.PublicKeyToken,
                     selected.Type.MetadataId,
                     selected.Member.Name,
                     selected.Member.GraphSelectorKey,
@@ -1057,12 +1062,19 @@ public sealed class BrowserEngineBoundaryTests
             .First(candidate =>
                 candidate.Member.MetadataToken is > 0
                 && candidate.Member.BodySelectors.Length > 0);
+        BrowserAssemblySurface selectedAssembly =
+            Assert.Single(
+                siblingSurface.Assemblies,
+                assembly => assembly.Id == selected.Type.AssemblyId);
         BrowserCallGraph graph = Assert.IsType<BrowserCallGraph>(
             JsonSerializer.Deserialize(
                 await InspectionEngine.ExpandPlatformCallGraph(
                     "net11.0",
                     "InspectWeb.Engine.Tests",
                     "netcore.app",
+                    selectedAssembly.Version,
+                    selectedAssembly.Culture,
+                    selectedAssembly.PublicKeyToken,
                     selected.Type.MetadataId,
                     selected.Member.Name,
                     selected.Member.GraphSelectorKey,
@@ -1080,6 +1092,23 @@ public sealed class BrowserEngineBoundaryTests
         Assert.All(
             attributedTargets,
             target => Assert.Equal("netcore.app", target.PlatformPack));
+        InvalidOperationException identityMismatch =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => InspectionEngine.ExpandPlatformCallGraph(
+                    "net11.0",
+                    "InspectWeb.Engine.Tests",
+                    "netcore.app",
+                    "0.0.0.0",
+                    selectedAssembly.Culture,
+                    selectedAssembly.PublicKeyToken,
+                    selected.Type.MetadataId,
+                    selected.Member.Name,
+                    selected.Member.GraphSelectorKey,
+                    selected.Member.MetadataToken!.Value));
+        Assert.Contains(
+            "does not match the acquired assembly identity",
+            identityMismatch.Message,
+            StringComparison.Ordinal);
 
         using BrowserPlatformScopeResolution qualifiedRuntime =
             await BrowserPlatformWorkspace.OpenRuntimeAsync(
@@ -1096,6 +1125,9 @@ public sealed class BrowserEngineBoundaryTests
                         "net11.0-browser",
                         "InspectWeb.Engine.Tests",
                         "netcore.app",
+                        selectedAssembly.Version,
+                        selectedAssembly.Culture,
+                        selectedAssembly.PublicKeyToken,
                         selected.Type.MetadataId,
                         selected.Member.Name,
                         selected.Member.GraphSelectorKey,
@@ -2361,6 +2393,10 @@ public sealed class BrowserEngineBoundaryTests
             member => member.Name == "WriteLine"
                 && member.DocumentationId
                     == "M:System.Console.WriteLine(System.String)");
+        BrowserAssemblySurface consoleAssembly =
+            Assert.Single(
+                surface.Assemblies,
+                assembly => assembly.Id == consoleType.AssemblyId);
         int requestsBeforeGraph = handler.Requests;
 
         BrowserCallGraph graph =
@@ -2371,6 +2407,9 @@ public sealed class BrowserEngineBoundaryTests
                             framework,
                             "System.Console",
                             "netcore.app",
+                            consoleAssembly.Version,
+                            consoleAssembly.Culture,
+                            consoleAssembly.PublicKeyToken,
                             consoleType.DefinitionId,
                             writeLine.Name,
                             writeLine.GraphSelectorKey,

@@ -140,10 +140,13 @@ returns it and until the cumulative candidate is registered or abandoned, so a
 later family download cannot evict bytes that the unregistered candidate still
 holds. Shared links carry the selected library's exact pack token, and initial
 member graphs use the same escaped definition identity as subsequent graph
-descent. A selected Platform coordinate that matches multiple full metadata
-identities fails typed rather than choosing by archive order. The Platform
-workspace admits at most 256 realized assemblies and retains at most 64 MB of
-opened images.
+descent. Platform graph loads and descents also carry the target's complete
+assembly identity and reject an acquired root that is not binding-equivalent,
+rather than applying a valid selector to a different assembly version or
+public-key token. A selected Platform coordinate that matches multiple full
+metadata identities fails typed rather than choosing by archive order. The
+Platform workspace admits at most 256 realized assemblies and retains at most
+64 MB of opened images.
 `BrowserEngineBoundaryTests.PlatformWorkspace_PinsAndAccumulatesSelectedAssemblies`,
 `PlatformWorkspace_BatchesCumulativeAssemblyExpansion`,
 `PlatformWorkspace_RejectsOneNameAcrossPackFamilies`,

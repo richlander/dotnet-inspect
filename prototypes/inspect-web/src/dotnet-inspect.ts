@@ -810,6 +810,9 @@ const callGraphInspection = createCallGraphInspectionCoordinator({
       request.framework,
       request.assembly,
       request.pack,
+      request.assemblyVersion ?? "",
+      request.assemblyCulture,
+      request.assemblyPublicKeyToken,
       request.type,
       request.member,
       request.selectorKey,
@@ -6410,6 +6413,7 @@ async function loadSelectedMemberCallGraph() {
   }
   const signature = memberRequestSignature(type, overload, true);
   const pkg = currentPackage();
+  const platformAssembly = assemblyDescriptorForType(pkg.assemblies, type);
   const workspacePackages =
     state.packages.filter(packageItem => !packageItem.isRuntimePack);
   const hasOtherLibraries =
@@ -6426,6 +6430,10 @@ async function loadSelectedMemberCallGraph() {
     platformType:
       type.definitionId ?? type.metadataId ?? type.queryId ?? type.id,
     platformPack: platformPackForAssembly(type.assembly, type.platformPack),
+    platformAssemblyVersion: platformAssembly?.version ?? null,
+    platformAssemblyCulture: platformAssembly?.culture ?? null,
+    platformAssemblyPublicKeyToken:
+      platformAssembly?.publicKeyToken ?? null,
     member: state.selectedBodyTarget?.memberName ?? overload.name,
     memberSignature: overload.signature,
     selectorKey:
@@ -6553,7 +6561,10 @@ function callGraphNodeBinding(
   const drilled =
     state.platformStack.length > 0 || Boolean(state.package?.isRuntimePack);
   if (drilled) {
-    if (target.id === "n0" || !target.assembly || !typeId) return null;
+    if (target.id === "n0"
+      || !target.assembly
+      || !target.assemblyVersion
+      || !typeId) return null;
     return {
       platform: true,
       onSelect: () =>
@@ -6662,6 +6673,9 @@ async function drillPlatformNode(node: BrowserCallGraphTarget) {
     framework: currentPackage().activeFramework,
     assembly: node.assembly,
     pack: platformPackForAssembly(node.assembly, node.platformPack),
+    assemblyVersion: node.assemblyVersion,
+    assemblyCulture: node.assemblyCulture,
+    assemblyPublicKeyToken: node.assemblyPublicKeyToken,
     type: callGraphTargetTypeId(node),
     member: node.memberName,
     selectorKey: node.selectorKey,
@@ -6682,8 +6696,8 @@ function popPlatformDrill() {
 // runtime pack at that member — a first-class, refreshable location with its own header,
 // member list, breadcrumb, and URL — rather than an in-place descent that stays pinned to
 // the workspace package. A not-yet-resident sibling assembly is acquired first so its
-// surface can resolve the target; selector-only in-place descent remains the fallback when
-// that surface has no unique member match.
+// surface can resolve the target; in-place descent preserves the target's full assembly
+// identity when that surface has no unique member match.
 async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
   if (state.platformDrillLoading) return;
   const seq = state.memberCallGraphSeq;

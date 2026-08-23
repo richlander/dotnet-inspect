@@ -91,6 +91,9 @@ public static partial class InspectionEngine
         string targetFramework,
         string assembly,
         string pack,
+        string assemblyVersion,
+        string? assemblyCulture,
+        string? assemblyPublicKeyToken,
         string typeFullName,
         string memberName,
         string selectorKey,
@@ -102,6 +105,9 @@ public static partial class InspectionEngine
                 targetFramework,
                 assembly,
                 pack,
+                assemblyVersion,
+                assemblyCulture,
+                assemblyPublicKeyToken,
                 typeFullName,
                 memberName,
                 selectorKey,
@@ -144,11 +150,22 @@ public static partial class InspectionEngine
         string targetFramework,
         string assembly,
         string pack,
+        string assemblyVersion,
+        string? assemblyCulture,
+        string? assemblyPublicKeyToken,
         string typeFullName,
         string memberName,
         string selectorKey,
         int metadataToken)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(assemblyVersion);
+        if (!Version.TryParse(assemblyVersion, out Version? expectedVersion))
+        {
+            throw new ArgumentException(
+                $"Platform assembly version '{assemblyVersion}' is invalid.",
+                nameof(assemblyVersion));
+        }
+
         string assemblyFileName = assembly.EndsWith(
                 ".dll",
                 StringComparison.OrdinalIgnoreCase)
@@ -162,6 +179,19 @@ public static partial class InspectionEngine
         string rootFamily = owner.Current.Coordinate.Family;
         string rootAssembly =
             owner.Current.Participant.Participant.Assembly.Identity.Name;
+        var expectedIdentity = new AssemblyReferenceIdentity(
+            assemblyFileName[..^4],
+            expectedVersion,
+            assemblyCulture,
+            assemblyPublicKeyToken);
+        AssemblyReferenceIdentity rootIdentity =
+            owner.Current.Participant.Participant.Assembly.Identity;
+        if (!expectedIdentity.IsEquivalentTo(rootIdentity))
+        {
+            throw new InvalidOperationException(
+                $"Platform call-graph target assembly '{expectedIdentity.Name}' "
+                + "does not match the acquired assembly identity.");
+        }
 
         for (int expansion = 0;
             expansion < BrowserInspectionScope.MaxAssembliesPerRole;

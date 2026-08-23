@@ -406,7 +406,7 @@ export declare function initializeEngine(onStatus?: (status: string) => void): P
 export declare function buildIdentity(): BrowserBuildIdentity;
 export declare function cancelSourceQuery(): void;
 export declare function configureHost(origin: string): void;
-export declare function expandPlatformCallGraph(targetFramework: string, assembly: string, pack: string, typeFullName: string, memberName: string, selectorKey: string, metadataToken: number): Promise<BrowserCallGraph>;
+export declare function expandPlatformCallGraph(targetFramework: string, assembly: string, pack: string, assemblyVersion: string, assemblyCulture: string | null, assemblyPublicKeyToken: string | null, typeFullName: string, memberName: string, selectorKey: string, metadataToken: number): Promise<BrowserCallGraph>;
 export declare function getPackageDocument(packageId: string, version: string, path: string): Promise<BrowserPackageDocumentContent>;
 export declare function listVocabulary(): BrowserVocabularyDocument;
 export declare function loadRuntimePack(targetFramework: string): Promise<string>;

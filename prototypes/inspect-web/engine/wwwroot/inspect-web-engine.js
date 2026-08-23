@@ -103,9 +103,9 @@ export function configureHost(origin) {
   return configureHostExport(origin);
 }
 
-export async function expandPlatformCallGraph(targetFramework, assembly, pack, typeFullName, memberName, selectorKey, metadataToken) {
+export async function expandPlatformCallGraph(targetFramework, assembly, pack, assemblyVersion, assemblyCulture, assemblyPublicKeyToken, typeFullName, memberName, selectorKey, metadataToken) {
   if (!expandPlatformCallGraphExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = await expandPlatformCallGraphExport(targetFramework, assembly, pack, typeFullName, memberName, selectorKey, metadataToken);
+  const result = await expandPlatformCallGraphExport(targetFramework, assembly, pack, assemblyVersion, assemblyCulture, assemblyPublicKeyToken, typeFullName, memberName, selectorKey, metadataToken);
   return JSON.parse(result);
 }
 
