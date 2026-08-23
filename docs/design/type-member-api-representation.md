@@ -73,6 +73,7 @@ of repeated in every row.
 | `TypeNode` | One API extraction operation | Rich signature facts and inputs to display or identity projections | Cross-layer public currency or definition correspondence |
 | `MetadataMemberSignatureShape` adapter | One MethodDef signature | How an SRM signature projects into the model-free `CSharpText` correspondence shape | Source binding, authoritative identity, or ordinal fallback policy |
 | `ApiType`, `ApiMember`, `ApiParameter` | Materialized, JSON-capable API output | API inventory, presentation fields, and persisted identity projections | Reader-local resolution or body identity |
+| `ApiTypeShape` | One identity-sensitive API signature or serializer root | Primitive code, array rank, exact named definition, and constructed generic arguments | Display spelling, assembly resolution, or universal type correspondence |
 | `MemberTargetSelector` | One member-selection request | The user's member question, including overload and digest syntax | Evidence that selection succeeded |
 | `MetadataNamedTypeReference` | One decoded signature detached from its reader | Which exact named type definition and metadata scope the signature denotes | Resolution to an acquired assembly, constructed-type shape, or display spelling |
 

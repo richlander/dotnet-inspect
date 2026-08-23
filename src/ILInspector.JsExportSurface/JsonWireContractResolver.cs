@@ -71,7 +71,10 @@ public static class JsonWireContractResolver
         LibraryBodyIndex bodyIndex,
         JsExportFunction function,
         int metadataToken,
-        IReadOnlySet<int> registeredJsonTypeInfoGetterTokens)
+        IReadOnlyDictionary<int, JsonSourceGenerationMode>
+            registeredJsonTypeInfoGetterModes,
+        IReadOnlyDictionary<int, string>
+            unsupportedJsonTypeInfoGetterReasons)
     {
         var parameterTypes = new List<TypeRef>();
 
@@ -94,7 +97,9 @@ public static class JsonWireContractResolver
                     bodyIndex,
                     call,
                     dto,
-                    registeredJsonTypeInfoGetterTokens))
+                    registeredJsonTypeInfoGetterModes,
+                    unsupportedJsonTypeInfoGetterReasons,
+                    JsonWireDirection.Deserialize))
             {
                 parameterTypes.Add(dto);
             }
@@ -103,7 +108,8 @@ public static class JsonWireContractResolver
         TypeRef? returnType = ResolveCompleteReturnWireType(
             bodyIndex,
             metadataToken,
-            registeredJsonTypeInfoGetterTokens);
+            registeredJsonTypeInfoGetterModes,
+            unsupportedJsonTypeInfoGetterReasons);
         return new JsExportFunction
         {
             DeclaringType = function.DeclaringType,
@@ -131,7 +137,10 @@ public static class JsonWireContractResolver
     static TypeRef? ResolveCompleteReturnWireType(
         LibraryBodyIndex bodyIndex,
         int metadataToken,
-        IReadOnlySet<int> registeredJsonTypeInfoGetterTokens)
+        IReadOnlyDictionary<int, JsonSourceGenerationMode>
+            registeredJsonTypeInfoGetterModes,
+        IReadOnlyDictionary<int, string>
+            unsupportedJsonTypeInfoGetterReasons)
     {
         var sinks = new List<MethodResultSink>();
         foreach (MethodResultSink sink in bodyIndex.ResultSinks)
@@ -195,7 +204,9 @@ public static class JsonWireContractResolver
                         bodyIndex,
                         source,
                         sourceDto,
-                        registeredJsonTypeInfoGetterTokens))
+                        registeredJsonTypeInfoGetterModes,
+                        unsupportedJsonTypeInfoGetterReasons,
+                        JsonWireDirection.Serialize))
                     return null;
                 if (dto is null)
                 {
@@ -228,7 +239,11 @@ public static class JsonWireContractResolver
         LibraryBodyIndex bodyIndex,
         DirectCall serializerCall,
         TypeRef dto,
-        IReadOnlySet<int> registeredJsonTypeInfoGetterTokens)
+        IReadOnlyDictionary<int, JsonSourceGenerationMode>
+            registeredJsonTypeInfoGetterModes,
+        IReadOnlyDictionary<int, string>
+            unsupportedJsonTypeInfoGetterReasons,
+        JsonWireDirection direction)
     {
         CallArgumentSource? argument =
             serializerCall.ArgumentSources.FirstOrDefault(
@@ -245,9 +260,22 @@ public static class JsonWireContractResolver
                 bodyIndex,
                 serializerCall.EvidenceMethod,
                 sourceOffset);
-            if (source is null
-                || !registeredJsonTypeInfoGetterTokens.Contains(
-                    source.CalleeDefinitionToken)
+            if (source is null)
+            {
+                return false;
+            }
+            if (unsupportedJsonTypeInfoGetterReasons.TryGetValue(
+                    source.CalleeDefinitionToken,
+                    out string? unsupportedReason))
+            {
+                throw new UnsupportedJsExportSurfaceException(
+                    "serializer context",
+                    unsupportedReason);
+            }
+            if (!registeredJsonTypeInfoGetterModes.TryGetValue(
+                    source.CalleeDefinitionToken,
+                    out JsonSourceGenerationMode generationMode)
+                || !SupportsDirection(generationMode, direction)
                 || !IsTrustedJsonTypeInfoOf(
                     source.Callee.ReturnType,
                     dto))
@@ -258,6 +286,23 @@ public static class JsonWireContractResolver
 
         return true;
     }
+
+    static bool SupportsDirection(
+        JsonSourceGenerationMode generationMode,
+        JsonWireDirection direction) =>
+        direction switch
+        {
+            JsonWireDirection.Serialize =>
+                generationMode is JsonSourceGenerationMode.Default
+                    or JsonSourceGenerationMode.Metadata
+                    or JsonSourceGenerationMode.Serialization
+                    or JsonSourceGenerationMode.MetadataAndSerialization,
+            JsonWireDirection.Deserialize =>
+                generationMode is JsonSourceGenerationMode.Default
+                    or JsonSourceGenerationMode.Metadata
+                    or JsonSourceGenerationMode.MetadataAndSerialization,
+            _ => false,
+        };
 
     static bool IsTrustedAsyncResultSink(MemberRef callee)
     {

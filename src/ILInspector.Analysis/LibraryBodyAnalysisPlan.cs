@@ -34,6 +34,11 @@ internal sealed record LibraryBodyAnalysisPlan(
             features |= LibraryBodyAnalysisFeatures.MethodEvidence;
         if ((features & LibraryBodyAnalysisFeatures.OwnershipFlow) != 0)
             features |= LibraryBodyAnalysisFeatures.MethodEvidence;
+        if ((features
+                & LibraryBodyAnalysisFeatures.JsonWireContractFlow) != 0)
+        {
+            features |= LibraryBodyAnalysisFeatures.MethodEvidence;
+        }
         if ((features & LibraryBodyAnalysisFeatures.LeakTriage) != 0
             && (methodScope is not null || typeScope is not null))
         {

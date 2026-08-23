@@ -63,9 +63,15 @@ row's `TypeInfoPropertyName`, or STJ's structured default generated name when
 that argument is absent, and its `T` identity matches the authenticated row.
 An unrelated same-`T` handwritten `JsonTypeInfo<T>` property on the same
 partial context is not a registration.
-Intrinsic `string` roots can have no API type-reference entry, so their
-generated property identity is admitted only when the matching `System.String`
-root has a platform-signed, top-level identity.
+The root and property argument are compared as one structured shape: primitive
+codes, array rank, named/generic identities, and every generic argument remain
+distinct. This avoids special string or name fallback paths for `int`, `int[]`,
+`byte[]`, and closed generic roots. For a default name STJ uses the leaf
+metadata segment (plus generic arguments and array suffixes), so a nested
+`Outer.Leaf` root is `Leaf`, not `OuterLeaf`. A nested/top-level leaf collision
+is retained as ambiguous evidence and stops generation only when its context
+property reaches an export; unrelated unsupported roots do not poison another
+context.
 These checks use assembly-scoped, structured metadata identity rather than
 matching flattened names as text; a nested type cannot alias an expected
 top-level System.Text.Json definition.
@@ -84,6 +90,24 @@ intrinsic paths. This list is not a heuristic — System.Text.Json's fast
 serialization path requires every (de)serialized type to be registered there,
 so it is exactly the set of shapes that can flow across the `[JSExport]`
 boundary via this pattern.
+`JsExportSurfaceBuilderTests.Build_AuthenticatesNestedSerializerRootUsingLeafPropertyName`,
+`Build_RejectsNestedAndTopLevelSerializerRootCollisionWhenReached`,
+`Extract_PreservesClosedGenericAndPrimitiveSerializerRootShapes`, and
+`JsonWireContractResolverTests.Build_ResolvesRegisteredPrimitiveAndArrayRoots`
+gate the generated-name and exact-shape boundaries.
+
+### Source-generation direction
+
+A generated `JsonTypeInfo<T>` property does not itself prove deserialize
+support. tsbindgen retains the effective
+`JsonSourceGenerationMode`: a root set to `Default` inherits its context's
+mode, `Serialization` authenticates only serialization, and `Metadata`
+authenticates both directions. Consequently a serialization-only property can
+resolve a return envelope but never a `Deserialize` parameter. The compiled
+`JsonWireContractResolverTests.Build_UsesEffectiveSourceGenerationModesForWireDirections`
+and
+`SourceGeneratedJson_SerializationOnlyRootRejectsDeserializeAndPreservesSerializeShape`
+gates cover the override/default rule and STJ's runtime failure oracle.
 
 Generated interfaces include properties with an accessible getter and
 `[JsonInclude]` properties or fields accessible to the source-generated
@@ -319,14 +343,17 @@ assembly simple name, simple type name, or namespace-qualified name becomes
 diagnosed `unknown`, not an alias. Built-in mappings such as
 `Task<T>`, `Dictionary<TKey, TValue>`, primitives, and `JsonElement` likewise
 require both a platform signature and an allowed defining or contract assembly
-for that exact mapping; same-name external types and references that merely
-claim a platform token become diagnosed `unknown`.
+for that exact mapping plus the expected top-level
+`MetadataTypeDefinitionName`; same-name external types, nested lookalikes, and
+references that merely claim a platform token become diagnosed `unknown`.
 `DtsEmitterTests.Emit_DoesNotApplyDictionarySemanticsToLookalikeType` and
 `Emit_DoesNotApplyTaskSemanticsToLookalikeType` plus
 `Emit_DoesNotTrustClaimedPlatformTokenFromWrongAssembly` gate this framework
 boundary;
 `Emit_NestedIdentityCannotAliasNamespaceQualifiedType` gates structured type
-identity.
+identity, and
+`Emit_DoesNotMapExtractedNestedFrameworkByteOrTaskLookalikes` gates the
+extracted nested Byte/Task impostors.
 Empty string-converted enums
 are rejected before output. Property keys use the broader `IdentifierName` grammar,
 where reserved words remain valid and do not require quoting;
@@ -361,7 +388,14 @@ attribution. `Build_IgnoresLookalikeJsExportAttribute` and
 `Extract_DoesNotTrustSameNameJsExportFromAnotherAssembly` plus
 `Extract_DoesNotTrustMalformedAuthenticJsExportRows` gate the exact,
 framework-signed `System.Runtime.InteropServices.JavaScript.JSExport`
-constructor and value contract.
+constructor and value contract. Authentic JSExport rows retain a count and
+malformed marker through the `ApiMember` JSON contract: malformed-only,
+valid-plus-malformed, and duplicate-valid evidence stop before declaration or
+wrapper emission, while untrusted lookalikes remain absent.
+`JsExportSurfaceBuilderTests.Extract_RetainsMalformedAuthenticJsExportRowsAsFailureEvidence`,
+`Extract_RejectsDuplicateOrMixedAuthenticJsExportRows`, and
+`ApiOutputFormatterTests.ApiTypeJson_RoundTripsRuntimeJsExportFailureEvidence`
+are the gates.
 `Extract_ChargesSerializedConverterTypeNameBeforeDecode` gates bounded
 materialization accounting for converter-controlled serialized type names.
 Property and field metadata tokens identify the precise offending row in fatal

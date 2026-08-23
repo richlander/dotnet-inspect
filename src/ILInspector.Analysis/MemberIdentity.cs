@@ -342,7 +342,10 @@ public sealed record DirectCall(
     /// <summary>
     /// Conservative use of the value produced by this call.
     /// <c>MethodCallAnalysisTests.ClassifiesReturnedAndDiscardedCallResults</c>
-    /// gates direct uses; unresolved flows remain <see cref="DirectCallResultUse.Unknown"/>.
+    /// gates direct uses when
+    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is
+    /// requested; plain MethodEvidence leaves this
+    /// <see cref="DirectCallResultUse.Unknown"/>.
     /// </summary>
     public DirectCallResultUse ResultUse { get; init; }
     /// <summary>
@@ -355,7 +358,8 @@ public sealed record DirectCall(
     /// interpret the body evaluation stack. Unknown, raw, or merged values
     /// have <see cref="CallArgumentSource.IsComplete"/> set to false.
     /// <c>MethodCallAnalysisTests.RejectsMergedEvaluationStackResultSources</c>
-    /// gates the fail-closed boundary.
+    /// gates the fail-closed boundary. The collection is materialized only by
+    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/>.
     /// </summary>
     public CallArgumentSources ArgumentSources { get; init; } =
         CallArgumentSources.Empty;

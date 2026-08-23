@@ -100,11 +100,14 @@ public static class TsBindGenCommand
             global::ILInspector.JsExportSurface.JsExportSurface jsExportSurface;
             try
             {
-                // Only DirectCalls (MethodEvidence) is needed for wire-contract resolution;
-                // allocation/optimization-opportunity analysis is unrelated work this command
-                // doesn't consume, so it's explicitly left out rather than paid for by default.
+                // JsonWireContractFlow adds only the argument and result value
+                // provenance that authenticates generated JsonTypeInfo<T>
+                // registrations. Allocation and opportunity analysis remain
+                // unrelated work this command does not request.
                 LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(
-                    assemblyPath, LibraryBodyAnalysisFeatures.MethodEvidence);
+                    assemblyPath,
+                    LibraryBodyAnalysisFeatures.MethodEvidence
+                        | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
                 jsExportSurface = JsExportSurfaceBuilder.Build(apiSurface, bodyIndex);
             }
             catch (UnsupportedJsExportSurfaceException ex)

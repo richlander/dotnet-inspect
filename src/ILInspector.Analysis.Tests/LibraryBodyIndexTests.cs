@@ -6094,6 +6094,40 @@ public class LibraryBodyIndexTests
         Assert.Equal(CallKind.CallVirtual, call.Kind);
     }
 
+    /// <summary>
+    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is the
+    /// non-vacuity gate for tsbindgen's value-flow opt-in: plain method
+    /// evidence retains direct calls without materializing their argument or
+    /// result flow, while the named feature supplies both.
+    /// </summary>
+    [Fact]
+    public void MethodEvidence_OmitsCallValueFlowUntilJsonWireContractFlowIsRequested()
+    {
+        string path = typeof(CallSiteFixtures).Assembly.Location;
+        LibraryBodyIndex plain = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        LibraryBodyIndex jsonWire = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+
+        Assert.NotEmpty(plain.DirectCalls);
+        Assert.Empty(plain.ResultSinks);
+        Assert.All(
+            plain.DirectCalls,
+            call =>
+            {
+                Assert.Empty(call.ArgumentSources);
+                Assert.Equal(DirectCallResultUse.Unknown, call.ResultUse);
+            });
+
+        Assert.NotEmpty(jsonWire.ResultSinks);
+        Assert.Contains(
+            jsonWire.DirectCalls,
+            call => call.ArgumentSources.Count > 0);
+    }
+
     [Fact]
     public void DirectCalls_ClassifyCallsiteMultiplicity()
     {

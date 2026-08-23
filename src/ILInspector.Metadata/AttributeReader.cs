@@ -9,6 +9,18 @@ using System.Text;
 namespace ILInspector.Metadata;
 
 /// <summary>
+/// Authentic framework-signed <c>[JSExport]</c> metadata retained without
+/// collapsing malformed or duplicate rows into absence.
+/// </summary>
+public readonly record struct RuntimeJsExportAttributeEvidence(
+    int Count,
+    int ValidRowCount,
+    bool HasMalformedRow)
+{
+    public bool HasValidRow => ValidRowCount > 0;
+}
+
+/// <summary>
 /// Reads and checks custom attributes on types and members.
 /// </summary>
 public static partial class AttributeReader
@@ -548,29 +560,57 @@ public static partial class AttributeReader
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
         Action<int>? beforeMaterialize = null)
+        => ReadRuntimeJsExportAttributes(
+            reader,
+            attributes,
+            beforeMaterialize).HasValidRow;
+
+    /// <summary>
+    /// Reads every authentic framework-signed <c>[JSExport]</c> row. A row
+    /// whose constructor or value blob is not the expected marker shape remains
+    /// visible as malformed evidence; an untrusted same-named attribute remains
+    /// ignored because it never claimed the framework contract.
+    /// </summary>
+    public static RuntimeJsExportAttributeEvidence
+        ReadRuntimeJsExportAttributes(
+            MetadataReader reader,
+            CustomAttributeHandleCollection attributes,
+            Action<int>? beforeMaterialize = null)
     {
+        int count = 0;
+        int validRowCount = 0;
+        bool hasMalformedRow = false;
         foreach (CustomAttributeHandle attrHandle in attributes)
         {
             CustomAttribute attr = reader.GetCustomAttribute(attrHandle);
-            if (IsFrameworkAttributeType(
+            if (!IsFrameworkAttributeType(
                     reader,
                     attr.Constructor,
                     RuntimeJsExportAttributeName,
                     RuntimeJavaScriptAssemblyName,
-                    beforeMaterialize)
-                && HasExpectedConstructor(
+                    beforeMaterialize))
+            {
+                continue;
+            }
+
+            count++;
+            if (!HasExpectedConstructor(
                     reader,
                     attr.Constructor,
                     FrameworkConstructorKind.Marker,
                     beforeMaterialize)
-                && HasMarkerValueBlob(
+                || !HasMarkerValueBlob(
                     reader,
                     attr))
             {
-                return true;
+                hasMalformedRow = true;
+            }
+            else
+            {
+                validRowCount++;
             }
         }
-        return false;
+        return new(count, validRowCount, hasMalformedRow);
     }
 
 
@@ -767,9 +807,28 @@ public static partial class AttributeReader
         CustomAttributeHandleCollection attributes,
         out JsonWireNamingPolicy? namingPolicy,
         Action<int>? beforeMaterialize = null)
+        => TryGetJsonSourceGenerationOptions(
+            reader,
+            attributes,
+            out namingPolicy,
+            out _,
+            beforeMaterialize);
+
+    /// <summary>
+    /// Reads the wire-relevant source-generation options for a serializer
+    /// context. The mode is retained independently of naming because a
+    /// serialization-only context must not authenticate deserialization.
+    /// </summary>
+    public static bool TryGetJsonSourceGenerationOptions(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        out JsonWireNamingPolicy? namingPolicy,
+        out JsonSourceGenerationMode generationMode,
+        Action<int>? beforeMaterialize = null)
     {
         bool found = false;
         namingPolicy = null;
+        generationMode = JsonSourceGenerationMode.Default;
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
@@ -794,12 +853,21 @@ public static partial class AttributeReader
                     attr.Constructor,
                     FrameworkConstructorKind.JsonSerializerDefaults,
                     beforeMaterialize);
-            JsonWireNamingPolicy current = hasExpectedConstructor
-                ? ReadJsonKnownNamingPolicy(reader, attr, beforeMaterialize)
-                : JsonWireNamingPolicy.Unsupported;
+            JsonSourceGenerationOptionsEvidence current =
+                hasExpectedConstructor
+                    ? ReadJsonSourceGenerationOptions(
+                        reader,
+                        attr,
+                        beforeMaterialize)
+                    : new(
+                        JsonWireNamingPolicy.Unsupported,
+                        JsonSourceGenerationMode.Default);
             namingPolicy = found
                 ? JsonWireNamingPolicy.Unsupported
-                : current;
+                : current.NamingPolicy;
+            generationMode = found
+                ? JsonSourceGenerationMode.Default
+                : current.GenerationMode;
             found = true;
         }
 
@@ -904,59 +972,41 @@ public static partial class AttributeReader
                     is not string serializedTypeName
                 || !TryGetJsonSerializableTypeInfoPropertyName(
                     decoded.NamedArguments,
-                    out string? typeInfoPropertyName))
+                    out string? typeInfoPropertyName,
+                    out JsonSourceGenerationMode generationMode))
             {
                 continue;
             }
 
-            ApiAssemblyIdentity? assemblyIdentity;
-            string? typeName;
-            if (TryReadSerializedTypeIdentity(
-                    serializedTypeName,
-                    out string? parsedTypeName,
-                    out ApiAssemblyIdentity? parsedAssemblyIdentity))
+            ApiTypeShape? rootShape =
+                currentAssemblyIdentity is null
+                    ? null
+                    : ParseJsonSerializableRootShape(
+                        serializedTypeName,
+                        currentAssemblyIdentity);
+            roots.Add(new(
+                ElementType: GetLegacyRootElementType(rootShape),
+                IsArray: rootShape?.Kind is ApiTypeShapeKind.SzArray
+                    or ApiTypeShapeKind.Array,
+                TypeInfoPropertyName: typeInfoPropertyName)
             {
-                typeName = parsedTypeName;
-                assemblyIdentity = parsedAssemblyIdentity;
-            }
-            else
-            {
-                typeName = serializedTypeName.Trim();
-                assemblyIdentity = currentAssemblyIdentity;
-            }
-
-            if (!string.IsNullOrEmpty(typeName)
-                && assemblyIdentity is not null)
-            {
-                bool isArray = typeName.EndsWith(
-                    "[]",
-                    StringComparison.Ordinal);
-                if (isArray)
-                    typeName = typeName[..^2];
-                if (typeName.IndexOfAny(['[', ']', '`', '*', '&']) >= 0)
-                    continue;
-                MetadataTypeDefinitionName? definitionName =
-                    MetadataTypeDefinitionName.ParseSerialized(typeName)
-                        is MetadataTypeDefinitionNameResult.Valid valid
-                            ? valid.Name
-                            : null;
-                roots.Add(new(
-                    new(
-                        assemblyIdentity,
-                        typeName.Replace('+', '.'),
-                        definitionName),
-                    isArray,
-                    typeInfoPropertyName));
-            }
+                Type = rootShape,
+                UnsupportedReason = rootShape is null
+                    ? "serializer root type shape is unsupported"
+                    : null,
+                GenerationMode = generationMode,
+            });
         }
         return roots;
     }
 
     static bool TryGetJsonSerializableTypeInfoPropertyName(
         ImmutableArray<CustomAttributeNamedArgument<string>> arguments,
-        out string? typeInfoPropertyName)
+        out string? typeInfoPropertyName,
+        out JsonSourceGenerationMode generationMode)
     {
         typeInfoPropertyName = null;
+        generationMode = JsonSourceGenerationMode.Default;
         var names = new HashSet<string>(StringComparer.Ordinal);
         foreach (CustomAttributeNamedArgument<string> argument in arguments)
         {
@@ -973,7 +1023,9 @@ public static partial class AttributeReader
                             argument.Type,
                             "System.Text.Json.Serialization.JsonSourceGenerationMode")
                         || !TryReadInt32(argument.Value, out int mode)
-                        || mode is < 0 or > 3)
+                        || !TryGetJsonSourceGenerationMode(
+                            mode,
+                            out generationMode))
                     {
                         return false;
                     }
@@ -991,6 +1043,291 @@ public static partial class AttributeReader
             }
         }
         return true;
+    }
+
+    static ApiTypeReferenceIdentity? GetLegacyRootElementType(
+        ApiTypeShape? root)
+    {
+        while (root?.Kind is ApiTypeShapeKind.SzArray
+            or ApiTypeShapeKind.Array)
+        {
+            root = root.ElementType;
+        }
+
+        return root?.Definition;
+    }
+
+    static ApiTypeShape? ParseJsonSerializableRootShape(
+        string serializedTypeName,
+        ApiAssemblyIdentity currentAssemblyIdentity)
+    {
+        if (serializedTypeName.Length
+            > MetadataSafetyPolicy.MaxTypeNameCharacters)
+        {
+            return null;
+        }
+
+        return ParseJsonSerializableTypeShape(
+            serializedTypeName,
+            currentAssemblyIdentity,
+            depth: 0);
+    }
+
+    static ApiTypeShape? ParseJsonSerializableTypeShape(
+        string serializedTypeName,
+        ApiAssemblyIdentity currentAssemblyIdentity,
+        int depth)
+    {
+        if (depth >= MetadataSafetyPolicy.MaxRelationshipNodes)
+            return null;
+
+        string text;
+        ApiAssemblyIdentity assembly;
+        if (TryReadSerializedTypeIdentity(
+                serializedTypeName,
+                out string? parsedTypeName,
+                out ApiAssemblyIdentity? parsedAssemblyIdentity)
+            && parsedTypeName is { } parsedType
+            && parsedAssemblyIdentity is { } parsedAssembly)
+        {
+            text = parsedType;
+            assembly = parsedAssembly;
+        }
+        else
+        {
+            text = serializedTypeName.Trim();
+            assembly = currentAssemblyIdentity;
+        }
+
+        if (text.Length == 0
+            || text.IndexOfAny(['*', '&']) >= 0)
+        {
+            return null;
+        }
+
+        var arrayRanks = new List<int>();
+        while (TryStripArraySuffix(text, out string? elementText, out int rank))
+        {
+            arrayRanks.Add(rank);
+            text = elementText!;
+        }
+
+        ApiTypeShape? shape = ParseJsonSerializableNonArrayType(
+            text,
+            assembly,
+            currentAssemblyIdentity,
+            depth);
+        if (shape is null)
+            return null;
+
+        for (int index = arrayRanks.Count - 1; index >= 0; index--)
+        {
+            shape = arrayRanks[index] == 1
+                ? ApiTypeShape.SzArray(shape)
+                : ApiTypeShape.Array(shape, arrayRanks[index]);
+        }
+
+        return shape;
+    }
+
+    static ApiTypeShape? ParseJsonSerializableNonArrayType(
+        string text,
+        ApiAssemblyIdentity assembly,
+        ApiAssemblyIdentity currentAssemblyIdentity,
+        int depth)
+    {
+        int genericStart = text.IndexOf('[');
+        if (genericStart < 0)
+            return ParseJsonSerializableNamedType(text, assembly);
+
+        if (genericStart == 0
+            || !text[..genericStart].Contains(
+                '`',
+                StringComparison.Ordinal)
+            || FindMatchingBracket(text, genericStart) != text.Length - 1)
+        {
+            return null;
+        }
+
+        ImmutableArray<string>? serializedArguments =
+            ParseSerializedGenericArguments(text, genericStart);
+        if (serializedArguments is null)
+            return null;
+
+        ApiTypeShape? definition =
+            ParseJsonSerializableNamedType(
+                text[..genericStart],
+                assembly);
+        if (definition?.Definition is not { } definitionIdentity)
+            return null;
+
+        var arguments = ImmutableArray.CreateBuilder<ApiTypeShape>(
+            serializedArguments.Value.Length);
+        foreach (string argument in serializedArguments.Value)
+        {
+            ApiTypeShape? argumentShape =
+                ParseJsonSerializableTypeShape(
+                    argument,
+                    currentAssemblyIdentity,
+                    depth + 1);
+            if (argumentShape is null)
+                return null;
+            arguments.Add(argumentShape);
+        }
+
+        return ApiTypeShape.GenericInstance(
+            definitionIdentity,
+            arguments.MoveToImmutable());
+    }
+
+    static ApiTypeShape? ParseJsonSerializableNamedType(
+        string text,
+        ApiAssemblyIdentity assembly)
+    {
+        if (TryGetSerializedPrimitive(
+                text,
+                assembly,
+                out ApiPrimitiveType primitive))
+        {
+            return ApiTypeShape.PrimitiveType(primitive);
+        }
+
+        MetadataTypeDefinitionName? definitionName =
+            MetadataTypeDefinitionName.ParseSerialized(text)
+                is MetadataTypeDefinitionNameResult.Valid valid
+                    ? valid.Name
+                    : null;
+        if (definitionName is null)
+            return null;
+
+        return ApiTypeShape.Named(new(
+            assembly,
+            text.Replace('+', '.'),
+            definitionName));
+    }
+
+    static bool TryGetSerializedPrimitive(
+        string text,
+        ApiAssemblyIdentity assembly,
+        out ApiPrimitiveType primitive)
+    {
+        primitive = text switch
+        {
+            "System.Void" => ApiPrimitiveType.Void,
+            "System.Boolean" => ApiPrimitiveType.Boolean,
+            "System.Char" => ApiPrimitiveType.Char,
+            "System.SByte" => ApiPrimitiveType.SByte,
+            "System.Byte" => ApiPrimitiveType.Byte,
+            "System.Int16" => ApiPrimitiveType.Int16,
+            "System.UInt16" => ApiPrimitiveType.UInt16,
+            "System.Int32" => ApiPrimitiveType.Int32,
+            "System.UInt32" => ApiPrimitiveType.UInt32,
+            "System.Int64" => ApiPrimitiveType.Int64,
+            "System.UInt64" => ApiPrimitiveType.UInt64,
+            "System.Single" => ApiPrimitiveType.Single,
+            "System.Double" => ApiPrimitiveType.Double,
+            "System.Decimal" => ApiPrimitiveType.Decimal,
+            "System.String" => ApiPrimitiveType.String,
+            "System.Object" => ApiPrimitiveType.Object,
+            _ => (ApiPrimitiveType)(-1),
+        };
+        return primitive != (ApiPrimitiveType)(-1)
+            && PlatformKeys.IsPlatform(assembly.PublicKeyToken);
+    }
+
+    static bool TryStripArraySuffix(
+        string text,
+        [NotNullWhen(true)] out string? elementText,
+        out int rank)
+    {
+        elementText = null;
+        rank = 0;
+        if (text.Length < 3 || text[^1] != ']')
+            return false;
+
+        int openBracket = text.LastIndexOf('[');
+        if (openBracket <= 0)
+            return false;
+
+        ReadOnlySpan<char> rankText =
+            text.AsSpan(openBracket + 1, text.Length - openBracket - 2);
+        foreach (char character in rankText)
+        {
+            if (character != ',')
+                return false;
+        }
+
+        elementText = text[..openBracket];
+        rank = rankText.Length + 1;
+        return true;
+    }
+
+    static ImmutableArray<string>? ParseSerializedGenericArguments(
+        string text,
+        int genericStart)
+    {
+        ReadOnlySpan<char> arguments = text.AsSpan(
+            genericStart + 1,
+            text.Length - genericStart - 2);
+        if (arguments.IsEmpty)
+            return ImmutableArray<string>.Empty;
+
+        var result = ImmutableArray.CreateBuilder<string>();
+        int position = 0;
+        while (position < arguments.Length)
+        {
+            string argument;
+            if (arguments[position] == '[')
+            {
+                int depth = 1;
+                int start = ++position;
+                while (position < arguments.Length && depth > 0)
+                {
+                    switch (arguments[position++])
+                    {
+                        case '[':
+                            depth++;
+                            break;
+                        case ']':
+                            depth--;
+                            break;
+                    }
+                }
+                if (depth != 0)
+                    return null;
+
+                argument = arguments[(start)..(position - 1)].ToString();
+            }
+            else
+            {
+                int start = position;
+                while (position < arguments.Length
+                    && arguments[position] != ',')
+                {
+                    position++;
+                }
+                argument = arguments[start..position].ToString().Trim();
+            }
+            if (argument.Length == 0)
+                return null;
+            result.Add(argument);
+
+            if (position == arguments.Length)
+                break;
+            if (arguments[position++] != ',')
+                return null;
+        }
+
+        return result.ToImmutable();
+    }
+
+    static bool TryGetJsonSourceGenerationMode(
+        int value,
+        out JsonSourceGenerationMode mode)
+    {
+        mode = (JsonSourceGenerationMode)value;
+        return value is >= (int)JsonSourceGenerationMode.Default
+            and <= (int)JsonSourceGenerationMode.MetadataAndSerialization;
     }
 
     static bool IsValidJsonIgnoreAttribute(
@@ -1737,7 +2074,8 @@ public static partial class AttributeReader
 
 
 
-    static JsonWireNamingPolicy ReadJsonKnownNamingPolicy(
+    static JsonSourceGenerationOptionsEvidence
+        ReadJsonSourceGenerationOptions(
         MetadataReader reader,
         CustomAttribute attr,
         Action<int>? beforeMaterialize)
@@ -1751,10 +2089,14 @@ public static partial class AttributeReader
                 FixedArguments.Length: 0,
             } decoded)
         {
-            return JsonWireNamingPolicy.Unsupported;
+            return new(
+                JsonWireNamingPolicy.Unsupported,
+                JsonSourceGenerationMode.Default);
         }
 
         CustomAttributeNamedArgument<string>? propertyNamingPolicy = null;
+        JsonSourceGenerationMode generationMode =
+            JsonSourceGenerationMode.Default;
         var optionNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (var named in decoded.NamedArguments)
         {
@@ -1768,22 +2110,44 @@ public static partial class AttributeReader
                 || !optionNames.Add(named.Name!)
                 || HasUnsupportedWireEffect(named))
             {
-                return JsonWireNamingPolicy.Unsupported;
+                return new(
+                    JsonWireNamingPolicy.Unsupported,
+                    JsonSourceGenerationMode.Default);
             }
 
             if (named.Name == "PropertyNamingPolicy")
             {
                 propertyNamingPolicy = named;
             }
+            else if (named.Name == "GenerationMode")
+            {
+                if (!TryReadInt32(named.Value, out int rawMode)
+                    || !TryGetJsonSourceGenerationMode(
+                        rawMode,
+                        out generationMode))
+                {
+                    return new(
+                        JsonWireNamingPolicy.Unsupported,
+                        JsonSourceGenerationMode.Default);
+                }
+            }
         }
 
         if (propertyNamingPolicy is not { } policy)
-            return JsonWireNamingPolicy.None;
+        {
+            return new(
+                JsonWireNamingPolicy.None,
+                generationMode);
+        }
 
         if (!TryReadInt32(policy.Value, out int rawValue))
-            return JsonWireNamingPolicy.Unsupported;
+        {
+            return new(
+                JsonWireNamingPolicy.Unsupported,
+                JsonSourceGenerationMode.Default);
+        }
 
-        return rawValue switch
+        JsonWireNamingPolicy namingPolicy = rawValue switch
         {
             0 => JsonWireNamingPolicy.None,
             1 => JsonWireNamingPolicy.CamelCase,
@@ -1793,7 +2157,12 @@ public static partial class AttributeReader
             5 => JsonWireNamingPolicy.KebabCaseUpper,
             _ => JsonWireNamingPolicy.Unsupported,
         };
+        return new(namingPolicy, generationMode);
     }
+
+    readonly record struct JsonSourceGenerationOptionsEvidence(
+        JsonWireNamingPolicy NamingPolicy,
+        JsonSourceGenerationMode GenerationMode);
 
     static bool HasUnsupportedWireEffect(
         CustomAttributeNamedArgument<string> option) =>

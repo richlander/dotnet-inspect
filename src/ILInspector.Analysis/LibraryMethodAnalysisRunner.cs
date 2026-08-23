@@ -172,6 +172,8 @@ internal sealed class LibraryMethodAnalysisRunner(
             LibraryBodyAnalysisFeatures.LeakTriage);
         bool includeOwnershipFlow = plan.Includes(
             LibraryBodyAnalysisFeatures.OwnershipFlow);
+        bool includeJsonWireContractFlow = plan.Includes(
+            LibraryBodyAnalysisFeatures.JsonWireContractFlow);
         IReadOnlySet<int>? bodyScope = plan.MethodScope;
         Func<TypeRef, bool>? bodyTypeScope = plan.TypeScope;
         IReadOnlySet<int>? requestedMethodScope =
@@ -191,8 +193,10 @@ internal sealed class LibraryMethodAnalysisRunner(
             ImmutableArray.CreateBuilder<UnsafeEvidence>();
         var calls =
             ImmutableArray.CreateBuilder<DirectCall>();
-        var resultSinks =
-            ImmutableArray.CreateBuilder<MethodResultSink>();
+        ImmutableArray<MethodResultSink>.Builder? resultSinks =
+            includeJsonWireContractFlow
+                ? ImmutableArray.CreateBuilder<MethodResultSink>()
+                : null;
         MetadataReader reader = _infrastructure.Reader;
         LeakTriageFailureKind leakFailureKind =
             LeakTriageFailureKind.MethodMetadata;
@@ -552,8 +556,11 @@ internal sealed class LibraryMethodAnalysisRunner(
                     hasUnsafeApiMember
                     || hasUnsafeSignature
                     || hasUnsafeLocals,
+                includeCallValueFlow:
+                    includeJsonWireContractFlow,
                 resultSinks: resultSinks);
-            if (asyncStateMachineSource is not null)
+            if (asyncStateMachineSource is not null
+                && resultSinks is not null)
             {
                 for (int index = 0; index < resultSinks.Count; index++)
                 {
@@ -639,7 +646,7 @@ internal sealed class LibraryMethodAnalysisRunner(
             // emitted before a recoverable failure remain visible.
             result.UnsafeEvidence = evidence.ToImmutable();
             result.Calls = calls.ToImmutable();
-            result.ResultSinks = resultSinks.ToImmutable();
+            result.ResultSinks = resultSinks?.ToImmutable() ?? [];
         }
         return result;
     }

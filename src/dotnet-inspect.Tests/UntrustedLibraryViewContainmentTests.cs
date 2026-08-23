@@ -1432,8 +1432,9 @@ public class LibraryViewShapeDerivedContainmentTests
     /// repository draws. Tracked in #3463.
     /// </description></item>
     /// <item><description>
-    /// <c>TypeRef</c> and <c>MetadataTypeDefinitionName</c> have no public
-    /// constructors; they are factory-built from metadata relationships.
+    /// <c>TypeRef</c>, <c>ApiTypeShape</c>, and
+    /// <c>MetadataTypeDefinitionName</c> have no public constructors; they
+    /// are factory-built from metadata relationships.
     /// </description></item>
     /// <item><description>
     /// <c>ApiSignature.PublicAccessorsSummary</c> and
@@ -1450,7 +1451,9 @@ public class LibraryViewShapeDerivedContainmentTests
     /// </remarks>
     private static readonly string[] OutOfReach =
     [
+        "ApiJsonSerializableRoot.Type (ApiTypeShape): no public constructor",
         "ApiSignature.PublicAccessorsSummary (String): string with no setter",
+        "ApiSignature.ReturnTypeShape (ApiTypeShape): no public constructor",
         "ApiSurfaceInspectionFailure.OwningTypeDefinition (MetadataTypeDefinitionName): no public constructor",
         "ApiType.DefinitionName (MetadataTypeDefinitionName): no public constructor",
         "ApiTypeReferenceIdentity.DefinitionName (MetadataTypeDefinitionName): no public constructor",

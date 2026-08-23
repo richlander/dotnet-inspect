@@ -37,6 +37,7 @@ internal static class MethodCallAnalysis
         ImmutableArray<DirectCall>.Builder calls,
         ImmutableArray<UnsafeEvidence>.Builder unsafeEvidence,
         bool includeIndirectOpcodes,
+        bool includeCallValueFlow = true,
         ImmutableArray<MethodResultSink>.Builder? resultSinks = null)
     {
         var caller = context.Method;
@@ -58,7 +59,9 @@ internal static class MethodCallAnalysis
                     var callee = resolver.ResolveMember(token);
                     var kind = ToCallKind(opcode);
                     DirectCallResult resultUse =
-                        kind is CallKind.Call or CallKind.CallVirtual
+                        includeCallValueFlow
+                            && kind is CallKind.Call
+                                or CallKind.CallVirtual
                             ? ClassifyResultUse(
                                 context,
                                 instruction,
@@ -130,7 +133,7 @@ internal static class MethodCallAnalysis
             }
         }
 
-        if (resultSinks is not null)
+        if (includeCallValueFlow && resultSinks is not null)
         {
             var callsByOffset = calls.ToDictionary(call => call.ILOffset);
             var sources = new StackValueSourceResolver(

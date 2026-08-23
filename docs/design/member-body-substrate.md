@@ -90,6 +90,24 @@ and `CSharp.Decompiler`; `Findings` (the shared finding/diagnostic type) is
 consumed almost everywhere — `Metadata`, `Instructions`, `Analysis`,
 `CSharp.Decompiler`, `Research`, and `Text`.
 
+## Feature ownership
+
+`LibraryBodyAnalysisFeatures.MethodEvidence` owns the ordinary direct-call,
+unsafe, and method-signal census. It deliberately does not materialize
+evaluation-stack or reaching-definition value flow: most Analysis consumers
+need call identities, not each call's argument provenance or result sinks.
+`LibraryBodyAnalysisFeatures.JsonWireContractFlow` is the explicit,
+tsbindgen-owned opt-in for that narrower evidence. It adds
+`DirectCall.ArgumentSources` and `LibraryBodyIndex.ResultSinks` so
+`ILInspector.JsExportSurface` can authenticate a generated
+`JsonTypeInfo<T>` getter and prove a JSON string reaches an export envelope.
+It does not add an Analysis-wide value-flow default or change the ordinary
+MethodEvidence contract.
+
+`LibraryBodyIndexTests.MethodEvidence_OmitsCallValueFlowUntilJsonWireContractFlowIsRequested`
+is the non-vacuity gate: it proves plain MethodEvidence retains calls with no
+argument/result-flow materialization, while the named feature supplies both.
+
 The same producers, read as a 2×2 of **representation** × **rung**, show why
 `Instructions` and `CSharp.Decompiler` are *rung-peers* (both the "body" rung)
 even though the C# body is built *from* the IL body:

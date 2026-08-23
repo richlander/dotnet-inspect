@@ -6,6 +6,7 @@ using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
+using ILInspector.JsExportSurface.NamingFixtures;
 using ILInspector.Metadata;
 
 namespace ILInspector.JsExportSurface.Tests;
@@ -46,7 +47,7 @@ public sealed class JsExportSurfaceBuilderTests
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
         var names = surface.Functions.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(31, surface.Functions.Count);
+        Assert.Equal(39, surface.Functions.Count);
         Assert.Contains("GetWidget", names);
         Assert.Contains("GetWidgetAsync", names);
         Assert.Contains("GetStringArrayAsyncAfterAwait", names);
@@ -76,6 +77,14 @@ public sealed class JsExportSurfaceBuilderTests
         Assert.Contains("GetDirectionalOutput", names);
         Assert.Contains("SetDirectionalInput", names);
         Assert.Contains("RoundTripDirectional", names);
+        Assert.Contains("GetClosedGenericRoot", names);
+        Assert.Contains("GetRegisteredInt", names);
+        Assert.Contains("GetRegisteredIntArray", names);
+        Assert.Contains("GetRegisteredByteArray", names);
+        Assert.Contains("ReadRegisteredInt", names);
+        Assert.Contains("GetContextSerializationOnly", names);
+        Assert.Contains("SetContextSerializationOnly", names);
+        Assert.Contains("SetMetadataOverride", names);
     }
 
     [Fact]
@@ -223,6 +232,8 @@ public sealed class JsExportSurfaceBuilderTests
             "System.Runtime.InteropServices.JavaScript.JSExport",
             method.Attributes);
         Assert.False(method.HasRuntimeJsExport);
+        Assert.Equal(0, method.RuntimeJsExportAttributeCount);
+        Assert.False(method.HasMalformedRuntimeJsExportAttribute);
         Assert.DoesNotContain(
             JsExportSurfaceBuilder.Build(apiSurface).Functions,
             function => function.Name == "NotAnExport");
@@ -231,7 +242,7 @@ public sealed class JsExportSurfaceBuilderTests
     [Theory]
     [InlineData(".notctor", false)]
     [InlineData(".ctor", true)]
-    public void Extract_DoesNotTrustMalformedAuthenticJsExportRows(
+    public void Extract_RetainsMalformedAuthenticJsExportRowsAsFailureEvidence(
         string constructorName,
         bool addNamedArgument)
     {
@@ -253,9 +264,43 @@ public sealed class JsExportSurfaceBuilderTests
             member => member.Name == "NotAnExport");
 
         Assert.False(method.HasRuntimeJsExport);
-        Assert.DoesNotContain(
-            JsExportSurfaceBuilder.Build(apiSurface).Functions,
-            function => function.Name == "NotAnExport");
+        Assert.Equal(1, method.RuntimeJsExportAttributeCount);
+        Assert.True(method.HasMalformedRuntimeJsExportAttribute);
+        Assert.Throws<UnsupportedJsExportSurfaceException>(
+            () => JsExportSurfaceBuilder.Build(apiSurface));
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void Extract_RejectsDuplicateOrMixedAuthenticJsExportRows(
+        bool duplicateValid,
+        bool addMalformedSibling)
+    {
+        using var stream = new MemoryStream(
+            BuildFakeJsExportImage(
+                trustedAssembly: true,
+                addDuplicateValid: duplicateValid,
+                addMalformedSibling: addMalformedSibling),
+            writable: false);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiMember method = Assert.Single(
+            Assert.Single(
+                apiSurface.Types,
+                type => type.Name == "FakeJsExportFixture")
+                .Members,
+            member => member.Name == "NotAnExport");
+
+        Assert.True(method.HasRuntimeJsExport);
+        Assert.Equal(2, method.RuntimeJsExportAttributeCount);
+        Assert.Equal(
+            addMalformedSibling,
+            method.HasMalformedRuntimeJsExportAttribute);
+        Assert.Throws<UnsupportedJsExportSurfaceException>(
+            () => JsExportSurfaceBuilder.Build(apiSurface));
     }
 
     [Theory]
@@ -391,7 +436,7 @@ public sealed class JsExportSurfaceBuilderTests
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
         var recordNames = surface.Records.Select(r => r.Name).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(16, surface.Records.Count);
+        Assert.Equal(19, surface.Records.Count);
         Assert.Contains(nameof(ByteEnvelopeDto), recordNames);
         Assert.Contains(nameof(BytePayloadDto), recordNames);
         Assert.Contains(nameof(CustomNamedDto), recordNames);
@@ -408,6 +453,9 @@ public sealed class JsExportSurfaceBuilderTests
         Assert.Contains("DirectionalInputDto", recordNames);
         Assert.Contains("DirectionalRoundTripDto", recordNames);
         Assert.Contains("DirectionalNote", recordNames);
+        Assert.Contains(nameof(ClosedGenericRootDto), recordNames);
+        Assert.Contains(nameof(ContextSerializationOnlyDto), recordNames);
+        Assert.Contains(nameof(MetadataOverrideDto), recordNames);
     }
 
     [Fact]
@@ -445,7 +493,212 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     [Fact]
-    public void Build_RejectsAmbiguousOrMalformedGeneratedPropertyIdentities()
+    public void Build_AuthenticatesNestedSerializerRootUsingLeafPropertyName()
+    {
+        string path =
+            typeof(NestedJsonSerializableRootFixtureContext)
+                .Assembly.Location;
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        ApiSurface extracted = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType context = Assert.Single(
+            extracted.Types,
+            type => type.Name
+                == nameof(NestedJsonSerializableRootFixtureContext));
+        ApiJsonSerializableRoot root =
+            Assert.Single(context.JsonSerializableRoots);
+        Assert.Null(root.TypeInfoPropertyName);
+        Assert.Equal(
+            ApiTypeShapeKind.Named,
+            Assert.IsType<ApiTypeShape>(root.Type).Kind);
+        Assert.Contains(
+            context.Members,
+            member => member.Kind == "property" && member.Name == "Leaf");
+
+        ApiType leaf = Assert.Single(
+            extracted.Types,
+            type => type.DefinitionName?.Segments
+                is [nameof(NestedJsonSerializableRootFixture), "Leaf"]);
+        var selected = new ApiSurface
+        {
+            AssemblyIdentity = extracted.AssemblyIdentity,
+            Types = [context, leaf],
+        };
+
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            JsExportSurfaceBuilder.Build(selected);
+
+        Assert.Contains(surface.Records, record => record == leaf);
+    }
+
+    [Fact]
+    public void Build_RejectsNestedAndTopLevelSerializerRootCollisionWhenReached()
+    {
+        string path =
+            typeof(NestedJsonSerializableRootCollisionContext)
+                .Assembly.Location;
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiMember serializer = Assert.Single(
+            Assert.Single(
+                apiSurface.Types,
+                type => type.Name
+                    == nameof(NestedJsonSerializableRootCollisionSerializer))
+                .Members,
+            member => member.Name
+                == nameof(NestedJsonSerializableRootCollisionSerializer.Serialize));
+        serializer.HasRuntimeJsExport = true;
+        LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(apiSurface, bodyIndex));
+
+        Assert.Contains(
+            "serializer root property identity is ambiguous",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Extract_PreservesClosedGenericAndPrimitiveSerializerRootShapes()
+    {
+        ApiSurface apiSurface = ExtractFixtureApiSurface();
+        ApiType genericContext = Assert.Single(
+            apiSurface.Types,
+            type => type.Name
+                == nameof(ClosedGenericRootFixtureJsonContext));
+        ApiTypeShape generic = Assert.IsType<ApiTypeShape>(
+            Assert.Single(genericContext.JsonSerializableRoots).Type);
+        Assert.Equal(ApiTypeShapeKind.GenericInstance, generic.Kind);
+        Assert.Equal(
+            "System.Collections.Generic.Dictionary`2",
+            generic.Definition?.FullName);
+        Assert.Equal(
+            [ApiPrimitiveType.String, null],
+            generic.TypeArguments.Select(argument => argument.Primitive));
+        Assert.Equal(
+            nameof(ClosedGenericRootDto),
+            generic.TypeArguments[1].Definition?.DefinitionName?.Segments
+                .Last());
+
+        ApiType primitiveContext = Assert.Single(
+            apiSurface.Types,
+            type => type.Name
+                == nameof(PrimitiveRootFixtureJsonContext));
+        ApiTypeShape[] roots =
+            [.. primitiveContext.JsonSerializableRoots.Select(
+                root => Assert.IsType<ApiTypeShape>(root.Type))];
+        Assert.Equal(
+            [
+                ApiTypeShapeKind.Primitive,
+                ApiTypeShapeKind.SzArray,
+                ApiTypeShapeKind.SzArray,
+            ],
+            roots.Select(root => root.Kind));
+        Assert.Equal(ApiPrimitiveType.Int32, roots[0].Primitive);
+        Assert.Equal(ApiPrimitiveType.Int32, roots[1].ElementType?.Primitive);
+        Assert.Equal(ApiPrimitiveType.Byte, roots[2].ElementType?.Primitive);
+
+        ApiType modeContext = Assert.Single(
+            apiSurface.Types,
+            type => type.Name
+                == nameof(SourceGenerationModeFixtureJsonContext));
+        Assert.Equal(
+            JsonSourceGenerationMode.Serialization,
+            modeContext.JsonSourceGenerationMode);
+        Assert.Equal(
+            JsonSourceGenerationMode.Default,
+            Assert.Single(
+                modeContext.JsonSerializableRoots,
+                root => root.Type?.Definition?.DefinitionName?.Segments
+                    is [nameof(ContextSerializationOnlyDto)])
+                .GenerationMode);
+        Assert.Equal(
+            JsonSourceGenerationMode.Metadata,
+            Assert.Single(
+                modeContext.JsonSerializableRoots,
+                root => root.Type?.Definition?.DefinitionName?.Segments
+                    is [nameof(MetadataOverrideDto)])
+                .GenerationMode);
+    }
+
+    [Fact]
+    public void Build_DiscoversClosedGenericRootWithoutFailingAnUnreachedUnsupportedContext()
+    {
+        ApiSurface apiSurface = ExtractFixtureApiSurface();
+        ApiType trustedContext = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(FixtureJsonContext));
+        apiSurface.Types.Add(new ApiType
+        {
+            Name = "UnreachedUnsupportedContext",
+            BaseType =
+                "System.Text.Json.Serialization.JsonSerializerContext",
+            BaseTypeReference = trustedContext.BaseTypeReference,
+            JsonSerializableAttributeCount = 1,
+            JsonSerializableRoots =
+            [
+                new(
+                    ElementType: null,
+                    IsArray: false)
+                {
+                    UnsupportedReason =
+                        "serializer root type shape is unsupported",
+                },
+            ],
+        });
+
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            JsExportSurfaceBuilder.Build(apiSurface);
+
+        Assert.Contains(
+            surface.Records,
+            record => record.Name == nameof(ClosedGenericRootDto));
+    }
+
+    [Fact]
+    public void Build_ReportsUnsupportedSerializerRootOnlyWhenAnExportReachesItsProperty()
+    {
+        ApiSurface apiSurface = ExtractFixtureApiSurface();
+        ApiType context = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(CustomNamedJsonContext));
+        context.JsonSerializableRoots[0] =
+            context.JsonSerializableRoots[0] with
+            {
+                Type = null,
+                UnsupportedReason =
+                    "serializer root type shape is unsupported",
+            };
+
+        Assert.NotNull(JsExportSurfaceBuilder.Build(apiSurface));
+
+        string path = typeof(FixtureExports).Assembly.Location;
+        LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(apiSurface, bodyIndex));
+
+        Assert.Contains(
+            "serializer root type shape is unsupported",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_DefersUnreachedAmbiguousAndRejectsMalformedGeneratedPropertyIdentities()
     {
         ApiSurface duplicate = ExtractFixtureApiSurface();
         ApiType duplicateContext = Assert.Single(
@@ -456,8 +709,7 @@ public sealed class JsExportSurfaceBuilderTests
         duplicateContext.JsonSerializableRoots.Add(root);
         duplicateContext.JsonSerializableAttributeCount++;
 
-        Assert.Throws<UnsupportedJsExportSurfaceException>(
-            () => JsExportSurfaceBuilder.Build(duplicate));
+        Assert.NotNull(JsExportSurfaceBuilder.Build(duplicate));
 
         ApiSurface malformed = ExtractFixtureApiSurface();
         ApiType malformedContext = Assert.Single(
@@ -892,7 +1144,9 @@ public sealed class JsExportSurfaceBuilderTests
     static byte[] BuildFakeJsExportImage(
         bool trustedAssembly = false,
         string constructorName = ".ctor",
-        bool addNamedArgument = false)
+        bool addNamedArgument = false,
+        bool addDuplicateValid = false,
+        bool addMalformedSibling = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -996,6 +1250,27 @@ public sealed class JsExportSurfaceBuilderTests
             method,
             attributeConstructor,
             metadata.GetOrAddBlob(attributeValue));
+        if (addDuplicateValid)
+        {
+            metadata.AddCustomAttribute(
+                method,
+                attributeConstructor,
+                metadata.GetOrAddBlob(attributeValue));
+        }
+        if (addMalformedSibling)
+        {
+            var malformedValue = new BlobBuilder();
+            malformedValue.WriteUInt16(1);
+            malformedValue.WriteUInt16(1);
+            malformedValue.WriteByte(0x54);
+            malformedValue.WriteByte(0x0e);
+            malformedValue.WriteSerializedString("Bogus");
+            malformedValue.WriteSerializedString("value");
+            metadata.AddCustomAttribute(
+                method,
+                attributeConstructor,
+                metadata.GetOrAddBlob(malformedValue));
+        }
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
@@ -1465,7 +1740,10 @@ public sealed class JsExportSurfaceBuilderTests
         ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
             peReader,
             includeAll: false);
-        var bodyIndex = LibraryBodyIndex.Open(path);
+        var bodyIndex = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
 
         ILInspector.JsExportSurface.JsExportSurface surface =
             JsExportSurfaceBuilder.Build(apiSurface, bodyIndex);
@@ -1499,7 +1777,10 @@ public sealed class JsExportSurfaceBuilderTests
         ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
             peReader,
             includeAll: false);
-        var bodyIndex = LibraryBodyIndex.Open(path);
+        var bodyIndex = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
 
         JsExportFunction function = Assert.Single(
             JsExportSurfaceBuilder.Build(apiSurface, bodyIndex).Functions,

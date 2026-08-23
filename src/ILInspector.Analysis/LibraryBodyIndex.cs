@@ -35,10 +35,15 @@ public enum LibraryBodyAnalysisFeatures
     /// Produce compact body-scoped ArrayPool ownership-flow summaries.
     /// </summary>
     OwnershipFlow = 1 << 4,
+    /// <summary>
+    /// Produce call argument provenance and return-sink value flow required to
+    /// authenticate source-generated System.Text.Json wire contracts.
+    /// </summary>
+    JsonWireContractFlow = 1 << 5,
     /// <summary>The body-analysis features used by the general index.</summary>
     Default = MethodEvidence | Allocations | OptimizationOpportunities,
     /// <summary>All available body-analysis producers.</summary>
-    All = Default | LeakTriage | OwnershipFlow,
+    All = Default | LeakTriage | OwnershipFlow | JsonWireContractFlow,
 }
 
 /// <summary>
@@ -123,7 +128,9 @@ public sealed class LibraryBodyIndex
     public ImmutableArray<DirectCall> DirectCalls { get; }
     /// <summary>
     /// Conservative physical return and single-argument call sinks, with
-    /// reaching-definition-backed direct-call provenance for their values.
+    /// reaching-definition-backed direct-call provenance for their values,
+    /// when <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is
+    /// requested.
     /// </summary>
     public ImmutableArray<MethodResultSink> ResultSinks { get; }
     readonly ImmutableArray<DirectCall> _physicalDirectCalls;

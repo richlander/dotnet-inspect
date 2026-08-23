@@ -459,3 +459,107 @@ public sealed record DirectionalRoundTripDto(string Name)
 [JsonSerializable(typeof(DirectionalRoundTripDto))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 public sealed partial class DirectionalFixtureJsonContext : JsonSerializerContext;
+
+public sealed record ClosedGenericRootDto(string Name);
+
+[SupportedOSPlatform("browser")]
+public static partial class ClosedGenericRootFixtureExports
+{
+    [JSExport]
+    public static string GetClosedGenericRoot() =>
+        JsonSerializer.Serialize(
+            new Dictionary<string, ClosedGenericRootDto>
+            {
+                ["first"] = new("value"),
+            },
+            ClosedGenericRootFixtureJsonContext.Default
+                .DictionaryStringClosedGenericRootDto);
+}
+
+[JsonSerializable(typeof(Dictionary<string, ClosedGenericRootDto>))]
+public sealed partial class ClosedGenericRootFixtureJsonContext : JsonSerializerContext;
+
+[SupportedOSPlatform("browser")]
+public static partial class PrimitiveRootFixtureExports
+{
+    [JSExport]
+    public static string GetRegisteredInt() =>
+        JsonSerializer.Serialize(
+            42,
+            PrimitiveRootFixtureJsonContext.Default.Int32);
+
+    [JSExport]
+    public static string GetRegisteredIntArray() =>
+        JsonSerializer.Serialize(
+            new[] { 1, 2 },
+            PrimitiveRootFixtureJsonContext.Default.Int32Array);
+
+    [JSExport]
+    public static string GetRegisteredByteArray() =>
+        JsonSerializer.Serialize(
+            new byte[] { 0, 1 },
+            PrimitiveRootFixtureJsonContext.Default.ByteArray);
+
+    [JSExport]
+    public static string ReadRegisteredInt(string payload) =>
+        JsonSerializer.Deserialize(
+            payload,
+            PrimitiveRootFixtureJsonContext.Default.Int32)
+            .ToString(System.Globalization.CultureInfo.InvariantCulture);
+}
+
+[JsonSerializable(typeof(int))]
+[JsonSerializable(typeof(int[]))]
+[JsonSerializable(typeof(byte[]))]
+public sealed partial class PrimitiveRootFixtureJsonContext : JsonSerializerContext;
+
+public sealed record ContextSerializationOnlyDto(string Name)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenReading)]
+    public string ServerNote { get; init; } = "";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
+    public string ClientSecret { get; init; } = "";
+}
+
+public sealed record MetadataOverrideDto(string Name);
+
+[SupportedOSPlatform("browser")]
+public static partial class SourceGenerationModeFixtureExports
+{
+    [JSExport]
+    public static string GetContextSerializationOnly(string name) =>
+        JsonSerializer.Serialize(
+            new ContextSerializationOnlyDto(name)
+            {
+                ServerNote = "server",
+                ClientSecret = "client",
+            },
+            SourceGenerationModeFixtureJsonContext.Default
+                .ContextSerializationOnlyDto);
+
+    [JSExport]
+    public static string SetContextSerializationOnly(string payload) =>
+        JsonSerializer.Deserialize(
+            payload,
+            SourceGenerationModeFixtureJsonContext.Default
+                .ContextSerializationOnlyDto)!
+            .Name;
+
+    [JSExport]
+    public static string SetMetadataOverride(string payload) =>
+        JsonSerializer.Deserialize(
+            payload,
+            SourceGenerationModeFixtureJsonContext.Default
+                .MetadataOverrideDto)!
+            .Name;
+}
+
+[JsonSourceGenerationOptions(
+    GenerationMode = JsonSourceGenerationMode.Serialization)]
+[JsonSerializable(typeof(ContextSerializationOnlyDto))]
+[JsonSerializable(
+    typeof(MetadataOverrideDto),
+    GenerationMode = JsonSourceGenerationMode.Metadata)]
+public sealed partial class SourceGenerationModeFixtureJsonContext
+    : JsonSerializerContext;

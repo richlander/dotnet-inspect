@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using ILInspector.Analysis;
@@ -28,7 +30,10 @@ public sealed class DtsEmitterTests
         using FileStream stream = File.OpenRead(path);
         using var peReader = new PEReader(stream);
         ApiSurface apiSurface = ApiSurfaceExtractor.Extract(peReader, includeAll: false);
-        var bodyIndex = LibraryBodyIndex.Open(path);
+        var bodyIndex = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
         ILInspector.JsExportSurface.JsExportSurface surface = JsExportSurfaceBuilder.Build(apiSurface, bodyIndex);
         return DtsEmitter.Emit(surface);
     }
@@ -117,6 +122,57 @@ public sealed class DtsEmitterTests
         Assert.Contains(
             "export declare function echoBytes(value: number[]): number[];",
             dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_MapsPrimitiveArrayAndClosedGenericWireRoots()
+    {
+        string dts = EmitFixtureDtsWithWireContracts();
+
+        Assert.Contains(
+            "export declare function getRegisteredInt(): number;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function getRegisteredIntArray(): number[];",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function getRegisteredByteArray(): string;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function getClosedGenericRoot(): "
+                + "Record<string, ClosedGenericRootDto>;",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_PreservesSerializationOnlySourceGenerationDirection()
+    {
+        string dts = EmitFixtureDtsWithWireContracts();
+
+        Assert.Contains(
+            """
+            export interface ContextSerializationOnlyDto {
+              Name: string;
+              ServerNote: string;
+            }
+            """,
+            dts,
+            StringComparison.Ordinal);
+        int declarationStart = dts.IndexOf(
+            "export interface ContextSerializationOnlyDto {",
+            StringComparison.Ordinal);
+        int declarationEnd = dts.IndexOf(
+            "}\n\n",
+            declarationStart,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "ClientSecret",
+            dts[declarationStart..declarationEnd],
             StringComparison.Ordinal);
     }
 
@@ -1082,6 +1138,59 @@ public sealed class DtsEmitterTests
             dts,
             StringComparison.Ordinal);
         Assert.Single(diagnostics.UnmappedTypes);
+    }
+
+    [Fact]
+    public void Emit_DoesNotMapExtractedNestedFrameworkByteOrTaskLookalikes()
+    {
+        (ApiTypeReferenceIdentity nestedByte,
+            ApiTypeReferenceIdentity nestedTask) =
+            ExtractNestedFrameworkLookalikes();
+        Assert.Equal("System.Byte", nestedByte.FullName);
+        Assert.Equal(
+            ["System", "Byte"],
+            nestedByte.DefinitionName?.Segments);
+        Assert.Equal(
+            "System.Threading.Tasks.Task`1",
+            nestedTask.FullName);
+        Assert.Equal(
+            ["Tasks", "Task`1"],
+            nestedTask.DefinitionName?.Segments);
+
+        var diagnostics = new TsBindGenDiagnostics();
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Functions =
+            [
+                new JsExportFunction
+                {
+                    DeclaringType = "Exports",
+                    Name = "GetByte",
+                    ReturnType = "System.Byte",
+                    ReturnTypeReferences = [nestedByte],
+                },
+                new JsExportFunction
+                {
+                    DeclaringType = "Exports",
+                    Name = "GetTask",
+                    ReturnType =
+                        "System.Threading.Tasks.Task<string>",
+                    ReturnTypeReferences = [nestedTask],
+                },
+            ],
+        };
+
+        string dts = DtsEmitter.Emit(surface, diagnostics);
+
+        Assert.Contains(
+            "export declare function getByte(): unknown;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function getTask(): unknown;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Equal(2, diagnostics.UnmappedTypes.Count);
     }
 
     [Fact]
@@ -2159,7 +2268,10 @@ public sealed class DtsEmitterTests
         ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
             peReader,
             includeAll: false);
-        var bodyIndex = LibraryBodyIndex.Open(path);
+        var bodyIndex = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
 
         string dts = DtsEmitter.Emit(
             JsExportSurfaceBuilder.Build(apiSurface, bodyIndex),
@@ -2356,6 +2468,155 @@ public sealed class DtsEmitterTests
             nameof(DirectionalOutputDto.DefaultHidden),
             exception.Message,
             StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Builds nested TypeRef rows whose flattened spelling aliases framework
+    /// mappings, then extracts them through the production SRM path. The
+    /// structured DefinitionName is the discriminator under test.
+    /// </summary>
+    static (
+        ApiTypeReferenceIdentity NestedByte,
+        ApiTypeReferenceIdentity NestedTask)
+        ExtractNestedFrameworkLookalikes()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("NestedFrameworkLookalikes.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("NestedFrameworkLookalikes"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        AssemblyReferenceHandle systemRuntime =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(11, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(
+                    new byte[]
+                    {
+                        0xb0, 0x3f, 0x5f, 0x7f,
+                        0x11, 0xd5, 0x0a, 0x3a,
+                    }),
+                default,
+                default);
+        TypeReferenceHandle byteOuter = metadata.AddTypeReference(
+            systemRuntime,
+            default,
+            metadata.GetOrAddString("System"));
+        TypeReferenceHandle nestedByte = metadata.AddTypeReference(
+            byteOuter,
+            default,
+            metadata.GetOrAddString("Byte"));
+        TypeReferenceHandle taskOuter = metadata.AddTypeReference(
+            systemRuntime,
+            metadata.GetOrAddString("System.Threading"),
+            metadata.GetOrAddString("Tasks"));
+        TypeReferenceHandle nestedTask = metadata.AddTypeReference(
+            taskOuter,
+            default,
+            metadata.GetOrAddString("Task`1"));
+        TypeReferenceHandle systemString = metadata.AddTypeReference(
+            systemRuntime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("String"));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Lookalikes"),
+            metadata.GetOrAddString("Exports"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var byteSignature = new BlobBuilder();
+        new BlobEncoder(byteSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: false).Parameters(
+            0,
+            returnType => returnType.Type().Type(
+                nestedByte,
+                false),
+            _ => { });
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.Runtime,
+            metadata.GetOrAddString("GetByte"),
+            metadata.GetOrAddBlob(byteSignature),
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
+
+        var taskSignature = new BlobBuilder();
+        new BlobEncoder(taskSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: false).Parameters(
+            0,
+            returnType => returnType.Type()
+                .GenericInstantiation(
+                    nestedTask,
+                    genericArgumentCount: 1,
+                    isValueType: false)
+                .AddArgument()
+                .Type(systemString, false),
+            _ => { });
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.Runtime,
+            metadata.GetOrAddString("GetTask"),
+            metadata.GetOrAddBlob(taskSignature),
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+
+        using var stream = new MemoryStream(
+            image.ToArray(),
+            writable: false);
+        using var peReader = new PEReader(stream);
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType exports = Assert.Single(
+            surface.Types,
+            type => type.Name == "Exports");
+        ApiTypeReferenceIdentity byteReference = Assert.Single(
+            Assert.Single(
+                exports.Members,
+                member => member.Name == "GetByte")
+                .SignatureModel!
+                .ReturnTypeReferences);
+        ApiTypeReferenceIdentity taskReference = Assert.Single(
+            Assert.Single(
+                exports.Members,
+                member => member.Name == "GetTask")
+                .SignatureModel!
+                .ReturnTypeReferences,
+            reference => reference.FullName
+                == "System.Threading.Tasks.Task`1");
+        return (byteReference, taskReference);
     }
 
     /// <summary>

@@ -519,9 +519,18 @@ internal sealed class SZArrayTypeNode(TypeNode elementType) : TypeNode
 }
 
 /// <summary>Multi-dimensional arrays (int[,], etc.).</summary>
-internal sealed class MDArrayTypeNode(TypeNode elementType, int rank) : TypeNode
+internal sealed class MDArrayTypeNode(
+    TypeNode elementType,
+    int rank,
+    ImmutableArray<int> arraySizes = default,
+    ImmutableArray<int> arrayLowerBounds = default) : TypeNode
 {
     public TypeNode ElementType => elementType;
+    public int Rank => rank;
+    public ImmutableArray<int> ArraySizes =>
+        arraySizes.IsDefault ? [] : arraySizes;
+    public ImmutableArray<int> ArrayLowerBounds =>
+        arrayLowerBounds.IsDefault ? [] : arrayLowerBounds;
     public override bool IsReferenceType => true;
     public override bool IsDegraded => elementType.IsDegraded;
     internal override bool HasStructuralPayload => elementType.HasStructuralPayload;

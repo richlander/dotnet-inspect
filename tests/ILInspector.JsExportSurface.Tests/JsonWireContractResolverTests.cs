@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.Metadata;
@@ -285,7 +286,10 @@ public sealed class JsonWireContractResolverTests
         using FileStream stream = File.OpenRead(path);
         using var peReader = new PEReader(stream);
         ApiSurface apiSurface = ApiSurfaceExtractor.Extract(peReader, includeAll: false);
-        var bodyIndex = LibraryBodyIndex.Open(path);
+        var bodyIndex = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
         return JsExportSurfaceBuilder.Build(apiSurface, bodyIndex);
     }
 
@@ -336,7 +340,9 @@ public sealed class JsonWireContractResolverTests
     public void Build_ResolvesRegisteredStringArrayAfterAwait()
     {
         var bodyIndex = LibraryBodyIndex.Open(
-            typeof(FixtureExports).Assembly.Location);
+            typeof(FixtureExports).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
         MethodIdentity export = Assert.Single(
             bodyIndex.DeclaredMethods,
             method => method.Name == "GetStringArrayAsyncAfterAwait");
@@ -395,6 +401,113 @@ public sealed class JsonWireContractResolverTests
             candidate => candidate.Name == "GetRegisteredString");
 
         Assert.Equal("string", function.ReturnWireType);
+    }
+
+    [Fact]
+    public void Build_ResolvesRegisteredPrimitiveAndArrayRoots()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildFixtureSurfaceWithWireContracts();
+
+        Assert.Equal(
+            "int",
+            Assert.Single(
+                surface.Functions,
+                function => function.Name == "GetRegisteredInt")
+                .ReturnWireType);
+        Assert.Equal(
+            "int[]",
+            Assert.Single(
+                surface.Functions,
+                function => function.Name == "GetRegisteredIntArray")
+                .ReturnWireType);
+        Assert.Equal(
+            "byte[]",
+            Assert.Single(
+                surface.Functions,
+                function => function.Name == "GetRegisteredByteArray")
+                .ReturnWireType);
+        Assert.Equal(
+            ["int"],
+            Assert.Single(
+                surface.Functions,
+                function => function.Name == "ReadRegisteredInt")
+                .ParameterWireTypes);
+    }
+
+    [Fact]
+    public void Build_ResolvesClosedGenericRootAndItsLocalArgument()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildFixtureSurfaceWithWireContracts();
+
+        JsExportFunction function = Assert.Single(
+            surface.Functions,
+            candidate => candidate.Name == "GetClosedGenericRoot");
+
+        Assert.NotNull(function.ReturnWireType);
+        Assert.Contains(
+            "Dictionary",
+            function.ReturnWireType,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            function.ReturnWireTypeReferences,
+            reference => reference.DefinitionName?.Segments
+                is [nameof(ClosedGenericRootDto)]);
+    }
+
+    [Fact]
+    public void Build_UsesEffectiveSourceGenerationModesForWireDirections()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildFixtureSurfaceWithWireContracts();
+
+        JsExportFunction serializeOnly = Assert.Single(
+            surface.Functions,
+            function => function.Name == "GetContextSerializationOnly");
+        Assert.Equal(
+            FixtureNamespace + nameof(ContextSerializationOnlyDto),
+            serializeOnly.ReturnWireType);
+        Assert.Empty(
+            Assert.Single(
+                surface.Functions,
+                function => function.Name == "SetContextSerializationOnly")
+                .ParameterWireTypes);
+        Assert.Equal(
+            [FixtureNamespace + nameof(MetadataOverrideDto)],
+            Assert.Single(
+                surface.Functions,
+                function => function.Name == "SetMetadataOverride")
+                .ParameterWireTypes);
+    }
+
+    [Fact]
+    public void SourceGeneratedJson_SerializationOnlyRootRejectsDeserializeAndPreservesSerializeShape()
+    {
+        string json = System.Text.Json.JsonSerializer.Serialize(
+            new ContextSerializationOnlyDto("mode")
+            {
+                ServerNote = "server",
+                ClientSecret = "client",
+            },
+            SourceGenerationModeFixtureJsonContext.Default
+                .ContextSerializationOnlyDto);
+
+        Assert.Equal(
+            """{"Name":"mode","ServerNote":"server"}""",
+            json);
+        Assert.Throws<InvalidOperationException>(
+            () => System.Text.Json.JsonSerializer.Deserialize(
+                """{"Name":"mode"}""",
+                SourceGenerationModeFixtureJsonContext.Default
+                    .ContextSerializationOnlyDto));
+        Assert.Equal(
+            "metadata",
+            System.Text.Json.JsonSerializer.Deserialize(
+                """{"Name":"metadata"}""",
+                SourceGenerationModeFixtureJsonContext.Default
+                    .MetadataOverrideDto)!
+                .Name);
     }
 
     [Fact]
@@ -646,7 +759,10 @@ public sealed class JsonWireContractResolverTests
         {
             File.WriteAllBytes(corruptedPath, image);
             LibraryBodyIndex bodyIndex =
-                LibraryBodyIndex.Open(corruptedPath);
+                LibraryBodyIndex.Open(
+                    corruptedPath,
+                    LibraryBodyAnalysisFeatures.MethodEvidence
+                        | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
             AnalysisDiagnostic diagnostic = Assert.Single(
                 bodyIndex.Diagnostics,
                 candidate => candidate.MethodToken == moveNextToken);

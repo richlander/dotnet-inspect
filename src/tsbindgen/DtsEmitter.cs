@@ -7,6 +7,36 @@ namespace tsbindgen;
 
 static class DtsEmitter
 {
+    static readonly HashSet<string> CoreContractFrameworkMappings =
+    [
+        "System.String",
+        "System.Char",
+        "System.Boolean",
+        "System.Byte",
+        "System.SByte",
+        "System.Int16",
+        "System.UInt16",
+        "System.Int32",
+        "System.UInt32",
+        "System.Int64",
+        "System.UInt64",
+        "System.Single",
+        "System.Double",
+        "System.Decimal",
+        "System.Void",
+        "System.Nullable`1",
+        "System.Threading.Tasks.Task`1",
+        "System.Threading.Tasks.Task",
+        "System.Threading.Tasks.ValueTask`1",
+        "System.Threading.Tasks.ValueTask",
+    ];
+
+    static readonly HashSet<string> CollectionsFrameworkMappings =
+    [
+        "System.Collections.Generic.Dictionary`2",
+        "System.Collections.Generic.IReadOnlyDictionary`2",
+    ];
+
     public static string Emit(
         ILInspector.JsExportSurface.JsExportSurface surface,
         TsBindGenDiagnostics? diagnostics = null)
@@ -669,35 +699,29 @@ static class DtsEmitter
         }
 
         string assembly = reference.Assembly.Name;
+        if (CoreContractFrameworkMappings.Contains(reference.FullName))
+        {
+            return IsCoreContractAssembly(assembly)
+                && HasExpectedTopLevelDefinition(
+                    reference,
+                    reference.FullName);
+        }
+        if (CollectionsFrameworkMappings.Contains(reference.FullName))
+        {
+            return (IsCoreContractAssembly(assembly)
+                    || assembly == "System.Collections")
+                && HasExpectedTopLevelDefinition(
+                    reference,
+                    reference.FullName);
+        }
+
         return reference.FullName switch
         {
-            "System.String"
-                or "System.Char"
-                or "System.Boolean"
-                or "System.Byte"
-                or "System.SByte"
-                or "System.Int16"
-                or "System.UInt16"
-                or "System.Int32"
-                or "System.UInt32"
-                or "System.Int64"
-                or "System.UInt64"
-                or "System.Single"
-                or "System.Double"
-                or "System.Decimal"
-                or "System.Void"
-                or "System.Nullable`1"
-                or "System.Threading.Tasks.Task`1"
-                or "System.Threading.Tasks.Task"
-                or "System.Threading.Tasks.ValueTask`1"
-                or "System.Threading.Tasks.ValueTask" =>
-                    IsCoreContractAssembly(assembly),
-            "System.Collections.Generic.Dictionary`2"
-                or "System.Collections.Generic.IReadOnlyDictionary`2" =>
-                    IsCoreContractAssembly(assembly)
-                    || assembly == "System.Collections",
             "System.Text.Json.JsonElement" =>
-                assembly == "System.Text.Json",
+                assembly == "System.Text.Json"
+                && HasExpectedTopLevelDefinition(
+                    reference,
+                    "System.Text.Json.JsonElement"),
             "String"
                 or "Char"
                 or "Boolean"
@@ -723,6 +747,29 @@ static class DtsEmitter
                 or "JsonElement" => false,
             _ => true,
         };
+    }
+
+    static bool HasExpectedTopLevelDefinition(
+        ApiTypeReferenceIdentity reference,
+        string expectedFullName)
+    {
+        if (reference.FullName != expectedFullName)
+            return false;
+
+        int separator = expectedFullName.LastIndexOf('.');
+        string expectedNamespace = separator < 0
+            ? ""
+            : expectedFullName[..separator];
+        string expectedName = separator < 0
+            ? expectedFullName
+            : expectedFullName[(separator + 1)..];
+        return reference.DefinitionName is
+        {
+            Namespace: var @namespace,
+            Segments: [var segment],
+        }
+            && @namespace == expectedNamespace
+            && segment == expectedName;
     }
 
     static bool IsCoreContractAssembly(string assembly) =>

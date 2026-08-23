@@ -2404,6 +2404,47 @@ public class ApiOutputFormatterTests
     }
 
     [Fact]
+    public void ApiTypeJson_RoundTripsRuntimeJsExportFailureEvidence()
+    {
+        var type = new ApiType
+        {
+            Name = "Exports",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Run",
+                    Kind = "method",
+                    HasRuntimeJsExport = true,
+                    RuntimeJsExportAttributeCount = 2,
+                    HasMalformedRuntimeJsExportAttribute = true,
+                },
+            ],
+        };
+
+        string json = JsonSerializer.Serialize(
+            type,
+            ApiTypeJsonContext.Default.ApiType);
+        ApiType restored = JsonSerializer.Deserialize(
+            json,
+            ApiTypeJsonContext.Default.ApiType)!;
+        ApiMember evidence = Assert.Single(restored.Members);
+
+        Assert.Contains("\"has_runtime_js_export\": true", json, StringComparison.Ordinal);
+        Assert.Contains(
+            "\"runtime_js_export_attribute_count\": 2",
+            json,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"has_malformed_runtime_js_export_attribute\": true",
+            json,
+            StringComparison.Ordinal);
+        Assert.True(evidence.HasRuntimeJsExport);
+        Assert.Equal(2, evidence.RuntimeJsExportAttributeCount);
+        Assert.True(evidence.HasMalformedRuntimeJsExportAttribute);
+    }
+
+    [Fact]
     public void ApplySurfaceFilters_ProjectsConstraintFailuresToRetainedTypes()
     {
         const string Path = "/inputs/Filtered.dll";

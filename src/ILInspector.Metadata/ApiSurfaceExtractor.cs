@@ -714,13 +714,15 @@ public static class ApiSurfaceExtractor
                         observeDecodeWork);
             }
 
-            if (AttributeReader.TryGetJsonSourceGenerationPropertyNamingPolicy(
+            if (AttributeReader.TryGetJsonSourceGenerationOptions(
                     reader,
                     jsonTypeAttributes,
                     out JsonWireNamingPolicy? namingPolicy,
+                    out JsonSourceGenerationMode generationMode,
                     observeDecodeWork))
             {
                 apiType.JsonPropertyNamingPolicy = namingPolicy;
+                apiType.JsonSourceGenerationMode = generationMode;
             }
 
             // Check if this is an extension class (static class with [Extension] attribute)
@@ -887,6 +889,11 @@ public static class ApiSurfaceExtractor
                             method,
                             observeDecodeWork));
 
+                RuntimeJsExportAttributeEvidence jsExportEvidence =
+                    AttributeReader.ReadRuntimeJsExportAttributes(
+                        reader,
+                        method.GetCustomAttributes(),
+                        observeDecodeWork);
                 var member = new ApiMember
                 {
                     Name = methodName,
@@ -930,10 +937,11 @@ public static class ApiSurfaceExtractor
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
                     HasRuntimeJsExport =
-                        AttributeReader.HasRuntimeJsExportAttribute(
-                            reader,
-                            method.GetCustomAttributes(),
-                            observeDecodeWork),
+                        jsExportEvidence.HasValidRow,
+                    RuntimeJsExportAttributeCount =
+                        jsExportEvidence.Count,
+                    HasMalformedRuntimeJsExportAttribute =
+                        jsExportEvidence.HasMalformedRow,
                     Attributes = RenderMemberAttributes(
                         reader,
                         method.GetCustomAttributes(),
@@ -3185,6 +3193,9 @@ public static class ApiSurfaceExtractor
                 [.. treeSignature.ReturnType.ReferencedTypes().Distinct()],
             ReturnTypeDefinitionReference =
                 treeSignature.ReturnType.DefinitionReference(),
+            ReturnTypeShape =
+                ApiTypeShapeFactory.FromTypeNode(
+                    treeSignature.ReturnType),
             ReturnAttributes = returnAttributes,
             MemberName = methodName,
             TypeParameters = methodTypeParameters,
@@ -4325,6 +4336,9 @@ public static class ApiSurfaceExtractor
                 [.. treeSignature.ReturnType.ReferencedTypes().Distinct()],
             ReturnTypeDefinitionReference =
                 treeSignature.ReturnType.DefinitionReference(),
+            ReturnTypeShape =
+                ApiTypeShapeFactory.FromTypeNode(
+                    treeSignature.ReturnType),
             MemberName = indexerParameters.Count > 0 ? "this[]" : name,
             IsRequired = isRequired,
             Parameters = parameterModels,
@@ -4693,9 +4707,11 @@ public static class ApiSurfaceExtractor
         foreach (ApiJsonSerializableRoot root
             in type.JsonSerializableRoots)
         {
-            AddText(ref count, root.ElementType.Assembly);
-            AddText(ref count, root.ElementType.FullName);
-            AddText(ref count, root.ElementType.DefinitionName);
+            AddText(ref count, root.ElementType?.Assembly);
+            AddText(ref count, root.ElementType?.FullName);
+            AddText(ref count, root.ElementType?.DefinitionName);
+            AddText(ref count, root.Type);
+            AddText(ref count, root.UnsupportedReason);
         }
         AddText(ref count, type.Interfaces);
         foreach (FilteredJsonPropertyNameFact fact
@@ -4850,6 +4866,7 @@ public static class ApiSurfaceExtractor
         AddText(ref count, signature.ReturnType);
         AddText(ref count, signature.CanonicalReturnType);
         AddText(ref count, signature.StructuralReturnType);
+        AddText(ref count, signature.ReturnTypeShape);
         AddText(
             ref count,
             signature.ReturnTypeDefinitionReference?.Assembly);
@@ -4895,6 +4912,33 @@ public static class ApiSurfaceExtractor
             AddText(ref count, accessor.ReturnAttributes);
             AddText(ref count, accessor.Name);
             AddText(ref count, accessor.StructuralReturnType);
+        }
+    }
+
+    static void AddText(ref long count, ApiTypeShape? shape)
+    {
+        if (shape is null)
+            return;
+
+        var pending = new Stack<ApiTypeShape>();
+        pending.Push(shape);
+        while (pending.Count > 0)
+        {
+            ApiTypeShape current = pending.Pop();
+            if (current.Definition is { } definition)
+            {
+                AddText(ref count, definition.Assembly);
+                AddText(ref count, definition.FullName);
+                AddText(ref count, definition.DefinitionName);
+            }
+            if (current.ElementType is not null)
+                pending.Push(current.ElementType);
+            for (int index = current.TypeArguments.Length - 1;
+                index >= 0;
+                index--)
+            {
+                pending.Push(current.TypeArguments[index]);
+            }
         }
     }
 

@@ -556,6 +556,13 @@ public class ApiSignature
     public ApiTypeReferenceIdentity? ReturnTypeDefinitionReference
         { get; set; }
 
+    /// <summary>
+    /// Exact signature shape retained for consumers that must compare a type
+    /// argument rather than its display spelling or named references.
+    /// </summary>
+    [JsonIgnore]
+    public ApiTypeShape? ReturnTypeShape { get; set; }
+
     public List<string> ReturnAttributes { get; set; } = [];
     public string? MemberName { get; set; }
     public bool IsRequired { get; set; }
@@ -783,6 +790,14 @@ public class ApiType
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public JsonWireNamingPolicy? JsonPropertyNamingPolicy { get; set; }
+
+    /// <summary>
+    /// The effective source-generation mode declared by this serializer
+    /// context. This remains a metadata fact because consumers must not infer
+    /// deserialize support from a generated <c>JsonTypeInfo&lt;T&gt;</c> property.
+    /// </summary>
+    [JsonIgnore]
+    public JsonSourceGenerationMode JsonSourceGenerationMode { get; set; }
 
     [JsonIgnore]
     public List<FilteredJsonPropertyNameFact> FilteredJsonPropertyNameFacts
@@ -1089,8 +1104,27 @@ public class ApiMember
     [JsonIgnore]
     public bool HasUnsupportedJsonWireAttributes { get; set; }
 
-    [JsonIgnore]
+    /// <summary>
+    /// Compatibility projection of authentic valid <c>[JSExport]</c> evidence.
+    /// The count and malformed marker retain the rows that this Boolean cannot
+    /// express.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool HasRuntimeJsExport { get; set; }
+
+    /// <summary>
+    /// Number of authentic framework-signed <c>[JSExport]</c> rows. A count
+    /// other than one is unsupported evidence rather than an absent export.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int RuntimeJsExportAttributeCount { get; set; }
+
+    /// <summary>
+    /// True when an authentic framework-signed <c>[JSExport]</c> row could not
+    /// be decoded or did not have the marker attribute shape.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool HasMalformedRuntimeJsExportAttribute { get; set; }
 
     [JsonIgnore]
     public string? JsonStringEnumMemberName { get; set; }
@@ -1309,7 +1343,203 @@ public sealed record ApiTypeReferenceIdentity(
     string FullName,
     MetadataTypeDefinitionName? DefinitionName = null);
 
+/// <summary>
+/// The structural shape of a metadata signature or serializer root. This is
+/// intentionally separate from display spelling and named-reference lists:
+/// primitive codes, array rank, generic arguments, and exact named-definition
+/// identities all participate in equality.
+/// </summary>
+public sealed class ApiTypeShape : IEquatable<ApiTypeShape>
+{
+    ApiTypeShape(
+        ApiTypeShapeKind kind,
+        ApiPrimitiveType? primitive = null,
+        ApiTypeReferenceIdentity? definition = null,
+        ApiTypeShape? elementType = null,
+        ImmutableArray<ApiTypeShape> typeArguments = default,
+        int arrayRank = 0,
+        ImmutableArray<int> arraySizes = default,
+        ImmutableArray<int> arrayLowerBounds = default)
+    {
+        Kind = kind;
+        Primitive = primitive;
+        Definition = definition;
+        ElementType = elementType;
+        TypeArguments = typeArguments.IsDefault ? [] : typeArguments;
+        ArrayRank = arrayRank;
+        ArraySizes = arraySizes.IsDefault ? [] : arraySizes;
+        ArrayLowerBounds = arrayLowerBounds.IsDefault
+            ? []
+            : arrayLowerBounds;
+    }
+
+    public ApiTypeShapeKind Kind { get; }
+
+    public ApiPrimitiveType? Primitive { get; }
+
+    public ApiTypeReferenceIdentity? Definition { get; }
+
+    public ApiTypeShape? ElementType { get; }
+
+    public ImmutableArray<ApiTypeShape> TypeArguments { get; }
+
+    public int ArrayRank { get; }
+
+    /// <summary>
+    /// Optional ECMA array shape sizes retained for multi-dimensional
+    /// signature identity.
+    /// </summary>
+    public ImmutableArray<int> ArraySizes { get; }
+
+    /// <summary>
+    /// Optional ECMA array shape lower bounds retained for
+    /// multi-dimensional signature identity.
+    /// </summary>
+    public ImmutableArray<int> ArrayLowerBounds { get; }
+
+    public static ApiTypeShape PrimitiveType(ApiPrimitiveType primitive) =>
+        new(ApiTypeShapeKind.Primitive, primitive: primitive);
+
+    public static ApiTypeShape Named(ApiTypeReferenceIdentity definition) =>
+        new(ApiTypeShapeKind.Named, definition: definition);
+
+    public static ApiTypeShape GenericInstance(
+        ApiTypeReferenceIdentity definition,
+        ImmutableArray<ApiTypeShape> typeArguments) =>
+        new(
+            ApiTypeShapeKind.GenericInstance,
+            definition: definition,
+            typeArguments: typeArguments);
+
+    public static ApiTypeShape SzArray(ApiTypeShape elementType) =>
+        new(ApiTypeShapeKind.SzArray, elementType: elementType);
+
+    public static ApiTypeShape Array(
+        ApiTypeShape elementType,
+        int rank,
+        ImmutableArray<int> arraySizes = default,
+        ImmutableArray<int> arrayLowerBounds = default) =>
+        new(
+            ApiTypeShapeKind.Array,
+            elementType: elementType,
+            arrayRank: rank,
+            arraySizes: arraySizes,
+            arrayLowerBounds: arrayLowerBounds);
+
+    public bool Equals(ApiTypeShape? other)
+    {
+        if (other is null)
+            return false;
+
+        var pending = new Stack<(ApiTypeShape Left, ApiTypeShape Right)>();
+        pending.Push((this, other));
+        while (pending.Count > 0)
+        {
+            (ApiTypeShape left, ApiTypeShape right) = pending.Pop();
+            if (ReferenceEquals(left, right))
+                continue;
+            if (left.Kind != right.Kind
+                || left.Primitive != right.Primitive
+                || left.Definition != right.Definition
+                || left.ArrayRank != right.ArrayRank
+                || !left.ArraySizes.AsSpan().SequenceEqual(
+                    right.ArraySizes.AsSpan())
+                || !left.ArrayLowerBounds.AsSpan().SequenceEqual(
+                    right.ArrayLowerBounds.AsSpan())
+                || left.TypeArguments.Length != right.TypeArguments.Length
+                || (left.ElementType is null) != (right.ElementType is null))
+            {
+                return false;
+            }
+
+            if (left.ElementType is not null)
+                pending.Push((left.ElementType, right.ElementType!));
+            for (int i = 0; i < left.TypeArguments.Length; i++)
+                pending.Push((left.TypeArguments[i], right.TypeArguments[i]));
+        }
+
+        return true;
+    }
+
+    public override bool Equals(object? obj) => Equals(obj as ApiTypeShape);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        var pending = new Stack<ApiTypeShape>();
+        pending.Push(this);
+        while (pending.Count > 0)
+        {
+            ApiTypeShape current = pending.Pop();
+            hash.Add(current.Kind);
+            hash.Add(current.Primitive);
+            hash.Add(current.Definition);
+            hash.Add(current.ArrayRank);
+            foreach (int size in current.ArraySizes)
+                hash.Add(size);
+            foreach (int lowerBound in current.ArrayLowerBounds)
+                hash.Add(lowerBound);
+            if (current.ElementType is not null)
+                pending.Push(current.ElementType);
+            for (int i = current.TypeArguments.Length - 1; i >= 0; i--)
+                pending.Push(current.TypeArguments[i]);
+        }
+        return hash.ToHashCode();
+    }
+}
+
+public enum ApiTypeShapeKind
+{
+    Primitive,
+    Named,
+    GenericInstance,
+    SzArray,
+    Array,
+}
+
+public enum ApiPrimitiveType
+{
+    Void,
+    Boolean,
+    Char,
+    SByte,
+    Byte,
+    Int16,
+    UInt16,
+    Int32,
+    UInt32,
+    Int64,
+    UInt64,
+    Single,
+    Double,
+    Decimal,
+    String,
+    Object,
+}
+
 public sealed record ApiJsonSerializableRoot(
-    ApiTypeReferenceIdentity ElementType,
+    ApiTypeReferenceIdentity? ElementType,
     bool IsArray,
-    string? TypeInfoPropertyName = null);
+    string? TypeInfoPropertyName = null)
+{
+    /// <summary>
+    /// Exact registered root shape. Null means the authentic row was
+    /// well-formed but names a shape the metadata model cannot represent.
+    /// </summary>
+    [JsonIgnore]
+    public ApiTypeShape? Type { get; init; }
+
+    /// <summary>
+    /// Visible failure evidence for an authentic root whose type shape is not
+    /// supported. This is distinct from malformed attribute metadata.
+    /// </summary>
+    [JsonIgnore]
+    public string? UnsupportedReason { get; init; }
+
+    /// <summary>
+    /// Per-root source-generation override. <see cref="JsonSourceGenerationMode.Default"/>
+    /// delegates to the owning context's mode.
+    /// </summary>
+    [JsonIgnore]
+    public JsonSourceGenerationMode GenerationMode { get; init; }
+}
