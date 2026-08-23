@@ -1,3 +1,4 @@
+import { assertNever } from "./data.ts";
 import type { DocViewerMeta, RenderDocViewerOptions } from "./doc-viewer.ts";
 import type {
   BrowserPackageDocument,
@@ -41,9 +42,9 @@ export type OpenDocumentViewerState =
 //
 // So the projection is a named pure function rather than five ternaries at the call site,
 // which is what makes it reachable from a test. It is a `default`-less switch in a
-// value-returning function, so `noImplicitReturns` rejects a new union member here until
-// it says what it renders -- the same exhaustiveness the `assertNever` dispatches get,
-// without this module taking a dependency on `data.ts` for it.
+// value-returning function terminating in `assertNever`, so a new union member is
+// rejected here until it says what it renders -- the same gate the other closed
+// vocabularies in this prototype use.
 export function docViewerOptions(
   viewer: OpenDocumentViewerState,
 ): Omit<RenderDocViewerOptions, "escapeHtml"> {
@@ -61,6 +62,8 @@ export function docViewerOptions(
       };
     case "failed":
       return { doc, meta: null, loading: false, error: viewer.error, html: "" };
+    default:
+      return assertNever(viewer, "DocumentViewerState");
   }
 }
 
