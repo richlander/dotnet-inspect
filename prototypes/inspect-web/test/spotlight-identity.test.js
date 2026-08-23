@@ -4909,3 +4909,9 @@ test("dependency graph rendering contains artifact labels", () => {
   assert.equal(definition.definition.includes("\u200D"), false);
   assert.equal(definition.definition.includes("\uDC00"), false);
 });
+
+// The parallel-field guarantee moved to `test/async-resource-state.test.ts`. The gate that
+// stood here derived its lens roster but restated the *suffixes*, and round 2 review walked
+// around it twice: with a suffix that was not on the list, and by moving the field into a
+// spread the source scan never read. The replacement names no suffixes -- it rejects any
+// state key that starts with a converted lens name and is not that lens.

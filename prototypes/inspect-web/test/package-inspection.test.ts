@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   createPackageInspectionCoordinator,
+  packageMetadataView,
   workspaceDependencyKey,
   type PackageInspectionDependencies,
   type PackageInspectionState,
@@ -207,6 +211,23 @@ async function verifyPackageLensLifecycle<T>(
       ["render", "render"],
       `${fixture.name} start and reuse renders`);
 
+    // Not querying twice is only half of reuse. These loaders are `async`, so the
+    // duplicate caller is awaiting a promise, and the first version of this guard
+    // returned early -- which resolved that promise immediately and told the caller the
+    // load had finished while the request was still in flight. Counting queries could
+    // not see it, because the early return also queries zero times.
+    //
+    // So assert the duplicate has not settled while the original is still pending. A
+    // reused request has to hand back the original's promise, not a resolved one.
+    let duplicateSettled = false;
+    void duplicate.then(() => { duplicateSettled = true; });
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(
+      duplicateSettled,
+      false,
+      `${fixture.name} duplicate settled before the in-flight request completed`);
+
     query.resolve(fixture.result);
     await Promise.all([load, duplicate]);
 
@@ -227,13 +248,61 @@ async function verifyPackageLensLifecycle<T>(
       throw new Error("current failure");
     });
 
-    await fixture.load(coordinator, "current");
+    const load = fixture.load(coordinator, "current");
+    const duplicate = fixture.load(coordinator, "current");
+    await Promise.all([load, duplicate]);
 
     assert.deepEqual(fixture.read(state), {
       status: "failed",
       key: "current",
       error: "current failure",
     }, `${fixture.name} current failure`);
+  }
+
+  {
+    // A render that throws must not be able to strand the in-flight entry. The window that
+    // matters is the one where `state[lens]` is still the exact pending object the join
+    // matches on, so a stranded entry is not merely a leak -- the next same-key caller is
+    // handed a promise nobody will resolve, and the lens deadlocks for the rest of the
+    // session.
+    //
+    // Rather than restate where the throw-safe boundary is, drive the loader with a render
+    // that throws on the nth call for every n a clean run makes, and require that a
+    // subsequent same-key call still settles. That derives the property from the loader's
+    // own behavior, so a loader that grows another render site is covered without this
+    // test being updated.
+    let cleanRenders = 0;
+    const counted = fixture.createCoordinator(
+      inspectionState(),
+      async () => fixture.result,
+      () => { cleanRenders++; });
+    await fixture.load(counted, "current");
+    assert.ok(
+      cleanRenders > 0,
+      `${fixture.name} made no renders, so the throwing-render sweep would prove nothing`);
+
+    for (let throwOn = 1; throwOn <= cleanRenders; throwOn++) {
+      const state = inspectionState();
+      let renders = 0;
+      const coordinator = fixture.createCoordinator(
+        state,
+        async () => fixture.result,
+        () => {
+          renders++;
+          if (renders === throwOn) throw new Error(`render ${throwOn} failed`);
+        });
+
+      await fixture.load(coordinator, "current").catch(() => {});
+
+      const settled = await Promise.race([
+        fixture.load(coordinator, "current").then(() => "settled", () => "settled"),
+        new Promise(resolve => { setTimeout(() => resolve("deadlocked"), 250); }),
+      ]);
+      assert.equal(
+        settled,
+        "settled",
+        `${fixture.name} deadlocked after render ${throwOn} of ${cleanRenders} threw`);
+    }
   }
 
   {
@@ -280,6 +349,56 @@ async function verifyPackageLensLifecycle<T>(
       fixture.read(state),
       newer,
       `${fixture.name} stale failure`);
+  }
+
+  {
+    // Every staleness case above changes the key between the two requests, so key
+    // equality and object identity give the same answer and none of them can tell the
+    // two mechanisms apart. Adversarial review exploited exactly that: replacing the
+    // ownership checks with `status !== "idle" && key === signature` left the whole
+    // suite green, even though a late completion could then publish into a newer
+    // request that happens to share its key.
+    //
+    // This is the interleaving that separates them -- one scope requested, abandoned,
+    // and requested again, which is a user navigating away and back. Both requests for
+    // that scope carry the same key, so only object identity can reject the first.
+    const first = deferred<T>();
+    const second = deferred<T>();
+    const pending = [first, second];
+    const state = inspectionState();
+    const coordinator = fixture.createCoordinator(
+      state,
+      async () => (pending.shift() ?? first).promise);
+
+    const abandoned = fixture.load(coordinator, "scope-a");
+
+    // Writing a different scope's state releases scope-a's ownership, so the reload
+    // below starts a genuinely new request rather than joining the in-flight one.
+    fixture.write(state, {
+      status: "failed",
+      key: "scope-b",
+      error: "other scope",
+    });
+
+    const reloaded = fixture.load(coordinator, "scope-a");
+    second.resolve(fixture.result);
+    await reloaded;
+
+    const live = fixture.read(state);
+    assert.deepEqual(live, {
+      status: "ready",
+      key: "scope-a",
+      data: fixture.result,
+    }, `${fixture.name} reloaded scope`);
+
+    // The abandoned request lands last, carrying the same key as the live one. Identity
+    // ownership rejects it; key equality would accept it and publish the stale result.
+    first.resolve(fixture.result);
+    await abandoned;
+    assert.strictEqual(
+      fixture.read(state),
+      live,
+      `${fixture.name} same-key stale completion replaced the live request`);
   }
 }
 
@@ -1392,4 +1511,89 @@ test("runtime package lenses wait for an explicit library scope", async () => {
   assert.equal(state.packageOpportunities.status, "idle");
   assert.equal(state.packagePerformance.status, "idle");
   assert.equal(state.packageMetadata.status, "idle");
+});
+
+// `packageMetadataView` is the only bridge from the metadata `AsyncResource` to the
+// renderer's four flattened options, and round 2 review (GPT-5.6 Sol, Claude Opus 5) found
+// it had no test at all: discarding `resource.error` in the `failed` arm, and deleting the
+// staleness gate the README claims is gated, both left the whole suite green. Losing the
+// error text is user-visible -- the renderer falls through to its generic "Loading…"
+// placeholder instead of reporting that the metadata read failed.
+const metadataProjections: readonly {
+  status: string;
+  resource: AsyncResource<PackageMetadata>;
+  signature: string;
+  expected: ReturnType<typeof packageMetadataView>;
+}[] = [
+  {
+    status: "idle",
+    resource: { status: "idle" },
+    signature: "scope",
+    expected: { fresh: false, loading: false, error: "", metadata: null },
+  },
+  {
+    status: "loading",
+    resource: { status: "loading", key: "scope" },
+    signature: "scope",
+    expected: { fresh: true, loading: true, error: "", metadata: null },
+  },
+  {
+    status: "loading",
+    resource: { status: "loading", key: "other" },
+    signature: "scope",
+    expected: { fresh: false, loading: false, error: "", metadata: null },
+  },
+  {
+    status: "failed",
+    resource: { status: "failed", key: "scope", error: "metadata failed" },
+    signature: "scope",
+    expected: { fresh: true, loading: false, error: "metadata failed", metadata: null },
+  },
+  {
+    status: "failed",
+    resource: { status: "failed", key: "other", error: "metadata failed" },
+    signature: "scope",
+    expected: { fresh: false, loading: false, error: "", metadata: null },
+  },
+  {
+    status: "ready",
+    resource: { status: "ready", key: "scope", data: metadataResult() },
+    signature: "scope",
+    expected: { fresh: true, loading: false, error: "", metadata: metadataResult() },
+  },
+  {
+    status: "ready",
+    resource: { status: "ready", key: "other", data: metadataResult() },
+    signature: "scope",
+    expected: { fresh: false, loading: false, error: "", metadata: null },
+  },
+];
+
+test("packageMetadataView projects every request state", () => {
+  for (const projection of metadataProjections) {
+    const stale = projection.expected.fresh ? "fresh" : "stale";
+    assert.deepEqual(
+      packageMetadataView(projection.resource, projection.signature),
+      projection.expected,
+      `${stale} ${projection.status} projection`);
+  }
+});
+
+test("the projection table covers every AsyncResource variant", () => {
+  // Derived, not restated: a new variant added to the union is an untested projection
+  // until it appears here, and this fails rather than passing quietly.
+  const source = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "..", "src", "data.ts"), "utf8");
+  const declaration = /export type AsyncResource<T> =([\s\S]*?);\n/.exec(source)?.[1] ?? "";
+  const variants = [...declaration.matchAll(/status\s*:\s*"([^"]+)"/g)]
+    .map(match => match[1])
+    .filter((status): status is string => status !== undefined);
+
+  assert.ok(
+    variants.length >= 4,
+    "the AsyncResource anchor stopped matching, so this gate derives nothing");
+  assert.deepEqual(
+    [...new Set(metadataProjections.map(projection => projection.status))].sort(),
+    [...new Set(variants)].sort(),
+    "the metadata projection table no longer covers the AsyncResource union");
 });

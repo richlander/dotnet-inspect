@@ -107,6 +107,7 @@ import {
 } from "./package-acquisition.ts";
 import {
   createPackageInspectionCoordinator,
+  packageMetadataView,
   workspaceDependencyKey,
   type PackagePerformance,
 } from "./package-inspection.ts";
@@ -2625,19 +2626,27 @@ function packageDependenciesSignature() {
 function renderPackageDependencies() {
   const current = packageDependenciesSignature();
   const resource = state.packageDependencies;
-  const fresh = resource.status !== "idle" && resource.key === current;
-  if (fresh && resource.status === "loading") {
-    return `<section class="document-section source-progress"><span class="loader"></span><h2>Reading dependencies…</h2><p>Parsing the package manifest and assembly references.</p></section>`;
+  const pending = `<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
+
+  // Settle staleness first, so the switch below dispatches only on a resource that
+  // describes the scope being rendered. Splitting it that way lets the `default` arm
+  // reach `assertNever`, which is what makes a new `AsyncResource` status a compile
+  // error here instead of a silent fall-through to the pending placeholder.
+  if (resource.status === "idle" || resource.key !== current) return pending;
+
+  let data: BrowserPackageDependencies;
+  switch (resource.status) {
+    case "loading":
+      return `<section class="document-section source-progress"><span class="loader"></span><h2>Reading dependencies…</h2><p>Parsing the package manifest and assembly references.</p></section>`;
+    case "failed":
+      return `<section class="document-section empty-document"><span class="large-glyph">⌘</span><h2>Dependency query failed</h2><p>${escapeHtml(resource.error)}</p></section>`;
+    case "ready":
+      data = resource.data;
+      break;
+    default:
+      assertNever(resource, "package dependency resource status");
   }
-  if (fresh && resource.status === "failed") {
-    return `<section class="document-section empty-document"><span class="large-glyph">⌘</span><h2>Dependency query failed</h2><p>${escapeHtml(resource.error)}</p></section>`;
-  }
-  const data = fresh && resource.status === "ready"
-    ? resource.data
-    : null;
-  if (!data) {
-    return `<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
-  }
+  if (!data) return pending;
 
   const groups = data.dependencyGroups || [];
   const assemblyReferences = assemblyReferencesSectionHtml(data);
@@ -2881,19 +2890,25 @@ function renderPackageIntegrations() {
     : escapeHtml(pkg.activeFramework);
   const current = packageIntegrationsSignature();
   const resource = state.packageIntegrations;
-  const fresh = resource.status !== "idle" && resource.key === current;
-  if (fresh && resource.status === "loading") {
-    return `${platformPicker}<section class="document-section source-progress"><span class="loader"></span><h2>Scanning integrations…</h2><p>Reading the public surface of ${isPlatform ? escapeHtml(scopedLib) : "each assembly"} for ecosystem signals.</p></section>`;
+  const pending = `${platformPicker}<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
+
+  // Staleness first, so the switch dispatches only on a resource describing the scope
+  // being rendered and its `default` arm can reach `assertNever`.
+  if (resource.status === "idle" || resource.key !== current) return pending;
+
+  let data: BrowserPackageIntegrations;
+  switch (resource.status) {
+    case "loading":
+      return `${platformPicker}<section class="document-section source-progress"><span class="loader"></span><h2>Scanning integrations…</h2><p>Reading the public surface of ${isPlatform ? escapeHtml(scopedLib) : "each assembly"} for ecosystem signals.</p></section>`;
+    case "failed":
+      return `${platformPicker}<section class="document-section empty-document"><span class="large-glyph">◈</span><h2>Integration scan failed</h2><p>${escapeHtml(resource.error)}</p></section>`;
+    case "ready":
+      data = resource.data;
+      break;
+    default:
+      assertNever(resource, "package integration resource status");
   }
-  if (fresh && resource.status === "failed") {
-    return `${platformPicker}<section class="document-section empty-document"><span class="large-glyph">◈</span><h2>Integration scan failed</h2><p>${escapeHtml(resource.error)}</p></section>`;
-  }
-  const data = fresh && resource.status === "ready"
-    ? resource.data
-    : null;
-  if (!data) {
-    return `${platformPicker}<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
-  }
+  if (!data) return pending;
 
   const categories = data.categories || [];
   const warning = data.inspectionError
@@ -3017,19 +3032,25 @@ function renderPackagePerformance() {
     : escapeHtml(pkg.activeFramework);
   const current = packageScopeSignature();
   const resource = state.packagePerformance;
-  const fresh = resource.status !== "idle" && resource.key === current;
-  if (fresh && resource.status === "loading") {
-    return `${picker}<section class="document-section source-progress"><span class="loader"></span><h2>Analyzing allocations…</h2><p>Classifying allocation and performance opportunities across every method body.</p></section>`;
+  const pending = `${picker}<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
+
+  // Staleness first, so the switch dispatches only on a resource describing the scope
+  // being rendered and its `default` arm can reach `assertNever`.
+  if (resource.status === "idle" || resource.key !== current) return pending;
+
+  let data: PackagePerformance;
+  switch (resource.status) {
+    case "loading":
+      return `${picker}<section class="document-section source-progress"><span class="loader"></span><h2>Analyzing allocations…</h2><p>Classifying allocation and performance opportunities across every method body.</p></section>`;
+    case "failed":
+      return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Analysis failed</h2><p>${escapeHtml(resource.error)}</p></section>`;
+    case "ready":
+      data = resource.data;
+      break;
+    default:
+      assertNever(resource, "package performance resource status");
   }
-  if (fresh && resource.status === "failed") {
-    return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Analysis failed</h2><p>${escapeHtml(resource.error)}</p></section>`;
-  }
-  const data = fresh && resource.status === "ready"
-    ? resource.data
-    : null;
-  if (!data) {
-    return `${picker}<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
-  }
+  if (!data) return pending;
 
   const members = data.members || [];
   const warning = data.inspectionError
@@ -3090,17 +3111,19 @@ function maybeAutoLoadPackagePerformance() {
 function renderPackageMetadata() {
   const isPlatform = state.package?.isRuntimePack === true;
   const resource = state.packageMetadata;
-  const fresh = resource.status !== "idle"
-    && resource.key === packageScopeSignature();
+
+  // `renderPackageMetadataHtml` still takes the flattened `fresh`/`loading`/`error`/
+  // `metadata` options, which is the very shape this state stopped being. Rather than
+  // reconstruct those four independently -- three `fresh &&` conjunctions that could
+  // each drift -- project them once from an exhaustive switch, so the union stays the
+  // single source of the answer and a new status is a compile error here.
+  const view = packageMetadataView(resource, packageScopeSignature());
   return renderPackageMetadataHtml({
     isPlatform,
     scopedLibrary: scopedPlatformLibrary() || "",
     activeFramework: state.package?.activeFramework || "",
     pickerHtml: isPlatform ? platformLensPicker("data-platform-metadata-library") : "",
-    fresh,
-    loading: fresh && resource.status === "loading",
-    error: fresh && resource.status === "failed" ? resource.error : "",
-    metadata: fresh && resource.status === "ready" ? resource.data : null,
+    ...view,
     escapeHtml,
     fmtBytes,
   });

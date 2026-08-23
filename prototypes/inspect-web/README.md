@@ -1072,10 +1072,19 @@ state, and data/error fields exist only on their applicable variants.
 and stale-result suppression for Dependencies, Integrations, Opportunities,
 Analysis, and Metadata. A second caller of an in-flight request joins it rather
 than returning early, so it reports completion only once the request has
-actually settled -- including when that request rejects.
+actually settled -- including when that request rejects. Joining requires both
+the same scope signature and the live request object, so a caller for a
+different scope starts its own request instead of waiting on one whose result
+it would not want. Registration owns the settlement: the loader body runs
+inside `runInFlight`, so no exit path -- including a throwing `render()` -- can
+leave a joined caller awaiting a request nobody will resolve.
+`test/package-inspection.test.ts` also drives every lens with a render that
+throws on the nth call, for every n, and projects every `AsyncResource` variant
+through `packageMetadataView`, deriving both rosters from the union declaration.
 `test/async-resource-state.test.ts` derives the converted lenses from their
-declared type and fails if one regains a parallel `…Loading`/`…Error`/`…Key`
-field on either the coordinator state or the initial state.
+declared type and fails if one regains any parallel state field -- named,
+quoted, or carried in by a spread -- on either the coordinator state or the
+initial state.
 `test/package-opportunities.test.ts` gates the platform pick-a-library prompt,
 the idle/loading/ready/failed states (fresh versus stale scope), the
 no-opportunities and inspection-error banners, the category summary counts,

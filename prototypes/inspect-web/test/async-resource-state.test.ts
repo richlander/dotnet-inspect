@@ -51,10 +51,49 @@ function resourceFields(declaration: string): string[] {
     .filter((name): name is string => name !== undefined);
 }
 
+// Read the keys the block actually declares, at its own nesting level, rather than the
+// keys that happen to be formatted one-per-line. Layout is not the property being gated,
+// and a scan anchored on indentation misses a single-line object -- which is exactly the
+// shape a spread source takes.
 function propertyNames(literalOrInterface: string): string[] {
-  return [...literalOrInterface.matchAll(/^\s{2}(\w+)\s*[:?]/gm)]
-    .map(match => match[1])
-    .filter((name): name is string => name !== undefined);
+  const depths: number[] = [];
+  let depth = 0;
+  for (const character of literalOrInterface) {
+    if (character === "}") depth -= 1;
+    depths.push(depth);
+    if (character === "{") depth += 1;
+  }
+
+  const names: string[] = [];
+  for (const key of literalOrInterface.matchAll(/[{,;]\s*"?(\w+)"?\s*\??\s*:/g)) {
+    const name = key[1];
+    // Measure at the colon, not at the leading delimiter: for the first property that
+    // delimiter is the opening brace itself, which sits one level out.
+    if (name !== undefined && depths[key.index + key[0].length - 1] === 1) {
+      names.push(name);
+    }
+  }
+  return names;
+}
+
+// A spread carries its source object's properties into the literal, so a gate that reads
+// only the literal's own keys can be walked around by moving the field into a spread
+// object. Round 2 review of PR #4585 (GPT-5.6 Sol) did exactly that. Resolve each spread
+// to the declaration it names and include those keys; refuse to pass on one that cannot
+// be resolved, because an unresolved spread is an unread surface, not an empty one.
+function spreadNames(literal: string, source: string): string[] {
+  const names: string[] = [];
+  for (const spread of literal.matchAll(/^\s{2}\.\.\.(\w+),/gm)) {
+    const identifier = spread[1];
+    if (identifier === undefined) continue;
+    const declaration = new RegExp(`(?:const|let|var) ${identifier}\\b[^=]*= \\{`);
+    const start = source.search(declaration);
+    assert.ok(
+      start >= 0,
+      `the spread \`...${identifier}\` could not be resolved, so its keys are unchecked`);
+    names.push(...propertyNames(block(source, declaration)));
+  }
+  return names;
 }
 
 test("a lens converted to AsyncResource keeps exactly one state field", () => {
@@ -67,9 +106,13 @@ test("a lens converted to AsyncResource keeps exactly one state field", () => {
     converted.length > 0,
     "no AsyncResource state field was found, so the anchor has stopped resolving");
 
+  const rootSource = read("dotnet-inspect.ts");
   const surfaces: readonly (readonly [string, readonly string[]])[] = [
     ["PackageInspectionState", propertyNames(coordinatorState)],
-    ["initialState", propertyNames(initialState)],
+    [
+      "initialState",
+      [...propertyNames(initialState), ...spreadNames(initialState, rootSource)],
+    ],
   ];
 
   const survivors: string[] = [];
