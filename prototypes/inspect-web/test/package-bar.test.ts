@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   bindPackageSelections,
   createPackageBar,
+  findPackageTabForQuery,
   packageBarHtml,
   packageIdentityEquals,
   packageTabHtml,
@@ -10,7 +11,10 @@ import {
   parsePackageQuery,
   platformTabHtml,
 } from "../src/package-bar.ts";
-import type { PackageBarPackage } from "../src/package-bar.ts";
+import type {
+  PackageBarPackage,
+  ParsedPackageQuery,
+} from "../src/package-bar.ts";
 import { fakeDom } from "./fake-dom.ts";
 
 function escapeHtml(value: unknown) {
@@ -47,7 +51,7 @@ class FakeElement {
 
   dispatch(type: string) {
     for (const listener of this.listeners.get(type) ?? []) {
-      listener(fakeDom.event({ target: this }));
+      listener(fakeDom.event({ target: this, preventDefault() {} }));
     }
   }
 }
@@ -244,10 +248,12 @@ test("parsing the open-package query accepts an id and an id@version, and reject
   assert.deepEqual(parsePackageQuery("System.Text.Json"), {
     packageId: "System.Text.Json",
     version: "latest",
+    explicitVersion: false,
   });
   assert.deepEqual(parsePackageQuery("System.Text.Json@8.0.0"), {
     packageId: "System.Text.Json",
     version: "8.0.0",
+    explicitVersion: true,
   });
   assert.equal(parsePackageQuery(""), null);
   assert.equal(parsePackageQuery("   "), null);
@@ -260,5 +266,86 @@ test("a leading '@' has no package id to reject, so it is preserved as the whole
   assert.deepEqual(parsePackageQuery("@1.0.0"), {
     packageId: "@1.0.0",
     version: "latest",
+    explicitVersion: false,
   });
+});
+
+test("a bare package query activates an already-open tab instead of loading another version", () => {
+  const older = pkg("System.Text.Json", "10.0.0");
+  const newer = pkg("System.Text.Json", "10.0.11");
+  const other = pkg("Newtonsoft.Json", "13.0.4");
+
+  assert.equal(findPackageTabForQuery(
+    { packages: [older, newer, other], package: older },
+    parsePackageQuery("system.text.json")!,
+  ), older);
+  assert.equal(findPackageTabForQuery(
+    { packages: [older, other], package: other },
+    parsePackageQuery("System.Text.Json")!,
+  ), older);
+  assert.equal(findPackageTabForQuery(
+    { packages: [older, newer, other], package: other },
+    parsePackageQuery("System.Text.Json")!,
+  ), newer);
+});
+
+test("an explicit package version activates only a matching open tab", () => {
+  const older = pkg("System.Text.Json", "10.0.0");
+  const newer = pkg("System.Text.Json", "10.0.11");
+  const state = { packages: [older, newer], package: newer };
+
+  assert.equal(findPackageTabForQuery(
+    state,
+    parsePackageQuery("System.Text.Json@10.0.0")!,
+  ), older);
+  assert.equal(findPackageTabForQuery(
+    state,
+    parsePackageQuery("System.Text.Json@9.0.0")!,
+  ), null);
+  assert.equal(findPackageTabForQuery(
+    {
+      packages: [pkg("Microsoft.NETCore.App", "10.0.0", "net10.0", true)],
+      package: null,
+    },
+    parsePackageQuery("Microsoft.NETCore.App@10.0.0")!,
+  ), null);
+});
+
+test("the package bar preserves whether the submitted version was explicit", () => {
+  const root = new FakeRoot();
+  const form = root.add("#package-query", new FakeElement());
+  const input = root.add("#package-query-input", new FakeElement());
+  const queries: ParsedPackageQuery[] = [];
+  const packageBar = createPackageBar({
+    state: { packages: [], package: null },
+    escapeHtml,
+    packageIdentityKey,
+    runtimePackPackage: () => null,
+    selectPackageTab: () => {},
+    closePackageTab: () => {},
+    openRuntimePack: () => {},
+    openPackage: query => queries.push(query),
+    selectFramework: () => {},
+    selectVersion: () => {},
+    showToast: () => {},
+  });
+  packageBar.bind(fakeDom.parentNode(root));
+
+  input.value = "System.Text.Json";
+  form.dispatch("submit");
+  input.value = "System.Text.Json@10.0.0";
+  form.dispatch("submit");
+
+  assert.deepEqual(queries, [
+    {
+      packageId: "System.Text.Json",
+      version: "latest",
+      explicitVersion: false,
+    },
+    {
+      packageId: "System.Text.Json",
+      version: "10.0.0",
+      explicitVersion: true,
+    },
+  ]);
 });
