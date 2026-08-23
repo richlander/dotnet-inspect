@@ -21,10 +21,11 @@ public class BrowserStaticWebAppConfigTests
             .. config.RootElement.GetProperty("routes").EnumerateArray(),
         ];
 
-        Assert.Equal(3, routes.Length);
+        Assert.Equal(4, routes.Length);
         AssertRoute(routes[0], "/");
         AssertRoute(routes[1], "/index.html");
         AssertRoute(routes[2], "/credits", "/index.html");
+        AssertRoute(routes[3], "/credits/*", "/index.html");
         Assert.Equal(
             routes.Length,
             routes

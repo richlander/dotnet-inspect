@@ -62,13 +62,20 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
   );
 });
 
-test("static hosting serves direct credits links through the application entry point", () => {
+test("static hosting configures non-overlapping credits routes", () => {
   const creditsRoutes = staticWebAppConfig.routes
-    .filter(route => route.route === "/credits" || route.route === "/credits/");
+    .filter(route => route.route.startsWith("/credits"));
 
   assert.deepEqual(creditsRoutes, [
     {
       route: "/credits",
+      rewrite: "/index.html",
+      headers: {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+      },
+    },
+    {
+      route: "/credits/*",
       rewrite: "/index.html",
       headers: {
         "Cache-Control": "no-cache, no-store, must-revalidate",

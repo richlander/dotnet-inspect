@@ -497,13 +497,17 @@ boundary.
 
 The home page identifies the browser stack below its search surface and links
 to the client-rendered `/credits` route. `src/credits-panel.ts` owns that page's
-markup, route recognition, and rendered control bindings. Azure Static Web Apps
-rewrites direct Credits requests to the non-cacheable `index.html`; the
-document's root base keeps SDK-generated framework imports valid on both
-`/credits` and `/credits/`. `scripts/verify-site-artifact.js` gates that base
-and its ordering in the Vite bundle and SDK-published site. Other application
-routes use the navigation fallback, while API, asset, and framework requests
-remain excluded.
+markup, route recognition, and rendered control bindings. The Static Web Apps
+configuration uses an exact `/credits` route plus Azure's documented
+`/credits/*` child wildcard to rewrite both `/credits` and `/credits/` to the
+non-cacheable `index.html`; the document's root base keeps SDK-generated
+framework imports valid on both paths.
+`BrowserStaticWebAppConfigTests.EntryDocumentsAreNotCachedAndConfigIsPublished`
+gates the authored wildcard and header, while a successful staging deployment
+and direct header probes remain the required evidence for Azure's hosted
+behavior. `scripts/verify-site-artifact.js` gates the root base and its ordering
+in the Vite bundle and SDK-published site. Other application routes use the
+navigation fallback, while API, asset, and framework requests remain excluded.
 
 The .NET 11 preview Emscripten wrapper currently mishandles an SDK packs path
 that contains whitespace. If that applies to the local SDK installation, pass
@@ -987,16 +991,17 @@ Trusted build and deployment steps also verify that Vite preserved the authored
 .NET placeholders, that every file in Vite's generated manifest exists and is
 loaded by the index where required, that the SDK injected a mapping to the
 fingerprinted `dotnet.js`, and that the import map precedes the Vite module
-entry. That configuration serves `/`, `/index.html`, and the Azure-canonical
-`/credits` route with `Cache-Control: no-cache, no-store, must-revalidate`, so
-an Azure edge cannot retain an old browser boot graph after its fingerprinted
-Wasm assets rotate. Azure treats trailing-slash variants as the same route;
+entry. That configuration gives `/`, `/index.html`, `/credits`, and the
+documented `/credits/*` child wildcard `Cache-Control: no-cache, no-store,
+must-revalidate`, so the authored routes do not permit an Azure edge to retain
+an old browser boot graph after its fingerprinted Wasm assets rotate.
 `BrowserStaticWebAppConfigTests.EntryDocumentsAreNotCachedAndConfigIsPublished`
-gates both route uniqueness and the header and publish-wiring contracts. The
-staging publish step embeds the CLI's authoritative `VersionPrefix`, exact
-source SHA, and UTC build timestamp. The home and workspace status bars show
-that version, link the short commit to GitHub, and disclose the binary build
-time.
+gates route uniqueness, the wildcard and header shape, and publish wiring.
+Hosted wildcard matching remains unverified until a successful staging
+deployment and direct `/credits` and `/credits/` header probes. The staging
+publish step embeds the CLI's authoritative `VersionPrefix`, exact source SHA,
+and UTC build timestamp. The home and workspace status bars show that version,
+link the short commit to GitHub, and disclose the binary build time.
 `BuildIdentity_UsesVersionedRepositoryProvenance` and
 `ready status shows versioned linked build provenance` gate the engine and UI
 halves.
