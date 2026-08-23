@@ -4167,8 +4167,11 @@ public partial class CommandExecutionTests
         Assert.Equal("1", routed.Output.Trim());
     }
 
-    [Fact]
-    public async Task Member_SuppliedTypeAcceptsFullyQualifiedMemberFilter()
+    [Theory]
+    [InlineData("System.String")]
+    [InlineData("String")]
+    public async Task Member_SuppliedTypeAcceptsFullyQualifiedMemberFilter(
+        string typeName)
     {
         string[] tail =
         [
@@ -4181,11 +4184,11 @@ public partial class CommandExecutionTests
             "q"
         ];
         var simple = await RunAppAsync(
-            ["member", "System.String", "-m", "String.Contains", .. tail]);
+            ["member", typeName, "-m", "String.Contains", .. tail]);
         var qualified = await RunAppAsync(
             [
                 "member",
-                "System.String",
+                typeName,
                 "-m",
                 "System.String.Contains",
                 .. tail

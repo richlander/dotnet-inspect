@@ -330,14 +330,9 @@ public static class SharedParsers
         if (string.IsNullOrWhiteSpace(suppliedTypeName))
             return false;
 
-        var normalizedQualifier = FqnParser.NormalizeTypeName(qualifier)
-            .Replace('+', '.');
-        var normalizedSuppliedType = FqnParser.NormalizeTypeName(suppliedTypeName)
-            .Replace('+', '.');
-
-        return normalizedQualifier.Equals(
-            normalizedSuppliedType,
-            StringComparison.OrdinalIgnoreCase);
+        return TypeMatcher.MatchesTypeFilter(
+            qualifier,
+            suppliedTypeName);
     }
 
     public static (string Name, string? Digest) ParseDigestShorthand(string value)
