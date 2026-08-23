@@ -113,6 +113,37 @@ public class PlantedCoreLibraryIdentityTests
     }
 
     /// <summary>
+    /// A platform acquisition keeps core-library identity, driven end to end
+    /// through the resolved-reader path.
+    /// <para>
+    /// This is the ordinary journey — open a package, follow a reference to a
+    /// platform type in a runtime pack or an installed shared framework — and
+    /// it is the one every other case here is the negative of. It was missing:
+    /// <c>PlatformAsset</c> appeared only in the derived entitled-set gate,
+    /// which asks the trust type directly, so nothing drove a platform
+    /// acquisition through <c>MetadataContext.Open</c> and checked that the
+    /// identity survives.
+    /// </para>
+    /// <para>
+    /// That asymmetry mattered. Every gate here answers "does an attack fail?"
+    /// and a change that denied identity to <em>every</em> platform assembly —
+    /// a scope regression, a classification that stops running, a deny list
+    /// applied too broadly — makes all of them greener, not redder. This is the
+    /// case that fails when the feature stops working.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void PlatformAcquisition_KeepsCoreLibraryIdentity()
+    {
+        RunWithResolvedCoreLibrary(
+            AssemblyResolutionProvenance.Platform(
+                "Microsoft.NETCore.App",
+                frameworkVersion: null,
+                "runtime pack"),
+            expectedCorelib: true);
+    }
+
+    /// <summary>
     /// A discovered sibling is denied core-library identity. There is no host
     /// opt-in to consult: promoting a loose file to platform status is exactly
     /// the type confusion the strict model rules out, because the directory it
