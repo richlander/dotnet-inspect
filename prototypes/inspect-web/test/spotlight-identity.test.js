@@ -1962,6 +1962,25 @@ test("global workbench shortcuts respect the topmost modal", () => {
     /function focusFilter\([\s\S]*\{ immediate = false \}: \{ immediate\?: boolean \} = \{\},[\s\S]*const focus = \(\) => \{[\s\S]*"#member-filter, #type-filter"[\s\S]*if \(immediate\) \{\s*focus\(\);\s*return;\s*}\s*requestAnimationFrame\(focus\);/);
 });
 
+test("document viewer ownership reaches every root focus, render, and keyboard site", () => {
+  const predicate = /isDocViewerOpen\(state\.docViewer\)/g;
+  assert.equal(appSource.match(predicate)?.length, 5);
+
+  const focusOwner =
+    appSource.match(/function focusTypeList\([\s\S]*?\n}\n\nfunction openSpotlight/)?.[0]
+    ?? "";
+  assert.equal(focusOwner.match(predicate)?.length, 2);
+  assert.match(
+    appSource,
+    /function render\(\)[\s\S]*isDocViewerOpen\(state\.docViewer\) \? renderDocViewer\(\) : ""/);
+  assert.match(
+    appSource,
+    /function workbenchModalOwnsFocus\(\)[\s\S]*isDocViewerOpen\(state\.docViewer\);/);
+  assert.match(
+    appSource,
+    /document\.addEventListener\("keydown"[\s\S]*if \(isDocViewerOpen\(state\.docViewer\)\)/);
+});
+
 test("Spotlight navigation waits for selection data before restoring focus", () => {
   const typeLensLoader =
     appSource.match(/function loadSelectedTypeLensData\([\s\S]*?\n}/)?.[0];

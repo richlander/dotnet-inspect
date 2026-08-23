@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   createDocumentInspectionCoordinator,
   docViewerOptions,
+  isDocViewerOpen,
   type DocumentInspectionDependencies,
   type DocumentInspectionState,
   type DocumentViewerState,
@@ -800,6 +801,28 @@ test("closing replaces every document surface with a closed state", () => {
   assert.equal(renders, 1);
 });
 
+test("document viewer ownership is explicit for every state", () => {
+  assert.equal(isDocViewerOpen({ status: "closed" }), false);
+  assert.equal(
+    isDocViewerOpen({ status: "loading", request: projectionRequest }),
+    true);
+  assert.equal(
+    isDocViewerOpen({
+      status: "ready",
+      request: projectionRequest,
+      html: "",
+      meta: null,
+    }),
+    true);
+  assert.equal(
+    isDocViewerOpen({
+      status: "failed",
+      request: projectionRequest,
+      error: "",
+    }),
+    true);
+});
+
 // The union decides which fields *exist*; this projection decides which ones the renderer
 // is actually told about, and the two are not the same property. Adversarial review made
 // the point concretely by rewriting the old inline projection to pass `error: ""`: every
@@ -849,8 +872,11 @@ test("a failed document projects its error and claims no content", () => {
   });
   // The projection carries the status through rather than flattening it, so "failed with
   // no content" is one value instead of a combination of four fields that could disagree.
-  assert.deepEqual(options.body, {
-    status: "failed",
-    error: "the document could not be read",
+  assert.deepEqual(options, {
+    doc: projectionDocument,
+    body: {
+      status: "failed",
+      error: "the document could not be read",
+    },
   });
 });

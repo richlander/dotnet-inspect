@@ -1,4 +1,4 @@
-// A lens converted to `AsyncResource` holds its whole request lifecycle in one state field.
+// A request lifecycle union holds its whole lifecycle in one state field.
 // The parallel `…Loading`/`…Error`/`…Key` fields it replaces are gone -- but nothing proved
 // they were gone, and adversarial review (GPT-5.6 Sol, Claude Opus 5) resurrected them two
 // ways with the suite and the analyzer silent:
@@ -45,20 +45,23 @@ function parse(file: string): Program {
   return parsed.program;
 }
 
-function packageInspectionState(program: Program): TSInterfaceDeclaration {
+function inspectionState(
+  program: Program,
+  name: string,
+): TSInterfaceDeclaration {
   const declarations = program.body.flatMap(node => {
     const declaration = node.type === "ExportNamedDeclaration"
       ? node.declaration
       : node;
     return declaration?.type === "TSInterfaceDeclaration"
-      && declaration.id.name === "PackageInspectionState"
+      && declaration.id.name === name
       ? [declaration]
       : [];
   });
   assert.equal(
     declarations.length,
     1,
-    "PackageInspectionState must have exactly one declaration");
+    `${name} must have exactly one declaration`);
   const declaration = declarations[0];
   assert.ok(declaration);
   return declaration;
@@ -75,13 +78,13 @@ function stateProperties(declaration: TSInterfaceDeclaration): TSPropertySignatu
     (member): member is TSPropertySignature => member.type === "TSPropertySignature");
 }
 
-function resourceFields(declaration: TSInterfaceDeclaration): string[] {
+function lifecycleFields(declaration: TSInterfaceDeclaration): string[] {
   return stateProperties(declaration)
     .filter(property => {
       const annotation = property.typeAnnotation?.typeAnnotation;
       return annotation?.type === "TSTypeReference"
         && annotation.typeName.type === "Identifier"
-        && annotation.typeName.name === "AsyncResource";
+        && ["AsyncResource", "DocumentViewerState"].includes(annotation.typeName.name);
     })
     .map(property => propertyName(property.key, property.computed));
 }
@@ -138,15 +141,23 @@ function objectPropertyNames(
   return names;
 }
 
-test("a lens converted to AsyncResource keeps exactly one state field", () => {
+test("a request lifecycle union keeps exactly one state field", () => {
   const coordinatorProgram = parse("package-inspection.ts");
-  const coordinatorState = packageInspectionState(coordinatorProgram);
+  const coordinatorState = inspectionState(
+    coordinatorProgram,
+    "PackageInspectionState");
+  const documentState = inspectionState(
+    parse("document-inspection.ts"),
+    "DocumentInspectionState");
   const rootProgram = parse("dotnet-inspect.ts");
   const declarations = objectDeclarations(rootProgram);
   const initialState = declarations.get("initialState");
   assert.ok(initialState, "initialState must be a statically inspectable object");
 
-  const converted = resourceFields(coordinatorState);
+  const converted = [
+    ...lifecycleFields(coordinatorState),
+    ...lifecycleFields(documentState),
+  ];
   assert.ok(
     converted.length > 0,
     "no AsyncResource state field was found, so the anchor has stopped resolving");
@@ -155,6 +166,11 @@ test("a lens converted to AsyncResource keeps exactly one state field", () => {
     [
       "PackageInspectionState",
       stateProperties(coordinatorState)
+        .map(property => propertyName(property.key, property.computed)),
+    ],
+    [
+      "DocumentInspectionState",
+      stateProperties(documentState)
         .map(property => propertyName(property.key, property.computed)),
     ],
     ["initialState", objectPropertyNames(initialState, declarations)],
@@ -174,17 +190,22 @@ test("a lens converted to AsyncResource keeps exactly one state field", () => {
   assert.deepEqual(
     survivors.sort((left, right) => left.localeCompare(right)),
     [],
-    "a lens holding its lifecycle in an AsyncResource also has a parallel state field. "
-    + "The resource is the single source of truth for that request; a second field beside "
+    "a request lifecycle union also has a parallel state field. "
+    + "The union is the single source of truth for that request; a second field beside "
     + "it can disagree with it.");
 });
 
-test("the parallel-field gate sees both surfaces", () => {
+test("the parallel-field gate sees every lifecycle surface", () => {
   // Non-vacuity, and the specific shape of the two mutations that were silent: a gate that
   // reads only one surface, or whose property scan stops matching, would pass above while
   // proving nothing.
   const coordinatorProgram = parse("package-inspection.ts");
-  const coordinatorState = packageInspectionState(coordinatorProgram);
+  const coordinatorState = inspectionState(
+    coordinatorProgram,
+    "PackageInspectionState");
+  const documentState = inspectionState(
+    parse("document-inspection.ts"),
+    "DocumentInspectionState");
   const rootProgram = parse("dotnet-inspect.ts");
   const declarations = objectDeclarations(rootProgram);
   const initialState = declarations.get("initialState");
@@ -196,6 +217,14 @@ test("the parallel-field gate sees both surfaces", () => {
         === "packageOpportunities"),
     "the coordinator-state property scan no longer sees the converted lens");
   assert.ok(
+    stateProperties(documentState)
+      .some(property => propertyName(property.key, property.computed)
+        === "docViewer"),
+    "the document-state property scan no longer sees the converted viewer");
+  assert.ok(
     objectPropertyNames(initialState, declarations).includes("packageOpportunities"),
     "the initial-state property scan no longer sees the converted lens");
+  assert.ok(
+    objectPropertyNames(initialState, declarations).includes("docViewer"),
+    "the initial-state property scan no longer sees the converted viewer");
 });

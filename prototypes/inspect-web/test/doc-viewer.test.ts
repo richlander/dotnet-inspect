@@ -190,6 +190,21 @@ test("error state reports the error instead of loading or body content", () => {
   assert.doesNotMatch(html, /markdown-body/);
 });
 
+test("error state escapes hostile failure text", () => {
+  const html = renderDocViewer({
+    doc,
+    body: {
+      status: "failed",
+      error: "</div><script>globalThis.compromised = true</script>",
+    },
+    escapeHtml,
+  });
+
+  assert.doesNotMatch(html, /<script>/);
+  assert.match(html, /&lt;\/div&gt;&lt;script&gt;/);
+  assert.match(html, /doc-viewer-status error/);
+});
+
 test("loaded state without frontmatter renders the body with no frontmatter card", () => {
   const html = renderDocViewer({
     doc,

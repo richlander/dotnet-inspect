@@ -33,15 +33,22 @@ export type DocumentViewerState =
 export type OpenDocumentViewerState =
   Exclude<DocumentViewerState, { status: "closed" }>;
 
-// Five call sites asked "is the viewer open?" by spelling `status !== "closed"`, and round
-// 2 review (Claude Opus 5) pointed out that a new *closed-like* member -- dismissed,
-// cancelled -- would be silently treated as open at all five, with no compile error to
-// prompt a decision. `Exclude` absorbs it the same way. One predicate makes that a single
-// place to review instead of five identical literals to find.
+// Five root call sites ask whether the viewer owns rendering, focus, or keyboard input.
+// Keep that decision exhaustive here so a new state cannot silently acquire or lose all
+// three kinds of ownership.
 export function isDocViewerOpen(
   viewer: DocumentViewerState,
 ): viewer is OpenDocumentViewerState {
-  return viewer.status !== "closed";
+  switch (viewer.status) {
+    case "closed":
+      return false;
+    case "loading":
+    case "ready":
+    case "failed":
+      return true;
+    default:
+      return assertNever(viewer, "DocumentViewerState");
+  }
 }
 
 // The union guarantees that `error` and `html` exist only on the variants that own them,
