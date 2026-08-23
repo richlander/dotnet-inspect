@@ -56,6 +56,39 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
         Assert.Equal(JsonWireNamingPolicy.CamelCase, policy);
     }
 
+    [Fact]
+    public void UnexpectedConstructorIsUnsupported()
+    {
+        JsonWireNamingPolicy? policy = ReadPolicy(
+            BuildImageCore(
+                (metadata, target, constructor) =>
+                {
+                    var value = new BlobBuilder();
+                    value.WriteUInt16(1);
+                    value.WriteInt32(0);
+                    value.WriteUInt16(0);
+                    metadata.AddCustomAttribute(
+                        target,
+                        constructor,
+                        metadata.GetOrAddBlob(value));
+                },
+                constructorParameterCount: 1));
+
+        Assert.Equal(JsonWireNamingPolicy.Unsupported, policy);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MalformedRowPairedWithValidRowIsUnsupportedRegardlessOfOrder(
+        bool malformedFirst)
+    {
+        JsonWireNamingPolicy? policy = ReadPolicy(
+            BuildImageWithMalformedAndValidRows(malformedFirst));
+
+        Assert.Equal(JsonWireNamingPolicy.Unsupported, policy);
+    }
+
     [Theory]
     [InlineData(1, 2)]
     [InlineData(2, 1)]
@@ -207,11 +240,16 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
         Assert.Equal(JsonWireNamingPolicy.Unsupported, policy);
     }
 
-    [Fact]
-    public void SameNameOptionsAttributeFromUntrustedAssemblyIsIgnored()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SameNameOptionsAttributeFromUntrustedAssemblyIsIgnored(
+        bool malformed)
     {
         byte[] image = BuildSingleRow(
-            metadata => PolicyValue(metadata, 1),
+            metadata => malformed
+                ? metadata.GetOrAddBlob(new byte[] { 0 })
+                : PolicyValue(metadata, 1),
             trustedAssembly: false);
         using var stream = new MemoryStream(image, writable: false);
         using var peReader = new PEReader(stream);
@@ -268,6 +306,23 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
                 }
             });
 
+    static byte[] BuildImageWithMalformedAndValidRows(bool malformedFirst)
+        => BuildImageCore(
+            (metadata, target, constructor) =>
+            {
+                foreach (bool malformed in malformedFirst
+                    ? new[] { true, false }
+                    : new[] { false, true })
+                {
+                    metadata.AddCustomAttribute(
+                        target,
+                        constructor,
+                        malformed
+                            ? metadata.GetOrAddBlob(new byte[] { 0 })
+                            : PolicyValue(metadata, 1));
+                }
+            });
+
     static byte[] BuildSingleRow(
         Func<MetadataBuilder, BlobHandle> valueFactory,
         bool trustedAssembly = true)
@@ -282,7 +337,8 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
     static byte[] BuildImageCore(
         Action<MetadataBuilder, TypeDefinitionHandle, MemberReferenceHandle>
             addAttributes,
-        bool trustedAssembly = true)
+        bool trustedAssembly = true,
+        int constructorParameterCount = 0)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -322,9 +378,13 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
             SignatureCallingConvention.Default,
             genericParameterCount: 0,
             isInstanceMethod: true).Parameters(
-            0,
+            constructorParameterCount,
             returnType => returnType.Void(),
-            _ => { });
+            parameters =>
+            {
+                for (int index = 0; index < constructorParameterCount; index++)
+                    parameters.AddParameter().Type().Int32();
+            });
         MemberReferenceHandle constructor = metadata.AddMemberReference(
             attributeType,
             metadata.GetOrAddString(".ctor"),

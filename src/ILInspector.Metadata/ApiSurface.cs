@@ -733,10 +733,28 @@ public class ApiType
     /// For an enum (<see cref="Kind"/> == <c>"enum"</c>): whether it carries <c>[Flags]</c>. With the default
     /// string-enum converter, STJ serializes named combinations as a comma-joined string of member names
     /// (e.g. <c>"Read, Write"</c>) but can serialize unnamed combinations numerically. Null for non-enum types
-    /// and for older serialized surfaces that predate this field.
+    /// and for older serialized surfaces that predate this field. True only for a well-formed authentic row;
+    /// <see cref="FlagsAttributeCount"/> and <see cref="HasMalformedFlagsAttribute"/> carry the evidence a
+    /// wire projection needs to fail closed instead of reading unreadable metadata as absence.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool IsFlagsEnum { get; set; }
+
+    /// <summary>
+    /// Number of well-formed authentic <c>[Flags]</c> rows on an enum. More than one is unsupported
+    /// evidence: <c>[Flags]</c> is <c>AllowMultiple = false</c>, so a duplicate row cannot have come
+    /// from a compiler.
+    /// </summary>
+    [JsonIgnore]
+    public int FlagsAttributeCount { get; set; }
+
+    /// <summary>
+    /// True when an authentic <c>[Flags]</c> row on an enum carried a constructor or value blob this
+    /// reader cannot honor. The claim is real but unreadable, so consumers must treat it as unsupported
+    /// evidence rather than as absence.
+    /// </summary>
+    [JsonIgnore]
+    public bool HasMalformedFlagsAttribute { get; set; }
 
     /// <summary>
     /// For an enum (<see cref="Kind"/> == <c>"enum"</c>): whether it carries
@@ -1010,11 +1028,48 @@ public class ApiMember
     /// <see langword="null"/> marking a row whose metadata cannot be honored.
     /// This is the authoritative directional fact; <see cref="HasJsonIgnore"/>
     /// and <see cref="HasJsonIgnoreNever"/> are derived from it so the two
-    /// cannot drift apart.
+    /// cannot drift apart. Its persisted projection is
+    /// <see cref="JsonIgnoreConditionEvidence"/>.
     /// </summary>
     [JsonIgnore]
     public List<JsonWireIgnoreCondition?> JsonIgnoreConditions { get; set; } = [];
 
+    /// <summary>
+    /// The persisted projection of <see cref="JsonIgnoreConditions"/>, named
+    /// <c>json_ignore_conditions</c> on the wire and omitted when the member
+    /// carries no authentic <c>[JsonIgnore]</c> row.
+    /// </summary>
+    /// <remarks>
+    /// The conditions themselves are persisted rather than the derived
+    /// <see cref="HasJsonIgnore"/> flag, because <c>WhenWriting</c> and
+    /// <c>WhenReading</c> are directional and a single boolean cannot
+    /// reconstruct which direction survived. A <see langword="null"/> element
+    /// persists an authentic row whose metadata could not be decoded, so
+    /// unreadable evidence stays visible across a round trip instead of
+    /// reappearing as a well-formed condition or as absence. The wire name is
+    /// pinned with <see cref="JsonPropertyNameAttribute"/> so this projection
+    /// does not read as a second, differently-named fact under a context whose
+    /// naming policy differs.
+    /// <c>ApiOutputFormatterTests.ApiTypeJson_RoundTripsDirectionalAndMalformedJsonIgnoreEvidence</c>
+    /// is the gate.
+    /// </remarks>
+    [JsonPropertyName("json_ignore_conditions")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<JsonWireIgnoreCondition?>? JsonIgnoreConditionEvidence
+    {
+        get => JsonIgnoreConditions.Count == 0 ? null : JsonIgnoreConditions;
+        set => JsonIgnoreConditions = value ?? [];
+    }
+
+    /// <summary>
+    /// True when the member carries any authentic <c>[JsonIgnore]</c> row,
+    /// including a malformed one. Derived from
+    /// <see cref="JsonIgnoreConditions"/> and emitted for compatibility with
+    /// consumers of the existing <c>has_json_ignore</c> field; a reader
+    /// reconstructs it from the persisted
+    /// <see cref="JsonIgnoreConditionEvidence"/> rather than from this field,
+    /// which carries no direction.
+    /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool HasJsonIgnore => JsonIgnoreConditions.Count > 0;
 
@@ -1256,4 +1311,5 @@ public sealed record ApiTypeReferenceIdentity(
 
 public sealed record ApiJsonSerializableRoot(
     ApiTypeReferenceIdentity ElementType,
-    bool IsArray);
+    bool IsArray,
+    string? TypeInfoPropertyName = null);

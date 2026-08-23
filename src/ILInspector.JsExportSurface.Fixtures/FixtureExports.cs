@@ -40,6 +40,13 @@ public static partial class FixtureExports
             await GetStringArrayAsync(value),
             FixtureJsonContext.Default.StringArray);
 
+    [JSExport]
+    public static byte[] EchoBytes(byte[] value) => value;
+
+    [JSExport]
+    public static string GetRegisteredString(string value) =>
+        JsonSerializer.Serialize(value, FixtureJsonContext.Default.String);
+
     static async Task<string[]> GetStringArrayAsync(string value)
     {
         await Task.Yield();
@@ -200,6 +207,18 @@ public static partial class FixtureExports
             FixtureJsonContext.Default.WidgetAudit);
 
     [JSExport]
+    public static string GetCustomNamedGenerated() =>
+        JsonSerializer.Serialize(
+            new CustomNamedDto("generated"),
+            CustomNamedJsonContext.Default.RegisteredCustomNamed);
+
+    [JSExport]
+    public static string GetCustomNamedHandwritten() =>
+        JsonSerializer.Serialize(
+            new CustomNamedDto("handwritten"),
+            CustomNamedJsonContext.Default.Evil);
+
+    [JSExport]
     public static string QueryPackage(string packageId) => packageId;
 }
 
@@ -270,6 +289,8 @@ public sealed record ByteEnvelopeDto(byte[] Content, BytePayloadDto Payload);
 
 public sealed record BytePayloadDto(byte[] Content);
 
+public sealed record CustomNamedDto(string DisplayName);
+
 public sealed record InternalContextPascalWidget(string Name, int Count);
 public sealed record InternalContextCamelWidget(string Name, int Count);
 public sealed record ConflictingPolicyWidget(string DisplayName);
@@ -292,6 +313,7 @@ public static partial class InternalContextFixtureExports
 
 [JsonSerializable(typeof(WidgetDto))]
 [JsonSerializable(typeof(WidgetDto[]))]
+[JsonSerializable(typeof(string))]
 [JsonSerializable(typeof(string[]))]
 [JsonSerializable(typeof(WidgetCatalog))]
 [JsonSerializable(typeof(WidgetSummary))]
@@ -301,6 +323,24 @@ public static partial class InternalContextFixtureExports
 [JsonSerializable(typeof(ByteEnvelopeDto))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 public sealed partial class FixtureJsonContext : JsonSerializerContext;
+
+[JsonSerializable(
+    typeof(CustomNamedDto),
+    TypeInfoPropertyName = "RegisteredCustomNamed")]
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+public sealed partial class CustomNamedJsonContext : JsonSerializerContext;
+
+public sealed partial class CustomNamedJsonContext
+{
+    public JsonTypeInfo<CustomNamedDto> Evil =>
+        (JsonTypeInfo<CustomNamedDto>)new DefaultJsonTypeInfoResolver()
+            .GetTypeInfo(
+                typeof(CustomNamedDto),
+                new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+                });
+}
 
 [JsonSerializable(typeof(InternalContextPascalWidget))]
 internal sealed partial class InternalContextFixtureJsonContext : JsonSerializerContext;

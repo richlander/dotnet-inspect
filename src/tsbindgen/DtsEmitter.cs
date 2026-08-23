@@ -184,7 +184,7 @@ static class DtsEmitter
             }
             else
             {
-                tsType = TsTypeMapper.MapParameterType(
+                tsType = TsTypeMapper.MapJsonWireType(
                     propertyType,
                     knownTypeNames,
                     diagnostics,
@@ -242,6 +242,8 @@ static class DtsEmitter
                 }
                 if (converterControlled)
                     continue;
+
+                ValidateFlagsAttributeEvidence(type);
 
                 foreach (ApiMember member in members)
                 {
@@ -321,6 +323,40 @@ static class DtsEmitter
             throw new UnsupportedWireContractException(
                 location,
                 "[JsonInclude] metadata could not be decoded");
+        }
+    }
+
+    /// <summary>
+    /// Refuses to project a string-converted enum from <c>[Flags]</c> metadata
+    /// that cannot be honored.
+    /// </summary>
+    /// <remarks>
+    /// The flags fact selects between two incompatible declarations: a flags
+    /// enum is <c>string | number</c>, because STJ writes combinations as one
+    /// comma-joined string that no member-name union contains, while a regular
+    /// enum is that union plus <c>number</c>. Reading a malformed or duplicated
+    /// authentic row as absence would therefore emit the narrower union for a
+    /// contract that can carry combined values. Only string-converted enums are
+    /// affected: a converterless enum is <c>number</c> either way, so its
+    /// projection does not depend on the unreadable row. Gated by
+    /// <c>DtsEmitterTests.Emit_RefusesMalformedOrDuplicateFlagsMetadata</c> and
+    /// <c>Emit_AllowsMalformedFlagsMetadataOnConverterlessEnum</c>.
+    /// </remarks>
+    static void ValidateFlagsAttributeEvidence(ApiType type)
+    {
+        if (!type.HasJsonStringEnumConverter)
+            return;
+        if (type.HasMalformedFlagsAttribute)
+        {
+            throw new UnsupportedWireContractException(
+                FormatTypeLocation(type),
+                "[Flags] metadata could not be decoded");
+        }
+        if (type.FlagsAttributeCount > 1)
+        {
+            throw new UnsupportedWireContractException(
+                FormatTypeLocation(type),
+                "enums must not declare multiple [Flags] attributes");
         }
     }
 

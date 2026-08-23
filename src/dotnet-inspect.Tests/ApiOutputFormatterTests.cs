@@ -2336,6 +2336,73 @@ public class ApiOutputFormatterTests
         Assert.Equal([0, 0], restored.IntroducedTypeParameterCounts);
     }
 
+    /// <summary>
+    /// The production API-type JSON context persists the directional
+    /// <c>JsonIgnore</c> evidence instead of relying on the legacy derived
+    /// <c>has_json_ignore</c> boolean, which cannot identify the retained
+    /// direction. The serialization contract is gated here because the
+    /// context, rather than a reflection serializer, owns the shipped format.
+    /// </summary>
+    [Fact]
+    public void ApiTypeJson_RoundTripsDirectionalAndMalformedJsonIgnoreEvidence()
+    {
+        var type = new ApiType
+        {
+            Name = "Widget",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    JsonIgnoreConditions =
+                    [
+                        JsonWireIgnoreCondition.Always,
+                        JsonWireIgnoreCondition.Never,
+                        JsonWireIgnoreCondition.WhenWritingDefault,
+                        JsonWireIgnoreCondition.WhenWritingNull,
+                        JsonWireIgnoreCondition.WhenWriting,
+                        JsonWireIgnoreCondition.WhenReading,
+                        null,
+                    ],
+                },
+                new ApiMember
+                {
+                    Name = "Unannotated",
+                    Kind = "property",
+                },
+            ],
+        };
+
+        string json = JsonSerializer.Serialize(
+            type,
+            ApiTypeJsonContext.Default.ApiType);
+        ApiType restored = JsonSerializer.Deserialize(
+            json,
+            ApiTypeJsonContext.Default.ApiType)!;
+        ApiMember evidence = Assert.Single(
+            restored.Members,
+            member => member.Name == "Value");
+        ApiMember unannotated = Assert.Single(
+            restored.Members,
+            member => member.Name == "Unannotated");
+
+        Assert.Contains("\"has_json_ignore\": true", json, StringComparison.Ordinal);
+        Assert.Contains("\"json_ignore_conditions\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"Always\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"Never\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"WhenWritingDefault\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"WhenWritingNull\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"WhenWriting\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"WhenReading\"", json, StringComparison.Ordinal);
+        Assert.Equal(
+            type.Members[0].JsonIgnoreConditions,
+            evidence.JsonIgnoreConditions);
+        Assert.True(evidence.HasJsonIgnore);
+        Assert.Empty(unannotated.JsonIgnoreConditions);
+        Assert.False(unannotated.HasJsonIgnore);
+    }
+
     [Fact]
     public void ApplySurfaceFilters_ProjectsConstraintFailuresToRetainedTypes()
     {

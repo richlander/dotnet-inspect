@@ -110,6 +110,87 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
+    public void Emit_MapsDirectByteArrayExportAsInteropArray()
+    {
+        string dts = EmitFixtureDts();
+
+        Assert.Contains(
+            "export declare function echoBytes(value: number[]): number[];",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("byte[]")]
+    [InlineData("System.Byte[]")]
+    public void Emit_RejectsUntrustedByteArrayAliasesInInteropAndJsonWire(
+        string typeName)
+    {
+        var hostileAssembly = new ApiAssemblyIdentity(
+            "Hostile",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: null);
+        var hostileByte = new ApiTypeReferenceIdentity(
+            hostileAssembly,
+            "System.Byte");
+        var diagnostics = new TsBindGenDiagnostics();
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records =
+            [
+                new ApiType
+                {
+                    Name = "Payload",
+                    Members =
+                    [
+                        new ApiMember
+                        {
+                            Name = "Bytes",
+                            Kind = "property",
+                            SignatureModel = new ApiSignature
+                            {
+                                ReturnType = typeName,
+                                ReturnTypeReferences = [hostileByte],
+                            },
+                        },
+                    ],
+                },
+            ],
+            Functions =
+            [
+                new JsExportFunction
+                {
+                    DeclaringType = "Exports",
+                    Name = "Echo",
+                    ReturnType = typeName,
+                    ReturnTypeReferences = [hostileByte],
+                    Parameters =
+                    [
+                        new ApiParameter
+                        {
+                            Name = "Value",
+                            Type = typeName,
+                            TypeReferences = [hostileByte],
+                        },
+                    ],
+                },
+            ],
+        };
+
+        string dts = DtsEmitter.Emit(surface, diagnostics);
+
+        Assert.Contains("  Bytes: unknown;", dts, StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function echo(value: unknown): unknown;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic => diagnostic.CSharpType == typeName);
+    }
+
+    [Fact]
     public void Emit_DeclaresWrapperFunctionsWithCamelCaseNamesAndPromiseReturnTypes()
     {
         string dts = EmitFixtureDts();
@@ -298,6 +379,71 @@ public sealed class DtsEmitterTests
 
         Assert.Contains(
             "export type WidgetPermission = string | number;",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Emit_RefusesMalformedOrDuplicateFlagsMetadata(bool malformed)
+    {
+        var enumType = new ApiType
+        {
+            Name = "Permission",
+            Kind = "enum",
+            MetadataToken = 0x02000007,
+            HasJsonStringEnumConverter = true,
+            IsFlagsEnum = !malformed,
+            FlagsAttributeCount = malformed ? 0 : 2,
+            HasMalformedFlagsAttribute = malformed,
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Read",
+                    Kind = "field",
+                    IsConst = true,
+                },
+            ],
+        };
+
+        UnsupportedWireContractException exception =
+            Assert.Throws<UnsupportedWireContractException>(
+                () => DtsEmitter.Emit(
+                    new ILInspector.JsExportSurface.JsExportSurface
+                    {
+                        Enums = [enumType],
+                    }));
+
+        Assert.Contains("type 0x02000007", exception.Message, StringComparison.Ordinal);
+        Assert.Contains(
+            malformed
+                ? "[Flags] metadata could not be decoded"
+                : "enums must not declare multiple [Flags] attributes",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_AllowsMalformedFlagsMetadataOnConverterlessEnum()
+    {
+        string dts = DtsEmitter.Emit(
+            new ILInspector.JsExportSurface.JsExportSurface
+            {
+                Enums =
+                [
+                    new ApiType
+                    {
+                        Name = "Permission",
+                        Kind = "enum",
+                        HasMalformedFlagsAttribute = true,
+                    },
+                ],
+            });
+
+        Assert.Contains(
+            "export type Permission = number;",
             dts,
             StringComparison.Ordinal);
     }

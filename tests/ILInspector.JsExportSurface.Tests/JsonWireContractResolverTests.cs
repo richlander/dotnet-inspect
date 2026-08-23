@@ -385,6 +385,38 @@ public sealed class JsonWireContractResolverTests
     }
 
     [Fact]
+    public void Build_ResolvesRegisteredString()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildFixtureSurfaceWithWireContracts();
+
+        JsExportFunction function = Assert.Single(
+            surface.Functions,
+            candidate => candidate.Name == "GetRegisteredString");
+
+        Assert.Equal("string", function.ReturnWireType);
+    }
+
+    [Fact]
+    public void Build_AuthenticatesOnlyGeneratedCustomNamedContextProperty()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildFixtureSurfaceWithWireContracts();
+
+        JsExportFunction generated = Assert.Single(
+            surface.Functions,
+            candidate => candidate.Name == "GetCustomNamedGenerated");
+        JsExportFunction handwritten = Assert.Single(
+            surface.Functions,
+            candidate => candidate.Name == "GetCustomNamedHandwritten");
+
+        Assert.Equal(
+            FixtureNamespace + "CustomNamedDto",
+            generated.ReturnWireType);
+        Assert.Null(handwritten.ReturnWireType);
+    }
+
+    [Fact]
     public void Build_ResolvesParameterWireTypeForDeserializeCall()
     {
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurfaceWithWireContracts();

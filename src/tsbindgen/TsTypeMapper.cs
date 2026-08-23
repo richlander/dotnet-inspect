@@ -3,6 +3,12 @@ using ILInspector.Metadata;
 
 namespace tsbindgen;
 
+enum TsTypeMappingContext
+{
+    JsInterop,
+    JsonWire,
+}
+
 /// <summary>
 /// Rewrites C# signature-text type names into TypeScript type text. All target-language opinion
 /// lives here — <c>Task&lt;T&gt;</c>/<c>ValueTask&lt;T&gt;</c> unwrap to <c>Promise&lt;T&gt;</c>,
@@ -60,7 +66,8 @@ static class TsTypeMapper
                 recordNames,
                 diagnostics,
                 location,
-                blockedAliases)}>";
+                blockedAliases,
+                TsTypeMappingContext.JsInterop)}>";
         }
 
         if (TryUnwrapGeneric(trimmed, "System.Threading.Tasks.ValueTask", out string? valueTaskArg)
@@ -71,7 +78,8 @@ static class TsTypeMapper
                 recordNames,
                 diagnostics,
                 location,
-                blockedAliases)}>";
+                blockedAliases,
+                TsTypeMappingContext.JsInterop)}>";
         }
 
         if (trimmed is "System.Threading.Tasks.Task" or "Task"
@@ -85,7 +93,8 @@ static class TsTypeMapper
             recordNames,
             diagnostics,
             location,
-            blockedAliases);
+            blockedAliases,
+            TsTypeMappingContext.JsInterop);
     }
 
     /// <summary>
@@ -118,7 +127,8 @@ static class TsTypeMapper
             recordNames,
             diagnostics,
             location,
-            blockedAliases);
+            blockedAliases,
+            TsTypeMappingContext.JsonWire);
 
         if (IsJsonEnvelopeReturnType(trimmed))
         {
@@ -165,14 +175,30 @@ static class TsTypeMapper
             recordNames,
             diagnostics,
             location,
-            blockedAliases);
+            blockedAliases,
+            TsTypeMappingContext.JsInterop);
+
+    public static string MapJsonWireType(
+        string csharpType,
+        IReadOnlySet<string> recordNames,
+        TsBindGenDiagnostics? diagnostics = null,
+        string? location = null,
+        IReadOnlySet<string>? blockedAliases = null) =>
+        Map(
+            csharpType.Trim(),
+            recordNames,
+            diagnostics,
+            location,
+            blockedAliases,
+            TsTypeMappingContext.JsonWire);
 
     static string Map(
         string csharpType,
         IReadOnlySet<string> recordNames,
         TsBindGenDiagnostics? diagnostics,
         string? location,
-        IReadOnlySet<string>? blockedAliases)
+        IReadOnlySet<string>? blockedAliases,
+        TsTypeMappingContext mappingContext)
     {
         string trimmed = csharpType.Trim();
         if (IsBlockedType(trimmed, blockedAliases))
@@ -183,9 +209,10 @@ static class TsTypeMapper
             return "unknown";
         }
 
-        // System.Text.Json encodes a byte[] value as one Base64 JSON string. This deliberately
-        // precedes the general array path so other byte-like arrays retain their element mapping.
-        if (trimmed is "byte[]" or "System.Byte[]")
+        // System.Text.Json encodes a byte[] value as one Base64 JSON string. Direct JS interop
+        // signatures instead retain their marshalled numeric-array shape.
+        if (mappingContext == TsTypeMappingContext.JsonWire
+            && (trimmed is "byte[]" or "System.Byte[]"))
             return "string";
 
         if (trimmed.EndsWith("[]", StringComparison.Ordinal))
@@ -196,7 +223,8 @@ static class TsTypeMapper
                 recordNames,
                 diagnostics,
                 location,
-                blockedAliases);
+                blockedAliases,
+                mappingContext);
             return mappedElement.Contains(" | ", StringComparison.Ordinal)
                 ? $"({mappedElement})[]"
                 : $"{mappedElement}[]";
@@ -210,7 +238,8 @@ static class TsTypeMapper
                 recordNames,
                 diagnostics,
                 location,
-                blockedAliases)} | null";
+                blockedAliases,
+                mappingContext)} | null";
         }
 
         if (TryUnwrapGeneric(trimmed, "System.Nullable", out string? nullableArg)
@@ -221,7 +250,8 @@ static class TsTypeMapper
                 recordNames,
                 diagnostics,
                 location,
-                blockedAliases)} | null";
+                blockedAliases,
+                mappingContext)} | null";
         }
 
         if (TryMapDictionary(
@@ -230,6 +260,7 @@ static class TsTypeMapper
                 diagnostics,
                 location,
                 blockedAliases,
+                mappingContext,
                 out string? dictionaryType))
         {
             return dictionaryType!;
@@ -283,6 +314,7 @@ static class TsTypeMapper
         TsBindGenDiagnostics? diagnostics,
         string? location,
         IReadOnlySet<string>? blockedAliases,
+        TsTypeMappingContext mappingContext,
         out string? mappedType)
     {
         if (!TryUnwrapGeneric(typeName, "System.Collections.Generic.Dictionary", out string? dictionaryArgs)
@@ -306,13 +338,15 @@ static class TsTypeMapper
             recordNames,
             diagnostics,
             location,
-            blockedAliases);
+            blockedAliases,
+            mappingContext);
         string mappedValue = Map(
             valueType!,
             recordNames,
             diagnostics,
             location,
-            blockedAliases);
+            blockedAliases,
+            mappingContext);
         if (mappedKey != "string")
         {
             diagnostics?.ReportUnmappedType(location ?? typeName, typeName);
@@ -385,6 +419,16 @@ static class TsTypeMapper
             return false;
         if (blockedAliases.Contains(typeName))
             return true;
+
+        while (typeName.EndsWith("[]", StringComparison.Ordinal)
+            || typeName.EndsWith("?", StringComparison.Ordinal))
+        {
+            typeName = typeName.EndsWith("[]", StringComparison.Ordinal)
+                ? typeName[..^2]
+                : typeName[..^1];
+            if (blockedAliases.Contains(typeName))
+                return true;
+        }
 
         int genericStart = typeName.IndexOf('<');
         return genericStart > 0

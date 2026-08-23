@@ -143,10 +143,11 @@ public static class JsExportSurfaceBuilder
                     FormatTypeLocation(type),
                     "JsonSerializable metadata is malformed or unsupported");
             }
-            HashSet<ApiJsonSerializableRoot>? registeredRoots =
+            IReadOnlyDictionary<string, ApiJsonSerializableRoot>?
+                registeredRootProperties =
                 surface.AssemblyIdentity is null
                     ? null
-                    : type.JsonSerializableRoots.ToHashSet();
+                    : GetRegisteredRootProperties(type);
 
             foreach (ApiMember member in type.Members)
             {
@@ -160,6 +161,27 @@ public static class JsExportSurfaceBuilder
                         "serializer-context property signature metadata is degraded");
                 }
 
+                JsonWireNamingPolicy policy =
+                    type.JsonPropertyNamingPolicy
+                        ?? JsonWireNamingPolicy.None;
+                ApiSignature? signature = member.SignatureModel;
+                IReadOnlyList<ApiTypeReferenceIdentity>? references =
+                    signature?.ReturnTypeReferences;
+                if (registeredRootProperties is not null)
+                {
+                    if (TryGetRegisteredRootForProperty(
+                            member,
+                            signature,
+                            registeredRootProperties,
+                            out ApiJsonSerializableRoot root))
+                    {
+                        if (member.GetterToken is { } getterToken)
+                            registeredJsonTypeInfoGetterTokens.Add(getterToken);
+                        queue.Enqueue((null, root.ElementType, policy));
+                    }
+                    continue;
+                }
+
                 string? returnType = member.SignatureModel?.ReturnType ?? member.ReturnType;
                 if (returnType is null
                     || !returnType.StartsWith(JsonTypeInfoPrefix, StringComparison.Ordinal))
@@ -168,49 +190,6 @@ public static class JsExportSurfaceBuilder
                 }
 
                 string rootTypeName = returnType[JsonTypeInfoPrefix.Length..^1];
-                JsonWireNamingPolicy policy =
-                    type.JsonPropertyNamingPolicy
-                        ?? JsonWireNamingPolicy.None;
-                ApiSignature? signature = member.SignatureModel;
-                IReadOnlyList<ApiTypeReferenceIdentity>? references =
-                    signature?.ReturnTypeReferences;
-                if (surface.AssemblyIdentity is not null
-                    && !IsTrustedSystemTextJsonType(
-                        signature?.ReturnTypeDefinitionReference,
-                        JsonTypeInfoMetadataName))
-                {
-                    continue;
-                }
-                if (registeredRoots is not null)
-                {
-                    ApiTypeReferenceIdentity[] propertyRoots =
-                        references?
-                            .Where(reference =>
-                                !IsTrustedSystemTextJsonType(
-                                    reference,
-                                    JsonTypeInfoMetadataName))
-                            .Distinct()
-                            .ToArray()
-                        ?? [];
-                    if (propertyRoots.Length != 1
-                        || !registeredRoots.Contains(new(
-                            propertyRoots[0],
-                            rootTypeName.EndsWith(
-                                "[]",
-                                StringComparison.Ordinal))))
-                    {
-                        if (propertyRoots.Length != 0
-                            || !HasRegisteredIntrinsicStringRoot(
-                                rootTypeName,
-                                registeredRoots))
-                        {
-                            continue;
-                        }
-                    }
-
-                    if (member.GetterToken is { } getterToken)
-                        registeredJsonTypeInfoGetterTokens.Add(getterToken);
-                }
 
                 if (references?.Count > 0)
                 {
@@ -440,21 +419,96 @@ public static class JsExportSurfaceBuilder
         && PlatformKeys.IsPlatform(
             reference.Assembly.PublicKeyToken);
 
-    static bool HasRegisteredIntrinsicStringRoot(
-        string rootTypeName,
-        IReadOnlySet<ApiJsonSerializableRoot> registeredRoots)
+    /// <summary>
+    /// Binds a source-generated context property to the exact
+    /// <c>[JsonSerializable]</c> row that generated it. The property metadata
+    /// name and the row's structured root identity are both required; a
+    /// same-<c>T</c> handwritten getter cannot inherit registration trust.
+    /// </summary>
+    /// <remarks>
+    /// <c>JsonWireContractResolverTests.Build_AuthenticatesOnlyGeneratedCustomNamedContextProperty</c>
+    /// and <c>JsExportSurfaceBuilderTests.Build_RejectsAmbiguousOrMalformedGeneratedPropertyIdentities</c>
+    /// gate this boundary.
+    /// </remarks>
+    static IReadOnlyDictionary<string, ApiJsonSerializableRoot>
+        GetRegisteredRootProperties(ApiType context)
     {
-        bool isArray = rootTypeName.EndsWith(
-            "[]",
-            StringComparison.Ordinal);
-        string elementTypeName = isArray
-            ? rootTypeName[..^2]
-            : rootTypeName;
-        return elementTypeName == "string"
-            && registeredRoots.Any(root =>
-                root.IsArray == isArray
-                && IsTrustedSystemString(root.ElementType));
+        var roots = new Dictionary<string, ApiJsonSerializableRoot>(
+            StringComparer.Ordinal);
+        foreach (ApiJsonSerializableRoot root in context.JsonSerializableRoots)
+        {
+            string? propertyName = root.TypeInfoPropertyName
+                ?? GetDefaultTypeInfoPropertyName(root);
+            if (string.IsNullOrEmpty(propertyName)
+                || !roots.TryAdd(propertyName, root))
+            {
+                throw new UnsupportedJsExportSurfaceException(
+                    FormatTypeLocation(context),
+                    "JsonSerializable source-generated property identity is ambiguous or malformed");
+            }
+        }
+        return roots;
     }
+
+    static bool TryGetRegisteredRootForProperty(
+        ApiMember member,
+        ApiSignature? signature,
+        IReadOnlyDictionary<string, ApiJsonSerializableRoot>
+            registeredRootProperties,
+        out ApiJsonSerializableRoot root)
+    {
+        root = null!;
+        if (member.GetterToken is null || signature is null)
+            return false;
+        if (!registeredRootProperties.TryGetValue(
+                member.Name,
+                out ApiJsonSerializableRoot? candidate)
+            || !IsTrustedSystemTextJsonType(
+                signature.ReturnTypeDefinitionReference,
+                JsonTypeInfoMetadataName))
+        {
+            return false;
+        }
+
+        ApiTypeReferenceIdentity[] propertyRoots =
+            signature.ReturnTypeReferences
+                .Where(reference => !IsTrustedSystemTextJsonType(
+                    reference,
+                    JsonTypeInfoMetadataName))
+                .Distinct()
+                .ToArray();
+        if (propertyRoots.Length == 1
+            && propertyRoots[0] == candidate.ElementType)
+        {
+            root = candidate;
+            return true;
+        }
+
+        if (propertyRoots.Length == 0
+            && IsRegisteredIntrinsicStringRoot(candidate))
+        {
+            root = candidate;
+            return true;
+        }
+
+        return false;
+    }
+
+    static string? GetDefaultTypeInfoPropertyName(
+        ApiJsonSerializableRoot root)
+    {
+        MetadataTypeDefinitionName? definitionName =
+            root.ElementType.DefinitionName;
+        if (definitionName is null || definitionName.Segments.Length == 0)
+            return null;
+
+        return string.Concat(definitionName.Segments)
+            + (root.IsArray ? "Array" : "");
+    }
+
+    static bool IsRegisteredIntrinsicStringRoot(
+        ApiJsonSerializableRoot root) =>
+        IsTrustedSystemString(root.ElementType);
 
     static bool IsTrustedSystemString(
         ApiTypeReferenceIdentity reference) =>

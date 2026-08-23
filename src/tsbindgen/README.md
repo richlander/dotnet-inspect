@@ -36,11 +36,14 @@ syntax, and `.d.ts` layout — lives entirely in this tool (`TsTypeMapper`,
 TypeScript would add its own "personality" layer here without needing to touch
 the OM.
 
-System.Text.Json serializes an exact CLR `byte[]` (`System.Byte[]`) as one
-Base64 JSON string, so those declarations map to TypeScript `string`. Other
-byte-like arrays continue through ordinary array mapping.
-`TsTypeMapperTests.Map_MapsExactByteArraysToBase64Strings`,
-`Map_PreservesOrdinaryArrayMappingForOtherByteLikeTypes`,
+System.Text.Json serializes an exact CLR `byte[]` (`System.Byte[]`) DTO member
+as one Base64 JSON string, so those JSON-wire declarations map to TypeScript
+`string`. Direct `[JSExport]` parameters and returns instead retain JS
+interop's numeric-array mapping; other byte-like arrays continue through
+ordinary array mapping.
+`TsTypeMapperTests.MapJsonWireType_MapsExactByteArraysToBase64Strings`,
+`MapInteropType_PreservesByteArraysAsNumericArrays`,
+`DtsEmitterTests.Emit_MapsDirectByteArrayExportAsInteropArray`,
 `DtsEmitterTests.Emit_MapsByteArrayPropertiesToBase64StringsInDirectAndNestedDtos`,
 and `SourceGeneratedJson_UsesBase64StringsForByteArrayProperties` gate that
 wire contract against both generated declarations and the real source
@@ -55,12 +58,14 @@ Record shapes are therefore discovered from the assembly's authentic,
 framework-signed `JsonSerializerContext`-derived type: each
 `[JsonSerializable(typeof(T))]` on that type compiles to a property whose
 `JsonTypeInfo<T>` definition is likewise authenticated to System.Text.Json.
-The property is accepted as a root only when its `T` identity matches an
-authenticated `[JsonSerializable]` row; an unrelated handwritten
-`JsonTypeInfo<T>` property on the same partial context is not a registration.
-Intrinsic `string` roots have no API type-reference entry, so their exact
-`string`/`string[]` signature spelling is admitted only when the matching
-`System.String` root has a platform-signed, top-level identity.
+The property is accepted only when its metadata property identity is the
+row's `TypeInfoPropertyName`, or STJ's structured default generated name when
+that argument is absent, and its `T` identity matches the authenticated row.
+An unrelated same-`T` handwritten `JsonTypeInfo<T>` property on the same
+partial context is not a registration.
+Intrinsic `string` roots can have no API type-reference entry, so their
+generated property identity is admitted only when the matching `System.String`
+root has a platform-signed, top-level identity.
 These checks use assembly-scoped, structured metadata identity rather than
 matching flattened names as text; a nested type cannot alias an expected
 top-level System.Text.Json definition.
@@ -69,9 +74,13 @@ gates registration correspondence, while
 `Build_DoesNotTrustNestedSerializerContextIdentity` and
 `Extract_CapturesStructuredSerializerContextBaseIdentity` gate the structured
 authentication and extraction path.
-`JsonWireContractResolverTests.Build_ResolvesRegisteredStringArrayAfterAwait`
-gates the compiler-produced intrinsic-array path. This list is not a heuristic
-— System.Text.Json's fast (non-reflection)
+`JsonWireContractResolverTests.Build_AuthenticatesOnlyGeneratedCustomNamedContextProperty`
+and `JsExportSurfaceBuilderTests.Build_RejectsAmbiguousOrMalformedGeneratedPropertyIdentities`
+gate the custom-property-name boundary.
+`JsonWireContractResolverTests.Build_ResolvesRegisteredString` and
+`Build_ResolvesRegisteredStringArrayAfterAwait` gate the compiler-produced
+intrinsic paths. This list is not a heuristic — System.Text.Json's fast
+(non-reflection)
 serialization path requires every (de)serialized type to be registered there,
 so it is exactly the set of shapes that can flow across the `[JSExport]`
 boundary via this pattern.

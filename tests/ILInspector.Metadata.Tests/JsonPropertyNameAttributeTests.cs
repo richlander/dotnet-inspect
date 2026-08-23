@@ -578,11 +578,85 @@ public sealed class JsonPropertyNameAttributeTests
         Assert.Equal(trustedAssembly, found);
     }
 
+    [Fact]
+    public void MalformedAuthenticFlagsIsUnsupportedEvidence()
+    {
+        using var stream = new MemoryStream(
+            BuildImage(
+                "FlagsAttribute",
+                markerConstructor: true,
+                malformedMarkerValue: true,
+                attributeNamespace: "System",
+                assemblyName: "System.Runtime"),
+            writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition type = reader.GetTypeDefinition(
+            MetadataTokens.TypeDefinitionHandle(2));
+
+        FlagsAttributeEvidence evidence = AttributeReader.ReadFlagsAttributes(
+            reader,
+            type.GetCustomAttributes());
+
+        Assert.Equal(0, evidence.Count);
+        Assert.True(evidence.HasMalformedRow);
+    }
+
+    [Fact]
+    public void DuplicateAuthenticFlagsRowsAreCounted()
+    {
+        using var stream = new MemoryStream(
+            BuildImage(
+                "FlagsAttribute",
+                duplicateValidRows: true,
+                markerConstructor: true,
+                attributeNamespace: "System",
+                assemblyName: "System.Runtime"),
+            writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition type = reader.GetTypeDefinition(
+            MetadataTokens.TypeDefinitionHandle(2));
+
+        FlagsAttributeEvidence evidence = AttributeReader.ReadFlagsAttributes(
+            reader,
+            type.GetCustomAttributes());
+
+        Assert.Equal(2, evidence.Count);
+        Assert.False(evidence.HasMalformedRow);
+    }
+
+    [Fact]
+    public void UntrustedFlagsAttributeIsIgnoredRatherThanMalformed()
+    {
+        using var stream = new MemoryStream(
+            BuildImage(
+                "FlagsAttribute",
+                markerConstructor: true,
+                malformedMarkerValue: true,
+                trustedAssembly: false,
+                attributeNamespace: "System",
+                assemblyName: "System.Runtime"),
+            writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition type = reader.GetTypeDefinition(
+            MetadataTokens.TypeDefinitionHandle(2));
+
+        FlagsAttributeEvidence evidence = AttributeReader.ReadFlagsAttributes(
+            reader,
+            type.GetCustomAttributes());
+
+        Assert.Equal(0, evidence.Count);
+        Assert.False(evidence.HasMalformedRow);
+    }
+
     static byte[] BuildImage(
         string attributeTypeName = "JsonPropertyNameAttribute",
         bool duplicateValidRows = false,
         bool trustedAssembly = true,
         bool markerConstructor = false,
+        bool malformedMarkerValue = false,
         bool malformedStringConstructor = false,
         string attributeNamespace =
             "System.Text.Json.Serialization",
@@ -676,35 +750,42 @@ public sealed class JsonPropertyNameAttributeTests
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
         var value = new BlobBuilder();
-        value.WriteUInt16(1);
-        if (markerConstructor)
+        if (malformedMarkerValue)
         {
-            if (ignoreCondition is { } condition)
-            {
-                value.WriteUInt16(1);
-                value.WriteByte(0x54);
-                value.WriteByte(0x55);
-                value.WriteSerializedString(
-                    "System.Text.Json.Serialization.JsonIgnoreCondition");
-                value.WriteSerializedString("Condition");
-                value.WriteInt32(condition);
-            }
-            else
-            {
-                value.WriteUInt16(0);
-            }
+            value.WriteByte(0);
         }
         else
         {
-            value.WriteSerializedString("ok");
-            value.WriteUInt16(
-                duplicateValidRows ? (ushort)0 : (ushort)1);
-            if (!duplicateValidRows)
+            value.WriteUInt16(1);
+            if (markerConstructor)
             {
-                value.WriteByte(0x54);
-                value.WriteByte(0x0E);
-                value.WriteSerializedString("Bogus");
-                value.WriteSerializedString("x");
+                if (ignoreCondition is { } condition)
+                {
+                    value.WriteUInt16(1);
+                    value.WriteByte(0x54);
+                    value.WriteByte(0x55);
+                    value.WriteSerializedString(
+                        "System.Text.Json.Serialization.JsonIgnoreCondition");
+                    value.WriteSerializedString("Condition");
+                    value.WriteInt32(condition);
+                }
+                else
+                {
+                    value.WriteUInt16(0);
+                }
+            }
+            else
+            {
+                value.WriteSerializedString("ok");
+                value.WriteUInt16(
+                    duplicateValidRows ? (ushort)0 : (ushort)1);
+                if (!duplicateValidRows)
+                {
+                    value.WriteByte(0x54);
+                    value.WriteByte(0x0E);
+                    value.WriteSerializedString("Bogus");
+                    value.WriteSerializedString("x");
+                }
             }
         }
         BlobHandle valueHandle = metadata.GetOrAddBlob(value);

@@ -406,16 +406,50 @@ public static partial class AttributeReader
     }
 
     /// <summary>Checks if the enum has the <c>[Flags]</c> attribute.</summary>
+    /// <remarks>
+    /// Reports only well-formed authentic rows. Callers that project a wire
+    /// contract must read <see cref="ReadFlagsAttributes"/> instead, because a
+    /// malformed or duplicated authentic row is unsupported evidence rather
+    /// than absence.
+    /// </remarks>
     public static bool HasFlagsAttribute(
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
         Action<int>? beforeMaterialize = null)
-        => HasAuthenticatedMarkerAttribute(
+        => ReadFlagsAttributes(
+            reader,
+            attributes,
+            beforeMaterialize).Count > 0;
+
+    /// <summary>
+    /// Reads the authentic <c>[Flags]</c> rows on a type, separating
+    /// well-formed rows from authentic rows whose constructor or value blob
+    /// cannot be honored.
+    /// </summary>
+    /// <remarks>
+    /// A malformed authentic row is deliberately not folded into absence, and
+    /// duplicate rows are kept countable: the type really did claim the
+    /// framework's flags meaning, and a string-converted enum projected as a
+    /// member-name union from metadata that could not be read would be an
+    /// incomplete wire contract shaped like a complete one. Untrusted
+    /// same-named attributes are still skipped outright.
+    /// <c>JsonPropertyNameAttributeTests.MalformedAuthenticFlagsIsUnsupportedEvidence</c>,
+    /// <c>DuplicateAuthenticFlagsRowsAreCounted</c>, and
+    /// <c>UntrustedFlagsAttributeIsIgnoredRatherThanMalformed</c> are the gates.
+    /// </remarks>
+    public static FlagsAttributeEvidence ReadFlagsAttributes(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize = null)
+    {
+        (int count, bool malformed) = ReadAuthenticMarkerAttributeRows(
             reader,
             attributes,
             FlagsAttributeName,
             assemblyName: null,
             beforeMaterialize);
+        return new FlagsAttributeEvidence(count, malformed);
+    }
 
     /// <summary>Checks if the member has the <c>[JsonInclude]</c> attribute.</summary>
     public static bool HasJsonIncludeAttribute(
@@ -446,36 +480,12 @@ public static partial class AttributeReader
         CustomAttributeHandleCollection attributes,
         Action<int>? beforeMaterialize = null)
     {
-        int count = 0;
-        bool malformed = false;
-        foreach (CustomAttributeHandle attrHandle in attributes)
-        {
-            CustomAttribute attr = reader.GetCustomAttribute(attrHandle);
-            if (!IsFrameworkAttributeType(
-                    reader,
-                    attr.Constructor,
-                    JsonIncludeAttributeName,
-                    SystemTextJsonAssemblyName,
-                    beforeMaterialize))
-            {
-                continue;
-            }
-
-            if (HasExpectedConstructor(
-                    reader,
-                    attr.Constructor,
-                    FrameworkConstructorKind.Marker,
-                    beforeMaterialize)
-                && HasMarkerValueBlob(reader, attr))
-            {
-                count++;
-            }
-            else
-            {
-                malformed = true;
-            }
-        }
-
+        (int count, bool malformed) = ReadAuthenticMarkerAttributeRows(
+            reader,
+            attributes,
+            JsonIncludeAttributeName,
+            SystemTextJsonAssemblyName,
+            beforeMaterialize);
         return new JsonIncludeAttributeEvidence(count, malformed);
     }
 
@@ -731,6 +741,27 @@ public static partial class AttributeReader
         return names;
     }
 
+    /// <summary>
+    /// Reads the property-naming policy declared by the authentic
+    /// <c>[JsonSourceGenerationOptions]</c> rows on a serializer context.
+    /// Returns <see langword="false"/> only when the context carries no
+    /// authentic row at all.
+    /// </summary>
+    /// <remarks>
+    /// Once the structured attribute identity and its platform-signed assembly
+    /// authenticate, the row counts — an unexpected constructor or an
+    /// undecodable value blob makes the policy
+    /// <see cref="JsonWireNamingPolicy.Unsupported"/> rather than absent.
+    /// Folding such a row into absence would both default the naming policy and
+    /// let a malformed row pair with a well-formed one without tripping the
+    /// duplicate-row rejection, so a context declaring two policies could still
+    /// resolve one. Untrusted same-named attributes are still skipped outright,
+    /// because they never claimed the framework's meaning.
+    /// <c>JsonSourceGenerationOptionsAttributeTests.UnexpectedConstructorIsUnsupported</c>,
+    /// <c>MalformedRowPairedWithValidRowIsUnsupportedRegardlessOfOrder</c>, and
+    /// <c>SameNameOptionsAttributeFromUntrustedAssemblyIsIgnored</c> are the
+    /// gates.
+    /// </remarks>
     public static bool TryGetJsonSourceGenerationPropertyNamingPolicy(
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
@@ -747,21 +778,25 @@ public static partial class AttributeReader
                     attr.Constructor,
                     JsonSourceGenerationOptionsAttributeName,
                     SystemTextJsonAssemblyName,
-                    beforeMaterialize)
-                || !HasExpectedConstructor(
-                        reader,
-                        attr.Constructor,
-                        FrameworkConstructorKind.Marker,
-                        beforeMaterialize)
-                    && !HasExpectedConstructor(
-                        reader,
-                        attr.Constructor,
-                        FrameworkConstructorKind.JsonSerializerDefaults,
-                        beforeMaterialize))
+                    beforeMaterialize))
+            {
                 continue;
+            }
 
-            JsonWireNamingPolicy current =
-                ReadJsonKnownNamingPolicy(reader, attr, beforeMaterialize);
+            bool hasExpectedConstructor =
+                HasExpectedConstructor(
+                    reader,
+                    attr.Constructor,
+                    FrameworkConstructorKind.Marker,
+                    beforeMaterialize)
+                || HasExpectedConstructor(
+                    reader,
+                    attr.Constructor,
+                    FrameworkConstructorKind.JsonSerializerDefaults,
+                    beforeMaterialize);
+            JsonWireNamingPolicy current = hasExpectedConstructor
+                ? ReadJsonKnownNamingPolicy(reader, attr, beforeMaterialize)
+                : JsonWireNamingPolicy.Unsupported;
             namingPolicy = found
                 ? JsonWireNamingPolicy.Unsupported
                 : current;
@@ -867,8 +902,9 @@ public static partial class AttributeReader
                     } decoded
                 || decoded.FixedArguments[0].Value
                     is not string serializedTypeName
-                || !HasSupportedJsonSerializableNamedArguments(
-                    decoded.NamedArguments))
+                || !TryGetJsonSerializableTypeInfoPropertyName(
+                    decoded.NamedArguments,
+                    out string? typeInfoPropertyName))
             {
                 continue;
             }
@@ -909,15 +945,18 @@ public static partial class AttributeReader
                         assemblyIdentity,
                         typeName.Replace('+', '.'),
                         definitionName),
-                    isArray));
+                    isArray,
+                    typeInfoPropertyName));
             }
         }
         return roots;
     }
 
-    static bool HasSupportedJsonSerializableNamedArguments(
-        ImmutableArray<CustomAttributeNamedArgument<string>> arguments)
+    static bool TryGetJsonSerializableTypeInfoPropertyName(
+        ImmutableArray<CustomAttributeNamedArgument<string>> arguments,
+        out string? typeInfoPropertyName)
     {
+        typeInfoPropertyName = null;
         var names = new HashSet<string>(StringComparer.Ordinal);
         foreach (CustomAttributeNamedArgument<string> argument in arguments)
         {
@@ -945,6 +984,7 @@ public static partial class AttributeReader
                     {
                         return false;
                     }
+                    typeInfoPropertyName = (string)argument.Value;
                     break;
                 default:
                     return false;
@@ -1347,13 +1387,22 @@ public static partial class AttributeReader
         }
     }
 
-    static bool HasAuthenticatedMarkerAttribute(
+    /// <summary>
+    /// Counts the authentic marker-attribute rows on one attribute collection,
+    /// separating rows carrying the expected parameterless constructor and
+    /// complete marker value blob from authentic rows that do not. A row from
+    /// an untrusted same-named attribute is neither counted nor malformed: it
+    /// never claimed the framework's meaning.
+    /// </summary>
+    static (int Count, bool HasMalformedRow) ReadAuthenticMarkerAttributeRows(
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
         string fullTypeName,
         string? assemblyName,
         Action<int>? beforeMaterialize)
     {
+        int count = 0;
+        bool malformed = false;
         foreach (CustomAttributeHandle attrHandle in attributes)
         {
             CustomAttribute attr = reader.GetCustomAttribute(attrHandle);
@@ -1369,18 +1418,25 @@ public static partial class AttributeReader
                     fullTypeName,
                     assemblyName,
                     beforeMaterialize);
-            if (authentic
-                && HasExpectedConstructor(
+            if (!authentic)
+                continue;
+
+            if (HasExpectedConstructor(
                     reader,
                     attr.Constructor,
                     FrameworkConstructorKind.Marker,
                     beforeMaterialize)
                 && HasMarkerValueBlob(reader, attr))
             {
-                return true;
+                count++;
+            }
+            else
+            {
+                malformed = true;
             }
         }
-        return false;
+
+        return (count, malformed);
     }
 
     static bool HasFrameworkAttribute(

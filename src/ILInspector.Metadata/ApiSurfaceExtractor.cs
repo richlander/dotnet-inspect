@@ -696,10 +696,15 @@ public static class ApiSurfaceExtractor
                 jsonSerializableAttributeCount;
             if (apiType.Kind == "enum")
             {
-                apiType.IsFlagsEnum = AttributeReader.HasFlagsAttribute(
-                    reader,
-                    jsonTypeAttributes,
-                    observeDecodeWork);
+                FlagsAttributeEvidence flagsEvidence =
+                    AttributeReader.ReadFlagsAttributes(
+                        reader,
+                        jsonTypeAttributes,
+                        observeDecodeWork);
+                apiType.IsFlagsEnum = flagsEvidence.Count > 0;
+                apiType.FlagsAttributeCount = flagsEvidence.Count;
+                apiType.HasMalformedFlagsAttribute =
+                    flagsEvidence.HasMalformedRow;
                 apiType.HasJsonStringEnumConverter =
                     AttributeReader.HasJsonStringEnumConverterAttribute(
                         reader,

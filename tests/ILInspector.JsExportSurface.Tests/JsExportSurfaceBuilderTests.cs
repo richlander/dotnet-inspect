@@ -46,10 +46,12 @@ public sealed class JsExportSurfaceBuilderTests
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
         var names = surface.Functions.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(27, surface.Functions.Count);
+        Assert.Equal(31, surface.Functions.Count);
         Assert.Contains("GetWidget", names);
         Assert.Contains("GetWidgetAsync", names);
         Assert.Contains("GetStringArrayAsyncAfterAwait", names);
+        Assert.Contains("EchoBytes", names);
+        Assert.Contains("GetRegisteredString", names);
         Assert.Contains("Ping", names);
         Assert.Contains("RenameWidget", names);
         Assert.Contains("GetWidgetOrOwner", names);
@@ -62,6 +64,8 @@ public sealed class JsExportSurfaceBuilderTests
         Assert.Contains("GetWidgetPermissionSummary", names);
         Assert.Contains("GetWidgetPrioritySummary", names);
         Assert.Contains("GetWidgetAudit", names);
+        Assert.Contains("GetCustomNamedGenerated", names);
+        Assert.Contains("GetCustomNamedHandwritten", names);
         Assert.Contains("SetUnrelatedAsyncBuilder", names);
         Assert.Contains("RoundTripWidgetWithRuntimeTypeInfo", names);
         Assert.Contains("RoundTripWidgetWithUnrelatedTypeInfo", names);
@@ -387,9 +391,10 @@ public sealed class JsExportSurfaceBuilderTests
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
         var recordNames = surface.Records.Select(r => r.Name).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(15, surface.Records.Count);
+        Assert.Equal(16, surface.Records.Count);
         Assert.Contains(nameof(ByteEnvelopeDto), recordNames);
         Assert.Contains(nameof(BytePayloadDto), recordNames);
+        Assert.Contains(nameof(CustomNamedDto), recordNames);
         Assert.Contains("WidgetDto", recordNames);
         Assert.Contains("WidgetOwner", recordNames);
         Assert.Contains("WidgetCatalog", recordNames);
@@ -419,6 +424,53 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     [Fact]
+    public void Extract_CapturesCustomJsonSerializableTypeInfoPropertyName()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(CustomNamedJsonContext).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+
+        ApiType context = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(CustomNamedJsonContext));
+        ApiJsonSerializableRoot root =
+            Assert.Single(context.JsonSerializableRoots);
+
+        Assert.Equal(
+            "RegisteredCustomNamed",
+            root.TypeInfoPropertyName);
+    }
+
+    [Fact]
+    public void Build_RejectsAmbiguousOrMalformedGeneratedPropertyIdentities()
+    {
+        ApiSurface duplicate = ExtractFixtureApiSurface();
+        ApiType duplicateContext = Assert.Single(
+            duplicate.Types,
+            type => type.Name == nameof(CustomNamedJsonContext));
+        ApiJsonSerializableRoot root =
+            Assert.Single(duplicateContext.JsonSerializableRoots);
+        duplicateContext.JsonSerializableRoots.Add(root);
+        duplicateContext.JsonSerializableAttributeCount++;
+
+        Assert.Throws<UnsupportedJsExportSurfaceException>(
+            () => JsExportSurfaceBuilder.Build(duplicate));
+
+        ApiSurface malformed = ExtractFixtureApiSurface();
+        ApiType malformedContext = Assert.Single(
+            malformed.Types,
+            type => type.Name == nameof(CustomNamedJsonContext));
+        malformedContext.JsonSerializableRoots[0] =
+            root with { TypeInfoPropertyName = "" };
+
+        Assert.Throws<UnsupportedJsExportSurfaceException>(
+            () => JsExportSurfaceBuilder.Build(malformed));
+    }
+
+    [Fact]
     public void Build_RoutesEnumRootsToEnumsNotRecords()
     {
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
@@ -435,6 +487,8 @@ public sealed class JsExportSurfaceBuilderTests
         ApiType permission = Assert.Single(surface.Enums, e => e.Name == "WidgetPermission");
         Assert.True(permission.IsFlagsEnum);
         Assert.True(permission.HasJsonStringEnumConverter);
+        Assert.Equal(1, permission.FlagsAttributeCount);
+        Assert.False(permission.HasMalformedFlagsAttribute);
     }
 
     [Fact]
@@ -1365,6 +1419,14 @@ public sealed class JsExportSurfaceBuilderTests
                 },
             ],
         };
+
+    static ApiSurface ExtractFixtureApiSurface()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(FixtureExports).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        return ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+    }
 
     static MetadataTypeDefinitionName TopLevelDefinitionName(
         string @namespace,

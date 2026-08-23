@@ -69,9 +69,18 @@ public sealed class TsTypeMapperTests
     [Theory]
     [InlineData("byte[]")]
     [InlineData("System.Byte[]")]
-    public void Map_MapsExactByteArraysToBase64Strings(string csharpType)
+    public void MapJsonWireType_MapsExactByteArraysToBase64Strings(string csharpType)
     {
-        Assert.Equal("string", TsTypeMapper.MapParameterType(csharpType, RecordNames));
+        Assert.Equal("string", TsTypeMapper.MapJsonWireType(csharpType, RecordNames));
+    }
+
+    [Theory]
+    [InlineData("byte[]")]
+    [InlineData("System.Byte[]")]
+    public void MapInteropType_PreservesByteArraysAsNumericArrays(string csharpType)
+    {
+        Assert.Equal("number[]", TsTypeMapper.MapParameterType(csharpType, RecordNames));
+        Assert.Equal("number[]", TsTypeMapper.MapReturnType(csharpType, RecordNames));
     }
 
     [Fact]

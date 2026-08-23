@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace ILInspector.Metadata;
 
 /// <summary>
@@ -12,7 +14,11 @@ namespace ILInspector.Metadata;
 /// <c>[JsonIgnore]</c> carries, matching the attribute's own property default.
 /// <c>JsonIgnoreConditionValuesMatchSystemTextJson</c> in
 /// <c>ILInspector.Metadata.Tests</c> is the gate that keeps the two in step.
+/// The persisted form is the member name rather than that constant, matching
+/// <see cref="SignatureDecodeStatus"/>, so a serialized surface stays readable
+/// and cannot be misread as an underlying value.
 /// </remarks>
+[JsonConverter(typeof(JsonStringEnumConverter<JsonWireIgnoreCondition>))]
 public enum JsonWireIgnoreCondition
 {
     Never = 0,
