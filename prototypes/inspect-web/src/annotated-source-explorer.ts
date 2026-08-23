@@ -439,7 +439,8 @@ export function renderAnnotatedSourceExplorer(
   const codeLensAnnotations = sourceCodeLensAnnotations(
     result.document.nodes,
     view.lines,
-    kindLabels);
+    kindLabels,
+    result.document.text);
   const codeLensNodeIds = new Set(
     [...codeLensAnnotations.values()].flat().map(annotation => annotation.nodeId));
   const nodeCaretAnnotations = directlySelectedNode
@@ -545,7 +546,7 @@ export function renderAnnotatedSourceExplorer(
           `<div class="annotated-codelens-row">
             <span class="annotated-line-number"></span>
             ${showMediumGutter ? `<span class="annotated-line-medium"></span>` : ""}
-            <span class="annotated-line-text"><button type="button" data-ase-codelens-node="${annotation.nodeId}" title="Press and hold to preview ${escapeHtml(annotation.label)}">${escapeHtml(annotation.label)}</button></span>
+            <span class="annotated-line-text">${escapeHtml(annotation.prefix)}<button type="button" data-ase-codelens-node="${annotation.nodeId}" title="Press and hold to preview ${escapeHtml(annotation.label)}">${escapeHtml(annotation.label)}</button></span>
           </div>`,
         ).join("") ?? ""
       : "";
@@ -646,12 +647,14 @@ interface SourceNodeCaretAnnotation {
 interface SourceCodeLensAnnotation {
   label: string;
   nodeId: number;
+  prefix: string;
 }
 
 function sourceCodeLensAnnotations(
   nodes: readonly AnnotatedSourceNode[],
   lines: readonly { start: number; end: number }[],
   labels: ReadonlyMap<string, string>,
+  text: string,
 ): ReadonlyMap<number, readonly SourceCodeLensAnnotation[]> {
   const annotations = new Map<number, SourceCodeLensAnnotation[]>();
   for (const node of nodes) {
@@ -668,6 +671,7 @@ function sourceCodeLensAnnotations(
     const annotation = {
       label: labels.get(node.kind) ?? node.kind,
       nodeId: node.id,
+      prefix: text.slice(lineStart, node.spans[0].start).replace(/[^\t]/g, " "),
     };
     const existing = annotations.get(lineStart);
     if (existing) existing.push(annotation);

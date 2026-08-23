@@ -409,7 +409,35 @@ test("product labels render as toggleable structural CodeLens annotations", () =
   });
   assert.match(html, /class="annotated-codelens-row"/);
   assert.match(html, /data-ase-codelens-node="0"/);
+  assert.match(html, /annotated-line-text"><button type="button" data-ase-codelens-node="0"/);
   assert.match(html, />For loop<\/button>/);
+  assert.doesNotMatch(styles, /CodeLens ·/);
+
+  const indentedDocument: AnnotatedSourceDocument = {
+    text: "    if (true)\n    {\n    }",
+    nodes: [{
+      id: 0,
+      kind: "IfStatement",
+      medium: "CSharp",
+      spans: [{ start: 4, length: 21 }],
+    }],
+    regions: [],
+    facts: [],
+    targets: [],
+  };
+  validateAnnotatedSourceDocument(indentedDocument);
+  const indentedHtml = renderAnnotatedSourceExplorer({
+    result: { ...result, document: indentedDocument },
+    state: createAnnotatedSourceExplorerState(indentedDocument),
+    title: "Example.Indented",
+    subtitle: "void Indented()",
+    escapeHtml,
+    nodeKinds: [{ id: "IfStatement", label: "If statement" }],
+  });
+  assert.match(
+    indentedHtml,
+    /annotated-line-text">    <button type="button" data-ase-codelens-node="0"/,
+  );
   assert.doesNotMatch(html, /data-ase-kind=/);
 
   const selectedStructure = reduceAnnotatedSourceExplorerState(
