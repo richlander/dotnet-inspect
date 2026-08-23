@@ -23,10 +23,11 @@ class FakeElement {
     this.listeners.set(type, listeners);
   }
 
-  dispatch(type: string) {
+  dispatch(type: string, values: Record<string, unknown> = {}) {
     let prevented = false;
     const event = fakeDom.event({
       target: this,
+      ...values,
       preventDefault: () => prevented = true,
     });
     for (const listener of this.listeners.get(type) ?? []) {
@@ -99,6 +100,7 @@ test("home shell accepts only known demos", () => {
   const root = new FakeRoot();
   const theme = new FakeElement();
   const dismiss = new FakeElement();
+  const credits = new FakeElement();
   const stj = new FakeElement({ homeDemo: "stj" });
   const runtime = new FakeElement({ homeDemo: "runtime" });
   const callgraph = new FakeElement({ homeDemo: "callgraph" });
@@ -106,6 +108,7 @@ test("home shell accepts only known demos", () => {
   const absent = new FakeElement();
   root.add("#home-theme", theme);
   root.add("#dismiss-notice", dismiss);
+  root.add("#home-credits", credits);
   root.addAll(
     "[data-home-demo]",
     stj,
@@ -119,12 +122,17 @@ test("home shell accepts only known demos", () => {
   bindHomeShell(fakeDom.parentNode(root), {
     onDemo: demo => calls.push(`demo:${demo}`),
     onDismissNotice: () => calls.push("dismiss"),
+    onOpenCredits: () => calls.push("credits"),
     onToggleTheme: () => calls.push("theme"),
   });
 
   assert.deepEqual(calls, []);
   theme.dispatch("click");
   dismiss.dispatch("click");
+  assert.equal(credits.dispatch("click", { button: 0, metaKey: true }), false);
+  assert.equal(credits.dispatch("click", { button: 1 }), false);
+  assert.deepEqual(calls, ["theme", "dismiss"]);
+  assert.equal(credits.dispatch("click"), true);
   stj.dispatch("click");
   runtime.dispatch("click");
   callgraph.dispatch("click");
@@ -133,6 +141,7 @@ test("home shell accepts only known demos", () => {
   assert.deepEqual(calls, [
     "theme",
     "dismiss",
+    "credits",
     "demo:stj",
     "demo:runtime",
     "demo:callgraph",
@@ -154,7 +163,8 @@ test("load error shell parses replacement packages and owns local detail state",
   const calls: string[] = [];
 
   bindLoadErrorShell(fakeDom.parentNode(root), {
-    onOpenPackage: (id, version) => calls.push(`open:${id}@${version}`),
+    onOpenPackage: query =>
+      calls.push(`open:${query.packageId}@${query.version}:${query.explicitVersion}`),
     onRetry: () => calls.push("retry"),
   });
 
@@ -174,8 +184,8 @@ test("load error shell parses replacement packages and owns local detail state",
   assert.equal(detail.hidden, true);
   assert.deepEqual(calls, [
     "retry",
-    "open:Example.Package@2.0.0",
-    "open:Latest.Package@latest",
+    "open:Example.Package@2.0.0:true",
+    "open:Latest.Package@latest:false",
   ]);
 });
 
@@ -195,6 +205,7 @@ test("shell bindings tolerate inactive surfaces", () => {
   assert.doesNotThrow(() => bindHomeShell(root, {
     onDemo() {},
     onDismissNotice() {},
+    onOpenCredits() {},
     onToggleTheme() {},
   }));
   assert.doesNotThrow(() => bindLoadErrorShell(root, {
