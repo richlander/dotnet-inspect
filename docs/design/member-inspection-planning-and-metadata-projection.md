@@ -400,24 +400,40 @@ catalogs. A destination command is not a catalog identity: the package command
 can render its package view, one embedded library, or an all-libraries
 aggregation. The CLI therefore owns a closed structural-view registry:
 
-| Structural view | Destination command | Static catalog owner |
+| Structural view | Destination command | Static schema source |
 | --- | --- | --- |
-| Package inspection | Package | `PackageSectionDescriptors` |
-| Package single-library | Package, then library adapter | `LibrarySections` |
-| Package all-libraries | Package aggregation | `LibrarySections` |
-| Direct library | Library | `LibrarySections` |
-| Type list or exact type | Type | `ApiTypeSectionDescriptors` or `ApiMemberSectionDescriptors` |
-| Member inventory or detail | Member | `ApiMemberOverloadSectionDescriptors` or `ApiMemberDetailSectionDescriptors` |
+| Package inspection | Package | Package-view projection over `PackageSectionDescriptors` |
+| Package single-library | Package, then library adapter | Package-library projection over `LibrarySections` |
+| Package all-libraries | Package aggregation | All-libraries aggregate projection over `LibrarySections` |
+| Direct library | Library | Direct-library projection over `LibrarySections` |
+| Type list or exact type | Type | View projection over `ApiTypeSectionDescriptors` or `ApiMemberSectionDescriptors` |
+| Member inventory or detail | Member | View projection over `ApiMemberOverloadSectionDescriptors` or `ApiMemberDetailSectionDescriptors` |
 
 Each entry declares its syntax marker, precedence, destination command, view
-mode, and catalog identity. The declarations are shared by
+mode, catalog identity, parser capabilities, and static schema projection. The
+projection intersects the command-owned catalog with sections, fields,
+columns, coordinates, and output shapes the route's parser and renderer can
+actually reach. It never executes a section predicate or producer.
+
+Package single-library is not the direct-library schema merely because both
+use `LibrarySections`: it excludes coordinate, performance, and other sections
+whose required options are absent from the package parser. Package
+all-libraries has its own aggregate schema. Its Markdown section set and its
+row-capable section allow list are explicit, and row shapes include the
+package/version/library/TFM identity columns added by the aggregate renderer.
+Static schema selects the shape for the parsed output mode; it cannot advertise
+a direct-library field or shape that the package route later rejects.
+
+The declarations are shared by
 `ArgumentPreprocessor`, `RouterTokenRewriter`, and the destination command's
 post-parse structural classifier; a command rewrite cannot silently change the
-view. Declaration order preserves the realized syntax precedence: file forms,
-explicit member selectors, package-scoped `--library` or `--all-libraries`,
-package-plus-type forms, and package-version forms are classified before any
-lookup. In particular, `--library` and `--all-libraries` select library catalog
-views even though execution enters `PackageCommand`.
+view. Declaration order preserves the realized precedence for file forms,
+explicit member selectors, package-scoped `--library`, package-plus-type
+forms, and package-version forms. Slice 2 intentionally inserts
+`--all-libraries` after package-scoped `--library` and before
+package-plus-type/version routing. Both package-scoped markers select package
+library view modes even though their static schema derives from
+`LibrarySections`.
 
 Syntax-only precedence selects one structural view when a marker proves it.
 This includes explicit package-library gestures and direct `.nupkg --library`
@@ -860,21 +876,40 @@ interface, modifier, or other header fact merely because C# cannot spell it.
 A contained member declaration identifies its declaring type, member kind,
 canonical member identity, generic arity, return or value type, parameter types
 and modifiers, and accessor identities and accessibility where applicable. It
-retains enough signature information to distinguish overloads and indexers;
-dropping parameters or collapsing accessor identity is not a fallback.
+also retains the Metadata-owned declaration semantics consumed by ordinary C#
+rendering: declaration accessibility; static, abstract, virtual, override,
+sealed, readonly, const, unsafe, async, extension, and explicit-implementation
+semantics where applicable; generic constraints; attributes; constant and
+default values; and the complete accessor aggregate. It retains enough
+signature information to distinguish overloads and indexers; dropping
+parameters, collapsing accessor identity, or discarding declaration semantics
+is not a fallback.
+
+For both type and member declarations, the fallback fact set is derived from
+the normal representable renderer's typed Metadata fact requests. Set equality
+is required after subtracting only explicit, named erasures from the shared
+fact catalog. An erasure must be justified as presentation-only and occurs
+after the representability outcome is fixed; adding a fact to ordinary C#
+rendering without adding it to fallback or declaring the erasure fails the
+gate.
 
 Fallback rendering treats every artifact-authored name and signature fragment
 as inert data through the existing
 [InertText](inert-text.md) boundary. Identity and comparison use the original
 typed facts; presentation applies the sink's closed `TextPolicy` and carries
-the result as `InertString`. `VisualEncoder` re-spells refused scalars in its
-canonical, total, injective, lossless, and invertible form. Removal,
-replacement, or a fallback-local escape vocabulary is forbidden because it
-can collapse distinct declaration identities. Format-specific Markdown, JSON,
-TSV, or other structural escaping runs after visual encoding and does not
-replace it. Strict diagnostics do not echo the artifact payload. `MDP015` is
-the gate for contained fallback identity, signature discrimination, and inert
-rendering.
+the result as `InertString`. Because that type records that a policy was
+applied, not which policy, every fallback sink calls
+`EnsurePermitted(its-exact-TextPolicy)` immediately before unwrapping and
+format-specific escaping. A `Prose` value cannot enter a `Field` sink without
+that tightening.
+
+`VisualEncoder` re-spells refused scalars in its canonical, total, injective,
+lossless, and invertible form. Removal, replacement, or a fallback-local escape
+vocabulary is forbidden because it can collapse distinct declaration
+identities. Format-specific Markdown, JSON, TSV, or other structural escaping
+runs after visual encoding and does not replace it. Strict diagnostics do not
+echo the artifact payload. `MDP015` is the gate for contained fallback
+identity, signature discrimination, and inert rendering.
 
 A Metadata declaration retained with `SignatureDecodeStatus.Degraded` becomes
 `Degraded`; CSharp may preserve its bounded diagnostic evidence but cannot
@@ -1043,18 +1078,25 @@ Depends on: slice 1.
   command-owned static catalogs through the structural-view registry; return
   labeled alternatives when syntax alone cannot select one.
 - Make explicit package `--library`/`--all-libraries`, commandless equivalents,
-  and direct `.nupkg --library` preprocessing return the `LibrarySections`
-  static schema before package resolution or extraction.
+  and direct `.nupkg --library` preprocessing return their route-specific
+  projections over `LibrarySections` before package resolution or extraction.
+- Derive each projection's sections, fields, columns, coordinates, and output
+  shapes from the route's parser and renderer declarations.
 - Resolve the active catalog only after target/member resolution.
 - Move shape validation to the resolved plan.
 - Preserve current address precedence and diagnostics for non-static execution
-  through a compatibility adapter.
+  through a compatibility adapter except for the declared `--all-libraries`
+  correction below.
 - Intentionally replace commandless static-schema resolution notes and
   target-chosen catalogs with deterministic syntax-only catalogs or labeled
   alternatives; update command help and compatibility tests in this slice.
 - Intentionally add target-free static schema for package single-library and
   all-libraries views that currently defer or reject discovery; preserve their
   render behavior and document the new structural query.
+- Intentionally make commandless `<target> --all-libraries` route to package
+  all-libraries before any lookup in static and non-static modes. The option
+  exists only on the package command; this replaces the current lookup-driven
+  library/type misroute and is covered as a compatibility change.
 - Keep an adapter to current command execution while all other behavior remains
   byte-for-byte stable.
 
@@ -1149,6 +1191,10 @@ Depends on: slice 6.
 - Make `FallbackRequired` distinguish contained type and member declarations,
   preserve complete discriminating identity and signature/header facts, and
   render artifact-authored text inertly.
+- Derive type/member fallback fact sets from the normal representable renderer;
+  require equality except for explicit shared-fact erasures.
+- Require every fallback sink to tighten `InertString` with its exact
+  `TextPolicy` immediately before unwrapping and structural escaping.
 - Replace type-shell representability omissions, including unsupported
   base/interface spellings, with typed type outcomes.
 - Preserve degraded-signature non-success and strict failure containment.
@@ -1184,7 +1230,7 @@ test method name, but the PR must map each test to its gate ID.
 
 | Gate | Property | Required evidence |
 | --- | --- | --- |
-| `MIP001` | Static schema chooses only syntax-proven structural views and runs no target or producer work | Declaration-derived mapping equality between every preprocessor/rewrite/parsed view route and its structural-view registry entry, including precedence, destination command, view mode, and catalog identity; explicit and commandless package `--library`, package `--all-libraries`, and direct `.nupkg --library` cases return `LibrarySections` before resolution/extraction; explicit package/library/type/member gestures prove their deterministic command-owned catalogs; commandless package-version, library-file, member-selector, and package-plus-type forms prove syntax-only precedence; ambiguous `System.Text.Json` and `System.String.Substring` forms return labeled package/library/type/member catalog alternatives with per-alternative selector results; a close-negative fails if platform resolution, facade classification, package existence, all-framework search, acquisition, type/member lookup, or any section producer begins, and asserts that no resolution note is emitted |
+| `MIP001` | Static schema chooses only syntax-proven structural views and runs no target or producer work | Declaration-derived mapping equality between every preprocessor/rewrite/parsed view route and its structural-view registry entry, including precedence, destination command, view mode, catalog identity, parser capabilities, and schema projection; every advertised section/field/column/coordinate/shape has a corresponding accepted parser gesture and renderer mapping, and every reachable shape is advertised; direct-library-only coordinate/performance sections are absent from package-library projections; all-libraries row schemas expose only supported sections and include package/version/library/TFM identity columns; explicit and commandless package `--library`, package `--all-libraries`, and direct `.nupkg --library` cases return their view-specific projections before resolution/extraction; commandless `--all-libraries` routes to package before lookup in static and non-static cases; explicit package/library/type/member gestures prove their deterministic command-owned schemas; other syntax-only forms and ambiguous catalog alternatives retain per-alternative selector results; a close-negative fails if platform resolution, facade classification, package existence, all-framework search, acquisition, type/member lookup, or any section producer begins, and asserts that no resolution note is emitted |
 | `MIP002` | Named/category type/member source discovery cannot read/acquire PDB/source content or confuse unknown with empty | Overload-qualified `-D "Source Locations"`, `-D "Original Source"`, `-D "Source Diff"`, and source-category cases proving no `LocalPdbRead`, `PdbAcquire`, or `SourceContent`; paired genuinely-empty and PDB-required fixtures produce distinct `ValidEmpty` and `Unknown(CapabilityNotRequested)`, while plain library discovery retains its bounded `LocalPdbRead` positive and close-negative gates |
 | `MIP003` | Demand classification, provisional catalogs, and static alternatives cannot satisfy final shape validation | Close-negative tests for exact type, implied member, mixed filters, aliases, globs, categories, `@All`, and commandless structural alternatives; declaration-derived set equality requires one canonical target requirement for every stable identity registered in multiple catalogs and rejects conflicting declarations |
 | `MIP004` | Closed producer paths equal preflighted authorization | Declaration-derived gesture-provenance/query-requirement/host-policy matrix; unconditional prerequisite closure; conditional local-PDB hit, unrequested/denied miss, and authorized acquisition paths; transitive cost, execution-mode, and probe-policy closure; a probe-capable producer with a render-only prerequisite mapping to per-section `Unknown`; explicit-render denial; preflight-before-execution assertions; and artifact-owner lease revalidation |
@@ -1211,7 +1257,7 @@ test method name, but the PR must map each test to its gate ID.
 | `MDP012` | CSharp representability consumes only Metadata-owned semantic facts at the slice-7 cutover | Closure derived from the semantic fact types and every CSharp representability entry point; fail on direct `MetadataReader`/handle reconstruction or relationship decisions from raw accessibility, virtuality, new-slot, `MethodImpl`, or equivalent Boolean combinations |
 | `MDP013` | No transitional declaration-validity or CSharp reconstruction state remains | Declaration-driven closure over compatibility adapters, validators, raw semantic fields, and consumers after slice 8 |
 | `MDP014` | CSharp failure text contains no artifact data | Hostile control-character names through every CSharp representability failure path |
-| `MDP015` | `FallbackRequired` preserves contained type/member identity and renders artifact text through `InertString` | Types retain namespace/nesting/name, kind/arity, accessibility/modifiers, constraints, base, interfaces, and kind-specific header facts; an unsupported-base/interface type-shell fixture proves a valid unrepresentable fact becomes typed fallback instead of `null` or omission; methods, properties, events, accessors, overloads, and indexers retain discriminating declaring-type/member/signature facts; paired indexers with different parameter types remain distinct; declaration-derived sink closure accepts only policy-produced `InertString`; round-trip and pairwise injectivity fixtures for hostile type names, member names, and signature fragments prove canonical visual encoding preserves the exact artifact text while emitting no live controls, with format-specific structural escaping applied afterward |
+| `MDP015` | `FallbackRequired` preserves contained type/member semantics and renders artifact text through `InertString` | Set equality between the normal representable renderer's Metadata fact requests and each contained fallback payload after named erasures; type and member parity fixtures cover accessibility, modifiers, attributes, constraints, constants/defaults, explicit implementation, accessor aggregates, base/interfaces, and kind-specific facts; unsupported type-header and paired member/indexer cases prove no fact becomes `null`, omission, or identity collapse; declaration-derived sink closure requires every fallback sink to call `EnsurePermitted` with its exact `TextPolicy` immediately before unwrapping and format escaping; cross-policy fixtures deliver Prose-produced CR/LF/TAB plus hostile type names, member names, and signature fragments to Field, Markdown, JSON, TSV, and diagnostic sinks; round-trip and pairwise injectivity prove canonical visual encoding preserves exact artifact text while no live disallowed scalar reaches a sink |
 
 Contract tests should derive their cases from the declaration or section
 catalog where practical, so a new mode or validator cannot silently avoid the
