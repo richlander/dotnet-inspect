@@ -11,8 +11,11 @@ This document owns three questions that are easy to conflate and must not be:
 | **Precedence** — two entitled candidates define the same type; which wins? | a pair | at resolution | this document |
 | **Coherence** — do these two actually fit together? | a pair | at traversal | this document |
 
-Entitlement is settled and enforced. Precedence and coherence are specified here
-but **not yet implemented**; each names its tracking issue.
+The entitlement **rule** is settled and enforced, though its carrier has a known
+gap ([#4606](#known-gap-a-path-is-not-a-designation)). Precedence and coherence
+are specified here but **not yet implemented**; each names its tracking issue.
+Where this document describes intent rather than current behaviour, it says so
+at that point.
 
 ## What a platform is
 
@@ -32,17 +35,30 @@ Entitlement follows **how** an assembly was acquired, never anything the
 acquisition *contains*. An assembly's simple name and public key are both public
 data and trivially forgeable, so neither can be evidence.
 
-| Acquisition | Platform status | Why |
-| --- | --- | --- |
-| **Layout** — dotnet hive, runtime pack, reference pack | **Platform base.** The core library comes only from here. | Built as a unit, so the closure is coherent by construction. |
-| **Exact file named by the caller** | **Overlay.** Entitled, and wins for its own filename. | The caller asserted this file specifically. That assertion is the only thing that distinguishes a build layout from an arbitrary directory. |
-| **Package** | **Rejected.** | A package is authored by whoever published it. Admitting one would let its contents define what the platform is — the *platform-in-package* case. |
-| **Loose directory** | **Rejected.** | A directory of binaries is rarely a coherent closure: stale copies, reference-only assemblies, and cross-version core libraries all confuse types, with no malice required. |
+| Acquisition | Provenance | Platform status | Why |
+| --- | --- | --- | --- |
+| **Layout** — dotnet hive, runtime pack, reference pack | `PlatformAsset` | **Platform base.** Establishes the closure everything else is read against. | Built as a unit, so the closure is coherent by construction. |
+| **Exact file named by the caller** | `DesignatedAsset` | **Entitled.** May be a core library in its own right, or an overlay over a base. | The caller asserted this file specifically. That assertion is the only thing that distinguishes a build layout from an arbitrary directory. |
+| **Package** | `PackageAsset` | **Rejected.** | A package is authored by whoever published it. Admitting one would let its contents define what the platform is — the *platform-in-package* case. |
+| **Discovered sibling / loose directory** | `LocalAsset` | **Rejected.** | A directory of binaries is rarely a coherent closure: stale copies, reference-only assemblies, and cross-version core libraries all confuse types, with no malice required. |
+| **Project output** | `ProjectAsset` | **Rejected.** | Build output is authored by the project under inspection. |
+| **Embedded** | `EmbeddedAsset` | **Rejected.** | Carried inside another artifact, so its closure is whatever that artifact chose to carry. |
 
-The last two are rejected for the *same* reason, and it is worth stating plainly
-because the security framing tends to crowd it out: **the dominant risk is
-unintentional type confusion, not an attacker.** A stale binary left over from
-an older build corrupts a session exactly as effectively as a planted one.
+`MayMint` entitles the first two arms and denies the rest;
+`EveryAcquisitionIsClassified_AndExactlyTwoAreEntitled` enumerates every
+acquisition the product can express and requires exactly that split, so a new
+arm cannot be added without deciding which side it is on.
+
+**A layout is not the only source of a core library.** Naming a core library
+directly — `System.Private.CoreLib.dll` out of a build tree — designates it, and
+it keeps core-library identity on that basis;
+`PlantedCoreLibraryIdentityTests.RawPathOpen_KeepsCoreLibraryIdentity` gates
+exactly that, and it is the dotnet/runtime build-layout workflow. What a layout
+uniquely supplies is a *coherent set*, not the core library as such.
+
+The rejections share a reason, and it is worth stating plainly because the
+security framing tends to crowd it out: **the dominant risk is unintentional
+type confusion, not an attacker.** A stale binary left over from an older build corrupts a session exactly as effectively as a planted one.
 
 Rejection costs nothing in reach. A rejected assembly remains fully
 inspectable — it is simply never promoted to *platform*, so it cannot speak for
@@ -63,8 +79,16 @@ bypass, so every gate on `MayMint` proved nothing about them. Four consecutive
 rounds each found the escape one frame further out, because the escape was never
 a missing gate; it was a second door.
 
-Reintroducing a direct grant is now **CS0122** — a compile error rather than a
-test that can rot. See
+Reintroducing a direct grant **from outside the type** is now CS0122 — a compile
+error rather than a test that can rot. Privacy cannot reach the in-type case: a
+method or nested helper inside `CoreLibraryIdentityTrust` could still call the
+grant legally, and a nested helper would do so without any call site naming the
+trust type. Two IL-scanning gates hold that half, not the compiler —
+`ReaderConstructionSiteTests.TrustTypeMembers_AreClassified`, which requires the
+type to account for every member it declares and to declare **no nested types**,
+and `ReaderConstructionSiteTests.TrustTableAccess_IsConfinedToItsPinnedMembers`,
+which pins every method in the assembly whose IL reaches the trust table at all.
+See
 [`untrusted-data-threat-model.md`](untrusted-data-threat-model.md#core-library-identity-is-granted-by-acquisition-not-by-self-declaration)
 for the gate inventory.
 
@@ -99,16 +123,30 @@ contract expressed by its dependencies, inspecting a single binary pulled from
 remote build assets, or asking what a rebuilt assembly integrates with. An
 overlay that is only ever read on its own does not need to be an overlay.
 
-Two rules govern composition:
+Two rules govern composition. The **first is intended behaviour that the current
+implementation does not deliver**; the second holds today.
 
-- **The overlay wins for its own filename.** The caller named that exact file;
-  honouring it is the entire point.
+- **The overlay should win for its own filename — but does not.** The caller
+  named that exact file, so honouring it is the entire point. Today it holds
+  only for the assembly the caller *opens*, which is read from the named path
+  directly. It does **not** hold for a reference *resolved* to that same
+  filename from another assembly: resolution ranks trusted-platform candidates
+  above corpus candidates (`CandidateTier.TrustedPlatform` precedes
+  `CandidateTier.Corpus` in `AssemblyDependencyResolver`), so the platform copy
+  is returned and the overlay is never reached. An overlay therefore does not
+  currently compose — other assemblies keep seeing the base. This is the same
+  defect as [precedence](#precedence-between-entitled-candidates) below, and it
+  is **#4593**.
 - **The overlay does not extend its authority beyond that filename.** It does
-  not become the platform, and it does not entitle its siblings. Directory
-  membership is not designation.
+  not become the platform, and it does not entitle its siblings — directory
+  membership is not designation. This half is real: a sibling reached by
+  discovery carries `LocalAsset`, which `MayMint` denies, gated by
+  `PlantedCoreLibraryIdentityTests.PlantedSibling_OpenedThroughMetadataSource_LosesCoreLibraryIdentity`.
 
-Together these keep the graph mostly coherent: the base supplies a closure that
-was built as a unit, and the overlay replaces one member of it. What that
+Stated as intent, the pair keeps the graph mostly coherent: the base supplies a
+closure that was built as a unit, and the overlay replaces one member of it.
+Until #4593 lands, the replacement is only visible to the caller who named it.
+What that
 cannot guarantee is that the replacement still *fits*.
 
 ## Coherence is a property of the pair

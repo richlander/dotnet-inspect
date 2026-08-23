@@ -321,8 +321,12 @@ sites called it directly, two of them building `Local` provenance — which
 caller named, so the behaviour was right; it was just right by *bypass*, and
 every gate on `MayMint` therefore proved nothing about them. Four consecutive
 rounds found the escape one frame further out because it was never a missing
-gate, it was a second door. Reintroducing a direct grant is now **CS0122**, a
-compile error rather than a test that can rot.
+gate, it was a second door. Reintroducing a direct grant **from outside the
+type** is now CS0122, a compile error rather than a test that can rot; the
+in-type case is beyond privacy's reach and is held instead by
+`TrustTypeMembers_AreClassified` — which forbids nested types precisely because
+a nested helper reaches the table without naming it — and by
+`TrustTableAccess_IsConfinedToItsPinnedMembers`, both described below.
 
 The registry is an **allow list**, and the polarity is load-bearing. A deny
 list has to enumerate every site that turns bytes into a reader, so a site
