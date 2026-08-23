@@ -20,99 +20,144 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  parseSync,
+  type Expression,
+  type ObjectExpression,
+  type Program,
+  type PropertyKey,
+  type TSInterfaceDeclaration,
+  type TSPropertySignature,
+} from "oxc-parser";
+
 const sourceRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
 
 function read(file: string): string {
   return readFileSync(join(sourceRoot, file), "utf8");
 }
 
-function block(source: string, anchor: RegExp): string {
-  const start = source.search(anchor);
-  assert.ok(
-    start >= 0, `the anchor ${anchor} no longer matches, so this gate derives nothing`);
-  let depth = 0;
-  let end = -1;
-  for (let cursor = start; cursor < source.length && end < 0; cursor += 1) {
-    const character = source[cursor];
-    if (character === "{") depth += 1;
-    else if (character === "}") {
-      depth -= 1;
-      if (depth === 0) end = cursor + 1;
+function parse(file: string): Program {
+  const parsed = parseSync(file, read(file));
+  assert.deepEqual(
+    parsed.errors,
+    [],
+    `${file} must parse before its state ownership can be inspected`);
+  return parsed.program;
+}
+
+function packageInspectionState(program: Program): TSInterfaceDeclaration {
+  const declarations = program.body.flatMap(node => {
+    const declaration = node.type === "ExportNamedDeclaration"
+      ? node.declaration
+      : node;
+    return declaration?.type === "TSInterfaceDeclaration"
+      && declaration.id.name === "PackageInspectionState"
+      ? [declaration]
+      : [];
+  });
+  assert.equal(
+    declarations.length,
+    1,
+    "PackageInspectionState must have exactly one declaration");
+  const declaration = declarations[0];
+  assert.ok(declaration);
+  return declaration;
+}
+
+function propertyName(key: PropertyKey, computed: boolean): string {
+  if (key.type === "Identifier" && !computed) return key.name;
+  if (key.type === "Literal" && typeof key.value === "string") return key.value;
+  throw new Error("state ownership keys must be statically named");
+}
+
+function stateProperties(declaration: TSInterfaceDeclaration): TSPropertySignature[] {
+  return declaration.body.body.filter(
+    (member): member is TSPropertySignature => member.type === "TSPropertySignature");
+}
+
+function resourceFields(declaration: TSInterfaceDeclaration): string[] {
+  return stateProperties(declaration)
+    .filter(property => {
+      const annotation = property.typeAnnotation?.typeAnnotation;
+      return annotation?.type === "TSTypeReference"
+        && annotation.typeName.type === "Identifier"
+        && annotation.typeName.name === "AsyncResource";
+    })
+    .map(property => propertyName(property.key, property.computed));
+}
+
+function objectExpression(expression: Expression | null): ObjectExpression | null {
+  if (expression?.type === "ObjectExpression") return expression;
+  if (expression?.type === "TSAsExpression"
+    || expression?.type === "TSSatisfiesExpression"
+    || expression?.type === "TSTypeAssertion") {
+    return objectExpression(expression.expression);
+  }
+  return null;
+}
+
+function objectDeclarations(program: Program): Map<string, ObjectExpression> {
+  const declarations = new Map<string, ObjectExpression>();
+  for (const statement of program.body) {
+    if (statement.type !== "VariableDeclaration") continue;
+    for (const declaration of statement.declarations) {
+      if (declaration.id.type !== "Identifier") continue;
+      const object = objectExpression(declaration.init);
+      if (object) declarations.set(declaration.id.name, object);
     }
   }
-  assert.ok(end >= 0, `the block at ${anchor} is unterminated`);
-  return source.slice(start, end);
+  return declarations;
 }
 
-// The converted lenses, discovered from their declared type rather than named here.
-function resourceFields(declaration: string): string[] {
-  return [...declaration.matchAll(/(\w+)\s*:\s*AsyncResource</g)]
-    .map(match => match[1])
-    .filter((name): name is string => name !== undefined);
-}
-
-// Read the keys the block actually declares, at its own nesting level, rather than the
-// keys that happen to be formatted one-per-line. Layout is not the property being gated,
-// and a scan anchored on indentation misses a single-line object -- which is exactly the
-// shape a spread source takes.
-function propertyNames(literalOrInterface: string): string[] {
-  const depths: number[] = [];
-  let depth = 0;
-  for (const character of literalOrInterface) {
-    if (character === "}") depth -= 1;
-    depths.push(depth);
-    if (character === "{") depth += 1;
-  }
-
+function objectPropertyNames(
+  object: ObjectExpression,
+  declarations: ReadonlyMap<string, ObjectExpression>,
+  seen: ReadonlySet<ObjectExpression> = new Set(),
+): string[] {
+  assert.equal(
+    seen.has(object),
+    false,
+    "state ownership spreads must not form a cycle");
+  const nextSeen = new Set(seen).add(object);
   const names: string[] = [];
-  for (const key of literalOrInterface.matchAll(/[{,;]\s*"?(\w+)"?\s*\??\s*:/g)) {
-    const name = key[1];
-    // Measure at the colon, not at the leading delimiter: for the first property that
-    // delimiter is the opening brace itself, which sits one level out.
-    if (name !== undefined && depths[key.index + key[0].length - 1] === 1) {
-      names.push(name);
+  for (const property of object.properties) {
+    if (property.type === "Property") {
+      names.push(propertyName(property.key, property.computed));
+      continue;
     }
-  }
-  return names;
-}
-
-// A spread carries its source object's properties into the literal, so a gate that reads
-// only the literal's own keys can be walked around by moving the field into a spread
-// object. Round 2 review of PR #4585 (GPT-5.6 Sol) did exactly that. Resolve each spread
-// to the declaration it names and include those keys; refuse to pass on one that cannot
-// be resolved, because an unresolved spread is an unread surface, not an empty one.
-function spreadNames(literal: string, source: string): string[] {
-  const names: string[] = [];
-  for (const spread of literal.matchAll(/^\s{2}\.\.\.(\w+),/gm)) {
-    const identifier = spread[1];
-    if (identifier === undefined) continue;
-    const declaration = new RegExp(`(?:const|let|var) ${identifier}\\b[^=]*= \\{`);
-    const start = source.search(declaration);
+    const inline = objectExpression(property.argument);
+    const named = property.argument.type === "Identifier"
+      ? declarations.get(property.argument.name)
+      : undefined;
+    const spread = inline ?? named;
     assert.ok(
-      start >= 0,
-      `the spread \`...${identifier}\` could not be resolved, so its keys are unchecked`);
-    names.push(...propertyNames(block(source, declaration)));
+      spread,
+      "a spread in initialState could not be resolved, so its keys are unchecked");
+    names.push(...objectPropertyNames(spread, declarations, nextSeen));
   }
   return names;
 }
 
 test("a lens converted to AsyncResource keeps exactly one state field", () => {
-  const coordinatorState = block(
-    read("package-inspection.ts"), /export interface PackageInspectionState \{/);
-  const initialState = block(read("dotnet-inspect.ts"), /^const initialState = \{/m);
+  const coordinatorProgram = parse("package-inspection.ts");
+  const coordinatorState = packageInspectionState(coordinatorProgram);
+  const rootProgram = parse("dotnet-inspect.ts");
+  const declarations = objectDeclarations(rootProgram);
+  const initialState = declarations.get("initialState");
+  assert.ok(initialState, "initialState must be a statically inspectable object");
 
   const converted = resourceFields(coordinatorState);
   assert.ok(
     converted.length > 0,
     "no AsyncResource state field was found, so the anchor has stopped resolving");
 
-  const rootSource = read("dotnet-inspect.ts");
   const surfaces: readonly (readonly [string, readonly string[]])[] = [
-    ["PackageInspectionState", propertyNames(coordinatorState)],
     [
-      "initialState",
-      [...propertyNames(initialState), ...spreadNames(initialState, rootSource)],
+      "PackageInspectionState",
+      stateProperties(coordinatorState)
+        .map(property => propertyName(property.key, property.computed)),
     ],
+    ["initialState", objectPropertyNames(initialState, declarations)],
   ];
 
   const survivors: string[] = [];
@@ -138,14 +183,19 @@ test("the parallel-field gate sees both surfaces", () => {
   // Non-vacuity, and the specific shape of the two mutations that were silent: a gate that
   // reads only one surface, or whose property scan stops matching, would pass above while
   // proving nothing.
-  const coordinatorState = block(
-    read("package-inspection.ts"), /export interface PackageInspectionState \{/);
-  const initialState = block(read("dotnet-inspect.ts"), /^const initialState = \{/m);
+  const coordinatorProgram = parse("package-inspection.ts");
+  const coordinatorState = packageInspectionState(coordinatorProgram);
+  const rootProgram = parse("dotnet-inspect.ts");
+  const declarations = objectDeclarations(rootProgram);
+  const initialState = declarations.get("initialState");
+  assert.ok(initialState, "initialState must be a statically inspectable object");
 
   assert.ok(
-    propertyNames(coordinatorState).includes("packageOpportunities"),
+    stateProperties(coordinatorState)
+      .some(property => propertyName(property.key, property.computed)
+        === "packageOpportunities"),
     "the coordinator-state property scan no longer sees the converted lens");
   assert.ok(
-    propertyNames(initialState).includes("packageOpportunities"),
+    objectPropertyNames(initialState, declarations).includes("packageOpportunities"),
     "the initial-state property scan no longer sees the converted lens");
 });

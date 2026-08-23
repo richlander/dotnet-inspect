@@ -294,14 +294,20 @@ async function verifyPackageLensLifecycle<T>(
 
       await fixture.load(coordinator, "current").catch(() => {});
 
-      const settled = await Promise.race([
-        fixture.load(coordinator, "current").then(() => "settled", () => "settled"),
+      const recovery = fixture.load(coordinator, "current");
+      const outcome = await Promise.race([
+        recovery.then(() => "settled", () => "settled"),
         new Promise(resolve => { setTimeout(() => resolve("deadlocked"), 250); }),
       ]);
       assert.equal(
-        settled,
+        outcome,
         "settled",
         `${fixture.name} deadlocked after render ${throwOn} of ${cleanRenders} threw`);
+      const status = fixture.read(state).status;
+      assert.ok(
+        status === "ready" || status === "failed",
+        `${fixture.name} remained ${status} after render ${throwOn} of `
+        + `${cleanRenders} threw`);
     }
   }
 
@@ -514,6 +520,69 @@ test("foreground dependency success refreshes cached groups and clears a prior e
     workspace.dependencyGroups?.[0]?.dependencies?.[0]?.id,
     "Example.Dependency");
   assert.equal(Object.hasOwn(state.workspaceDependencyErrors, key), false);
+});
+
+test("foreground dependency failures preserve resident cached evidence", async () => {
+  const packageItem = packageModel();
+  const key = workspaceDependencyKey(packageItem);
+  const cached = {
+    dependencyGroups: dependencyResult().dependencyGroups,
+    dependencyGroupError: "prior partial failure",
+  };
+  const state = inspectionState({
+    packages: [packageItem],
+    workspaceDependencies: { [key]: cached },
+    workspaceDependencyErrors: { [key]: "prior partial failure" },
+  });
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDependencies: async () => {
+        throw new Error("current request failed");
+      },
+    }));
+
+  await coordinator.loadDependencies(packageItem, "current");
+
+  assert.deepEqual(state.packageDependencies, {
+    status: "failed",
+    key: "current",
+    error: "current request failed",
+  });
+  assert.strictEqual(state.workspaceDependencies[key], cached);
+  assert.equal(state.workspaceDependencyErrors[key], "prior partial failure");
+});
+
+test("abandoned dependency failures preserve newer state and cached evidence", async () => {
+  const packageItem = packageModel();
+  const key = workspaceDependencyKey(packageItem);
+  const request = deferred<BrowserPackageDependencies>();
+  const cached = {
+    dependencyGroups: dependencyResult().dependencyGroups,
+    dependencyGroupError: "prior partial failure",
+  };
+  const state = inspectionState({
+    packages: [packageItem],
+    workspaceDependencies: { [key]: cached },
+    workspaceDependencyErrors: { [key]: "prior partial failure" },
+  });
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDependencies: async () => request.promise,
+    }));
+
+  const abandoned = coordinator.loadDependencies(packageItem, "first");
+  const newer: AsyncResource<BrowserPackageDependencies> = {
+    status: "failed",
+    key: "second",
+    error: "newer failure",
+  };
+  state.packageDependencies = newer;
+  request.reject(new Error("abandoned failure"));
+  await abandoned;
+
+  assert.strictEqual(state.packageDependencies, newer);
+  assert.strictEqual(state.workspaceDependencies[key], cached);
+  assert.equal(state.workspaceDependencyErrors[key], "prior partial failure");
 });
 
 test("package lens loaders reuse cached results without querying or clearing them", async () => {

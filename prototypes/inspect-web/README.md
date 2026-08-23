@@ -1079,8 +1079,10 @@ it would not want. Registration owns the settlement: the loader body runs
 inside `runInFlight`, so no exit path -- including a throwing `render()` -- can
 leave a joined caller awaiting a request nobody will resolve.
 `test/package-inspection.test.ts` also drives every lens with a render that
-throws on the nth call, for every n, and projects every `AsyncResource` variant
-through `packageMetadataView`, deriving both rosters from the union declaration.
+throws on the nth call, for every n, and requires a later same-key call to reach
+a settled resource rather than returning from ownerless loading state. It also
+projects every `AsyncResource` variant through `packageMetadataView`, deriving
+both rosters from the union declaration.
 `test/async-resource-state.test.ts` derives the converted lenses from their
 declared type and fails if one regains any parallel state field -- named,
 quoted, or carried in by a spread -- on either the coordinator state or the

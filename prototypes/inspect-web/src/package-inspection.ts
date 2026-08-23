@@ -277,7 +277,8 @@ export function createPackageInspectionCoordinator(
   // Taking the body removes the window rather than narrowing it: there is no way to
   // register an entry without this `finally`. `test/package-inspection.test.ts` drives
   // every lens with a render callback that throws on the nth call, for every n, and proves
-  // a later same-key caller still settles.
+  // a later same-key caller reaches a settled resource rather than returning from an
+  // ownerless `loading` state.
   function runInFlight(
     lens: string,
     resource: AsyncResource<unknown>,
@@ -299,12 +300,19 @@ export function createPackageInspectionCoordinator(
     })();
   }
 
+  function isSettledFor(
+    resource: AsyncResource<unknown>,
+    signature: string,
+  ): boolean {
+    return (resource.status === "ready" || resource.status === "failed")
+      && resource.key === signature;
+  }
+
   return {
     async loadDependencies(packageModel, signature) {
       const joined = joinInFlight("packageDependencies", state.packageDependencies, signature);
       if (joined) return joined;
-      if (state.packageDependencies.status !== "idle"
-        && state.packageDependencies.key === signature) {
+      if (isSettledFor(state.packageDependencies, signature)) {
         dependencies.render();
         return;
       }
@@ -363,8 +371,7 @@ export function createPackageInspectionCoordinator(
       if (packageModel.isRuntimePack && !scopedLibrary) return;
       const joined = joinInFlight("packageIntegrations", state.packageIntegrations, signature);
       if (joined) return joined;
-      if (state.packageIntegrations.status !== "idle"
-        && state.packageIntegrations.key === signature) {
+      if (isSettledFor(state.packageIntegrations, signature)) {
         dependencies.render();
         return;
       }
@@ -407,8 +414,7 @@ export function createPackageInspectionCoordinator(
       if (packageModel.isRuntimePack && !scopedLibrary) return;
       const joined = joinInFlight("packageOpportunities", state.packageOpportunities, signature);
       if (joined) return joined;
-      if (state.packageOpportunities.status !== "idle"
-        && state.packageOpportunities.key === signature) {
+      if (isSettledFor(state.packageOpportunities, signature)) {
         dependencies.render();
         return;
       }
@@ -451,8 +457,7 @@ export function createPackageInspectionCoordinator(
       if (packageModel.isRuntimePack && !scopedLibrary) return;
       const joined = joinInFlight("packagePerformance", state.packagePerformance, signature);
       if (joined) return joined;
-      if (state.packagePerformance.status !== "idle"
-        && state.packagePerformance.key === signature) {
+      if (isSettledFor(state.packagePerformance, signature)) {
         dependencies.render();
         return;
       }
@@ -495,8 +500,7 @@ export function createPackageInspectionCoordinator(
       if (packageModel.isRuntimePack && !scopedLibrary) return;
       const joined = joinInFlight("packageMetadata", state.packageMetadata, signature);
       if (joined) return joined;
-      if (state.packageMetadata.status !== "idle"
-        && state.packageMetadata.key === signature) {
+      if (isSettledFor(state.packageMetadata, signature)) {
         dependencies.render();
         return;
       }
