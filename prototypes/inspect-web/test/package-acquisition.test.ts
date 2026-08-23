@@ -207,9 +207,9 @@ test("runtime assembly acquisition reports a missing selected descriptor", async
 // types, assemblies, accessibility, and counts but never the descriptor. Rejecting it
 // pre-merge turned a partially-successful load into a total failure.
 //
-// So the validation now sits on the path that actually needs a descriptor, and these two
-// tests pin both halves: a truncated surface merges, and a surface that needs a
-// descriptor still fails visibly when it has none.
+// The merge path accepts that descriptor-free truncated surface so it can preserve the
+// partial inspection evidence. The non-merging path still requires a descriptor. These
+// tests pin both halves.
 test("a truncated platform surface merges instead of failing the whole load", async () => {
   const resident = createRuntimePackageModel(
     runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"));
