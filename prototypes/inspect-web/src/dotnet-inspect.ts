@@ -5363,7 +5363,10 @@ function workbenchModalOwnsFocus() {
 
 function captureWorkspaceUrlState(): WorkspaceUrlState | null {
   if (!state.package) return null;
-  const library = scopedPlatformLibrary();
+  const library = isRuntimePackId(state.package.id)
+    && state.libraryScope?.size === 1
+    ? [...state.libraryScope][0] ?? null
+    : null;
   return {
     package: state.package.id,
     tabs: state.packages.map(item => ({
