@@ -46,8 +46,10 @@ data and trivially forgeable, so neither can be evidence.
 
 `MayMint` entitles the first two arms and denies the rest;
 `EveryAcquisitionIsClassified_AndExactlyTwoAreEntitled` enumerates every
-acquisition the product can express and requires exactly that split, so a new
-arm cannot be added without deciding which side it is on.
+acquisition the product can express and requires exactly that split. Note which
+way that gate fails safe: a provenance arm added later is **denied by default**
+and passes the gate silently. What the gate catches is an arm added to the
+*entitled* set without argument, not an arm left unclassified.
 
 **A layout is not the only source of a core library.** Naming a core library
 directly — `System.Private.CoreLib.dll` out of a build tree — designates it, and
@@ -133,21 +135,32 @@ implementation does not deliver**; the second holds today.
   filename from another assembly: resolution ranks trusted-platform candidates
   above corpus candidates (`CandidateTier.TrustedPlatform` precedes
   `CandidateTier.Corpus` in `AssemblyDependencyResolver`), so the platform copy
-  is returned and the overlay is never reached. An overlay therefore does not
-  currently compose — other assemblies keep seeing the base. This is the same
-  defect as [precedence](#precedence-between-entitled-candidates) below, and it
-  is **#4593**.
+  is offered first. Whether the overlay is reached at all then depends on the
+  requested identity rather than on the caller's intent: a platform candidate
+  that *matches* shadows the overlay, while one that does not match is skipped
+  (`MatchesCandidate` falls through to `continue`) and the corpus candidate is
+  reached after all. Composition is therefore **emergent and
+  version-dependent** — it happens when the versions differ and not when they
+  agree, which is the opposite of a rule. This is the same defect as
+  [precedence](#precedence-between-entitled-candidates) below, and it is
+  **#4593**.
 - **The overlay does not extend its authority beyond that filename.** It does
   not become the platform, and it does not entitle its siblings — directory
   membership is not designation. This half is real: a sibling reached by
-  discovery carries `LocalAsset`, which `MayMint` denies, gated by
-  `PlantedCoreLibraryIdentityTests.PlantedSibling_OpenedThroughMetadataSource_LosesCoreLibraryIdentity`.
+  discovery carries `LocalAsset`, which `MayMint` denies. The denial of a
+  resolved `LocalAsset` is gated by
+  `PlantedCoreLibraryIdentityTests.PlantedSibling_OpenedThroughMetadataSource_LosesCoreLibraryIdentity`,
+  which constructs that provenance directly. The other half of the claim — that
+  a discovered sibling is in fact classified `LocalAsset` — rests on the default
+  arm of the resolver's provenance mapping (`AssemblyDependencyResolver`) and is
+  **not** separately gated.
 
 Stated as intent, the pair keeps the graph mostly coherent: the base supplies a
 closure that was built as a unit, and the overlay replaces one member of it.
-Until #4593 lands, the replacement is only visible to the caller who named it.
-What that
-cannot guarantee is that the replacement still *fits*.
+Until #4593 lands, the replacement is reliably visible only to the caller who
+named it; whether any other assembly sees it is an accident of version
+matching. What that cannot guarantee, even once the rule holds, is that the
+replacement still *fits*.
 
 ## Coherence is a property of the pair
 
