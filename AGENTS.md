@@ -148,10 +148,30 @@ on every round completion, and omit `Blocked` only when it is genuinely empty.
   in your PR, and no one should be dispatched at it. Naming them is what stops
   several agents converging on one shared flake; behind a known blocker the
   correct action for everyone is to wait, and an idle agent is the right outcome
-  there rather than a wasted one.
+  there rather than a wasted one. Give numbers rather than prose — this list is
+  what `Recommendation: Wait` points at, and what a watcher re-checks to decide
+  when you are worth waking.
 - **`Recommendation:`** — exactly one of `Wait`, `Merge`, `Approve next rounds`,
-  or `Stop (reason)`. It says what you want the **operator** to do, which is not
-  the same as what you would do next. `Wait` is a complete answer.
+  or `Stop (reason)`: the disposition of this window, not a summary of your
+  progress. Two of the four are your own disposition and ask nobody for
+  anything; two are requests only the operator can satisfy.
+
+  **`Wait` means "let me wait — what I listed in `Blocked:` is still
+  outstanding."** It is not idleness in need of explanation and not a request
+  for instructions: nobody should dispatch you, re-plan you, or send you at CI.
+  It is only coherent next to a non-empty `Blocked:` — if nothing is blocking
+  you then you are not waiting, and one of the other three is the honest answer.
+  That pairing is what makes `Wait` watchable: the window becomes interesting
+  again exactly when the numbers you named close, and not before.
+
+  **`Stop (reason)` means "let me stop."** You are ceasing work on this PR, and
+  the reason is the load-bearing part — superseded by another PR, approach
+  rejected, six rounds without convergence. Unlike `Wait` it is terminal:
+  nothing will make this window interesting again, so saying it plainly is what
+  lets the slot be reclaimed instead of leaving finished work to look stalled.
+
+  **`Merge` and `Approve next rounds` are the two that need a person.** Together
+  they are the operator's queue; everything else can stay quiet.
 
 Restate it after every resume and at the start of every round, not once at the
 beginning. A window that has scrolled past its only mention of the PR is a
