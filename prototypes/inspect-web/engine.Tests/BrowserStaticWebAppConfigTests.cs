@@ -21,11 +21,17 @@ public class BrowserStaticWebAppConfigTests
             .. config.RootElement.GetProperty("routes").EnumerateArray(),
         ];
 
-        Assert.Equal(4, routes.Length);
+        Assert.Equal(3, routes.Length);
         AssertRoute(routes[0], "/");
         AssertRoute(routes[1], "/index.html");
         AssertRoute(routes[2], "/credits", "/index.html");
-        AssertRoute(routes[3], "/credits/", "/index.html");
+        Assert.Equal(
+            routes.Length,
+            routes
+                .Select(route => NormalizeAzureRoute(
+                    route.GetProperty("route").GetString()!))
+                .Distinct(StringComparer.Ordinal)
+                .Count());
         Assert.Equal(
             "dotnet-isolated:8.0",
             config.RootElement
@@ -92,6 +98,12 @@ public class BrowserStaticWebAppConfigTests
                 .GetProperty("headers")
                 .GetProperty("Cache-Control")
                 .GetString());
+    }
+
+    private static string NormalizeAzureRoute(string route)
+    {
+        string normalized = route.TrimEnd('/');
+        return normalized.Length == 0 ? "/" : normalized;
     }
 
     private static string RepositoryRoot()

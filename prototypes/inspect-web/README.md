@@ -987,14 +987,16 @@ Trusted build and deployment steps also verify that Vite preserved the authored
 .NET placeholders, that every file in Vite's generated manifest exists and is
 loaded by the index where required, that the SDK injected a mapping to the
 fingerprinted `dotnet.js`, and that the import map precedes the Vite module
-entry. That configuration serves `/` and `/index.html` with `Cache-Control:
-no-cache, no-store, must-revalidate`, so an Azure edge cannot retain an old
-browser boot graph after its fingerprinted Wasm assets rotate.
-`BrowserStaticWebAppConfigTests.RootDocumentsAreNotCachedAndConfigIsPublished`
-gates the header contract and publish wiring. The staging publish step embeds
-the CLI's authoritative `VersionPrefix`, exact source SHA, and UTC build
-timestamp. The home and workspace status bars show that version, link the
-short commit to GitHub, and disclose the binary build time.
+entry. That configuration serves `/`, `/index.html`, and the Azure-canonical
+`/credits` route with `Cache-Control: no-cache, no-store, must-revalidate`, so
+an Azure edge cannot retain an old browser boot graph after its fingerprinted
+Wasm assets rotate. Azure treats trailing-slash variants as the same route;
+`BrowserStaticWebAppConfigTests.EntryDocumentsAreNotCachedAndConfigIsPublished`
+gates both route uniqueness and the header and publish-wiring contracts. The
+staging publish step embeds the CLI's authoritative `VersionPrefix`, exact
+source SHA, and UTC build timestamp. The home and workspace status bars show
+that version, link the short commit to GitHub, and disclose the binary build
+time.
 `BuildIdentity_UsesVersionedRepositoryProvenance` and
 `ready status shows versioned linked build provenance` gate the engine and UI
 halves.

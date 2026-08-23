@@ -74,14 +74,10 @@ test("static hosting serves direct credits links through the application entry p
         "Cache-Control": "no-cache, no-store, must-revalidate",
       },
     },
-    {
-      route: "/credits/",
-      rewrite: "/index.html",
-      headers: {
-        "Cache-Control": "no-cache, no-store, must-revalidate",
-      },
-    },
   ]);
+  const normalizedRoutes = staticWebAppConfig.routes
+    .map(({ route }) => route === "/" ? route : route.replace(/\/+$/, ""));
+  assert.equal(new Set(normalizedRoutes).size, normalizedRoutes.length);
   assert.equal(staticWebAppConfig.navigationFallback.rewrite, "/index.html");
   assert.deepEqual(
     staticWebAppConfig.navigationFallback.exclude,
