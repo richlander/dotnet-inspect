@@ -5369,6 +5369,40 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void ResourceTriageQuery_RecordsBodyIndexAndDrillMapDuringExecution()
+    {
+        var registry = LibrarySections.CreateQueryRegistry();
+        var trace = new InspectionTrace();
+        using var service = SourceLinkService.OpenPrefetched(
+            typeof(SectionPipelineTests).Assembly.Location,
+            _ => { });
+        using var context = new ScannerContext
+        {
+            AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = service.Context,
+            BodyAnalysisFeatures = Analysis.LibraryBodyAnalysisFeatures.LeakTriage,
+            Trace = trace,
+        };
+
+        InspectionQueryResults results = registry.Run(
+            [ResourceTriageQuery.Definition],
+            context,
+            trace.RecordQueryExecution);
+
+        Assert.IsType<ResourceTriageResult.Available>(
+            results.Get(ResourceTriageQuery.Definition));
+        var bodyIndex = Assert.Single(
+            trace.Resources,
+            resource => resource.Resource == "body index");
+        Assert.Contains("LeakTriage", bodyIndex.Detail.ToString());
+        Assert.Single(
+            trace.Resources,
+            resource => resource.Resource == "drill map");
+    }
+
+    [Fact]
     public void TopLeverageQuery_RecordsAndReturnsTheBodyIndexItBuilds()
     {
         var registry = LibrarySections.CreateQueryRegistry();

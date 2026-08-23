@@ -416,12 +416,17 @@ public static class LibrarySections
 
     internal static ResourceTriageResult ExecuteResourceTriageQuery(
         ScannerContext context)
-        => ExecuteResourceTriageQuery(
+    {
+        ResourceTriageResult result = ExecuteResourceTriageQuery(
             context.MetadataContext?.HasMetadata != false,
             context.BodyIndex,
             new ILInspector.Findings.FindingSubject(
                 Path.GetFullPath(context.AssemblyPath),
                 Path.GetFileName(context.AssemblyPath)));
+        if (result is ResourceTriageResult.Available)
+            _ = context.DrillMap();
+        return result;
+    }
 
     internal static ResourceTriageResult ExecuteResourceTriageQuery(
         bool hasMetadata,
