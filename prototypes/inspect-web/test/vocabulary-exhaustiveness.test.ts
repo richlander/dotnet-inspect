@@ -9,7 +9,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -174,6 +181,44 @@ function containsTypeQuery(node: Node): boolean {
   return false;
 }
 
+// A vocabulary can be closed by the compiler without going through `assertNever`. A
+// bidirectional `Covers<>` pair ties the vocabulary to a union declared elsewhere, so a
+// value added to *either* side fails to compile -- which is strictly stronger than a
+// widening case here, because the widening cases only catch additions to the catalog.
+// `GraphSourceStatus` is gated that way: its union carries per-variant payloads, so it
+// cannot be generated from the catalog, and the pair is what keeps the two in step.
+//
+// This discovers that mechanism rather than exempting a name. Both directions are
+// required, so a single-direction pair does not count, and if this discovery ever stops
+// matching, the vocabulary it was covering becomes uncovered and the assertion below
+// fails -- the safe direction for a decayed anchor.
+function typeLevelCoveredVocabularies(): Set<string> {
+  const directions = new Set<string>();
+  const names = new Set<string>();
+  for (const entry of readdirSync(join(projectRoot, "test"), { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith(".test.ts")) continue;
+    const source = readFileSync(join(entry.parentPath, entry.name), "utf8");
+    for (const match of source.matchAll(/Covers<\s*([^,]+?)\s*,\s*([^>]+?)\s*>/g)) {
+      const from = match[1]?.trim();
+      const to = match[2]?.trim();
+      if (!from || !to) continue;
+      directions.add(`${from}=>${to}`);
+      for (const side of [from, to]) {
+        if (/^[A-Za-z_$][\w$]*$/.test(side)) names.add(side);
+      }
+    }
+  }
+  const covered = new Set<string>();
+  for (const name of names) {
+    for (const direction of directions) {
+      const [from, to] = direction.split("=>");
+      if (to !== name || !from) continue;
+      if (directions.has(`${name}=>${from}`)) covered.add(name);
+    }
+  }
+  return covered;
+}
+
 function catalogTypeAliases(program: Program): TSTypeAliasDeclaration[] {
   return program.body.flatMap(node => {
     const declaration = node.type === "ExportNamedDeclaration"
@@ -200,14 +245,25 @@ test("every closed UI vocabulary is covered by this gate", () => {
   // derives an empty roster and passes.
   assert.deepEqual(
     [...declared].sort((a, b) => a.localeCompare(b)),
-    ["MemberSection", "PackageLens", "SpotlightScope", "TypeLens", "WorkspaceScope"],
+    [
+      "GraphSourceStatus",
+      "MemberSection",
+      "PackageLens",
+      "SpotlightScope",
+      "TypeLens",
+      "WorkspaceScope",
+    ],
     "the catalog-union anchor stopped matching the vocabularies it is meant to discover");
 
-  const covered = new Set<string>(widenings.map(widening => widening.vocabulary));
+  const covered = new Set<string>([
+    ...widenings.map(widening => widening.vocabulary),
+    ...typeLevelCoveredVocabularies(),
+  ]);
   assert.deepEqual(
     [...declared].filter(name => !covered.has(name)).sort((a, b) => a.localeCompare(b)),
     [],
-    "a closed vocabulary is declared in src/ but has no case in this gate");
+    "a closed vocabulary is declared in src/ but is gated by neither a widening case here "
+      + "nor a bidirectional Covers<> pair");
 });
 
 test("widening a UI vocabulary catalog fails compilation until every consumer handles it", () => {
